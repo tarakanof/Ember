@@ -8,9 +8,9 @@ they apply at every step.
 
 - File a GitHub issue for every change. Write the user's decisions on the issue.
 - A non-trivial design gets a spec in the Obsidian vault, never in the repo:
-  `Superpowers Specs/ember/YYYY-MM-DD-<topic>-design.md` (vault path in
+  `Specs/ember/YYYY-MM-DD-<topic>-design.md` (vault path in
   `AGENTS.local.md`). Link it from the issue. Firmware specs go in
-  `Superpowers Specs/cinder/`.
+  `Specs/cinder/`.
 - Research (APIs, other projects, resource cost) runs in a subagent; its result
   goes into the spec, and the issue gets a short summary.
 

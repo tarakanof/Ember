@@ -1425,7 +1425,7 @@ counter).
 ### Now playing — `internal/nowplaying`, `cmd/ember/nowplaying*.go` (#226)
 
 Music state and pictures for the knob's now-playing page (cinder #14).
-Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`.
+Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
 
 - **Model** (`internal/nowplaying.Registry`, pure): one entry per
   `(source, player)`; a report is `{source, player, state
@@ -2484,7 +2484,7 @@ separated `SettingsGroup` ids, the same shape as `settings.expanded`).
 ### Knob firmware updates — `cmd/ember/firmware*.go`, `devices_ota*.go` (#225)
 
 Over-the-air updates for the cinder knob (firmware side: tarakanof/cinder#10;
-design: `Superpowers Specs/cinder/2026-10-06-knob-ota-design.md`). Ember
+design: `Specs/cinder/2026-10-06-knob-ota-design.md`). Ember
 hosts the images, decides when to offer one, serves it, and tracks the
 knob's progress; the knob downloads, verifies the pinned SHA-256, installs
 when no Pomodoro runs, and confirms or rolls back by itself. Ember never
