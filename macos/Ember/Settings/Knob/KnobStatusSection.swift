@@ -197,7 +197,7 @@ struct KnobStatusSection: View {
             Group {
                 if let dump {
                     dumpDetails(dump)
-                } else {
+                } else if env.knob.coredumpsLoaded {
                     Text("Still in the knob's flash")
                 }
             }

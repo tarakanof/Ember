@@ -23,6 +23,7 @@ public final class KnobModel {
     public private(set) var running: Set<KnobAction> = []
     public private(set) var actionErrors: [KnobAction: FeedError] = [:]
     public private(set) var coredumps: [KnobCoredump] = []
+    public private(set) var coredumpsLoaded = false
     public var rotationPending: Bool { knob?.rotationPending ?? false }
     public private(set) var portStatus: [String: KnobPortStatus] = [:]
 
@@ -59,7 +60,7 @@ public final class KnobModel {
         guard next != service else { return }
         settings.cancelPendingSave()
         service = next
-        knob = nil; devices = []; coredumps = []; isLoaded = false; loadError = nil; actionErrors = [:]
+        knob = nil; devices = []; coredumps = []; coredumpsLoaded = false; isLoaded = false; loadError = nil; actionErrors = [:]
         settings = Self.settingsModel(next, id: nil, debounce: debounce, sleep: sleep)
         ota.configure(service: next, device: nil)
         Task { await load() }
@@ -85,9 +86,10 @@ public final class KnobModel {
     }
 
     public func loadCoredumps() async {
-        guard let id = knob?.id else { coredumps = []; return }
+        guard let id = knob?.id else { coredumps = []; coredumpsLoaded = false; return }
         guard let list = try? await service.coredumps(id: id), knob?.id == id else { return }
         coredumps = list
+        coredumpsLoaded = true
     }
 
     public func coredump(for crash: KnobCrash) -> KnobCoredump? {
@@ -119,6 +121,7 @@ public final class KnobModel {
             settings.cancelPendingSave()
             settings = Self.settingsModel(service, id: next?.id, debounce: debounce, sleep: sleep)
             coredumps = []
+            coredumpsLoaded = false
         }
         ota.configure(service: service, device: next?.id)
         knob = next

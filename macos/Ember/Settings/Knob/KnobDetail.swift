@@ -63,9 +63,9 @@ struct KnobDetail: View {
     @ViewBuilder private var content: some View {
         switch page {
         case .hardware(.display):
-            KnobDisplaySection().disabled(!knob.settings.isLoaded)
+            KnobDisplaySection()
         case .hardware(.behavior):
-            KnobPollSection().disabled(!knob.settings.isLoaded)
+            KnobPollSection()
             KnobAdvancedSection(changeWiFi: { setup = .changeWiFi })
         case .hardware:
             KnobStatusSection(setUp: { setup = .setup })

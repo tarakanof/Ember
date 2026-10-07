@@ -19,7 +19,7 @@ struct KnobDisplaySection: View {
     var body: some View {
         let knob = env.knob
         let follow = knob.settings.draft.brightness.followEmber
-        CollapsibleSection("Display", group: .knobDisplay) {
+        CollapsibleSection("Display", group: .knobDisplay, contentDisabled: !knob.settings.isLoaded) {
             InfoToggle("Follow Ember brightness", isOn: knob.binding(\.brightness.followEmber), info: .knobFollowBrightness,
                        requirement: .loading)
             PercentSliderRow(title: "Brightness", percent: knob.percent(\.brightness.level))
@@ -133,7 +133,7 @@ struct KnobPollSection: View {
     var body: some View {
         let knob = env.knob
         let s = knob.settings.draft
-        CollapsibleSection("Behavior", group: .knobBehavior) {
+        CollapsibleSection("Behavior", group: .knobBehavior, contentDisabled: !knob.settings.isLoaded) {
             DecimalStepperRow(title: "Check Ember every", value: Binding(
                 get: { Double(s.pollMS) / 1000 },
                 set: { v in knob.edit { $0.pollMS = Int((v * 1000).rounded()) } }),

@@ -90,6 +90,13 @@ struct PercentSliderRow: View {
                 .labelsHidden()
                 .frame(width: 220)
                 .accessibilityValue(percentText)
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: percent = min(percent + step, range.upperBound)
+                    case .decrement: percent = max(percent - step, range.lowerBound)
+                    @unknown default: break
+                    }
+                }
                 percentText
                     .monospacedDigit()
                     .foregroundStyle(.secondary)

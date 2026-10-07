@@ -191,3 +191,21 @@ private func coredumpModel(_ server: CoredumpServer) -> KnobModel {
     let bare = KnobCoredump(id: "d", size: 1, fw: "", receivedAt: at)
     #expect(bare.firmware(images: images) == KnobCoredumpFirmware(crashed: nil, uploadedBy: nil))
 }
+
+@MainActor
+@Test func knobModelSaysWhenTheCoredumpListHasLoaded() async {
+    let server = CoredumpServer()
+    let m = coredumpModel(server)
+    #expect(!m.coredumpsLoaded)
+    await m.load()
+    #expect(m.coredumpsLoaded)
+}
+
+@MainActor
+@Test func knobModelKeepsTheCoredumpListUnloadedWhenItFails() async {
+    let server = CoredumpServer()
+    server.list = "not json"
+    let m = coredumpModel(server)
+    await m.load()
+    #expect(m.isLoaded && !m.coredumpsLoaded)
+}
