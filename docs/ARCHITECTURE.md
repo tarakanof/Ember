@@ -2507,7 +2507,12 @@ hex, the knob's `fw_build`). A new version is written into a
 old directory aside to `.old-<version>-*` first and deletes it after the
 rename, so a failed write keeps the old version, and a crash between the
 two renames is undone at boot (an `.old-` directory whose version is
-missing is moved back). A dev-seed build (cinder's local default with
+missing is moved back). If the new directory cannot be moved in, the old
+one is moved back; if that fails too, the version leaves the index until
+boot restores it. Once the new directory is in place the replace is done
+(index, SHA and unblock follow it) even if deleting the `.old-` copy
+fails: the upload answers 201, the server logs the leftover, boot deletes
+it, and a DELETE or eviction removes a version's `.old-` copies with it. A dev-seed build (cinder's local default with
 `sdkconfig.secrets`) has the Wi-Fi password and the master token compiled
 in, so an image or ELF containing the server's own `EMBER_TOKEN` or the
 marker `CINDER-DEV-SEED-BUILD` is refused (`dev_seed_build`); the ELF is
@@ -2526,7 +2531,8 @@ way round.
 one-shot `retry`, `blocked` (versions that failed or rolled back, at most
 16; auto mode and `available` skip them; a version is dropped from every
 knob's list when it is replaced with `?replace=1`, evicted by retention or
-deleted (204, or 404 for a stale entry), only once its files are gone, and
+deleted (204, or 404 for a stale entry with neither a `<version>` nor an
+`.old-<version>-*` directory on disk), only once its files are gone, and
 under the store lock so no upload or block can slip in between), `phase`, `error`, `from`, and the offered
 `version`/`build`/`size`/`auto`, the `attempt` id and
 `started_at`/`finished_at`. It is

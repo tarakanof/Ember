@@ -206,10 +206,12 @@ type firmwareStore struct {
 	mu        sync.Mutex
 	index     map[string]firmwareMeta
 	writeFile func(path string, data []byte) error
+	rename    func(oldpath, newpath string) error
+	removeAll func(path string) error
 }
 
 func newFirmwareStore(dir string) *firmwareStore {
-	return &firmwareStore{dir: dir, now: time.Now, index: map[string]firmwareMeta{}, writeFile: writeFileAtomic}
+	return &firmwareStore{dir: dir, now: time.Now, index: map[string]firmwareMeta{}, writeFile: writeFileAtomic, rename: os.Rename, removeAll: os.RemoveAll}
 }
 
 func validChannel(ch string) bool {
@@ -243,7 +245,7 @@ func (s *firmwareStore) load() error {
 			continue
 		}
 		if !ok {
-			errs = append(errs, removeAllErr(s.versionDir(e.Name())))
+			errs = append(errs, s.removeAllErr(s.versionDir(e.Name())))
 			continue
 		}
 		s.index[m.Version] = m
@@ -258,23 +260,19 @@ func (s *firmwareStore) recoverAsideLocked(entries []os.DirEntry) ([]os.DirEntry
 	}
 	var errs []error
 	for _, e := range entries {
-		rest, ok := strings.CutPrefix(e.Name(), firmwareAsidePrefix)
+		version, ok := asideVersion(e.Name())
 		if !ok || !e.IsDir() {
 			continue
 		}
-		version := rest
-		if i := strings.LastIndex(rest, "-"); i > 0 {
-			version = rest[:i]
-		}
 		if semverPattern.MatchString(version) && !present[version] {
-			if err := os.Rename(filepath.Join(s.dir, e.Name()), s.versionDir(version)); err != nil {
+			if err := s.rename(filepath.Join(s.dir, e.Name()), s.versionDir(version)); err != nil {
 				errs = append(errs, fmt.Errorf("restore firmware version: %w", err))
 				continue
 			}
 			present[version] = true
 			continue
 		}
-		errs = append(errs, removeAllErr(filepath.Join(s.dir, e.Name())))
+		errs = append(errs, s.removeAllErr(filepath.Join(s.dir, e.Name())))
 	}
 	fresh, err := os.ReadDir(s.dir)
 	if err != nil {
@@ -324,11 +322,48 @@ func (s *firmwareStore) loadVersionLocked(name string) (firmwareMeta, bool, erro
 	return m, true, nil
 }
 
-func removeAllErr(dir string) error {
-	if err := os.RemoveAll(dir); err != nil {
+func asideVersion(name string) (string, bool) {
+	rest, ok := strings.CutPrefix(name, firmwareAsidePrefix)
+	if !ok {
+		return "", false
+	}
+	if i := strings.LastIndex(rest, "-"); i > 0 {
+		rest = rest[:i]
+	}
+	return rest, true
+}
+
+func (s *firmwareStore) removeAllErr(dir string) error {
+	if err := s.removeAll(dir); err != nil {
 		return fmt.Errorf("remove firmware version: %w", err)
 	}
 	return nil
+}
+
+func (s *firmwareStore) copiesLocked(version string) ([]string, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, fmt.Errorf("read firmware dir: %w", err)
+	}
+	var out []string
+	for _, e := range entries {
+		if v, ok := asideVersion(e.Name()); e.Name() == version || (ok && v == version) {
+			out = append(out, filepath.Join(s.dir, e.Name()))
+		}
+	}
+	return out, nil
+}
+
+func (s *firmwareStore) purgeLocked(version string) error {
+	copies, err := s.copiesLocked(version)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, dir := range copies {
+		errs = append(errs, s.removeAllErr(dir))
+	}
+	return errors.Join(errs...)
 }
 
 func (s *firmwareStore) writeMetaLocked(m firmwareMeta) error {
@@ -377,52 +412,59 @@ func (s *firmwareStore) put(d firmwareDesc, body []byte, channel string, replace
 		return firmwareImage{}, false, fmt.Errorf("create firmware temp dir: %w", err)
 	}
 	if err := s.writeFile(filepath.Join(tmp, firmwareBinName), body); err != nil {
-		_ = os.RemoveAll(tmp)
+		_ = s.removeAll(tmp)
 		return firmwareImage{}, false, err
 	}
 	if err := s.writeMetaIn(tmp, m); err != nil {
-		_ = os.RemoveAll(tmp)
+		_ = s.removeAll(tmp)
 		return firmwareImage{}, false, err
 	}
-	if err := s.swapInLocked(tmp, d.Version, exists); err != nil {
-		_ = os.RemoveAll(tmp)
+	swapped, err := s.swapInLocked(tmp, d.Version, exists)
+	if !swapped {
+		_ = s.removeAll(tmp)
 		return firmwareImage{}, false, err
 	}
 	s.index[d.Version] = m
-	evicted, err := s.pruneLocked(d.Version, keep)
+	evicted, pruneErr := s.pruneLocked(d.Version, keep)
 	if exists {
 		evicted = append(evicted, d.Version)
 	}
 	if unblock != nil && len(evicted) > 0 {
 		unblock(evicted)
 	}
-	return m.firmwareImage, true, err
+	return m.firmwareImage, true, errors.Join(err, pruneErr)
 }
 
-func (s *firmwareStore) swapInLocked(tmp, version string, exists bool) error {
+func (s *firmwareStore) swapInLocked(tmp, version string, exists bool) (bool, error) {
 	dir := s.versionDir(version)
 	if !exists {
-		_ = os.RemoveAll(dir)
-		if err := os.Rename(tmp, dir); err != nil {
-			return fmt.Errorf("move firmware version in place: %w", err)
+		_ = s.removeAll(dir)
+		if err := s.rename(tmp, dir); err != nil {
+			return false, fmt.Errorf("move firmware version in place: %w", err)
 		}
-		return nil
+		return true, nil
 	}
 	aside, err := os.MkdirTemp(s.dir, firmwareAsidePrefix+version+"-*")
 	if err != nil {
-		return fmt.Errorf("create firmware aside dir: %w", err)
+		return false, fmt.Errorf("create firmware aside dir: %w", err)
 	}
 	if err := os.Remove(aside); err != nil {
-		return fmt.Errorf("reserve firmware aside name: %w", err)
+		return false, fmt.Errorf("reserve firmware aside name: %w", err)
 	}
-	if err := os.Rename(dir, aside); err != nil {
-		return fmt.Errorf("move old firmware version aside: %w", err)
+	if err := s.rename(dir, aside); err != nil {
+		return false, fmt.Errorf("move old firmware version aside: %w", err)
 	}
-	if err := os.Rename(tmp, dir); err != nil {
-		_ = os.Rename(aside, dir)
-		return fmt.Errorf("move firmware version in place: %w", err)
+	if err := s.rename(tmp, dir); err != nil {
+		if rbErr := s.rename(aside, dir); rbErr != nil {
+			delete(s.index, version)
+			return false, errors.Join(fmt.Errorf("move firmware version in place: %w", err), fmt.Errorf("restore old firmware version: %w", rbErr))
+		}
+		return false, fmt.Errorf("move firmware version in place: %w", err)
 	}
-	return removeAllErr(aside)
+	if err := s.removeAllErr(aside); err != nil {
+		return true, fmt.Errorf("remove replaced firmware version: %w", err)
+	}
+	return true, nil
 }
 
 func (s *firmwareStore) pruneLocked(just string, keep func(string) bool) ([]string, error) {
@@ -434,7 +476,7 @@ func (s *firmwareStore) pruneLocked(just string, keep func(string) bool) ([]stri
 			continue
 		}
 		delete(s.index, v)
-		if err := removeAllErr(s.versionDir(v)); err != nil {
+		if err := s.purgeLocked(v); err != nil {
 			errs = append(errs, err)
 			continue
 		}
@@ -563,7 +605,7 @@ func (s *firmwareStore) remove(version string, inUse func(string) bool, unblock 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.index[version]; !ok {
-		if unblock != nil {
+		if copies, err := s.copiesLocked(version); err == nil && len(copies) == 0 && unblock != nil {
 			unblock([]string{version})
 		}
 		return errFirmwareNotFound
@@ -572,7 +614,7 @@ func (s *firmwareStore) remove(version string, inUse func(string) bool, unblock 
 		return errFirmwareInUse
 	}
 	delete(s.index, version)
-	if err := removeAllErr(s.versionDir(version)); err != nil {
+	if err := s.purgeLocked(version); err != nil {
 		return err
 	}
 	if unblock != nil {

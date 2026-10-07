@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1052,5 +1053,33 @@ func TestFirmwareDeleteOfAMissingVersionPrunesOnlyThatStaleEntry(t *testing.T) {
 	}
 	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.10"}) {
 		t.Fatalf("blocked = %v, want [0.9.10]", got)
+	}
+}
+
+func TestFirmwareDeleteOfAnUnloadedVersionKeepsItBlocked(t *testing.T) {
+	k := newOTAKnob(t)
+	blockVersions(t, k, "0.9.14")
+	if err := os.MkdirAll(k.app.knobFW.versionDir("0.9.14"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.14"}) {
+		t.Fatalf("blocked = %v, want [0.9.14]", got)
+	}
+}
+
+func TestFirmwareReplaceWithAStuckOldCopyStillAnswersCreatedAndUnblocks(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 1}), "")
+	blockVersions(t, k, "0.9.15")
+	k.app.knobFW.removeAll = failOnBase(firmwareAsidePrefix, os.RemoveAll)
+	resp, b := rawReq(t, k.srv, "POST", "/v1/firmware?replace=1", testToken, fakeFirmware(fwOpts{version: "0.9.15", seed: 2}), nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("replace = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k); len(got) != 0 {
+		t.Fatalf("blocked = %v, want []", got)
 	}
 }

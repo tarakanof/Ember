@@ -1902,7 +1902,11 @@ paths:
         whole file is pinned. The newest 5 versions are kept, plus any version that is
         a device's target or running firmware. Every version evicted this way, and a
         version replaced with `?replace=1`, is dropped from every knob's OTA `blocked`
-        list; a version whose files could not be removed stays blocked.
+        list; a version whose files could not be removed stays blocked. A replace
+        writes the new bytes beside the old ones and swaps them in with a rename: if
+        the swap fails the old bytes stay and the answer is an error; once it succeeds
+        the answer is 201 even if removing the old copy or an evicted version failed
+        (the server logs it).
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       parameters:
@@ -2004,9 +2008,11 @@ paths:
       operationId: deleteFirmware
       summary: Delete an image and its ELF
       description: >-
-        On 204, and on a 404 for a version the store does not hold, the version is
-        dropped from every knob's OTA `blocked` list. A 409 (the version is targeted)
-        or a failed removal keeps it blocked.
+        On 204, and on a 404 for a version the store does not hold and has no files
+        for on disk, the version is dropped from every knob's OTA `blocked` list. A
+        409 (the version is targeted), a failed removal, or a 404 for a version whose
+        directory is still on disk (it failed to load, or an earlier removal failed)
+        keeps it blocked. A 204 also removes an old copy left by a replace.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
