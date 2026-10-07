@@ -2289,6 +2289,9 @@
     },
     "Updates and Alerts" : {},
     "Updates delivered" : {},
+    "Updating to %@" : {
+      "comment" : "Knob firmware sheet while the knob installs an image; the argument is the version (\"Updating to 0.9.17\")."
+    },
     "Uploading the ELF…" : {},
     "Uploading the image…" : {},
     "Upload…" : {},

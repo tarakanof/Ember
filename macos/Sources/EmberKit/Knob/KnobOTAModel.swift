@@ -39,6 +39,16 @@ public final class KnobOTAModel {
         status?.phase.pollsFast == true ? .seconds(1) : .seconds(15)
     }
 
+    public func followProgress(sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+                               finished: () async -> Void) async {
+        while !Task.isCancelled {
+            do { try await sleep(pollInterval) } catch { return }
+            guard status?.phase.pollsFast == true else { continue }
+            await loadStatus()
+            if status?.phase.pollsFast == false { await finished() }
+        }
+    }
+
     public func loadStatus() async {
         guard let id = deviceID else { status = nil; return }
         do {
@@ -158,11 +168,13 @@ public final class KnobOTAModel {
 
     @discardableResult
     public func delete(_ image: KnobFirmwareImage) async -> Bool {
-        let ok = await perform(.delete) { try await self.service.deleteFirmware(version: image.version) }
-        if ok {
-            await loadImages()
-            await loadStatus()
+        let ok = await perform(.delete) {
+            do {
+                try await self.service.deleteFirmware(version: image.version)
+            } catch APIError.http(404, _) {}
         }
+        await loadImages()
+        await loadStatus()
         return ok
     }
 

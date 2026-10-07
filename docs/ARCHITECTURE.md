@@ -2614,10 +2614,13 @@ channel Test by default, upload progress from the `URLSession` upload
 task). Each image row has Install (any stored build except the one the
 knob runs, matched by `build`, downgrades included; `PUT …/ota
 {"target"}`; disabled with the USB note without a rollback bootloader;
-a refused install reloads the status and names the reason), a
+a refused install reloads the status and names the reason; while an
+update runs the sheet shows a compact progress line from the same 1 s
+poll), a
 Test/Release channel menu that `PATCH`es either way (Test to Release
 asks first and says what Automatic would do with it), Download ELF and
-Delete…, which asks in a dialog naming the version.
+Delete…, which asks in a dialog naming the version (a 404 counts as
+already deleted; the list reloads either way).
 Uploads and ELF downloads use the `transfer` request budget (60 s per
 request, 10 min per resource). The Crash rows get "Download ELF…" when
 Ember holds the ELF for the crash's build.

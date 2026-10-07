@@ -385,3 +385,49 @@ private func image(_ version: String, build: String) -> KnobFirmwareImage {
     #expect(await m.ota.update(to: "0.9.14") == false)
     if case .server? = m.ota.errors[.update] {} else { Issue.record("want a server error, got \(String(describing: m.ota.errors[.update]))") }
 }
+
+@MainActor
+@Test func otaDeleteOfAnImageAlreadyGoneCountsAsDeleted() async throws {
+    let server = OTAServer()
+    let m = otaModel(server)
+    await m.load()
+    let old = try #require(m.ota.images.first { $0.version == "0.9.14" })
+    let lists = server.log.filter { $0 == "GET /v1/firmware" }.count
+    #expect(await m.ota.delete(old))
+    #expect(server.log.contains("DELETE /v1/firmware/0.9.14"))
+    #expect(m.ota.errors[.delete] == nil)
+    #expect(server.log.filter { $0 == "GET /v1/firmware" }.count == lists + 1)
+}
+
+private final class Ticks: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    let limit: Int
+    init(_ limit: Int) { self.limit = limit }
+    var count: Int { lock.withLock { n } }
+    func tick() throws {
+        try lock.withLock {
+            n += 1
+            if n > limit { throw CancellationError() }
+        }
+    }
+}
+
+@MainActor
+@Test func otaFollowsProgressOnlyWhileTheKnobIsBusy() async throws {
+    let server = OTAServer()
+    let m = otaModel(server)
+    await m.load()
+    let idleTicks = Ticks(2)
+    var reloads = 0
+    await m.ota.followProgress(sleep: { _ in try idleTicks.tick() }, finished: { reloads += 1 })
+    #expect(server.log.filter { $0 == "GET /v1/devices/knob-61fc8c/ota" }.count == 1)
+    #expect(reloads == 0)
+    _ = await m.ota.update(to: "0.9.14")
+    #expect(m.ota.status?.phase == .downloading)
+    let ticks = Ticks(1)
+    await m.ota.followProgress(sleep: { _ in try ticks.tick() }, finished: { reloads += 1 })
+    #expect(server.log.filter { $0 == "GET /v1/devices/knob-61fc8c/ota" }.count == 2)
+    #expect(m.ota.status?.phase == .idle)
+    #expect(reloads == 1)
+}

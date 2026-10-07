@@ -38,30 +38,37 @@ struct KnobFirmwareRow: View {
     }
 
     private func poll() async {
-        let ota = env.knob.ota
-        while !Task.isCancelled {
-            try? await Task.sleep(for: ota.pollInterval)
-            guard ota.status?.phase.pollsFast == true else { continue }
-            await ota.loadStatus()
-            if ota.status?.phase.pollsFast == false { await env.knob.load() }
-        }
+        await env.knob.ota.followProgress { await env.knob.load() }
     }
 }
 
 struct KnobOTAProgress: View {
     @Environment(AppEnvironment.self) private var env
     let status: KnobOTAStatus
+    var compact = false
 
     var body: some View {
+        if compact {
+            if status.isBusy { busy }
+        } else {
+            full
+        }
+    }
+
+    @ViewBuilder private var busy: some View {
+        if status.phase == .downloading, let p = status.progress {
+            ProgressView(value: p).frame(width: 180)
+        } else {
+            ProgressView().progressViewStyle(.linear).frame(width: 180)
+        }
+        phaseText.foregroundStyle(.secondary)
+    }
+
+    private var full: some View {
         let ota = env.knob.ota
-        VStack(alignment: .trailing, spacing: 4) {
+        return VStack(alignment: .trailing, spacing: 4) {
             if status.isBusy {
-                if status.phase == .downloading, let p = status.progress {
-                    ProgressView(value: p).frame(width: 180)
-                } else {
-                    ProgressView().progressViewStyle(.linear).frame(width: 180)
-                }
-                phaseText.foregroundStyle(.secondary)
+                busy
             } else if status.phase.isFailure {
                 failureText.foregroundStyle(.red)
                 Button("Retry") { Task { await ota.retry() } }
@@ -182,6 +189,15 @@ struct KnobFirmwareSheet: View {
                 ForEach(ota.images) { image in row(image) }
             }
             .formStyle(.grouped)
+            if let status = ota.status, status.isBusy {
+                HStack {
+                    Text("Updating to \(status.attemptVersion ?? "—")",
+                         comment: "Knob firmware sheet while the knob installs an image; the argument is the version (\"Updating to 0.9.17\").")
+                    Spacer()
+                    KnobOTAProgress(status: status, compact: true)
+                }
+                .font(.callout)
+            }
             if let p = ota.uploadProgress {
                 HStack {
                     ProgressView(value: p)
@@ -212,6 +228,7 @@ struct KnobFirmwareSheet: View {
         .padding(20)
         .frame(width: 600, height: 480)
         .task { await ota.loadImages() }
+        .task { await ota.followProgress { await env.knob.load() } }
         .confirmationDialog(deleteTitle, isPresented: Binding(
             get: { confirmDelete != nil },
             set: { if !$0 { confirmDelete = nil } }), presenting: confirmDelete) { image in
