@@ -37,7 +37,8 @@ registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
 (raw cinder `.bin` ≤4 MiB: 201 stored, 200 same bytes, 409 other bytes,
 400 `bad_image|wrong_chip|wrong_project|bad_version|dev_seed_build`),
 `GET /v1/firmware` (newest first), `PATCH`/`DELETE /v1/firmware/{version}`
-(channel; 409 while targeted), `PUT`/`GET /v1/firmware/{version}/elf`
+(channel; 409 while targeted; DELETE also drops the version from every knob's
+OTA `blocked` list), `PUT`/`GET /v1/firmware/{version}/elf`
 (≤64 MiB, 400 `elf_mismatch`), `GET /v1/firmware/{version}/bin`,
 `GET /v1/firmware/by-build/{build}/elf` (ARCHITECTURE "Knob firmware
 updates"),

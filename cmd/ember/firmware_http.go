@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -81,6 +82,7 @@ func (a *App) handleFirmwareUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	img, created, err := store.put(desc, body, channel, replace, a.devices.otaTargets, a.devices.otaKeeps)
+	a.pruneOTABlocked(r.Context(), store)
 	if err != nil {
 		a.writeFirmwareError(w, r, err)
 		return
@@ -195,10 +197,24 @@ func (a *App) handleFirmwareDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	version := r.PathValue("version")
-	if err := store.remove(version, a.devices.otaTargets); err != nil {
+	err := store.remove(version, a.devices.otaTargets)
+	if _, held := store.get(version); !held {
+		a.pruneOTABlocked(r.Context(), store)
+	}
+	if err != nil {
 		a.writeFirmwareError(w, r, err)
 		return
 	}
 	a.logger.InfoContext(r.Context(), "knob firmware deleted", "version", version)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) pruneOTABlocked(ctx context.Context, store *firmwareStore) {
+	held := map[string]bool{}
+	for _, img := range store.list() {
+		held[img.Version] = true
+	}
+	if err := a.devices.otaPruneBlocked(held); err != nil {
+		a.logger.WarnContext(ctx, "knob ota blocked lists not pruned", "err", err)
+	}
 }
