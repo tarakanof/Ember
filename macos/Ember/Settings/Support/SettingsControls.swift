@@ -82,16 +82,18 @@ struct PercentSliderRow: View {
     private func sliderRow(_ label: InfoLabel) -> some View {
         LabeledContent {
             HStack(spacing: 8) {
-                Slider(value: Binding(get: { Double(percent) }, set: { percent = Int($0.rounded()) }),
-                       in: Double(range.lowerBound)...Double(range.upperBound), step: Double(step)) {
+                Slider(value: Binding(get: { Double(percent) },
+                                      set: { percent = DeviceUnits.snap($0, in: range, step: step) }),
+                       in: Double(range.lowerBound)...Double(range.upperBound)) {
                     Text(title)
                 }
                 .labelsHidden()
-                .frame(maxWidth: 220)
+                .frame(width: 220)
                 .accessibilityValue(percentText)
                 percentText
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .frame(width: 44, alignment: .trailing)
                     .accessibilityHidden(true)
             }
         } label: {
