@@ -4,6 +4,7 @@ import EmberKit
 
 struct KnobHardwareInput {
     var knobID: String
+    var checkin: KnobCheckin?
     var stats: Loadable<KnobStats>
     var range: HardwareRange
     var setRange: @MainActor @Sendable (HardwareRange) -> Void = { _ in }
@@ -63,7 +64,10 @@ struct KnobHardwareContent: View {
 
     @ViewBuilder private func loaded(_ s: KnobStats) -> some View {
         if s.diagnostics == .off {
-            HardwareStateBox { diagnosticsOff }
+            VStack(spacing: HardwareMetrics.spacing) {
+                checkinCard(s)
+                HardwareStateBox { diagnosticsOff }
+            }
         } else if s.points.isEmpty, s.latest == nil {
             HardwareStateBox {
                 if s.online {
@@ -92,7 +96,7 @@ struct KnobHardwareContent: View {
         ContentUnavailableView {
             Label("Diagnostics are off", systemImage: "waveform.path.ecg")
         } description: {
-            Text("Turn on diagnostics to have the knob report its processor, memory, temperature and Wi-Fi. Full diagnostics add network requests and rendering.")
+            Text("The figures above come from the knob's check-in. Turn on diagnostics for processor and temperature and for history charts. Full diagnostics add network requests and rendering.")
         } actions: {
             HStack {
                 Button("Turn On Full Diagnostics") { input.setDiagnostics(.full) }
@@ -230,7 +234,7 @@ struct KnobHardwareContent: View {
                           text: l?.tempC.map(HardwareFormat.celsius),
                           tint: HardwareNowCard.level(l?.tempC, good: { $0 < 60 }, fair: { $0 < KnobReadout.hotC }),
                           warn: (l?.tempC ?? 0) > KnobReadout.hotC),
-            HardwareNowCard.wifi(rssi: l?.rssiDBm),
+            HardwareNowCard.wifi(rssi: KnobNowReadout(latest: l, checkin: input.checkin).rssi),
         ]
         if s.diagnostics == .full {
             out.append(HardwareGauge(id: "fps", title: "Frame rate", value: l?.renderFPS, range: 0...KnobReadout.targetFPS,
@@ -240,14 +244,32 @@ struct KnobHardwareContent: View {
         return out
     }
 
+    private func checkinCard(_ s: KnobStats) -> some View {
+        let r = KnobNowReadout(latest: nil, checkin: input.checkin)
+        return HardwareNowCard(gauges: [HardwareNowCard.wifi(rssi: r.rssi)], facts: checkinFacts(r),
+                               online: s.online, asOf: input.checkin?.seenAt ?? s.lastSeen)
+    }
+
     private func facts(_ s: KnobStats) -> [HardwareFact] {
         let l = s.latest
+        let r = KnobNowReadout(latest: l, checkin: input.checkin)
+        var out = checkinFacts(r)
+        out.insert(HardwareFact(id: "psram", title: "PSRAM free", value: l?.psramFreeBytes.map { HardwareFormat.bytes(Double($0)) }),
+                   at: 2)
+        return out
+    }
+
+    private func checkinFacts(_ r: KnobNowReadout) -> [HardwareFact] {
+        let bytes = { (n: Int?) in n.map { HardwareFormat.bytes(Double($0)) } }
         return [
-            HardwareFact(id: "free", title: "Free memory", value: l?.heapInternalFreeBytes.map { HardwareFormat.bytes(Double($0)) }),
-            HardwareFact(id: "largest", title: "Largest block", value: l?.heapInternalLargestBytes.map { HardwareFormat.bytes(Double($0)) },
-                         warn: (l?.heapInternalLargestBytes ?? .max) < KnobReadout.lowLargestBlock),
-            HardwareFact(id: "psram", title: "PSRAM free", value: l?.psramFreeBytes.map { HardwareFormat.bytes(Double($0)) }),
-            HardwareFact(id: "uptime", title: "Uptime", value: l?.uptimeSec.map { DurationText.uptime($0) }),
+            HardwareFact(id: "free", title: "Free memory", value: bytes(r.heapFree)),
+            HardwareFact(id: "largest", title: "Largest block", value: bytes(r.heapLargest),
+                         warn: (r.heapLargest ?? .max) < KnobReadout.lowLargestBlock),
+            HardwareFact(id: "uptime", title: "Uptime", value: r.uptimeS.map { DurationText.uptime($0) }),
+            HardwareFact(id: "low", title: "Lowest since start", value: bytes(r.heapMin),
+                         note: r.largestMin.map { String(localized: "block \(HardwareFormat.bytes(Double($0)))",
+                                                         comment: "Knob Hardware Now card: the smallest the largest free block got since the knob started, after the lowest free memory (\"block 30 KB\").") }),
+            HardwareFact(id: "rssimin", title: "Weakest signal", value: r.rssiMin.map { HardwareFormat.dbm(Double($0)) }),
         ]
     }
 }
@@ -276,7 +298,7 @@ struct KnobHardwarePane: View {
     private func input(_ k: KnobDevice) -> KnobHardwareInput {
         let env = env
         return KnobHardwareInput(
-            knobID: k.id,
+            knobID: k.id, checkin: k.lastCheckin,
             stats: env.knobStats.stats, range: env.knobStats.range,
             setRange: { r in
                 env.knobStats.range = r

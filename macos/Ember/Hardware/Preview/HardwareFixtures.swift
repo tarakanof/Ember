@@ -6,7 +6,15 @@ import EmberKit
 @MainActor
 enum HardwareFixtures {
     static func knob(_ stats: Loadable<KnobStats>, range: HardwareRange = .fifteenMinutes) -> KnobHardwareInput {
-        KnobHardwareInput(knobID: "knob-61fc8c", stats: stats, range: range)
+        KnobHardwareInput(knobID: "knob-61fc8c", checkin: checkin, stats: stats, range: range)
+    }
+
+    static var checkin: KnobCheckin {
+        var c = KnobCheckin(seenAt: .now, fw: "0.9.15", ip: "192.0.2.61", rssi: -67, heapInternalFree: 47104,
+                            heapInternalLargest: 31744, uptimeS: 93784, appliedVersion: 7)
+        c.wifi = KnobWifi(channel: 6, disconnects: 3, rssiMin: -79)
+        c.diag = KnobDiag(heapInternalMin: 38912, heapLargestMin: 30720)
+        return c
     }
 
     static func knob(_ range: HardwareRange, _ diagnostics: KnobDiagnostics = .full, now: Date,
@@ -66,6 +74,7 @@ enum HardwareFixtures {
             ("knob-basic-1h-light", .knob(knob(.hour, .basic, now: now, gap: 1500...2100)), .light),
             ("knob-full-24h-dark-offline", .knob(knob(.day, now: now, online: false, gap: 30_000...36_000)), .dark),
             ("knob-diagnostics-off-light", .knob(knob(.fifteenMinutes, .off, now: now)), .light),
+            ("knob-diagnostics-off-dark", .knob(knob(.fifteenMinutes, .off, now: now)), .dark),
         ]
     }
 }
