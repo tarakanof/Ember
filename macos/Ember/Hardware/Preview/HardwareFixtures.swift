@@ -6,7 +6,7 @@ import EmberKit
 @MainActor
 enum HardwareFixtures {
     static func knob(_ stats: Loadable<KnobStats>, range: HardwareRange = .fifteenMinutes) -> KnobHardwareInput {
-        KnobHardwareInput(knobID: "knob-61fc8c", firmware: "0.6.0", ipAddress: "192.0.2.61", stats: stats, range: range)
+        KnobHardwareInput(knobID: "knob-61fc8c", stats: stats, range: range)
     }
 
     static func knob(_ range: HardwareRange, _ diagnostics: KnobDiagnostics = .full, now: Date,

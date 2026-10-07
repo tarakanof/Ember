@@ -133,11 +133,13 @@ struct KnobOTAProgress: View {
 
 struct KnobFirmwareSection: View {
     @Environment(AppEnvironment.self) private var env
+    let checkin: KnobCheckin?
     @State private var showSheet = false
 
     var body: some View {
         let ota = env.knob.ota
-        Section {
+        CollapsibleSection("Firmware & updates", group: .knobFirmware) {
+            KnobFirmwareRow(checkin: checkin)
             Picker("Firmware updates", selection: Binding(
                 get: { ota.status?.mode ?? .manual },
                 set: { mode in Task { await ota.setMode(mode) } })) {
@@ -150,8 +152,6 @@ struct KnobFirmwareSection: View {
             } label: {
                 Text("Firmware images stored on Ember").foregroundStyle(.secondary).font(.callout)
             }
-        } header: {
-            Text("Firmware")
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if ota.unsupported {

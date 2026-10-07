@@ -12,7 +12,7 @@ struct KnobAdvancedSection: View {
     var body: some View {
         let model = env.knob
         if let knob = model.knob {
-            Section {
+            CollapsibleSection("Advanced", group: .knobAdvanced) {
                 LabeledContent("Name") {
                     HStack(spacing: 6) {
                         TextField("Name", text: $name, prompt: Text(verbatim: knob.name))
@@ -50,8 +50,6 @@ struct KnobAdvancedSection: View {
                         Text("The knob forgets its Wi-Fi, Ember address and token, then restarts to its setup screen. Ember keeps its settings here until you forget it.")
                     }
                 }
-            } header: {
-                Text("Advanced")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Rotating the token is routine hygiene, not a fix for a leak: the knob collects the new token on its next check-in, and so could anyone holding the old one. If the token may have leaked, forget the knob and set it up again over USB.")

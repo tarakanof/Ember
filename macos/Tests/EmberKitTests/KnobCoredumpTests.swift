@@ -173,3 +173,21 @@ private func coredumpModel(_ server: CoredumpServer) -> KnobModel {
     #expect(await m.deleteCoredump(dump) == false)
     #expect(tail() == ["DELETE /v1/devices/knob-61fc8c/coredumps/1a2b3c4d", "GET /v1/devices/knob-61fc8c/coredumps"])
 }
+
+@Test func knobCoredumpNamesTheCrashedFirmwareFromItsELF() {
+    let at = Date(timeIntervalSince1970: 0)
+    let images = [
+        KnobFirmwareImage(build: "c0ffee13", channel: "test", elf: false, idfVer: "v5.5", sha256: "", size: 1,
+                          uploadedAt: at, version: "0.9.13"),
+        KnobFirmwareImage(build: "a1b2c3d4", channel: "release", elf: true, idfVer: "v5.5", sha256: "", size: 1,
+                          uploadedAt: at, version: "0.9.14"),
+    ]
+    let old = KnobCoredump(id: "a", size: 1, fw: "0.9.14", receivedAt: at, elf: "c0ffee13")
+    #expect(old.firmware(images: images) == KnobCoredumpFirmware(crashed: "0.9.13", uploadedBy: "0.9.14"))
+    let same = KnobCoredump(id: "b", size: 1, fw: "0.9.14", receivedAt: at, elf: "a1b2c3d4")
+    #expect(same.firmware(images: images) == KnobCoredumpFirmware(crashed: "0.9.14", uploadedBy: nil))
+    let unknown = KnobCoredump(id: "c", size: 1, fw: "0.9.14", receivedAt: at, elf: "feedface")
+    #expect(unknown.firmware(images: images) == KnobCoredumpFirmware(crashed: nil, uploadedBy: "0.9.14"))
+    let bare = KnobCoredump(id: "d", size: 1, fw: "", receivedAt: at)
+    #expect(bare.firmware(images: images) == KnobCoredumpFirmware(crashed: nil, uploadedBy: nil))
+}

@@ -6,9 +6,9 @@ import EmberKit
 @MainActor
 enum KnobPaneFixtures {
     static let pages: [(name: String, page: DevicePage, height: CGFloat)] = [
-        ("knob-pane-status", .hardware(.status), 1500),
+        ("knob-pane-status", .hardware(.status), 1200),
         ("knob-pane-display", .hardware(.display), 420),
-        ("knob-pane-behavior", .hardware(.behavior), 760),
+        ("knob-pane-behavior", .hardware(.behavior), 560),
     ]
 
     static func environment(now: Date) async -> AppEnvironment {
@@ -68,6 +68,15 @@ enum KnobPaneFixtures {
                              to: out.appending(path: name))
             }
         }
+        let defaults = UserDefaults.standard
+        let collapsed = defaults.string(forKey: SettingsGroup.storageKey)
+        defaults.set("\(SettingsGroup.knobFirmware.rawValue),\(SettingsGroup.knobCrashDumps.rawValue)",
+                     forKey: SettingsGroup.storageKey)
+        for scheme in [ColorScheme.light, .dark] {
+            await render(KnobDetail(page: .hardware(.status)).environment(env), height: 700, scheme: scheme,
+                         to: out.appending(path: "knob-pane-status-collapsed-\(scheme == .dark ? "dark" : "light").png"))
+        }
+        defaults.set(collapsed, forKey: SettingsGroup.storageKey)
     }
 
     private static func render(_ view: some View, height: CGFloat, scheme: ColorScheme, to url: URL) async {

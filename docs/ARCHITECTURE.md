@@ -2454,12 +2454,22 @@ to now + N (not extended: each call replaces it) and answers
 **App.** Settings › Devices › Knob › Behavior has the Diagnostics picker
 (Off/Basic/Full) and, when the server has them, "Send stats every"
 (30 s-5 min) and "Live stats every" (2-10 s) pickers, disabled while
-diagnostics are off, with a footnote on the trade-off (#249); Status has
-"Show Hardware". See "Hardware pages" below. The knob page's lines break
+diagnostics are off, with a footnote on the trade-off (#249); Status ›
+Diagnostics has "Show Hardware". See "Hardware pages" below. The knob page's lines break
 after three missed reports at the range's spacing or the knob's
 `stats_interval_s`, whichever is longer. The gap uses the current interval
 for every point, so after a change from 300 s to 30 s the older 5-minute
 points draw as dots until they leave the range.
+
+**Knob pane layout (#318).** The knob's Settings pages are collapsible
+groups: Status (Connection, Address, Last check-in, Settings, USB, Set Up /
+Forget), Firmware & updates, Diagnostics (Wi-Fi channel and access point,
+Reconnects, Last restart, Boots, Display link) and Crash dumps; Display;
+Behavior and Advanced. Each fact has one owner: Wi-Fi signal, memory,
+uptime and CPU live on Hardware (charts and the Now card); firmware,
+address and restart history live on Status, which links to Hardware. A
+collapsed group is stored in `settings.collapsed` (UserDefaults, comma-
+separated `SettingsGroup` ids, the same shape as `settings.expanded`).
 
 ### Knob firmware updates — `cmd/ember/firmware*.go`, `devices_ota*.go` (#225)
 
@@ -2598,7 +2608,8 @@ image, and its result would be lost); an unknown version is 400. Goldens:
 reports `ota.image:"new"`: it booted an OTA image through a bootloader
 without rollback, so the one-time USB flash was skipped.
 
-**App.** Settings › Devices › Knob › Status "Firmware" shows `fw (build)`,
+**App.** Settings › Devices › Knob › Status, group "Firmware & updates":
+"Firmware" shows `fw (build)`,
 "Update to X" when `available` is set (disabled without a rollback
 bootloader, with the USB note; hidden after a failure when it would name
 the failed version, where Retry does the same), then a progress bar and
@@ -2607,20 +2618,19 @@ Retry. It polls `GET …/ota` every second only while the phase is
 `downloading`, `installing` or `restarting` and the pane is open; the
 pane's 15 s reload covers the rest. Deleting the version a knob runs is
 allowed (the knob keeps both images in flash), but the confirmation says
-that its ELF, needed to decode that build's crash dumps, goes too. Behavior › Firmware has Ask first /
-Automatic and the Manage Firmware sheet
-(upload `cinder.bin` plus a `cinder.elf` or `<name>.elf` next to it,
-channel Test by default, upload progress from the `URLSession` upload
-task). Each image row has Install (any stored build except the one the
-knob runs, matched by `build`, downgrades included; `PUT …/ota
-{"target"}`; disabled with the USB note without a rollback bootloader;
-a refused install reloads the status and names the reason; while an
-update runs the sheet shows a compact progress line from the same 1 s
-poll), a
-Test/Release channel menu that `PATCH`es either way (Test to Release
-asks first and says what Automatic would do with it), Download ELF and
-Delete…, which asks in a dialog naming the version (a 404 counts as
-already deleted; the list reloads either way).
+that its ELF, needed to decode that build's crash dumps, goes too. The same
+group has Ask first / Automatic, then the images stored on Ember inline
+(no sheet): each row is the version (with "On the knob"), size, date and
+ESP-IDF version, then Install (any stored build except the one the knob
+runs, matched by `build`, downgrades included; `PUT …/ota {"target"}`;
+disabled with the USB note without a rollback bootloader; a refused
+install reloads the status and names the reason), a Test/Release channel
+menu that `PATCH`es either way (Test to Release asks first and says what
+Automatic would do with it), Download ELF and Delete…, which asks in a
+dialog naming the version (a 404 counts as
+already deleted; the list reloads either way). Upload… sits under the list (upload
+`cinder.bin` plus a `cinder.elf` or `<name>.elf` next to it, channel Test
+by default, upload progress from the `URLSession` upload task).
 Uploads and ELF downloads use the `transfer` request budget (60 s per
 request, 10 min per resource). The Crash rows get "Download ELF…" when
 Ember holds the ELF for the crash's build.
@@ -2695,7 +2705,9 @@ live mode at 15 min (180 s, renewed every 60 s, `seconds:0` on leaving the
 range or the page), `ClockStatsModel` every 15 s / 30 s / 60 s.
 `KnobStatsFake` and `ClockStatsFake` drive previews and the snapshot render
 (Debug build: `EMBER_HARDWARE_SNAPSHOTS=<dir> Ember.app/Contents/MacOS/Ember`
-writes PNGs of both pages, light and dark, and quits; it skips server,
+writes PNGs of both pages and of the Knob Status, Display and Behavior
+settings pages (fixture JSON through an in-process `URLProtocol`), light
+and dark, and quits; it skips server,
 producers and USB; build it with another `PRODUCT_BUNDLE_IDENTIFIER`).
 
 ### Config load and `/admin/reload`
@@ -2977,9 +2989,13 @@ draws-if-present in `internal/render`, add a menu checkbox.
   filename="<device>-<fw>-<dump>.bin"` (`fw` reduced to `A-Za-z0-9._-`,
   `unknown` when empty), `DELETE` the same path answers 204. A device token
   gets 401 on these, so a knob cannot read any dump, its own included.
-  Ember.app lists them in the Knob pane (Crash row and "Crash dumps" rows,
-  "Download Crash Dump…" through `NSSavePanel`; each "Crash dumps" row also
-  has "Delete…", confirmed in the row, which deletes and reloads the list). Decoding: RUNBOOK "Decoding a
+  Ember.app lists them in the Knob pane's "Crash dumps" group (the crash the
+  last checkin reports, then the stored dumps; each row is the crash, a line
+  "Firmware X, uploaded by Y · size · date", where X is the image whose
+  `build` matches the dump's `elf` and Y the `fw` that uploaded it, then its
+  buttons: "Download Crash Dump…" through `NSSavePanel`, "Download ELF…",
+  and "Delete…", confirmed in the row). A delete answering 404 counts as
+  success, and the list reloads after every delete (#313, #314). Decoding: RUNBOOK "Decoding a
   knob core dump".
 - **Knob firmware updates (#225).** See "Knob firmware updates" below: the
   checkin takes `fw_build` and an `ota` object and may answer with an `ota`

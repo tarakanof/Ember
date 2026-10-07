@@ -4,8 +4,6 @@ import EmberKit
 
 struct KnobHardwareInput {
     var knobID: String
-    var firmware: String?
-    var ipAddress: String?
     var stats: Loadable<KnobStats>
     var range: HardwareRange
     var setRange: @MainActor @Sendable (HardwareRange) -> Void = { _ in }
@@ -250,12 +248,8 @@ struct KnobHardwareContent: View {
                          warn: (l?.heapInternalLargestBytes ?? .max) < KnobReadout.lowLargestBlock),
             HardwareFact(id: "psram", title: "PSRAM free", value: l?.psramFreeBytes.map { HardwareFormat.bytes(Double($0)) }),
             HardwareFact(id: "uptime", title: "Uptime", value: l?.uptimeSec.map { DurationText.uptime($0) }),
-            HardwareFact(id: "reset", title: "Last restart", value: s.resetReason.map(Self.resetReason)),
-            HardwareFact(id: "firmware", title: "Firmware", value: input.firmware),
-            HardwareFact(id: "ip", title: "IP address", value: input.ipAddress),
         ]
     }
-    static func resetReason(_ raw: String) -> String { KnobResetReason.label(raw) }
 }
 
 struct KnobHardwarePane: View {
@@ -282,7 +276,7 @@ struct KnobHardwarePane: View {
     private func input(_ k: KnobDevice) -> KnobHardwareInput {
         let env = env
         return KnobHardwareInput(
-            knobID: k.id, firmware: k.lastCheckin?.fw.nonEmpty, ipAddress: k.lastCheckin?.ip.nonEmpty,
+            knobID: k.id,
             stats: env.knobStats.stats, range: env.knobStats.range,
             setRange: { r in
                 env.knobStats.range = r
