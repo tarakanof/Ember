@@ -513,6 +513,16 @@ func TestFirmwareStoreKeepsTheBlockWhenRemoveAllFails(t *testing.T) {
 	if got := u.take(); got != nil {
 		t.Fatalf("failed remove unblocked %v", got)
 	}
+	if _, ok := s.get("0.9.14"); !ok || len(s.list()) != 1 {
+		t.Fatalf("failed remove dropped the entry: %+v", s.list())
+	}
+	s.removeAll = os.RemoveAll
+	if err := s.remove("0.9.14", nil, u.unblock); err != nil {
+		t.Fatalf("retry = %v", err)
+	}
+	if got := u.take(); !slices.EqualFunc(got, [][]string{{"0.9.14"}}, slices.Equal) {
+		t.Fatalf("retry unblocked %v, want [[0.9.14]]", got)
+	}
 }
 
 func TestFirmwareStoreKeepsTheBlockWhenAnEvictionFails(t *testing.T) {
@@ -525,12 +535,25 @@ func TestFirmwareStoreKeepsTheBlockWhenAnEvictionFails(t *testing.T) {
 		img := fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)})
 		d, _ := parseFirmwareImage(img)
 		_, created, err := s.put(d, img, "test", false, nil, nil, u.unblock)
-		if !created || (err != nil) != (i == firmwareKept+1) {
-			t.Fatalf("put 0.9.%d = %v %v, want created with an error only when 0.9.1 is evicted", i, created, err)
+		if !created || (err != nil) != (i >= firmwareKept+1) {
+			t.Fatalf("put 0.9.%d = %v %v, want created with an error once 0.9.1 is due for eviction", i, created, err)
 		}
 	}
 	if got := u.take(); !slices.EqualFunc(got, [][]string{{"0.9.2"}}, slices.Equal) {
 		t.Fatalf("evictions unblocked %v, want [[0.9.2]]", got)
+	}
+	if _, ok := s.get("0.9.1"); !ok {
+		t.Fatal("failed eviction dropped the entry")
+	}
+	s.removeAll = os.RemoveAll
+	if err := putFWUnblock(t, s, fakeFirmware(fwOpts{version: "0.9.8"}), false, u); err != nil {
+		t.Fatal(err)
+	}
+	if got := u.take(); !slices.EqualFunc(got, [][]string{{"0.9.3", "0.9.1"}}, slices.Equal) {
+		t.Fatalf("retried eviction unblocked %v, want 0.9.3 and 0.9.1", got)
+	}
+	if _, ok := s.get("0.9.1"); ok {
+		t.Fatal("retried eviction kept 0.9.1")
 	}
 }
 
@@ -784,5 +807,79 @@ func TestFirmwareStoreReplaceRetriedAfterAFailedRollbackUnblocks(t *testing.T) {
 	}
 	if m, ok := reloadFW(t, s).get("0.9.14"); !ok || m.SHA256 != img.SHA256 {
 		t.Fatalf("after restart 0.9.14 = %+v %v, want the retried bytes", m, ok)
+	}
+}
+
+func TestFirmwareStoreDeleteOfAnUnindexedTargetIsRefused(t *testing.T) {
+	s := newFWStore(t)
+	u := &unblockRecorder{t: t, s: s}
+	dir := s.versionDir("0.9.14")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.remove("0.9.14", func(string) bool { return true }, u.unblock); !errors.Is(err, errFirmwareInUse) {
+		t.Fatalf("remove = %v, want in use", err)
+	}
+	if got := u.take(); got != nil {
+		t.Fatalf("refused remove unblocked %v", got)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("targeted dir purged: %v", err)
+	}
+}
+
+func TestFirmwareStoreUploadOverAnUnindexedVersionNeverLeavesOnlyThePreReplaceCopy(t *testing.T) {
+	s := newFWStore(t)
+	u := &unblockRecorder{t: t, s: s}
+	a, _ := putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "test")
+	b := replaceWithStuckAside(t, s, "0.9.14", u)
+	delete(s.index, "0.9.14")
+	s.rename = func(oldpath, newpath string) error {
+		if strings.HasPrefix(filepath.Base(oldpath), firmwareTempPrefix) {
+			return errors.New("injected failure")
+		}
+		return os.Rename(oldpath, newpath)
+	}
+	c := fakeFirmware(fwOpts{version: "0.9.14", seed: 11})
+	d, _ := parseFirmwareImage(c)
+	if _, created, err := s.put(d, c, "test", false, nil, nil, u.unblock); err == nil || created {
+		t.Fatalf("upload with a stuck old copy = %v %v, want a failure", created, err)
+	}
+	if m, ok := reloadFW(t, s).get("0.9.14"); !ok || m.SHA256 != b.SHA256 {
+		t.Fatalf("after restart 0.9.14 = %+v %v, want B %s (A is %s)", m, ok, b.SHA256, a.SHA256)
+	}
+	s.removeAll = os.RemoveAll
+	if _, _, err := s.put(d, c, "test", false, nil, nil, u.unblock); err == nil {
+		t.Fatal("upload with a failing rename succeeded")
+	}
+	if got := u.take(); got != nil {
+		t.Fatalf("failed uploads unblocked %v", got)
+	}
+	if m, ok := reloadFW(t, s).get("0.9.14"); ok && m.SHA256 == a.SHA256 {
+		t.Fatalf("after restart the pre-replace bytes A loaded: %+v", m)
+	}
+}
+
+func TestFirmwareStoreFailedEvictionKeepsTheReplacementIndexed(t *testing.T) {
+	s := newFWStore(t)
+	u := &unblockRecorder{t: t, s: s}
+	a, _ := putFW(t, s, fakeFirmware(fwOpts{version: "0.9.1"}), "test")
+	b := replaceWithStuckAside(t, s, "0.9.1", u)
+	for i := 2; i <= firmwareKept+1; i++ {
+		_ = putFWUnblock(t, s, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)}), false, u)
+	}
+	if m, ok := s.get("0.9.1"); !ok || m.SHA256 != b.SHA256 {
+		t.Fatalf("0.9.1 after a failed eviction = %+v %v, want B indexed", m, ok)
+	}
+	c := fakeFirmware(fwOpts{version: "0.9.1", seed: 11})
+	d, _ := parseFirmwareImage(c)
+	if _, _, err := s.put(d, c, "test", false, nil, nil, u.unblock); !errors.Is(err, errFirmwareConflict) {
+		t.Fatalf("plain upload over it = %v, want conflict", err)
+	}
+	if got := u.take(); got != nil {
+		t.Fatalf("unblocked %v", got)
+	}
+	if m, ok := reloadFW(t, s).get("0.9.1"); !ok || m.SHA256 == a.SHA256 {
+		t.Fatalf("after restart 0.9.1 = %+v %v, want not A", m, ok)
 	}
 }

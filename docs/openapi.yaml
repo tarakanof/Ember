@@ -2013,8 +2013,9 @@ paths:
         left, also for a version the store does not index (a directory that failed
         to load, or an earlier failed removal; the answer is then 404). Once they
         are gone, on 204 or 404, the version is dropped from every knob's OTA
-        `blocked` list. A 409 (the version is targeted) or a failed removal (500)
-        keeps it blocked.
+        `blocked` list. A 409 (the version is targeted, indexed or not) or a failed
+        removal (500) keeps it blocked; after a 500 the version stays listed so the
+        DELETE can be retried.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:

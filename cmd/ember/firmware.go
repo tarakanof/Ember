@@ -443,7 +443,9 @@ func (s *firmwareStore) put(d firmwareDesc, body []byte, channel string, replace
 func (s *firmwareStore) swapInLocked(tmp, version string, exists bool) (bool, error) {
 	dir := s.versionDir(version)
 	if !exists {
-		_ = s.removeAll(dir)
+		if err := s.purgeLocked(version); err != nil {
+			return false, err
+		}
 		if err := s.rename(tmp, dir); err != nil {
 			return false, fmt.Errorf("move firmware version in place: %w", err)
 		}
@@ -480,11 +482,11 @@ func (s *firmwareStore) pruneLocked(just string, keep func(string) bool) ([]stri
 		if i < firmwareKept || v == just || (keep != nil && keep(v)) {
 			continue
 		}
-		delete(s.index, v)
 		if err := s.purgeLocked(v); err != nil {
 			errs = append(errs, err)
 			continue
 		}
+		delete(s.index, v)
 		removed = append(removed, v)
 	}
 	return removed, errors.Join(errs...)
@@ -609,24 +611,19 @@ func (s *firmwareStore) setChannel(version, channel string) (firmwareImage, erro
 func (s *firmwareStore) remove(version string, inUse func(string) bool, unblock func([]string)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.index[version]; !ok {
-		if err := s.purgeLocked(version); err != nil {
-			return err
-		}
-		if unblock != nil {
-			unblock([]string{version})
-		}
-		return errFirmwareNotFound
-	}
 	if inUse != nil && inUse(version) {
 		return errFirmwareInUse
 	}
-	delete(s.index, version)
+	_, indexed := s.index[version]
 	if err := s.purgeLocked(version); err != nil {
 		return err
 	}
+	delete(s.index, version)
 	if unblock != nil {
 		unblock([]string{version})
+	}
+	if !indexed {
+		return errFirmwareNotFound
 	}
 	return nil
 }

@@ -41,11 +41,12 @@ dropped from every knob's OTA `blocked` list; 201 once the new bytes are in
 place, even if removing the old copy or an evicted version failed, which the
 server logs),
 `GET /v1/firmware` (newest first), `PATCH`/`DELETE /v1/firmware/{version}`
-(channel; 409 while targeted; DELETE removes the version's directory and
-any `.old-<version>-*` copy a replace left, also when the store does not
-index it (404); once they are gone it drops the version from every knob's OTA
-`blocked` list, which the OTA `available` field skips; a removal that fails
-answers 500 and keeps the block), `PUT`/`GET /v1/firmware/{version}/elf`
+(channel; 409 while targeted, indexed or not; DELETE removes the version's
+directory and any `.old-<version>-*` copy a replace left, also when the store
+does not index it (404); once they are gone it drops the version from every
+knob's OTA `blocked` list, which the OTA `available` field skips; a removal
+that fails answers 500, keeps the block and keeps the version listed so the
+DELETE can be retried), `PUT`/`GET /v1/firmware/{version}/elf`
 (≤64 MiB, 400 `elf_mismatch`), `GET /v1/firmware/{version}/bin`,
 `GET /v1/firmware/by-build/{build}/elf` (ARCHITECTURE "Knob firmware
 updates"),

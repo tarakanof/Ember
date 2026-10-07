@@ -2512,10 +2512,12 @@ one is moved back; if that fails too, the version leaves the index until
 boot restores it. Once the new directory is in place the replace is done
 (index, SHA and unblock follow it, also on a retry after such a hidden
 version) even if deleting the `.old-` copy fails: the upload answers 201,
-the server logs the leftover, and boot deletes it. A DELETE or eviction
-removes a version's `.old-` copies first and keeps `<version>/` if any of
-them fails, so boot can never restore the pre-replace bytes without their
-block. A dev-seed build (cinder's local default with
+the server logs the leftover, and boot deletes it. A DELETE, an eviction
+and an upload of a version the index does not hold all remove the
+version's `.old-` copies before `<version>/` and stop if one fails (the
+version stays indexed and the call can be retried), so a failure never
+leaves the pre-replace bytes as the only copy on disk for boot to restore
+without their block. A dev-seed build (cinder's local default with
 `sdkconfig.secrets`) has the Wi-Fi password and the master token compiled
 in, so an image or ELF containing the server's own `EMBER_TOKEN` or the
 marker `CINDER-DEV-SEED-BUILD` is refused (`dev_seed_build`); the ELF is
@@ -2535,8 +2537,10 @@ one-shot `retry`, `blocked` (versions that failed or rolled back, at most
 16; auto mode and `available` skip them; a version is dropped from every
 knob's list when it is replaced with `?replace=1`, evicted by retention or
 deleted (204, or 404 for a stale entry, whose leftover `<version>` or
-`.old-<version>-*` directories are removed first), only once its files are gone, and
-under the store lock so no upload or block can slip in between), `phase`, `error`, `from`, and the offered
+`.old-<version>-*` directories are removed first; 409 for a knob's
+target either way), only once its files are gone, and under the store
+lock so no upload or block can slip in between), `phase`, `error`,
+`from`, and the offered
 `version`/`build`/`size`/`auto`, the `attempt` id and
 `started_at`/`finished_at`. It is
 written only when it changes (never per progress tick): the checkin
