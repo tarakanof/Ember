@@ -598,7 +598,8 @@ markers still get reaped.
   done/error thread posts for one activity window after its last change. A
   running or waiting thread posts for as long as it runs. **Dedupe** by
   thread id (= rollout `session_meta.id`): while connected, the app-server
-  owns every loaded thread, and recently closed ones for one activity window
+  owns every loaded thread, from `thread/loaded/list` on (not only once its
+  `thread/read` returns), and recently closed ones for one activity window
   more. The watcher still folds those rollouts but posts or DELETEs nothing
   for them. A session the watcher had posted is DELETEd at takeover unless
   the app-server posts it. A status change or close that arrives while a

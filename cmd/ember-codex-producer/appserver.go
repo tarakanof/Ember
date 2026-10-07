@@ -747,6 +747,11 @@ func (as *appServer) tick() apTick {
 			out.held[id] = true
 		}
 	}
+	for id, p := range as.unread {
+		if !p.closed {
+			out.owned[id] = true
+		}
+	}
 	for id, at := range as.ephemeral {
 		if now.Sub(at) > ephemeralTTL {
 			delete(as.ephemeral, id)
