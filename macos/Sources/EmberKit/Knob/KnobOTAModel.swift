@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 public enum KnobOTAAction: Hashable, Sendable {
-    case update, retry, mode, upload, promote, delete, elf
+    case update, retry, mode, upload, channel, delete, elf
 }
 
 @MainActor
@@ -138,12 +138,19 @@ public final class KnobOTAModel {
     }
 
     @discardableResult
-    public func promote(_ image: KnobFirmwareImage) async -> Bool {
-        let ok = await perform(.promote) {
-            _ = try await self.service.setFirmwareChannel(version: image.version, channel: KnobFirmwareImage.release)
+    public func setChannel(_ image: KnobFirmwareImage, to channel: String) async -> Bool {
+        guard channel == KnobFirmwareImage.release || channel == KnobFirmwareImage.test else { return false }
+        guard channel != image.channel else { return true }
+        let ok = await perform(.channel) {
+            _ = try await self.service.setFirmwareChannel(version: image.version, channel: channel)
         }
-        if ok { await loadImages() }
+        await loadImages()
         return ok
+    }
+
+    @discardableResult
+    public func install(_ image: KnobFirmwareImage) async -> Bool {
+        await update(to: image.version)
     }
 
     @discardableResult

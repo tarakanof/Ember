@@ -141,6 +141,12 @@ public struct KnobOTAStatus: Codable, Equatable, Sendable {
 
     public var attemptVersion: String? { version ?? target }
 
+    public func canInstall(_ image: KnobFirmwareImage) -> Bool {
+        guard let running, !isBusy else { return false }
+        if let build = running.build, !build.isEmpty { return image.build != build }
+        return image.version != running.fw
+    }
+
     public var updateVersion: String? {
         guard let available, !isBusy else { return nil }
         if phase.isFailure, available == attemptVersion { return nil }

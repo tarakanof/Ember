@@ -650,6 +650,7 @@
     "Attention hold" : {},
     "Automatic (release builds, when the knob is idle)" : {},
     "Automatic brightness" : {},
+    "Automatic updates install only Release builds." : {},
     "Automation: Music" : {},
     "Available once Ember has loaded this setting." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -974,6 +975,9 @@
     },
     "Decode a crash dump with `esp-coredump info_corefile -c <dump.bin> <cinder.elf>`. Download ELF saves the cinder.elf of the build that crashed when Ember has it; otherwise use build/cinder.elf from the matching firmware build." : {},
     "Delete" : {},
+    "Delete %@ from Ember?" : {
+      "comment" : "Knob firmware sheet: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\")."
+    },
     "Delete this dump?" : {},
     "Delete…" : {},
     "Delivered" : {},
@@ -1054,6 +1058,7 @@
     "Ember never installs firmware during a Pomodoro. With Automatic, it installs a newer release build after the knob has been untouched for 10 minutes." : {},
     "Ember reads the clock every 30 seconds and keeps the last 24 hours while the server runs." : {},
     "Ember rejected the knob's token." : {},
+    "Ember removes the image and its ELF." : {},
     "Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB." : {},
     "Ember shows one knob. After this setup it forgets the other knob and revokes its token." : {},
     "Enable Pomodoro" : {},
@@ -1232,6 +1237,7 @@
     "Imperial (°F)" : {},
     "In use" : {},
     "Include Claude Code's Codex runs" : {},
+    "Install" : {},
     "Installed from the CLI" : {},
     "Installing" : {},
     "Internal RAM on the knob. Below about 24 KB in one block, pages may fail to draw." : {},
@@ -1314,7 +1320,6 @@
     "Lowest free memory" : {},
     "MCP" : {},
     "Manage Firmware…" : {},
-    "Mark as Release" : {},
     "Matches the brightness Ember works out for displays without a light sensor" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1513,6 +1518,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "On the knob" : {},
     "Online" : {},
     "Only on this Mac, while Ember is running. Ember reacts when Music changes track or pauses; it never starts Music and doesn't poll it." : {},
     "Only some agents are reporting." : {},
