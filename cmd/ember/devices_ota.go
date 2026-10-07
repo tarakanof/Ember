@@ -339,10 +339,10 @@ func (r *deviceRegistry) otaTargets(version string) bool {
 	return false
 }
 
-func (r *deviceRegistry) otaPruneBlocked(held map[string]bool) error {
+func (r *deviceRegistry) otaUnblock(versions []string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	gone := func(v string) bool { return !held[v] }
+	gone := func(v string) bool { return slices.Contains(versions, v) }
 	if !slices.ContainsFunc(r.state.Devices, func(d deviceRecord) bool {
 		return d.OTA != nil && slices.ContainsFunc(d.OTA.Blocked, gone)
 	}) {

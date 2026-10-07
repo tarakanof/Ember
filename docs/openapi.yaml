@@ -653,7 +653,7 @@ components:
           format: date-time
         blocked:
           type: array
-          description: Versions that failed or rolled back; automatic mode and `available` skip them until a Retry or a manual install. Deleted or evicted versions are pruned.
+          description: Versions that failed or rolled back; automatic mode and `available` skip them until a Retry or a manual install. Deleted, evicted or replaced versions are pruned.
           items:
             type: string
         running:
@@ -1900,7 +1900,9 @@ paths:
         `version`. An image that contains the server's own `EMBER_TOKEN` or the marker
         `CINDER-DEV-SEED-BUILD` is a dev-seed build and refused. The SHA-256 of the
         whole file is pinned. The newest 5 versions are kept, plus any version that is
-        a device's target or running firmware.
+        a device's target or running firmware. Every version evicted this way, and a
+        version replaced with `?replace=1`, is dropped from every knob's OTA `blocked`
+        list; a version whose files could not be removed stays blocked.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       parameters:
@@ -1914,7 +1916,7 @@ paths:
         - name: replace
           in: query
           required: false
-          description: "`1` replaces a stored version with other bytes unless it is a device's target."
+          description: "`1` replaces a stored version with other bytes unless it is a device's target. The new bytes are unblocked on every knob."
           schema:
             type: string
             enum: ["1"]
@@ -2001,7 +2003,10 @@ paths:
       tags: [firmware]
       operationId: deleteFirmware
       summary: Delete an image and its ELF
-      description: Also removes the version from every knob's `blocked` list.
+      description: >-
+        On 204, and on a 404 for a version the store does not hold, the version is
+        dropped from every knob's OTA `blocked` list. A 409 (the version is targeted)
+        or a failed removal keeps it blocked.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:

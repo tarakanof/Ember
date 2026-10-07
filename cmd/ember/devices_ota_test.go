@@ -998,3 +998,59 @@ func TestFirmwareRetentionEvictionPrunesBlockedLists(t *testing.T) {
 		t.Fatalf("blocked = %v, want [0.9.2]", got)
 	}
 }
+
+func TestFirmwareReplaceUnblocksTheVersionOnEveryKnob(t *testing.T) {
+	k := newOTAKnob(t)
+	k2 := otaKnob{app: k.app, srv: k.srv, knob: mintSecondKnob(t, k.srv)}
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 1}), "")
+	k.idle(t)
+	blockVersions(t, k, "0.9.14", "0.9.15")
+	blockVersions(t, k2, "0.9.15")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 2}), "?replace=1")
+	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.14"}) {
+		t.Fatalf("blocked = %v, want [0.9.14]", got)
+	}
+	if got := blockedOf(t, k2); len(got) != 0 {
+		t.Fatalf("second knob blocked = %v, want []", got)
+	}
+	if st := k.status(t); st.Available == nil || *st.Available != "0.9.15" {
+		t.Fatalf("available = %+v, want 0.9.15", st)
+	}
+}
+
+func TestFirmwareDeleteOfATargetedVersionKeepsItBlocked(t *testing.T) {
+	k := newOTAKnob(t)
+	k2 := otaKnob{app: k.app, srv: k.srv, knob: mintSecondKnob(t, k.srv)}
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15"}), "")
+	k.idle(t)
+	if code, st := k.put(t, `{"target":"0.9.15"}`); code != http.StatusOK {
+		t.Fatalf("target = %d %+v", code, st)
+	}
+	blockVersions(t, k2, "0.9.15")
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.15", testToken, ""); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k2); !slices.Equal(got, []string{"0.9.15"}) {
+		t.Fatalf("blocked = %v, want [0.9.15]", got)
+	}
+}
+
+func TestFirmwareDeleteOfAMissingVersionPrunesOnlyThatStaleEntry(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	blockVersions(t, k, "0.9.9", "0.9.10")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15"}), "")
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.9", "0.9.10"}) {
+		t.Fatalf("unrelated upload or delete pruned: %v", got)
+	}
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.9", testToken, ""); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.10"}) {
+		t.Fatalf("blocked = %v, want [0.9.10]", got)
+	}
+}

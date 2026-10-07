@@ -724,7 +724,9 @@ contacts GitHub: images arrive only through the owner routes.
   `PATCH /v1/firmware/0.9.14 {"channel":"release"}`. Automatic mode only
   installs `release` builds.
 - **Update a knob:** Ember.app Settings › Knob › Status › Firmware &
-  updates: "Update to X", or Install on any image in the list below it, or
+  updates: "Update to X" (the newest stored version above the running one
+  that the knob has not blocked after a failure or rollback), or Install
+  on any image in the list below it (this also unblocks it), or
   `curl -s -XPUT localhost:3627/v1/devices/knob-61fc8c/ota -H "$H" -d '{"target":"0.9.14"}'`
   (409 `no_rollback_bootloader` until the knob reports `ota.rollback`:
   the one-time USB flash of the rollback bootloader is in cinder

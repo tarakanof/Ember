@@ -81,8 +81,7 @@ func (a *App) handleFirmwareUpload(w http.ResponseWriter, r *http.Request) {
 		a.writeFirmwareError(w, r, err)
 		return
 	}
-	img, created, err := store.put(desc, body, channel, replace, a.devices.otaTargets, a.devices.otaKeeps)
-	a.pruneOTABlocked(r.Context(), store)
+	img, created, err := store.put(desc, body, channel, replace, a.devices.otaTargets, a.devices.otaKeeps, a.otaUnblocker(r.Context()))
 	if err != nil {
 		a.writeFirmwareError(w, r, err)
 		return
@@ -197,11 +196,7 @@ func (a *App) handleFirmwareDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	version := r.PathValue("version")
-	err := store.remove(version, a.devices.otaTargets)
-	if _, held := store.get(version); !held {
-		a.pruneOTABlocked(r.Context(), store)
-	}
-	if err != nil {
+	if err := store.remove(version, a.devices.otaTargets, a.otaUnblocker(r.Context())); err != nil {
 		a.writeFirmwareError(w, r, err)
 		return
 	}
@@ -209,12 +204,10 @@ func (a *App) handleFirmwareDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *App) pruneOTABlocked(ctx context.Context, store *firmwareStore) {
-	held := map[string]bool{}
-	for _, img := range store.list() {
-		held[img.Version] = true
-	}
-	if err := a.devices.otaPruneBlocked(held); err != nil {
-		a.logger.WarnContext(ctx, "knob ota blocked lists not pruned", "err", err)
+func (a *App) otaUnblocker(ctx context.Context) func([]string) {
+	return func(versions []string) {
+		if err := a.devices.otaUnblock(versions); err != nil {
+			a.logger.WarnContext(ctx, "knob ota blocked lists not pruned", "versions", versions, "err", err)
+		}
 	}
 }

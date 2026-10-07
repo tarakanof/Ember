@@ -2518,14 +2518,16 @@ SHA-256 equals `app_elf_sha256` (`elf_mismatch`). Same version, same bytes:
 targets it. Pruning after each upload keeps the 5 newest versions (semver
 order), every version that is a knob's target or active offer or a knob's
 running `fw`, and the image just written. The store lock is taken before
-the registry lock (the in-use checks), never the other way round.
+the registry lock (the in-use checks and the `blocked` prune), never the other
+way round.
 
 **Record (`devices_ota.go`).** `deviceRecord.ota` in the registry blob:
 `mode` (`manual` = "Ask first", the default, or `auto`), `target`, a
 one-shot `retry`, `blocked` (versions that failed or rolled back, at most
-16; auto mode and `available` skip them; a version the store no longer
-holds, deleted or evicted, is pruned from every knob's list after each
-upload or delete), `phase`, `error`, `from`, and the offered
+16; auto mode and `available` skip them; a version is dropped from every
+knob's list when it is replaced with `?replace=1`, evicted by retention or
+deleted (204, or 404 for a stale entry), only once its files are gone, and
+under the store lock so no upload or block can slip in between), `phase`, `error`, `from`, and the offered
 `version`/`build`/`size`/`auto`, the `attempt` id and
 `started_at`/`finished_at`. It is
 written only when it changes (never per progress tick): the checkin
