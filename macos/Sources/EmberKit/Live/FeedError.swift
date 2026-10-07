@@ -9,6 +9,7 @@ public enum FeedError: Error, Equatable, Sendable {
     case featureOff
     case clockTimedOut(ClockWriteOutcome?)
     case server(String)
+    case rejected(LocalizedStringResource)
 
     public init(_ error: Error) {
         if let e = error as? FeedError {
@@ -68,6 +69,7 @@ extension FeedError: LocalizedError {
             LocalizedStringResource("The clock didn't finish in time. Saved, but not fully applied yet.",
                                     comment: "Error: the clock saved a setting, but the follow-up work (for example during a focus session) didn't finish.")
         case .server(let message): "Server error: \(message)"
+        case .rejected(let reason): reason
         }
     }
 

@@ -285,6 +285,7 @@ public enum MenuRows {
         case .clockTimedOut: LocalizedStringResource("clock didn't finish in time",
                                                      comment: "Short reason after a failed menu action: the clock was too slow to finish it.")
         case .server: "server error"
+        case .rejected(let reason): reason
         }
     }
 

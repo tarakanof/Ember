@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 public enum KnobOTAAction: Hashable, Sendable {
-    case update, retry, mode, upload, channel, delete, elf
+    case update, install, retry, mode, upload, channel, delete, elf
 }
 
 @MainActor
@@ -60,7 +60,8 @@ public final class KnobOTAModel {
     }
 
     @discardableResult
-    func perform(_ action: KnobOTAAction, _ body: () async throws -> Void) async -> Bool {
+    func perform(_ action: KnobOTAAction, map: (Error) -> FeedError = { FeedError($0) },
+                 _ body: () async throws -> Void) async -> Bool {
         running.insert(action)
         defer { running.remove(action) }
         do {
@@ -68,7 +69,7 @@ public final class KnobOTAModel {
             errors[action] = nil
             return true
         } catch {
-            errors[action] = FeedError(error)
+            errors[action] = map(error)
             return false
         }
     }
@@ -98,10 +99,12 @@ public final class KnobOTAModel {
 
     private func put(_ action: KnobOTAAction, _ patch: [String: JSONValue]) async -> Bool {
         guard let id = deviceID else { return false }
-        return await perform(action) {
+        let ok = await perform(action, map: KnobOTAError.updateFailure) {
             let next = try await self.service.updateOTA(id: id, patch: patch)
             if self.deviceID == id { self.status = next }
         }
+        if !ok { await loadStatus() }
+        return ok
     }
 
     nonisolated public static func elfURL(besides binary: URL, exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) -> URL? {
@@ -150,7 +153,7 @@ public final class KnobOTAModel {
 
     @discardableResult
     public func install(_ image: KnobFirmwareImage) async -> Bool {
-        await update(to: image.version)
+        await put(.install, ["target": .string(image.version)])
     }
 
     @discardableResult
@@ -176,7 +179,7 @@ public final class KnobOTAModel {
     }
 
     public func runsOnKnob(_ image: KnobFirmwareImage) -> Bool {
-        status?.running?.fw == image.version
+        status?.runs(image) == true
     }
 
     public func elfImage(build: String?) -> KnobFirmwareImage? {

@@ -86,6 +86,11 @@ private final class OTAServer: @unchecked Sendable {
     private var _bodies: [String: Data] = [:]
     var log: [String] { lock.withLock { _log } }
     func body(_ key: String) -> Data? { lock.withLock { _bodies[key] } }
+    private var _putReply: (Int, String)?
+    var putReply: (Int, String)? {
+        get { lock.withLock { _putReply } }
+        set { lock.withLock { _putReply = newValue } }
+    }
 
     func handle(_ req: URLRequest) throws -> (HTTPURLResponse, Data) {
         let method = req.httpMethod ?? "GET"
@@ -104,6 +109,7 @@ private final class OTAServer: @unchecked Sendable {
         case ("GET", "/v1/devices/knob-61fc8c/ota"):
             return (okResponse(url), try otaGolden("knob_ota_idle"))
         case ("PUT", "/v1/devices/knob-61fc8c/ota"):
+            if let (status, reply) = putReply { return (okResponse(url, status: status), Data(reply.utf8)) }
             return (okResponse(url), try otaGolden("knob_ota_downloading"))
         case ("GET", "/v1/firmware"):
             return (okResponse(url), try otaGolden("firmware_list"))
@@ -315,4 +321,67 @@ private func image(_ version: String, build: String) -> KnobFirmwareImage {
     let sent = try #require(server.body("PUT /v1/devices/knob-61fc8c/ota"))
     #expect(String(data: sent, encoding: .utf8) == #"{"target":"0.9.14"}"#)
     #expect(m.ota.status?.phase == .downloading)
+}
+
+@Test func otaMatchesTheRunningImageByBuild() {
+    let running = KnobOTAStatus.Running(fw: "0.9.16", build: "30887ef8", slot: 0, image: "valid", rollback: true)
+    let status = KnobOTAStatus(running: running)
+    #expect(status.runs(image("0.9.16", build: "30887ef8")))
+    #expect(!status.runs(image("0.9.16", build: "ee55ff66")))
+    #expect(!status.runs(image("0.9.17", build: "aa11bb22")))
+    let noBuild = KnobOTAStatus(running: .init(fw: "0.9.16", rollback: true))
+    #expect(noBuild.runs(image("0.9.16", build: "ee55ff66")))
+    #expect(!KnobOTAStatus().runs(image("0.9.16", build: "30887ef8")))
+}
+
+@MainActor
+@Test func otaRunsOnKnobIgnoresAnotherBuildOfTheSameVersion() async throws {
+    let server = OTAServer()
+    let m = otaModel(server)
+    await m.load()
+    #expect(m.ota.runsOnKnob(image("0.9.13", build: "77aa01ff")))
+    #expect(!m.ota.runsOnKnob(image("0.9.13", build: "0badf00d")))
+}
+
+@Test func otaOnlyPromotionNeedsConfirmation() {
+    #expect(KnobFirmwareImage.needsConfirmation(from: KnobFirmwareImage.test, to: KnobFirmwareImage.release))
+    #expect(!KnobFirmwareImage.needsConfirmation(from: KnobFirmwareImage.release, to: KnobFirmwareImage.test))
+    #expect(!KnobFirmwareImage.needsConfirmation(from: KnobFirmwareImage.release, to: KnobFirmwareImage.release))
+}
+
+@MainActor
+@Test func otaFailedInstallReloadsTheStatusAndExplainsTheRefusal() async throws {
+    let cases: [(Int, String, FeedError)] = [
+        (409, #"{"error":"ota_in_progress"}"#, .rejected(KnobOTAError.inProgress)),
+        (409, #"{"error":"no_rollback_bootloader"}"#, .rejected(KnobOTAError.noRollback)),
+        (400, #"{"error":"bad device body: unknown firmware version"}"#, .rejected(KnobOTAError.unknownImage)),
+    ]
+    for (status, reply, want) in cases {
+        let server = OTAServer()
+        let m = otaModel(server)
+        await m.load()
+        let old = try #require(m.ota.images.first { $0.version == "0.9.14" })
+        server.putReply = (status, reply)
+        let before = server.log.filter { $0 == "GET /v1/devices/knob-61fc8c/ota" }.count
+        #expect(await m.ota.install(old) == false)
+        #expect(m.ota.errors[.install] == want)
+        #expect(m.ota.errors[.update] == nil)
+        #expect(server.log.filter { $0 == "GET /v1/devices/knob-61fc8c/ota" }.count == before + 1)
+        #expect(server.log.last == "GET /v1/devices/knob-61fc8c/ota")
+    }
+}
+
+@MainActor
+@Test func otaFailedUpdateFromTheStatusRowAlsoReloads() async throws {
+    let server = OTAServer()
+    let m = otaModel(server)
+    await m.load()
+    server.putReply = (409, #"{"error":"ota_in_progress"}"#)
+    #expect(await m.ota.update(to: "0.9.14") == false)
+    #expect(m.ota.errors[.update] == .rejected(KnobOTAError.inProgress))
+    #expect(m.ota.errors[.install] == nil)
+    #expect(server.log.last == "GET /v1/devices/knob-61fc8c/ota")
+    server.putReply = (500, #"{"error":"boom"}"#)
+    #expect(await m.ota.update(to: "0.9.14") == false)
+    if case .server? = m.ota.errors[.update] {} else { Issue.record("want a server error, got \(String(describing: m.ota.errors[.update]))") }
 }
