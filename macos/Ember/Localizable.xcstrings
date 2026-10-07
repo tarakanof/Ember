@@ -188,7 +188,7 @@
       "extractionState" : "manual"
     },
     "%@ · %@ · IDF %@ · ELF" : {
-      "comment" : "Knob firmware sheet row details: image size, upload date, ESP-IDF version, and that the ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · ELF\").",
+      "comment" : "Settings › Knob Firmware & updates image row details: image size, upload date, ESP-IDF version, and that the ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · ELF\").",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -199,7 +199,7 @@
       }
     },
     "%@ · %@ · IDF %@ · no ELF" : {
-      "comment" : "Knob firmware sheet row details: image size, upload date, ESP-IDF version, and that no ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · no ELF\").",
+      "comment" : "Settings › Knob Firmware & updates image row details: image size, upload date, ESP-IDF version, and that no ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · no ELF\").",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -632,7 +632,7 @@
     "Automatic (release builds, when the knob is idle)" : {},
     "Automatic brightness" : {},
     "Automatic updates are on: if %@ is newer than the knob's firmware, the knob installs it once it has been idle for 10 minutes." : {
-      "comment" : "Knob firmware sheet: confirmation before marking an image as Release while Automatic updates are on; the argument is its version."
+      "comment" : "Settings › Knob Firmware & updates: confirmation before marking an image as Release while Automatic updates are on; the argument is its version."
     },
     "Automatic updates install only Release builds." : {},
     "Automation: Music" : {},
@@ -887,7 +887,7 @@
       "extractionState" : "manual"
     },
     "Couldn't save the ELF: %@" : {
-      "comment" : "Knob firmware sheet error after an ELF download; the argument is the file system's reason."
+      "comment" : "Settings › Knob Firmware & updates error after an ELF download; the argument is the file system's reason."
     },
     "Couldn't save the crash dump: %@" : {
       "comment" : "Settings › Knob error under Crash dumps after a crash dump download; the argument is the file system's reason."
@@ -963,7 +963,7 @@
     },
     "Delete" : {},
     "Delete %@ from Ember?" : {
-      "comment" : "Knob firmware sheet: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\")."
+      "comment" : "Settings › Knob Firmware & updates: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\")."
     },
     "Delete this dump?" : {},
     "Delete…" : {},
@@ -1336,7 +1336,7 @@
     "Lowest since start" : {},
     "MCP" : {},
     "Mark %@ as Release?" : {
-      "comment" : "Knob firmware sheet: confirmation title before moving a stored image to the Release channel; the argument is its version (\"Mark 0.9.17 as Release?\")."
+      "comment" : "Settings › Knob Firmware & updates: confirmation title before moving a stored image to the Release channel; the argument is its version (\"Mark 0.9.17 as Release?\")."
     },
     "Mark as Release" : {},
     "Matches the brightness Ember works out for displays without a light sensor" : {
@@ -2447,7 +2447,7 @@
     "Wi-Fi signal" : {},
     "Wi-Fi signal, memory and uptime are in Hardware." : {},
     "With Automatic updates on, the knob would install %@ once it has been idle for 10 minutes, if it is newer than the knob's firmware." : {
-      "comment" : "Knob firmware sheet: confirmation before marking an image as Release while updates are set to Ask first; the argument is its version."
+      "comment" : "Settings › Knob Firmware & updates: confirmation before marking an image as Release while updates are set to Ask first; the argument is its version."
     },
     "Woke from sleep" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",

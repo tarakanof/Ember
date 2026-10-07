@@ -28,7 +28,6 @@ struct KnobFirmwareRow: View {
                 }
             }
         }
-        .task(id: env.knob.knob?.id) { await poll() }
     }
 
     private var versionText: Text {
@@ -36,39 +35,22 @@ struct KnobFirmwareRow: View {
         if let build = checkin?.fwBuild?.nonEmpty { return Text(verbatim: "\(fw) (\(build))") }
         return Text(verbatim: fw)
     }
-
-    private func poll() async {
-        await env.knob.ota.followProgress { await env.knob.load() }
-    }
 }
 
 struct KnobOTAProgress: View {
     @Environment(AppEnvironment.self) private var env
     let status: KnobOTAStatus
-    var compact = false
 
     var body: some View {
-        if compact {
-            if status.isBusy { busy }
-        } else {
-            full
-        }
-    }
-
-    @ViewBuilder private var busy: some View {
-        if status.phase == .downloading, let p = status.progress {
-            ProgressView(value: p).frame(width: 180)
-        } else {
-            ProgressView().progressViewStyle(.linear).frame(width: 180)
-        }
-        phaseText.foregroundStyle(.secondary)
-    }
-
-    private var full: some View {
         let ota = env.knob.ota
-        return VStack(alignment: .trailing, spacing: 4) {
+        VStack(alignment: .trailing, spacing: 4) {
             if status.isBusy {
-                busy
+                if status.phase == .downloading, let p = status.progress {
+                    ProgressView(value: p).frame(width: 180)
+                } else {
+                    ProgressView().progressViewStyle(.linear).frame(width: 180)
+                }
+                phaseText.foregroundStyle(.secondary)
             } else if status.phase.isFailure {
                 failureText.foregroundStyle(.red)
                 Button("Retry") { Task { await ota.retry() } }
@@ -161,6 +143,7 @@ struct KnobFirmwareSection: View {
         } footer: {
             footer
         }
+        .task(id: env.knob.knob?.id) { await ota.followProgress { await env.knob.load() } }
         .onChange(of: ota.status) { old, new in
             if KnobOTAStatus.expandsGroup(from: old, to: new) {
                 collapsedGroups = SettingsGroup.knobFirmware.setCollapsed(false, in: collapsedGroups)
@@ -188,10 +171,10 @@ struct KnobFirmwareSection: View {
         } message: { image in
             if ota.status?.mode == .auto {
                 Text("Automatic updates are on: if \(image.version) is newer than the knob's firmware, the knob installs it once it has been idle for 10 minutes.",
-                     comment: "Knob firmware sheet: confirmation before marking an image as Release while Automatic updates are on; the argument is its version.")
+                     comment: "Settings › Knob Firmware & updates: confirmation before marking an image as Release while Automatic updates are on; the argument is its version.")
             } else {
                 Text("With Automatic updates on, the knob would install \(image.version) once it has been idle for 10 minutes, if it is newer than the knob's firmware.",
-                     comment: "Knob firmware sheet: confirmation before marking an image as Release while updates are set to Ask first; the argument is its version.")
+                     comment: "Settings › Knob Firmware & updates: confirmation before marking an image as Release while updates are set to Ask first; the argument is its version.")
             }
         }
     }
@@ -242,7 +225,7 @@ struct KnobFirmwareSection: View {
             }
             if let writeError {
                 Label { Text("Couldn't save the ELF: \(writeError)",
-                             comment: "Knob firmware sheet error after an ELF download; the argument is the file system's reason.") }
+                             comment: "Settings › Knob Firmware & updates error after an ELF download; the argument is the file system's reason.") }
                     icon: { Image(systemName: "exclamationmark.triangle.fill") }
                     .foregroundStyle(.red)
             }
@@ -328,12 +311,12 @@ struct KnobFirmwareSection: View {
 
     private var releaseTitle: Text {
         Text("Mark \(confirmRelease?.version ?? "") as Release?",
-             comment: "Knob firmware sheet: confirmation title before moving a stored image to the Release channel; the argument is its version (\"Mark 0.9.17 as Release?\").")
+             comment: "Settings › Knob Firmware & updates: confirmation title before moving a stored image to the Release channel; the argument is its version (\"Mark 0.9.17 as Release?\").")
     }
 
     private var deleteTitle: Text {
         Text("Delete \(confirmDelete?.version ?? "") from Ember?",
-             comment: "Knob firmware sheet: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\").")
+             comment: "Settings › Knob Firmware & updates: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\").")
     }
 
     private func details(_ image: KnobFirmwareImage) -> Text {
@@ -341,10 +324,10 @@ struct KnobFirmwareSection: View {
         let date = image.uploadedAt.formatted(date: .abbreviated, time: .shortened)
         if image.elf {
             return Text("\(size) · \(date) · IDF \(image.idfVer) · ELF",
-                        comment: "Knob firmware sheet row details: image size, upload date, ESP-IDF version, and that the ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · ELF\").")
+                        comment: "Settings › Knob Firmware & updates image row details: image size, upload date, ESP-IDF version, and that the ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · ELF\").")
         }
         return Text("\(size) · \(date) · IDF \(image.idfVer) · no ELF",
-                    comment: "Knob firmware sheet row details: image size, upload date, ESP-IDF version, and that no ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · no ELF\").")
+                    comment: "Settings › Knob Firmware & updates image row details: image size, upload date, ESP-IDF version, and that no ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · no ELF\").")
     }
 
     private func upload() async {
