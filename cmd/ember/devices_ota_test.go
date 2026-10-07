@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -903,5 +905,152 @@ func TestOTASuccessfulInstallUnblocksTheVersion(t *testing.T) {
 	k.checkin(t, otaReport("0.9.14", img.Build, "valid", "idle", true, ""))
 	if st := k.status(t); st.Phase != otaPhaseDone || len(st.Blocked) != 1 || st.Blocked[0] != "0.9.15" {
 		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestOTAAvailableSkipsBlockedVersions(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15"}), "")
+	k.idle(t)
+	blockVersions(t, k, "0.9.15")
+	if st := k.status(t); st.Available == nil || *st.Available != "0.9.14" {
+		t.Fatalf("available = %+v, want 0.9.14", st)
+	}
+	blockVersions(t, k, "0.9.14", "0.9.15")
+	if st := k.status(t); st.Available != nil {
+		t.Fatalf("available = %v, want null", *st.Available)
+	}
+}
+
+func TestOTAManualInstallOfABlockedVersionMakesItAvailableAgain(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15"}), "")
+	k.idle(t)
+	blockVersions(t, k, "0.9.15")
+	code, st := k.put(t, `{"target":"0.9.15"}`)
+	if code != http.StatusOK || len(st.Blocked) != 0 || st.Available == nil || *st.Available != "0.9.15" {
+		t.Fatalf("target = %d %+v", code, st)
+	}
+	if offer := offerOf(t, k.idle(t)); offer == nil || offer["version"] != "0.9.15" {
+		t.Fatalf("offer = %v, want 0.9.15", offer)
+	}
+}
+
+func blockedOf(t *testing.T, k otaKnob) []string {
+	t.Helper()
+	o, _, err := k.app.devices.otaSnapshot(k.knob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o.Blocked
+}
+
+func TestFirmwareDeletePrunesTheVersionFromEveryBlockedList(t *testing.T) {
+	k := newOTAKnob(t)
+	k2 := otaKnob{app: k.app, srv: k.srv, knob: mintSecondKnob(t, k.srv)}
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15"}), "")
+	blockVersions(t, k, "0.9.14", "0.9.15")
+	blockVersions(t, k2, "0.9.15", "0.9.14")
+	epoch := k.app.devices.state.Epoch
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.15", testToken, ""); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	for _, kn := range []otaKnob{k, k2} {
+		if got := blockedOf(t, kn); !slices.Equal(got, []string{"0.9.14"}) {
+			t.Fatalf("%s blocked = %v, want [0.9.14]", kn.knob.ID, got)
+		}
+	}
+	if k.app.devices.state.Epoch != epoch {
+		t.Fatalf("epoch bumped %d -> %d", epoch, k.app.devices.state.Epoch)
+	}
+}
+
+func TestFirmwareDeletePruneSurvivesARestart(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	k := otaKnob{app: app, srv: srv, knob: mintKnob(t, srv, http.StatusCreated)}
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15"}), "")
+	blockVersions(t, k, "0.9.15")
+	if resp, _ := devReq(t, srv, "DELETE", "/v1/firmware/0.9.15", testToken, ""); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete = %d", resp.StatusCode)
+	}
+	srv.Close()
+	_ = app.store.Close()
+	app2, srv2 := newDevicesApp(t, db)
+	if got := blockedOf(t, otaKnob{app: app2, srv: srv2, knob: k.knob}); len(got) != 0 {
+		t.Fatalf("blocked after restart = %v, want []", got)
+	}
+}
+
+func TestFirmwareRetentionEvictionPrunesBlockedLists(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.1"}), "")
+	blockVersions(t, k, "0.9.1", "0.9.2")
+	for i := 2; i <= firmwareKept+1; i++ {
+		k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)}), "")
+	}
+	if _, ok := k.app.knobFW.get("0.9.1"); ok {
+		t.Fatal("0.9.1 not evicted")
+	}
+	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.2"}) {
+		t.Fatalf("blocked = %v, want [0.9.2]", got)
+	}
+}
+
+func TestFirmwareReplaceUnblocksTheVersionOnEveryKnob(t *testing.T) {
+	k := newOTAKnob(t)
+	k2 := otaKnob{app: k.app, srv: k.srv, knob: mintSecondKnob(t, k.srv)}
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 1}), "")
+	k.idle(t)
+	blockVersions(t, k, "0.9.14", "0.9.15")
+	blockVersions(t, k2, "0.9.15")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 2}), "?replace=1")
+	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.14"}) {
+		t.Fatalf("blocked = %v, want [0.9.14]", got)
+	}
+	if got := blockedOf(t, k2); len(got) != 0 {
+		t.Fatalf("second knob blocked = %v, want []", got)
+	}
+	if st := k.status(t); st.Available == nil || *st.Available != "0.9.15" {
+		t.Fatalf("available = %+v, want 0.9.15", st)
+	}
+}
+
+func TestFirmwareDeleteOfATargetedVersionKeepsItBlocked(t *testing.T) {
+	k := newOTAKnob(t)
+	k2 := otaKnob{app: k.app, srv: k.srv, knob: mintSecondKnob(t, k.srv)}
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15"}), "")
+	k.idle(t)
+	if code, st := k.put(t, `{"target":"0.9.15"}`); code != http.StatusOK {
+		t.Fatalf("target = %d %+v", code, st)
+	}
+	blockVersions(t, k2, "0.9.15")
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.15", testToken, ""); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k2); !slices.Equal(got, []string{"0.9.15"}) {
+		t.Fatalf("blocked = %v, want [0.9.15]", got)
+	}
+}
+
+func TestFirmwareDeleteOfAMissingVersionPrunesOnlyThatStaleEntry(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	blockVersions(t, k, "0.9.9", "0.9.10")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15"}), "")
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.9", "0.9.10"}) {
+		t.Fatalf("unrelated upload or delete pruned: %v", got)
+	}
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.9", testToken, ""); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.10"}) {
+		t.Fatalf("blocked = %v, want [0.9.10]", got)
 	}
 }

@@ -343,7 +343,7 @@ func (s *firmwareStore) writeMetaIn(dir string, m firmwareMeta) error {
 	return s.writeFile(filepath.Join(dir, firmwareMetaName), blob)
 }
 
-func (s *firmwareStore) put(d firmwareDesc, body []byte, channel string, replace bool, inUse, keep func(string) bool) (firmwareImage, bool, error) {
+func (s *firmwareStore) put(d firmwareDesc, body []byte, channel string, replace bool, inUse, keep func(string) bool, unblock func([]string)) (firmwareImage, bool, error) {
 	sum := sha256.Sum256(body)
 	m := firmwareMeta{
 		firmwareImage: firmwareImage{
@@ -389,7 +389,14 @@ func (s *firmwareStore) put(d firmwareDesc, body []byte, channel string, replace
 		return firmwareImage{}, false, err
 	}
 	s.index[d.Version] = m
-	return m.firmwareImage, true, s.pruneLocked(d.Version, keep)
+	evicted, err := s.pruneLocked(d.Version, keep)
+	if exists {
+		evicted = append(evicted, d.Version)
+	}
+	if unblock != nil && len(evicted) > 0 {
+		unblock(evicted)
+	}
+	return m.firmwareImage, true, err
 }
 
 func (s *firmwareStore) swapInLocked(tmp, version string, exists bool) error {
@@ -418,17 +425,22 @@ func (s *firmwareStore) swapInLocked(tmp, version string, exists bool) error {
 	return removeAllErr(aside)
 }
 
-func (s *firmwareStore) pruneLocked(just string, keep func(string) bool) error {
+func (s *firmwareStore) pruneLocked(just string, keep func(string) bool) ([]string, error) {
 	versions := s.versionsLocked()
+	var removed []string
 	var errs []error
 	for i, v := range versions {
 		if i < firmwareKept || v == just || (keep != nil && keep(v)) {
 			continue
 		}
 		delete(s.index, v)
-		errs = append(errs, removeAllErr(s.versionDir(v)))
+		if err := removeAllErr(s.versionDir(v)); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		removed = append(removed, v)
 	}
-	return errors.Join(errs...)
+	return removed, errors.Join(errs...)
 }
 
 func (s *firmwareStore) versionsLocked() []string {
@@ -547,17 +559,26 @@ func (s *firmwareStore) setChannel(version, channel string) (firmwareImage, erro
 	return m.firmwareImage, nil
 }
 
-func (s *firmwareStore) remove(version string, inUse func(string) bool) error {
+func (s *firmwareStore) remove(version string, inUse func(string) bool, unblock func([]string)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.index[version]; !ok {
+		if unblock != nil {
+			unblock([]string{version})
+		}
 		return errFirmwareNotFound
 	}
 	if inUse != nil && inUse(version) {
 		return errFirmwareInUse
 	}
 	delete(s.index, version)
-	return removeAllErr(s.versionDir(version))
+	if err := removeAllErr(s.versionDir(version)); err != nil {
+		return err
+	}
+	if unblock != nil {
+		unblock([]string{version})
+	}
+	return nil
 }
 
 func (s *firmwareStore) open(version, name string) (firmwareMeta, *os.File, error) {

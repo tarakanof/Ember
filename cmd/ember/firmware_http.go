@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -80,7 +81,7 @@ func (a *App) handleFirmwareUpload(w http.ResponseWriter, r *http.Request) {
 		a.writeFirmwareError(w, r, err)
 		return
 	}
-	img, created, err := store.put(desc, body, channel, replace, a.devices.otaTargets, a.devices.otaKeeps)
+	img, created, err := store.put(desc, body, channel, replace, a.devices.otaTargets, a.devices.otaKeeps, a.otaUnblocker(r.Context()))
 	if err != nil {
 		a.writeFirmwareError(w, r, err)
 		return
@@ -195,10 +196,18 @@ func (a *App) handleFirmwareDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	version := r.PathValue("version")
-	if err := store.remove(version, a.devices.otaTargets); err != nil {
+	if err := store.remove(version, a.devices.otaTargets, a.otaUnblocker(r.Context())); err != nil {
 		a.writeFirmwareError(w, r, err)
 		return
 	}
 	a.logger.InfoContext(r.Context(), "knob firmware deleted", "version", version)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) otaUnblocker(ctx context.Context) func([]string) {
+	return func(versions []string) {
+		if err := a.devices.otaUnblock(versions); err != nil {
+			a.logger.WarnContext(ctx, "knob ota blocked lists not pruned", "versions", versions, "err", err)
+		}
+	}
 }

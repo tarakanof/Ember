@@ -35,9 +35,12 @@ registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
 `GET`/`PUT /v1/devices/{id}/ota` (knob firmware update: `{"mode":"manual|auto","target":"0.9.14"|null,"retry":true}` merge;
 409 `no_rollback_bootloader`, or `ota_in_progress` while installing, restarting or verifying), `POST /v1/firmware?channel=release|test`
 (raw cinder `.bin` ≤4 MiB: 201 stored, 200 same bytes, 409 other bytes,
-400 `bad_image|wrong_chip|wrong_project|bad_version|dev_seed_build`),
+400 `bad_image|wrong_chip|wrong_project|bad_version|dev_seed_build`; a
+`?replace=1` and every version retention evicts drop those versions from
+every knob's OTA `blocked` list),
 `GET /v1/firmware` (newest first), `PATCH`/`DELETE /v1/firmware/{version}`
-(channel; 409 while targeted), `PUT`/`GET /v1/firmware/{version}/elf`
+(channel; 409 while targeted; DELETE's 204 or 404 also drops the version from
+every knob's OTA `blocked` list, which the OTA `available` field skips), `PUT`/`GET /v1/firmware/{version}/elf`
 (≤64 MiB, 400 `elf_mismatch`), `GET /v1/firmware/{version}/bin`,
 `GET /v1/firmware/by-build/{build}/elf` (ARCHITECTURE "Knob firmware
 updates"),

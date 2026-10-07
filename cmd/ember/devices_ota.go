@@ -339,6 +339,25 @@ func (r *deviceRegistry) otaTargets(version string) bool {
 	return false
 }
 
+func (r *deviceRegistry) otaUnblock(versions []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	gone := func(v string) bool { return slices.Contains(versions, v) }
+	if !slices.ContainsFunc(r.state.Devices, func(d deviceRecord) bool {
+		return d.OTA != nil && slices.ContainsFunc(d.OTA.Blocked, gone)
+	}) {
+		return nil
+	}
+	return r.mutateLocked(func(st *deviceState) error {
+		for i := range st.Devices {
+			if o := st.Devices[i].OTA; o != nil {
+				o.Blocked = slices.DeleteFunc(o.Blocked, gone)
+			}
+		}
+		return nil
+	})
+}
+
 func (r *deviceRegistry) otaKeeps(version string) bool {
 	if r.otaTargets(version) {
 		return true
@@ -529,7 +548,9 @@ func (a *App) otaStatus(device string, o knobOTA, last *deviceCheckin) otaStatus
 		}
 		st.Running = run
 		if a.knobFW != nil {
-			if m, ok := a.knobFW.newestAbove(last.FW, nil); ok {
+			if m, ok := a.knobFW.newestAbove(last.FW, func(m firmwareMeta) bool {
+				return !slices.Contains(o.Blocked, m.Version)
+			}); ok {
 				st.Available = &m.Version
 			}
 		}

@@ -2518,12 +2518,16 @@ SHA-256 equals `app_elf_sha256` (`elf_mismatch`). Same version, same bytes:
 targets it. Pruning after each upload keeps the 5 newest versions (semver
 order), every version that is a knob's target or active offer or a knob's
 running `fw`, and the image just written. The store lock is taken before
-the registry lock (the in-use checks), never the other way round.
+the registry lock (the in-use checks and the `blocked` prune), never the other
+way round.
 
 **Record (`devices_ota.go`).** `deviceRecord.ota` in the registry blob:
 `mode` (`manual` = "Ask first", the default, or `auto`), `target`, a
 one-shot `retry`, `blocked` (versions that failed or rolled back, at most
-16; auto mode skips them), `phase`, `error`, `from`, and the offered
+16; auto mode and `available` skip them; a version is dropped from every
+knob's list when it is replaced with `?replace=1`, evicted by retention or
+deleted (204, or 404 for a stale entry), only once its files are gone, and
+under the store lock so no upload or block can slip in between), `phase`, `error`, `from`, and the offered
 `version`/`build`/`size`/`auto`, the `attempt` id and
 `started_at`/`finished_at`. It is
 written only when it changes (never per progress tick): the checkin
@@ -2596,7 +2600,8 @@ switches the boot slot and restarts right after the stream ends.
 **Owner view.** `GET /v1/devices/{id}/ota` answers
 `{"mode","target","version","phase","progress_pct","bytes","size","from","error","started_at","finished_at","blocked","running":{"fw","build","slot","image","rollback"},"available","waiting_for"}`
 (dashboard style: whole-second RFC 3339, null when unknown; `available` =
-the newest stored version above the running one, any channel; `version` =
+the newest stored version above the running one, any channel, not in
+`blocked`; `version` =
 the current or last attempt's version, also for automatic ones). `PUT`
 merges `mode`, `target` (`null` clears it and cancels an offer that has
 not started downloading) and `retry` (re-offers the last version once with
