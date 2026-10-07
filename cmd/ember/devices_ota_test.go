@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1052,5 +1053,82 @@ func TestFirmwareDeleteOfAMissingVersionPrunesOnlyThatStaleEntry(t *testing.T) {
 	}
 	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.10"}) {
 		t.Fatalf("blocked = %v, want [0.9.10]", got)
+	}
+}
+
+func TestFirmwareDeleteOfAnUnloadedVersionUnblocksOnlyOnceItsFilesAreGone(t *testing.T) {
+	k := newOTAKnob(t)
+	blockVersions(t, k, "0.9.14")
+	dir := k.app.knobFW.versionDir("0.9.14")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	failRenamesOf(k.app.knobFW, "0.9.14")
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("delete with a stuck dir = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k); !slices.Equal(got, []string{"0.9.14"}) {
+		t.Fatalf("blocked = %v, want [0.9.14]", got)
+	}
+	k.app.knobFW.rename = os.Rename
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k); len(got) != 0 {
+		t.Fatalf("blocked = %v, want []", got)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("unloaded dir kept: %v", err)
+	}
+}
+
+func TestFirmwareUploadWhoseEvictionCleanupFailsAnswersCreated(t *testing.T) {
+	k := newOTAKnob(t)
+	for i := 1; i <= firmwareKept; i++ {
+		k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)}), "")
+	}
+	failRenamesOf(k.app.knobFW, "0.9.1")
+	resp, b := rawReq(t, k.srv, "POST", "/v1/firmware", testToken, fakeFirmware(fwOpts{version: "0.9.6"}), nil)
+	var img firmwareImage
+	if resp.StatusCode != http.StatusCreated || json.Unmarshal(b, &img) != nil || img.Version != "0.9.6" {
+		t.Fatalf("upload = %d: %s", resp.StatusCode, b)
+	}
+}
+
+func TestFirmwareReplaceWithAStuckOldCopyStillAnswersCreatedAndUnblocks(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 1}), "")
+	blockVersions(t, k, "0.9.15")
+	k.app.knobFW.removeAll = failOnBase(firmwareAsidePrefix, os.RemoveAll)
+	resp, b := rawReq(t, k.srv, "POST", "/v1/firmware?replace=1", testToken, fakeFirmware(fwOpts{version: "0.9.15", seed: 2}), nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("replace = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k); len(got) != 0 {
+		t.Fatalf("blocked = %v, want []", got)
+	}
+}
+
+func TestFirmwareDeleteThatStopsPartWayNeverOffersAHalfVersion(t *testing.T) {
+	k := newOTAKnob(t)
+	img := fakeFirmware(fwOpts{version: "0.9.14"})
+	k.upload(t, img, "?channel=release")
+	blockVersions(t, k, "0.9.14")
+	k.app.knobFW.removeAll = removeBinThenFail
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if got := blockedOf(t, k); len(got) != 0 {
+		t.Fatalf("blocked = %v, want []", got)
+	}
+	if resp, b := devReq(t, k.srv, "GET", "/v1/firmware/0.9.14/bin", testToken, ""); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("bin after delete = %d: %s", resp.StatusCode, b)
+	}
+	k.app.knobFW.removeAll = os.RemoveAll
+	if resp, b := rawReq(t, k.srv, "POST", "/v1/firmware?channel=release", testToken, img, nil); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("re-upload = %d: %s", resp.StatusCode, b)
+	}
+	if resp, b := devReq(t, k.srv, "GET", "/v1/firmware/0.9.14/bin", testToken, ""); resp.StatusCode != http.StatusOK {
+		t.Fatalf("bin after re-upload = %d: %s", resp.StatusCode, b)
 	}
 }

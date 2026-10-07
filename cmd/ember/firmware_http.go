@@ -82,9 +82,12 @@ func (a *App) handleFirmwareUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	img, created, err := store.put(desc, body, channel, replace, a.devices.otaTargets, a.devices.otaKeeps, a.otaUnblocker(r.Context()))
-	if err != nil {
+	if err != nil && !created {
 		a.writeFirmwareError(w, r, err)
 		return
+	}
+	if err != nil {
+		a.logger.WarnContext(r.Context(), "knob firmware cleanup incomplete", "version", img.Version, "err", err)
 	}
 	status := http.StatusOK
 	if created {
