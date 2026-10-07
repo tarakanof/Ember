@@ -148,3 +148,28 @@ private func coredumpModel(_ server: CoredumpServer) -> KnobModel {
     #expect(m.actionErrors[.deleteCoredump] != nil)
     #expect(m.coredumps.count == 2)
 }
+
+@MainActor
+@Test func knobModelTreatsDeletingAnAlreadyRemovedCoredumpAsSuccess() async throws {
+    let server = CoredumpServer()
+    let m = coredumpModel(server)
+    await m.load()
+    let dump = try #require(m.coredumps.first { $0.id == "1a2b3c4d" })
+    server.deleteStatus = 404
+    server.list = #"[{"id":"0badc0de","size":4096,"fw":"","received_at":"2026-10-05T09:00:00Z","reason":"","task":"","pc":""}]"#
+    #expect(await m.deleteCoredump(dump))
+    #expect(m.actionErrors[.deleteCoredump] == nil)
+    #expect(m.coredumps.map(\.id) == ["0badc0de"])
+}
+
+@MainActor
+@Test func knobModelReloadsTheCoredumpsAfterAFailedDelete() async throws {
+    let server = CoredumpServer()
+    server.deleteStatus = 500
+    let m = coredumpModel(server)
+    await m.load()
+    let dump = try #require(m.coredumps.first { $0.id == "1a2b3c4d" })
+    let tail = { server.log.suffix(2).map { "\($0.0) \($0.1)" } }
+    #expect(await m.deleteCoredump(dump) == false)
+    #expect(tail() == ["DELETE /v1/devices/knob-61fc8c/coredumps/1a2b3c4d", "GET /v1/devices/knob-61fc8c/coredumps"])
+}

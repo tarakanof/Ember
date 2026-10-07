@@ -98,8 +98,12 @@ public final class KnobModel {
     @discardableResult
     public func deleteCoredump(_ dump: KnobCoredump) async -> Bool {
         guard let id = knob?.id else { return false }
-        let ok = await perform(.deleteCoredump) { try await self.service.deleteCoredump(id: id, dump: dump.id) }
-        if ok { await loadCoredumps() }
+        let ok = await perform(.deleteCoredump) {
+            do {
+                try await self.service.deleteCoredump(id: id, dump: dump.id)
+            } catch let APIError.http(status, _) where status == 404 {}
+        }
+        await loadCoredumps()
         return ok
     }
 
