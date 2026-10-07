@@ -38,4 +38,20 @@ public struct KnobCoredump: Codable, Equatable, Sendable, Identifiable {
         let safe = String(String.UnicodeScalarView(fw.unicodeScalars.map { allowed.contains($0) ? $0 : "_" }))
         return "\(device)-\(safe.isEmpty ? "unknown" : safe)-\(id).bin"
     }
+
+    public func firmware(images: [KnobFirmwareImage]) -> KnobCoredumpFirmware {
+        let crashed = elf.isEmpty ? nil : images.first { $0.build == elf }?.version
+        let uploader = fw.isEmpty || fw == crashed ? nil : fw
+        return KnobCoredumpFirmware(crashed: crashed, uploadedBy: uploader)
+    }
+}
+
+public struct KnobCoredumpFirmware: Equatable, Sendable {
+    public var crashed: String?
+    public var uploadedBy: String?
+
+    public init(crashed: String?, uploadedBy: String?) {
+        self.crashed = crashed
+        self.uploadedBy = uploadedBy
+    }
 }

@@ -19,7 +19,7 @@ struct KnobDisplaySection: View {
     var body: some View {
         let knob = env.knob
         let follow = knob.settings.draft.brightness.followEmber
-        Section {
+        CollapsibleSection("Display", group: .knobDisplay, contentDisabled: !knob.settings.isLoaded) {
             InfoToggle("Follow Ember brightness", isOn: knob.binding(\.brightness.followEmber), info: .knobFollowBrightness,
                        requirement: .loading)
             PercentSliderRow(title: "Brightness", percent: knob.percent(\.brightness.level))
@@ -28,8 +28,6 @@ struct KnobDisplaySection: View {
                              info: .knobMinBrightness, requirement: .loading)
             PercentSliderRow(title: "Brightness at startup", percent: knob.percent(\.brightness.startup),
                              info: .knobStartupBrightness, requirement: .loading)
-        } header: {
-            Text("Display")
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if follow {
@@ -135,7 +133,7 @@ struct KnobPollSection: View {
     var body: some View {
         let knob = env.knob
         let s = knob.settings.draft
-        Section {
+        CollapsibleSection("Behavior", group: .knobBehavior, contentDisabled: !knob.settings.isLoaded) {
             DecimalStepperRow(title: "Check Ember every", value: Binding(
                 get: { Double(s.pollMS) / 1000 },
                 set: { v in knob.edit { $0.pollMS = Int((v * 1000).rounded()) } }),
@@ -180,8 +178,6 @@ struct KnobPollSection: View {
             } label: {
                 Text(diagnosticsHelp(s.diagnostics)).foregroundStyle(.secondary).font(.callout)
             }
-        } header: {
-            Text("Behavior")
         } footer: {
             SaveErrorFooter(error: knob.settings.saveError)
         }

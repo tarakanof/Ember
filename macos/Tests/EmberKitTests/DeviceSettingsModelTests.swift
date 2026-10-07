@@ -401,3 +401,11 @@ private func ngServer() -> FakeClock {
     m.configure(service: m.service)
     #expect(m.settings === before)
 }
+
+@Test func sliderValuesSnapToTheStepInsideTheRange() {
+    #expect(DeviceUnits.snap(42.4, in: 0...100, step: 1) == 42)
+    #expect(DeviceUnits.snap(42.6, in: 0...100, step: 5) == 45)
+    #expect(DeviceUnits.snap(0.2, in: 1...100, step: 1) == 1)
+    #expect(DeviceUnits.snap(140, in: 0...100, step: 5) == 100)
+    #expect(DeviceUnits.snap(7, in: 1...100, step: 5) == 6)
+}

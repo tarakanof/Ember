@@ -5,6 +5,13 @@ public enum DeviceUnits {
         Int((Double(min(max(raw, 0), 255)) * 100 / 255).rounded())
     }
 
+    public static func snap(_ value: Double, in range: ClosedRange<Int>, step: Int) -> Int {
+        let step = max(step, 1)
+        let lower = Double(range.lowerBound)
+        let snapped = range.lowerBound + Int(((value - lower) / Double(step)).rounded()) * step
+        return min(max(snapped, range.lowerBound), range.upperBound)
+    }
+
     public static func brightnessRaw(percent: Int) -> Int {
         Int((Double(min(max(percent, 0), 100)) * 255 / 100).rounded())
     }

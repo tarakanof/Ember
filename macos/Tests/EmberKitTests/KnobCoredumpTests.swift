@@ -148,3 +148,64 @@ private func coredumpModel(_ server: CoredumpServer) -> KnobModel {
     #expect(m.actionErrors[.deleteCoredump] != nil)
     #expect(m.coredumps.count == 2)
 }
+
+@MainActor
+@Test func knobModelTreatsDeletingAnAlreadyRemovedCoredumpAsSuccess() async throws {
+    let server = CoredumpServer()
+    let m = coredumpModel(server)
+    await m.load()
+    let dump = try #require(m.coredumps.first { $0.id == "1a2b3c4d" })
+    server.deleteStatus = 404
+    server.list = #"[{"id":"0badc0de","size":4096,"fw":"","received_at":"2026-10-05T09:00:00Z","reason":"","task":"","pc":""}]"#
+    #expect(await m.deleteCoredump(dump))
+    #expect(m.actionErrors[.deleteCoredump] == nil)
+    #expect(m.coredumps.map(\.id) == ["0badc0de"])
+}
+
+@MainActor
+@Test func knobModelReloadsTheCoredumpsAfterAFailedDelete() async throws {
+    let server = CoredumpServer()
+    server.deleteStatus = 500
+    let m = coredumpModel(server)
+    await m.load()
+    let dump = try #require(m.coredumps.first { $0.id == "1a2b3c4d" })
+    let tail = { server.log.suffix(2).map { "\($0.0) \($0.1)" } }
+    #expect(await m.deleteCoredump(dump) == false)
+    #expect(tail() == ["DELETE /v1/devices/knob-61fc8c/coredumps/1a2b3c4d", "GET /v1/devices/knob-61fc8c/coredumps"])
+}
+
+@Test func knobCoredumpNamesTheCrashedFirmwareFromItsELF() {
+    let at = Date(timeIntervalSince1970: 0)
+    let images = [
+        KnobFirmwareImage(build: "c0ffee13", channel: "test", elf: false, idfVer: "v5.5", sha256: "", size: 1,
+                          uploadedAt: at, version: "0.9.13"),
+        KnobFirmwareImage(build: "a1b2c3d4", channel: "release", elf: true, idfVer: "v5.5", sha256: "", size: 1,
+                          uploadedAt: at, version: "0.9.14"),
+    ]
+    let old = KnobCoredump(id: "a", size: 1, fw: "0.9.14", receivedAt: at, elf: "c0ffee13")
+    #expect(old.firmware(images: images) == KnobCoredumpFirmware(crashed: "0.9.13", uploadedBy: "0.9.14"))
+    let same = KnobCoredump(id: "b", size: 1, fw: "0.9.14", receivedAt: at, elf: "a1b2c3d4")
+    #expect(same.firmware(images: images) == KnobCoredumpFirmware(crashed: "0.9.14", uploadedBy: nil))
+    let unknown = KnobCoredump(id: "c", size: 1, fw: "0.9.14", receivedAt: at, elf: "feedface")
+    #expect(unknown.firmware(images: images) == KnobCoredumpFirmware(crashed: nil, uploadedBy: "0.9.14"))
+    let bare = KnobCoredump(id: "d", size: 1, fw: "", receivedAt: at)
+    #expect(bare.firmware(images: images) == KnobCoredumpFirmware(crashed: nil, uploadedBy: nil))
+}
+
+@MainActor
+@Test func knobModelSaysWhenTheCoredumpListHasLoaded() async {
+    let server = CoredumpServer()
+    let m = coredumpModel(server)
+    #expect(!m.coredumpsLoaded)
+    await m.load()
+    #expect(m.coredumpsLoaded)
+}
+
+@MainActor
+@Test func knobModelKeepsTheCoredumpListUnloadedWhenItFails() async {
+    let server = CoredumpServer()
+    server.list = "not json"
+    let m = coredumpModel(server)
+    await m.load()
+    #expect(m.isLoaded && !m.coredumpsLoaded)
+}

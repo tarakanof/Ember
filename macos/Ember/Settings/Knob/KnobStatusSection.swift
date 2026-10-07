@@ -13,103 +13,120 @@ struct KnobStatusSection: View {
         let model = env.knob
         if let knob = model.knob {
             let checkin = knob.lastCheckin
-            Section {
-                LabeledContent("Connection") { online(knob) }
-                LabeledContent("Address") {
-                    Text(verbatim: checkin?.ip.nonEmpty ?? "—").textSelection(.enabled)
+            statusGroup(knob, model: model)
+            KnobFirmwareSection(checkin: checkin)
+            diagnosticsGroup(knob, checkin: checkin)
+            crashDumpsGroup(knob, checkin: checkin)
+        }
+    }
+
+    private func statusGroup(_ knob: KnobDevice, model: KnobModel) -> some View {
+        CollapsibleSection("Status", group: .knobStatus) {
+            LabeledContent("Connection") { online(knob) }
+            LabeledContent("Address") {
+                Text(verbatim: knob.lastCheckin?.ip.nonEmpty ?? "—").textSelection(.enabled)
+            }
+            LabeledContent("Last check-in") {
+                if let seen = knob.lastCheckin?.seenAt {
+                    Text(seen, format: .relative(presentation: .named))
+                } else {
+                    Text("Never").foregroundStyle(.secondary)
                 }
-                KnobFirmwareRow(checkin: checkin)
-                if let c = checkin, c.rssi != 0 || c.wifi?.hasLinkDetails == true {
-                    wifiRow(c.rssi, c.wifi)
+            }
+            LabeledContent("Settings") { applied(knob) }
+            KnobUSBRow()
+            HStack {
+                Button("Set Up Knob…", action: setUp)
+                Spacer()
+                Button("Forget Knob…", role: .destructive) { confirmForget = true }
+                    .disabled(model.running.contains(.forget))
+            }
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("The knob checks in with Ember every minute and picks up setting changes within a few seconds.")
+                if let e = model.actionErrors[.forget] {
+                    Label { Text("Couldn't forget the knob: \(Text(e.message))",
+                                 comment: "Settings › Knob error under Status; the argument is a short reason (\"Server unreachable\").") }
+                        icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                        .foregroundStyle(.red)
                 }
-                if let wifi = checkin?.wifi {
-                    LabeledContent("Reconnects") { reconnects(wifi) }
-                        .help("Times the knob lost Wi-Fi since it started. Each one starts a reconnect.")
+            }
+        }
+        .confirmationDialog(Text("Forget “\(knob.name)”?",
+                                 comment: "Settings › Knob confirm title; the argument is the knob's name (\"Desk knob\")."),
+                            isPresented: $confirmForget, titleVisibility: .visible) {
+            Button("Forget Knob", role: .destructive) { Task { await model.forget() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB.")
+        }
+    }
+
+    private func diagnosticsGroup(_ knob: KnobDevice, checkin: KnobCheckin?) -> some View {
+        CollapsibleSection("Diagnostics", group: .knobDiagnostics) {
+            if let wifi = checkin?.wifi {
+                if let channel = wifi.channel, channel > 0 {
+                    wifiRow(channel, wifi)
                 }
-                if let up = checkin?.uptimeS {
-                    LabeledContent("Uptime") { Text(DurationText.uptime(up)) }
-                }
-                LabeledContent("Last check-in") {
-                    if let seen = checkin?.seenAt {
-                        Text(seen, format: .relative(presentation: .named))
+                LabeledContent("Reconnects") { reconnects(wifi) }
+                    .help("Times the knob lost Wi-Fi since it started. Each one starts a reconnect.")
+            }
+            if let diag = checkin?.diag {
+                diagRows(diag)
+            }
+            if let mhz = checkin?.linkMHz, mhz > 0 {
+                LabeledContent("Display link") {
+                    if checkin?.linkFallback == true {
+                        Text("\(mhz) MHz (fell back after a check failed)",
+                             comment: "Settings › Knob: the knob's panel link clock after it fell back from 80 MHz (\"40 MHz (fell back after a check failed)\").")
                     } else {
-                        Text("Never").foregroundStyle(.secondary)
+                        Text(verbatim: "\(mhz) MHz")
                     }
                 }
-                if let c = checkin, c.heapInternalFree > 0 {
-                    LabeledContent("Free memory") {
-                        Text("\(bytes(c.heapInternalFree)) · largest block \(bytes(c.heapInternalLargest))",
-                             comment: "Settings › Knob: the knob's free internal RAM, then the largest free block (\"46 KB · largest block 31 KB\").")
-                    }
-                    .help("Internal RAM on the knob. Below about 24 KB in one block, pages may fail to draw.")
+            }
+            LabeledContent {
+                Button("Show Hardware") { showKnobHardware(knob.id) }
+            } label: {
+                Text("Wi-Fi signal, memory and uptime are in Hardware.").foregroundStyle(.secondary).font(.callout)
+            }
+        }
+    }
+
+    @ViewBuilder private func crashDumpsGroup(_ knob: KnobDevice, checkin: KnobCheckin?) -> some View {
+        let model = env.knob
+        let crash = checkin?.diag?.crash
+        let stored = model.coredumps.filter { $0.id != crash?.id }
+        if crash != nil || !stored.isEmpty {
+            CollapsibleSection("Crash dumps", group: .knobCrashDumps) {
+                if let crash {
+                    crashRow(crash, device: knob.id)
                 }
-                if let diag = checkin?.diag {
-                    diagRows(diag, device: knob.id)
+                ForEach(stored) { dump in
+                    dumpRow(dump, device: knob.id)
                 }
-                storedDumpRows(model.coredumps.filter { $0.id != checkin?.diag?.crash?.id }, device: knob.id)
-                if let mhz = checkin?.linkMHz, mhz > 0 {
-                    LabeledContent("Display link") {
-                        if checkin?.linkFallback == true {
-                            Text("\(mhz) MHz (fell back after a check failed)",
-                                 comment: "Settings › Knob: the knob's panel link clock after it fell back from 80 MHz (\"40 MHz (fell back after a check failed)\").")
-                        } else {
-                            Text(verbatim: "\(mhz) MHz")
-                        }
-                    }
-                }
-                LabeledContent("Settings") { applied(knob) }
-                LabeledContent("Hardware stats") {
-                    Button("Show Hardware") { showKnobHardware(knob.id) }
-                }
-                KnobUSBRow()
-                HStack {
-                    Button("Set Up Knob…", action: setUp)
-                    Spacer()
-                    Button("Forget Knob…", role: .destructive) { confirmForget = true }
-                        .disabled(model.running.contains(.forget))
-                }
-            } header: {
-                Text("Status")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("The knob checks in with Ember every minute and picks up setting changes within a few seconds.")
-                    if !model.coredumps.isEmpty {
-                        Text("Decode a crash dump with `esp-coredump info_corefile -c <dump.bin> <cinder.elf>`. Download ELF saves the cinder.elf of the build that crashed when Ember has it; otherwise use build/cinder.elf from the matching firmware build.")
-                            .textSelection(.enabled)
-                    }
+                    Text("Ember keeps the newest three crash dumps. Decode one with `esp-coredump info_corefile -c <dump.bin> <cinder.elf>`. Download ELF saves the cinder.elf of the build that crashed when Ember has it; otherwise use build/cinder.elf from the matching firmware build.")
+                        .textSelection(.enabled)
                     if let e = model.actionErrors[.coredump] {
                         Label { Text("Couldn't download the crash dump: \(Text(e.message))",
-                                     comment: "Settings › Knob error under Status; the argument is a short reason (\"Server unreachable\").") }
+                                     comment: "Settings › Knob error under Crash dumps; the argument is a short reason (\"Server unreachable\").") }
                             icon: { Image(systemName: "exclamationmark.triangle.fill") }
                             .foregroundStyle(.red)
                     }
                     if let e = model.actionErrors[.deleteCoredump] {
                         Label { Text("Couldn't delete the crash dump: \(Text(e.message))",
-                                     comment: "Settings › Knob error under Status after deleting a stored crash dump failed; the argument is a short reason (\"Server unreachable\").") }
+                                     comment: "Settings › Knob error under Crash dumps after deleting a stored crash dump failed; the argument is a short reason (\"Server unreachable\").") }
                             icon: { Image(systemName: "exclamationmark.triangle.fill") }
                             .foregroundStyle(.red)
                     }
                     if let e = dumpWriteError {
                         Label { Text("Couldn't save the crash dump: \(e)",
-                                     comment: "Settings › Knob error under Status after a crash dump download; the argument is the file system's reason.") }
-                            icon: { Image(systemName: "exclamationmark.triangle.fill") }
-                            .foregroundStyle(.red)
-                    }
-                    if let e = model.actionErrors[.forget] {
-                        Label { Text("Couldn't forget the knob: \(Text(e.message))",
-                                     comment: "Settings › Knob error under Status; the argument is a short reason (\"Server unreachable\").") }
+                                     comment: "Settings › Knob error under Crash dumps after a crash dump download; the argument is the file system's reason.") }
                             icon: { Image(systemName: "exclamationmark.triangle.fill") }
                             .foregroundStyle(.red)
                     }
                 }
-            }
-            .confirmationDialog(Text("Forget “\(knob.name)”?",
-                                     comment: "Settings › Knob confirm title; the argument is the knob's name (\"Desk knob\")."),
-                                isPresented: $confirmForget, titleVisibility: .visible) {
-                Button("Forget Knob", role: .destructive) { Task { await model.forget() } }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB.")
             }
         }
     }
@@ -139,28 +156,17 @@ struct KnobStatusSection: View {
         }
     }
 
-    @ViewBuilder private func wifiRow(_ rssi: Int, _ wifi: KnobWifi?) -> some View {
-        let row = LabeledContent("Wi-Fi") { wifiLinkText(rssi, wifi) }
-        if let bssid = wifi?.bssid {
+    @ViewBuilder private func wifiRow(_ channel: Int, _ wifi: KnobWifi) -> some View {
+        let row = LabeledContent("Wi-Fi") {
+            Text("Channel \(channel)",
+                 comment: "Settings › Knob Diagnostics: the Wi-Fi channel the knob uses (\"Channel 6\").")
+        }
+        if let bssid = wifi.bssid {
             row.help(Text("Access point \(bssid)",
                           comment: "Settings › Knob: tooltip on the Wi-Fi row naming the access point the knob uses (\"Access point 78:45:58:4b:c2:cd\")."))
         } else {
             row
         }
-    }
-
-    private func wifiLinkText(_ rssi: Int, _ wifi: KnobWifi?) -> Text {
-        var text = rssi != 0 ? wifiSignalText(rssi)
-            : Text("Signal unknown", comment: "Settings › Knob Wi-Fi row when the knob could not read its signal, before the lowest signal and channel (\"Signal unknown, channel 6\").")
-        if let low = wifi?.rssiMin, low != 0 {
-            text = Text("\(text) (min \(low) dBm)",
-                        comment: "Settings › Knob Wi-Fi row: the signal, then its lowest value since the last check-in (\"Weak · -74 dBm (min -83 dBm)\").")
-        }
-        if let channel = wifi?.channel, channel > 0 {
-            text = Text("\(text), channel \(channel)",
-                        comment: "Settings › Knob Wi-Fi row: the signal, then the Wi-Fi channel (\"Weak · -74 dBm, channel 6\").")
-        }
-        return text
     }
 
     private func reconnects(_ wifi: KnobWifi) -> Text {
@@ -173,19 +179,7 @@ struct KnobStatusSection: View {
                     comment: "Settings › Knob: Wi-Fi reconnects since the knob started, then the last disconnect's ESP-IDF reason code this app has no words for (\"3 (last: reason 250)\").")
     }
 
-    @ViewBuilder private func diagRows(_ diag: KnobDiag, device: String) -> some View {
-        if let crash = diag.crash {
-            LabeledContent("Crash") {
-                HStack {
-                    crashText(crash).foregroundStyle(.orange).textSelection(.enabled)
-                    if let dump = env.knob.coredump(for: crash) {
-                        downloadButton(dump, device: device)
-                    }
-                    elfButton(crash.elf)
-                }
-            }
-            .help("The knob saved a crash dump in flash. It uploads the dump to Ember and erases it once Ember has it; older firmware reports it on every check-in until it is erased over USB (idf.py coredump-erase or a reflash).")
-        }
+    @ViewBuilder private func diagRows(_ diag: KnobDiag) -> some View {
         if let reset = diag.resetReason?.nonEmpty {
             LabeledContent("Last restart") { resetText(reset, diag) }
                 .help("Why the knob last started, as ESP-IDF reports it.")
@@ -194,42 +188,63 @@ struct KnobStatusSection: View {
             LabeledContent("Boots") { bootsText(boots, reboots: diag.reboots ?? 0) }
                 .help("Times the knob has started since its flash was erased.")
         }
-        if let low = diag.heapInternalMin, low > 0 {
-            LabeledContent("Lowest free memory") {
-                if let largest = diag.largestBlockMin {
-                    Text("\(bytes(low)), largest block down to \(bytes(largest))",
-                         comment: "Settings › Knob: the lowest free internal RAM since the knob started, then the smallest its largest free block got (\"69 KB, largest block down to 30 KB\").")
-                } else {
-                    Text(verbatim: bytes(low))
-                }
-            }
-            .help("The low point of internal RAM since the knob started.")
-        }
     }
 
-    @ViewBuilder private func storedDumpRows(_ dumps: [KnobCoredump], device: String) -> some View {
-        if !dumps.isEmpty {
-            LabeledContent("Crash dumps") {
-                VStack(alignment: .trailing) {
-                    ForEach(dumps) { dump in
-                        HStack {
-                            dumpText(dump).textSelection(.enabled)
-                            downloadButton(dump, device: device)
-                            elfButton(dump.elf)
-                            deleteControl(dump)
-                        }
-                    }
+    private func crashRow(_ crash: KnobCrash, device: String) -> some View {
+        let dump = env.knob.coredump(for: crash)
+        return VStack(alignment: .leading, spacing: 4) {
+            crashText(crash).foregroundStyle(.orange).textSelection(.enabled)
+            Group {
+                if let dump {
+                    dumpDetails(dump)
+                } else if env.knob.coredumpsLoaded {
+                    Text("Still in the knob's flash")
                 }
             }
-            .help("Crash dumps the knob uploaded to Ember. Ember keeps the newest three.")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                if let dump { downloadButton(dump, device: device) }
+                elfButton(crash.elf)
+            }
         }
+        .padding(.vertical, 2)
+        .help("The knob saved a crash dump in flash. It uploads the dump to Ember and erases it once Ember has it; older firmware reports it on every check-in until it is erased over USB (idf.py coredump-erase or a reflash).")
     }
 
-    private func dumpText(_ dump: KnobCoredump) -> Text {
-        let crash = crashText(KnobCrash(pc: dump.pc.nonEmpty, reason: dump.reason.nonEmpty, task: dump.task.nonEmpty))
+    private func dumpRow(_ dump: KnobCoredump, device: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            crashText(KnobCrash(pc: dump.pc.nonEmpty, reason: dump.reason.nonEmpty, task: dump.task.nonEmpty))
+                .textSelection(.enabled)
+            dumpDetails(dump).font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                downloadButton(dump, device: device)
+                elfButton(dump.elf)
+                deleteControl(dump)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func dumpDetails(_ dump: KnobCoredump) -> Text {
         let when = dump.receivedAt.formatted(date: .abbreviated, time: .shortened)
-        return Text("\(crash), firmware \(dump.fw.nonEmpty ?? "—"), \(when)",
-                    comment: "Settings › Knob Crash dumps row: the crash, the knob firmware when it crashed, and when Ember received the dump (\"Panic in ember, firmware 0.9.14, 6 Oct 2026 at 10:00\").")
+        let size = ByteCountFormatter.string(fromByteCount: Int64(dump.size), countStyle: .memory)
+        let fw = dump.firmware(images: env.knob.ota.images)
+        switch (fw.crashed, fw.uploadedBy) {
+        case let (crashed?, uploader?):
+            return Text("Firmware \(crashed), uploaded by \(uploader) · \(size) · \(when)",
+                        comment: "Settings › Knob Crash dumps row details: the firmware that crashed, the firmware that uploaded the dump later, the dump's size and when Ember received it (\"Firmware 0.9.13, uploaded by 0.9.14 · 64 KB · 6 Oct 2026 at 10:00\").")
+        case let (crashed?, nil):
+            return Text("Firmware \(crashed) · \(size) · \(when)",
+                        comment: "Settings › Knob Crash dumps row details: the firmware that crashed, the dump's size and when Ember received it (\"Firmware 0.9.14 · 64 KB · 6 Oct 2026 at 10:00\").")
+        case let (nil, uploader?):
+            return Text("Uploaded by \(uploader) · \(size) · \(when)",
+                        comment: "Settings › Knob Crash dumps row details: the firmware that uploaded the dump (the crashed build is unknown), the dump's size and when Ember received it (\"Uploaded by 0.9.14 · 64 KB · 6 Oct 2026 at 10:00\").")
+        case (nil, nil):
+            return Text(verbatim: "\(size) · \(when)")
+        }
     }
 
     @ViewBuilder private func deleteControl(_ dump: KnobCoredump) -> some View {
@@ -325,9 +340,5 @@ struct KnobStatusSection: View {
         case (nil, nil):
             return Text(verbatim: reason)
         }
-    }
-
-    private func bytes(_ n: Int) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .memory)
     }
 }
