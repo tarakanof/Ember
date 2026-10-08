@@ -64,6 +64,7 @@ type App struct {
 	viewWaiters   viewWaiters
 	viewRecheck   time.Duration
 	viewWaitHook  func()
+	otaReadHook   func()
 	knobStats     *knobStatsStore
 	wifiDrops     checkinDropLog
 	diagDrops     checkinDropLog

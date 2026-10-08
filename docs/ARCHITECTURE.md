@@ -2556,14 +2556,34 @@ written only when it changes (never per progress tick): the checkin
 computes the step on a copy under the registry lock and persists only a
 difference. Progress (`bytes`) and `waiting_for` live in memory.
 `last_checkin` keeps the knob's `fw_build` and `ota` report as sent.
-A DELETE also resets a knob whose last attempt of the deleted version
-failed or rolled back: `target`, `retry`, `version`, `phase`, `error` and
-the attempt's details are cleared, `mode`, `blocked` and the `attempt`
-counter stay, and a cleared target bumps the epoch. Without it the parked
-target would point at a missing image: no offer, auto mode stuck behind
-it, and a Retry waiting for a checkin forever. A checkin also drops a
-target whose image is gone outside an active phase (a Retry racing a
-DELETE).
+A DELETE or a retention eviction (not a replace, whose version still
+exists) also retires the version from every knob outside an active
+attempt: a `target` naming it is cleared with `retry` (bumping the epoch),
+and a record whose `version` it is, unless `done`, is reset (`version`,
+`phase`, `error` and the attempt's details cleared; `mode`, `blocked`, the
+`attempt` counter and any other target stay). Without it a parked target
+or a dismissed attempt would point at a missing image: no offer, auto
+mode stuck behind it, a Retry waiting for a checkin forever.
+
+**Firmware generation (#330).** The registry keeps an in-memory
+`fwGen`. Every removal bumps it under the registry lock in the same step
+as its in-use check (`otaTargets` for a DELETE or replace, `otaKeeps` for
+each version retention evicts), while the store lock is still held, so
+the check, the bump, the purge and the retire are one step to anyone who
+reads the store. A checkin reads `fwGen` and the epoch before it reads the
+store, and its registry update offers or clears only if `fwGen`, the
+target, the mode and the attempt are unchanged; otherwise it records the
+knob's result and waits for the next checkin. Its dangling-target clear
+(a target whose image is gone, outside an active attempt) also needs an
+unchanged epoch, so a target re-selected after a re-upload survives. A
+`PUT` with a target or a retry checks the image for the version it would
+set (the explicit target, else the current target, else the last
+attempt's version) against the store, then commits only if `fwGen` and
+that version are unchanged, retrying up to 3 times (then 409
+`firmware_changed`). So a Retry can't revive a version a DELETE or an
+eviction has claimed: a Retry before the claim makes the version held
+(DELETE 409), and one after it finds the image gone (400). Both orders
+are pinned by tests through `otaReadHook` and the store's `rename` seam.
 
 **Checkin.** The knob adds `fw_build` (8 hex; ignored when malformed) and
 `ota` `{"image":"valid|pending_verify|new|undefined","last":{"attempt","error","result":"ok|failed|rolled_back","version"},"phase":"idle|waiting|rebooting","rollback":bool,"slot":0|1}`
@@ -2641,8 +2661,10 @@ the newest stored version above the running one, any channel, not in
 the current or last attempt's version, also for automatic ones). `PUT`
 merges `mode`, `target` (`null` clears it and cancels an offer that has
 not started downloading; after a `failed` or `rolled_back` attempt it also
-dismisses the failure: phase `idle`, `error` cleared, the version stays
-in `blocked`, with or without a target) and `retry` (re-offers the last version once with
+dismisses the failure: phase `idle`, `error` cleared, `blocked` unchanged
+(a manual `not_started` timeout never blocked its version), with or
+without a target; clearing a target is 409 `ota_in_progress` while
+`downloading`, since the knob would carry on with the download anyway) and `retry` (re-offers the last version once with
 `retry:true`, which clears the knob's own bad-image guard, and unblocks
 it). Setting the target to the version that just failed or rolled back,
 or to any version in `blocked`, is a retry too (unblocked, `retry:true`):
@@ -2651,7 +2673,8 @@ install (`done`) also removes the version from `blocked`. A target or retry is 4
 checkin has no `ota.rollback`; a new target, clearing the target or a
 retry is 409 `ota_in_progress` while the phase is `installing`,
 `restarting` or `verifying` (the knob holds the staged or unconfirmed
-image, and its result would be lost); an unknown version is 400. Goldens:
+image, and its result would be lost); an unknown version is 400, and so
+is a retry whose version Ember no longer stores. Goldens:
 `knob_ota_idle.json`, `knob_ota_downloading.json`,
 `knob_ota_rolled_back.json`, `firmware_list.json` in
 `cmd/ember/testdata/dashboard` (EmberKit decodes them).
@@ -2670,7 +2693,7 @@ the phase line (with Cancel Update, `PUT …/ota {"target":null}`, while a
 target waits in `idle` or `offered`), or the failure line (naming the attempt's `version`),
 Retry and Dismiss (`PUT …/ota {"target":null}`: it clears a parked
 target and the failure, so the line and the collapsed "Update to X failed"
-go away; the version stays in `blocked`). It polls `GET …/ota` every second only while the phase is
+go away; `blocked` is unchanged). It polls `GET …/ota` every second only while the phase is
 `downloading`, `installing` or `restarting` and the pane is open; the
 pane's 15 s reload covers the rest. Deleting the version a knob runs is
 allowed (the knob keeps both images in flash), but the confirmation says
@@ -2685,7 +2708,8 @@ menu that `PATCH`es either way (Test to Release asks first and says what
 Automatic would do with it), Download ELF and Delete…, which asks in a
 dialog naming the version (a 404 counts as
 already deleted; the list reloads either way; a refusal shows under that
-row, a 409 as "a knob's update is set to this version" with the way out). Upload… sits under the list (upload
+row, a 409 as "a knob is updating to this version or waiting to", with the
+way out). Upload… sits under the list (upload
 `cinder.bin` plus a `cinder.elf` or `<name>.elf` next to it, channel Test
 by default, upload progress from the `URLSession` upload task).
 Uploads and ELF downloads use the `transfer` request budget (60 s per

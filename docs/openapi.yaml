@@ -1824,7 +1824,8 @@ paths:
         `X-Ember-Devices-Epoch`, so the knob checks in within one view poll.
         `target: null` cancels an offer that has not started downloading; after a
         failed or rolled-back attempt it also dismisses the failure (phase `idle`,
-        `error` null, the version stays in `blocked`).
+        `error` null, `blocked` unchanged). A target or retry naming a version
+        Ember no longer stores is 400.
         `retry: true` re-offers the last version once with `retry: true` and
         removes it from `blocked`; setting the target to the version that just
         failed or rolled back, or to any blocked version, does the same. A
@@ -1867,8 +1868,10 @@ paths:
           description: >-
             `{"error":"no_rollback_bootloader"}`: the last checkin has no `ota.rollback`
             (target or retry only). `{"error":"ota_in_progress"}`: the knob is installing,
-            restarting or verifying, so a new target, clearing the target or a retry waits
-            until the attempt ends.
+            restarting or verifying (or, for clearing the target, downloading), so a new
+            target, clearing the target or a retry waits until the attempt ends.
+            `{"error":"firmware_changed"}`: stored firmware kept changing while the
+            request was checked; try again.
           content:
             application/json:
               schema:
@@ -2018,8 +2021,9 @@ paths:
         left, also for a version the store does not index (for example a directory
         that failed to load at boot; the answer is then 404). Once they are gone,
         on 204 or 404, the version is dropped from every knob's OTA `blocked` list,
-        and a knob whose last attempt of it failed or rolled back is reset (target,
-        version, phase and error cleared; a cleared target bumps the devices epoch).
+        and every knob outside an active attempt forgets it: a target naming it is
+        cleared (bumping the devices epoch), and a record whose last attempt it was
+        (unless done) is reset. Retention eviction does the same.
         A target parked after that version failed or rolled back does not block the
         DELETE. A 409 (the version is otherwise targeted, indexed or not, or being
         offered) or a failed removal (500)
