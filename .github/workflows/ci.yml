@@ -155,28 +155,18 @@ jobs:
     needs: changes
     if: needs.changes.outputs.macos == 'true'
     runs-on: macos-latest
-    env:
-      # knob-theme.json parity with cinder's firmware source (themeMatchesCinderSource,
-      # cinder#42). cinder is private: the check needs a read-only token in the
-      # CINDER_READ_TOKEN secret. Without it (fork PRs, or not set up) the test skips.
-      HAS_CINDER_TOKEN: ${{ secrets.CINDER_READ_TOKEN != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Checkout cinder main (theme parity)
-        if: env.HAS_CINDER_TOKEN == 'true'
         uses: actions/checkout@v6
         with:
           repository: tarakanof/cinder
           ref: main
           path: cinder
-          token: ${{ secrets.CINDER_READ_TOKEN }}
+          persist-credentials: false
           sparse-checkout: firmware
-
-      - name: Theme parity skipped
-        if: env.HAS_CINDER_TOKEN != 'true'
-        run: echo "::notice::CINDER_READ_TOKEN not set; knob-theme parity with cinder is not checked"
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -188,9 +178,9 @@ jobs:
         run: brew install xcodegen
 
       - name: swift test (EmberKit)
-        run: |
-          if [ "$HAS_CINDER_TOKEN" = true ]; then export CINDER_DIR="$GITHUB_WORKSPACE/cinder"; fi
-          swift test --package-path macos
+        env:
+          CINDER_DIR: ${{ github.workspace }}/cinder
+        run: swift test --package-path macos
 
       - name: xcodegen generate
         run: xcodegen generate --spec macos/project.yml --project macos
