@@ -197,6 +197,7 @@ type deviceRegistry struct {
 	loadErr      error
 	persistedAt  time.Time
 	dirty        bool
+	fwGen        uint64
 
 	// Runs under mu: it must not block or call back into the registry.
 	onChange func()

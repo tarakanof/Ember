@@ -516,6 +516,10 @@
       "extractionState" : "manual"
     },
     "A hidden tool's sessions still report; the clock skips them. Changes apply at once." : {},
+    "A knob is updating to this version or waiting to. Wait until that update finishes, or use Cancel Update in the Firmware row if it shows, then delete again." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "A meeting chimes with its popup, so it needs a popup time in Clock › Apps › Calendar. The severe weather sound plays with its alert, set in Sources › Weather. Quiet hours, in Sounds & Alerts, mute all of these." : {},
     "A permission Ember needs is off." : {},
     "A popup shortly before each meeting" : {
@@ -720,6 +724,7 @@
     "Calendar, bar above" : {},
     "Calendar, bar below" : {},
     "Cancel" : {},
+    "Cancel Update" : {},
     "Cards" : {},
     "Celsius" : {},
     "Centered" : {},
@@ -766,6 +771,7 @@
     "Claude hooks are registered twice, by the ember@ember plugin and in settings.json, so every event is sent twice." : {},
     "Clear" : {},
     "Clear night" : {},
+    "Clear this failed update." : {},
     "Clock" : {},
     "Clock Agent Settings…" : {},
     "Clock Sounds…" : {},
@@ -849,6 +855,20 @@
       "comment" : "Settings › Knob Firmware section error; the argument is a short reason (\"Server unreachable\")."
     },
     "Couldn't check" : {},
+    "Couldn't clear the update: %@" : {
+      "comment" : "Settings › Knob Firmware row error after Dismiss or Cancel Update; the argument is a short reason (\"Server unreachable\")."
+    },
+    "Couldn't delete %@: %@" : {
+      "comment" : "Settings › Knob Firmware & updates image row error after Delete; the version, then why (\"Couldn't delete 0.9.17: A knob is updating to this version or waiting to. …\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't delete %1$@: %2$@"
+          }
+        }
+      }
+    },
     "Couldn't delete the crash dump: %@" : {
       "comment" : "Settings › Knob error under Crash dumps after deleting a stored crash dump failed; the argument is a short reason (\"Server unreachable\")."
     },
@@ -976,6 +996,7 @@
     "Disabled row" : {},
     "Discover Clocks…" : {},
     "Discovered Servers" : {},
+    "Dismiss" : {},
     "Dismiss Notification" : {},
     "Display" : {},
     "Display link" : {},
@@ -1054,6 +1075,10 @@
     "Ember removes the image." : {},
     "Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB." : {},
     "Ember shows one knob. After this setup it forgets the other knob and revokes its token." : {},
+    "Ember's stored firmware changed while saving. Try again." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Enable Pomodoro" : {},
     "Enable weather" : {},
     "End" : {},
@@ -2060,6 +2085,10 @@
     "The knob didn't return a scan. Type the network name." : {},
     "The knob dims and brightens with the clock. It never goes below the minimum." : {},
     "The knob forgets its Wi-Fi, Ember address and token, then restarts to its setup screen. Ember keeps its settings here until you forget it." : {},
+    "The knob has already started this update. Wait until it finishes." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The knob has no light sensor, so it uses the level Ember works out from the clock's light sensor, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

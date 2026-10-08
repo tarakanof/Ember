@@ -51,10 +51,19 @@ struct KnobOTAProgress: View {
                     ProgressView().progressViewStyle(.linear).frame(width: 180)
                 }
                 phaseText.foregroundStyle(.secondary)
+                if status.canCancel {
+                    Button("Cancel Update") { Task { await ota.cancel() } }
+                        .disabled(ota.running.contains(.cancel))
+                }
             } else if status.phase.isFailure {
                 failureText.foregroundStyle(.red)
-                Button("Retry") { Task { await ota.retry() } }
-                    .disabled(!status.canRollBack || ota.running.contains(.retry))
+                HStack {
+                    Button("Dismiss") { Task { await ota.cancel() } }
+                        .disabled(ota.running.contains(.cancel))
+                        .help("Clear this failed update.")
+                    Button("Retry") { Task { await ota.retry() } }
+                        .disabled(!status.canRollBack || ota.running.contains(.retry))
+                }
             } else if status.phase == .done, let at = status.finishedAt, at > .now.addingTimeInterval(-3600),
                       let fw = status.running?.fw {
                 Text("Updated to \(fw)",
@@ -69,6 +78,11 @@ struct KnobOTAProgress: View {
             if let e = ota.errors[.update] ?? ota.errors[.retry] {
                 Text("Couldn't start the update: \(Text(e.message))",
                      comment: "Settings › Knob Firmware row error; the argument is a short reason (\"Server unreachable\").")
+                    .foregroundStyle(.red)
+            }
+            if let e = ota.errors[.cancel] {
+                Text("Couldn't clear the update: \(Text(e.message))",
+                     comment: "Settings › Knob Firmware row error after Dismiss or Cancel Update; the argument is a short reason (\"Server unreachable\").")
                     .foregroundStyle(.red)
             }
         }
@@ -217,7 +231,7 @@ struct KnobFirmwareSection: View {
                      comment: "Settings › Knob Firmware section error; the argument is a short reason (\"Server unreachable\").")
                     .foregroundStyle(.red)
             }
-            ForEach([KnobOTAAction.upload, .install, .channel, .delete, .elf], id: \.self) { action in
+            ForEach([KnobOTAAction.upload, .install, .channel, .elf], id: \.self) { action in
                 if let e = ota.errors[action] {
                     Label { Text(e.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                         .foregroundStyle(.red)
@@ -304,6 +318,14 @@ struct KnobFirmwareSection: View {
                 }
                 Button("Delete…") { confirmDelete = image }
                     .disabled(ota.running.contains(.delete))
+            }
+            if let e = ota.deleteError(for: image) {
+                Label { Text("Couldn't delete \(image.version): \(Text(e.message))",
+                             comment: "Settings › Knob Firmware & updates image row error after Delete; the version, then why (\"Couldn't delete 0.9.17: A knob is updating to this version or waiting to. …\").") }
+                    icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 2)

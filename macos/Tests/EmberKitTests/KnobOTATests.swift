@@ -98,6 +98,11 @@ private final class OTAServer: @unchecked Sendable {
     var log: [String] { lock.withLock { _log } }
     func body(_ key: String) -> Data? { lock.withLock { _bodies[key] } }
     private var _putReply: (Int, String)?
+    private var _deleteInUse = false
+    var deleteInUse: Bool {
+        get { lock.withLock { _deleteInUse } }
+        set { lock.withLock { _deleteInUse = newValue } }
+    }
     var putReply: (Int, String)? {
         get { lock.withLock { _putReply } }
         set { lock.withLock { _putReply = newValue } }
@@ -137,6 +142,8 @@ private final class OTAServer: @unchecked Sendable {
             return (okResponse(url), Data(#"{"build":"8dcd6329","channel":"\#(channel)","elf":false,"idf_ver":"v5.5.5","project":"cinder","sha256":"x","size":1,"uploaded_at":"2026-10-06T12:00:00Z","version":"\#(version)"}"#.utf8))
         case ("DELETE", "/v1/firmware/0.9.15-rc1"):
             return (okResponse(url, status: 204), Data())
+        case ("DELETE", "/v1/firmware/0.9.14") where deleteInUse:
+            return (okResponse(url, status: 409), Data(#"{"error":"this version is a device's update target"}"#.utf8))
         case ("GET", "/v1/firmware/by-build/42f7f65e/elf"):
             return (okResponse(url), Data([0x7f, 0x45, 0x4c, 0x46]))
         default:
@@ -441,4 +448,50 @@ private final class Ticks: @unchecked Sendable {
     #expect(server.log.filter { $0 == "GET /v1/devices/knob-61fc8c/ota" }.count == 2)
     #expect(m.ota.status?.phase == .idle)
     #expect(reloads == 1)
+}
+
+@MainActor
+@Test func otaDeleteRefusalNamesTheRowAndTheWayOut() async throws {
+    let server = OTAServer()
+    server.deleteInUse = true
+    let m = otaModel(server)
+    await m.load()
+    let rc = try #require(m.ota.images.first { $0.version == "0.9.15-rc1" })
+    let targeted = try #require(m.ota.images.first { $0.version == "0.9.14" })
+    #expect(await m.ota.delete(targeted) == false)
+    #expect(m.ota.deleteError(for: targeted) == .rejected(KnobOTAError.inUse))
+    #expect(m.ota.deleteError(for: rc) == nil)
+    #expect(await m.ota.delete(rc))
+    #expect(m.ota.deleteError(for: targeted) == nil)
+}
+
+@Test func otaDeleteFailureKeepsOtherErrors() {
+    #expect(KnobOTAError.deleteFailure(APIError.http(status: 409, body: #"{"error":"this version is a device's update target"}"#)) == .rejected(KnobOTAError.inUse))
+    #expect(KnobOTAError.deleteFailure(APIError.http(status: 500, body: "boom")) == FeedError(APIError.http(status: 500, body: "boom")))
+}
+
+@MainActor
+@Test func otaCancelClearsTheTargetUnderItsOwnAction() async throws {
+    let server = OTAServer()
+    let m = otaModel(server)
+    await m.load()
+    #expect(await m.ota.cancel())
+    let sent = try #require(server.body("PUT /v1/devices/knob-61fc8c/ota"))
+    #expect(String(data: sent, encoding: .utf8) == #"{"target":null}"#)
+    server.putReply = (409, #"{"error":"ota_in_progress"}"#)
+    #expect(await m.ota.cancel() == false)
+    #expect(m.ota.errors[.cancel] == .rejected(KnobOTAError.alreadyDownloading))
+    #expect(m.ota.errors[.update] == nil)
+}
+
+@Test func otaCanCancelOnlyAWaitingTarget() {
+    #expect(KnobOTAStatus(target: "0.9.14", phase: .idle).canCancel)
+    #expect(KnobOTAStatus(target: "0.9.14", phase: .offered).canCancel)
+    #expect(!KnobOTAStatus(target: "0.9.14", phase: .downloading).canCancel)
+    #expect(!KnobOTAStatus(target: "0.9.14", phase: .rolledBack).canCancel)
+    #expect(!KnobOTAStatus(phase: .offered).canCancel)
+}
+
+@Test func otaUpdateFailureNamesAChangedStore() {
+    #expect(KnobOTAError.updateFailure(APIError.http(status: 409, body: #"{"error":"firmware_changed"}"#)) == .rejected(KnobOTAError.firmwareChanged))
 }

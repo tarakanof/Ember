@@ -1822,7 +1822,10 @@ paths:
       description: >-
         Merge: omitted keys keep their value. Setting a target or a retry bumps
         `X-Ember-Devices-Epoch`, so the knob checks in within one view poll.
-        `target: null` cancels an offer that has not started downloading.
+        `target: null` cancels an offer that has not started downloading; after a
+        failed or rolled-back attempt it also dismisses the failure (phase `idle`,
+        `error` null, `blocked` unchanged). A target or retry naming a version
+        Ember no longer stores is 400.
         `retry: true` re-offers the last version once with `retry: true` and
         removes it from `blocked`; setting the target to the version that just
         failed or rolled back, or to any blocked version, does the same. A
@@ -1865,8 +1868,10 @@ paths:
           description: >-
             `{"error":"no_rollback_bootloader"}`: the last checkin has no `ota.rollback`
             (target or retry only). `{"error":"ota_in_progress"}`: the knob is installing,
-            restarting or verifying, so a new target, clearing the target or a retry waits
-            until the attempt ends.
+            restarting or verifying (or, for clearing the target, downloading), so a new
+            target, clearing the target or a retry waits until the attempt ends.
+            `{"error":"firmware_changed"}`: stored firmware kept changing while the
+            request was checked (any PUT, including a mode change); try again.
           content:
             application/json:
               schema:
@@ -1924,7 +1929,7 @@ paths:
         - name: replace
           in: query
           required: false
-          description: "`1` replaces a stored version with other bytes unless it is a device's target. Once stored, the version is unblocked on every knob."
+          description: "`1` replaces a stored version with other bytes unless it is a device's target (a target parked after it failed or rolled back does not count). Once stored, the version is unblocked on every knob."
           schema:
             type: string
             enum: ["1"]
@@ -2015,8 +2020,13 @@ paths:
         Removes the version's directory and any `.old-<version>-*` copy a replace
         left, also for a version the store does not index (for example a directory
         that failed to load at boot; the answer is then 404). Once they are gone,
-        on 204 or 404, the version is dropped from every knob's OTA `blocked` list.
-        A 409 (the version is targeted, indexed or not) or a failed removal (500)
+        on 204 or 404, the version is dropped from every knob's OTA `blocked` list,
+        and every knob outside an active attempt forgets it: a target naming it is
+        cleared (bumping the devices epoch), and a record whose last attempt it was
+        (unless done) is reset. Retention eviction does the same.
+        A target parked after that version failed or rolled back does not block the
+        DELETE. A 409 (the version is otherwise targeted, indexed or not, or being
+        offered) or a failed removal (500)
         keeps it blocked; after a 500 the version stays listed and whole, so the
         DELETE can be retried.
       x-internal: true
@@ -2031,7 +2041,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: The version is a device's target or is being offered.
+          description: The version is a device's target (not one parked after it failed or rolled back) or is being offered.
           content:
             application/json:
               schema:
