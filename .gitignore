@@ -32,3 +32,4 @@
 
 # Claude Code agent worktrees
 .claude/worktrees/
+.claude/settings.local.json

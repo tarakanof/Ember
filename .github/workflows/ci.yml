@@ -98,7 +98,6 @@ jobs:
           load: true
           push: false
           tags: ember:vcs-check
-          cache-from: type=gha
           provenance: false
           sbom: false
 
