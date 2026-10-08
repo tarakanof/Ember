@@ -324,6 +324,9 @@ the workflow file itself) that installs `xcodegen`, runs `swift test
 runner, so `build-producers.sh`'s sign phase skips itself under
 `GITHUB_ACTIONS` (see that script) — then `scripts/strings.sh check` on that
 build, which fails when a string is missing from the catalog.
+The `image-vcs` job builds the amd64 image on every push/PR and runs
+`scripts/check-image-vcs.sh`: it fails unless `ember version` in the image shows
+the checked-out commit without `+dirty`.
 Launch-at-login is in-app (App tab → `SMAppService`), not a LaunchAgent. The app
 reads `producer.env` for connection config and needs a server on a build that
 includes `GET /v1/preview` (added 2026-05; older servers 401 that route).
@@ -1216,7 +1219,9 @@ auto-build** — you cut a Release, the workflow builds + pushes the image, then
 repoint the container. The release workflow
 (`.github/workflows/docker-publish.yml`) fires when a strict-semver `vX.Y.Z`
 GitHub Release is published (or a `workflow_dispatch` on a `vX.Y.Z` tag ref) →
-multi-arch Docker Hub push (SBOM + provenance). The same release event runs
+multi-arch Docker Hub push (SBOM + provenance). Before the push it builds an
+amd64 image and runs `scripts/check-image-vcs.sh`, which refuses to publish a
+binary stamped `+dirty` or with a revision other than the tagged commit. The same release event runs
 `.github/workflows/release-producers.yml`: `scripts/package-producers.sh` on a
 macOS runner builds the producers for linux/amd64, linux/arm64 and darwin
 (universal, ad-hoc signed, not notarized) and uploads one `tar.gz` per OS/arch

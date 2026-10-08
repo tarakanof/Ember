@@ -50,6 +50,10 @@ if echo "$ver" | grep -q "unknown"; then
   echo "smoke: FAIL — version subcommand reports 'unknown' (likely .git missing from build context)" >&2
   exit 1
 fi
+if [ -z "$(git status --porcelain)" ] && echo "$ver" | grep -q "+dirty"; then
+  echo "smoke: FAIL — clean checkout but the image reports +dirty (.dockerignore excludes a tracked file?)" >&2
+  exit 1
+fi
 
 ver_http="$(curl -fsS http://localhost:13627/version)"
 echo "smoke: /version output: $ver_http"

@@ -1,5 +1,6 @@
 .gocache
-.claude
+.claude/worktrees
+.claude/settings.local.json
 *.log
 *.test
 *.out

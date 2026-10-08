@@ -3569,6 +3569,11 @@ uncommitted `NSTextField` edits) are no longer live constraints.
 - **Building inside a git *worktree* hides the VCS revision** from Docker
   `buildvcs` (the worktree `.git` is a file) → `version: unknown`. Build from a
   normal checkout / CI.
+- **`.dockerignore` must never exclude a tracked file.** The build stage runs
+  `go build -buildvcs=true` against the copied `.git`; a tracked file missing
+  from the context shows as deleted, and every image is stamped `+dirty`
+  (v0.46.4 and earlier: `.claude` was excluded whole). `scripts/check-image-vcs.sh`
+  enforces this in CI (`image-vcs`) and before publish.
 
 ## Conventions
 
