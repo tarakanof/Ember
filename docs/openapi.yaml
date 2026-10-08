@@ -2295,7 +2295,7 @@ paths:
                         reason:
                           type: string
                           pattern: "^[a-z0-9_]{1,24}$"
-                          description: panic, int_wdt, task_wdt, wdt or unknown.
+                          description: panic, int_wdt, task_wdt, wdt, lvgl_stall or unknown.
                         task:
                           type: string
                           minLength: 1
