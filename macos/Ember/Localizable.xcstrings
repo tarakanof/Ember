@@ -2479,7 +2479,7 @@
     "^[%lld session](inflect: true) today" : {
       "comment" : "Focus card with no daily goal: focus sessions completed today."
     },
-    "a task ran out of stack after the update" : {
+    "a task ran low on stack after the update" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -2641,7 +2641,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
-    "the display link failed after the update" : {
+    "the display link check did not pass after the update" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -2686,10 +2686,6 @@
       "extractionState" : "manual"
     },
     "the knob restarted while the update was waiting to install" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
-      "extractionState" : "manual"
-    },
-    "the knob stopped responding to input after the update" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },

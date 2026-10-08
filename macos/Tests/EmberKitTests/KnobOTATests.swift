@@ -72,11 +72,10 @@ private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
 
 @Test(arguments: [
     ("reset_waiting", "the knob restarted while the update was waiting to install"),
-    ("health_display", "the display link failed after the update"),
+    ("health_display", "the display link check did not pass after the update"),
     ("health_render", "the screen did not draw after the update"),
-    ("health_input", "the knob stopped responding to input after the update"),
     ("health_heap", "memory ran low after the update"),
-    ("health_stack", "a task ran out of stack after the update"),
+    ("health_stack", "a task ran low on stack after the update"),
 ])
 func otaHealthAndResetLabels(code: String, label: String) {
     #expect(KnobOTAError.label(code) == label)

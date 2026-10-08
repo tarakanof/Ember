@@ -2568,15 +2568,15 @@ phase, `offered` included (a failure before any byte was served, or the
 knob's own guards refusing the offer). `error` is the knob's short code
 (`^[a-z0-9_]{1,24}$`, stored as sent), among them `reset_waiting` (the
 knob restarted with a verified image still waiting to install) and
-`health_display`, `health_render`, `health_input`, `health_heap`,
-`health_stack` (rolled back: the new image failed that health check
-before it was marked valid, cinder#1). The app turns known codes into a
-sentence (`KnobOTAError.label`) and shows others as sent. Every new offer
-(another version, or a Retry) takes the next `attempt` id, a per-device counter kept in the
-record, always one past the larger of the record's counter and the
-`ota.last.attempt` in the checkin, so a re-paired knob or a registry
-restored from an older backup never gets an id the knob still holds;
-repeats of the same offer keep it. The knob stores the id with
+`health_display`, `health_render`, `health_heap`, `health_stack` (rolled
+back: the new image failed that health check before it was marked valid,
+cinder#1). The app turns known codes into a sentence
+(`KnobOTAError.label`) and shows others as sent. Every new offer (another
+version, or a Retry) takes the next `attempt` id, a per-device counter
+kept in the record, always one past the larger of the record's counter
+and the `ota.last.attempt` in the checkin, so a re-paired knob or a
+registry restored from an older backup never gets an id the knob still
+holds; repeats of the same offer keep it. The knob stores the id with
 its attempt and echoes it in `ota.last.attempt`, so a `last` it keeps in
 NVS from an earlier attempt (it does until a new attempt starts) never
 fails or finishes the current one. When the knob declines an offer for a

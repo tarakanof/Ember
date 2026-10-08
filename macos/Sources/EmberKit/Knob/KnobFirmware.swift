@@ -194,11 +194,10 @@ public enum KnobOTAError {
         case "refused": String(localized: "the knob refused this image after it failed there before")
         case "not_started": String(localized: "the knob never started the download")
         case "reset_waiting": String(localized: "the knob restarted while the update was waiting to install")
-        case "health_display": String(localized: "the display link failed after the update")
+        case "health_display": String(localized: "the display link check did not pass after the update")
         case "health_render": String(localized: "the screen did not draw after the update")
-        case "health_input": String(localized: "the knob stopped responding to input after the update")
         case "health_heap": String(localized: "memory ran low after the update")
-        case "health_stack": String(localized: "a task ran out of stack after the update")
+        case "health_stack": String(localized: "a task ran low on stack after the update")
         default:
             if let status = code.split(separator: "_").last, code.hasPrefix("http_") {
                 String(localized: "Ember answered HTTP \(String(status))",
