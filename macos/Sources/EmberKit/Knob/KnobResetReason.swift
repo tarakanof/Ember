@@ -3,7 +3,7 @@ import Foundation
 public enum KnobResetReason {
     public static let known = [
         "unknown", "poweron", "ext", "sw", "panic", "int_wdt", "task_wdt", "wdt", "deepsleep",
-        "brownout", "sdio", "usb", "jtag", "efuse", "pwr_glitch", "cpu_lockup", "lvgl_stall",
+        "brownout", "sdio", "usb", "jtag", "efuse", "pwr_glitch", "cpu_lockup",
     ]
 
     public static func label(_ raw: String) -> String {
@@ -22,7 +22,7 @@ public enum KnobResetReason {
         case "efuse": String(localized: "eFuse error")
         case "pwr_glitch": String(localized: "Power glitch")
         case "cpu_lockup": String(localized: "CPU lockup")
-        case "lvgl_stall": String(localized: "Display stalled")
+        case "lvgl_stall": String(localized: "Display stall")
         default: raw
         }
     }

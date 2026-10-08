@@ -3,14 +3,14 @@ import Testing
 
 @Suite struct KnobResetReasonTests {
     @Test func everyIDFNameHasWords() {
-        #expect(KnobResetReason.known.count == 17)
+        #expect(KnobResetReason.known.count == 16)
         for raw in KnobResetReason.known {
             #expect(KnobResetReason.label(raw) != raw, "\(raw) shows raw")
         }
     }
 
     @Test func lvglStallHasWords() {
-        #expect(KnobResetReason.label("lvgl_stall") == "Display stalled")
+        #expect(KnobResetReason.label("lvgl_stall") == "Display stall")
     }
 
     @Test func aNameFromNewerFirmwareShowsAsReported() {

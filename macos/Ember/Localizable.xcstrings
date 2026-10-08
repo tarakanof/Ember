@@ -1001,7 +1001,7 @@
     "Display" : {},
     "Display link" : {},
     "Display on" : {},
-    "Display stalled" : {
+    "Display stall" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },

@@ -14,7 +14,7 @@ import Testing
     }
 
     @Test func lvglStallHasWords() {
-        #expect(KnobCrashReason.label("lvgl_stall") == "Display stalled")
+        #expect(KnobCrashReason.label("lvgl_stall") == "Display stall")
     }
 
     @Test func aReasonFromNewerFirmwareShowsAsReported() {

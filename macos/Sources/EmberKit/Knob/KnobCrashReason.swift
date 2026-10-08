@@ -9,7 +9,7 @@ public enum KnobCrashReason {
         case "int_wdt": String(localized: "Interrupt watchdog")
         case "task_wdt": String(localized: "Task watchdog")
         case "wdt": String(localized: "Watchdog")
-        case "lvgl_stall": String(localized: "Display stalled")
+        case "lvgl_stall": String(localized: "Display stall")
         case "unknown": String(localized: "Unknown")
         default: raw
         }
