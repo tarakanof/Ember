@@ -735,7 +735,10 @@ contacts GitHub: images arrive only through the owner routes.
   `coredump`, `idle_input`). After `failed` or `rolled_back`, `error` holds
   the knob's reason (`refused`: the knob declined it, usually because the
   same image failed there before; `not_started`: the knob was offered the
-  image for 30 min, or 24 h in automatic mode, and never started); `{"retry":true}` (or the same target again)
+  image for 30 min, or 24 h in automatic mode, and never started;
+  `reset_waiting`: the knob restarted while a verified image waited to
+  install; `health_display|render|input|heap|stack`: the new image failed
+  that health check and rolled back); `{"retry":true}` (or the same target again)
   offers the version again once. While the knob is `installing`,
   `restarting` or `verifying`, another target, `null` or a retry is 409
   `ota_in_progress`: wait for `done`, `failed` or `rolled_back`.
