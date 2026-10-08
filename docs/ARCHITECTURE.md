@@ -2531,8 +2531,11 @@ streamed to a temp file through SHA-256 and the same scanner (a needle
 split across reads is still found). The ELF is stored only when its
 SHA-256 equals `app_elf_sha256` (`elf_mismatch`). Same version, same bytes:
 200 and nothing changes; other bytes: 409 unless `?replace=1` and no knob
-targets it. Pruning after each upload keeps the 5 newest versions (semver
-order), every version that is a knob's target or active offer or a knob's
+targets it. A target parked after its version failed or rolled back
+(`version` = target, phase `failed`/`rolled_back`) does not count as in
+use for a replace or a DELETE (#330): otherwise the failed build could
+not be removed until the user retried or retargeted. Pruning after each upload keeps the 5 newest versions (semver
+order), every version that is a knob's target (parked ones too) or active offer or a knob's
 running `fw`, and the image just written. The store lock is taken before
 the registry lock (the in-use checks and the `blocked` prune), never the other
 way round.
@@ -2544,7 +2547,8 @@ one-shot `retry`, `blocked` (versions that failed or rolled back, at most
 knob's list when it is replaced with `?replace=1`, evicted by retention or
 deleted (204, or 404 for a stale entry, whose leftover `<version>` or
 `.old-<version>-*` directories are removed first; 409 for a knob's
-target either way), only once its files are gone, and under the store
+target either way, unless that target is parked after the version failed
+or rolled back), only once its files are gone, and under the store
 lock so no upload or block can slip in between), `phase`, `error`,
 `from`, and the offered `version`/`build`/`size`/`auto`, the `attempt`
 id and `started_at`/`finished_at`. It is
@@ -2552,6 +2556,14 @@ written only when it changes (never per progress tick): the checkin
 computes the step on a copy under the registry lock and persists only a
 difference. Progress (`bytes`) and `waiting_for` live in memory.
 `last_checkin` keeps the knob's `fw_build` and `ota` report as sent.
+A DELETE also resets a knob whose last attempt of the deleted version
+failed or rolled back: `target`, `retry`, `version`, `phase`, `error` and
+the attempt's details are cleared, `mode`, `blocked` and the `attempt`
+counter stay, and a cleared target bumps the epoch. Without it the parked
+target would point at a missing image: no offer, auto mode stuck behind
+it, and a Retry waiting for a checkin forever. A checkin also drops a
+target whose image is gone outside an active phase (a Retry racing a
+DELETE).
 
 **Checkin.** The knob adds `fw_build` (8 hex; ignored when malformed) and
 `ota` `{"image":"valid|pending_verify|new|undefined","last":{"attempt","error","result":"ok|failed|rolled_back","version"},"phase":"idle|waiting|rebooting","rollback":bool,"slot":0|1}`
@@ -2628,7 +2640,9 @@ the newest stored version above the running one, any channel, not in
 `blocked`; `version` =
 the current or last attempt's version, also for automatic ones). `PUT`
 merges `mode`, `target` (`null` clears it and cancels an offer that has
-not started downloading) and `retry` (re-offers the last version once with
+not started downloading; after a `failed` or `rolled_back` attempt it also
+dismisses the failure: phase `idle`, `error` cleared, the version stays
+in `blocked`, with or without a target) and `retry` (re-offers the last version once with
 `retry:true`, which clears the knob's own bad-image guard, and unblocks
 it). Setting the target to the version that just failed or rolled back,
 or to any version in `blocked`, is a retry too (unblocked, `retry:true`):
@@ -2652,8 +2666,11 @@ without rollback, so the one-time USB flash was skipped.
 "Update to X" when `available` is set (disabled without a rollback
 bootloader, with the USB note; hidden after a failure when it would name
 the failed version, where Retry does the same), then a progress bar and
-the phase line, or the failure line (naming the attempt's `version`) and
-Retry. It polls `GET …/ota` every second only while the phase is
+the phase line (with Cancel Update, `PUT …/ota {"target":null}`, while a
+target waits in `idle` or `offered`), or the failure line (naming the attempt's `version`),
+Retry and Dismiss (`PUT …/ota {"target":null}`: it clears a parked
+target and the failure, so the line and the collapsed "Update to X failed"
+go away; the version stays in `blocked`). It polls `GET …/ota` every second only while the phase is
 `downloading`, `installing` or `restarting` and the pane is open; the
 pane's 15 s reload covers the rest. Deleting the version a knob runs is
 allowed (the knob keeps both images in flash), but the confirmation says
@@ -2667,7 +2684,8 @@ install reloads the status and names the reason), a Test/Release channel
 menu that `PATCH`es either way (Test to Release asks first and says what
 Automatic would do with it), Download ELF and Delete…, which asks in a
 dialog naming the version (a 404 counts as
-already deleted; the list reloads either way). Upload… sits under the list (upload
+already deleted; the list reloads either way; a refusal shows under that
+row, a 409 as "a knob's update is set to this version" with the way out). Upload… sits under the list (upload
 `cinder.bin` plus a `cinder.elf` or `<name>.elf` next to it, channel Test
 by default, upload progress from the `URLSession` upload task).
 Uploads and ELF downloads use the `transfer` request budget (60 s per

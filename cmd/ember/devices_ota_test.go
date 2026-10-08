@@ -1132,3 +1132,165 @@ func TestFirmwareDeleteThatStopsPartWayNeverOffersAHalfVersion(t *testing.T) {
 		t.Fatalf("bin after re-upload = %d: %s", resp.StatusCode, b)
 	}
 }
+
+func parkTarget(t *testing.T, k otaKnob, version, result, errCode string) {
+	t.Helper()
+	k.idle(t)
+	k.target(t, version)
+	n := attemptOf(t, offerOf(t, k.idle(t)))
+	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, lastFor(result, errCode, version, n)))
+	if st := k.status(t); st.Phase != result || st.Target == nil || *st.Target != version {
+		t.Fatalf("not parked: %+v", st)
+	}
+}
+
+func TestFirmwareDeleteOfAParkedTargetClearsIt(t *testing.T) {
+	for _, c := range []struct{ result, errCode string }{
+		{otaPhaseRolledBack, "health_render"},
+		{otaPhaseFailed, "sha256"},
+	} {
+		t.Run(c.result, func(t *testing.T) {
+			k := newOTAKnob(t)
+			k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+			parkTarget(t, k, "0.9.14", c.result, c.errCode)
+			if got := offerOf(t, k.idle(t)); got != nil {
+				t.Fatalf("parked target offered: %v", got)
+			}
+			epoch := k.app.devices.state.Epoch
+			if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNoContent {
+				t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+			}
+			if k.app.devices.state.Epoch == epoch {
+				t.Fatal("clearing the target did not bump the epoch")
+			}
+			st := k.status(t)
+			if st.Target != nil || st.Version != nil || st.Phase != otaPhaseIdle || st.Error != nil || len(st.Blocked) != 0 {
+				t.Fatalf("status after delete = %+v", st)
+			}
+			if got := offerOf(t, k.idle(t)); got != nil {
+				t.Fatalf("offer after delete = %v", got)
+			}
+			if code, _ := k.put(t, `{"retry":true}`); code != http.StatusBadRequest {
+				t.Fatalf("retry after delete = %d, want 400", code)
+			}
+			o, _, _ := k.app.devices.otaSnapshot(k.knob.ID)
+			if o.Attempt == 0 {
+				t.Fatal("attempt counter reset")
+			}
+		})
+	}
+}
+
+func TestFirmwareDeleteOfAParkedTargetLetsAutoOfferAgain(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 1}), "?channel=release")
+	parkTarget(t, k, "0.9.14", otaPhaseRolledBack, "health_render")
+	if code, _ := k.put(t, `{"mode":"auto"}`); code != http.StatusOK {
+		t.Fatal("mode auto")
+	}
+	if got := offerOf(t, k.idle(t)); got != nil {
+		t.Fatalf("parked target let auto offer: %v", got)
+	}
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if got := offerOf(t, k.idle(t)); got == nil || got["version"] != "0.9.15" || got["auto"] != true {
+		t.Fatalf("auto offer after delete = %v", got)
+	}
+}
+
+func TestFirmwareDeleteOfAnOldFailedVersionKeepsTheNewTarget(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 1}), "")
+	parkTarget(t, k, "0.9.14", otaPhaseFailed, "net")
+	k.target(t, "0.9.15")
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.15", testToken, ""); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("delete of an idle target = %d: %s", resp.StatusCode, b)
+	}
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete of the old failed version = %d: %s", resp.StatusCode, b)
+	}
+	if st := k.status(t); st.Target == nil || *st.Target != "0.9.15" {
+		t.Fatalf("target = %+v, want 0.9.15", st)
+	}
+}
+
+func TestFirmwareDeleteRefusesAnActiveUpdate(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	k.idle(t)
+	k.target(t, "0.9.14")
+	k.idle(t)
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("delete while offered = %d: %s", resp.StatusCode, b)
+	}
+}
+
+func TestFirmwareRetentionKeepsAParkedTarget(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.1"}), "")
+	parkTarget(t, k, "0.9.1", otaPhaseRolledBack, "no_checkin")
+	for i := 2; i <= firmwareKept+1; i++ {
+		k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)}), "")
+	}
+	if _, ok := k.app.knobFW.get("0.9.1"); !ok {
+		t.Fatal("retention evicted a parked target")
+	}
+}
+
+func TestOTACheckinClearsATargetWhoseImageIsGone(t *testing.T) {
+	k := newOTAKnob(t)
+	k.idle(t)
+	_, _, err := k.app.devices.updateOTA(k.knob.ID, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
+		o.Target, o.Retry = "0.9.99", true
+		return false, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := offerOf(t, k.idle(t)); got != nil {
+		t.Fatalf("offer = %v", got)
+	}
+	if st := k.status(t); st.Target != nil || st.Phase != otaPhaseIdle {
+		t.Fatalf("status = %+v, want no target", st)
+	}
+}
+
+func TestOTAClearingTheTargetDismissesAFailure(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	parkTarget(t, k, "0.9.14", otaPhaseRolledBack, "health_render")
+	code, st := k.put(t, `{"target":null}`)
+	if code != http.StatusOK || st.Target != nil || st.Phase != otaPhaseIdle || st.Error != nil ||
+		st.Version == nil || *st.Version != "0.9.14" || !slices.Equal(st.Blocked, []string{"0.9.14"}) {
+		t.Fatalf("dismiss = %d %+v", code, st)
+	}
+	if got := offerOf(t, k.idle(t)); got != nil {
+		t.Fatalf("offer after dismiss = %v", got)
+	}
+	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete after dismiss = %d: %s", resp.StatusCode, b)
+	}
+}
+
+func TestOTAClearingWithoutATargetDismissesAnAutoFailure(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "?channel=release")
+	k.idle(t)
+	if code, _ := k.put(t, `{"mode":"auto"}`); code != http.StatusOK {
+		t.Fatal("mode auto")
+	}
+	n := attemptOf(t, offerOf(t, k.idle(t)))
+	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, lastFor("failed", "net", "0.9.14", n)))
+	if st := k.status(t); st.Phase != otaPhaseFailed || st.Target != nil {
+		t.Fatalf("status = %+v", st)
+	}
+	if code, st := k.put(t, `{"target":null}`); code != http.StatusOK || st.Phase != otaPhaseIdle || st.Error != nil {
+		t.Fatalf("dismiss = %d %+v", code, st)
+	}
+	if got := offerOf(t, k.idle(t)); got != nil {
+		t.Fatalf("blocked version offered after dismiss: %v", got)
+	}
+}

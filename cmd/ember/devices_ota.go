@@ -328,15 +328,51 @@ func (r *deviceRegistry) updateOTA(id string, fn func(o *knobOTA, last *deviceCh
 	return o, last, err
 }
 
+func (o knobOTA) parked(version string) bool {
+	return o.Version == version && (o.Phase == otaPhaseFailed || o.Phase == otaPhaseRolledBack)
+}
+
 func (r *deviceRegistry) otaTargets(version string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, d := range r.state.Devices {
-		if o := d.OTA; o != nil && (o.Target == version || (o.Version == version && otaActive(o.Phase))) {
+		if o := d.OTA; o != nil && ((o.Target == version && !o.parked(version)) || (o.Version == version && otaActive(o.Phase))) {
 			return true
 		}
 	}
 	return false
+}
+
+func (r *deviceRegistry) otaForget(versions []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	gone := func(v string) bool { return slices.Contains(versions, v) }
+	stale := func(o *knobOTA) bool {
+		return o != nil && (slices.ContainsFunc(o.Blocked, gone) || (gone(o.Version) && o.parked(o.Version)))
+	}
+	if !slices.ContainsFunc(r.state.Devices, func(d deviceRecord) bool { return stale(d.OTA) }) {
+		return nil
+	}
+	return r.mutateLocked(func(st *deviceState) error {
+		bump := false
+		for i := range st.Devices {
+			o := st.Devices[i].OTA
+			if !stale(o) {
+				continue
+			}
+			o.Blocked = slices.DeleteFunc(o.Blocked, gone)
+			if gone(o.Version) && o.parked(o.Version) {
+				if o.Target != "" {
+					bump = true
+				}
+				*o = knobOTA{Mode: o.Mode, Blocked: o.Blocked, Attempt: o.Attempt}
+			}
+		}
+		if bump {
+			st.Epoch++
+		}
+		return nil
+	})
 }
 
 func (r *deviceRegistry) otaUnblock(versions []string) error {
@@ -366,6 +402,9 @@ func (r *deviceRegistry) otaKeeps(version string) bool {
 	defer r.mu.Unlock()
 	for _, d := range r.state.Devices {
 		if d.LastCheckin != nil && d.LastCheckin.FW == version {
+			return true
+		}
+		if d.OTA != nil && d.OTA.Target == version {
 			return true
 		}
 	}

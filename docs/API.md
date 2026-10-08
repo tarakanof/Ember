@@ -33,6 +33,7 @@ optional `Idempotency-Key`), `GET/POST /v1/devices`, `GET/PUT
 `POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
 registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
 `GET`/`PUT /v1/devices/{id}/ota` (knob firmware update: `{"mode":"manual|auto","target":"0.9.14"|null,"retry":true}` merge;
+`target:null` also dismisses a failed or rolled-back attempt;
 409 `no_rollback_bootloader`, or `ota_in_progress` while installing, restarting or verifying), `POST /v1/firmware?channel=release|test`
 (raw cinder `.bin` ≤4 MiB: 201 stored, 200 same bytes, 409 other bytes,
 400 `bad_image|wrong_chip|wrong_project|bad_version|dev_seed_build`; the
@@ -41,10 +42,13 @@ dropped from every knob's OTA `blocked` list; 201 once the new bytes are in
 place, even if removing the old copy or an evicted version failed, which the
 server logs),
 `GET /v1/firmware` (newest first), `PATCH`/`DELETE /v1/firmware/{version}`
-(channel; 409 while targeted, indexed or not; DELETE removes the version's
+(channel; 409 while targeted, indexed or not, unless the target is parked
+after that version failed or rolled back; DELETE removes the version's
 directory and any `.old-<version>-*` copy a replace left, also when the store
 does not index it (404); once they are gone it drops the version from every
-knob's OTA `blocked` list, which the OTA `available` field skips; a removal
+knob's OTA `blocked` list, which the OTA `available` field skips, and
+resets a knob whose last attempt of it failed or rolled back (target,
+version, phase and error cleared, so no Retry points at a missing image); a removal
 that fails answers 500, keeps the block and keeps the version listed so the
 DELETE can be retried), `PUT`/`GET /v1/firmware/{version}/elf`
 (≤64 MiB, 400 `elf_mismatch`), `GET /v1/firmware/{version}/bin`,

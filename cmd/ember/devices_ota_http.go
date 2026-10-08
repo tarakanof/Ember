@@ -58,6 +58,10 @@ func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) er
 			applyOTAResult(o, report, in.now)
 			return false, nil
 		}
+		if o.Target != "" && in.target == nil && !otaActive(o.Phase) {
+			o.Target, o.Retry = "", false
+			return true, nil
+		}
 		offer, waiting = stepOTA(o, in)
 		if offer == nil || o.Phase != otaPhaseOffered {
 			a.ota.notOffered(id)
@@ -237,6 +241,9 @@ func applyOTAPut(o *knobOTA, last *deviceCheckin, mode, target *string, clearTar
 		if o.Phase == otaPhaseOffered {
 			o.Phase = otaPhaseIdle
 		}
+	}
+	if clearTarget && (o.Phase == otaPhaseFailed || o.Phase == otaPhaseRolledBack) {
+		o.Phase, o.Error = otaPhaseIdle, ""
 	}
 	if target != nil && (*target != o.Target || !otaActive(o.phase())) {
 		o.Target, bump = *target, true

@@ -199,7 +199,12 @@ func (a *App) handleFirmwareDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	version := r.PathValue("version")
-	if err := store.remove(version, a.devices.otaTargets, a.otaUnblocker(r.Context())); err != nil {
+	forget := func(versions []string) {
+		if err := a.devices.otaForget(versions); err != nil {
+			a.logger.WarnContext(r.Context(), "knob ota state not cleared for deleted firmware", "versions", versions, "err", err)
+		}
+	}
+	if err := store.remove(version, a.devices.otaTargets, forget); err != nil {
 		a.writeFirmwareError(w, r, err)
 		return
 	}
