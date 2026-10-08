@@ -324,7 +324,7 @@ private func allChecks() -> [Check] {
     var c: [Check] = [
         one(bv, #"#define FILL "# + num, "bot.fill"),
         one(bv, #"#define HOP_SCALE "# + num, "bot.hop_scale"),
-        one(bv, #"#define EYE_SCALE "# + num, "bot.eye_scale"),
+        one("main/bot_view.h", #"#define BOT_VIEW_EYE_SCALE "# + num, "bot.eye_scale"),
         one(bv, #"#define RIM_PX "# + num, "bot.rim_px"),
         one(bv, #"#define RIM_STEPS (\d+)"#, "bot.rim_steps"),
         one(bv, #"#define LABEL_R "# + num, "bot.host.radius_px"),
@@ -371,7 +371,7 @@ private func allChecks() -> [Check] {
         Check(file: bs, pattern: #"double w = "# + num + #" \* ffx, h = L\("# + num + ", " + num + #"\) \* ffy"#,
               keys: [("bot.eyes.happy.width", g(1)), ("bot.eyes.happy.height", arr(2, 3))]),
         one(bs, #"qy = ey \+ h \* "# + num, "bot.eyes.happy.lift"),
-        one(bs, #"s->n = (\d+);   /\* 6 segments"#, "bot.eyes.happy.points"),
+        one(bs, #"case BOT_EYES_HAPPY:[^}]*?s->n = (\d+);"#, "bot.eyes.happy.points"),
         one(bs, #"s->width = "# + num + #" \* fmin"#, "bot.eyes.happy.stroke"),
         Check(file: bb, pattern: #"next_hop_at = t \+ lognormal\(b, "# + num + ", " + num + ", " + num + ", " + num,
               keys: [("bot.hop.interval_median_s", g(1)), ("bot.hop.interval_sigma", g(2)),
