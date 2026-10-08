@@ -645,6 +645,9 @@ components:
             The knob's `ota.last.error` after `failed` or `rolled_back` (`refused`: the knob
             declined the offer for a lasting reason), or `not_started` when an offer was sent
             for 30 minutes (manual) or 24 hours (automatic) without the knob starting it.
+            Other knob codes include `reset_waiting` (restarted while a verified image waited
+            to install) and `health_display`, `health_render`, `health_heap`, `health_stack`
+            (rolled back after failing that health check).
         started_at:
           type: [string, "null"]
           format: date-time

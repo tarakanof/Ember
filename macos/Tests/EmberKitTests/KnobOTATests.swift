@@ -70,6 +70,17 @@ private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
     #expect(KnobOTAError.label("not_started") == "the knob never started the download")
 }
 
+@Test(arguments: [
+    ("reset_waiting", "the knob restarted while the update was waiting to install"),
+    ("health_display", "the display link check did not pass after the update"),
+    ("health_render", "the screen did not draw after the update"),
+    ("health_heap", "memory ran low after the update"),
+    ("health_stack", "a task ran low on stack after the update"),
+])
+func otaHealthAndResetLabels(code: String, label: String) {
+    #expect(KnobOTAError.label(code) == label)
+}
+
 @Test func elfIsFoundNextToTheBinary() {
     let bin = URL(fileURLWithPath: "/tmp/build/cinder.bin")
     #expect(KnobOTAModel.elfURL(besides: bin, exists: { $0.lastPathComponent == "cinder.elf" })?.path == "/tmp/build/cinder.elf")

@@ -2479,6 +2479,10 @@
     "^[%lld session](inflect: true) today" : {
       "comment" : "Focus card with no daily goal: focus sessions completed today."
     },
+    "a task ran low on stack after the update" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "access point clock reset" : {
       "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
       "extractionState" : "manual"
@@ -2579,6 +2583,10 @@
       "comment" : "Settings › Agents failure after Repair when launchctl bootout fails; exit code, then launchctl's message.",
       "extractionState" : "manual"
     },
+    "memory ran low after the update" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "message integrity failure" : {
       "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
       "extractionState" : "manual"
@@ -2633,6 +2641,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
+    "the display link check did not pass after the update" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "the download did not match its checksum" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2673,7 +2685,15 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "the knob restarted while the update was waiting to install" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "the new firmware restarted before it was confirmed" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "the screen did not draw after the update" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
