@@ -168,7 +168,8 @@ public enum KnobOTAError {
     public static let inProgress = LocalizedStringResource("The knob is already installing an update. Try again when it has finished.")
     public static let noRollback = LocalizedStringResource("This knob's bootloader can't roll back. Flash it once over USB (see cinder docs/workflow.md).")
     public static let unknownImage = LocalizedStringResource("Ember no longer stores this image.")
-    public static let inUse = LocalizedStringResource("A knob is set to update to this version. Cancel that update in the Firmware row, or wait until it has finished, then delete again.")
+    public static let inUse = LocalizedStringResource("A knob is updating to this version or waiting to. Wait until that update finishes, or use Cancel Update in the Firmware row if it shows, then delete again.")
+    public static let firmwareChanged = LocalizedStringResource("Ember's stored firmware changed while saving. Try again.")
 
     public static func deleteFailure(_ error: Error) -> FeedError {
         if case .http(409, let body)? = error as? APIError, body.contains("update target") {
@@ -182,6 +183,7 @@ public enum KnobOTAError {
             switch status {
             case 409 where body.contains("ota_in_progress"): return .rejected(inProgress)
             case 409 where body.contains("no_rollback_bootloader"): return .rejected(noRollback)
+            case 409 where body.contains("firmware_changed"): return .rejected(firmwareChanged)
             case 400 where body.contains("unknown firmware version"): return .rejected(unknownImage)
             default: break
             }

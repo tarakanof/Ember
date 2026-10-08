@@ -491,3 +491,7 @@ private final class Ticks: @unchecked Sendable {
     #expect(!KnobOTAStatus(target: "0.9.14", phase: .rolledBack).canCancel)
     #expect(!KnobOTAStatus(phase: .offered).canCancel)
 }
+
+@Test func otaUpdateFailureNamesAChangedStore() {
+    #expect(KnobOTAError.updateFailure(APIError.http(status: 409, body: #"{"error":"firmware_changed"}"#)) == .rejected(KnobOTAError.firmwareChanged))
+}

@@ -516,7 +516,7 @@
       "extractionState" : "manual"
     },
     "A hidden tool's sessions still report; the clock skips them. Changes apply at once." : {},
-    "A knob is set to update to this version. Cancel that update in the Firmware row, or wait until it has finished, then delete again." : {
+    "A knob is updating to this version or waiting to. Wait until that update finishes, or use Cancel Update in the Firmware row if it shows, then delete again." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -771,7 +771,7 @@
     "Claude hooks are registered twice, by the ember@ember plugin and in settings.json, so every event is sent twice." : {},
     "Clear" : {},
     "Clear night" : {},
-    "Clear this failed update. Ember won't offer this version again unless you install it." : {},
+    "Clear this failed update." : {},
     "Clock" : {},
     "Clock Agent Settings…" : {},
     "Clock Sounds…" : {},
@@ -859,7 +859,7 @@
       "comment" : "Settings › Knob Firmware row error after Dismiss or Cancel Update; the argument is a short reason (\"Server unreachable\")."
     },
     "Couldn't delete %@: %@" : {
-      "comment" : "Settings › Knob Firmware & updates image row error after Delete; the version, then why (\"Couldn't delete 0.9.17: A knob is set to update to this version. …\").",
+      "comment" : "Settings › Knob Firmware & updates image row error after Delete; the version, then why (\"Couldn't delete 0.9.17: A knob is updating to this version or waiting to. …\").",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1075,6 +1075,10 @@
     "Ember removes the image." : {},
     "Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB." : {},
     "Ember shows one knob. After this setup it forgets the other knob and revokes its token." : {},
+    "Ember's stored firmware changed while saving. Try again." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Enable Pomodoro" : {},
     "Enable weather" : {},
     "End" : {},

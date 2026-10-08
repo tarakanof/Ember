@@ -60,7 +60,7 @@ struct KnobOTAProgress: View {
                 HStack {
                     Button("Dismiss") { Task { await ota.cancel() } }
                         .disabled(ota.running.contains(.cancel))
-                        .help("Clear this failed update. Ember won't offer this version again unless you install it.")
+                        .help("Clear this failed update.")
                     Button("Retry") { Task { await ota.retry() } }
                         .disabled(!status.canRollBack || ota.running.contains(.retry))
                 }
@@ -321,7 +321,7 @@ struct KnobFirmwareSection: View {
             }
             if let e = ota.deleteError(for: image) {
                 Label { Text("Couldn't delete \(image.version): \(Text(e.message))",
-                             comment: "Settings › Knob Firmware & updates image row error after Delete; the version, then why (\"Couldn't delete 0.9.17: A knob is set to update to this version. …\").") }
+                             comment: "Settings › Knob Firmware & updates image row error after Delete; the version, then why (\"Couldn't delete 0.9.17: A knob is updating to this version or waiting to. …\").") }
                     icon: { Image(systemName: "exclamationmark.triangle.fill") }
                     .font(.callout)
                     .foregroundStyle(.red)
