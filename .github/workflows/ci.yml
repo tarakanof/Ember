@@ -80,6 +80,31 @@ jobs:
       - name: redocly lint
         run: npx --yes @redocly/cli@2.58.2 lint --config docs/redocly.yaml --format github-actions docs/openapi.yaml
 
+  image-vcs:
+    name: Docker image (clean VCS stamp)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build amd64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ember:vcs-check
+          cache-from: type=gha
+          provenance: false
+          sbom: false
+
+      - name: Refuse a dirty or unstamped binary
+        run: scripts/check-image-vcs.sh ember:vcs-check "$GITHUB_SHA"
+
   producers-cross:
     name: Producers (cross-compile, install script)
     runs-on: ubuntu-latest

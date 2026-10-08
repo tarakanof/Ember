@@ -47,6 +47,23 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
 
+      - name: Build amd64 image for the VCS check
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+          tags: ember:vcs-check
+          cache-from: type=gha
+          provenance: false
+          sbom: false
+
+      - name: Refuse a dirty or unstamped binary
+        run: scripts/check-image-vcs.sh ember:vcs-check "$GITHUB_SHA"
+
       - name: Build and push
         id: build
         uses: docker/build-push-action@v7
