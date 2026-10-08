@@ -516,6 +516,10 @@
       "extractionState" : "manual"
     },
     "A hidden tool's sessions still report; the clock skips them. Changes apply at once." : {},
+    "A knob is set to update to this version. Cancel that update in the Firmware row, or wait until it has finished, then delete again." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "A meeting chimes with its popup, so it needs a popup time in Clock › Apps › Calendar. The severe weather sound plays with its alert, set in Sources › Weather. Quiet hours, in Sounds & Alerts, mute all of these." : {},
     "A permission Ember needs is off." : {},
     "A popup shortly before each meeting" : {
@@ -720,6 +724,7 @@
     "Calendar, bar above" : {},
     "Calendar, bar below" : {},
     "Cancel" : {},
+    "Cancel Update" : {},
     "Cards" : {},
     "Celsius" : {},
     "Centered" : {},
@@ -766,6 +771,7 @@
     "Claude hooks are registered twice, by the ember@ember plugin and in settings.json, so every event is sent twice." : {},
     "Clear" : {},
     "Clear night" : {},
+    "Clear this failed update. Ember won't offer this version again unless you install it." : {},
     "Clock" : {},
     "Clock Agent Settings…" : {},
     "Clock Sounds…" : {},
@@ -849,6 +855,20 @@
       "comment" : "Settings › Knob Firmware section error; the argument is a short reason (\"Server unreachable\")."
     },
     "Couldn't check" : {},
+    "Couldn't clear the update: %@" : {
+      "comment" : "Settings › Knob Firmware row error after Dismiss or Cancel Update; the argument is a short reason (\"Server unreachable\")."
+    },
+    "Couldn't delete %@: %@" : {
+      "comment" : "Settings › Knob Firmware & updates image row error after Delete; the version, then why (\"Couldn't delete 0.9.17: A knob is set to update to this version. …\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't delete %1$@: %2$@"
+          }
+        }
+      }
+    },
     "Couldn't delete the crash dump: %@" : {
       "comment" : "Settings › Knob error under Crash dumps after deleting a stored crash dump failed; the argument is a short reason (\"Server unreachable\")."
     },
@@ -976,6 +996,7 @@
     "Disabled row" : {},
     "Discover Clocks…" : {},
     "Discovered Servers" : {},
+    "Dismiss" : {},
     "Dismiss Notification" : {},
     "Display" : {},
     "Display link" : {},

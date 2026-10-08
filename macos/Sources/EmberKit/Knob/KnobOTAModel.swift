@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 public enum KnobOTAAction: Hashable, Sendable {
-    case update, install, retry, mode, upload, channel, delete, elf
+    case update, install, retry, cancel, mode, upload, channel, delete, elf
 }
 
 @MainActor
@@ -14,6 +14,7 @@ public final class KnobOTAModel {
     public private(set) var unsupported = false
     public private(set) var running: Set<KnobOTAAction> = []
     public private(set) var errors: [KnobOTAAction: FeedError] = [:]
+    public private(set) var failedDelete: String?
     public private(set) var uploadProgress: Double?
     public private(set) var uploadStage: UploadStage?
 
@@ -33,6 +34,7 @@ public final class KnobOTAModel {
         deviceID = device
         status = nil
         errors = [:]
+        failedDelete = nil
     }
 
     public var pollInterval: Duration {
@@ -86,6 +88,10 @@ public final class KnobOTAModel {
 
     public func clearError(_ action: KnobOTAAction) { errors[action] = nil }
 
+    public func deleteError(for image: KnobFirmwareImage) -> FeedError? {
+        failedDelete == image.version ? errors[.delete] : nil
+    }
+
     @discardableResult
     public func update(to version: String) async -> Bool {
         await put(.update, ["target": .string(version)])
@@ -98,7 +104,7 @@ public final class KnobOTAModel {
 
     @discardableResult
     public func cancel() async -> Bool {
-        await put(.update, ["target": .null])
+        await put(.cancel, ["target": .null])
     }
 
     @discardableResult
@@ -168,11 +174,13 @@ public final class KnobOTAModel {
 
     @discardableResult
     public func delete(_ image: KnobFirmwareImage) async -> Bool {
-        let ok = await perform(.delete) {
+        failedDelete = nil
+        let ok = await perform(.delete, map: KnobOTAError.deleteFailure) {
             do {
                 try await self.service.deleteFirmware(version: image.version)
             } catch APIError.http(404, _) {}
         }
+        if !ok { failedDelete = image.version }
         await loadImages()
         await loadStatus()
         return ok

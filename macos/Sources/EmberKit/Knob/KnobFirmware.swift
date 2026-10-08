@@ -155,6 +155,8 @@ public struct KnobOTAStatus: Codable, Equatable, Sendable {
         running != nil && !isBusy && !runs(image)
     }
 
+    public var canCancel: Bool { target != nil && (phase == .idle || phase == .offered) }
+
     public var updateVersion: String? {
         guard let available, !isBusy else { return nil }
         if phase.isFailure, available == attemptVersion { return nil }
@@ -166,6 +168,14 @@ public enum KnobOTAError {
     public static let inProgress = LocalizedStringResource("The knob is already installing an update. Try again when it has finished.")
     public static let noRollback = LocalizedStringResource("This knob's bootloader can't roll back. Flash it once over USB (see cinder docs/workflow.md).")
     public static let unknownImage = LocalizedStringResource("Ember no longer stores this image.")
+    public static let inUse = LocalizedStringResource("A knob is set to update to this version. Cancel that update in the Firmware row, or wait until it has finished, then delete again.")
+
+    public static func deleteFailure(_ error: Error) -> FeedError {
+        if case .http(409, let body)? = error as? APIError, body.contains("update target") {
+            return .rejected(inUse)
+        }
+        return FeedError(error)
+    }
 
     public static func updateFailure(_ error: Error) -> FeedError {
         if case .http(let status, let body)? = error as? APIError {
