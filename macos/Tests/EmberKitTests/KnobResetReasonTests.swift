@@ -9,6 +9,10 @@ import Testing
         }
     }
 
+    @Test func lvglStallHasWords() {
+        #expect(KnobResetReason.label("lvgl_stall") == "Display stall")
+    }
+
     @Test func aNameFromNewerFirmwareShowsAsReported() {
         #expect(KnobResetReason.label("future_reason") == "future_reason")
     }

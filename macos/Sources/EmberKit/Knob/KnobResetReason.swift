@@ -22,6 +22,7 @@ public enum KnobResetReason {
         case "efuse": String(localized: "eFuse error")
         case "pwr_glitch": String(localized: "Power glitch")
         case "cpu_lockup": String(localized: "CPU lockup")
+        case "lvgl_stall": String(localized: "Display stall")
         default: raw
         }
     }

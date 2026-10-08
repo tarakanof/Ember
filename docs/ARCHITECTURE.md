@@ -2359,7 +2359,7 @@ show data the owner turned off.
 | `psram_min` | int, bytes | basic | Lowest free PSRAM since boot. |
 | `psram_largest` | int, bytes | basic | Largest free PSRAM block now. |
 | `temp_c` | number, °C, -40..150 | basic | Chip temperature sensor. |
-| `reset_reason` | string `^[a-z][a-z0-9_]{0,15}$` | basic | Why the chip last restarted: `poweron`, `ext`, `sw`, `panic`, `int_wdt`, `task_wdt`, `wdt`, `deepsleep`, `brownout`, `sdio`, `usb`, `jtag`, `efuse`, `pwr_glitch`, `cpu_lockup`, `unknown` (ESP-IDF `esp_reset_reason`, lower-cased without the `ESP_RST_` prefix). |
+| `reset_reason` | string `^[a-z][a-z0-9_]{0,15}$` | basic | Why the chip last restarted: `poweron`, `ext`, `sw`, `panic`, `int_wdt`, `task_wdt`, `wdt`, `deepsleep`, `brownout`, `sdio`, `usb`, `jtag`, `efuse`, `pwr_glitch`, `cpu_lockup`, `unknown` (ESP-IDF `esp_reset_reason`, lower-cased without the `ESP_RST_` prefix), or `lvgl_stall` (cinder's LVGL stall watchdog restarted it). |
 | `req_ok` | int, count | full | HTTP requests to Ember that got an answer (any 2xx/304) during the window. |
 | `req_fail` | int, count | full | Requests that failed (transport error, timeout, non-2xx/304) during the window. |
 | `req_ms_avg` | number, ms | full | Mean request duration over the window. |
@@ -3008,7 +3008,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `{"boots":42,"crash":{"pc":"0x4201a2b3","reason":"panic","task":"ember"},"heap_internal_min":71234,"heap_largest_min":30720,"reset_reason":"poweron","stack_free":{"ember":1880,"eye":900,"lvgl":2304}}`,
   every key optional (`devices_diag.go`): `crash` repeats on every checkin
   while a core dump sits in flash (`reason` panic, int_wdt, task_wdt, wdt,
-  unknown), `reset_reason` is ESP-IDF's reset reason as a short name,
+  lvgl_stall, unknown), `reset_reason` is ESP-IDF's reset reason as a short name
+  (or `lvgl_stall`),
   `stack_free` maps a task to its free stack in bytes. Stored as
   `last_checkin.diag` plus two server fields carried from the previous
   checkin's diag: `reboots`, the boots increases Ember has seen (a drop in

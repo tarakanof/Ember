@@ -1001,6 +1001,10 @@
     "Display" : {},
     "Display link" : {},
     "Display on" : {},
+    "Display stall" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Dock" : {},
     "Dock icon" : {},
     "Don't scroll" : {},
