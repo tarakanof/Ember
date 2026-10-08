@@ -2085,6 +2085,10 @@
     "The knob didn't return a scan. Type the network name." : {},
     "The knob dims and brightens with the clock. It never goes below the minimum." : {},
     "The knob forgets its Wi-Fi, Ember address and token, then restarts to its setup screen. Ember keeps its settings here until you forget it." : {},
+    "The knob has already started this update. Wait until it finishes." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The knob has no light sensor, so it uses the level Ember works out from the clock's light sensor, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

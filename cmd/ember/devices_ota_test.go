@@ -1489,3 +1489,89 @@ func TestOTACancelDuringADownloadIsRefused(t *testing.T) {
 		t.Fatalf("status = %+v", st)
 	}
 }
+
+func goReq(srv *httptest.Server, method, path string, body []byte) <-chan int {
+	done := make(chan int, 1)
+	go func() {
+		req, err := http.NewRequest(method, srv.URL+path, bytes.NewReader(body))
+		if err != nil {
+			done <- 0
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		req.Header.Set("Content-Type", "application/octet-stream")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			done <- 0
+			return
+		}
+		_ = resp.Body.Close()
+		done <- resp.StatusCode
+	}()
+	return done
+}
+
+func (k otaKnob) holdPurgeOf(version string) (reached, release chan struct{}) {
+	reached, release = make(chan struct{}), make(chan struct{})
+	var once atomic.Bool
+	k.app.knobFW.rename = func(oldpath, newpath string) error {
+		if filepath.Base(oldpath) == version && once.CompareAndSwap(false, true) {
+			close(reached)
+			<-release
+		}
+		return os.Rename(oldpath, newpath)
+	}
+	return reached, release
+}
+
+func TestOTAAutoCheckinCommittingMidDeleteDoesNotOffer(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "?channel=release")
+	k.idle(t)
+	if code, _ := k.put(t, `{"mode":"auto"}`); code != http.StatusOK {
+		t.Fatal("mode auto")
+	}
+	reached, release := k.holdPurgeOf("0.9.14")
+	var del <-chan int
+	k.onceAfterRead(func() {
+		del = goReq(k.srv, "DELETE", "/v1/firmware/0.9.14", nil)
+		<-reached
+	})
+	got := offerOf(t, k.idle(t))
+	close(release)
+	if code := <-del; code != http.StatusNoContent {
+		t.Fatalf("delete = %d", code)
+	}
+	if got != nil {
+		t.Fatalf("offered a version being deleted: %v", got)
+	}
+}
+
+func TestOTAAutoCheckinCommittingMidEvictionDoesNotOffer(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "?channel=release")
+	for i := 15; i < 14+firmwareKept; i++ {
+		k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)}), "")
+	}
+	k.idle(t)
+	if code, _ := k.put(t, `{"mode":"auto"}`); code != http.StatusOK {
+		t.Fatal("mode auto")
+	}
+	reached, release := k.holdPurgeOf("0.9.14")
+	var up <-chan int
+	k.onceAfterRead(func() {
+		up = goReq(k.srv, "POST", "/v1/firmware", fakeFirmware(fwOpts{version: "0.9.30"}))
+		<-reached
+	})
+	got := offerOf(t, k.idle(t))
+	close(release)
+	if code := <-up; code != http.StatusCreated {
+		t.Fatalf("upload = %d", code)
+	}
+	if _, ok := k.app.knobFW.get("0.9.14"); ok {
+		t.Fatal("0.9.14 not evicted")
+	}
+	if got != nil {
+		t.Fatalf("offered a version being evicted: %v", got)
+	}
+}

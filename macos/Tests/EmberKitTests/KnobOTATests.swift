@@ -480,7 +480,7 @@ private final class Ticks: @unchecked Sendable {
     #expect(String(data: sent, encoding: .utf8) == #"{"target":null}"#)
     server.putReply = (409, #"{"error":"ota_in_progress"}"#)
     #expect(await m.ota.cancel() == false)
-    #expect(m.ota.errors[.cancel] == .rejected(KnobOTAError.inProgress))
+    #expect(m.ota.errors[.cancel] == .rejected(KnobOTAError.alreadyDownloading))
     #expect(m.ota.errors[.update] == nil)
 }
 

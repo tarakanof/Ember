@@ -1871,7 +1871,7 @@ paths:
             restarting or verifying (or, for clearing the target, downloading), so a new
             target, clearing the target or a retry waits until the attempt ends.
             `{"error":"firmware_changed"}`: stored firmware kept changing while the
-            request was checked; try again.
+            request was checked (any PUT, including a mode change); try again.
           content:
             application/json:
               schema:

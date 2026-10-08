@@ -2537,7 +2537,8 @@ use for a replace or a DELETE (#330): otherwise the failed build could
 not be removed until the user retried or retargeted. Pruning after each upload keeps the 5 newest versions (semver
 order), every version that is a knob's target (parked ones too) or active offer or a knob's
 running `fw`, and the image just written. The store lock is taken before
-the registry lock (the in-use checks and the `blocked` prune), never the other
+the registry lock (the in-use checks, which bump `fwGen`, and `otaRetire`,
+which prunes `blocked` and clears removed versions), never the other
 way round.
 
 **Record (`devices_ota.go`).** `deviceRecord.ota` in the registry blob:
@@ -2575,15 +2576,18 @@ store, and its registry update offers or clears only if `fwGen`, the
 target, the mode and the attempt are unchanged; otherwise it records the
 knob's result and waits for the next checkin. Its dangling-target clear
 (a target whose image is gone, outside an active attempt) also needs an
-unchanged epoch, so a target re-selected after a re-upload survives. A
-`PUT` with a target or a retry checks the image for the version it would
-set (the explicit target, else the current target, else the last
-attempt's version) against the store, then commits only if `fwGen` and
-that version are unchanged, retrying up to 3 times (then 409
-`firmware_changed`). So a Retry can't revive a version a DELETE or an
+unchanged epoch, so a target re-selected after a re-upload survives. Every
+`PUT …/ota`, including a mode-only change or `target:null`, commits only
+if `fwGen` is unchanged since it read the record, retrying up to 3 times
+(then 409 `firmware_changed`). One with a target or a retry first checks
+the image for the version it would set (the explicit target, else the
+current target, else the last attempt's version) against the store, and
+also needs that version unchanged at commit. So a Retry can't revive a version a DELETE or an
 eviction has claimed: a Retry before the claim makes the version held
 (DELETE 409), and one after it finds the image gone (400). Both orders
-are pinned by tests through `otaReadHook` and the store's `rename` seam.
+are pinned by tests through `otaReadHook` and the store's `rename` seam, as
+is an auto checkin that commits while a DELETE or an eviction is purging
+its candidate (no offer).
 
 **Checkin.** The knob adds `fw_build` (8 hex; ignored when malformed) and
 `ota` `{"image":"valid|pending_verify|new|undefined","last":{"attempt","error","result":"ok|failed|rolled_back","version"},"phase":"idle|waiting|rebooting","rollback":bool,"slot":0|1}`

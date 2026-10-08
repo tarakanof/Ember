@@ -104,7 +104,7 @@ public final class KnobOTAModel {
 
     @discardableResult
     public func cancel() async -> Bool {
-        await put(.cancel, ["target": .null])
+        await put(.cancel, ["target": .null], map: KnobOTAError.cancelFailure)
     }
 
     @discardableResult
@@ -113,9 +113,10 @@ public final class KnobOTAModel {
         return await put(.mode, ["mode": .string(mode.rawValue)])
     }
 
-    private func put(_ action: KnobOTAAction, _ patch: [String: JSONValue]) async -> Bool {
+    private func put(_ action: KnobOTAAction, _ patch: [String: JSONValue],
+                     map: (Error) -> FeedError = KnobOTAError.updateFailure) async -> Bool {
         guard let id = deviceID else { return false }
-        let ok = await perform(action, map: KnobOTAError.updateFailure) {
+        let ok = await perform(action, map: map) {
             let next = try await self.service.updateOTA(id: id, patch: patch)
             if self.deviceID == id { self.status = next }
         }
