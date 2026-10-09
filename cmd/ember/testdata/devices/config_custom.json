@@ -1,0 +1,48 @@
+{
+  "config_version": 2,
+  "config": {
+    "brightness": {
+      "follow_ember": false,
+      "level": 200,
+      "floor": 20,
+      "startup": 120
+    },
+    "pages": [
+      {
+        "id": "pomodoro",
+        "on": true
+      },
+      {
+        "id": "bot",
+        "on": true
+      },
+      {
+        "id": "nowplaying",
+        "on": true
+      },
+      {
+        "id": "weather",
+        "on": false
+      },
+      {
+        "id": "future-page",
+        "on": false
+      }
+    ],
+    "home": "pomodoro",
+    "poll_ms": 3000,
+    "bot": {
+      "sleepy_after_s": 600,
+      "demo_hold_s": 30,
+      "source_label": false,
+      "working_ring": false
+    },
+    "diagnostics": "basic",
+    "stats_interval_s": 120,
+    "live_interval_s": 2,
+    "display": {
+      "fast_link": false
+    }
+  }
+}
+

@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-var updateGolden = flag.Bool("update", false, "rewrite testdata/dashboard golden files")
+var updateGolden = flag.Bool("update", false, "rewrite the testdata golden files")
 
 func getOpen(t *testing.T, srv *httptest.Server, path string) (int, map[string]any) {
 	t.Helper()
@@ -93,7 +93,11 @@ func assertGolden(t *testing.T, name string, v any) {
 		t.Fatal(err)
 	}
 	got = append(got, '\n')
-	path := filepath.Join("testdata", "dashboard", name+".json")
+	compareGolden(t, filepath.Join("testdata", "dashboard", name+".json"), got)
+}
+
+func compareGolden(t *testing.T, path string, got []byte) {
+	t.Helper()
 	if *updateGolden {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -105,10 +109,10 @@ func assertGolden(t *testing.T, name string, v any) {
 	}
 	want, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read golden (run go test -run TestDashboardGolden -update): %v", err)
+		t.Fatalf("read golden (run go test ./cmd/ember -update): %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Errorf("%s drifted from %s (run with -update if intended)\ngot:\n%s", name, path, got)
+		t.Errorf("%s drifted (run with -update if intended)\ngot:\n%s", path, got)
 	}
 }
 
