@@ -328,6 +328,7 @@ func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	a.wifiDrops.forget(id)
 	a.diagDrops.forget(id)
 	a.otaDrops.forget(id)
+	a.capsDrops.forget(id)
 	a.ota.forget(id)
 	if a.coredumps != nil {
 		if err := a.coredumps.removeDevice(id); err != nil {
@@ -380,6 +381,7 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		Stats               json.RawMessage `json:"stats"`
 		FWBuild             string          `json:"fw_build"`
 		OTA                 json.RawMessage `json:"ota"`
+		Caps                json.RawMessage `json:"caps"`
 	}
 	if !a.decodeOptionalOrReject(w, r, &req, false) {
 		return
@@ -420,7 +422,11 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	if firmwareBuildPattern.MatchString(req.FWBuild) {
 		report.FWBuild = req.FWBuild
 	}
-	res, err := a.devices.checkin(id, report)
+	var caps *deviceCaps
+	if c := decodeCheckinPart[deviceCaps](a, r, "caps", req.Caps, &a.capsDrops); c != nil {
+		caps = c.normalized()
+	}
+	res, err := a.devices.checkin(id, report, caps)
 	if errors.Is(err, errCheckinNotStored) {
 		a.logger.WarnContext(r.Context(), "device checkin not persisted", "device_id", id, "err", err)
 		err = nil

@@ -1,0 +1,32 @@
+{
+  "caps": {
+    "features": [
+      "view_wait",
+      "np_control",
+      "ota_rollback",
+      "coredump",
+      "stats_intervals"
+    ],
+    "limits": {
+      "config_bytes": 1024,
+      "view_bytes": 16383
+    },
+    "pages": [
+      "bot",
+      "pomodoro",
+      "weather",
+      "nowplaying"
+    ],
+    "view": [
+      1,
+      1
+    ]
+  },
+  "config_version": 1,
+  "fw": "0.10.0",
+  "heap_internal_free": 47104,
+  "heap_internal_largest": 31744,
+  "ip": "192.0.2.10",
+  "rssi": -58,
+  "uptime_s": 812
+}

@@ -76,6 +76,7 @@ type App struct {
 	knobFW        *firmwareStore
 	ota           otaLive
 	otaDrops      checkinDropLog
+	capsDrops     checkinDropLog
 	firmwareLimit *callerLimiter
 	clockStats    *clockStatsStore
 

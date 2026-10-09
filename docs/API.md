@@ -32,9 +32,13 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}` and
 `POST /v1/nowplaying/control` (also accept a knob device token; control takes an
 optional `Idempotency-Key`), `GET/POST /v1/devices` (`GET` lists devices
-only; a pre-#340 server also lists clients there, `kind: client`),
+only; a pre-#340 server also lists clients there, `kind: client`; each knob
+carries `effective_caps`, its reported or legacy capabilities, #341,
+DEVICE-PROTOCOL "Capabilities"),
 `GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340), `GET/PUT
-/v1/devices/{id}/config` (same merge; includes `quiet{calm, dim_level}`; for the
+/v1/devices/{id}/config` (same merge; includes `quiet{calm, dim_level}`;
+a knob that reported `caps` gets a 400 for turning on a page outside them or
+a config over its `config_bytes`; for the
 clock record, kind `awtrix-ng`, the config façade over the overlay slices,
 ARCHITECTURE "Clock record and config façade"), `PATCH`/`DELETE /v1/devices/{id}`
 (a deleted clock record returns at the next good probe),

@@ -1,0 +1,32 @@
+{
+  "v": 1,
+  "epoch": 2,
+  "config_version": 2,
+  "mood": {
+    "waiting": 3,
+    "errors": 0,
+    "running": 1,
+    "done": 0,
+    "source": "",
+    "lead": "STUDIO",
+    "hosts": 2,
+    "lead_color": "#00C8C8",
+    "tool": "claude"
+  },
+  "weather": {
+    "provider": "open-meteo",
+    "cond": "rain",
+    "code": "61",
+    "temp_c": 12.5,
+    "stale": false,
+    "severe": false,
+    "night": false,
+    "sunrise": 1782013500,
+    "sunset": 1782073200
+  },
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "diag_live_until": 1782043500
+}
