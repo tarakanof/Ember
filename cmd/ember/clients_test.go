@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -326,5 +327,72 @@ func TestClientChangesLeaveDeviceEpoch(t *testing.T) {
 	devReq(t, srv, "DELETE", "/v1/devices/"+m.ID, testToken, "")
 	if after := app.devices.epochValue(); after != before {
 		t.Fatalf("client changes moved the device epoch %d -> %d", before, after)
+	}
+}
+
+func TestCorruptClientStoreFailsClosedWithoutTouchingDevices(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	knob := mintKnob(t, srv, http.StatusCreated)
+	c := mintClient(t, srv, "ci", "ingest")
+	if err := app.store.PutSetting(clientsKey, `{"clients":[{"id":`); err != nil {
+		t.Fatal(err)
+	}
+	srv.Close()
+	_ = app.store.Close()
+
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	cfg.Auth.StatusToken = testToken
+	cfg.RateLimit.Disabled = true
+	app = NewApp(cfg, &recordingPublisher{}, testLogger())
+	if err := app.ensureStore(db); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = app.store.Close() })
+	if err := app.loadRegistries(); err == nil {
+		t.Fatal("loadRegistries hid the corrupt client store")
+	}
+	srv = httptest.NewServer(app.routes())
+	t.Cleanup(srv.Close)
+
+	if resp, _ := checkin(t, srv, knob.Token, 1); resp.StatusCode != http.StatusOK {
+		t.Fatalf("knob checkin = %d, want 200", resp.StatusCode)
+	}
+	if resp, b := devReq(t, srv, "GET", "/v1/devices", testToken, ""); resp.StatusCode != http.StatusOK || !strings.Contains(string(b), knob.ID) {
+		t.Fatalf("devices list = %d %s", resp.StatusCode, b)
+	}
+	for _, r := range []struct{ method, path, token, body string }{
+		{"POST", "/v1/status", c.Token, `{"source":"ci","tool":"gha","session":"1","state":"running"}`},
+		{"GET", "/v1/clients", testToken, ""},
+		{"POST", "/v1/devices", testToken, `{"kind":"client","name":"x","scopes":["ingest"]}`},
+		{"PATCH", "/v1/devices/" + c.ID, testToken, `{"name":"y"}`},
+		{"POST", "/v1/devices/" + c.ID + "/rotate", testToken, ""},
+		{"DELETE", "/v1/devices/" + c.ID, testToken, ""},
+	} {
+		resp, b := devReq(t, srv, r.method, r.path, r.token, r.body)
+		if resp.StatusCode != http.StatusInternalServerError || !strings.Contains(string(b), "client token store") {
+			t.Fatalf("%s %s = %d %s, want 500 naming the client token store", r.method, r.path, resp.StatusCode, b)
+		}
+	}
+	if res := checkClientTokens(app); res.Status != StatusFail {
+		t.Fatalf("doctor client_tokens = %+v, want fail", res)
+	}
+	if res := checkDevices(app); res.Status == StatusFail {
+		t.Fatalf("doctor devices = %+v, want not failed", res)
+	}
+}
+
+func TestAdminClientCannotRenameClients(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	admin := mintClient(t, srv, "admin", "admin")
+	other := mintClient(t, srv, "ci", "ingest")
+	for _, id := range []string{other.ID, admin.ID} {
+		if resp, b := devReq(t, srv, "PATCH", "/v1/devices/"+id, admin.Token, `{"name":"pwned"}`); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("admin client rename of %s = %d %s, want 403", id, resp.StatusCode, b)
+		}
+	}
+	if resp, b := devReq(t, srv, "PATCH", "/v1/devices/"+other.ID, testToken, `{"name":"renamed"}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("master rename = %d %s", resp.StatusCode, b)
 	}
 }

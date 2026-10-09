@@ -173,12 +173,6 @@ func (r *clientRegistry) list() []clientView {
 	return out
 }
 
-func (r *clientRegistry) has(id string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return slices.ContainsFunc(r.clients, func(c clientRecord) bool { return c.ID == id })
-}
-
 func indexClient(clients []clientRecord, id string) int {
 	return slices.IndexFunc(clients, func(c clientRecord) bool { return c.ID == id })
 }

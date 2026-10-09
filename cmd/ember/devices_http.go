@@ -191,7 +191,7 @@ func (a *App) createClient(w http.ResponseWriter, r *http.Request, hwID, rawName
 	}
 	view, token, err := a.clients.mint(name, scopes, sources)
 	if err != nil {
-		a.writeDeviceError(w, r, err)
+		a.writeClientError(w, r, err)
 		return
 	}
 	a.logger.InfoContext(r.Context(), "client token minted", "device_id", view.ID,
@@ -210,7 +210,24 @@ func (a *App) handleDevicesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleClientsList(w http.ResponseWriter, r *http.Request) {
+	if err := a.clients.loadError(); err != nil {
+		a.writeClientError(w, r, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"clients": a.clients.list()})
+}
+
+func isClientID(id string) bool {
+	return strings.HasPrefix(id, clientIDPrefix)
+}
+
+func (a *App) writeClientError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errDeviceNotFound) || errors.Is(err, errDeviceBody) {
+		a.writeDeviceError(w, r, err)
+		return
+	}
+	a.logger.WarnContext(r.Context(), "client token store failed", "path", r.URL.Path, "err", err)
+	writeError(w, http.StatusInternalServerError, errors.New("client token store unavailable"))
 }
 
 func (a *App) handleDeviceConfigGetOwner(w http.ResponseWriter, r *http.Request) {
@@ -254,10 +271,13 @@ func (a *App) handleDevicePatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if a.clients.has(id) {
+	if isClientID(id) {
+		if !a.requireMasterForClients(w, r) {
+			return
+		}
 		view, err := a.clients.rename(id, name)
 		if err != nil {
-			a.writeDeviceError(w, r, err)
+			a.writeClientError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, view)
@@ -273,7 +293,7 @@ func (a *App) handleDevicePatch(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceRotate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if a.clients.has(id) {
+	if isClientID(id) {
 		a.rotateClient(w, r, id)
 		return
 	}
@@ -288,7 +308,7 @@ func (a *App) handleDeviceRotate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if a.clients.has(id) {
+	if isClientID(id) {
 		a.deleteClient(w, r, id)
 		return
 	}
@@ -316,7 +336,7 @@ func (a *App) rotateClient(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	view, token, err := a.clients.rotate(id)
 	if err != nil {
-		a.writeDeviceError(w, r, err)
+		a.writeClientError(w, r, err)
 		return
 	}
 	a.logger.InfoContext(r.Context(), "client token rotated", "device_id", view.ID)
@@ -329,7 +349,7 @@ func (a *App) deleteClient(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	if err := a.clients.remove(id); err != nil {
-		a.writeDeviceError(w, r, err)
+		a.writeClientError(w, r, err)
 		return
 	}
 	a.logger.InfoContext(r.Context(), "client token deleted", "device_id", id)

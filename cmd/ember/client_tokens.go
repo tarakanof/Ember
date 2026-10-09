@@ -110,7 +110,7 @@ func (a *App) clientAuth(w http.ResponseWriter, r *http.Request, scope string) (
 	c, ok, err := a.clients.authenticate(bearer)
 	if err != nil {
 		a.logger.WarnContext(r.Context(), "client auth failed", "path", r.URL.Path, "err", err)
-		writeError(w, http.StatusInternalServerError, errors.New("device registry unavailable"))
+		writeError(w, http.StatusInternalServerError, errors.New("client token store unavailable"))
 		return clientCaller{}, false
 	}
 	if !ok {
