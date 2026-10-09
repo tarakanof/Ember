@@ -11,12 +11,13 @@ import (
 )
 
 type settingSpec[D any] struct {
-	key    string
-	view   func(Config) D
-	apply  func(*Config, D) error
-	after  func(Config)
-	encode func(D) string
-	decode func(string) []byte
+	key          string
+	view         func(Config) D
+	apply        func(*Config, D) error
+	after        func(Config)
+	encode       func(D) string
+	decode       func(string) []byte
+	presentation []string
 }
 
 type setting[D any] struct {
@@ -25,15 +26,17 @@ type setting[D any] struct {
 }
 
 type settingsOverlay struct {
-	update func(func(*Config) error) error
-	load   func() *Config
-	kv     func() settingsKV
-	logger *slog.Logger
-	all    []interface{ reapply() }
+	update   func(func(*Config) error) error
+	load     func() *Config
+	kv       func() settingsKV
+	putBatch func(map[string]string) error
+	logger   *slog.Logger
+	all      []interface{ reapply() }
 }
 
 type appSettings struct {
 	*settingsOverlay
+	clockApps  *setting[clockStoredConfig]
 	pomodoro   *setting[pomodoroSettingsDTO]
 	weather    *setting[WeatherConfig]
 	meetings   *setting[MeetingsConfig]
@@ -54,10 +57,12 @@ func newAppSettings(a *App) appSettings {
 			}
 			return a.store
 		},
-		logger: a.logger,
+		putBatch: a.putSettingsBatch,
+		logger:   a.logger,
 	}
 	return appSettings{
 		settingsOverlay: o,
+		clockApps:       register(o, a.clockPresentationSettingSpec()),
 		pomodoro:        register(o, a.pomodoroSettingSpec()),
 		weather:         register(o, a.weatherSettingSpec()),
 		meetings:        register(o, a.meetingsSettingSpec()),
@@ -84,8 +89,17 @@ var errSettingNotObject = fmt.Errorf("%w: must be a JSON object", errSettingBody
 func (s *setting[D]) put(patch []byte) (D, error) { return s.putWith(patch, nil) }
 
 func (s *setting[D]) putWith(patch []byte, also func(*Config)) (D, error) {
+	return s.write(patch, also, false)
+}
+
+func (s *setting[D]) write(patch []byte, also func(*Config), stored bool) (D, error) {
 	var next Config
 	err := s.o.update(func(cur *Config) error {
+		before := *cur
+		moved := cur.clockPresentation != nil && len(s.spec.presentation) > 0
+		if moved && stored {
+			patch = dropKeys(patch, s.spec.presentation)
+		}
 		d, err := mergeSetting(s.spec.view(*cur), patch)
 		if err != nil {
 			return err
@@ -96,7 +110,11 @@ func (s *setting[D]) putWith(patch []byte, also func(*Config)) (D, error) {
 		if also != nil {
 			also(cur)
 		}
-		s.persist(*cur)
+		if moved && captureClockPresentation(before, cur) {
+			s.persistWithClock(before, *cur)
+		} else {
+			s.persist(*cur)
+		}
 		next = *cur
 		return nil
 	})
@@ -146,7 +164,22 @@ func (s *setting[D]) blob(c Config) (string, bool) {
 		s.o.logger.Warn("settings marshal failed", "key", s.spec.key, "err", err)
 		return "", false
 	}
+	if c.clockPresentation != nil && len(s.spec.presentation) > 0 {
+		b = dropKeys(b, s.spec.presentation)
+	}
 	return string(b), true
+}
+
+func (s *setting[D]) persistWithClock(before, c Config) {
+	batch := map[string]string{clockConfigKey: clockPresentationBlob(c.clockPresentation)}
+	if blob, ok := s.blob(c); ok {
+		if prev, _ := s.blob(before); blob != prev {
+			batch[s.spec.key] = blob
+		}
+	}
+	if err := s.o.putBatch(batch); err != nil {
+		s.o.logger.Warn("settings persist failed", "key", s.spec.key, "clock_key", clockConfigKey, "err", err)
+	}
 }
 
 func (s *setting[D]) persist(c Config) {
@@ -176,7 +209,7 @@ func (s *setting[D]) reapply() {
 	if s.spec.decode != nil {
 		patch = s.spec.decode(blob)
 	}
-	if _, err := s.put(patch); err != nil {
+	if _, err := s.write(patch, nil, true); err != nil {
 		s.o.logger.Warn("persisted settings ignored", "key", s.spec.key, "err", err)
 	}
 }

@@ -187,6 +187,8 @@ type Config struct {
 	UsageThresholdPct *int             `json:"usage_threshold_pct,omitempty"`
 	QuietHours        QuietHoursConfig `json:"quiet_hours"`
 	Brightness        BrightnessConfig `json:"brightness"`
+
+	clockPresentation *clockStoredConfig
 }
 
 func (c Config) usageWidgetEnabled() bool { return c.UsageWidget == nil || *c.UsageWidget }

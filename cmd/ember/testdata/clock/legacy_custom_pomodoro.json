@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "focus_minutes": 30,
+  "short_break_minutes": 5,
+  "long_break_minutes": 15,
+  "rounds_before_long_break": 4,
+  "auto_start_next": true,
+  "sound": true,
+  "sound_melody": "",
+  "focus_color": "#112233",
+  "break_color": "#00FF00",
+  "max_session_minutes": 480,
+  "daily_goal_sessions": 8,
+  "weekly_goal_days": 5
+}
+

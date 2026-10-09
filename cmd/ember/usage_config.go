@@ -16,7 +16,8 @@ type usageConfigDTO struct {
 
 func (a *App) usageSettingSpec() settingSpec[usageConfigDTO] {
 	return settingSpec[usageConfigDTO]{
-		key: usageSettingsKey,
+		key:          usageSettingsKey,
+		presentation: usagePresentationKeys,
 		view: func(c Config) usageConfigDTO {
 			return usageConfigDTO{
 				UsageWidget:       c.usageWidgetEnabled(),

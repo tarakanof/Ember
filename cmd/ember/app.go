@@ -64,6 +64,7 @@ type App struct {
 	clockRotation atomic.Pointer[clockRotation]
 	rotationOp    clockRotationOp
 	commitHook    func()
+	clockMigrate  clockMigration
 	clients       *clientRegistry
 	changes       *changeBroadcaster
 	viewWaiters   viewWaiters

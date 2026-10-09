@@ -227,6 +227,15 @@ func checkDevices(app *App) CheckResult {
 	now := app.devices.now()
 	status := StatusOK
 	detail := fmt.Sprintf("registered=%d", len(devices))
+	if p := app.cfg.Load().clockPresentation; p != nil {
+		detail += " clock config migrated"
+		if p.MigratedFromOverlay != "" {
+			detail += " (from " + p.MigratedFromOverlay + ")"
+		}
+	} else if err := app.clockMigrate.lastError(); err != nil {
+		status = StatusWarn
+		detail += " clock config not migrated: " + err.Error()
+	}
 	for _, d := range devices {
 		if d.Kind == deviceKindClock {
 			switch {

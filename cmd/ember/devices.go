@@ -89,6 +89,7 @@ type deviceRecord struct {
 	RotatedAt          *time.Time     `json:"rotated_at,omitempty"`
 	Config             knobSettings   `json:"config,omitzero"`
 	ConfigVersion      int            `json:"config_version"`
+	ConfigDigest       string         `json:"config_digest,omitempty"`
 	CreatedAt          time.Time      `json:"created_at"`
 	LastCheckin        *deviceCheckin `json:"last_checkin,omitempty"`
 	LastSeen           *clockSeen     `json:"last_seen,omitempty"`

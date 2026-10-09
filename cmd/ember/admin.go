@@ -203,6 +203,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		oldCfg := *app.cfg.Load()
 		newCfg.Auth.StatusToken = oldCfg.Auth.StatusToken
 		carryClockURL(oldCfg, &newCfg)
+		carryClockPresentation(oldCfg, &newCfg)
 		if err := validateConfig(newCfg); err != nil {
 			app.cfgMu.Unlock()
 			logOutcome(http.StatusUnprocessableEntity, 0, err.Error())

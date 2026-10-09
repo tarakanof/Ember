@@ -73,12 +73,22 @@ func assertClockGolden(t *testing.T, name string, body []byte) {
 	compareGolden(t, filepath.Join("testdata", "clock", name+".json"), buf.Bytes())
 }
 
-func TestClockConfigVersionIsHashOfComposedConfig(t *testing.T) {
+func TestClockConfigVersionIsRecordCounter(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
-	c, v := getClockConfig(t, srv, d.ID)
-	if v != clockConfigHash(c) || v != listDevices(t, srv)[0].ConfigVersion {
-		t.Fatalf("header %d, hash %d, record %d", v, clockConfigHash(c), listDevices(t, srv)[0].ConfigVersion)
+	_, v := getClockConfig(t, srv, d.ID)
+	if v != listDevices(t, srv)[0].ConfigVersion {
+		t.Fatalf("header %d, record %d", v, listDevices(t, srv)[0].ConfigVersion)
+	}
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false}}}`)
+	mustOK(t, "put", resp, b)
+	if got, _ := strconv.Atoi(resp.Header.Get(deviceConfigVersion)); got != v+1 {
+		t.Fatalf("version after one change = %d, want %d", got, v+1)
+	}
+	resp, b = clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":true}}}`)
+	mustOK(t, "put back", resp, b)
+	if got, _ := strconv.Atoi(resp.Header.Get(deviceConfigVersion)); got != v+2 {
+		t.Fatalf("version after changing back = %d, want %d (a counter, not a hash)", got, v+2)
 	}
 }
 
@@ -111,7 +121,7 @@ func TestClockConfigFacadeMatchesOldEndpoints(t *testing.T) {
 		mustOK(t, c.path, resp, b)
 	}
 
-	for _, key := range []string{pomodoroSettingsKey, weatherSettingsKey, meetingsSettingsKey, usageSettingsKey, hiddenAppsKey} {
+	for _, key := range []string{clockConfigKey, pomodoroSettingsKey, weatherSettingsKey, meetingsSettingsKey, usageSettingsKey, hiddenAppsKey} {
 		fv, fok, _ := facade.store.GetSetting(key)
 		lv, lok, _ := legacy.store.GetSetting(key)
 		if fv != lv || fok != lok {
@@ -126,9 +136,9 @@ func TestClockConfigFacadeMatchesOldEndpoints(t *testing.T) {
 	if !reflect.DeepEqual(fstub.puts(), lstub.puts()) {
 		t.Errorf("clock writes differ:\nfacade %v\nlegacy %v", fstub.puts(), lstub.puts())
 	}
-	fc, fv := getClockConfig(t, fsrv, fd.ID)
-	lc, lv := getClockConfig(t, lsrv, fd.ID)
-	if !reflect.DeepEqual(fc, lc) || fv != lv {
+	fc, _ := getClockConfig(t, fsrv, fd.ID)
+	lc, _ := getClockConfig(t, lsrv, fd.ID)
+	if !reflect.DeepEqual(fc, lc) {
 		t.Errorf("composed config differs:\nfacade %+v\nlegacy %+v", fc, lc)
 	}
 }
@@ -379,7 +389,8 @@ func TestClockConfigRotationReadbackFailureReturnsNull(t *testing.T) {
 	if c.Rotation != nil {
 		t.Fatalf("rotation = %+v, want null after a failed readback", c.Rotation)
 	}
-	if v, _ := strconv.Atoi(resp.Header.Get(deviceConfigVersion)); v != clockConfigHash(c) {
+	v, _ := strconv.Atoi(resp.Header.Get(deviceConfigVersion))
+	if v != a.clockConfigVersion() || a.clockConfigDigestStored() != clockConfigDigest(c) {
 		t.Fatalf("version %d does not describe the body", v)
 	}
 }
@@ -412,9 +423,9 @@ func TestClockConfigPutKeepsConcurrentOldEndpointWrite(t *testing.T) {
 	if c.Apps.Weather.Moon || c.Apps.Calendar.TileLeadMinutes != 15 || !slices.Equal(c.Apps.Agents.HiddenTools, []string{"codex"}) {
 		t.Fatalf("lost update: %+v", c.Apps)
 	}
-	blob, _, _ := a.store.GetSetting(weatherSettingsKey)
-	if !strings.Contains(blob, `"moon_phase":false`) {
-		t.Fatalf("stored weather lost moon_phase: %s", blob)
+	blob, _, _ := a.store.GetSetting(clockConfigKey)
+	if !strings.Contains(blob, `"moon":false`) {
+		t.Fatalf("stored clock config lost moon: %s", blob)
 	}
 }
 
@@ -476,13 +487,14 @@ func TestClockConfigPersistFailureChangesNothing(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	before, _ := getClockConfig(t, srv, d.ID)
 	usage, _, _ := a.store.GetSetting(usageSettingsKey)
+	row, _, _ := a.store.GetSetting(clockConfigKey)
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	for _, op := range []string{"INSERT", "UPDATE"} {
-		if _, err := db.Exec(`CREATE TRIGGER fail_weather_` + op + ` BEFORE ` + op + ` ON settings WHEN NEW.key = 'weather_json' BEGIN SELECT RAISE(ABORT, 'injected'); END`); err != nil {
+		if _, err := db.Exec(`CREATE TRIGGER fail_clock_` + op + ` BEFORE ` + op + ` ON settings WHEN NEW.key = 'clock_config_json' BEGIN SELECT RAISE(ABORT, 'injected'); END`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -496,6 +508,9 @@ func TestClockConfigPersistFailureChangesNothing(t *testing.T) {
 	}
 	if got, _, _ := a.store.GetSetting(usageSettingsKey); got != usage {
 		t.Fatalf("usage_json written in a failed batch: %s", got)
+	}
+	if got, _, _ := a.store.GetSetting(clockConfigKey); got != row {
+		t.Fatalf("clock_config_json written in a failed batch: %s", got)
 	}
 	if _, ok, _ := a.store.GetSetting(hiddenAppsKey); ok {
 		t.Fatal("display_hidden_apps written in a failed batch")

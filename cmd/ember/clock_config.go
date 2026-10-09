@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -144,8 +145,17 @@ func clockConfigHash(c clockConfig) int {
 	return v
 }
 
+func clockConfigDigest(c clockConfig) string {
+	b, _ := json.Marshal(c)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
 func (a *App) clockConfigVersion() int {
-	return clockConfigHash(a.composeClockConfig())
+	if a.devices == nil {
+		return 0
+	}
+	return a.devices.clockConfigVersion()
 }
 
 func (a *App) stageClockApps(cur *Config, apps clockApps) ([]*stagedSetting, error) {
@@ -436,6 +446,7 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 		if err != nil {
 			return err
 		}
+		before := *c
 		if staged, err = a.stageClockApps(c, n.Apps); err != nil {
 			return err
 		}
@@ -443,11 +454,15 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 		if len(staged) == 0 && !hiddenChanged {
 			return errNoChange
 		}
-		batch := make(map[string]string, len(staged)+1)
+		batch := make(map[string]string, len(staged)+2)
 		for _, s := range staged {
-			if blob, ok := s.blob(*c); ok {
+			blob, ok := s.blob(*c)
+			if prev, _ := s.blob(before); ok && (c.clockPresentation == nil || blob != prev) {
 				batch[s.key] = blob
 			}
+		}
+		if captureClockPresentation(before, c) {
+			batch[clockConfigKey] = clockPresentationBlob(c.clockPresentation)
 		}
 		if hiddenChanged {
 			blob, _ := json.Marshal(n.Apps.Agents.HiddenTools)
@@ -488,8 +503,10 @@ func (a *App) handleClockConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 	defer release()
 	a.refreshClockRotation(ctx)
+	a.syncClockConfigVersion()
+	version := a.clockConfigVersion()
 	cfg := a.composeClockConfig()
-	w.Header().Set(deviceConfigVersion, strconv.Itoa(clockConfigHash(cfg)))
+	w.Header().Set(deviceConfigVersion, strconv.Itoa(version))
 	writeJSON(w, http.StatusOK, cfg)
 }
 
@@ -527,8 +544,8 @@ func (a *App) handleClockConfigPut(w http.ResponseWriter, r *http.Request, id st
 		}
 		return
 	}
+	version := a.clockConfigVersion()
 	cfg := a.composeClockConfig()
-	version := clockConfigHash(cfg)
 	if version != before {
 		a.logger.InfoContext(r.Context(), "device config updated", "device_id", id, "config_version", version)
 	}

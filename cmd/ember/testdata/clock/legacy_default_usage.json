@@ -1,0 +1,7 @@
+{
+  "usage_widget": true,
+  "usage_per_model": true,
+  "limit_alarm": true,
+  "usage_threshold_pct": 60
+}
+

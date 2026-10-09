@@ -302,8 +302,9 @@ func (a *App) handlePomodoroConfigPut(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) pomodoroSettingSpec() settingSpec[pomodoroSettingsDTO] {
 	return settingSpec[pomodoroSettingsDTO]{
-		key:  pomodoroSettingsKey,
-		view: func(c Config) pomodoroSettingsDTO { return dtoFromConfig(c.Pomodoro) },
+		key:          pomodoroSettingsKey,
+		presentation: pomodoroPresentationKeys,
+		view:         func(c Config) pomodoroSettingsDTO { return dtoFromConfig(c.Pomodoro) },
 		apply: func(c *Config, d pomodoroSettingsDTO) error {
 			p := c.Pomodoro
 			d.mergeInto(&p)

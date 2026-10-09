@@ -493,7 +493,7 @@ func TestClockRecordNeverAuthenticates(t *testing.T) {
 
 func TestOTASkipsClockRecords(t *testing.T) {
 	r := newDeviceRegistry(func() settingsKV { return nil })
-	if _, _, err := r.seenClock(testClockUID, nil, 1); err != nil {
+	if _, _, err := r.seenClock(testClockUID, nil, "d"); err != nil {
 		t.Fatal(err)
 	}
 	r.mu.Lock()
@@ -606,10 +606,14 @@ func TestReapplySettingsBumpsEpochAtMostOnce(t *testing.T) {
 		mustOK(t, path, resp, b)
 	}
 	stored := a.clockConfigVersion()
+	a.pauseClockSync()
 	a.updateConfig(func(c *Config) {
 		c.Weather = defaultConfig().Weather
 		c.Weather.applyDefaults()
 	})
+	a.clockSync.mu.Lock()
+	a.clockSync.paused--
+	a.clockSync.mu.Unlock()
 	epoch := a.devices.epochValue()
 	a.reapplySettings()
 	if got := a.devices.epochValue(); got > epoch+1 {

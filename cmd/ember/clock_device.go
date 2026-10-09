@@ -79,7 +79,22 @@ func (r *deviceRegistry) kindOf(id string) (string, error) {
 	return d.Kind, nil
 }
 
-func (r *deviceRegistry) seenClock(uid string, seen *clockSeen, version int) (deviceView, bool, error) {
+func (r *deviceRegistry) hasClock() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.state.findClock() != nil
+}
+
+func (r *deviceRegistry) clockConfigVersion() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if d := r.state.findClock(); d != nil {
+		return d.ConfigVersion
+	}
+	return 0
+}
+
+func (r *deviceRegistry) seenClock(uid string, seen *clockSeen, digest string) (deviceView, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.writableLocked(); err != nil {
@@ -129,7 +144,8 @@ func (r *deviceRegistry) seenClock(uid string, seen *clockSeen, version int) (de
 			Kind:          deviceKindClock,
 			HwID:          uid,
 			Name:          defaultClockName(id),
-			ConfigVersion: version,
+			ConfigVersion: 1,
+			ConfigDigest:  digest,
 			CreatedAt:     r.now().UTC(),
 			LastSeen:      seen,
 		}
@@ -142,25 +158,34 @@ func (r *deviceRegistry) seenClock(uid string, seen *clockSeen, version int) (de
 	return view, err == nil, err
 }
 
-func (r *deviceRegistry) setClockConfigVersion(version int) (bool, error) {
+func (r *deviceRegistry) syncClockConfig(digest string, legacyHash int) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	stale := slices.ContainsFunc(r.state.Devices, func(d deviceRecord) bool {
-		return d.Kind == deviceKindClock && d.ConfigVersion != version
+		return d.Kind == deviceKindClock && d.ConfigDigest != digest
 	})
 	if !stale {
 		return false, nil
 	}
+	bumped := false
 	err := r.mutateLocked(func(st *deviceState) error {
 		for i := range st.Devices {
-			if st.Devices[i].Kind == deviceKindClock {
-				st.Devices[i].ConfigVersion = version
+			d := &st.Devices[i]
+			if d.Kind != deviceKindClock || d.ConfigDigest == digest {
+				continue
 			}
+			if d.ConfigDigest != "" || d.ConfigVersion != legacyHash {
+				d.ConfigVersion++
+				bumped = true
+			}
+			d.ConfigDigest = digest
 		}
-		st.Epoch++
+		if bumped {
+			st.Epoch++
+		}
 		return nil
 	})
-	return err == nil, err
+	return bumped && err == nil, err
 }
 
 func (a *App) observeClock(rawUID string, seen *clockSeen) {
@@ -168,13 +193,14 @@ func (a *App) observeClock(rawUID string, seen *clockSeen) {
 	if !ok || a.devices == nil || a.devices.loadError() != nil {
 		return
 	}
-	view, created, err := a.devices.seenClock(uid, seen, a.clockConfigVersion())
+	view, created, err := a.devices.seenClock(uid, seen, clockConfigDigest(a.composeClockConfig()))
 	if err != nil {
 		a.logger.Warn("clock record not stored", "uid", uid, "err", err)
 		return
 	}
 	if created {
 		a.logger.Info("clock registered", "device_id", view.ID, "uid", uid)
+		a.migrateClockConfig()
 		a.syncClockConfigVersion()
 	}
 }
@@ -193,7 +219,8 @@ func (a *App) syncClockConfigVersion() {
 	if a.clockSync.paused > 0 {
 		return
 	}
-	changed, err := a.devices.setClockConfigVersion(a.clockConfigVersion())
+	cfg := a.composeClockConfig()
+	changed, err := a.devices.syncClockConfig(clockConfigDigest(cfg), clockConfigHash(cfg))
 	if err != nil {
 		a.logger.Warn("clock config version not stored", "err", err)
 		return
