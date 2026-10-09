@@ -135,9 +135,16 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("encode knob view: %w", err)
 	}
 	if st.caps != nil {
-		body, err = v.fit(body, st.caps.limits().ViewBytes)
-		if err != nil {
+		limit := st.caps.limits().ViewBytes
+		if body, err = v.fit(body, limit); err != nil {
 			return nil, "", err
+		}
+		over := ""
+		if limit > 0 && len(body) > limit {
+			over = "over"
+		}
+		if a.viewOverLimit.changed(id, over) && over != "" {
+			a.logger.Warn("knob view over its caps view_bytes", "device_id", id, "bytes", len(body), "view_bytes", limit)
 		}
 	}
 	h := fnv.New64a()

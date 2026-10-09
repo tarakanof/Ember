@@ -462,6 +462,10 @@ components:
                   type: string
                   enum: [reported, legacy]
                   description: "`reported`: the last checkin's `caps`; `legacy`: the server's table for its `fw`."
+                caps_error:
+                  type: string
+                  maxLength: 160
+                  description: Why the last checkin's `caps` were dropped; absent when they were accepted or not sent.
         scopes:
           type: array
           description: Clients only.
@@ -539,6 +543,7 @@ components:
           items:
             type: integer
             minimum: 1
+            maximum: 1000
         pages:
           type: array
           description: Page ids compiled into the firmware.
@@ -556,14 +561,19 @@ components:
             pattern: "^[a-z][a-z0-9_]{0,31}$"
         limits:
           type: object
-          description: Largest body the firmware holds, in bytes; a missing or 0 key is unknown.
+          description: >-
+            Largest body the firmware holds, in bytes; a missing or 0 key is unknown.
+            Floors: `view_bytes` ≥ 4096, `config_bytes` ≥ the default config's compact
+            size (434 today); caps below them are dropped.
           properties:
             view_bytes:
               type: integer
               minimum: 0
+              maximum: 16777216
             config_bytes:
               type: integer
               minimum: 0
+              maximum: 16777216
     CheckinResult:
       type: object
       properties:

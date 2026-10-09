@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 )
 
 const knobViewMajorMax = 1
@@ -19,6 +21,8 @@ const (
 	capsMaxFeatures  = 64
 	capsMaxViewMajor = 1000
 	capsMaxLimit     = 1 << 24
+	capsMinViewBytes = 4096
+	capsErrorMaxLen  = 160
 )
 
 const (
@@ -44,11 +48,12 @@ type deviceCapsLimits struct {
 }
 
 type effectiveCapsView struct {
-	View     []int             `json:"view"`
-	Pages    []string          `json:"pages"`
-	Features []string          `json:"features"`
-	Limits   *deviceCapsLimits `json:"limits,omitempty"`
-	Source   string            `json:"source"`
+	View      []int             `json:"view"`
+	Pages     []string          `json:"pages"`
+	Features  []string          `json:"features"`
+	Limits    *deviceCapsLimits `json:"limits,omitempty"`
+	Source    string            `json:"source"`
+	CapsError string            `json:"caps_error,omitempty"`
 }
 
 func (c *deviceCaps) clone() *deviceCaps {
@@ -67,8 +72,14 @@ func (c *deviceCaps) equal(o *deviceCaps) bool {
 	if c == nil || o == nil {
 		return c == o
 	}
-	return slices.Equal(c.View, o.View) && slices.Equal(c.Pages, o.Pages) && slices.Equal(c.Features, o.Features) &&
-		c.limits() == o.limits()
+	return slices.Equal(c.View, o.View) && slices.Equal(sortedCopy(c.Pages), sortedCopy(o.Pages)) &&
+		slices.Equal(c.Features, o.Features) && c.limits() == o.limits()
+}
+
+func sortedCopy(s []string) []string {
+	out := slices.Clone(s)
+	slices.Sort(out)
+	return out
 }
 
 func (c *deviceCaps) limits() deviceCapsLimits {
@@ -99,7 +110,37 @@ func (c deviceCaps) validate() error {
 	if l.ViewBytes < 0 || l.ViewBytes > capsMaxLimit || l.ConfigBytes < 0 || l.ConfigBytes > capsMaxLimit {
 		return fmt.Errorf("limits must be 0..%d bytes", capsMaxLimit)
 	}
+	if l.ViewBytes > 0 && l.ViewBytes < capsMinViewBytes {
+		return fmt.Errorf("limits.view_bytes must be 0 or at least %d", capsMinViewBytes)
+	}
+	if floor := defaultKnobConfigBytes(); l.ConfigBytes > 0 && l.ConfigBytes < floor {
+		return fmt.Errorf("limits.config_bytes must be 0 or at least %d, the default config", floor)
+	}
 	return nil
+}
+
+func defaultKnobConfigBytes() int {
+	b, _ := json.Marshal(defaultKnobSettings())
+	return len(b)
+}
+
+func decodeCaps(raw json.RawMessage) (*deviceCaps, string) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, ""
+	}
+	var c deviceCaps
+	err := json.Unmarshal(raw, &c)
+	if err == nil {
+		err = c.validate()
+	}
+	if err != nil {
+		msg := err.Error()
+		if len(msg) > capsErrorMaxLen {
+			msg = strings.ToValidUTF8(msg[:capsErrorMaxLen], "")
+		}
+		return nil, msg
+	}
+	return c.normalized(), ""
 }
 
 func uniqueMatching(what string, ids []string, pattern *regexp.Regexp) error {
@@ -119,6 +160,7 @@ func (c deviceCaps) normalized() *deviceCaps {
 	if out.Features == nil {
 		out.Features = []string{}
 	}
+	slices.Sort(out.Features)
 	if out.Limits != nil && *out.Limits == (deviceCapsLimits{}) {
 		out.Limits = nil
 	}
@@ -150,6 +192,7 @@ var legacyKnobCaps = []legacyCapsRow{
 
 func legacyCaps(fw string) deviceCaps {
 	c := deviceCaps{View: []int{1, 1}, Pages: slices.Clone(legacyKnobCapsBasePages), Features: []string{}}
+	fw, _, _ = strings.Cut(fw, "+")
 	if !semverPattern.MatchString(fw) {
 		return c
 	}
@@ -183,10 +226,11 @@ func (d deviceRecord) effectiveCapsView() *effectiveCapsView {
 		return nil
 	}
 	c, source := effectiveCaps(d)
-	return &effectiveCapsView{View: c.View, Pages: c.Pages, Features: c.Features, Limits: c.Limits, Source: source}
+	return &effectiveCapsView{View: c.View, Pages: c.Pages, Features: c.Features, Limits: c.Limits, Source: source,
+		CapsError: d.CapsError}
 }
 
-func checkConfigAgainstCaps(caps *deviceCaps, before, after knobSettings, size int) error {
+func checkConfigAgainstCaps(caps *deviceCaps, before, after knobSettings, beforeSize, size int) error {
 	if caps == nil {
 		return nil
 	}
@@ -195,7 +239,7 @@ func checkConfigAgainstCaps(caps *deviceCaps, before, after knobSettings, size i
 			return fmt.Errorf("%w: page %q is not in this knob's firmware (caps.pages)", errSettingBody, p.ID)
 		}
 	}
-	if limit := caps.limits().ConfigBytes; limit > 0 && size > limit {
+	if limit := caps.limits().ConfigBytes; limit > 0 && size > limit && size > beforeSize {
 		return fmt.Errorf("%w: config is %d bytes, over this knob's %d (caps.limits.config_bytes)", errSettingBody, size, limit)
 	}
 	return nil

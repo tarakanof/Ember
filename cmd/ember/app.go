@@ -77,6 +77,7 @@ type App struct {
 	ota           otaLive
 	otaDrops      checkinDropLog
 	capsDrops     checkinDropLog
+	viewOverLimit checkinDropLog
 	firmwareLimit *callerLimiter
 	clockStats    *clockStatsStore
 

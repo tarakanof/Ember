@@ -3293,9 +3293,10 @@ draws-if-present in `internal/render`, add a menu checkbox.
   when the checkin's `diag.crash` has an `id` (see "Knob core dumps"); an optional `stats` object carries diagnostics (both in
   "Knob diagnostics"). An optional `caps` object (#341,
   `devices_caps.go`) is stored on the record and answered with
-  `"caps_ack":true`; invalid caps are dropped like `wifi` (no ack, the
-  knob is treated as legacy), and a checkin without `caps` clears the stored
-  ones, so a downgraded knob falls back to the legacy table. The owner's
+  `"caps_ack":true`; invalid caps are dropped (no ack, the knob is treated
+  as legacy, the reason kept as `caps_error` and logged at Warn once per
+  change), and a checkin without `caps` clears the stored ones, so a
+  downgraded knob falls back to the legacy table. The owner's
   device list shows `effective_caps` for every knob. Rules, table and
   matrix: DEVICE-PROTOCOL "Capabilities". `GET
   /v1/devices/self/config` answers `{"config_version":7,"config":{…}}`.
@@ -3397,8 +3398,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (the blocks of the `bot`, `pomodoro`, `weather` and `nowplaying` pages)
   are left out unless the page is in `caps.pages` and on in the knob's
   `pages`; a kept `pomo` or `weather` is still `null` when off. A body over
-  `caps.limits.view_bytes` drops `nowplaying`, then `weather`, then `pomo`
-  until it fits. A knob without `caps` gets the body above unchanged, bytes
+  `caps.limits.view_bytes` (floor 4096) drops `nowplaying`, then `weather`,
+  then `pomo` until it fits, and logs once per device if it still doesn't. A knob without `caps` gets the body above unchanged, bytes
   and ETag (`knobView` skips the filter for it).
 - **Knob view long-poll (#235).** `?wait=N` (whole seconds, capped at 25,
   `devices_view_wait.go`) with `If-None-Match` holds the request while the

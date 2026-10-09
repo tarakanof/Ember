@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"reflect"
@@ -13,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -111,6 +114,9 @@ func TestLegacyCapsTable(t *testing.T) {
 		{"0.9.28", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump", "ota_rollback"}, limits},
 		{"0.9.41", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump", "ota_rollback"}, limits},
 		{"0.10.0", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump", "ota_rollback"}, limits},
+		{"0.9.41+local", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump", "ota_rollback"}, limits},
+		{"0.9.0+build.7", withNP, []string{"stats_intervals", "view_wait"}, nil},
+		{"0.9.0-rc.1+build.7", base, []string{"stats_intervals", "view_wait"}, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.fw, func(t *testing.T) {
@@ -266,7 +272,14 @@ func TestCapsKnobViewMajorIsTheLowerOfServerAndFirmware(t *testing.T) {
 	}
 }
 
-func TestCapsKnobViewStaysUnderViewBytes(t *testing.T) {
+func plantCaps(t *testing.T, f *viewFixture, caps *deviceCaps) {
+	t.Helper()
+	f.app.devices.mu.Lock()
+	defer f.app.devices.mu.Unlock()
+	f.app.devices.state.findKnob(f.m.ID).Caps = caps
+}
+
+func TestCapsKnobViewDropsBlocksToFitViewBytes(t *testing.T) {
 	f := goldenViewFixture(t)
 	fullViewScenario(t, f)
 	postCapsCheckin(t, f, "0.10.0", knobCapsFull)
@@ -277,8 +290,8 @@ func TestCapsKnobViewStaysUnderViewBytes(t *testing.T) {
 			t.Fatalf("full caps view lacks %q: %s", k, full)
 		}
 	}
-	caps := map[string]any{"view": []int{1, 1}, "pages": knobCapsFull["pages"], "limits": map[string]any{"view_bytes": len(full) - 1}}
-	postCapsCheckin(t, f, "0.10.0", caps)
+	pages := []string{"bot", "pomodoro", "weather", "nowplaying"}
+	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}, Limits: &deviceCapsLimits{ViewBytes: len(full) - 1}})
 	body := goldenView(t, f)
 	if len(body) > len(full)-1 {
 		t.Fatalf("view is %d B, over the %d B limit", len(body), len(full)-1)
@@ -289,6 +302,149 @@ func TestCapsKnobViewStaysUnderViewBytes(t *testing.T) {
 	}
 	if _, ok := keys["pomo"]; !ok {
 		t.Errorf("pomo dropped though dropping nowplaying was enough")
+	}
+}
+
+func TestCapsKnobViewStillOverViewBytesLogsOncePerDevice(t *testing.T) {
+	f := goldenViewFixture(t)
+	fullViewScenario(t, f)
+	var logs syncBuffer
+	f.app.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	pages := []string{"bot", "pomodoro", "weather", "nowplaying"}
+	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}, Limits: &deviceCapsLimits{ViewBytes: 10}})
+	for range 3 {
+		body := goldenView(t, f)
+		keys := viewKeys(t, body)
+		if _, ok := keys["mood"]; !ok || len(keys["pomo"]) > 0 || len(keys["weather"]) > 0 || len(keys["nowplaying"]) > 0 {
+			t.Fatalf("trimmed view = %s, want mood kept and the rest dropped", body)
+		}
+	}
+	if n := strings.Count(logs.String(), "knob view over its caps view_bytes"); n != 1 {
+		t.Fatalf("over-limit logs = %d, want 1:\n%s", n, logs.String())
+	}
+	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}})
+	goldenView(t, f)
+	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}, Limits: &deviceCapsLimits{ViewBytes: 10}})
+	goldenView(t, f)
+	if n := strings.Count(logs.String(), "knob view over its caps view_bytes"); n != 2 {
+		t.Fatalf("over-limit logs after it fit and broke again = %d, want 2", n)
+	}
+}
+
+func TestCapsLimitFloors(t *testing.T) {
+	floor := defaultKnobConfigBytes()
+	cases := []struct {
+		limits map[string]any
+		ok     bool
+	}{
+		{map[string]any{"view_bytes": capsMinViewBytes - 1}, false},
+		{map[string]any{"view_bytes": capsMinViewBytes}, true},
+		{map[string]any{"view_bytes": 1}, false},
+		{map[string]any{"config_bytes": floor - 1}, false},
+		{map[string]any{"config_bytes": floor}, true},
+		{map[string]any{"view_bytes": 0, "config_bytes": 0}, true},
+	}
+	for _, c := range cases {
+		f := newViewFixture(t)
+		reply := postCapsCheckin(t, f, "0.10.0", map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "limits": c.limits})
+		if got := reply["caps_ack"] == true; got != c.ok {
+			t.Errorf("limits %v: acked = %v, want %v", c.limits, got, c.ok)
+		}
+	}
+	if floor < 300 || floor > cinderCfgSettingsMax {
+		t.Errorf("default config floor = %d B, want the default config's size under the knob's store", floor)
+	}
+}
+
+func TestLegacyKnobAlwaysGetsMood(t *testing.T) {
+	f := newViewFixture(t)
+	putKnobConfig(t, f.srv, f.m.ID, `{"home":"pomodoro","pages":[{"id":"bot","on":false},{"id":"pomodoro","on":true}]}`)
+	for _, fw := range []string{"", "0.9.41"} {
+		if fw != "" {
+			postCapsCheckin(t, f, fw, nil)
+		}
+		if _, ok := viewKeys(t, goldenView(t, f))["mood"]; !ok {
+			t.Fatalf("fw %q: a caps-less knob with the bot page off got no mood", fw)
+		}
+	}
+}
+
+func TestReorderedCapsDoNotWrite(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	kv, _ := countDeviceWrites(t, app)
+	m := mintKnob(t, srv, http.StatusCreated)
+	post := func(pages, features []string) map[string]any {
+		t.Helper()
+		resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token,
+			capsCheckinBody(t, "0.10.0", 1, map[string]any{"view": []int{1, 1}, "pages": pages, "features": features}))
+		mustOK(t, "checkin", resp, b)
+		var out map[string]any
+		_ = json.Unmarshal(b, &out)
+		return out
+	}
+	post([]string{"bot", "weather"}, []string{"view_wait", "coredump"})
+	base := kv.puts.Load()
+	for range 3 {
+		post([]string{"weather", "bot"}, []string{"coredump", "view_wait"})
+		post([]string{"bot", "weather"}, []string{"view_wait", "coredump"})
+	}
+	if got := kv.puts.Load() - base; got != 0 {
+		t.Fatalf("store writes for reordered caps = %d, want 0", got)
+	}
+	c := app.devices.list()[0].EffectiveCaps
+	if !slices.Equal(c.Pages, []string{"bot", "weather"}) || !slices.Equal(c.Features, []string{"coredump", "view_wait"}) {
+		t.Fatalf("effective_caps = %+v, want the first page order and sorted features", c)
+	}
+}
+
+func TestInvalidCapsAreExposedOnceWithoutRewrites(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	var logs syncBuffer
+	app.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	kv, _ := countDeviceWrites(t, app)
+	m := mintKnob(t, srv, http.StatusCreated)
+	post := func(caps any) {
+		t.Helper()
+		resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, capsCheckinBody(t, "0.9.41", 1, caps))
+		mustOK(t, "checkin", resp, b)
+	}
+	bad := map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "bot"}}
+	base := kv.puts.Load()
+	for range 3 {
+		post(bad)
+	}
+	if got := kv.puts.Load() - base; got != 1 {
+		t.Fatalf("store writes for the same invalid caps = %d, want 1", got)
+	}
+	if n := strings.Count(logs.String(), "level=WARN msg=\"device caps dropped\""); n != 1 {
+		t.Fatalf("caps drop warnings = %d, want 1:\n%s", n, logs.String())
+	}
+	c := app.devices.list()[0].EffectiveCaps
+	if c.Source != capsSourceLegacy || !strings.Contains(c.CapsError, `page "bot" listed twice`) {
+		t.Fatalf("effective_caps = %+v, want legacy with caps_error", c)
+	}
+	post(knobCapsFull)
+	if c := app.devices.list()[0].EffectiveCaps; c.CapsError != "" || c.Source != capsSourceReported {
+		t.Fatalf("effective_caps after good caps = %+v", c)
+	}
+	post(nil)
+	if c := app.devices.list()[0].EffectiveCaps; c.CapsError != "" || c.Source != capsSourceLegacy {
+		t.Fatalf("effective_caps without caps = %+v, want legacy and no error", c)
+	}
+}
+
+func TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes(t *testing.T) {
+	f := newViewFixture(t)
+	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"page-0000000001","on":false},{"id":"page-0000000002","on":false}]}`)
+	cfg, _, _ := f.app.devices.config(f.m.ID)
+	cur, _ := json.Marshal(cfg)
+	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather"}, Features: []string{},
+		Limits: &deviceCapsLimits{ConfigBytes: len(cur) - 10}})
+	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"page-0000000001","on":false}]}`)
+	putKnobConfig(t, f.srv, f.m.ID, `{"poll_ms":3000}`)
+	resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, `{"pages":[{"id":"bot","on":true},{"id":"page-0000000001","on":false},{"id":"page-0000000003","on":false}]}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("growing an over-limit config = %d %s, want 400", resp.StatusCode, b)
 	}
 }
 
@@ -453,4 +609,21 @@ func TestDeviceCheckinCapsGolden(t *testing.T) {
 	assertDeviceGolden(t, "checkin_req_caps", []byte(body))
 	resp, b := devReq(t, f.srv, "POST", "/v1/devices/self/checkin", f.m.Token, body)
 	assertDeviceGolden(t, "checkin_reply_caps", mustOK(t, "checkin", resp, b))
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

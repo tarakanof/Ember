@@ -94,6 +94,7 @@ type deviceRecord struct {
 	LastSeen           *clockSeen     `json:"last_seen,omitempty"`
 	OTA                *knobOTA       `json:"ota,omitempty"`
 	Caps               *deviceCaps    `json:"caps,omitempty"`
+	CapsError          string         `json:"caps_error,omitempty"`
 }
 
 func (d deviceRecord) clone() deviceRecord {
@@ -518,7 +519,7 @@ func (r *deviceRegistry) putConfig(id string, patch []byte) (knobSettings, int, 
 		if string(before) == string(after) {
 			return errNoChange
 		}
-		if err := checkConfigAgainstCaps(d.Caps, d.Config, merged, len(after)); err != nil {
+		if err := checkConfigAgainstCaps(d.Caps, d.Config, merged, len(before), len(after)); err != nil {
 			return err
 		}
 		changed = true
@@ -591,7 +592,7 @@ type checkinResult struct {
 	newCrash       *deviceCrash
 }
 
-func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCaps) (checkinResult, error) {
+func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCaps, capsErr string) (checkinResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.writableLocked(); err != nil {
@@ -606,7 +607,7 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 	}
 	report.SeenAt = r.now().UTC()
 	res := checkinResult{ConfigVersion: d.ConfigVersion, CapsAck: caps != nil}
-	capsChanged := !d.Caps.equal(caps)
+	capsChanged := !d.Caps.equal(caps) || d.CapsError != capsErr
 	var prevDiag *deviceDiag
 	if d.LastCheckin != nil {
 		prevDiag = d.LastCheckin.Diag
@@ -626,7 +627,9 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 			err := r.mutateLocked(func(st *deviceState) error {
 				d := st.find(id)
 				d.LastCheckin = &report
-				d.Caps = caps.clone()
+				if capsChanged {
+					d.Caps, d.CapsError = caps.clone(), capsErr
+				}
 				d.PendingTokenSHA256 = tokenHash(res.NewToken)
 				return nil
 			})
@@ -638,7 +641,9 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 		}
 	}
 	d.LastCheckin = &report
-	d.Caps = caps.clone()
+	if capsChanged {
+		d.Caps, d.CapsError = caps.clone(), capsErr
+	}
 	r.dirty = true
 	if capsChanged && r.onChange != nil {
 		r.onChange()
