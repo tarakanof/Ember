@@ -101,9 +101,11 @@ The aggregator and the only writer to the device.
   (see "Runtime settings overlay" below).
 - **Coordinator ownership and locking.** The coordinator goroutine owns every
   write to the rotation: the session app, tiles, corner LEDs and the display
-  hold. One-shot notifications (`/v1/notify`, reminders, weather and meeting
-  popups, the Pomodoro phase-end alert) call the `Publisher` directly, and the
-  menu's `/v1/device` proxy uses `clockAccess`.
+  hold. One-shot popups (`/v1/notify`, reminders, weather, air, sun and
+  meeting popups, the Pomodoro phase-end alert, the usage alarm) are
+  **notices**: app code builds a `notice` and hands it to the clock adapter
+  (`coordinator_notices.go`, see "Notices" below), which is the only code that
+  calls `Publisher.Notify`. The menu's `/v1/device` proxy uses `clockAccess`.
   - **Channels.** State-change commands (upsert/delete/clear/shutdown) use a
     64-slot channel; ticks use a 1-slot channel that drops on full, because a
     stale tick carries no information. `Send` never blocks: the goroutine can
@@ -241,11 +243,12 @@ The aggregator and the only writer to the device.
 
   Server-initiated writes cross the `Publisher` seam. Its real adapter,
   `clockPublisher` (one field: the `clockAccess`), is built only by
-  `NewApp(cfg, nil, …)` and wrapped in `quietPublisher` at once. Tests pass a
-  fake instead. Sound policy and the coordinator's retries sit above that
-  seam, so a fake sees exactly what the clock would. `a.clock` has no
-  `Notify`/`PlayRTTTL`, so nothing can sound the clock past the quiet gate.
-  `clock_access_guard_test.go` checks these rules on the type-checked
+  `NewApp(cfg, nil, …)`. Tests pass a fake instead. Sound policy (the notice
+  adapter) and the coordinator's retries sit above that seam, so a fake sees
+  exactly what the clock would. `a.clock` has no `Notify`/`PlayRTTTL`, and
+  `Publisher.Notify`/`DismissNotifyByName`/`PlayRTTTL` are called only from
+  `coordinator_notices.go`, so nothing can sound the clock past the quiet
+  gate. `clock_access_guard_test.go` checks these rules on the type-checked
   package.
 
   The `Publisher` is the seam for every server-initiated clock write.
@@ -308,7 +311,7 @@ The aggregator and the only writer to the device.
   fake drops 0/44/60 % of requests and answers one request per call class
   past the short budgets. It also scripts coordinator-push faults: 1.8 s
   (inside `publishAttemptTimeout`), 3.5 s (times out, retried) and a 503
-  (retried). Notifications run with quiet hours off, then on at 23:00. The
+  (retried). Notices and chimes run with quiet hours off, then on at 23:00. The
   harness compares the whole device call log with goldens generated on the
   pre-refactor code. Changing `publishAttemptTimeout`, the 5xx retry, a call
   class's timeout or the quiet gate fails it. Keep-alive reuse is checked
@@ -1440,8 +1443,8 @@ until dismissed", default off) a `hold` alarm with sound loops its chime
 caps that loop, since an alarm nobody is there to dismiss would ring for
 hours: `StartReminderLoopGuard` checks every 15 s and dismisses the alarm by
 name when its 15-min hold window runs out, and at quiet-hours start dismisses
-it and re-pushes it held but silent (`quietPublisher` strips sound only at
-push time). A button acknowledgement just forgets the loop; a failed dismiss
+it and re-pushes it held but silent (the notice adapter strips sound only at
+push time, so the re-push is the stored notice with its sound cleared). A button acknowledgement just forgets the loop; a failed dismiss
 is retried on the next check. An unheld reminder carries `repeat:1`, so a
 long text scrolls through fully before it leaves (the meeting and weather
 popups do the same). The server keeps only that in-memory loop state for
@@ -3342,19 +3345,38 @@ tiles).
 
 **Quiet hours.** A global night mute (`quiet_hours` config: `enabled`,
 `start`/`end` `"HH:MM"`, default off / 22:00–08:00; runtime override via
-`GET/PUT /v1/quiet/config`, store key `quiet_json`). Enforced by a
-`quietPublisher` decorator around the device publisher — during the window
+`GET/PUT /v1/quiet/config`, store key `quiet_json`). Enforced in the clock
+adapter's notice code (`coordinator_notices.go`) — during the window
 (server-local wall clock; overnight wrap supported; `start == end` = never)
-Notify payloads lose their `sound`/`soundRtttl`/`soundLoop` keys (NG's three
-notification sound fields; AWTRIX3 spelled the latter two `rtttl`/`loopSound`)
-and `PlayRTTTL` no-ops, so every sound source is covered at one choke point.
-Visual output is untouched — an attention hold still takes the screen at
-night, just silently — and sounds resume on the first event after the window.
-`clockPublisher` is ungated and only `NewApp` builds it, wrapped at once
-(`clock_access_guard_test.go` enforces this), so a new sound source needs no
-per-feature check. The menu's explicit `/v1/device/audio/test` bypasses the gate
-on purpose. The gate's `now` func must return wall-clock local time, because
-`quietActive` reads `Hour()`/`Minute()` with no zone conversion.
+a notice is pushed without its sound (no `sound`/`soundRtttl`/`soundLoop`,
+NG's three notification sound fields; AWTRIX3 spelled the latter two
+`rtttl`/`loopSound`) and `playChime` no-ops, so every sound source is covered
+at one choke point. Visual output is untouched — an attention hold still
+takes the screen at night, just silently — and sounds resume on the first
+event after the window. `clockPublisher` is ungated; only `NewApp` builds it
+and only the notice code may call its `Notify`/`PlayRTTTL`
+(`clock_access_guard_test.go` enforces both), so a new sound source needs no
+per-feature check. The menu's explicit `/v1/device/audio/test` bypasses the
+gate on purpose. The quiet check reads the coordinator clock, which must
+return wall-clock local time, because `quietActive` reads `Hour()`/`Minute()`
+with no zone conversion.
+
+**Notices.** App code never builds an AWTRIX notification. It emits a
+`notice{app, kind, priority, sound, payload}`: `payload` is the visual popup
+body from `render.*PopupPayload`, `sound` names a device melody or an inline
+RTTTL (optionally looping), `priority` is interrupt or queue, and `kind`
+selects the popup. The clock adapter (`coordinator.showNotice`) turns it into
+one `POST /api/v1/notifications`: `name` from the kind (`ember-weather-popup`,
+`ember-reminder`, …, `notify_names.go`), `stack` from the priority (queue =
+`stack:true`), sound keys unless quiet hours are on. `dismissNotice` retracts
+a kind by name and `playChime` plays an out-of-band chime (the attention
+lock), both quiet-gated in the same file. Firing decisions (meeting
+per-occurrence dedupe, sun once-a-day, weather edge triggers, the usage alarm
+arm/fire state, reminder idempotency keys) stay with the app that owns the
+state. A notice is plain data, so a later knob subscription can read the same
+stream. `notices_test.go` pins the exact clock calls of every notice source,
+quiet hours off and on, as JSONL goldens (`testdata/notices`, regenerate with
+`-update`).
 
 ## Display layout (32×8 matrix)
 

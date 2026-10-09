@@ -144,7 +144,8 @@ When in doubt, write the spec, then point at it from the code's commit message. 
   - `sessions.go` — the App's adapter onto the session registry (`internal/sessions`: map, staleness, reaping, winner) and the legacy `/state` render
   - `server.go` — routing, middleware, auth, the JSON helpers
   - `status_http.go` — `/v1/status`, `/v1/clear`, `/v1/notify`
-  - `publisher.go` — the `Publisher` interface (the seam for server-initiated writes) and its real adapter, `clockPublisher` (built only by `NewApp`, always behind `quietPublisher`)
+  - `publisher.go` — the `Publisher` interface (the seam for server-initiated writes) and its real adapter, `clockPublisher` (built only by `NewApp`)
+  - `coordinator_notices.go` — the clock adapter's notice code: `notice` (what app code emits instead of a popup payload), its rendering into AWTRIX notifications, quiet hours, dismiss-by-kind and the out-of-band chime; the only caller of `Publisher.Notify`/`DismissNotifyByName`/`PlayRTTTL`
   - `clock_access.go` — the clock-access module: URL rule, per-call-class timeouts, retry rule, error map, serialised `/api/v1/system` writes; the only `awtrix.NewClient` in `cmd/ember` (guarded by `clock_access_guard_test.go`). A new clock call goes through it, never a new client
   - `clock_url.go` — the clock URL's tiers (file baseline, menu override, discovery swap) and `Config.clockURL()`, the one precedence rule. Code that needs the clock's address asks `clockURL()`/`effectiveClockURL()`; `AWTRIX.HTTPBaseURL` is only the file value (guarded by `TestHTTPBaseURLOnlyReadAsBaseline`)
   - `coordinator*.go` — the display coordinator, one file per concern
