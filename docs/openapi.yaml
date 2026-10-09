@@ -2483,7 +2483,9 @@ paths:
       summary: The knob's compact view (v 1)
       description: |
         Everything the knob draws in one poll. ETag/304; `?wait=` (≤25 s)
-        long-polls for a change, advertised by `X-Ember-View-Wait`.
+        long-polls for a change, advertised by `X-Ember-View-Wait`. Carries
+        `"quiet": true` while quiet hours are on (absent otherwise); a waiting
+        poll wakes at each quiet-hours edge.
       security: [{deviceToken: []}]
       parameters:
         - name: wait
@@ -2508,6 +2510,8 @@ paths:
                   externalValue: ../cmd/ember/testdata/devices/view_nowplaying_none.json
                 view_single_host_paused:
                   externalValue: ../cmd/ember/testdata/devices/view_single_host_paused.json
+                view_quiet:
+                  externalValue: ../cmd/ember/testdata/devices/view_quiet.json
         "304":
           description: Unchanged since If-None-Match.
         "401":

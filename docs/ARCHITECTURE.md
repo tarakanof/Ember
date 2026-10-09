@@ -2308,6 +2308,9 @@ the same board finds its record.
   `display{fast_link}` (cinder#23: the knob's panel QSPI link at 80 MHz,
   absent or null = true like the bot flags; the knob reboots to apply a
   change and falls back to 40 MHz by itself after a failed link check),
+  `quiet{calm, dim_level 1-255}` (#343, cinder#28: what the knob does while
+  the view says `quiet`; absent or null = `calm` true and `dim_level` 20,
+  Ember's default night level; see DEVICE-PROTOCOL "Quiet hours"),
   `diagnostics` `off|basic|full` (default `off`; a record stored before #239
   loads as `off`; see "Knob diagnostics" below), `stats_interval_s`
   `30|60|120|300` and `live_interval_s` `2|5|10` (defaults 60 and 5, chosen
@@ -3195,7 +3198,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
   location's own date (the observation's UTC offset, else the longitude's
   hour; null without a location or in polar day/night), `stale` as in
   `/v1/weather/state`;
-  `brightness` is the read-only `/v1/display/brightness` level and `night`.
+  `brightness` is the read-only `/v1/display/brightness` level and `night`;
+  `"quiet":true` follows it while quiet hours are on (#343, left out
+  otherwise, so a view outside the window keeps its bytes).
   `epoch` and `config_version` replace the `/state` epoch header: the knob
   checks in when either moves. Every answer carries `X-Ember-Now` (server
   Unix seconds, also on 304), the anchor for `ends_at`, so
@@ -3253,7 +3258,10 @@ draws-if-present in `internal/render`, add a menu checkbox.
   notifies config + Pomodoro after its engine resync). `notify` takes only
   its own lock and never blocks, so callers may hold theirs. Fields that move
   with the clock alone (sun-schedule brightness, weather going stale, live
-  mode ending) are caught by a 5 s recheck inside the wait. Topics are bits
+  mode ending) are caught by a 5 s recheck inside the wait. Quiet hours are
+  exact: each wait also arms a timer for the next quiet-hours edge
+  (`Config.nextQuietEdge`), so a waiting knob gets `quiet` at the minute it
+  flips. Topics are bits
   with a per-topic sequence (`since(seq)`), so a later SSE `/v1/events`
   (#269 phase 2) can name what changed on the same broadcaster without a
   queue per subscriber.
@@ -3358,8 +3366,11 @@ event after the window. `clockPublisher` is ungated; only `NewApp` builds it
 and only the notice code may call its `Notify`/`PlayRTTTL`
 (`clock_access_guard_test.go` enforces both), so a new sound source needs no
 per-feature check. The menu's explicit `/v1/device/audio/test` bypasses the
-gate on purpose. The quiet check reads the coordinator clock, which must
-return wall-clock local time, because `quietActive` reads `Hour()`/`Minute()`
+gate on purpose. The rule itself is app state: `Config.quietAt(t)`
+(`quiet_config.go`), read by the clock adapter through `coordinator.quietAt`
+and by the knob view (`"quiet":true`, #343), so both devices agree on the
+window. Every caller passes server wall-clock local time (the coordinator
+clock, the view's `now`), because `quietActive` reads `Hour()`/`Minute()`
 with no zone conversion.
 
 **Notices.** App code never builds an AWTRIX notification. It emits a
@@ -3376,7 +3387,7 @@ reminder loop guard dismisses a looping alarm at quiet-hours start, so a gated
 dismiss would leave it ringing all night (`TestDismissNoticeIgnoresQuietHours`).
 Every quiet decision (notice sound, the chime, the reminder loop's arm and
 stop, the corner-LED quiet indicator) goes through `coordinator.quietAt`, read
-on the coordinator clock. The reminder handler samples it before the push, so
+on the coordinator clock, which delegates to `Config.quietAt`. The reminder handler samples it before the push, so
 quiet hours starting during a slow push still leave a loud loop guarded. Firing decisions (meeting
 per-occurrence dedupe, sun once-a-day, weather edge triggers, the usage alarm
 arm/fire state, reminder idempotency keys) stay with the app that owns the

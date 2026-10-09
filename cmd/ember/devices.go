@@ -706,6 +706,7 @@ func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
 	}
 	cur.Bot.fillDefaults()
 	cur.Display.fillDefaults()
+	cur.Quiet.fillDefaults()
 	cur.addKnownPages()
 	return cur, nil
 }

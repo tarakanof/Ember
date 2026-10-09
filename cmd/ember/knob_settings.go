@@ -26,6 +26,36 @@ type knobSettings struct {
 	StatsIntervalS int            `json:"stats_interval_s"`
 	LiveIntervalS  int            `json:"live_interval_s"`
 	Display        knobDisplay    `json:"display"`
+	Quiet          knobQuiet      `json:"quiet"`
+}
+
+type knobQuiet struct {
+	Calm     *bool `json:"calm,omitempty"`
+	DimLevel *int  `json:"dim_level,omitempty"`
+}
+
+const knobQuietDimDefault = brightnessNightLevelDefault
+
+func (q knobQuiet) clone() knobQuiet {
+	if q.Calm != nil {
+		v := *q.Calm
+		q.Calm = &v
+	}
+	if q.DimLevel != nil {
+		v := *q.DimLevel
+		q.DimLevel = &v
+	}
+	return q
+}
+
+func (q *knobQuiet) fillDefaults() {
+	if q.Calm == nil {
+		q.Calm = boolPtr(true)
+	}
+	if q.DimLevel == nil {
+		v := knobQuietDimDefault
+		q.DimLevel = &v
+	}
 }
 
 type knobDisplay struct {
@@ -103,6 +133,7 @@ func (s knobSettings) clone() knobSettings {
 	s.Pages = slices.Clone(s.Pages)
 	s.Bot = s.Bot.clone()
 	s.Display = s.Display.clone()
+	s.Quiet = s.Quiet.clone()
 	return s
 }
 
@@ -118,6 +149,7 @@ func defaultKnobSettings() knobSettings {
 		PollMS:      2000,
 		Bot:         knobBot{SleepyAfterS: 300, DemoHoldS: 20, SourceLabel: boolPtr(true), WorkingRing: boolPtr(true)},
 		Display:     knobDisplay{FastLink: boolPtr(true)},
+		Quiet:       knobQuiet{Calm: boolPtr(true), DimLevel: new(knobQuietDimDefault)},
 		Diagnostics: knobDiagOff,
 
 		StatsIntervalS: knobStatsIntervalDefault,
@@ -137,6 +169,7 @@ func (s *knobSettings) fillDefaults() {
 	}
 	s.Bot.fillDefaults()
 	s.Display.fillDefaults()
+	s.Quiet.fillDefaults()
 	s.addKnownPages()
 }
 
@@ -203,7 +236,15 @@ func (s knobSettings) validate() error {
 	if err := inRange("bot.sleepy_after_s", s.Bot.SleepyAfterS, 0, 86400); err != nil {
 		return err
 	}
-	return inRange("bot.demo_hold_s", s.Bot.DemoHoldS, 1, 600)
+	if err := inRange("bot.demo_hold_s", s.Bot.DemoHoldS, 1, 600); err != nil {
+		return err
+	}
+	if s.Quiet.DimLevel != nil {
+		if err := inRange("quiet.dim_level", *s.Quiet.DimLevel, 1, 255); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s knobSettings) validatePages() error {
