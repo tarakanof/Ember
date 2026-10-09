@@ -237,6 +237,16 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         public init(fastLink: Bool? = nil) { self.fastLink = fastLink }
     }
 
+    public struct Quiet: Codable, Equatable, Sendable {
+        public var calm: Bool
+        public var dimLevel: Int
+        enum CodingKeys: String, CodingKey {
+            case calm
+            case dimLevel = "dim_level"
+        }
+        public init(calm: Bool = true, dimLevel: Int = 20) { self.calm = calm; self.dimLevel = dimLevel }
+    }
+
     public struct Bot: Codable, Equatable, Sendable {
         public var sleepyAfterS: Int
         public var demoHoldS: Int
@@ -263,9 +273,10 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public var statsIntervalS: Int?
     public var liveIntervalS: Int?
     public var display: Display?
+    public var quiet: Quiet?
 
     enum CodingKeys: String, CodingKey {
-        case brightness, pages, home, bot, diagnostics, display
+        case brightness, pages, home, bot, diagnostics, display, quiet
         case pollMS = "poll_ms"
         case statsIntervalS = "stats_interval_s"
         case liveIntervalS = "live_interval_s"
@@ -289,6 +300,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         statsIntervalS = try c.decodeIfPresent(Int.self, forKey: .statsIntervalS)
         liveIntervalS = try c.decodeIfPresent(Int.self, forKey: .liveIntervalS)
         display = try c.decodeIfPresent(Display.self, forKey: .display)
+        quiet = try c.decodeIfPresent(Quiet.self, forKey: .quiet)
     }
 
     public static let defaults = KnobSettings(
@@ -298,6 +310,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
 
     public static let levelRange = 0...255
     public static let floorRange = 1...255
+    public static let quietDimRange = 1...255
     public static let pollRange = 1000...10000
     public static let sleepyRange = 0...86400
     public static let demoHoldRange = 1...600
@@ -333,6 +346,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         s.brightness.startup = s.brightness.startup.clamped(to: Self.levelRange)
         s.brightness.floor = s.brightness.floor.clamped(to: Self.floorRange)
         if s.brightness.floor > s.brightness.level { s.brightness.level = s.brightness.floor }
+        if let dim = s.quiet?.dimLevel { s.quiet?.dimLevel = dim.clamped(to: Self.quietDimRange) }
         if !s.pages.contains(where: \.on), !s.pages.isEmpty { s.pages[0].on = true }
         if !s.pages.contains(where: { $0.id == s.home && $0.on }), let first = s.pages.first(where: \.on) {
             s.home = first.id

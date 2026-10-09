@@ -612,6 +612,7 @@
     "Applied (version %lld)" : {
       "comment" : "Settings › Knob: the knob runs the latest settings; the argument is the settings version number."
     },
+    "Applies while quiet hours are on. Set the hours in Sounds & Alerts." : {},
     "Applying…" : {},
     "Approve in Login Items…" : {},
     "Apps" : {},
@@ -723,6 +724,7 @@
     "Calendar icon, title and minutes to go." : {},
     "Calendar, bar above" : {},
     "Calendar, bar below" : {},
+    "Calm bot" : {},
     "Cancel" : {},
     "Cancel Update" : {},
     "Cards" : {},
@@ -1024,8 +1026,16 @@
     "Drawn by Ember from the same data the knob shows." : {},
     "Drawn by the calendar clock styles; the header only in the styles that have one." : {},
     "Durations" : {},
+    "During quiet hours the bot skips its attention and excited animations, so a waiting or failed agent doesn't light up the room. The knob has no speaker, so quiet hours only change what it shows. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "During quiet hours the knob dims to this level, or stays darker if it already is, even below the minimum brightness. Default: 8 percent, the clock's night level." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Each device has its own look for this source." : {},
-    "Each device with a speaker sets its own sounds. Quiet hours apply to all of them." : {},
+    "Each device with a speaker sets its own sounds. Quiet hours apply to all of them. The knob has no speaker: it dims and calms its bot instead, set in its Display settings." : {},
     "Edit %@ on %@" : {
       "comment" : "VoiceOver label of a Shown On link: the app (\"Weather\"), then the device's name (\"Clock\").",
       "localizations" : {
@@ -1305,6 +1315,10 @@
     "Keep on screen until dismissed" : {},
     "Keep reporting finished sessions" : {},
     "Keeps recent tool calls in the activity card" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Keeps the bot calm during quiet hours" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -2026,6 +2040,10 @@
       "extractionState" : "manual"
     },
     "The animated bot, or the glyph of the active tool" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "The brightest the knob gets during quiet hours" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },

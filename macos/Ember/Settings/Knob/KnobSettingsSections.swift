@@ -41,6 +41,32 @@ struct KnobDisplaySection: View {
     }
 }
 
+struct KnobQuietSection: View {
+    @Environment(AppEnvironment.self) private var env
+
+    var body: some View {
+        let knob = env.knob
+        if let quiet = knob.settings.draft.quiet {
+            Section {
+                InfoToggle("Calm bot", isOn: Binding(
+                    get: { quiet.calm },
+                    set: { v in knob.edit { $0.quiet?.calm = v } }),
+                    info: .knobQuietCalm, requirement: .loading)
+                PercentSliderRow(title: "Brightness", percent: Binding(
+                    get: { DeviceUnits.brightnessPercent(raw: quiet.dimLevel) },
+                    set: { p in knob.edit { $0.quiet?.dimLevel = DeviceUnits.brightnessRaw(percent: p) } }),
+                    range: 1...100, info: .knobQuietDim, requirement: .loading)
+            } header: {
+                Text("Quiet Hours")
+            } footer: {
+                SectionFooter(text: "Applies while quiet hours are on. Set the hours in Sounds & Alerts.",
+                              error: knob.settings.saveError)
+            }
+            .disabled(!knob.settings.isLoaded)
+        }
+    }
+}
+
 struct KnobPagesSection: View {
     @Environment(AppEnvironment.self) private var env
 
