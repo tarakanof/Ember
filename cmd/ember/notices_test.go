@@ -354,3 +354,19 @@ func TestEveryNoticeKindHasAUniqueName(t *testing.T) {
 		t.Fatal("found no noticeKind constants")
 	}
 }
+
+func TestReminderLoopArmsWhenQuietHoursStartDuringThePush(t *testing.T) {
+	pub := &recordingPublisher{}
+	app, clk := nightClockApp(t, pub, time.Date(2026, 1, 1, 21, 59, 0, 0, time.Local))
+	pub.failNotify = func() error {
+		clk.Advance(time.Minute)
+		return nil
+	}
+	fireReminder(t, app, `{"text":"Walk","sound":true,"hold":true,"repeat_sound":true}`)
+	if pub.NotifySnapshot()[0]["soundLoop"] != true {
+		t.Fatalf("alarm pushed at 21:59 must loop: %v", pub.NotifySnapshot()[0])
+	}
+	if _, n, _ := app.reminderLoop.current(); n == nil {
+		t.Error("loud looping alarm left without a loop guard because quiet hours began mid-push")
+	}
+}

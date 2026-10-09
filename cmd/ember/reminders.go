@@ -70,6 +70,7 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	case req.Sound:
 		n.sound = noticeSound{rtttl: defaultReminderSound}
 	}
+	quiet := a.coord.quietNow()
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	if err := a.coord.showNotice(ctx, n); err != nil {
@@ -80,7 +81,7 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	if loop && !a.coord.quietNow() {
+	if loop && !quiet {
 		a.reminderLoop.arm(now.Add(reminderHoldWindow), n)
 	}
 	w.WriteHeader(http.StatusNoContent)
