@@ -167,7 +167,7 @@ func TestDeviceViewHeadersContract(t *testing.T) {
 func TestDevicePomodoroActionGolden(t *testing.T) {
 	app := newPomodoroApp(t)
 	app.updateConfig(func(c *Config) { c.RateLimit.Disabled = true })
-	clk := &stepClock{now: time.Now().Add(500 * time.Millisecond)}
+	clk := &stepClock{now: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)}
 	app.EnablePomodoro(pomodoro.New(pomodoro.Settings{FocusMin: 25, ShortMin: 5, LongMin: 15, RoundsBeforeLong: 4}, clk), app.store)
 	srv := httptest.NewServer(app.routes())
 	t.Cleanup(srv.Close)
@@ -302,7 +302,6 @@ func TestDeviceCheckinGolden(t *testing.T) {
 	if !reflect.DeepEqual(*latest, wantStats) {
 		t.Errorf("stored stats\n got %+v\nwant %+v", *latest, wantStats)
 	}
-
 }
 
 func TestDeviceCheckinRotationGolden(t *testing.T) {
