@@ -2542,9 +2542,11 @@ record.
   change isn't rewritten; the specs' `after` hooks run after.
 - **Rotation.** `rotation` keeps NG's meaning in both directions: `order`
   names the enabled apps in order, `disabled` the ones switched off, so a
-  GET's `rotation` can be sent back. A PUT whose `rotation` equals the last
-  list read from the clock writes nothing to the clock (no 502 while it is
-  offline). Otherwise it is forwarded as is (the `PUT /v1/device/apps`
+  GET's `rotation` can be sent back. A PUT carrying `rotation` first reads
+  the clock's list again; only when that read succeeds and equals the patch
+  is the clock write skipped. A failed read, or any difference (a reorder
+  made on the old route, the clock's web UI or a read that failed earlier),
+  writes: the patch's `rotation` is forwarded as is (the `PUT /v1/device/apps`
   body) to the clock after validation and before the slices; a clock error
   is returned (502 when unreachable) and nothing else changes. After a
   successful write the cached list is dropped and read again; if that read
@@ -2562,9 +2564,9 @@ record.
   PUT bumps it once. `rotation` is the last app list the server read from
   the clock (façade GET, `GET /v1/device/apps`), kept in memory, `null`
   until one succeeds. Pushed Ember tiles are not part of it, so tiles
-  coming and going never move the hash. `PUT /v1/device/apps` leaves the
-  cache alone (no extra clock read on the old route): a reorder there moves
-  the version once, at the next read of the list (the app re-reads after a
+  coming and going never move the hash. `PUT /v1/device/apps` clears the
+  cache without a resync and without an extra clock read, so a reorder
+  there moves the version once, at the next read of the list (the app re-reads after a
   write; the façade GET always reads). A reorder on the clock's own web UI
   also shows at the next read. The façade GET re-reads the list with a 2 s
   budget and falls back to the last one. Boot and `/admin/reload` reapply

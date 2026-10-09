@@ -1749,7 +1749,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
-          description: The settings store failed; nothing changed.
+          description: The settings store failed; no settings changed.
           content:
             application/json:
               schema:
