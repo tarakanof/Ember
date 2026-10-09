@@ -63,6 +63,7 @@ type App struct {
 	changes       *changeBroadcaster
 	viewWaiters   viewWaiters
 	viewRecheck   time.Duration
+	viewClock     func() time.Time
 	viewWaitHook  func()
 	otaReadHook   func()
 	knobStats     *knobStatsStore

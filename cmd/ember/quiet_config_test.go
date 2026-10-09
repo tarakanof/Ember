@@ -249,3 +249,36 @@ func TestQuietConfigPersistence(t *testing.T) {
 			a4.cfg.Load().QuietHours.Start, baseline)
 	}
 }
+
+func TestNextQuietEdge(t *testing.T) {
+	at := func(d, h, m int) time.Time { return time.Date(2026, 6, d, h, m, 0, 0, time.UTC) }
+	on := func(start, end string) Config {
+		return Config{QuietHours: QuietHoursConfig{Enabled: true, Start: start, End: end}}
+	}
+	cases := []struct {
+		name string
+		cfg  Config
+		now  time.Time
+		want time.Time
+		ok   bool
+	}{
+		{"disabled", Config{QuietHours: QuietHoursConfig{Start: "22:00", End: "08:00"}}, at(11, 21, 0), time.Time{}, false},
+		{"start equals end", on("09:00", "09:00"), at(11, 8, 0), time.Time{}, false},
+		{"before start", on("22:00", "08:00"), at(11, 21, 59), at(11, 22, 0), true},
+		{"on the start edge", on("22:00", "08:00"), at(11, 22, 0), at(12, 8, 0), true},
+		{"overnight before end", on("22:00", "08:00"), at(12, 3, 0), at(12, 8, 0), true},
+		{"after end", on("22:00", "08:00"), at(12, 9, 0), at(12, 22, 0), true},
+		{"daytime window after both", on("13:00", "14:00"), at(11, 15, 0), at(12, 13, 0), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := c.cfg.nextQuietEdge(c.now)
+			if ok != c.ok || !got.Equal(c.want) {
+				t.Fatalf("nextQuietEdge(%v) = %v,%v want %v,%v", c.now, got, ok, c.want, c.ok)
+			}
+			if ok && c.cfg.quietAt(got) == c.cfg.quietAt(got.Add(-time.Second)) {
+				t.Fatalf("quiet does not change at %v", got)
+			}
+		})
+	}
+}

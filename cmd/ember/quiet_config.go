@@ -44,6 +44,28 @@ func (c Config) quietHoursWindow() (enabled bool, startMin, endMin int) {
 	return c.QuietHours.Enabled, start, end
 }
 
+func (c Config) quietAt(t time.Time) bool {
+	enabled, start, end := c.quietHoursWindow()
+	return enabled && quietActive(start, end, t)
+}
+
+func (c Config) nextQuietEdge(t time.Time) (time.Time, bool) {
+	enabled, start, end := c.quietHoursWindow()
+	if !enabled || start == end {
+		return time.Time{}, false
+	}
+	var next time.Time
+	for day := range 2 {
+		for _, m := range [2]int{start, end} {
+			e := time.Date(t.Year(), t.Month(), t.Day()+day, m/60, m%60, 0, 0, t.Location())
+			if e.After(t) && (next.IsZero() || e.Before(next)) {
+				next = e
+			}
+		}
+	}
+	return next, !next.IsZero()
+}
+
 func validateQuietHours(q QuietHoursConfig) error {
 	if q.Start != "" {
 		if _, ok := parseHHMM(q.Start); !ok {

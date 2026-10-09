@@ -220,3 +220,33 @@ func TestKnobViewWeatherNightWestOfGreenwich(t *testing.T) {
 		})
 	}
 }
+
+func TestKnobViewCarriesQuietOnlyDuringQuietHours(t *testing.T) {
+	f := newViewFixture(t)
+	noon := f.clk.Now()
+	cases := []struct {
+		name  string
+		quiet QuietHoursConfig
+		want  bool
+	}{
+		{"off", QuietHoursConfig{}, false},
+		{"disabled window covering now", QuietHoursConfig{Enabled: false, Start: "11:00", End: "13:00"}, false},
+		{"enabled outside the window", QuietHoursConfig{Enabled: true, Start: "22:00", End: "08:00"}, false},
+		{"enabled inside the window", QuietHoursConfig{Enabled: true, Start: "11:00", End: "13:00"}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f.app.updateConfig(func(cfg *Config) { cfg.QuietHours = c.quiet })
+			body, _, err := f.app.knobView(f.m.ID, noon)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(string(body), `"quiet":true`); got != c.want {
+				t.Fatalf("quiet in view = %v, want %v: %s", got, c.want, body)
+			}
+			if !c.want && strings.Contains(string(body), `"quiet"`) {
+				t.Fatalf("an inactive quiet must be left out: %s", body)
+			}
+		})
+	}
+}
