@@ -11,6 +11,8 @@ import (
 
 const brightnessSettingsKey = "brightness_json"
 
+const brightnessNightLevelDefault = 20
+
 const minStaleSeconds = int(2 * clockProbeTTL / time.Second)
 
 // Zero fields take the defaults, so 0 is never a valid value.
@@ -35,7 +37,7 @@ func (c BrightnessConfig) resolved() BrightnessConfig {
 		c.Ceiling = 255
 	}
 	if c.NightLevel == 0 {
-		c.NightLevel = 20
+		c.NightLevel = brightnessNightLevelDefault
 	}
 	if c.DayLevel == 0 {
 		c.DayLevel = 255

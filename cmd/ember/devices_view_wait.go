@@ -89,7 +89,8 @@ func (a *App) awaitKnobView(ctx context.Context, id, inm string, wait time.Durat
 	final := ""
 	for {
 		_, ch := a.changes.subscribe()
-		body, etag, err := a.knobView(id, time.Now())
+		now := a.viewNow()
+		body, etag, err := a.knobView(id, now)
 		switch {
 		case err != nil:
 			return nil, "", "", err
@@ -103,6 +104,7 @@ func (a *App) awaitKnobView(ctx context.Context, id, inm string, wait time.Durat
 		}
 		select {
 		case <-ch:
+		case <-a.quietEdge(now, wait):
 		case <-recheck.C:
 		case <-timer.C:
 			final = longPollTimeout
@@ -123,6 +125,21 @@ func inmHasStar(inm string) bool {
 	return false
 }
 
+func (a *App) viewNow() time.Time {
+	if a.viewClock != nil {
+		return a.viewClock()
+	}
+	return time.Now()
+}
+
+func (a *App) quietEdge(now time.Time, within time.Duration) <-chan time.Time {
+	edge, ok := a.cfg.Load().nextQuietEdge(now)
+	if !ok || edge.Sub(now) > within {
+		return nil
+	}
+	return time.After(edge.Sub(now))
+}
+
 func (a *App) knobViewRecheckEvery() time.Duration {
 	if a.viewRecheck > 0 {
 		return a.viewRecheck
@@ -135,7 +152,7 @@ func (a *App) serveKnobViewWait(w http.ResponseWriter, r *http.Request, id strin
 	if wait <= 0 || inm == "" || inmHasStar(inm) {
 		return false
 	}
-	if _, etag, err := a.knobView(id, time.Now()); err != nil || !etagMatches(inm, etag) {
+	if _, etag, err := a.knobView(id, a.viewNow()); err != nil || !etagMatches(inm, etag) {
 		return false
 	}
 	release, ok := a.viewWaiters.acquire(id)
@@ -162,7 +179,7 @@ func (a *App) serveKnobViewWait(w http.ResponseWriter, r *http.Request, id strin
 		a.writeDeviceError(w, r, err)
 	case result == longPollGone:
 	default:
-		a.writeKnobView(w, r, body, etag, time.Now())
+		a.writeKnobView(w, r, body, etag, a.viewNow())
 	}
 	return true
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 )
 
@@ -42,6 +43,49 @@ func (c Config) quietHoursWindow() (enabled bool, startMin, endMin int) {
 		end = 8 * 60
 	}
 	return c.QuietHours.Enabled, start, end
+}
+
+func (c Config) quietAt(t time.Time) bool {
+	enabled, start, end := c.quietHoursWindow()
+	return enabled && quietActive(start, end, t)
+}
+
+func (c Config) nextQuietEdge(t time.Time) (time.Time, bool) {
+	enabled, start, end := c.quietHoursWindow()
+	if !enabled || start == end {
+		return time.Time{}, false
+	}
+	limit := t.Add(72 * time.Hour)
+	var cands []time.Time
+	shifts := []time.Duration{0}
+	for at := t.Add(-48 * time.Hour); ; {
+		_, zoneEnd := at.ZoneBounds()
+		if zoneEnd.IsZero() || !zoneEnd.Before(limit) {
+			break
+		}
+		_, before := zoneEnd.Add(-time.Second).Zone()
+		_, after := zoneEnd.Zone()
+		d := time.Duration(after-before) * time.Second
+		cands = append(cands, zoneEnd)
+		shifts = append(shifts, d, -d)
+		at = zoneEnd
+	}
+	for day := -1; day <= 3; day++ {
+		for _, m := range [2]int{start, end} {
+			w := time.Date(t.Year(), t.Month(), t.Day()+day, m/60, m%60, 0, 0, t.Location())
+			for _, s := range shifts {
+				cands = append(cands, w.Add(s))
+			}
+		}
+	}
+	slices.SortFunc(cands, time.Time.Compare)
+	cur := c.quietAt(t)
+	for _, x := range cands {
+		if x.After(t) && c.quietAt(x) != cur {
+			return x, true
+		}
+	}
+	return time.Time{}, false
 }
 
 func validateQuietHours(q QuietHoursConfig) error {

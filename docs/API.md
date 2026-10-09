@@ -31,7 +31,7 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}` and
 `POST /v1/nowplaying/control` (also accept a knob device token; control takes an
 optional `Idempotency-Key`), `GET/POST /v1/devices`, `GET/PUT
-/v1/devices/{id}/config` (same merge), `PATCH`/`DELETE /v1/devices/{id}`,
+/v1/devices/{id}/config` (same merge; includes `quiet{calm, dim_level}`), `PATCH`/`DELETE /v1/devices/{id}`,
 `POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
 registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
 `GET`/`PUT /v1/devices/{id}/ota` (knob firmware update: `{"mode":"manual|auto","target":"0.9.14"|null,"retry":true}` merge;
@@ -72,7 +72,8 @@ long-poll for Music commands) and `PUT /v1/nowplaying/art?source=&player=&kind=a
 (raw JPEG/PNG ≤2 MB; 409 once the track moved on — ARCHITECTURE "Now playing"), `GET/PUT /v1/display/config`,
 `GET/PUT /v1/weather/config`, `POST /v1/reminders/fire` (optional
 `Idempotency-Key` header dedupes retries for 10 min),
-`GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config`, `GET/PUT /v1/brightness/config` (every `…/config`
+`GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config` (also drives the
+knob view's `quiet`), `GET/PUT /v1/brightness/config` (every `…/config`
 settings PUT above is merge semantics: the body is a JSON object whose omitted
 keys keep their current value; an invalid merged result is a 400 and changes
 nothing — see `settings_overlay.go`), `GET/PUT /v1/device/config`
@@ -123,7 +124,8 @@ stored or already stored), `GET /v1/devices/self/firmware/{version}` (only
 the image its checkin's `ota` offers: 409 for any other version, `Range`/`If-Range` (416 past the end),
 `ETag: "<sha256>"`, per-device rate limit), `GET /v1/devices/self/view` (the knob's
 single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
-`X-Ember-View-Wait` — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
+`X-Ember-View-Wait`; `"quiet":true` while quiet hours are on, and a waiting
+poll wakes at the quiet-hours edges — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
 on any knob config change or rotation). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
 the Plex poller). Device-only (unauthenticated): `POST /hooks/awtrix/button`
 (NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG

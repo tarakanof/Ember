@@ -17,7 +17,7 @@ Every route the knob calls, all with its device token (`ekd_…`):
 | Route | What |
 |---|---|
 | `POST /v1/devices/self/checkin` | Health report in; reply carries `config_version`, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
-| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather`, `brightness`, then `nowplaying` (only with the `nowplaying` page on) and `diag_live_until` (live mode only). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
+| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather`, `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on) and `diag_live_until` (live mode only). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
 | `GET /v1/devices/self/config` | `{config_version, config}`, the same pair a stale checkin carries. |
 | `PUT /v1/devices/self/coredump?id=` | The core dump a checkin asked for. |
 | `GET /v1/devices/self/firmware/{version}` | The image the checkin's `ota` offer names. |
@@ -65,6 +65,28 @@ and fall under the same rules as the view.
    shape updates the fixtures below in the same PR, and the PR says so, so
    cinder can sync them.
 
+## Quiet hours
+
+Quiet hours are server state (`quiet_hours`, `GET/PUT /v1/quiet/config`),
+read through one rule, `Config.quietAt`, by both the clock adapter and the
+knob view. The knob has no speaker, so on the knob quiet is display only:
+
+- **View:** `"quiet": true` while the window is on; absent otherwise (never
+  `false`), so a view outside quiet hours is byte-identical to before #343.
+  A long poll wakes at each window edge with a new ETag. Absent = not quiet.
+- **Config:** `"quiet": {"calm": bool, "dim_level": int}`, per knob.
+  `calm` (default `true`): the bot skips its attention and excited
+  animations while quiet. `dim_level` 1-255 (default 20): while quiet the
+  knob's brightness is at most this level; the brightness `floor` does not
+  raise it. 20 is Ember's default `night_level` (`brightnessNightLevelDefault`),
+  the level a knob following Ember already shows at night without a light
+  reading, so quiet never makes the knob darker than an ordinary night by
+  default, and it sits above the default knob `floor` (10).
+- **Old firmware** skips both unknown keys. The config grows by 37 B: the
+  default config is 434 B and the largest valid one 648 B, under cinder's
+  `CFG_SETTINGS_MAX` (1024 B), which `TestKnobConfigFitsTheFirmwareStore`
+  pins.
+
 ## Fixtures
 
 `cmd/ember/testdata/devices/`, written by `devices_golden_test.go` through the
@@ -77,6 +99,7 @@ Indented JSON; key order is the wire order.
 | `view_full.json` | Every block: two-host `mood` with `lead`/`hosts`/`lead_color`/`tool`, counting `pomo` (`ends_at`), `weather` with sun times, `nowplaying` playing with art and volume, `diag_live_until` |
 | `view_minimal.json` | Pomodoro and weather off (`null`), `nowplaying` page off (block absent) |
 | `view_nowplaying_none.json` | `nowplaying` page on, nothing playing (`{"state":"none"}`); idle `pomo` (`remaining_sec`) |
+| `view_quiet.json` | Quiet hours on: `"quiet":true` after `brightness`; Pomodoro and weather off |
 | `view_single_host_paused.json` | One host: `source` set, `lead`/`hosts` left out; paused `pomo` with `remaining_sec`; `weather` without a location (`sunrise`/`sunset` `null`) |
 | `checkin_req_minimal.json` | The base fields every firmware sends |
 | `checkin_req_full.json` | Every block: `diag` with a crash, `ota` with `last`, `stats`, `wifi`, the display link |
@@ -86,8 +109,8 @@ Indented JSON; key order is the wire order.
 | `checkin_reply_ota.json` | `coredump_ack` plus an `ota` offer |
 | `checkin_reply_rotation.json` | `new_token` from a real rotation, the token replaced by a dummy of the same length |
 | `pomodoro_action.json` | A Pomodoro action reply (pause during a short break) |
-| `config_default.json` | `GET …/self/config` for a new knob |
-| `config_custom.json` | Every setting changed, plus an unknown page id the knob must keep |
+| `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20) |
+| `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5), plus an unknown page id the knob must keep |
 
 The test also compares what the server stores for `checkin_req_full.json`
 (the checkin record and the stats sample) with every value sent, so a request

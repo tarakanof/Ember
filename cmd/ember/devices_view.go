@@ -20,6 +20,7 @@ type knobView struct {
 	Pomo          *knobPomo       `json:"pomo"`
 	Weather       *knobWeather    `json:"weather"`
 	Brightness    knobLight       `json:"brightness"`
+	Quiet         bool            `json:"quiet,omitempty"`
 	NowPlaying    *knobNowPlaying `json:"nowplaying,omitempty"`
 	DiagLiveUntil *int64          `json:"diag_live_until,omitempty"`
 }
@@ -112,6 +113,7 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 		Pomo:          a.knobPomo(now),
 		Weather:       a.knobWeather(now),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},
+		Quiet:         a.cfg.Load().quietAt(now),
 		DiagLiveUntil: a.knobLiveUnix(id, cfg.Diagnostics, now),
 	}
 	if cfg.pageOn(knobNowPlayingPage) {
@@ -205,7 +207,7 @@ func (a *App) handleDeviceSelfView(w http.ResponseWriter, r *http.Request) {
 	if a.serveKnobViewWait(w, r, id, wait) {
 		return
 	}
-	now := time.Now()
+	now := a.viewNow()
 	body, etag, err := a.knobView(id, now)
 	if err != nil {
 		a.writeDeviceError(w, r, err)

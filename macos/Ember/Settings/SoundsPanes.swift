@@ -160,7 +160,7 @@ struct QuietHoursPane: View {
             } header: {
                 Text("Devices")
             } footer: {
-                Text("Each device with a speaker sets its own sounds. Quiet hours apply to all of them.")
+                Text("Each device with a speaker sets its own sounds. Quiet hours apply to all of them. The knob has no speaker: it dims and calms its bot instead, set in its Display settings.")
             }
         }
         .formStyle(.grouped)

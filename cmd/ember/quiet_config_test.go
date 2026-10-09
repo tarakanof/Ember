@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	_ "time/tzdata"
 )
 
 func TestParseHHMM(t *testing.T) {
@@ -247,5 +248,105 @@ func TestQuietConfigPersistence(t *testing.T) {
 	if a4.cfg.Load().QuietHours.Start != baseline {
 		t.Fatalf("invalid persisted settings should not change baseline; got %q want %q",
 			a4.cfg.Load().QuietHours.Start, baseline)
+	}
+}
+
+func TestNextQuietEdge(t *testing.T) {
+	at := func(d, h, m int) time.Time { return time.Date(2026, 6, d, h, m, 0, 0, time.UTC) }
+	on := func(start, end string) Config {
+		return Config{QuietHours: QuietHoursConfig{Enabled: true, Start: start, End: end}}
+	}
+	cases := []struct {
+		name string
+		cfg  Config
+		now  time.Time
+		want time.Time
+		ok   bool
+	}{
+		{"disabled", Config{QuietHours: QuietHoursConfig{Start: "22:00", End: "08:00"}}, at(11, 21, 0), time.Time{}, false},
+		{"start equals end", on("09:00", "09:00"), at(11, 8, 0), time.Time{}, false},
+		{"before start", on("22:00", "08:00"), at(11, 21, 59), at(11, 22, 0), true},
+		{"on the start edge", on("22:00", "08:00"), at(11, 22, 0), at(12, 8, 0), true},
+		{"overnight before end", on("22:00", "08:00"), at(12, 3, 0), at(12, 8, 0), true},
+		{"after end", on("22:00", "08:00"), at(12, 9, 0), at(12, 22, 0), true},
+		{"daytime window after both", on("13:00", "14:00"), at(11, 15, 0), at(12, 13, 0), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := c.cfg.nextQuietEdge(c.now)
+			if ok != c.ok || !got.Equal(c.want) {
+				t.Fatalf("nextQuietEdge(%v) = %v,%v want %v,%v", c.now, got, ok, c.want, c.ok)
+			}
+			if ok && c.cfg.quietAt(got) == c.cfg.quietAt(got.Add(-time.Second)) {
+				t.Fatalf("quiet does not change at %v", got)
+			}
+		})
+	}
+}
+
+func TestNextQuietEdgeAcrossDST(t *testing.T) {
+	load := func(name string) *time.Location {
+		loc, err := time.LoadLocation(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return loc
+	}
+	ny, bg := load("America/New_York"), load("Europe/Belgrade")
+	utc := func(mo time.Month, d, h, m int) time.Time { return time.Date(2026, mo, d, h, m, 0, 0, time.UTC) }
+	on := func(start, end string) Config {
+		return Config{QuietHours: QuietHoursConfig{Enabled: true, Start: start, End: end}}
+	}
+	cases := []struct {
+		name string
+		cfg  Config
+		now  time.Time
+		want time.Time
+	}{
+		{"spring forward start in the gap", on("02:30", "07:00"), utc(time.March, 8, 6, 59).In(ny), utc(time.March, 8, 7, 0)},
+		{"fall back reenters the window", on("22:00", "01:30"), utc(time.November, 1, 5, 45).In(ny), utc(time.November, 1, 6, 0)},
+		{"fall back second end", on("22:00", "01:30"), utc(time.November, 1, 6, 10).In(ny), utc(time.November, 1, 6, 30)},
+		{"fall back leaves the window", on("02:30", "04:00"), utc(time.October, 25, 0, 45).In(bg), utc(time.October, 25, 1, 0)},
+		{"fall back second start", on("02:30", "04:00"), utc(time.October, 25, 1, 10).In(bg), utc(time.October, 25, 1, 30)},
+		{"spring forward start in the gap east", on("02:30", "04:00"), utc(time.March, 29, 0, 50).In(bg), utc(time.March, 29, 1, 0)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := c.cfg.nextQuietEdge(c.now)
+			if !ok || !got.Equal(c.want) {
+				t.Fatalf("nextQuietEdge(%v) = %v,%v want %v", c.now, got.UTC(), ok, c.want)
+			}
+			if c.cfg.quietAt(got) == c.cfg.quietAt(c.now) {
+				t.Fatalf("quiet does not change at %v", got)
+			}
+			if c.cfg.quietAt(got.Add(-time.Second)) != c.cfg.quietAt(c.now) {
+				t.Fatalf("quiet changed before %v", got)
+			}
+		})
+	}
+}
+
+func TestNextQuietEdgeMatchesAMinuteScan(t *testing.T) {
+	windows := [][2]string{{"22:00", "08:00"}, {"02:30", "04:00"}, {"01:00", "02:30"}, {"22:00", "01:30"}, {"02:15", "02:45"}}
+	for _, zone := range []string{"America/New_York", "Europe/Belgrade", "UTC"} {
+		loc, err := time.LoadLocation(zone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, day := range []time.Time{time.Date(2026, 3, 7, 12, 0, 0, 0, loc), time.Date(2026, 3, 28, 12, 0, 0, 0, loc),
+			time.Date(2026, 10, 24, 12, 0, 0, 0, loc), time.Date(2026, 10, 31, 12, 0, 0, 0, loc)} {
+			for _, w := range windows {
+				cfg := Config{QuietHours: QuietHoursConfig{Enabled: true, Start: w[0], End: w[1]}}
+				for now := day; now.Before(day.Add(36 * time.Hour)); now = now.Add(11 * time.Minute) {
+					want := now.Add(time.Minute).Truncate(time.Minute)
+					for cfg.quietAt(want) == cfg.quietAt(now) {
+						want = want.Add(time.Minute)
+					}
+					if got, ok := cfg.nextQuietEdge(now); !ok || !got.Equal(want) {
+						t.Fatalf("%s %v at %v: got %v,%v want %v", zone, w, now, got, ok, want)
+					}
+				}
+			}
+		}
 	}
 }

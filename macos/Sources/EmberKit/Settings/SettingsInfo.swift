@@ -4,6 +4,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
     case knobPoll, knobStatsInterval, knobLiveInterval, knobFastLink
     case knobFollowBrightness, knobMinBrightness, knobStartupBrightness
     case knobSleepy, knobSourceLabel, knobWorkingRing
+    case knobQuietCalm, knobQuietDim
     case clockAutoBrightness, clockUppercase
     case clockTimePerApp, clockAutoTransition, clockScrollSpeed, clockBlockNavigation
     case melody, attentionChime, limitAlarm
@@ -28,6 +29,8 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobSleepy: "Idle time before the bot gets sleepy"
         case .knobSourceLabel: "Writes the agent's computer name along the bottom of the face"
         case .knobWorkingRing: "A glint circles the bot's outline while an agent works"
+        case .knobQuietCalm: "Keeps the bot calm during quiet hours"
+        case .knobQuietDim: "The brightest the knob gets during quiet hours"
         case .clockAutoBrightness: "Lets the clock's light sensor set its brightness"
         case .clockUppercase: "Shows the text of apps and popups in capitals"
         case .clockTimePerApp: "How long each app stays on screen"
@@ -75,7 +78,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobFollowBrightness:
             "The knob has no light sensor, so it uses the level Ember works out from the clock's light sensor, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on."
         case .knobMinBrightness:
-            "The knob never goes below this, whether it follows Ember or not. Raising it above Brightness raises Brightness too. Default: 4 percent."
+            "The knob never goes below this, whether it follows Ember or not, except during quiet hours, when Quiet brightness applies. Raising it above Brightness raises Brightness too. Default: 4 percent."
         case .knobStartupBrightness:
             "The screen stays dark while the knob boots, then lights at this level until your brightness setting takes over. Default: 60 percent."
         case .knobSleepy:
@@ -84,6 +87,10 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "While an agent is working, waiting or in error, the name of its computer curves along the bottom of the bot's face, after the tool's icon. Default: on."
         case .knobWorkingRing:
             "While an agent is working, a glint orbits the bot's outline every 3 s, and after a long stretch the eyes chase it for a few laps. Off keeps the outline still. Default: on."
+        case .knobQuietCalm:
+            "During quiet hours the bot skips its attention and excited animations, so a waiting or failed agent doesn't light up the room. The knob has no speaker, so quiet hours only change what it shows. Default: on."
+        case .knobQuietDim:
+            "During quiet hours the knob dims to this level, or stays darker if it already is, even below the minimum brightness. Default: 8 percent, the clock's night level."
         case .clockAutoBrightness:
             "The clock follows its light sensor within its own minimum and maximum, staying dim until the room is properly bright, and eases changes in over about 10 s. The Brightness slider isn't used while this is on. Default: off."
         case .clockUppercase:

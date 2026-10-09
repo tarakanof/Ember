@@ -52,8 +52,7 @@ type notice struct {
 }
 
 func (c *coordinator) quietAt(t time.Time) bool {
-	enabled, start, end := c.loadCfg().quietHoursWindow()
-	return enabled && quietActive(start, end, t)
+	return c.loadCfg().quietAt(t)
 }
 
 func (c *coordinator) quietNow() bool { return c.quietAt(c.clk.Now()) }

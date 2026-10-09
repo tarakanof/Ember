@@ -38,6 +38,10 @@
     "live_interval_s": 5,
     "display": {
       "fast_link": true
+    },
+    "quiet": {
+      "calm": true,
+      "dim_level": 20
     }
   }
 }

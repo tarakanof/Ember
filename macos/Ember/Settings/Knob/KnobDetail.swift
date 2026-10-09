@@ -64,6 +64,7 @@ struct KnobDetail: View {
         switch page {
         case .hardware(.display):
             KnobDisplaySection()
+            KnobQuietSection()
         case .hardware(.behavior):
             KnobPollSection()
             KnobAdvancedSection(changeWiFi: { setup = .changeWiFi })

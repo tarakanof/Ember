@@ -29,7 +29,8 @@ const customKnobConfig = `{
 	"diagnostics": "basic",
 	"stats_interval_s": 120,
 	"live_interval_s": 2,
-	"display": {"fast_link": false}
+	"display": {"fast_link": false},
+	"quiet": {"calm": false, "dim_level": 5}
 }`
 
 func assertDeviceGolden(t *testing.T, name string, body []byte) {
@@ -115,6 +116,15 @@ func TestDeviceViewGolden(t *testing.T) {
 		f := goldenViewFixture(t)
 		putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
 		assertDeviceGolden(t, "view_nowplaying_none", goldenView(t, f))
+	})
+	t.Run("quiet", func(t *testing.T) {
+		f := goldenViewFixture(t)
+		f.app.updateConfig(func(c *Config) {
+			c.Pomodoro.Enabled = false
+			c.Weather.Enabled = false
+			c.QuietHours = QuietHoursConfig{Enabled: true, Start: "11:00", End: "13:00"}
+		})
+		assertDeviceGolden(t, "view_quiet", goldenView(t, f))
 	})
 	t.Run("single_host_paused", func(t *testing.T) {
 		f := goldenViewFixture(t)

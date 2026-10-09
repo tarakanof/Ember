@@ -83,6 +83,21 @@ import Foundation
     #expect(c.linkMHz == 40 && c.linkFallback == true)
 }
 
+@Test func knobQuietDecodesAndPatchesOnlyWhatChanged() throws {
+    let base = #""brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true}],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20}"#
+    let s = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + #","quiet":{"calm":true,"dim_level":20}}"#).utf8))
+    #expect(s.quiet == KnobSettings.Quiet(calm: true, dimLevel: 20))
+    var edited = s
+    edited.quiet?.dimLevel = 0
+    edited = edited.normalized()
+    #expect(edited.quiet?.dimLevel == KnobSettings.quietDimRange.lowerBound)
+    edited.quiet?.calm = false
+    #expect(edited.patch(from: s) == ["quiet": .object(["calm": .bool(false), "dim_level": .int(1)])])
+    let old = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + "}").utf8))
+    #expect(old.quiet == nil)
+    #expect(!String(decoding: try JSONEncoder().encode(old), as: UTF8.self).contains("quiet"))
+}
+
 @Test func knobCheckinDiagDecodes() throws {
     let d = JSONDecoder()
     d.dateDecodingStrategy = .iso8601
