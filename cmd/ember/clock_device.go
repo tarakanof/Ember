@@ -14,7 +14,7 @@ const (
 	clockIDPrefix   = "clock-"
 )
 
-var clockUIDPattern = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
+var clockUIDPattern = regexp.MustCompile(`^[a-z0-9_]{1,32}$`)
 
 func knobOnly(op string) error {
 	return fmt.Errorf("%w: %s applies to kind %q only", errDeviceBody, op, deviceKindKnob)
@@ -60,13 +60,17 @@ func clockDeviceID(st *deviceState, uid string) string {
 	return clockIDPrefix + uid
 }
 
-func (s *deviceState) findClockByUID(uid string) *deviceRecord {
+func (s *deviceState) findClock() *deviceRecord {
 	for i := range s.Devices {
-		if s.Devices[i].Kind == deviceKindClock && s.Devices[i].HwID == uid {
+		if s.Devices[i].Kind == deviceKindClock {
 			return &s.Devices[i]
 		}
 	}
 	return nil
+}
+
+func defaultClockName(id string) string {
+	return "Clock " + strings.ToUpper(strings.TrimPrefix(id, clockIDPrefix))
 }
 
 func (r *deviceRegistry) kindOf(id string) (string, error) {
@@ -89,7 +93,7 @@ func (r *deviceRegistry) seenClock(uid string, seen *clockSeen, version int) (de
 		seen = seen.clone()
 		seen.SeenAt = r.now().UTC()
 	}
-	if d := r.state.findClockByUID(uid); d != nil {
+	if d := r.state.findClock(); d != nil && d.HwID == uid {
 		if seen == nil {
 			return d.view(), false, nil
 		}
@@ -104,12 +108,26 @@ func (r *deviceRegistry) seenClock(uid string, seen *clockSeen, version int) (de
 	}
 	var view deviceView
 	err := r.mutateLocked(func(st *deviceState) error {
+		if d := st.findClock(); d != nil {
+			renamed := d.Name != defaultClockName(d.ID)
+			d.ID = ""
+			d.ID = clockDeviceID(st, uid)
+			d.HwID = uid
+			if !renamed {
+				d.Name = defaultClockName(d.ID)
+			}
+			d.LastSeen = seen
+			view = d.view()
+			slices.SortFunc(st.Devices, func(a, b deviceRecord) int { return strings.Compare(a.ID, b.ID) })
+			st.Epoch++
+			return nil
+		}
 		id := clockDeviceID(st, uid)
 		d := deviceRecord{
 			ID:            id,
 			Kind:          deviceKindClock,
 			HwID:          uid,
-			Name:          "Clock " + strings.ToUpper(strings.TrimPrefix(id, clockIDPrefix)),
+			Name:          defaultClockName(id),
 			ConfigVersion: version,
 			CreatedAt:     r.now().UTC(),
 			LastSeen:      seen,

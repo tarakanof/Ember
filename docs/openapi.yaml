@@ -396,7 +396,7 @@ components:
       properties:
         id:
           type: string
-          description: "`knob-…`, `clock-…` (last 6 characters of the clock's NG uid, the full uid on a collision) or `client-…`."
+          description: "`knob-…`, `clock-…` (last 6 characters of the clock's NG uid; at most one clock record, rewritten in place when the uid at the clock URL changes) or `client-…`."
         kind:
           type: string
           enum: [cinder-knob, awtrix-ng, client]

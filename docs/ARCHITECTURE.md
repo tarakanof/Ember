@@ -2460,17 +2460,23 @@ record.
 
 - **Lifecycle.** A good probe of the effective clock URL (`GET
   /api/v1/device` answering `boardType: awtrixng` and a `uid`, through the
-  clock-health probe the device watch and the sampler share) creates the
-  record if no `awtrix-ng` record has that uid; a discovery swap does the
-  same with the candidate's uid. Id `clock-` + last 6 characters of the uid
-  (lower-cased, `:`/`-` stripped, `[a-z0-9_]{1,64}`, the full uid on a
-  collision), `hw_id` = uid, name `Clock <SUFFIX>`, no `token_sha256`, no
+  clock-health probe the device watch and the sampler share; the body is
+  read through the clock client's 1 MiB reply cap) creates the record. Only
+  the effective clock URL is ever probed for it: the probe dials
+  `effectiveClockURL()`, and a discovery swap registers only the candidate
+  it just made effective, never the others a scan touched. There is at most
+  one `awtrix-ng` record (one clock in phase 2): a different uid at the
+  effective URL (a swapped clock, or a LAN host answering with a fresh uid)
+  rewrites that record in place (new id and `hw_id`, `last_seen` reset,
+  `created_at` and a user-set name kept, epoch bumped once), so
+  `devices_json` cannot grow from the probe. Id `clock-` + last 6
+  characters of the uid (lower-cased, `:`/`-` stripped, `[a-z0-9_]{1,32}`,
+  else ignored), `hw_id` = uid, name `Clock <SUFFIX>`, no `token_sha256`, no
   `config` stored (`omitzero`), creation bumps the epoch. Each later good
   probe sets `last_seen` (`seen_at`, `fw`, `ip`, `rssi`, `uptime_s`) in
   memory and writes the blob on the checkin rule (every 10 min, or with any
   other registry write, and on shutdown). The URL stays in `clock_url.go`:
-  the record does not own it, and a new uid at that URL (a swapped clock)
-  makes a second record; the old one stays until deleted.
+  the record does not own it. Multi-clock needs the URL on the record first.
 - **Kind gates.** Device auth skips non-knob records, so the clock never
   authenticates even if a hash were planted on it. `rotate` and the registry
   `checkin` answer 400 (`… applies to kind "cinder-knob" only`). Stats,
@@ -2478,8 +2484,7 @@ record.
   is 404 there, and the OTA loops (`otaTargets`, `otaKeeps`, `otaRetire`)
   skip other kinds. `POST /v1/devices` still mints only knobs and clients.
   `PATCH` renames (a probe never resets the name). `DELETE` removes the
-  record (204); the next good probe re-creates it with the default name, so
-  it is how an old clock's record is dropped after a swap.
+  record (204); the next good probe re-creates it with the default name.
 - **Façade.** `GET /v1/devices/{clock}/config` composes; `PUT` splits back.
   Every `awtrix-ng` record serves the same config (one clock in phase 2).
 

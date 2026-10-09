@@ -232,23 +232,48 @@ func TestClockRecordCreatedOnDiscoverySwap(t *testing.T) {
 	}
 }
 
-func TestClockIDUsesFullUIDOnCollision(t *testing.T) {
-	r := newDeviceRegistry(func() settingsKV { return nil })
-	a, _, err := r.seenClock("aaaaaa05ffb8", nil, 1)
-	if err != nil {
-		t.Fatal(err)
+func TestManyClockUIDsKeepOneRecord(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	registeredClock(t, a, srv)
+	for i := range 50 {
+		stub.mu.Lock()
+		stub.uid = "spoof" + strconv.Itoa(i)
+		stub.mu.Unlock()
+		probeClock(t, a)
 	}
-	b, _, err := r.seenClock(testClockUID, nil, 1)
-	if err != nil {
-		t.Fatal(err)
+	devs := listDevices(t, srv)
+	if len(devs) != 1 || devs[0].HwID != "spoof49" || devs[0].ID != "clock-poof49" {
+		t.Fatalf("records = %+v", devs)
 	}
-	if a.ID != "clock-05ffb8" || b.ID != "clock-"+testClockUID {
-		t.Fatalf("ids = %s, %s", a.ID, b.ID)
+}
+
+func TestClockUIDReplacementKeepsName(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	resp, b := devReq(t, srv, "PATCH", "/v1/devices/"+d.ID, testToken, `{"name":"Desk clock"}`)
+	mustOK(t, "rename", resp, b)
+	stub.mu.Lock()
+	stub.uid = "aabbcc112233"
+	stub.mu.Unlock()
+	probeClock(t, a)
+	devs := listDevices(t, srv)
+	if len(devs) != 1 || devs[0].ID != "clock-112233" || devs[0].HwID != "aabbcc112233" || devs[0].Name != "Desk clock" {
+		t.Fatalf("records = %+v", devs)
 	}
-	for _, id := range []string{a.ID, b.ID} {
-		if isClientID(id) {
-			t.Fatalf("clock id %s looks like a client id", id)
-		}
+	if !devs[0].CreatedAt.Equal(d.CreatedAt) {
+		t.Fatalf("created_at moved: %v -> %v", d.CreatedAt, devs[0].CreatedAt)
+	}
+}
+
+func TestClockUIDReplacementRenamesDefaultName(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	registeredClock(t, a, srv)
+	stub.mu.Lock()
+	stub.uid = "aabbcc112233"
+	stub.mu.Unlock()
+	probeClock(t, a)
+	if devs := listDevices(t, srv); len(devs) != 1 || devs[0].Name != "Clock 112233" {
+		t.Fatalf("records = %+v", devs)
 	}
 }
 
@@ -258,7 +283,7 @@ func TestClockUIDNormalised(t *testing.T) {
 			t.Errorf("normalizeClockUID(%q) = %q, %v", raw, got, ok)
 		}
 	}
-	for _, raw := range []string{"", "a/b", strings.Repeat("a", 65)} {
+	for _, raw := range []string{"", "a/b", strings.Repeat("a", 33)} {
 		if _, ok := normalizeClockUID(raw); ok {
 			t.Errorf("normalizeClockUID(%q) accepted", raw)
 		}
