@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -37,6 +38,19 @@ func sunDayCases() []sunDayCase {
 			sunDayCase{"PDT 23:30" + suffix, laLat, laLon, known, -7 * 3600, time.Date(2026, 7, 15, 23, 30, 0, 0, pdt)},
 			sunDayCase{"UTC 00:30" + suffix, londonLat, londonLon, known, 0, time.Date(2026, 1, 15, 0, 30, 0, 0, time.UTC)},
 			sunDayCase{"UTC 23:30" + suffix, londonLat, londonLon, known, 0, time.Date(2026, 1, 15, 23, 30, 0, 0, time.UTC)},
+		)
+	}
+	nzdt := time.FixedZone("NZDT", 13*3600)
+	lint := time.FixedZone("LINT", 14*3600)
+	lonMinus175 := time.FixedZone("lon-175", -12*3600)
+	aucklandLat, aucklandLon := -36.85, 174.76
+	kiritimatiLat, kiritimatiLon := 1.87, -157.4
+	for _, hm := range [][2]int{{13, 0}, {0, 30}, {23, 30}} {
+		label := fmt.Sprintf(" %02d:%02d", hm[0], hm[1])
+		out = append(out,
+			sunDayCase{"NZDT" + label, aucklandLat, aucklandLon, true, 13 * 3600, time.Date(2026, 1, 15, hm[0], hm[1], 0, 0, nzdt)},
+			sunDayCase{"Kiritimati" + label, kiritimatiLat, kiritimatiLon, true, 14 * 3600, time.Date(2026, 1, 15, hm[0], hm[1], 0, 0, lint)},
+			sunDayCase{"lon -175 tz unknown" + label, -20, -175, false, 0, time.Date(2026, 1, 15, hm[0], hm[1], 0, 0, lonMinus175)},
 		)
 	}
 	return out
@@ -105,6 +119,12 @@ func TestSunTimesUseTheLocalDayEverywhere(t *testing.T) {
 			cfg := app.cfg.Load().Weather
 			if gotNight := weatherTileMoon(cfg, app.weather.obs, c.now) != nil; gotNight != wantNight {
 				t.Errorf("clock night = %v, want %v (sunrise %v, sunset %v)", gotNight, wantNight, rise, set)
+			}
+
+			local := c.now.UTC().Add(c.offset())
+			noon := time.Date(local.Year(), local.Month(), local.Day(), 12, 0, 0, 0, time.UTC).Add(-c.offset())
+			if weatherTileMoon(cfg, app.weather.obs, noon) != nil {
+				t.Errorf("clock night at local noon %v (sunrise %v, sunset %v)", noon, rise, set)
 			}
 		})
 	}

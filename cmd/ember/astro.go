@@ -85,7 +85,8 @@ func localNoon(now time.Time, obs weatherObservation, lon float64) time.Time {
 }
 
 func localSunTimes(lat, lon float64, now time.Time, obs weatherObservation) (sunrise, sunset time.Time, ok bool) {
-	return sunTimes(lat, lon, localNoon(now, obs, lon))
+	solarDate := localNoon(now, obs, lon).Add(time.Duration(lon / 15 * float64(time.Hour)))
+	return sunTimes(lat, lon, solarDate)
 }
 
 func isNight(lat, lon float64, now time.Time, obs weatherObservation) bool {

@@ -1357,8 +1357,14 @@ Weather constraints:
   sunrise/sunset of the local date containing now, with the same offset rule as
   the label (provider offset, else longitude). `sunTimes` itself picks the UTC
   date of its argument, so passing raw `now` gave yesterday's times after local
-  midnight east of UTC and tomorrow's in a western evening (#344). `isNight` is
-  before today's sunrise or after today's sunset. Brightness `sunLevel` scans
+  midnight east of UTC and tomorrow's in a western evening (#344). The date
+  handed to `sunTimes` is local noon shifted by `lon/15` hours (≈ 12:00 UTC on
+  the right solar date); neither the UTC instant of local noon nor the local
+  calendar date works once the offset and longitude disagree by ~12h (NZDT
+  +13h, Kiritimati +14h at −157°, the lon ≤ −172.5° fallback). `isNight` is
+  before today's sunrise or after today's sunset. A sunset after local midnight
+  (high latitudes in summer) belongs to yesterday, so its popup never fires and
+  `isNight` reads night for those minutes. Brightness `sunLevel` scans
   neighbouring dates on purpose and stays separate.
 
 ### Reminders — Apple Reminders + `POST /v1/reminders/fire`
