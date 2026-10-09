@@ -173,7 +173,7 @@ struct KnobPollSection: View {
                 Text("Basic").tag(KnobDiagnostics.basic)
                 Text("Full").tag(KnobDiagnostics.full)
             }
-            if s.statsIntervalS != nil, s.liveIntervalS != nil, knob.knob?.supportsStatsIntervals == true {
+            if s.statsIntervalS != nil, s.liveIntervalS != nil, knob.knob?.supports(feature: KnobCaps.statsIntervals) == true {
                 InfoRow("Send stats every", info: .knobStatsInterval, requirement: intervalsRequirement) { label in
                     Picker(selection: knob.binding(\.statsIntervalS)) {
                         ForEach(KnobSettings.choices(KnobSettings.statsIntervals, current: s.statsIntervalS), id: \.self) { sec in

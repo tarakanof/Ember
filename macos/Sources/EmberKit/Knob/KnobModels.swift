@@ -125,6 +125,39 @@ public struct KnobCrash: Codable, Equatable, Sendable {
     }
 }
 
+public struct KnobCaps: Codable, Equatable, Sendable {
+    public struct Limits: Codable, Equatable, Sendable {
+        public var viewBytes: Int?
+        public var configBytes: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case viewBytes = "view_bytes"
+            case configBytes = "config_bytes"
+        }
+
+        public init(viewBytes: Int? = nil, configBytes: Int? = nil) {
+            self.viewBytes = viewBytes; self.configBytes = configBytes
+        }
+    }
+
+    public var view: [Int]
+    public var pages: [String]
+    public var features: [String]
+    public var limits: Limits?
+    public var source: String?
+
+    public init(view: [Int] = [1, 1], pages: [String], features: [String] = [], limits: Limits? = nil,
+                source: String? = nil) {
+        self.view = view; self.pages = pages; self.features = features; self.limits = limits; self.source = source
+    }
+
+    public static let statsIntervals = "stats_intervals"
+    public static let nowPlayingPage = "nowplaying"
+
+    static let legacyFeatureFloors: [String: [Int]] = [statsIntervals: [0, 7, 0]]
+    static let legacyPageFloors: [String: [Int]] = [nowPlayingPage: [0, 9, 0]]
+}
+
 public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var kind: String
@@ -135,6 +168,7 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
     public var rotationPending: Bool
     public var rotatedAt: Date?
     public var lastCheckin: KnobCheckin?
+    public var effectiveCaps: KnobCaps?
 
     enum CodingKeys: String, CodingKey {
         case id, kind, name
@@ -144,14 +178,15 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
         case rotationPending = "rotation_pending"
         case rotatedAt = "rotated_at"
         case lastCheckin = "last_checkin"
+        case effectiveCaps = "effective_caps"
     }
 
     public init(id: String, kind: String = KnobDevice.knobKind, hwID: String, name: String, createdAt: Date,
                 configVersion: Int = 1, rotationPending: Bool = false, rotatedAt: Date? = nil,
-                lastCheckin: KnobCheckin? = nil) {
+                lastCheckin: KnobCheckin? = nil, effectiveCaps: KnobCaps? = nil) {
         self.id = id; self.kind = kind; self.hwID = hwID; self.name = name; self.createdAt = createdAt
         self.configVersion = configVersion; self.rotationPending = rotationPending
-        self.rotatedAt = rotatedAt; self.lastCheckin = lastCheckin
+        self.rotatedAt = rotatedAt; self.lastCheckin = lastCheckin; self.effectiveCaps = effectiveCaps
     }
 
     public static let knobKind = "cinder-knob"
@@ -163,12 +198,22 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
         return now.timeIntervalSince(seen) <= window
     }
 
-    public var supportsStatsIntervals: Bool { Self.firmware(lastCheckin?.fw, atLeast: [0, 7, 0]) }
+    public func supports(feature: String) -> Bool {
+        if let caps = effectiveCaps { return caps.features.contains(feature) }
+        guard let floor = KnobCaps.legacyFeatureFloors[feature] else { return false }
+        return Self.firmware(lastCheckin?.fw, atLeast: floor)
+    }
 
-    public var supportsNowPlaying: Bool { Self.firmware(lastCheckin?.fw, atLeast: [0, 9, 0]) }
+    public func supports(page: String) -> Bool {
+        if let caps = effectiveCaps { return caps.pages.contains(page) }
+        if AppCatalog.knobDefaultPages.contains(page) { return true }
+        guard let floor = KnobCaps.legacyPageFloors[page] else { return false }
+        return Self.firmware(lastCheckin?.fw, atLeast: floor)
+    }
 
     public var supportedPages: [String] {
-        AppCatalog.knobDefaultPages + (supportsNowPlaying ? ["nowplaying"] : [])
+        if let caps = effectiveCaps { return caps.pages }
+        return AppCatalog.knobDefaultPages + KnobCaps.legacyPageFloors.keys.sorted().filter { supports(page: $0) }
     }
 
     static func firmware(_ fw: String?, atLeast min: [Int]) -> Bool {
