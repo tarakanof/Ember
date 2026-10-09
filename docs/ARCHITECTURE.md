@@ -2230,7 +2230,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `pending_token_sha256` + `rotated_at` during a rotation, `config`
   (`knobSettings`), `config_version` (starts at 1), `created_at`, and
   `last_checkin` (`seen_at`, `fw`, `ip`, `rssi`, `heap_internal_free`,
-  `heap_internal_largest`, `uptime_s`, `applied_version`).
+  `heap_internal_largest`, `uptime_s`, `applied_version`), and `caps`
+  (#341: the capabilities the last checkin reported, absent for a legacy
+  knob; see DEVICE-PROTOCOL "Capabilities").
 - **Persistence:** the whole registry plus the epoch is one JSON blob in the
   SQLite settings KV (key `devices_json`), the same store as the overlay
   settings. Every mutation clones the state, persists, then swaps under
@@ -2238,7 +2240,8 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   skip that (#233): device auth is a locked scan with no clone or write (only
   a rotation promotion writes), and a checkin updates `last_checkin` in place
   and writes the blob only when the last write is `deviceCheckinPersistInterval`
-  (10 min) old; a checkin that mints a pending rotation token writes at once.
+  (10 min) old; a checkin that mints a pending rotation token, or whose `caps`
+  differ from the stored ones (new, changed or gone), writes at once.
   If that periodic write fails, the checkin still answers 200 (logged
   `device checkin not persisted`) and the next checkin or the flush retries.
   Any other registry write carries the in-memory checkins along, and graceful
@@ -2409,7 +2412,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   knob; a setup on another board replaces it after a confirm and deletes the
   old record) and autosaves `ConfigModel<KnobSettings>` as a merge PUT of the
   changed fields only. Tests use a fake link and a pty pair; nothing opens a
-  real serial port.
+  real serial port. Feature gates (the now-playing page, the stats interval
+  pickers) read the record's `effective_caps` (`KnobDevice.supports(feature:)`,
+  `supports(page:)`); a server without `effective_caps` falls back to the
+  old fw semver floors (`KnobCaps.legacy*Floors`), kept for two releases.
 - **Knob page previews (#240):** Settings › Knob › Apps draws each page's
   466 px round face in SwiftUI (EmberKit `KnobFace/`), the way `PanelPreview`
   shows the clock's frames, but drawn locally: the knob renders on-device and
@@ -3285,7 +3291,14 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `"new_token":"ekd_…"` while a rotation is open, plus `"diag_live_until"`
   in live mode, plus `"coredump_wanted":"<id>"` or `"coredump_ack":"<id>"`
   when the checkin's `diag.crash` has an `id` (see "Knob core dumps"); an optional `stats` object carries diagnostics (both in
-  "Knob diagnostics"). `GET
+  "Knob diagnostics"). An optional `caps` object (#341,
+  `devices_caps.go`) is stored on the record and answered with
+  `"caps_ack":true`; invalid caps are dropped (no ack, the knob is treated
+  as legacy, the reason kept as `caps_error` and logged at Warn once per
+  change), and a checkin without `caps` clears the stored ones, so a
+  downgraded knob falls back to the legacy table. The owner's
+  device list shows `effective_caps` for every knob. Rules, table and
+  matrix: DEVICE-PROTOCOL "Capabilities". `GET
   /v1/devices/self/config` answers `{"config_version":7,"config":{…}}`.
 - **Knob core dumps (device token up, owner down, #311).** Upload → server
   stores → checkin acks → knob erases; the knob never erases without an ack
@@ -3380,6 +3393,14 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (cacheable with `v`).
   In live mode the body ends with `"diag_live_until":<Unix s>` (see "Knob
   diagnostics").
+  **Caps (#341):** for a knob whose checkin reported `caps`, `v` is
+  `min(1, caps.view[1])`, and `mood`, `pomo`, `weather` and `nowplaying`
+  (the blocks of the `bot`, `pomodoro`, `weather` and `nowplaying` pages)
+  are left out unless the page is in `caps.pages` and on in the knob's
+  `pages`; a kept `pomo` or `weather` is still `null` when off. A body over
+  `caps.limits.view_bytes` (floor 4096) drops `nowplaying`, then `weather`,
+  then `pomo` until it fits, and logs once per device if it still doesn't. A knob without `caps` gets the body above unchanged, bytes
+  and ETag (`knobView` skips the filter for it).
 - **Knob view long-poll (#235).** `?wait=N` (whole seconds, capped at 25,
   `devices_view_wait.go`) with `If-None-Match` holds the request while the
   view still matches the tag: 200 with the new body as soon as it changes,

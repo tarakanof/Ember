@@ -34,6 +34,15 @@ struct KnobStatusSection: View {
                 }
             }
             LabeledContent("Settings") { applied(knob) }
+            if let error = knob.effectiveCaps?.capsError, !error.isEmpty {
+                LabeledContent("Capabilities") {
+                    Text("Rejected: \(error)",
+                         comment: "Settings › Knob › Status: Ember dropped the capabilities the knob reported; the server's reason follows.")
+                        .foregroundStyle(.secondary)
+                        .help(error)
+                        .textSelection(.enabled)
+                }
+            }
             KnobUSBRow()
             HStack {
                 Button("Set Up Knob…", action: setUp)

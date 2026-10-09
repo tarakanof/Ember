@@ -392,7 +392,7 @@ func TestClockKindGatesOnKnobRoutes(t *testing.T) {
 			t.Errorf("%s %s = %d, want %d: %s", c.method, c.path, resp.StatusCode, c.want, b)
 		}
 	}
-	if _, err := a.devices.checkin(d.ID, deviceCheckin{}); err == nil || !strings.Contains(err.Error(), "checkin applies to kind") {
+	if _, err := a.devices.checkin(d.ID, deviceCheckin{}, nil, ""); err == nil || !strings.Contains(err.Error(), "checkin applies to kind") {
 		t.Fatalf("checkin err = %v", err)
 	}
 }

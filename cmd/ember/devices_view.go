@@ -13,16 +13,16 @@ import (
 const knobNowHeader = "X-Ember-Now"
 
 type knobView struct {
-	V             int             `json:"v"`
-	Epoch         uint64          `json:"epoch"`
-	ConfigVersion int             `json:"config_version"`
-	Mood          knobMood        `json:"mood"`
-	Pomo          *knobPomo       `json:"pomo"`
-	Weather       *knobWeather    `json:"weather"`
-	Brightness    knobLight       `json:"brightness"`
-	Quiet         bool            `json:"quiet,omitempty"`
-	NowPlaying    *knobNowPlaying `json:"nowplaying,omitempty"`
-	DiagLiveUntil *int64          `json:"diag_live_until,omitempty"`
+	V             int                    `json:"v"`
+	Epoch         uint64                 `json:"epoch"`
+	ConfigVersion int                    `json:"config_version"`
+	Mood          viewBlock[knobMood]    `json:"mood,omitzero"`
+	Pomo          viewBlock[knobPomo]    `json:"pomo,omitzero"`
+	Weather       viewBlock[knobWeather] `json:"weather,omitzero"`
+	Brightness    knobLight              `json:"brightness"`
+	Quiet         bool                   `json:"quiet,omitempty"`
+	NowPlaying    *knobNowPlaying        `json:"nowplaying,omitempty"`
+	DiagLiveUntil *int64                 `json:"diag_live_until,omitempty"`
 }
 
 type knobMood struct {
@@ -94,38 +94,92 @@ type knobLight struct {
 	Night bool `json:"night"`
 }
 
+type viewBlock[T any] struct {
+	on  bool
+	val *T
+}
+
+func block[T any](val *T) viewBlock[T] { return viewBlock[T]{on: true, val: val} }
+
+func (b viewBlock[T]) IsZero() bool { return !b.on }
+
+func (b viewBlock[T]) MarshalJSON() ([]byte, error) { return json.Marshal(b.val) }
+
 func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
-	epoch, version, err := a.devices.versions(id)
-	if err != nil {
-		return nil, "", err
-	}
-	cfg, _, err := a.devices.config(id)
+	st, err := a.devices.viewState(id)
 	if err != nil {
 		return nil, "", err
 	}
 	mood := a.moodState()
+	m := newKnobMood(mood.Render, mood.Lead)
 	b := a.currentBrightness(now)
 	v := knobView{
 		V:             1,
-		Epoch:         epoch,
-		ConfigVersion: version,
-		Mood:          newKnobMood(mood.Render, mood.Lead),
-		Pomo:          a.knobPomo(now),
-		Weather:       a.knobWeather(now),
+		Epoch:         st.epoch,
+		ConfigVersion: st.version,
+		Mood:          block(&m),
+		Pomo:          block(a.knobPomo(now)),
+		Weather:       block(a.knobWeather(now)),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},
 		Quiet:         a.cfg.Load().quietAt(now),
-		DiagLiveUntil: a.knobLiveUnix(id, cfg.Diagnostics, now),
+		DiagLiveUntil: a.knobLiveUnix(id, st.cfg.Diagnostics, now),
 	}
-	if cfg.pageOn(knobNowPlayingPage) {
+	if st.cfg.pageOn(knobNowPlayingPage) {
 		v.NowPlaying = a.knobNowPlaying(now)
+	}
+	if st.caps != nil {
+		v.applyCaps(st.caps, st.cfg)
 	}
 	body, err := json.Marshal(v)
 	if err != nil {
 		return nil, "", fmt.Errorf("encode knob view: %w", err)
 	}
+	if st.caps != nil {
+		limit := st.caps.limits().ViewBytes
+		if body, err = v.fit(body, limit); err != nil {
+			return nil, "", err
+		}
+		over := ""
+		if limit > 0 && len(body) > limit {
+			over = "over"
+		}
+		if a.viewOverLimit.changed(id, over) && over != "" {
+			a.logger.Warn("knob view over its caps view_bytes", "device_id", id, "bytes", len(body), "view_bytes", limit)
+		}
+	}
 	h := fnv.New64a()
 	_, _ = h.Write(body)
 	return body, fmt.Sprintf(`"%016x"`, h.Sum64()), nil
+}
+
+func (v *knobView) applyCaps(caps *deviceCaps, cfg knobSettings) {
+	v.V = caps.viewMajor()
+	show := func(page string) bool { return caps.hasPage(page) && cfg.pageOn(page) }
+	v.Mood.on = show("bot")
+	v.Pomo.on = show("pomodoro")
+	v.Weather.on = show("weather")
+	if !show(knobNowPlayingPage) {
+		v.NowPlaying = nil
+	}
+}
+
+func (v *knobView) fit(body []byte, limit int) ([]byte, error) {
+	drops := []func(){
+		func() { v.NowPlaying = nil },
+		func() { v.Weather.on = false },
+		func() { v.Pomo.on = false },
+	}
+	for _, drop := range drops {
+		if limit <= 0 || len(body) <= limit {
+			break
+		}
+		drop()
+		var err error
+		if body, err = json.Marshal(v); err != nil {
+			return nil, fmt.Errorf("encode knob view: %w", err)
+		}
+	}
+	return body, nil
 }
 
 func (a *App) knobNowPlaying(now time.Time) *knobNowPlaying {

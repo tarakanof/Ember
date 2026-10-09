@@ -74,37 +74,42 @@ func goldenView(t *testing.T, f *viewFixture) []byte {
 	return body
 }
 
+func fullViewScenario(t *testing.T, f *viewFixture) {
+	t.Helper()
+	now := f.clk.Now()
+	f.app.updateConfig(func(c *Config) {
+		c.Weather.Enabled = true
+		c.Weather.Provider = "open-meteo"
+		c.Weather.Latitude, c.Weather.Longitude = lonLat, lonLon
+	})
+	f.app.weather.obs = weatherObservation{Condition: "rain", ConditionCode: "61", TempC: 12.5, FetchedAt: now.Add(-5 * time.Minute)}
+	f.app.weather.have = true
+	teal := "#00c8c8"
+	f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s1", State: "waiting", SourceColor: &teal})
+	f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s2", State: "waiting", SourceColor: &teal})
+	f.app.Upsert(StatusRequest{Source: "laptop", Tool: "codex", Session: "s3", State: "waiting"})
+	f.app.Upsert(StatusRequest{Source: "laptop", Tool: "codex", Session: "s4", State: "running"})
+	f.eng.Start(pomodoro.PhaseFocus)
+	putKnobConfig(t, f.srv, f.m.ID, `{"diagnostics":"full","pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
+	resp, b := devReq(t, f.srv, "POST", "/v1/devices/"+f.m.ID+"/stats/live", testToken, `{"seconds":300}`)
+	mustOK(t, "live", resp, b)
+	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Example Song",
+		Artist: "Example Artist", Album: "Example Album", TrackID: "4242", DurationMS: 330_000, PositionMS: 61_000, Volume: new(40)}
+	if _, err := f.app.nowPlaying.reg.Report(rep, now.Add(-2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, nowplaying.NewImage([]byte("album"))); err != nil {
+		t.Fatal(err)
+	}
+	if !f.app.nowPlaying.reg.SetArtistArt("plex", "Plexamp", "Example Artist", nowplaying.NewImage([]byte("artist"))) {
+		t.Fatal("artist art not set")
+	}
+}
+
 func TestDeviceViewGolden(t *testing.T) {
 	t.Run("full", func(t *testing.T) {
 		f := goldenViewFixture(t)
-		now := f.clk.Now()
-		f.app.updateConfig(func(c *Config) {
-			c.Weather.Enabled = true
-			c.Weather.Provider = "open-meteo"
-			c.Weather.Latitude, c.Weather.Longitude = lonLat, lonLon
-		})
-		f.app.weather.obs = weatherObservation{Condition: "rain", ConditionCode: "61", TempC: 12.5, FetchedAt: now.Add(-5 * time.Minute)}
-		f.app.weather.have = true
-		teal := "#00c8c8"
-		f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s1", State: "waiting", SourceColor: &teal})
-		f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s2", State: "waiting", SourceColor: &teal})
-		f.app.Upsert(StatusRequest{Source: "laptop", Tool: "codex", Session: "s3", State: "waiting"})
-		f.app.Upsert(StatusRequest{Source: "laptop", Tool: "codex", Session: "s4", State: "running"})
-		f.eng.Start(pomodoro.PhaseFocus)
-		putKnobConfig(t, f.srv, f.m.ID, `{"diagnostics":"full","pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
-		resp, b := devReq(t, f.srv, "POST", "/v1/devices/"+f.m.ID+"/stats/live", testToken, `{"seconds":300}`)
-		mustOK(t, "live", resp, b)
-		rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Example Song",
-			Artist: "Example Artist", Album: "Example Album", TrackID: "4242", DurationMS: 330_000, PositionMS: 61_000, Volume: new(40)}
-		if _, err := f.app.nowPlaying.reg.Report(rep, now.Add(-2*time.Second)); err != nil {
-			t.Fatal(err)
-		}
-		if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, nowplaying.NewImage([]byte("album"))); err != nil {
-			t.Fatal(err)
-		}
-		if !f.app.nowPlaying.reg.SetArtistArt("plex", "Plexamp", "Example Artist", nowplaying.NewImage([]byte("artist"))) {
-			t.Fatal("artist art not set")
-		}
+		fullViewScenario(t, f)
 		assertDeviceGolden(t, "view_full", goldenView(t, f))
 	})
 	t.Run("minimal", func(t *testing.T) {

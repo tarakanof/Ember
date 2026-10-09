@@ -79,7 +79,15 @@ struct KnobPagesSection: View {
                     Toggle(isOn: Binding(
                         get: { page.on },
                         set: { on in knob.edit { $0.pages[index].on = on } })) {
-                        Text(knobPageTitle(page.id))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(knobPageTitle(page.id))
+                            if page.on, knob.knob?.supports(page: page.id) == false {
+                                Text("Not supported by this knob's firmware",
+                                     comment: "Settings › Knob › Pages: a page that is on but the knob's firmware can't show.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                     .disabled(page.on && knob.settings.draft.isLastPageOn(page.id))
                     Image(systemName: "line.3.horizontal")
@@ -173,7 +181,7 @@ struct KnobPollSection: View {
                 Text("Basic").tag(KnobDiagnostics.basic)
                 Text("Full").tag(KnobDiagnostics.full)
             }
-            if s.statsIntervalS != nil, s.liveIntervalS != nil, knob.knob?.supportsStatsIntervals == true {
+            if s.statsIntervalS != nil, s.liveIntervalS != nil, knob.knob?.supports(feature: KnobCaps.statsIntervals) == true {
                 InfoRow("Send stats every", info: .knobStatsInterval, requirement: intervalsRequirement) { label in
                     Picker(selection: knob.binding(\.statsIntervalS)) {
                         ForEach(KnobSettings.choices(KnobSettings.statsIntervals, current: s.statsIntervalS), id: \.self) { sec in

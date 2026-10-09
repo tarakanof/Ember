@@ -17,7 +17,9 @@ func TestMoodConsumersReadOneSessionProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var v knobView
+	var v struct {
+		Mood knobMood `json:"mood"`
+	}
 	if err := json.Unmarshal(body, &v); err != nil {
 		t.Fatal(err)
 	}

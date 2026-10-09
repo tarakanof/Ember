@@ -451,6 +451,21 @@ components:
               type: integer
             uptime_s:
               type: integer
+        effective_caps:
+          description: "Knobs only: the capabilities the server acts on (DEVICE-PROTOCOL \"Capabilities\")."
+          allOf:
+            - $ref: "#/components/schemas/DeviceCaps"
+            - type: object
+              required: [source]
+              properties:
+                source:
+                  type: string
+                  enum: [reported, legacy]
+                  description: "`reported`: the last checkin's `caps`; `legacy`: the server's table for its `fw`."
+                caps_error:
+                  type: string
+                  maxLength: 160
+                  description: Why the last checkin's `caps` were dropped; absent when they were accepted or not sent.
         scopes:
           type: array
           description: Clients only.
@@ -516,6 +531,49 @@ components:
                 type: string
                 minLength: 1
                 maxLength: 64
+    DeviceCaps:
+      type: object
+      required: [view, pages, features]
+      properties:
+        view:
+          type: array
+          description: "`[min, max]` view majors the firmware parses, 1 ≤ min ≤ max."
+          minItems: 2
+          maxItems: 2
+          items:
+            type: integer
+            minimum: 1
+            maximum: 1000
+        pages:
+          type: array
+          description: Page ids compiled into the firmware.
+          minItems: 1
+          maxItems: 32
+          items:
+            type: string
+            pattern: "^[a-z][a-z0-9_-]{0,15}$"
+        features:
+          type: array
+          description: Feature tokens (registry in DEVICE-PROTOCOL.md).
+          maxItems: 64
+          items:
+            type: string
+            pattern: "^[a-z][a-z0-9_]{0,31}$"
+        limits:
+          type: object
+          description: >-
+            Largest body the firmware holds, in bytes; a missing or 0 key is unknown.
+            Floors: `view_bytes` ≥ 4096, `config_bytes` ≥ the default config's compact
+            size (434 today); caps below them are dropped.
+          properties:
+            view_bytes:
+              type: integer
+              minimum: 0
+              maximum: 16777216
+            config_bytes:
+              type: integer
+              minimum: 0
+              maximum: 16777216
     CheckinResult:
       type: object
       properties:
@@ -544,6 +602,10 @@ components:
             Only when the checkin carries `diag.crash.id`.
         ota:
           $ref: "#/components/schemas/OTAOffer"
+        caps_ack:
+          type: boolean
+          enum: [true]
+          description: The checkin's `caps` were accepted and stored. Absent when it sent none or invalid ones.
     FirmwareImage:
       type: object
       required: [build, channel, elf, idf_ver, project, sha256, size, uploaded_at, version]
@@ -1735,6 +1797,10 @@ paths:
         differs from the clock's last read list is sent to the clock first
         (its error status passes through, 502 when unreachable); if the
         slices then fail, the error says the app order was already written.
+        For a knob that reported `caps` (DEVICE-PROTOCOL "Capabilities"), a
+        change that turns on a page outside `caps.pages` (one not already on)
+        or whose compact JSON exceeds `caps.limits.config_bytes` is a 400. A
+        legacy knob (no `caps`) gets no such check.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
@@ -2404,11 +2470,19 @@ paths:
                         minimum: 0
                 stats:
                   type: object
+                caps:
+                  description: >-
+                    What the firmware can do (#341, cinder#27). Absent = legacy knob, mapped
+                    from `fw` by the server's table; invalid = dropped, no `caps_ack`.
+                    Unknown keys inside are ignored.
+                  $ref: "#/components/schemas/DeviceCaps"
             examples:
               checkin_req_minimal:
                 externalValue: ../cmd/ember/testdata/devices/checkin_req_minimal.json
               checkin_req_full:
                 externalValue: ../cmd/ember/testdata/devices/checkin_req_full.json
+              checkin_req_caps:
+                externalValue: ../cmd/ember/testdata/devices/checkin_req_caps.json
       responses:
         "200":
           description: The current config version, plus config or new_token when due.
@@ -2427,6 +2501,8 @@ paths:
                   externalValue: ../cmd/ember/testdata/devices/checkin_reply_ota.json
                 checkin_reply_rotation:
                   externalValue: ../cmd/ember/testdata/devices/checkin_reply_rotation.json
+                checkin_reply_caps:
+                  externalValue: ../cmd/ember/testdata/devices/checkin_reply_caps.json
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2562,7 +2638,10 @@ paths:
         Everything the knob draws in one poll. ETag/304; `?wait=` (≤25 s)
         long-polls for a change, advertised by `X-Ember-View-Wait`. Carries
         `"quiet": true` while quiet hours are on (absent otherwise); a waiting
-        poll wakes at each quiet-hours edge.
+        poll wakes at each quiet-hours edge. For a knob that reported `caps`,
+        `v` is min(1, `caps.view[1]`) and a page's block (`mood`, `pomo`,
+        `weather`, `nowplaying`) is sent only when the page is in `caps.pages`
+        and on; a legacy knob's view is unchanged.
       security: [{deviceToken: []}]
       parameters:
         - name: wait
@@ -2589,6 +2668,8 @@ paths:
                   externalValue: ../cmd/ember/testdata/devices/view_single_host_paused.json
                 view_quiet:
                   externalValue: ../cmd/ember/testdata/devices/view_quiet.json
+                view_caps_limited:
+                  externalValue: ../cmd/ember/testdata/devices/view_caps_limited.json
         "304":
           description: Unchanged since If-None-Match.
         "401":

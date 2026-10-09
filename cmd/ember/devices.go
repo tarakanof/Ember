@@ -93,10 +93,13 @@ type deviceRecord struct {
 	LastCheckin        *deviceCheckin `json:"last_checkin,omitempty"`
 	LastSeen           *clockSeen     `json:"last_seen,omitempty"`
 	OTA                *knobOTA       `json:"ota,omitempty"`
+	Caps               *deviceCaps    `json:"caps,omitempty"`
+	CapsError          string         `json:"caps_error,omitempty"`
 }
 
 func (d deviceRecord) clone() deviceRecord {
 	d.Config = d.Config.clone()
+	d.Caps = d.Caps.clone()
 	d.OTA = d.OTA.clone()
 	if d.RotatedAt != nil {
 		t := *d.RotatedAt
@@ -146,16 +149,17 @@ func (s *deviceState) findKnob(id string) *deviceRecord {
 }
 
 type deviceView struct {
-	ID              string         `json:"id"`
-	Kind            string         `json:"kind"`
-	HwID            string         `json:"hw_id"`
-	Name            string         `json:"name"`
-	CreatedAt       time.Time      `json:"created_at"`
-	ConfigVersion   int            `json:"config_version"`
-	RotationPending bool           `json:"rotation_pending"`
-	RotatedAt       *time.Time     `json:"rotated_at"`
-	LastCheckin     *deviceCheckin `json:"last_checkin"`
-	LastSeen        *clockSeen     `json:"last_seen,omitempty"`
+	ID              string             `json:"id"`
+	Kind            string             `json:"kind"`
+	HwID            string             `json:"hw_id"`
+	Name            string             `json:"name"`
+	CreatedAt       time.Time          `json:"created_at"`
+	ConfigVersion   int                `json:"config_version"`
+	RotationPending bool               `json:"rotation_pending"`
+	RotatedAt       *time.Time         `json:"rotated_at"`
+	LastCheckin     *deviceCheckin     `json:"last_checkin"`
+	LastSeen        *clockSeen         `json:"last_seen,omitempty"`
+	EffectiveCaps   *effectiveCapsView `json:"effective_caps,omitempty"`
 }
 
 func (d deviceRecord) view() deviceView {
@@ -170,6 +174,7 @@ func (d deviceRecord) view() deviceView {
 		RotationPending: d.RotatedAt != nil,
 		LastCheckin:     d.LastCheckin,
 		LastSeen:        d.LastSeen,
+		EffectiveCaps:   d.effectiveCapsView(),
 	}
 	if d.RotatedAt != nil {
 		t := d.RotatedAt.UTC().Truncate(time.Second)
@@ -364,6 +369,24 @@ func (r *deviceRegistry) settingsAndCheckin(id string) (knobSettings, *deviceChe
 	return c.Config, c.LastCheckin, nil
 }
 
+type knobViewState struct {
+	epoch   uint64
+	version int
+	cfg     knobSettings
+	caps    *deviceCaps
+}
+
+func (r *deviceRegistry) viewState(id string) (knobViewState, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.state.findKnob(id)
+	if d == nil {
+		return knobViewState{}, errDeviceNotFound
+	}
+	c := d.clone()
+	return knobViewState{epoch: r.state.Epoch, version: c.ConfigVersion, cfg: c.Config, caps: c.Caps}, nil
+}
+
 func (r *deviceRegistry) config(id string) (knobSettings, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -496,6 +519,9 @@ func (r *deviceRegistry) putConfig(id string, patch []byte) (knobSettings, int, 
 		if string(before) == string(after) {
 			return errNoChange
 		}
+		if err := checkConfigAgainstCaps(d.Caps, d.Config, merged, len(before), len(after)); err != nil {
+			return err
+		}
 		changed = true
 		d.Config = merged
 		d.ConfigVersion++
@@ -562,10 +588,11 @@ type checkinResult struct {
 	CoredumpWanted string    `json:"coredump_wanted,omitempty"`
 	CoredumpAck    string    `json:"coredump_ack,omitempty"`
 	OTA            *otaOffer `json:"ota,omitempty"`
+	CapsAck        bool      `json:"caps_ack,omitempty"`
 	newCrash       *deviceCrash
 }
 
-func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult, error) {
+func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCaps, capsErr string) (checkinResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.writableLocked(); err != nil {
@@ -579,7 +606,8 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult
 		return checkinResult{}, errDeviceNotFound
 	}
 	report.SeenAt = r.now().UTC()
-	res := checkinResult{ConfigVersion: d.ConfigVersion}
+	res := checkinResult{ConfigVersion: d.ConfigVersion, CapsAck: caps != nil}
+	capsChanged := !d.Caps.equal(caps) || d.CapsError != capsErr
 	var prevDiag *deviceDiag
 	if d.LastCheckin != nil {
 		prevDiag = d.LastCheckin.Diag
@@ -599,6 +627,9 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult
 			err := r.mutateLocked(func(st *deviceState) error {
 				d := st.find(id)
 				d.LastCheckin = &report
+				if capsChanged {
+					d.Caps, d.CapsError = caps.clone(), capsErr
+				}
 				d.PendingTokenSHA256 = tokenHash(res.NewToken)
 				return nil
 			})
@@ -610,8 +641,14 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult
 		}
 	}
 	d.LastCheckin = &report
+	if capsChanged {
+		d.Caps, d.CapsError = caps.clone(), capsErr
+	}
 	r.dirty = true
-	if r.now().Sub(r.persistedAt) >= deviceCheckinPersistInterval {
+	if capsChanged && r.onChange != nil {
+		r.onChange()
+	}
+	if capsChanged || r.now().Sub(r.persistedAt) >= deviceCheckinPersistInterval {
 		if err := r.persistLocked(r.state); err != nil {
 			return res, fmt.Errorf("%w: %w", errCheckinNotStored, err)
 		}

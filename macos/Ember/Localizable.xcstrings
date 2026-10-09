@@ -727,6 +727,7 @@
     "Calm bot" : {},
     "Cancel" : {},
     "Cancel Update" : {},
+    "Capabilities" : {},
     "Cards" : {},
     "Celsius" : {},
     "Centered" : {},
@@ -1522,6 +1523,9 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Not supported by this knob's firmware" : {
+      "comment" : "Settings › Knob › Pages: a page that is on but the knob's firmware can't show."
+    },
     "Not updated recently" : {},
     "Notched calendar, bar above" : {},
     "Notched calendar, bar below" : {},
@@ -1729,6 +1733,9 @@
     "Refresh (⌘R)" : {},
     "Refresh every" : {},
     "Registers the background helper with macOS again so it starts reporting." : {},
+    "Rejected: %@" : {
+      "comment" : "Settings › Knob › Status: Ember dropped the capabilities the knob reported; the server's reason follows."
+    },
     "Release" : {},
     "Reminder" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
