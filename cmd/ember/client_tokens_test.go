@@ -42,13 +42,13 @@ func TestMintClientTokenReturnsScopedEkcToken(t *testing.T) {
 	if !strings.HasPrefix(m.Token, clientTokenPrefix) || len(m.Token) != 47 {
 		t.Fatalf("token = %q, want ekc_ + 43 chars", m.Token)
 	}
-	if m.Kind != deviceKindClient || !strings.HasPrefix(m.ID, "client-") || m.HwID != "" || m.Name != "CI runner" {
+	if m.Kind != clientKind || !strings.HasPrefix(m.ID, "client-") || m.HwID != "" || m.Name != "CI runner" {
 		t.Fatalf("minted = %+v", m)
 	}
 	if !slices.Equal(m.Scopes, []string{"ingest"}) {
 		t.Fatalf("scopes = %v", m.Scopes)
 	}
-	resp, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
+	resp, b := devReq(t, srv, "GET", "/v1/clients", testToken, "")
 	if resp.StatusCode != http.StatusOK || strings.Contains(string(b), m.Token) || !strings.Contains(string(b), `"scopes":["ingest"]`) {
 		t.Fatalf("list = %d %s", resp.StatusCode, b)
 	}
@@ -216,9 +216,11 @@ func TestClientMintCapped(t *testing.T) {
 func TestDoctorDoesNotWarnAboutClients(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	mintClient(t, srv, "ci", "ingest")
-	res := checkDevices(app)
-	if res.Status != StatusOK || !strings.Contains(res.Detail, "clients=1") {
-		t.Fatalf("doctor = %+v", res)
+	if res := checkDevices(app); res.Status != StatusOK || res.Detail != "registered=0" {
+		t.Fatalf("doctor devices = %+v, want no clients", res)
+	}
+	if res := checkClientTokens(app); res.Status != StatusOK || res.Detail != "count=1" {
+		t.Fatalf("doctor client_tokens = %+v", res)
 	}
 }
 
@@ -242,7 +244,7 @@ func TestMintClientNormalizesSources(t *testing.T) {
 	if !slices.Equal(m.Sources, []string{"ci", "homeassistant"}) {
 		t.Fatalf("sources = %v, want trimmed, sorted and deduplicated", m.Sources)
 	}
-	resp, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
+	resp, b := devReq(t, srv, "GET", "/v1/clients", testToken, "")
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"sources":["ci","homeassistant"]`) {
 		t.Fatalf("list = %d %s", resp.StatusCode, b)
 	}
@@ -351,7 +353,7 @@ func TestLegacyClientRecordWithoutSourcesStaysUnbound(t *testing.T) {
 			t.Fatalf("legacy token, source %s = %d %s, want 200", source, resp.StatusCode, b)
 		}
 	}
-	if _, b := devReq(t, srv2, "GET", "/v1/devices", testToken, ""); strings.Contains(string(b), `"sources"`) {
+	if _, b := devReq(t, srv2, "GET", "/v1/clients", testToken, ""); strings.Contains(string(b), `"sources"`) {
 		t.Fatalf("legacy client lists sources: %s", b)
 	}
 }

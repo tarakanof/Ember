@@ -21,9 +21,7 @@ import (
 const (
 	devicesKey                   = "devices_json"
 	deviceKindKnob               = "cinder-knob"
-	deviceKindClient             = "client"
 	deviceTokenPrefix            = "ekd_"
-	clientTokenPrefix            = "ekc_"
 	deviceRotationGrace          = 24 * time.Hour
 	deviceCheckinPersistInterval = 10 * time.Minute
 	deviceNameMaxRunes           = 64
@@ -93,15 +91,11 @@ type deviceRecord struct {
 	ConfigVersion      int            `json:"config_version"`
 	CreatedAt          time.Time      `json:"created_at"`
 	LastCheckin        *deviceCheckin `json:"last_checkin,omitempty"`
-	Scopes             []string       `json:"scopes,omitempty"`
-	Sources            []string       `json:"sources,omitempty"`
 	OTA                *knobOTA       `json:"ota,omitempty"`
 }
 
 func (d deviceRecord) clone() deviceRecord {
 	d.Config = d.Config.clone()
-	d.Scopes = slices.Clone(d.Scopes)
-	d.Sources = slices.Clone(d.Sources)
 	d.OTA = d.OTA.clone()
 	if d.RotatedAt != nil {
 		t := *d.RotatedAt
@@ -143,7 +137,7 @@ func (s *deviceState) find(id string) *deviceRecord {
 }
 
 func (s *deviceState) findKnob(id string) *deviceRecord {
-	if d := s.find(id); d != nil && d.Kind != deviceKindClient {
+	if d := s.find(id); d != nil && d.Kind == deviceKindKnob {
 		return d
 	}
 	return nil
@@ -159,8 +153,6 @@ type deviceView struct {
 	RotationPending bool           `json:"rotation_pending"`
 	RotatedAt       *time.Time     `json:"rotated_at"`
 	LastCheckin     *deviceCheckin `json:"last_checkin"`
-	Scopes          []string       `json:"scopes,omitempty"`
-	Sources         []string       `json:"sources,omitempty"`
 }
 
 func (d deviceRecord) view() deviceView {
@@ -174,8 +166,6 @@ func (d deviceRecord) view() deviceView {
 		ConfigVersion:   d.ConfigVersion,
 		RotationPending: d.RotatedAt != nil,
 		LastCheckin:     d.LastCheckin,
-		Scopes:          d.Scopes,
-		Sources:         d.Sources,
 	}
 	if d.RotatedAt != nil {
 		t := d.RotatedAt.UTC().Truncate(time.Second)
@@ -236,9 +226,18 @@ func readDeviceState(kv settingsKV) (deviceState, error) {
 		return st, fmt.Errorf("decode devices: %w", err)
 	}
 	for i := range st.Devices {
+		if st.Devices[i].Kind == clientKind {
+			return deviceState{}, fmt.Errorf("decode devices: client record %s was not moved to the client token store", st.Devices[i].ID)
+		}
 		st.Devices[i].Config.fillDefaults()
 	}
 	return st, nil
+}
+
+func (r *deviceRegistry) fail(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.state, r.loadErr = deviceState{}, err
 }
 
 func (r *deviceRegistry) loadError() error {
@@ -374,7 +373,7 @@ func (r *deviceRegistry) provision(hwID, name string) (deviceView, string, bool,
 		st.Epoch++
 		for i := range st.Devices {
 			d := &st.Devices[i]
-			if d.Kind == deviceKindClient || d.HwID != hwID {
+			if d.Kind != deviceKindKnob || d.HwID != hwID {
 				continue
 			}
 			d.TokenSHA256 = tokenHash(token)
@@ -409,55 +408,6 @@ func (r *deviceRegistry) provision(hwID, name string) (deviceView, string, bool,
 	return view, token, created, err
 }
 
-// The plaintext token is returned once and never stored.
-func (r *deviceRegistry) provisionClient(name string, scopes, sources []string) (deviceView, string, error) {
-	token := newToken(clientTokenPrefix)
-	var view deviceView
-	err := r.mutate(func(st *deviceState) error {
-		n := 0
-		for _, d := range st.Devices {
-			if d.Kind == deviceKindClient {
-				n++
-			}
-		}
-		if n >= maxClients {
-			return errTooManyClients
-		}
-		st.Epoch++
-		id := clientID()
-		for st.find(id) != nil {
-			id = clientID()
-		}
-		d := deviceRecord{
-			ID:          id,
-			Kind:        deviceKindClient,
-			Name:        name,
-			TokenSHA256: tokenHash(token),
-			Scopes:      scopes,
-			Sources:     sources,
-			CreatedAt:   r.now().UTC(),
-		}
-		st.Devices = append(st.Devices, d)
-		slices.SortFunc(st.Devices, func(a, b deviceRecord) int { return strings.Compare(a.ID, b.ID) })
-		view = d.view()
-		return nil
-	})
-	return view, token, err
-}
-
-func (r *deviceRegistry) isClient(id string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	d := r.state.find(id)
-	return d != nil && d.Kind == deviceKindClient
-}
-
-func clientID() string {
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	return "client-" + hex.EncodeToString(b)
-}
-
 func deviceID(st *deviceState, hwID string) string {
 	id := "knob-" + hwID[len(hwID)-6:]
 	if st.find(id) != nil {
@@ -480,20 +430,12 @@ func (r *deviceRegistry) rename(id, name string) (deviceView, error) {
 	return view, err
 }
 
-func (r *deviceRegistry) rotate(id string) (deviceView, string, error) {
+func (r *deviceRegistry) rotate(id string) (deviceView, error) {
 	var view deviceView
-	var token string
 	err := r.mutate(func(st *deviceState) error {
 		d := st.find(id)
 		if d == nil {
 			return errDeviceNotFound
-		}
-		if d.Kind == deviceKindClient {
-			token = newToken(clientTokenPrefix)
-			d.TokenSHA256 = tokenHash(token)
-			st.Epoch++
-			view = d.view()
-			return nil
 		}
 		now := r.now().UTC()
 		d.RotatedAt = &now
@@ -502,7 +444,7 @@ func (r *deviceRegistry) rotate(id string) (deviceView, string, error) {
 		view = d.view()
 		return nil
 	})
-	return view, token, err
+	return view, err
 }
 
 func (r *deviceRegistry) remove(id string) error {
@@ -563,9 +505,6 @@ func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 	now := r.now()
 	match, pending := -1, false
 	for i, d := range r.state.Devices {
-		if d.Kind == deviceKindClient {
-			continue
-		}
 		cur := subtle.ConstantTimeCompare(h, []byte(d.TokenSHA256)) == 1
 		if cur && d.RotatedAt != nil && now.Sub(*d.RotatedAt) > deviceRotationGrace {
 			cur = false
@@ -595,35 +534,6 @@ func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 		return "", false, err
 	}
 	return id, true, nil
-}
-
-type clientCreds struct {
-	id      string
-	scopes  []string
-	sources []string
-}
-
-func (r *deviceRegistry) authenticateClient(token string) (clientCreds, bool, error) {
-	if !strings.HasPrefix(token, clientTokenPrefix) {
-		return clientCreds{}, false, nil
-	}
-	h := []byte(tokenHash(token))
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if err := r.writableLocked(); err != nil {
-		return clientCreds{}, false, err
-	}
-	match := -1
-	for i, d := range r.state.Devices {
-		if d.Kind == deviceKindClient && subtle.ConstantTimeCompare(h, []byte(d.TokenSHA256)) == 1 {
-			match = i
-		}
-	}
-	if match < 0 {
-		return clientCreds{}, false, nil
-	}
-	d := r.state.Devices[match]
-	return clientCreds{id: d.ID, scopes: slices.Clone(d.Scopes), sources: slices.Clone(d.Sources)}, true, nil
 }
 
 type checkinResult struct {

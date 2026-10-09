@@ -2210,13 +2210,18 @@ Dashboard rendering constraints:
   (a blurred layer bled into neighbours), and the panel's global brightness is
   not simulated because multiplying pixel opacity flattens per-pixel contrast.
 
-### Device registry — `cmd/ember/devices*.go`, `knob_settings.go` (#221)
+### Device registry — `cmd/ember/devices*.go`, `clients.go`, `knob_settings.go` (#221)
 
 Per-device tokens so the master `EMBER_TOKEN` never leaves the Mac/server.
-Two kinds: `cinder-knob` (the ESP32-S3 knob in the cinder repo) and `client`
-(a scoped API token for a source or controller, below);
-the menu app shows one knob, but the registry keys by `hw_id` so re-provisioning
-the same board finds its record.
+The registry holds devices only: today kind `cinder-knob` (the ESP32-S3 knob
+in the cinder repo); #230 adds the clock as `awtrix-ng`. Scoped API tokens for
+sources and controllers (`client`, below) live in their own store
+(`clients.go`, #340), so nothing that ranges over devices (list, view,
+checkin, OTA, stats, doctor, epoch) can meet one. Knob-only lookups
+(`findKnob`, re-provisioning by `hw_id`) match `kind == cinder-knob`, so a
+record of another kind is 404 on knob routes and never re-provisioned as a
+knob. The menu app shows one knob (it filters the list by kind), but the
+registry keys by `hw_id` so re-provisioning the same board finds its record.
 
 - **Record** (`deviceRecord`): `id` (`knob-` + last 6 hex of `hw_id`; the full
   `hw_id` on a collision), `kind`, `hw_id` (12 hex, `:`/`-` stripped,
@@ -2249,22 +2254,32 @@ the same board finds its record.
   `subtle.ConstantTimeCompare` (no early exit). `POST /v1/devices` with a known
   `hw_id` re-provisions: new token, old one and any rotation revoked, config
   and version kept, 200 instead of 201.
-- **Client tokens (#269):** kind `client`, id `client-` + 8 random hex,
+- **Client tokens (#269, own store since #340):** `clientRegistry`
+  (`clients.go`) with its own lock, its own load error and its own blob
+  (settings key `clients_json`, `{"clients":[{id, name, token_sha256, scopes,
+  sources?, created_at}]}`). Id `client-` + 8 random hex,
   token `ekc_` + 32 random bytes, `scopes` ⊆ `{ingest, control, read,
   admin}` (sorted, deduplicated, at least one), a required `name`, no
-  `hw_id`; at most 64 client records (every mint rewrites the registry blob).
+  `hw_id`; at most 64 clients (every mint rewrites the client blob).
   `POST /v1/devices {"kind":"client","name","scopes"}` mints one
-  (201, token once). `requireAuth` admits a client on an owner route when it
+  (201, token once); `GET /v1/clients` lists them (owner or `admin`), and
+  `PATCH`/`DELETE /v1/devices/{id}` and `/rotate` route any `client-` id to
+  the client store by prefix. A client store that failed to load answers
+  500 there and on `GET /v1/clients`, never a 404 from the device side.
+  Those routes and every client response keep the pre-#340 wire shape (`clientView` mirrors `deviceView`: `kind: client`,
+  `hw_id: ""`, `config_version: 0`, `last_checkin: null`, plus `scopes` and
+  `sources`). Device ids must never start with `client-`. `requireAuth` admits a client on an owner route when it
   holds `requiredScope(pattern)` (`client_tokens.go`; any route not listed
   needs `admin`, and `admin` satisfies every scope); `requireControl` admits
   `control` on the Pomodoro actions. Wrong scope is 403, an unknown `ekc_`
-  token 401. Client lookups (`authenticateClient`) are the same constant-time
-  scan over client records only; device auth skips clients, so an `ekc_`
-  token never reaches `/v1/devices/self/*`, now-playing control or
-  `/admin/*`. Rotating a client mints and returns the new token at once (200)
+  token 401. Client lookups (`clientRegistry.authenticate`) are the same
+  constant-time scan over the client store; device auth scans devices only,
+  so an `ekc_` token never reaches `/v1/devices/self/*`, now-playing control
+  or `/admin/*`. Rotating a client mints and returns the new token at once (200)
   and revokes the old one: there is no checkin to deliver it on. Config,
-  stats and checkin lookups use `findKnob`, so a client id is 404 there.
-  Mint, rotate and delete bump the epoch like a knob's, take the master
+  stats and checkin lookups only see devices, so a client id is 404 there.
+  Mint, rename, rotate and delete leave the devices epoch alone (no knob needs to
+  re-check in for a client change) and take the master
   token (a client caller, admin included, is 403: `requireAuth` marks
   client callers in the request context), and mint stops at 64 clients
   (400). An optional `sources` list (#299, 1-16 trimmed names ≤64 chars,
@@ -2328,9 +2343,24 @@ the same board finds its record.
   config change, rotate, rotation promotion and delete; checkins don't move it. The knob checks in
   when it changes, else every 60 s, so a settings edit lands in about one
   `/state` poll without putting per-device data in a public response.
-- **Doctor:** `devices` check lists each knob's last-checkin age; warns
-  when one never checked in or is silent for more than 5 min. Clients are
-  only counted (`clients=N`).
+- **Client migration (#340):** before either store loads,
+  `App.loadRegistries` runs `migrateClientRecords`: it moves every `kind:
+  client` record from `devices_json` into `clients_json` (same id, name,
+  scopes, sources, hash and `created_at`; the other device records are kept
+  byte for byte, and the epoch stays). It writes `clients_json` first (a
+  same-id record from `devices_json` replaces the stored one, since only an
+  older server could have changed it there) and then `devices_json` without
+  the clients, so a crash between the two writes leaves both copies and the
+  next boot finishes the move. A blob with no client records is not
+  rewritten, so reruns are free. If the move fails (a decode or write
+  error), both stores fail closed like a corrupt blob: device and client
+  auth and writes answer 500 until a restart succeeds. The device registry
+  also refuses to load a `client` record, so an unmigrated blob can't put a
+  client back into device iteration.
+- **Doctor:** `devices` check lists each device's last-checkin age; warns
+  when one never checked in or is silent for more than 5 min. It sees
+  devices only; `client_tokens` reports `count=N`, or fails when the client
+  store didn't load.
 - **App (Settings › Knob, #222/#223):** EmberKit `Knob/` holds the protocol
   and models, no UI. `ImprovCodec` (Improv Serial frames + checksum; the host
   appends `\n` after each frame) and `CinderLineCodec` (`CINDER1 {json}` lines,

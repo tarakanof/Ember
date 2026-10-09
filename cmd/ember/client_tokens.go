@@ -107,10 +107,10 @@ func normalizeSources(raw, scopes []string) ([]string, error) {
 
 func (a *App) clientAuth(w http.ResponseWriter, r *http.Request, scope string) (clientCaller, bool) {
 	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	c, ok, err := a.devices.authenticateClient(bearer)
+	c, ok, err := a.clients.authenticate(bearer)
 	if err != nil {
 		a.logger.WarnContext(r.Context(), "client auth failed", "path", r.URL.Path, "err", err)
-		writeError(w, http.StatusInternalServerError, errors.New("device registry unavailable"))
+		writeError(w, http.StatusInternalServerError, errors.New("client token store unavailable"))
 		return clientCaller{}, false
 	}
 	if !ok {

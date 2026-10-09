@@ -643,9 +643,14 @@ curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c -H "$H"   # revoke
   anyone holding the old token can collect the new one. `DELETE` the knob or
   re-POST its `hw_id` (USB setup) instead; both revoke immediately.
 - **`/admin/doctor` `devices` fails with "registry load failed":** the stored
-  `devices_json` row didn't decode. Device writes and knob auth answer 500
-  until restart so the row isn't overwritten; fix or delete the row in
-  `pomodoro.db`, then restart.
+  `devices_json` row didn't decode, or a `client` record in it couldn't be
+  moved to `clients_json` (then `client_tokens` fails too). Device writes and
+  knob auth answer 500 until restart so the row isn't overwritten; fix or
+  delete the row in `pomodoro.db`, then restart.
+- **`/admin/doctor` `client_tokens` fails, `devices` ok:** `clients_json`
+  didn't decode. Knobs keep working; every `ekc_` token and client route
+  (`GET /v1/clients`, mint, rename, rotate, delete) answers 500 "client token
+  store unavailable" until the row is fixed and the server restarted.
 - **Knob gets 401:** it was deleted, re-provisioned elsewhere, or missed a
   rotation; `/admin/doctor` → `devices` lists each knob's last checkin
   (warns when one never checked in or is silent > 5 min).
@@ -779,7 +784,7 @@ control or `/admin/*`, which stay master- or device-only.
 H="Authorization: Bearer $EMBER_TOKEN"
 curl -s -XPOST localhost:3627/v1/devices -H "$H" \
   -d '{"kind":"client","name":"CI runner","scopes":["ingest"]}'   # token printed once
-curl -s localhost:3627/v1/devices -H "$H"                          # lists it with its scopes
+curl -s localhost:3627/v1/clients -H "$H"                          # lists it with its scopes
 curl -s -XPOST localhost:3627/v1/devices/client-1a2b3c4d/rotate -H "$H"  # new token now, old one dead
 curl -s -XDELETE localhost:3627/v1/devices/client-1a2b3c4d -H "$H"       # revoke
 ```
@@ -798,7 +803,7 @@ and a source may not contain `/` (400): otherwise `ci` + `lab` + `claude/1`
 would reach source `ci/lab`'s sessions. Without `sources` the token may name
 any source. The list (1-16
 names, each at most 64 characters, trimmed and deduplicated) needs the
-`ingest` scope (not `admin`), shows in `GET /v1/devices`, survives rotation and
+`ingest` scope (not `admin`), shows in `GET /v1/clients`, survives rotation and
 can't be changed: mint a new token instead. `notify` and `reminders/fire`
 carry no source and stay unbound.
 
@@ -808,15 +813,30 @@ curl -s -XPOST localhost:3627/v1/devices -H "$H" \
 ```
 
 Only `EMBER_TOKEN` mints tokens (client or knob) and manages client tokens
-(any client token gets 403), and
-there are at most 64 (400 past that). Only the token's SHA-256 is stored (the knob registry, `devices_json`). Rotating
+(rename, rotate, delete; any client token gets 403), and
+there are at most 64 (400 past that). Only the token's SHA-256 is stored, in
+their own store (`clients_json`, next to the device registry's `devices_json`).
+`GET /v1/clients` lists them; `GET /v1/devices` and the doctor `devices` check
+show devices only. Rotating
 a client answers 200 with the new token and revokes the old one at once (a knob
 rotation is 202 and waits for its checkin). Clients are not knobs: they have no
-config or stats (404) and `/admin/doctor` counts them as `clients=N` without
-checkin warnings. There is no Ember.app UI for client tokens yet; mint them
+config or stats (404) and `/admin/doctor` counts them in `client_tokens`
+(`count=N`). There is no Ember.app UI for client tokens yet; mint them
 with curl.
 
-**Rolling back past this release: delete every client token first**
+**Upgrading past #340** moves every `client` record out of `devices_json` into
+`clients_json` at boot (same ids, scopes, sources and hashes; the server logs
+`client tokens moved out of the device registry`). If that move fails, device
+and client auth answer 500 until a restart succeeds, and `/admin/doctor`
+`client_tokens` fails with the error. **Rolling back below #340** leaves the
+clients in `clients_json`, which an older server doesn't read: every `ekc_`
+token is 401 there until you upgrade again. A client minted on the older
+server in between lands in `devices_json` and moves over on the next upgrade.
+Deletes don't travel back: if a #340 server crashed mid-move and you rolled
+back, a client you delete on the older server reappears after the upgrade, so
+delete it again there (`DELETE /v1/devices/client-…`).
+
+**Rolling back below #269: delete every client token first**
 (`DELETE /v1/devices/client-…`). Older servers don't know the `client` kind and
 accept any registry token as a knob's, so an ingest-only `ekc_` token would pass
 `/v1/devices/self/*`, now-playing control and the Pomodoro actions there. A

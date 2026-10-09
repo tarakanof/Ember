@@ -110,6 +110,12 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	}
 
 	if app == nil {
+		res.Checks["client_tokens"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
+	} else {
+		res.Checks["client_tokens"] = checkClientTokens(app)
+	}
+
+	if app == nil {
 		res.Checks["firmware"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["firmware"] = checkFirmware(app)
@@ -206,25 +212,21 @@ func checkCapabilities(app *App) CheckResult {
 
 const deviceStaleAfter = 5 * time.Minute
 
+func checkClientTokens(app *App) CheckResult {
+	if err := app.clients.loadError(); err != nil {
+		return CheckResult{Status: StatusFail, Detail: "store load failed (writes refused until restart): " + err.Error()}
+	}
+	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("count=%d", len(app.clients.list()))}
+}
+
 func checkDevices(app *App) CheckResult {
 	if err := app.devices.loadError(); err != nil {
 		return CheckResult{Status: StatusFail, Detail: "registry load failed (writes refused until restart): " + err.Error()}
 	}
-	var devices []deviceView
-	clients := 0
-	for _, d := range app.devices.list() {
-		if d.Kind == deviceKindClient {
-			clients++
-			continue
-		}
-		devices = append(devices, d)
-	}
+	devices := app.devices.list()
 	now := app.devices.now()
 	status := StatusOK
 	detail := fmt.Sprintf("registered=%d", len(devices))
-	if clients > 0 {
-		detail += fmt.Sprintf(" clients=%d", clients)
-	}
 	for _, d := range devices {
 		if d.LastCheckin == nil {
 			status = StatusWarn
