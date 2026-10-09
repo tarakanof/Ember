@@ -385,7 +385,8 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 		out.Air = ao
 	}
 	if cfg.Latitude != 0 || cfg.Longitude != 0 {
-		if rise, set, ok := sunTimes(cfg.Latitude, cfg.Longitude, now); ok {
+		obs, _ := a.weather.current()
+		if rise, set, ok := localSunTimes(cfg.Latitude, cfg.Longitude, now, obs); ok {
 			out.Sun = &sunOut{Sunrise: rise.Round(sunRounding).In(loc), Sunset: set.Round(sunRounding).In(loc)}
 		}
 	}

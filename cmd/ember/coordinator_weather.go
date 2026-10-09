@@ -71,7 +71,7 @@ var airTile = tile{
 
 func weatherTileMoon(cfg WeatherConfig, obs weatherObservation, now time.Time) *render.MoonView {
 	if !cfg.MoonPhaseEnabled() || obs.Condition != render.WeatherClear ||
-		(cfg.Latitude == 0 && cfg.Longitude == 0) || !isNight(cfg.Latitude, cfg.Longitude, now) {
+		(cfg.Latitude == 0 && cfg.Longitude == 0) || !isNight(cfg.Latitude, cfg.Longitude, now, obs) {
 		return nil
 	}
 	illum, waxing := moonIllumination(now)

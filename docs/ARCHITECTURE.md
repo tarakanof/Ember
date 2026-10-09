@@ -1317,9 +1317,9 @@ A 1-min poll loop (`StartWeather`) fetches when due and fires
 (`popup_on_change`), on a fixed cadence (`popup_interval_minutes`, `0`=off), a
 **sound alert** on severe-weather onset (`severe_alert`), and
 **sunrise/sunset** popups (`sun_popups`) — sun times computed locally from
-lat/lon (`astro.go` `sunTimes`, polar-safe), fired once per UTC day per event
-within a 2-min window; the label uses the location's real UTC offset (longitude
-fallback for MET). Popups use a drawn icon by default; `use_native_icons` swaps in a
+lat/lon (`astro.go` `sunTimes`, polar-safe), fired once per local day per
+event within a 2-min window; the label uses the location's real UTC offset
+(longitude fallback for MET). Popups use a drawn icon by default; `use_native_icons` swaps in a
 native AWTRIX/LaMetric animated weather icon by ID — per-condition IDs default to
 widely-used gallery icons and are overridable from the menu (`icon_ids`) so the user
 can curate from developer.lametric.com/icons. awtrix-ng honors a notification's own
@@ -1351,6 +1351,21 @@ Weather constraints:
   to longitude (15° per hour, no tz database), which can differ from civil time at
   DST/zone boundaries. At polar day/night `isNight` defaults to day (the sun
   icon), since declination versus latitude isn't cheaply distinguished.
+- **Sun times are the location's local day.** Every caller (dashboard
+  `/v1/weather/state`, the knob view, the clock's night/moon icon `isNight`,
+  sun popups and their once-a-day key) goes through `localSunTimes`: the
+  sunrise/sunset of the local date containing now, with the same offset rule as
+  the label (provider offset, else longitude). `sunTimes` itself picks the UTC
+  date of its argument, so passing raw `now` gave yesterday's times after local
+  midnight east of UTC and tomorrow's in a western evening (#344). The date
+  handed to `sunTimes` is local noon shifted by `lon/15` hours (≈ 12:00 UTC on
+  the right solar date); neither the UTC instant of local noon nor the local
+  calendar date works once the offset and longitude disagree by ~12h (NZDT
+  +13h, Kiritimati +14h at −157°, the lon ≤ −172.5° fallback). `isNight` is
+  before today's sunrise or after today's sunset. A sunset after local midnight
+  (high latitudes in summer) belongs to yesterday, so its popup never fires and
+  `isNight` reads night for those minutes. Brightness `sunLevel` scans
+  neighbouring dates on purpose and stays separate.
 
 ### Reminders — Apple Reminders + `POST /v1/reminders/fire`
 
@@ -1994,7 +2009,7 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
 - **`GET /v1/weather/state`** — the poller's cached observation (condition,
   the provider's raw `condition_code`, `temp_c`, hourly points stamped with the
   provider's own series start), air quality, the user's `location_name` label
-  and today's sunrise/sunset **rounded to 5 min** (to the second they'd pin the
+  and the location's local-day sunrise/sunset **rounded to 5 min** (to the second they'd pin the
   coordinates). No provider call; the coordinates are never echoed.
 - **`GET /v1/clock/health`** (per-IP rate-limited; under `EMBER_CLOCK=off` it adds `"disabled": true` (omitted otherwise), `device` is `null` and no publishes are counted) — publish counts for the last
   24 h (hourly buckets fed by `recordPublish`) and since start, the last publish,
@@ -2050,7 +2065,8 @@ coordinates to a few hundred metres; the location is the user-typed label only.
   follows noon sun altitude, so polar winter reads night). That fallback resets
   the filter. No weather location either: `default` (`day_level`). `night` is
   the schedule's own call (after sunset, before sunrise) whenever a location is
-  set, in every source, and can differ from `isNight` across a UTC date change.
+  set, in every source; `isNight` uses only the local day's times, so the two
+  can differ.
   `lightLevel` reads 0 in a dark room (observed overnight, `ldrRaw` 0); the
   defaults assume lux and want a daytime check. Policy is pure
   (`decideBrightness` in `brightness.go`); the clock's own brightness is

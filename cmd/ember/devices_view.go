@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -188,21 +187,12 @@ func (a *App) knobWeather(now time.Time) *knobWeather {
 	}
 	if cfg.Latitude != 0 || cfg.Longitude != 0 {
 		_, w.Night = sunLevel(a.cfg.Load().Brightness.resolved(), cfg.Latitude, cfg.Longitude, now)
-		if rise, set, ok := sunTimes(cfg.Latitude, cfg.Longitude, localNoon(now, obs, cfg.Longitude)); ok {
+		if rise, set, ok := localSunTimes(cfg.Latitude, cfg.Longitude, now, obs); ok {
 			r, s := rise.Round(sunRounding).Unix(), set.Round(sunRounding).Unix()
 			w.Sunrise, w.Sunset = &r, &s
 		}
 	}
 	return w
-}
-
-func localNoon(now time.Time, obs weatherObservation, lon float64) time.Time {
-	off := time.Duration(math.Round(lon/15)) * time.Hour
-	if obs.TZKnown {
-		off = time.Duration(obs.TZOffsetSeconds) * time.Second
-	}
-	y, m, d := now.UTC().Add(off).Date()
-	return time.Date(y, m, d, 12, 0, 0, 0, time.UTC).Add(-off)
 }
 
 func (a *App) handleDeviceSelfView(w http.ResponseWriter, r *http.Request) {

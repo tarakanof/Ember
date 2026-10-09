@@ -642,27 +642,19 @@ func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConf
 	if cfg.Latitude == 0 && cfg.Longitude == 0 {
 		return
 	}
-	sunrise, sunset, ok := sunTimes(cfg.Latitude, cfg.Longitude, now)
+	a.weather.mu.RLock()
+	obs := a.weather.obs
+	a.weather.mu.RUnlock()
+	sunrise, sunset, ok := localSunTimes(cfg.Latitude, cfg.Longitude, now, obs)
 	if !ok {
 		return
 	}
-	a.weather.mu.RLock()
-	tzKnown, tzOff := a.weather.obs.TZKnown, a.weather.obs.TZOffsetSeconds
-	a.weather.mu.RUnlock()
-
-	today := now.UTC().Format("2006-01-02")
-	a.maybeFireSun(ctx, now, sunrise, true, today, cfg, tzKnown, tzOff)
-	a.maybeFireSun(ctx, now, sunset, false, today, cfg, tzKnown, tzOff)
+	today := localDay(now, obs, cfg.Longitude)
+	a.maybeFireSun(ctx, now, sunrise, true, today, cfg, obs)
+	a.maybeFireSun(ctx, now, sunset, false, today, cfg, obs)
 }
 
-func sunClock(event time.Time, cfg WeatherConfig, tzKnown bool, tzOff int) string {
-	if tzKnown {
-		return event.UTC().Add(time.Duration(tzOff) * time.Second).Format("15:04")
-	}
-	return localClock(event, cfg.Longitude)
-}
-
-func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising bool, today string, cfg WeatherConfig, tzKnown bool, tzOff int) {
+func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising bool, today string, cfg WeatherConfig, obs weatherObservation) {
 	if now.Before(event) || now.Sub(event) >= sunPopupGrace {
 		return
 	}
@@ -682,7 +674,7 @@ func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising boo
 	if rising {
 		word = "SUNRISE"
 	}
-	label := word + " " + sunClock(event, cfg, tzKnown, tzOff)
+	label := word + " " + sunClock(event, obs, cfg.Longitude)
 	payload := render.SunPopupPayload(rising, label, cfg.PopupDurationSeconds)
 	payload["name"] = notifyNameSunPopup
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
