@@ -153,3 +153,30 @@ func TestSettingWriteLeavesPhaseGenAlone(t *testing.T) {
 		t.Fatalf("PhaseGen changed on a settings write: %d -> %d", before, after)
 	}
 }
+
+func TestPutSettingsWritesAll(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.PutSettings(map[string]string{"a": "1", "b": "2"}); err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{"a": "1", "b": "2"} {
+		if got, ok, _ := s.GetSetting(k); !ok || got != want {
+			t.Fatalf("%s = %q, %v", k, got, ok)
+		}
+	}
+}
+
+func TestPutSettingsRollsBackOnFailure(t *testing.T) {
+	s := openTestStore(t)
+	if _, err := s.db.Exec(`CREATE TRIGGER fail_b BEFORE INSERT ON settings WHEN NEW.key = 'b' BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutSettings(map[string]string{"a": "1", "b": "2", "c": "3"}); err == nil {
+		t.Fatal("PutSettings succeeded")
+	}
+	for _, k := range []string{"a", "b", "c"} {
+		if _, ok, _ := s.GetSetting(k); ok {
+			t.Fatalf("%s stored after a failed batch", k)
+		}
+	}
+}
