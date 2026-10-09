@@ -8,7 +8,6 @@ import (
 
 const (
 	usageAppLifetime     = 600
-	usageStaleTTL        = 10 * time.Minute
 	usageRefreshInterval = 4 * time.Minute
 )
 
@@ -33,28 +32,25 @@ func (c *coordinator) usageViews(now time.Time, snap Snapshot) map[string]*rende
 	if c.hiddenApps != nil {
 		hidden = c.hiddenApps()
 	}
+	state := c.usage.state(snap.Sessions, now)
 	views := map[string]*render.UsageView{}
-	for _, tool := range []string{"claude", "codex"} {
+	for _, tool := range usageTools {
 		if hidden[tool] {
 			continue
 		}
-		pct, resetAt, ok := effectiveFiveHour(c.usage, snap, tool, now)
-		if !ok || pctInt(pct) < thr {
+		t := state.Tools[tool]
+		if !t.HaveFiveHour || pctInt(t.FiveHourPct) < thr {
 			continue
 		}
-		v := &render.UsageView{FiveHourPct: pctInt(pct), ResetAt: resetAt}
-		if c.usage.Fresh(tool, now, usageStaleTTL) {
-			u, _ := c.usage.Get(tool)
-			if u.FiveHour != nil {
-				v.ResetLabel = u.FiveHour.ResetLabel
-			}
-			if u.SevenDay != nil {
-				p := pctInt(u.SevenDay.UsedPercent)
+		v := &render.UsageView{FiveHourPct: pctInt(t.FiveHourPct), ResetAt: t.ResetAt, ResetLabel: t.ResetLabel}
+		if t.Fresh {
+			if t.Report.SevenDay != nil {
+				p := pctInt(t.Report.SevenDay.UsedPercent)
 				v.SevenDayPct = &p
 			}
 			if cfg.usagePerModelEnabled() {
 				for _, m := range []string{"opus", "sonnet"} {
-					if w := u.Models[m]; w != nil {
+					if w := t.Report.Models[m]; w != nil {
 						marker := "OP"
 						if m == "sonnet" {
 							marker = "SO"
@@ -62,20 +58,6 @@ func (c *coordinator) usageViews(now time.Time, snap Snapshot) map[string]*rende
 						v.Models = append(v.Models, render.ModelUsage{Marker: marker, Pct: pctInt(w.UsedPercent)})
 					}
 				}
-			}
-		} else {
-			var best *render.Session
-			for i := range snap.Sessions {
-				s := &snap.Sessions[i]
-				if s.Tool != tool || s.RateResetLabel == "" {
-					continue
-				}
-				if best == nil || s.UpdatedAt.After(best.UpdatedAt) {
-					best = s
-				}
-			}
-			if best != nil {
-				v.ResetLabel = best.RateResetLabel
 			}
 		}
 		views[tool] = v

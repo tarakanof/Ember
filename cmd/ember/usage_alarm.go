@@ -14,28 +14,6 @@ const (
 	limitAlarmRTTTL     = "reset:d=8,o=6,b=160:g,8p,c7,8p,e7"
 )
 
-func effectiveFiveHour(st *UsageStore, snap Snapshot, tool string, now time.Time) (pct float64, resetAt int64, ok bool) {
-	if st != nil && st.Fresh(tool, now, usageStaleTTL) {
-		if u, _ := st.Get(tool); u.FiveHour != nil {
-			return u.FiveHour.UsedPercent, u.FiveHour.ResetsAt, true
-		}
-	}
-	var best *render.Session
-	for i := range snap.Sessions {
-		s := &snap.Sessions[i]
-		if s.Tool != tool || s.RateWindowPct == nil || s.RateResetAt == 0 {
-			continue
-		}
-		if best == nil || s.UpdatedAt.After(best.UpdatedAt) {
-			best = s
-		}
-	}
-	if best == nil {
-		return 0, 0, false
-	}
-	return float64(*best.RateWindowPct), best.RateResetAt, true
-}
-
 func (c *coordinator) checkLimitAlarms(now time.Time, snap Snapshot) {
 	if c.usage == nil || !c.loadCfg().limitAlarmEnabled() {
 		c.alarmArmed = nil
@@ -45,8 +23,10 @@ func (c *coordinator) checkLimitAlarms(now time.Time, snap Snapshot) {
 		c.alarmArmed = map[string]int64{}
 		c.alarmFired = map[string]int64{}
 	}
-	for _, tool := range []string{"claude", "codex"} {
-		pct, resetAt, ok := effectiveFiveHour(c.usage, snap, tool, now)
+	state := c.usage.state(snap.Sessions, now)
+	for _, tool := range usageTools {
+		t := state.Tools[tool]
+		pct, resetAt, ok := t.FiveHourPct, t.ResetAt, t.HaveFiveHour
 		if ok && pct >= limitAlarmThreshold && resetAt > now.Unix() && c.alarmFired[tool] != resetAt {
 			c.alarmArmed[tool] = resetAt
 		}

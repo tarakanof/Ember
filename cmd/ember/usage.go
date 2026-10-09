@@ -60,11 +60,3 @@ func (s *UsageStore) All() map[string]ToolUsage {
 	defer s.mu.RUnlock()
 	return maps.Clone(s.byTool)
 }
-
-func (s *UsageStore) Fresh(tool string, now time.Time, ttl time.Duration) bool {
-	u, ok := s.Get(tool)
-	if !ok {
-		return false
-	}
-	return now.Sub(u.UpdatedAt) <= ttl
-}

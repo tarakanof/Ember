@@ -66,18 +66,22 @@ func usageWindowWire(w *UsageWindow, loc *time.Location) *usageWindowOut {
 
 func (a *App) buildUsageSnapshot(now time.Time) usageSnapshotOut {
 	loc := now.Location()
-	all := a.usage.All()
+	state := a.usage.state(nil, now)
 	out := usageSnapshotOut{
 		GeneratedAt:   wireTime(now, loc),
 		StaleAfterSec: int(usageStaleTTL / time.Second),
-		Tools:         make([]usageToolOut, 0, len(all)),
+		Tools:         make([]usageToolOut, 0, len(state.Tools)),
 	}
-	for tool, u := range all {
+	for tool, ts := range state.Tools {
+		if !ts.HaveReport {
+			continue
+		}
+		u := ts.Report
 		t := usageToolOut{
 			Tool:      tool,
 			Source:    optString(u.Source),
 			UpdatedAt: wireTime(u.UpdatedAt, loc),
-			Stale:     now.Sub(u.UpdatedAt) > usageStaleTTL,
+			Stale:     !ts.Fresh,
 			FiveHour:  usageWindowWire(u.FiveHour, loc),
 			SevenDay:  usageWindowWire(u.SevenDay, loc),
 			Models:    make(map[string]usageWindowOut, len(u.Models)),

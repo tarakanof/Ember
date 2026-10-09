@@ -155,9 +155,9 @@ The aggregator and the only writer to the device.
   the ~5 min producer refresh so a reconcile gap never blanks the usage app;
   `usageStaleTTL` (about twice the poll) clears a silent tool's apps;
   `usageRefreshInterval` (below the lifetime) re-pushes an unchanged usage app
-  so the device doesn't evict it. `usageViews` prefers endpoint usage and
-  falls back to the statusline with the same precedence as the limit alarm;
-  hidden and below-threshold tools are absent. Weather tiles are live only
+  so the device doesn't evict it. `usageViews` reads the usage state (see "AI
+  usage card"), the same one the limit alarm reads; hidden and
+  below-threshold tools are absent. Weather tiles are live only
   while the weather state is fresh (`weatherStaleAfter`, 30 min, see
   "Weather"), so a wedged poller leaves no stale temperature. The meeting countdown is the ceiling of the remaining time (at
   least 1) and needs no timer: the text changes each minute, so the bytes diff
@@ -3248,7 +3248,7 @@ Account-global subscription usage renders inside the main `ember` app as a
 **usage card** in the number-slot rotation — no standalone apps. The flow:
 producers `POST /v1/usage` → in-memory `UsageStore` (per tool; **not persisted**
 — every entry refreshes ≤5 min so a restart self-heals) → the coordinator
-builds `UsageView` structs from `effectiveFiveHour` each tick and includes a
+builds `UsageView` structs from the usage state each tick and includes a
 usage card for a tool **only when its 5h window ≥ `usage_threshold_pct`**
 (default 60; `0` = always show). The usage card rotates through up to five faces per
 tool (sessions-bar mode): **5h clock** (fully-drawn tight-colon), **reset**
@@ -3272,6 +3272,20 @@ renders it verbatim — no server-side timezone math). The endpoint supersedes
 the fallback the moment fresh usage arrives (and only then are 7d + per-model
 shown). On startup the coordinator **clears any legacy `ember-usage-*` apps**
 left on the device from the previous standalone model.
+
+**Usage state** (`cmd/ember/usage_state.go`, #338). Every reader of the
+stored usage goes through one projection, `UsageStore.state(sessions, now)` →
+`usageState` (`newUsageState` for tests). Per tool it holds the report,
+`Fresh` (`now - updated_at <= usageStaleTTL`, 10 min, inclusive; a report
+from the future counts as fresh) and, for `claude` and `codex`, the effective
+5h window: `FiveHourPct`/`ResetAt` from a fresh report's 5h window, otherwise
+from the newest session carrying `rate_window_pct` and a reset; `ResetLabel`
+is the fresh report's label, otherwise the newest session's
+`rate_reset_label`. It knows nothing about devices. Readers: the clock usage
+cards (`usageViews`; 7d and per-model only when `Fresh`), the limit alarm
+(`checkLimitAlarms`), and `GET /v1/usage` (`stale` = `!Fresh`; it passes no
+sessions and reads only the reports). The clock passes its hidden-filtered
+sessions, so a hidden tool has no fallback on the clock.
 
 **Idle usage frame.** When all sessions expire and a tool is over threshold,
 the coordinator publishes a **dimmed usage frame** (the same usage card content
