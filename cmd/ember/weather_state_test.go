@@ -90,24 +90,106 @@ func TestWeatherStateNightBoundaries(t *testing.T) {
 	}
 }
 
-func TestNightNextToPolarNight(t *testing.T) {
+func TestNightAtPolarEdges(t *testing.T) {
 	cases := []struct {
 		name     string
 		lat, lon float64
 		now      time.Time
+		night    bool
 	}{
-		{"McMurdo after the last sunset", -77.8, 166.7, time.Date(2026, 4, 25, 5, 0, 0, 0, time.UTC)},
-		{"68N before the first sunrise", 68, 0, time.Date(2026, 1, 4, 5, 0, 0, 0, time.UTC)},
+		{"Tromsø next to polar day, sun at 40°", 69.65, 18.96, time.Date(2026, 5, 19, 10, 41, 0, 0, time.UTC), false},
+		{"Mawson next to polar day, sun at 44°", -67.6, 62.87, time.Date(2026, 11, 30, 7, 37, 0, 0, time.UTC), false},
+		{"McMurdo after the last sunset", -77.8, 166.7, time.Date(2026, 4, 25, 5, 0, 0, 0, time.UTC), true},
+		{"68N before the first sunrise", 68, 0, time.Date(2026, 1, 4, 5, 0, 0, 0, time.UTC), true},
+		{"McMurdo in polar night, sun at -25°", -77.8, 166.7, time.Date(2027, 8, 18, 12, 0, 0, 0, time.UTC), true},
+		{"Svalbard in polar day", 78.2, 15.6, time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC), false},
 	}
 	bc := BrightnessConfig{DayLevel: 255, NightLevel: 20, TwilightMinutes: 30}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newWeatherState(WeatherConfig{Enabled: true, Latitude: tc.lat, Longitude: tc.lon}, weatherObservation{}, true, airObservation{}, false, tc.now)
-			if !s.Night {
-				t.Errorf("weather state night = false, want true (sun %v %v..%v)", s.HaveSun, s.Sunrise, s.Sunset)
+			if s.Night != tc.night {
+				t.Errorf("weather state night = %v, want %v (elevation %.1f°)", s.Night, tc.night, solarElevation(tc.lat, tc.lon, tc.now))
 			}
-			if level, night := sunLevel(bc, tc.lat, tc.lon, tc.now); !night || level != bc.NightLevel {
-				t.Errorf("sunLevel = %d,%v, want %d,true", level, night, bc.NightLevel)
+			want := bc.DayLevel
+			if tc.night {
+				want = bc.NightLevel
+			}
+			if level, night := sunLevel(bc, tc.lat, tc.lon, tc.now); night != tc.night || level != want {
+				t.Errorf("sunLevel = %d,%v, want %d,%v", level, night, want, tc.night)
+			}
+		})
+	}
+}
+
+func TestSolarElevationMatchesSunTimesHorizon(t *testing.T) {
+	for _, c := range [][2]float64{{52.52, 13.405}, {34.05, -118.24}, {-33.87, 151.21}, {69.65, 18.96}, {-77.8, 166.7}} {
+		for d := 0; d < 365; d += 30 {
+			rise, set, ok := sunTimes(c[0], c[1], time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, d))
+			if !ok {
+				continue
+			}
+			for _, at := range []time.Time{rise, set} {
+				if e := solarElevation(c[0], c[1], at); e < sunHorizonDeg-0.05 || e > sunHorizonDeg+0.05 {
+					t.Errorf("%v at %v: elevation %.3f°, want ≈ %.3f°", c, at, e, sunHorizonDeg)
+				}
+			}
+		}
+	}
+}
+
+func sunYearStep(t *testing.T) time.Duration {
+	if testing.Short() {
+		return 97 * time.Minute
+	}
+	return 7 * time.Minute
+}
+
+func TestSunNightMatchesElevationAllYearAtPolarSites(t *testing.T) {
+	sites := map[string][2]float64{
+		"Tromsø": {69.65, 18.96}, "68N": {68, 0}, "Svalbard": {78.2, 15.6}, "Alert": {82.5, -62.3},
+		"Utqiagvik": {71.29, -156.79}, "McMurdo": {-77.8, 166.7}, "Mawson": {-67.6, 62.87}, "66.6S": {-66.6, -140},
+	}
+	bc := BrightnessConfig{DayLevel: 255, NightLevel: 20, TwilightMinutes: 30}
+	step := sunYearStep(t)
+	for name, c := range sites {
+		t.Run(name, func(t *testing.T) {
+			wrong := 0
+			for at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC); at.Year() == 2026; at = at.Add(step) {
+				night := sunNight(c[0], c[1], at)
+				if _, levelNight := sunLevel(bc, c[0], c[1], at); levelNight != night {
+					t.Fatalf("%v: sunLevel night %v, sunNight %v", at, levelNight, night)
+				}
+				e := solarElevation(c[0], c[1], at)
+				if e-sunHorizonDeg > 1 || sunHorizonDeg-e > 1 {
+					if night != (e < sunHorizonDeg) {
+						wrong++
+						if wrong <= 3 {
+							t.Errorf("%v: night %v with the sun at %.1f°", at, night, e)
+						}
+					}
+				}
+			}
+			if wrong > 0 {
+				t.Errorf("%d samples disagree with the sun's elevation", wrong)
+			}
+		})
+	}
+}
+
+func TestSunNightAtNormalLatitudesStaysOnTheEventBracket(t *testing.T) {
+	sites := map[string][2]float64{"Berlin": {52.52, 13.405}, "LA": {34.05, -118.24}, "Sydney": {-33.87, 151.21}}
+	step := sunYearStep(t)
+	for name, c := range sites {
+		t.Run(name, func(t *testing.T) {
+			for at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC); at.Year() == 2026; at = at.Add(step) {
+				last, next := sunEventsAround(c[0], c[1], at)
+				if last == nil || next == nil || last.rise == next.rise {
+					t.Fatalf("%v: bracket %+v..%+v, want a sunrise and a sunset on either side", at, last, next)
+				}
+				if sunNight(c[0], c[1], at) != !last.rise {
+					t.Fatalf("%v: night must be the bracket's call", at)
+				}
 			}
 		})
 	}

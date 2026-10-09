@@ -1370,8 +1370,8 @@ Weather constraints:
   supplies (`TZKnown`/`TZOffsetSeconds`); only without it (MET) does it fall back
   to longitude (15° per hour, no tz database), which can differ from civil time at
   DST/zone boundaries. At polar day/night there are no sun times; `Night` then
-  comes from `polarNight` (noon altitude), and the clock's moon icon, which
-  also needs sun times, stays off (the sun icon).
+  comes from the sun's elevation (see below), and the clock's moon icon,
+  which also needs sun times, stays off (the sun icon).
 - **Sun times are the location's local day.** Every caller (dashboard
   `/v1/weather/state`, the knob view, the clock's moon icon, sun popups and
   their once-a-day key) reads them from the weather state, which calls
@@ -1388,14 +1388,20 @@ Weather constraints:
   never fires.
 - **Night is the sun schedule's call.** `Night` is `sunNight` over the sun
   events of the neighbouring UTC dates (`sunEventsAround`, the same bracket
-  brightness `sunLevel` uses): night when the last event was a sunset, or,
-  with no earlier event, when the next one is a sunrise. Only with no event
-  on either side does `polarNight` decide. Next to polar night one side is
-  often missing (McMurdo after its last sunset, 68°N before the first
-  sunrise), so falling back to `polarNight` there would read day in the
-  dark. The knob's `night`, the clock's moon and the brightness night agree,
-  including at the sunset second and a post-midnight sunset, which stays day
-  until it happens.
+  brightness `sunLevel` uses). With an event on both sides, night is "the
+  last event was a sunset". When either side is empty (the days next to
+  polar day or night, and polar day or night itself) it is the sun's actual
+  elevation at `now` (`solarElevation`, the declination and transit maths of
+  `sunTimes`) below the same −0.833° horizon. Neither side alone tells the
+  answer: next to polar night a lone sunset means night (McMurdo after its
+  last sunset), next to polar day it doesn't (Tromsø's last sunset before
+  midnight sun, then 40° sun the next day). A noon-altitude guess was wrong
+  for days at McMurdo. `TestSunNightMatchesElevationAllYearAtPolarSites`
+  pins every polar site to the elevation all year (more than 1° from the
+  horizon); at normal latitudes the bracket is always two-sided, so nothing
+  changed there. The knob's `night`, the clock's moon and the brightness
+  night agree, including at the sunset second and a post-midnight sunset,
+  which stays day until it happens.
 
 ### Reminders — Apple Reminders + `POST /v1/reminders/fire`
 
@@ -2091,9 +2097,9 @@ coordinates to a few hundred metres; the location is the user-typed label only.
   `stale_seconds`, or the clock never reported `lightLevel`, the answer is
   `sun`: `day_level` by day, ramping to `night_level` over `twilight_minutes`
   after sunset and back up ending at sunrise (`sunTimes` for the weather
-  lat/lon, neighbouring UTC dates included, one side enough; with no sunrise
-  or sunset on either side it follows noon sun altitude, so polar winter reads night). That fallback resets
-  the filter. No weather location either: `default` (`day_level`). `night` is
+  lat/lon, neighbouring UTC dates included; when a side has no sunrise or
+  sunset it follows the sun's elevation, so polar winter reads night). That
+  fallback resets the filter. No weather location either: `default` (`day_level`). `night` is
   the schedule's own call (after sunset, before sunrise) whenever a location is
   set, in every source; the weather state's `Night` uses the same bracket
   (`sunNight`), so they agree.

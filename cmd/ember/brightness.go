@@ -153,23 +153,17 @@ func holdWithinBand(prev int, hasPrev bool, target, band, floor, ceiling int) in
 
 func sunLevel(c BrightnessConfig, lat, lon float64, now time.Time) (level int, night bool) {
 	last, next := sunEventsAround(lat, lon, now)
-	if !nightBetween(last, next, lat, now) {
+	if !nightBetween(last, next, lat, lon, now) {
 		return c.DayLevel, false
 	}
 	tw := time.Duration(c.TwilightMinutes) * time.Minute
 	frac := 0.0
-	if last != nil && now.Sub(last.at) < tw {
+	if last != nil && !last.rise && now.Sub(last.at) < tw {
 		frac = 1 - float64(now.Sub(last.at))/float64(tw)
-	} else if next != nil && next.at.Sub(now) < tw {
+	} else if next != nil && next.rise && next.at.Sub(now) < tw {
 		frac = 1 - float64(next.at.Sub(now))/float64(tw)
 	}
 	return c.NightLevel + int(math.Round(frac*float64(c.DayLevel-c.NightLevel))), true
-}
-
-func polarNight(lat float64, now time.Time) bool {
-	decl := -23.44 * math.Cos(2*math.Pi*float64(now.UTC().YearDay()+10)/365)
-	noonAltitude := 90 - math.Abs(lat-decl)
-	return noonAltitude < -0.833
 }
 
 func decideBrightness(c BrightnessConfig, st brightnessState, s *luxSample, geo brightnessGeo, now time.Time) (brightnessOut, brightnessState) {

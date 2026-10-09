@@ -131,6 +131,8 @@ func TestWeatherConsumersAgreeOnSunAndNight(t *testing.T) {
 		{"no coordinates", noCoords, time.Date(2026, 9, 26, 22, 0, 0, 0, time.UTC), false, false, false},
 		{"McMurdo after the last sunset", func(c *WeatherConfig) { c.Latitude, c.Longitude = -77.8, 166.7 }, time.Date(2026, 4, 25, 5, 0, 0, 0, time.UTC), true, true, true},
 		{"68N before the first sunrise", func(c *WeatherConfig) { c.Latitude, c.Longitude = 68, 0 }, time.Date(2026, 1, 4, 5, 0, 0, 0, time.UTC), true, true, true},
+		{"Tromsø next to polar day", func(c *WeatherConfig) { c.Latitude, c.Longitude = 69.65, 18.96 }, time.Date(2026, 5, 19, 10, 41, 0, 0, time.UTC), false, false, false},
+		{"McMurdo in polar night", func(c *WeatherConfig) { c.Latitude, c.Longitude = -77.8, 166.7 }, time.Date(2027, 8, 18, 12, 0, 0, 0, time.UTC), false, true, false},
 		{"polar night", svalbard, time.Date(2026, 12, 21, 12, 0, 0, 0, time.UTC), false, true, false},
 		{"polar day", svalbard, time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC), false, false, false},
 	}
