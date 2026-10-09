@@ -58,6 +58,17 @@ The aggregator and the only writer to the device.
   `/admin/doctor`) reaps first, so no reader ever sees a stale session and
   reaping doesn't depend on anything rendering. Each reap logs `session reaped`
   and bumps `ember_sessions_evicted_total`.
+- **Mood state** (`cmd/ember/mood_state.go`, #338). The agent-session readers
+  go through one projection of a registry view, `App.moodState()` →
+  `moodState` (`newMoodState(view, idleText)` for tests): the sessions, the
+  legacy `render` (counts, winner text, colour, `source`/`tool`) and the
+  `moodLead` (who leads the winning state, see "Knob view"). It knows nothing
+  about devices. `App.Snapshot()` (`GET /state`, the coordinator, the
+  preview) is its `snapshot()`; the knob's `mood` is its render plus lead;
+  `Upsert` notifies when either moves. The clock's hidden apps are not part
+  of it: the coordinator filters its own copy of the sessions
+  (`filteredSnapshot`), and the knob, `/state` and the render counters stay
+  unfiltered (user decision 2026-10-09: each device keeps its own app list).
 - **Render priority.** `waiting > error > running > done`; `idle` never wins
   (it cedes the slot, publishing nothing). For ≥2 sessions in the winning group,
   an aggregate label is shown. One Go ordering, `render.StatePriority`: the
@@ -155,9 +166,9 @@ The aggregator and the only writer to the device.
   the ~5 min producer refresh so a reconcile gap never blanks the usage app;
   `usageStaleTTL` (about twice the poll) clears a silent tool's apps;
   `usageRefreshInterval` (below the lifetime) re-pushes an unchanged usage app
-  so the device doesn't evict it. `usageViews` prefers endpoint usage and
-  falls back to the statusline with the same precedence as the limit alarm;
-  hidden and below-threshold tools are absent. Weather tiles are live only
+  so the device doesn't evict it. `usageViews` reads the usage state (see "AI
+  usage card"), the same one the limit alarm reads; hidden and
+  below-threshold tools are absent. Weather tiles are live only
   while the weather state is fresh (`weatherStaleAfter`, 30 min, see
   "Weather"), so a wedged poller leaves no stale temperature. The meeting countdown is the ceiling of the remaining time (at
   least 1) and needs no timer: the text changes each minute, so the bytes diff
@@ -1197,6 +1208,17 @@ streak tolerates, default 1, `0` = strict), `work_hours_gap_minutes` (default
 middle=pause/resume/start, right=skip, left=stop — all on press (the AWTRIX3-era
 left+right chord is removed).
 
+**Pomodoro state** (`cmd/ember/pomodoro_state.go`, #338). The readers of the
+timer go through one projection, `App.pomodoroState(now)` → `pomodoroState`:
+`On` (an engine exists and `pomodoro.enabled`), the engine `Status`, and
+`Counting`/`EndsAt` (running and not paused) from one `Engine.Snapshot`. The
+engine stays the only authority; the state knows nothing about devices.
+`active()` (on and not idle) gates the clock's takeover view (`pomoView`, which
+adds the colours), `busy()` (on and running or paused) holds back a knob OTA
+offer, and the knob's `pomo` block (`knobPomo`) is `null` when off and sends
+`ends_at` while counting, `remaining_sec` otherwise. The action replies and
+`GET /v1/pomodoro/state` stay the engine `Status`, behind the same on check.
+
 ### Weather — `cmd/ember/weather.go`
 
 A standalone widget that shows current conditions. The server fetches them
@@ -1490,6 +1512,12 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
   its track or state changes, so Plex re-reporting a long-paused session
   doesn't bring it back; entries silent for 1 h are forgotten, and at most
   32 players are kept.
+- **App state** (#338): the registry already is now playing's app state.
+  `Registry.Current(now)` holds the one expiry rule, and every reader goes
+  through it with its own `now`: the knob view's `nowplaying` block,
+  `GET /v1/nowplaying/state`, the art route and control's "still shown"
+  check. None of them re-derives freshness, so there is no separate state
+  type (pinned by `TestNowPlayingConsumersShareTheRegistryExpiry`).
 - **Position anchor:** the entry stores `position_ms` at `position_at`. A
   report for the same track and state moves the anchor only when it is more
   than 3 s off the extrapolation (a seek). Plex re-reports `viewOffset`
@@ -3144,9 +3172,10 @@ draws-if-present in `internal/render`, add a menu checkbox.
   order fixed):
   `{"v":1,"epoch":1,"config_version":1,"mood":{"waiting":1,"errors":0,"running":1,"done":0,"source":"M4"},"pomo":{"phase":"focus","running":true,"paused":false,"ends_at":1782044100,"planned_sec":1500,"round":0},"weather":{"provider":"open-meteo","cond":"rain","code":"61","temp_c":12.5,"stale":false,"severe":false,"night":false,"sunrise":1782013200,"sunset":1782072900},"brightness":{"level":255,"night":false}}`.
   `mood` is `/state`'s `render` counters and `source` (the winning host),
-  then who leads the winning state (#282, `knob_lead.go`): `lead` (the source
-  with the most sessions in that state, ties to the smaller name, so it does
-  not flip as sessions heartbeat; left out when it equals `source`), `hosts`
+  then who leads the winning state (#282, `moodLead` in `mood_state.go`):
+  `lead` (the source with the most sessions in that state, ties to the
+  smaller name, so it does not flip as sessions heartbeat; left out when it
+  equals `source`), `hosts`
   (distinct sources in that state; left out at 0 or 1), `lead_color` (first
   valid `source_color` of the lead's sessions, uppercased) and `tool` (the
   lead's tool when its sessions agree), all omitted when empty, so an idle
@@ -3248,7 +3277,7 @@ Account-global subscription usage renders inside the main `ember` app as a
 **usage card** in the number-slot rotation — no standalone apps. The flow:
 producers `POST /v1/usage` → in-memory `UsageStore` (per tool; **not persisted**
 — every entry refreshes ≤5 min so a restart self-heals) → the coordinator
-builds `UsageView` structs from `effectiveFiveHour` each tick and includes a
+builds `UsageView` structs from the usage state each tick and includes a
 usage card for a tool **only when its 5h window ≥ `usage_threshold_pct`**
 (default 60; `0` = always show). The usage card rotates through up to five faces per
 tool (sessions-bar mode): **5h clock** (fully-drawn tight-colon), **reset**
@@ -3272,6 +3301,21 @@ renders it verbatim — no server-side timezone math). The endpoint supersedes
 the fallback the moment fresh usage arrives (and only then are 7d + per-model
 shown). On startup the coordinator **clears any legacy `ember-usage-*` apps**
 left on the device from the previous standalone model.
+
+**Usage state** (`cmd/ember/usage_state.go`, #338). Every reader of the
+stored usage goes through one projection, `UsageStore.state(sessions, now)` →
+`usageState` (`newUsageState` for tests). Per tool it holds the report,
+`Fresh` (`now - updated_at <= usageStaleTTL`, 10 min, inclusive; a report
+from the future counts as fresh) and, for `claude` and `codex`, the effective
+5h window: `FiveHourPct`/`ResetAt` from a fresh report's 5h window, otherwise
+from the newest session carrying `rate_window_pct` and a reset; `ResetLabel`
+is the fresh report's 5h label (empty when that report has no 5h window,
+even if the numbers fall back to a session), and only with no fresh report
+the newest labelled session's `rate_reset_label`. It knows nothing about devices. Readers: the clock usage
+cards (`usageViews`; 7d and per-model only when `Fresh`), the limit alarm
+(`checkLimitAlarms`), and `GET /v1/usage` (`stale` = `!Fresh`; it passes no
+sessions and reads only the reports). The clock passes its hidden-filtered
+sessions, so a hidden tool has no fallback on the clock.
 
 **Idle usage frame.** When all sessions expire and a tool is over threshold,
 the coordinator publishes a **dimmed usage frame** (the same usage card content

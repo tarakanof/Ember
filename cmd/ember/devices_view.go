@@ -36,7 +36,7 @@ type knobMood struct {
 	Tool      string `json:"tool,omitempty"`
 }
 
-func newKnobMood(r Render, l knobLead) knobMood {
+func newKnobMood(r Render, l moodLead) knobMood {
 	m := knobMood{Waiting: r.Waiting, Errors: r.Errors, Running: r.Running, Done: r.Done, Source: r.Source,
 		LeadColor: l.Color, Tool: l.Tool}
 	if !strings.EqualFold(l.Lead, r.Source) {
@@ -102,14 +102,13 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	sv := a.sessions.View()
-	r := a.legacyRender(sv)
+	mood := a.moodState()
 	b := a.currentBrightness(now)
 	v := knobView{
 		V:             1,
 		Epoch:         epoch,
 		ConfigVersion: version,
-		Mood:          newKnobMood(r, knobLeadOf(sv)),
+		Mood:          newKnobMood(mood.Render, mood.Lead),
 		Pomo:          a.knobPomo(now),
 		Weather:       a.knobWeather(now),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},
@@ -150,10 +149,11 @@ func (a *App) knobNowPlaying(now time.Time) *knobNowPlaying {
 }
 
 func (a *App) knobPomo(now time.Time) *knobPomo {
-	if !a.pomodoroOn() {
+	ps := a.pomodoroState(now)
+	if !ps.On {
 		return nil
 	}
-	st, end, counting := a.engine.Snapshot(now)
+	st := ps.Status
 	p := &knobPomo{
 		Phase:      string(st.Phase),
 		Running:    st.Running,
@@ -161,8 +161,8 @@ func (a *App) knobPomo(now time.Time) *knobPomo {
 		PlannedSec: st.PlannedSec,
 		Round:      st.Round,
 	}
-	if counting {
-		t := end.Unix()
+	if ps.Counting {
+		t := ps.EndsAt.Unix()
 		p.EndsAt = &t
 	} else {
 		rem := st.RemainingSec

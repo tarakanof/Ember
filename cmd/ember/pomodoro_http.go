@@ -109,21 +109,19 @@ func (a *App) initPomodoro(p PomodoroConfig) error {
 func (a *App) EnablePomodoro(engine *pomodoro.Engine, store *pomodoro.Store) {
 	a.engine = engine
 	a.store = store
-	a.coord.pomoView = a.pomoView
+	a.coord.pomoView = func() (render.PomodoroView, bool) { return a.pomoView(time.Now()) }
 }
 
 func (a *App) pomodoroOn() bool {
 	return a.engine != nil && a.cfg.Load().Pomodoro.Enabled
 }
 
-func (a *App) pomoView() (render.PomodoroView, bool) {
-	if !a.pomodoroOn() {
+func (a *App) pomoView(now time.Time) (render.PomodoroView, bool) {
+	ps := a.pomodoroState(now)
+	if !ps.active() {
 		return render.PomodoroView{}, false
 	}
-	st := a.engine.Status(time.Now())
-	if st.Phase == pomodoro.PhaseIdle {
-		return render.PomodoroView{}, false
-	}
+	st := ps.Status
 	p := a.cfg.Load().Pomodoro
 	fc, _ := render.HexRGB(p.FocusColor)
 	bc, _ := render.HexRGB(p.BreakColor)
