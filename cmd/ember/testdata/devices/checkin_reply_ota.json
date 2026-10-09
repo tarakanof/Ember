@@ -3,7 +3,7 @@
   "diag_live_until": 1782043500,
   "coredump_ack": "37315f06",
   "ota": {
-    "attempt": 1,
+    "attempt": 3,
     "auto": false,
     "build": "42f7f65e",
     "retry": false,

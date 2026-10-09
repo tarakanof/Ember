@@ -6,12 +6,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/tarakanof/ember/internal/nowplaying"
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
+
+const exampleDeviceToken = "ekd_EXAMPLE-token-not-real-00000000000000000000"
 
 const customKnobConfig = `{
 	"brightness": {"follow_ember": false, "level": 200, "floor": 20, "startup": 120},
@@ -50,6 +56,14 @@ func putKnobConfig(t *testing.T, srv *httptest.Server, id, body string) {
 	mustOK(t, "config put", resp, b)
 }
 
+func goldenViewFixture(t *testing.T) *viewFixture {
+	t.Helper()
+	f := newViewFixture(t)
+	f.app.sessions = f.app.newSessionRegistry(f.clk.Now)
+	f.app.knobStats.now = f.clk.Now
+	return f
+}
+
 func goldenView(t *testing.T, f *viewFixture) []byte {
 	t.Helper()
 	body, _, err := f.app.knobView(f.m.ID, f.clk.Now())
@@ -61,9 +75,8 @@ func goldenView(t *testing.T, f *viewFixture) []byte {
 
 func TestDeviceViewGolden(t *testing.T) {
 	t.Run("full", func(t *testing.T) {
-		f := newViewFixture(t)
+		f := goldenViewFixture(t)
 		now := f.clk.Now()
-		f.app.knobStats.now = f.clk.Now
 		f.app.updateConfig(func(c *Config) {
 			c.Weather.Enabled = true
 			c.Weather.Provider = "open-meteo"
@@ -94,15 +107,75 @@ func TestDeviceViewGolden(t *testing.T) {
 		assertDeviceGolden(t, "view_full", goldenView(t, f))
 	})
 	t.Run("minimal", func(t *testing.T) {
-		f := newViewFixture(t)
+		f := goldenViewFixture(t)
 		f.app.updateConfig(func(c *Config) { c.Pomodoro.Enabled = false; c.Weather.Enabled = false })
 		assertDeviceGolden(t, "view_minimal", goldenView(t, f))
 	})
 	t.Run("nowplaying_none", func(t *testing.T) {
-		f := newViewFixture(t)
+		f := goldenViewFixture(t)
 		putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
 		assertDeviceGolden(t, "view_nowplaying_none", goldenView(t, f))
 	})
+	t.Run("single_host_paused", func(t *testing.T) {
+		f := goldenViewFixture(t)
+		f.app.updateConfig(func(c *Config) {
+			c.Weather.Enabled = true
+			c.Weather.Provider = "open-meteo"
+			c.Weather.Latitude, c.Weather.Longitude = 0, 0
+		})
+		f.app.weather.obs = weatherObservation{Condition: "clear", ConditionCode: "0", TempC: -3, FetchedAt: f.clk.Now().Add(-2 * time.Hour)}
+		f.app.weather.have = true
+		f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s1", State: "running"})
+		f.app.Upsert(StatusRequest{Source: "studio", Tool: "codex", Session: "s2", State: "done"})
+		f.eng.Start(pomodoro.PhaseFocus)
+		f.clk.advance(100 * time.Second)
+		f.eng.Pause(f.clk.Now())
+		assertDeviceGolden(t, "view_single_host_paused", goldenView(t, f))
+	})
+}
+
+func TestDeviceViewHeadersContract(t *testing.T) {
+	f := newViewFixture(t)
+	resp, body := f.get(t, "")
+	etag := resp.Header.Get("ETag")
+	h := resp.Header
+	if resp.StatusCode != http.StatusOK || !regexp.MustCompile(`^"[0-9a-f]{16}"$`).MatchString(etag) {
+		t.Fatalf("view = %d, ETag %q, want 200 and a strong 16-hex tag", resp.StatusCode, etag)
+	}
+	if h.Get("Content-Type") != "application/json" || h.Get("Cache-Control") != "no-cache" || h.Get("X-Ember-View-Wait") != "25" {
+		t.Errorf("view headers = %v", h)
+	}
+	if now, err := strconv.ParseInt(h.Get("X-Ember-Now"), 10, 64); err != nil || time.Since(time.Unix(now, 0)).Abs() > time.Minute {
+		t.Errorf("X-Ember-Now = %q, want server Unix seconds", h.Get("X-Ember-Now"))
+	}
+	if len(body) == 0 {
+		t.Fatal("empty view body")
+	}
+	resp, body = f.get(t, etag)
+	h = resp.Header
+	if resp.StatusCode != http.StatusNotModified || len(body) != 0 || h.Get("ETag") != etag ||
+		h.Get("X-Ember-Now") == "" || h.Get("X-Ember-View-Wait") != "25" {
+		t.Fatalf("revalidate = %d body %q headers %v, want 304 with ETag, X-Ember-Now and X-Ember-View-Wait", resp.StatusCode, body, h)
+	}
+	cr, b := devReq(t, f.srv, "POST", "/v1/devices/self/checkin", f.m.Token, `{"fw":"0.9.13","config_version":1}`)
+	mustOK(t, "checkin", cr, b)
+	if _, err := strconv.ParseInt(cr.Header.Get("X-Ember-Now"), 10, 64); err != nil {
+		t.Errorf("checkin X-Ember-Now = %q", cr.Header.Get("X-Ember-Now"))
+	}
+}
+
+func TestDevicePomodoroActionGolden(t *testing.T) {
+	app := newPomodoroApp(t)
+	app.updateConfig(func(c *Config) { c.RateLimit.Disabled = true })
+	clk := &stepClock{now: time.Now().Add(500 * time.Millisecond)}
+	app.EnablePomodoro(pomodoro.New(pomodoro.Settings{FocusMin: 25, ShortMin: 5, LongMin: 15, RoundsBeforeLong: 4}, clk), app.store)
+	srv := httptest.NewServer(app.routes())
+	t.Cleanup(srv.Close)
+	m := mintKnob(t, srv, http.StatusCreated)
+	resp, b := devReq(t, srv, "POST", "/v1/pomodoro/start", m.Token, `{"phase":"short_break"}`)
+	mustOK(t, "start", resp, b)
+	resp, b = devReq(t, srv, "POST", "/v1/pomodoro/pause", m.Token, "")
+	assertDeviceGolden(t, "pomodoro_action", mustOK(t, "pause", resp, b))
 }
 
 func goldenCheckinRequests(t *testing.T) (minimal, full map[string]any, dump []byte) {
@@ -122,12 +195,13 @@ func goldenCheckinRequests(t *testing.T) (minimal, full map[string]any, dump []b
 		},
 		"fw": "0.9.13", "fw_build": runningBuild,
 		"heap_internal_free": 47104, "heap_internal_largest": 31744, "ip": "192.0.2.10",
-		"link_fallback": false, "link_mhz": 80,
-		"ota":  map[string]any{"image": "valid", "phase": "idle", "rollback": true, "slot": 0},
+		"link_fallback": true, "link_mhz": 80,
+		"ota": map[string]any{"image": "valid", "phase": "idle", "rollback": true, "slot": 0,
+			"last": map[string]any{"attempt": 2, "error": "bad_checksum", "result": "failed", "version": "0.9.12"}},
 		"rssi": -58,
 		"stats": map[string]any{
 			"cpu_pct": []float64{12.5, 3.5}, "fps": 29.5, "frame_ms_avg": 12.25, "frame_ms_max": 40,
-			"heap_internal_min": 30000, "period_ms": 60000, "psram_free": 7000000, "psram_largest": 6000000,
+			"heap_internal_min": 30000, "period_ms": 30000, "psram_free": 7000000, "psram_largest": 6000000,
 			"psram_min": 6500000, "req_fail": 2, "req_ms_avg": 35.5, "req_ms_max": 120, "req_ok": 28,
 			"reset_reason": "poweron", "temp_c": 41.5,
 		},
@@ -184,21 +258,67 @@ func TestDeviceCheckinGolden(t *testing.T) {
 			last = d.LastCheckin
 		}
 	}
-	switch {
-	case last == nil:
+	if last == nil {
 		t.Fatal("no last checkin stored")
-	case last.FW != "0.9.13" || last.FWBuild != runningBuild || last.IP != "192.0.2.10" || last.LinkMHz != 80:
-		t.Errorf("scalar fields not stored: %+v", last)
-	case last.Wifi == nil || last.Wifi.Channel != 6:
-		t.Errorf("wifi dropped: %+v", last.Wifi)
-	case last.Diag == nil || last.Diag.Crash == nil || last.Diag.Crash.ID != crashID || last.Diag.StackFree["lvgl"] != 2048:
-		t.Errorf("diag dropped: %+v", last.Diag)
-	case last.OTA == nil || last.OTA.Image != "valid":
-		t.Errorf("ota dropped: %+v", last.OTA)
 	}
-	if _, latest := app.knobStats.points(k.knob.ID, "15m", clk.Now()); latest == nil || latest.RenderFPS == nil {
-		t.Errorf("stats not recorded: %+v", latest)
+	got := *last
+	got.SeenAt = time.Time{}
+	if got.Diag != nil {
+		d := *got.Diag
+		d.Reboots, d.PrevResetReason, d.RebootsSinceSeen = 0, "", 0
+		got.Diag = &d
 	}
+	want := deviceCheckin{
+		FW: "0.9.13", IP: "192.0.2.10", RSSI: -58, HeapInternalFree: 47104, HeapInternalLargest: 31744,
+		UptimeS: 812, AppliedVersion: 2, LinkMHz: 80, LinkFallback: true,
+		Wifi: &deviceWifi{BSSID: "02:00:5e:00:00:01", Channel: 6, Disconnects: 3, LastReason: 203, RSSIMin: -83},
+		Diag: &deviceDiag{Boots: 12, HeapInternalMin: 30120, HeapLargestMin: 22528, ResetReason: "panic",
+			Crash:     &deviceCrash{ELF: "a1b2c3d4", ID: crashID, Size: len(dump), PC: "0x4201a2b3", Reason: "panic", Task: "ember"},
+			StackFree: map[string]int{"ember": 1220, "lvgl": 2048}},
+		FWBuild: runningBuild,
+		OTA: &knobOTAReport{Image: "valid", Phase: "idle", Rollback: true, Slot: new(0),
+			Last: &knobOTALast{Attempt: 2, Error: "bad_checksum", Result: "failed", Version: "0.9.12"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		gb, _ := json.Marshal(got)
+		wb, _ := json.Marshal(want)
+		t.Errorf("stored checkin\n got %s\nwant %s", gb, wb)
+	}
+
+	_, latest := app.knobStats.points(k.knob.ID, "15m", clk.Now())
+	if latest == nil {
+		t.Fatal("stats not recorded")
+	}
+	wantStats := knobSample{
+		T: latest.T, BrightnessLevel: latest.BrightnessLevel,
+		UptimeSec: new(int64(812)), RSSIDBm: new(-58), CPUPercent: []float64{12.5, 3.5},
+		HeapInternalFreeBytes: new(int64(47104)), HeapInternalMinBytes: new(int64(30000)), HeapInternalLargest: new(int64(31744)),
+		PSRAMFreeBytes: new(int64(7000000)), PSRAMMinBytes: new(int64(6500000)), PSRAMLargestBytes: new(int64(6000000)),
+		TempC: new(41.5), RequestsPerMin: new(60.0), RequestFailuresPerMin: new(4.0),
+		RequestLatencyAvgMS: new(35.5), RequestLatencyMaxMS: new(int64(120)),
+		RenderFPS: new(29.5), FrameAvgMS: new(12.25), FrameMaxMS: new(int64(40)),
+		periodMS: 30000, resetReason: "poweron",
+	}
+	if !reflect.DeepEqual(*latest, wantStats) {
+		t.Errorf("stored stats\n got %+v\nwant %+v", *latest, wantStats)
+	}
+
+}
+
+func TestDeviceCheckinRotationGolden(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	resp, b := devReq(t, srv, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
+	mustOK(t, "rotate", resp, b)
+	resp, b = devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.13","config_version":1}`)
+	reply := mustOK(t, "checkin", resp, b)
+	var r struct {
+		NewToken string `json:"new_token"`
+	}
+	if err := json.Unmarshal(reply, &r); err != nil || !strings.HasPrefix(r.NewToken, "ekd_") || len(r.NewToken) != len(exampleDeviceToken) {
+		t.Fatalf("rotation reply = %s", reply)
+	}
+	assertDeviceGolden(t, "checkin_reply_rotation", bytes.ReplaceAll(reply, []byte(r.NewToken), []byte(exampleDeviceToken)))
 }
 
 func TestDeviceConfigGolden(t *testing.T) {

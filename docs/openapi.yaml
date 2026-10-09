@@ -1015,6 +1015,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PomodoroStatus"
+              examples:
+                pomodoro_action:
+                  externalValue: ../cmd/ember/testdata/devices/pomodoro_action.json
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2345,6 +2348,8 @@ paths:
                   externalValue: ../cmd/ember/testdata/devices/checkin_reply_coredump.json
                 checkin_reply_ota:
                   externalValue: ../cmd/ember/testdata/devices/checkin_reply_ota.json
+                checkin_reply_rotation:
+                  externalValue: ../cmd/ember/testdata/devices/checkin_reply_rotation.json
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2489,7 +2494,7 @@ paths:
             maximum: 25
       responses:
         "200":
-          description: The view; shapes and contract rules in DEVICE-PROTOCOL.md.
+          description: The view. Field-by-field shape in ARCHITECTURE.md "Wire protocol" (Knob view); compatibility rules in DEVICE-PROTOCOL.md.
           content:
             application/json:
               schema:
@@ -2501,6 +2506,8 @@ paths:
                   externalValue: ../cmd/ember/testdata/devices/view_minimal.json
                 view_nowplaying_none:
                   externalValue: ../cmd/ember/testdata/devices/view_nowplaying_none.json
+                view_single_host_paused:
+                  externalValue: ../cmd/ember/testdata/devices/view_single_host_paused.json
         "304":
           description: Unchanged since If-None-Match.
         "401":

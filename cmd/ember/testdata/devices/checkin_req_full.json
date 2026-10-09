@@ -23,10 +23,16 @@
   "heap_internal_free": 47104,
   "heap_internal_largest": 31744,
   "ip": "192.0.2.10",
-  "link_fallback": false,
+  "link_fallback": true,
   "link_mhz": 80,
   "ota": {
     "image": "valid",
+    "last": {
+      "attempt": 2,
+      "error": "bad_checksum",
+      "result": "failed",
+      "version": "0.9.12"
+    },
     "phase": "idle",
     "rollback": true,
     "slot": 0
@@ -41,7 +47,7 @@
     "frame_ms_avg": 12.25,
     "frame_ms_max": 40,
     "heap_internal_min": 30000,
-    "period_ms": 60000,
+    "period_ms": 30000,
     "psram_free": 7000000,
     "psram_largest": 6000000,
     "psram_min": 6500000,
