@@ -60,6 +60,7 @@ type App struct {
 	settings appSettings
 
 	devices       *deviceRegistry
+	clients       *clientRegistry
 	changes       *changeBroadcaster
 	viewWaiters   viewWaiters
 	viewRecheck   time.Duration
@@ -143,6 +144,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		return a.store
 	})
 	a.devices.onChange = func() { a.changes.notify(topicDevices) }
+	a.clients = newClientRegistry(a.devices.kv)
 	a.knobStats = newKnobStatsStore()
 	a.clockStats = newClockStatsStore()
 	a.metrics = newMetrics()

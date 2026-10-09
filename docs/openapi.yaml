@@ -52,7 +52,7 @@ tags:
   - name: read
     description: Unauthenticated state and preview reads.
   - name: devices
-    description: The device registry (knobs) and client tokens. Owner or `admin`.
+    description: The device registry (knobs) and the client token store. Owner or `admin`.
   - name: device-self
     description: Called by a knob with its own device token.
   - name: firmware
@@ -392,7 +392,7 @@ components:
           description: Completed focus phases in the current cycle.
     DeviceView:
       type: object
-      description: A registry record without token material.
+      description: A device record, or a client token (`kind: client`), without token material.
       properties:
         id:
           type: string
@@ -1504,11 +1504,15 @@ paths:
     get:
       tags: [devices]
       operationId: listDevices
-      summary: List knobs and client tokens
+      summary: List devices
+      description: |
+        Device records only (knobs). Client tokens are listed by
+        `GET /v1/clients`; a server from before #340 also lists them here
+        with `kind: client`, so filter by `kind`.
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
         "200":
-          description: Every record, without token material.
+          description: Every device record, without token material.
           content:
             application/json:
               schema:
@@ -1558,6 +1562,34 @@ paths:
                 $ref: "#/components/schemas/MintedDevice"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/clients:
+    get:
+      tags: [devices]
+      operationId: listClients
+      summary: List client tokens
+      description: |
+        The `ekc_` client tokens, kept apart from the device registry. Each
+        has the `DeviceView` shape with `kind: client`. Mint with
+        `POST /v1/devices`, rename, rotate and delete with
+        `/v1/devices/{id}`. A server from before #340 answers 404 and lists
+        clients in `GET /v1/devices`.
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: Every client token, without token material.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clients:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DeviceView"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

@@ -32,7 +32,9 @@ func newDevicesApp(t *testing.T, dbPath string) (*App, *httptest.Server) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = app.store.Close() })
-	app.devices.load()
+	if err := app.loadRegistries(); err != nil {
+		t.Fatal(err)
+	}
 	srv := httptest.NewServer(app.routes())
 	t.Cleanup(srv.Close)
 	return app, srv

@@ -100,7 +100,7 @@ func (a *App) initPomodoro(p PomodoroConfig) error {
 	engine := pomodoro.New(engineSettings(p), realClock{})
 	a.EnablePomodoro(engine, a.store)
 	a.loadHiddenApps()
-	if err := a.devices.load(); err != nil {
+	if err := a.loadRegistries(); err != nil {
 		a.logger.Warn("device registry ignored", "err", err)
 	}
 	return nil
