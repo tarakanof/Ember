@@ -44,7 +44,7 @@ func (c *coordinator) desiredIndicators(snap Snapshot, now time.Time) [3]indicat
 			break
 		}
 	}
-	if enabled, start, end := cfg.quietHoursWindow(); enabled && quietActive(start, end, now) {
+	if c.quietAt(now) {
 		want[2] = indicatorState{color: indicatorQuietColor}
 	}
 	return want

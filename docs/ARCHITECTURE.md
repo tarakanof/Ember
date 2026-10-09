@@ -3374,8 +3374,10 @@ out-of-band chime (the attention lock) and is quiet-gated too.
 `dismissNotice` retracts a kind by name and is **never** quiet-gated: the
 reminder loop guard dismisses a looping alarm at quiet-hours start, so a gated
 dismiss would leave it ringing all night (`TestDismissNoticeIgnoresQuietHours`).
-Every quiet decision, including the reminder loop's arm and stop, goes through
-`coordinator.quietAt`, read on the coordinator clock. Firing decisions (meeting
+Every quiet decision (notice sound, the chime, the reminder loop's arm and
+stop, the corner-LED quiet indicator) goes through `coordinator.quietAt`, read
+on the coordinator clock. The reminder handler samples it before the push, so
+quiet hours starting during a slow push still leave a loud loop guarded. Firing decisions (meeting
 per-occurrence dedupe, sun once-a-day, weather edge triggers, the usage alarm
 arm/fire state, reminder idempotency keys) stay with the app that owns the
 state. A notice is plain data, so a later knob subscription can read the same

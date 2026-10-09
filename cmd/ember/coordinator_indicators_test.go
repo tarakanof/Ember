@@ -180,3 +180,24 @@ func TestIndicatorFailedWriteRetriesNextPublish(t *testing.T) {
 		t.Fatalf("a failed write must not be cached as applied; writes = %d, want 2", got)
 	}
 }
+
+func TestIndicatorQuietLEDClearsAtWindowEnd(t *testing.T) {
+	c, pub, clk := indicatorCoord(t, true)
+	cur := *c.loadCfg()
+	cur.QuietHours = QuietHoursConfig{Enabled: true, Start: "11:00", End: "12:01"}
+	c.loadCfg = func() *Config { return &cur }
+
+	c.publish(c.snapshot())
+	clk.Advance(time.Minute)
+	c.publish(c.snapshot())
+	calls := pub.IndicatorCallsSnapshot()
+	if len(calls) != 1 || calls[0].index != 3 || calls[0].payload["color"] != indicatorQuietColor {
+		t.Fatalf("12:00 inside 11:00–12:01 must light indicator 3 once, got %v", calls)
+	}
+	pub.mu.Lock()
+	cleared := append([]int(nil), pub.clearedIndicators...)
+	pub.mu.Unlock()
+	if len(cleared) != 1 || cleared[0] != 3 {
+		t.Errorf("12:01 ends the window, want indicator 3 cleared once, got %v", cleared)
+	}
+}
