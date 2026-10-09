@@ -342,7 +342,7 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 	if _, err := a.stageClockApps(&dry, next.Apps); err != nil {
 		return res, err
 	}
-	if next.Rotation != nil && !rotationUnchanged(next.Rotation, cur.Rotation) {
+	if next.Rotation != nil && !(a.refreshClockRotation(ctx) && rotationUnchanged(next.Rotation, a.clockRotation.Load())) {
 		payload, _ := json.Marshal(next.Rotation)
 		if _, err := a.clock.fetch(ctx, withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
 			return res, fmt.Errorf("%w: %w", errClockWrite, err)

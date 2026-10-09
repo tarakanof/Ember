@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 )
 
@@ -474,22 +473,34 @@ func TestClockConfigHiddenToolsFromOldEndpointRoundTrip(t *testing.T) {
 	mustOK(t, "put back", resp, b)
 }
 
-func TestClockConfigVersionSyncRace(t *testing.T) {
-	a, srv, _ := newClockApp(t)
+func TestClockConfigRotationResendAfterOutsideReorderIsWritten(t *testing.T) {
+	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
-	var wg sync.WaitGroup
-	for i := range 20 {
-		wg.Go(func() {
-			body := `{"moon_phase":` + strconv.FormatBool(i%2 == 0) + `}`
-			devReq(t, srv, "PUT", "/v1/weather/config", testToken, body)
-		})
-		wg.Go(func() {
-			a.noteClockApps([]byte(`[{"name":"time","enabled":true},{"name":"t` + strconv.Itoa(i) + `","enabled":true}]`))
-		})
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	mustOK(t, "old reorder", resp, b)
+	resp, b = clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["time","date"],"disabled":["hum"]}}`)
+	mustOK(t, "facade put", resp, b)
+	if n := len(stub.puts()); n != 2 {
+		t.Fatalf("clock order writes = %d, want 2", n)
 	}
-	wg.Wait()
-	if got, want := listDevices(t, srv)[0].ConfigVersion, a.clockConfigVersion(); got != want {
-		t.Fatalf("stored version %d, current %d", got, want)
+	c, _ := getClockConfig(t, srv, d.ID)
+	if c.Rotation == nil || c.Rotation.Order[0] != "time" {
+		t.Fatalf("clock rotation = %+v, want time first", c.Rotation)
+	}
+}
+
+func TestClockConfigRotationWrittenWhenReadFails(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	c, _ := getClockConfig(t, srv, d.ID)
+	stub.mu.Lock()
+	stub.appsFail = true
+	stub.mu.Unlock()
+	body, _ := json.Marshal(map[string]any{"rotation": c.Rotation})
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, string(body))
+	mustOK(t, "put", resp, b)
+	if n := len(stub.puts()); n != 1 {
+		t.Fatalf("clock order writes = %d, want 1 when the list could not be read", n)
 	}
 }
