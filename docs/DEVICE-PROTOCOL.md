@@ -83,7 +83,7 @@ knob view. The knob has no speaker, so on the knob quiet is display only:
   reading, so quiet never makes the knob darker than an ordinary night by
   default, and it sits above the default knob `floor` (10).
 - **Old firmware** skips both unknown keys. The config grows by 37 B: the
-  default config is 434 B and the largest valid one 647 B, under cinder's
+  default config is 434 B and the largest valid one 648 B, under cinder's
   `CFG_SETTINGS_MAX` (1024 B), which `TestKnobConfigFitsTheFirmwareStore`
   pins.
 

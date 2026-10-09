@@ -3259,9 +3259,16 @@ draws-if-present in `internal/render`, add a menu checkbox.
   its own lock and never blocks, so callers may hold theirs. Fields that move
   with the clock alone (sun-schedule brightness, weather going stale, live
   mode ending) are caught by a 5 s recheck inside the wait. Quiet hours are
-  exact: each wait also arms a timer for the next quiet-hours edge
+  exact: each wait also arms a timer for the next instant `quietAt` flips
   (`Config.nextQuietEdge`), so a waiting knob gets `quiet` at the minute it
-  flips. Topics are bits
+  flips. Across DST the flip is not always a configured start or end: a
+  start in the spring-forward gap flips at the transition, and a fall-back
+  can leave or re-enter the window at the transition or hit an end twice.
+  So the candidates are the start/end wall times on the surrounding days,
+  each also shifted by the offset change of nearby zone transitions, plus
+  the transitions themselves (`ZoneBounds`); the earliest candidate where
+  `quietAt` differs from now wins (`TestNextQuietEdgeAcrossDST`, and a
+  minute-scan cross-check over DST weekends in two zones). Topics are bits
   with a per-topic sequence (`since(seq)`), so a later SSE `/v1/events`
   (#269 phase 2) can name what changed on the same broadcaster without a
   queue per subscriber.

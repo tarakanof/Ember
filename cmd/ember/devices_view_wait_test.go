@@ -574,13 +574,12 @@ func TestKnobViewWaitWakesOnNowPlaying(t *testing.T) {
 
 func TestKnobViewWaitWakesAtTheQuietHoursEdge(t *testing.T) {
 	cases := []struct {
-		name   string
-		edge   time.Time
-		before string
-		after  string
+		name        string
+		edge        time.Time
+		quietBefore bool
 	}{
-		{"start", time.Date(2026, 6, 21, 22, 0, 0, 0, time.Local), `"brightness"`, `"quiet":true`},
-		{"end", time.Date(2026, 6, 22, 8, 0, 0, 0, time.Local), `"quiet":true`, `"brightness"`},
+		{"start", time.Date(2026, 6, 21, 22, 0, 0, 0, time.Local), false},
+		{"end", time.Date(2026, 6, 22, 8, 0, 0, 0, time.Local), true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -592,7 +591,7 @@ func TestKnobViewWaitWakesAtTheQuietHoursEdge(t *testing.T) {
 			offset := time.Until(c.edge.Add(-300 * time.Millisecond))
 			f.app.viewClock = func() time.Time { return time.Now().Add(offset) }
 			resp, body := f.get(t, "")
-			if !strings.Contains(string(body), c.before) {
+			if strings.Contains(string(body), `"quiet":true`) != c.quietBefore || strings.Contains(string(body), `"quiet":false`) {
 				t.Fatalf("before the edge: %s", body)
 			}
 			etag := resp.Header.Get("ETag")
@@ -606,7 +605,7 @@ func TestKnobViewWaitWakesAtTheQuietHoursEdge(t *testing.T) {
 			if took > 3*time.Second {
 				t.Fatalf("woke after %v, want at the edge", took)
 			}
-			if strings.Contains(string(body), `"quiet"`) != strings.Contains(c.after, `"quiet"`) {
+			if strings.Contains(string(body), `"quiet"`) == c.quietBefore {
 				t.Fatalf("after the edge: %s", body)
 			}
 		})
