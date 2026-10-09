@@ -145,10 +145,17 @@ public struct KnobCaps: Codable, Equatable, Sendable {
     public var features: [String]
     public var limits: Limits?
     public var source: String?
+    public var capsError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case view, pages, features, limits, source
+        case capsError = "caps_error"
+    }
 
     public init(view: [Int] = [1, 1], pages: [String], features: [String] = [], limits: Limits? = nil,
-                source: String? = nil) {
+                source: String? = nil, capsError: String? = nil) {
         self.view = view; self.pages = pages; self.features = features; self.limits = limits; self.source = source
+        self.capsError = capsError
     }
 
     public static let statsIntervals = "stats_intervals"
@@ -189,6 +196,20 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
         self.rotatedAt = rotatedAt; self.lastCheckin = lastCheckin; self.effectiveCaps = effectiveCaps
     }
 
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        kind = try c.decode(String.self, forKey: .kind)
+        hwID = try c.decode(String.self, forKey: .hwID)
+        name = try c.decode(String.self, forKey: .name)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        configVersion = try c.decode(Int.self, forKey: .configVersion)
+        rotationPending = try c.decode(Bool.self, forKey: .rotationPending)
+        rotatedAt = try c.decodeIfPresent(Date.self, forKey: .rotatedAt)
+        lastCheckin = try c.decodeIfPresent(KnobCheckin.self, forKey: .lastCheckin)
+        effectiveCaps = (try? c.decodeIfPresent(KnobCaps.self, forKey: .effectiveCaps)) ?? nil
+    }
+
     public static let knobKind = "cinder-knob"
 
     public var shortID: String { String(hwID.suffix(6)).uppercased() }
@@ -225,7 +246,7 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
             let a = i < parts.count ? parts[i] : 0, b = i < min.count ? min[i] : 0
             if a != b { return a > b }
         }
-        return true
+        return !fw.dropFirst(core.count).hasPrefix("-")
     }
 
     public var configApplied: Bool { (lastCheckin?.appliedVersion ?? 0) >= configVersion }

@@ -59,3 +59,30 @@ private func knob(fw: String?, caps: KnobCaps? = nil) -> KnobDevice {
     #expect(list.devices[0].supports(feature: KnobCaps.statsIntervals))
     #expect(list.devices[1].effectiveCaps == nil)
 }
+
+@Test func knobDeviceListSurvivesMalformedEffectiveCaps() throws {
+    let json = #"""
+    {"devices":[{"id":"knob-61fc8c","kind":"cinder-knob","hw_id":"a0b1c261fc8c","name":"Knob",
+    "created_at":"2026-10-01T00:00:00Z","config_version":3,"rotation_pending":false,"rotated_at":null,
+    "last_checkin":null,"effective_caps":{"view":"1..2","pages":"bot"}}]}
+    """#
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let list = try d.decode(KnobDeviceList.self, from: Data(json.utf8))
+    #expect(list.devices.count == 1)
+    #expect(list.devices[0].effectiveCaps == nil)
+    #expect(list.devices[0].supports(page: "bot"), "falls back to the semver gates")
+}
+
+@Test func knobDeviceDecodesCapsError() throws {
+    let json = #"{"view":[1,1],"pages":["bot"],"features":[],"source":"legacy","caps_error":"page \"bot\" listed twice"}"#
+    let caps = try JSONDecoder().decode(KnobCaps.self, from: Data(json.utf8))
+    #expect(caps.capsError == #"page "bot" listed twice"#)
+}
+
+@Test func knobFirmwareFallbackSortsPreReleasesBelowTheirRelease() {
+    #expect(!KnobDevice.firmware("0.9.0-rc.1", atLeast: [0, 9, 0]), "matches the server's legacy table")
+    #expect(KnobDevice.firmware("0.9.0+local", atLeast: [0, 9, 0]), "build metadata is ignored")
+    #expect(KnobDevice.firmware("0.9.1-rc.1", atLeast: [0, 9, 0]))
+    #expect(!knob(fw: "0.9.0-rc.1").supports(page: KnobCaps.nowPlayingPage))
+}

@@ -1522,6 +1522,9 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Not supported by this knob's firmware" : {
+      "comment" : "Settings › Knob › Pages: a page that is on but the knob's firmware can't show."
+    },
     "Not updated recently" : {},
     "Notched calendar, bar above" : {},
     "Notched calendar, bar below" : {},

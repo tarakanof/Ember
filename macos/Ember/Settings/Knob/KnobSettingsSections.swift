@@ -79,7 +79,15 @@ struct KnobPagesSection: View {
                     Toggle(isOn: Binding(
                         get: { page.on },
                         set: { on in knob.edit { $0.pages[index].on = on } })) {
-                        Text(knobPageTitle(page.id))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(knobPageTitle(page.id))
+                            if page.on, knob.knob?.supports(page: page.id) == false {
+                                Text("Not supported by this knob's firmware",
+                                     comment: "Settings › Knob › Pages: a page that is on but the knob's firmware can't show.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                     .disabled(page.on && knob.settings.draft.isLastPageOn(page.id))
                     Image(systemName: "line.3.horizontal")
