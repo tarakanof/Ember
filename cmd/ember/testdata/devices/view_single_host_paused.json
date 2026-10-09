@@ -1,0 +1,36 @@
+{
+  "v": 1,
+  "epoch": 1,
+  "config_version": 1,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 1,
+    "done": 0,
+    "source": "studio",
+    "tool": "claude"
+  },
+  "pomo": {
+    "phase": "focus",
+    "running": true,
+    "paused": true,
+    "remaining_sec": 1400,
+    "planned_sec": 1500,
+    "round": 0
+  },
+  "weather": {
+    "provider": "open-meteo",
+    "cond": "clear",
+    "code": "0",
+    "temp_c": -3,
+    "stale": true,
+    "severe": false,
+    "night": false,
+    "sunrise": null,
+    "sunset": null
+  },
+  "brightness": {
+    "level": 255,
+    "night": false
+  }
+}

@@ -1015,6 +1015,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PomodoroStatus"
+              examples:
+                pomodoro_action:
+                  externalValue: ../cmd/ember/testdata/devices/pomodoro_action.json
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2324,6 +2327,11 @@ paths:
                         minimum: 0
                 stats:
                   type: object
+            examples:
+              checkin_req_minimal:
+                externalValue: ../cmd/ember/testdata/devices/checkin_req_minimal.json
+              checkin_req_full:
+                externalValue: ../cmd/ember/testdata/devices/checkin_req_full.json
       responses:
         "200":
           description: The current config version, plus config or new_token when due.
@@ -2331,6 +2339,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CheckinResult"
+              examples:
+                checkin_reply_current:
+                  externalValue: ../cmd/ember/testdata/devices/checkin_reply_current.json
+                checkin_reply_config:
+                  externalValue: ../cmd/ember/testdata/devices/checkin_reply_config.json
+                checkin_reply_coredump:
+                  externalValue: ../cmd/ember/testdata/devices/checkin_reply_coredump.json
+                checkin_reply_ota:
+                  externalValue: ../cmd/ember/testdata/devices/checkin_reply_ota.json
+                checkin_reply_rotation:
+                  externalValue: ../cmd/ember/testdata/devices/checkin_reply_rotation.json
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2450,6 +2469,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CheckinResult"
+              examples:
+                config_default:
+                  externalValue: ../cmd/ember/testdata/devices/config_default.json
+                config_custom:
+                  externalValue: ../cmd/ember/testdata/devices/config_custom.json
         "401":
           $ref: "#/components/responses/Unauthorized"
   /v1/devices/self/view:
@@ -2470,7 +2494,20 @@ paths:
             maximum: 25
       responses:
         "200":
-          $ref: "#/components/responses/Object"
+          description: The view. Field-by-field shape in ARCHITECTURE.md "Wire protocol" (Knob view); compatibility rules in DEVICE-PROTOCOL.md.
+          content:
+            application/json:
+              schema:
+                type: object
+              examples:
+                view_full:
+                  externalValue: ../cmd/ember/testdata/devices/view_full.json
+                view_minimal:
+                  externalValue: ../cmd/ember/testdata/devices/view_minimal.json
+                view_nowplaying_none:
+                  externalValue: ../cmd/ember/testdata/devices/view_nowplaying_none.json
+                view_single_host_paused:
+                  externalValue: ../cmd/ember/testdata/devices/view_single_host_paused.json
         "304":
           description: Unchanged since If-None-Match.
         "401":

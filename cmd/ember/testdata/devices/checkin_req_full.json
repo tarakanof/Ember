@@ -1,0 +1,69 @@
+{
+  "config_version": 2,
+  "diag": {
+    "boots": 12,
+    "crash": {
+      "elf": "a1b2c3d4",
+      "id": "37315f06",
+      "pc": "0x4201a2b3",
+      "reason": "panic",
+      "size": 4096,
+      "task": "ember"
+    },
+    "heap_internal_min": 30120,
+    "heap_largest_min": 22528,
+    "reset_reason": "panic",
+    "stack_free": {
+      "ember": 1220,
+      "lvgl": 2048
+    }
+  },
+  "fw": "0.9.13",
+  "fw_build": "77aa01ff",
+  "heap_internal_free": 47104,
+  "heap_internal_largest": 31744,
+  "ip": "192.0.2.10",
+  "link_fallback": true,
+  "link_mhz": 80,
+  "ota": {
+    "image": "valid",
+    "last": {
+      "attempt": 2,
+      "error": "bad_checksum",
+      "result": "failed",
+      "version": "0.9.12"
+    },
+    "phase": "idle",
+    "rollback": true,
+    "slot": 0
+  },
+  "rssi": -58,
+  "stats": {
+    "cpu_pct": [
+      12.5,
+      3.5
+    ],
+    "fps": 29.5,
+    "frame_ms_avg": 12.25,
+    "frame_ms_max": 40,
+    "heap_internal_min": 30000,
+    "period_ms": 30000,
+    "psram_free": 7000000,
+    "psram_largest": 6000000,
+    "psram_min": 6500000,
+    "req_fail": 2,
+    "req_ms_avg": 35.5,
+    "req_ms_max": 120,
+    "req_ok": 28,
+    "reset_reason": "poweron",
+    "temp_c": 41.5
+  },
+  "uptime_s": 812,
+  "wifi": {
+    "bssid": "02:00:5e:00:00:01",
+    "channel": 6,
+    "disconnects": 3,
+    "last_reason": 203,
+    "rssi_min": -83
+  }
+}

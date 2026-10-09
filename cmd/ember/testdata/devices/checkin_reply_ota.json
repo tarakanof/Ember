@@ -1,0 +1,16 @@
+{
+  "config_version": 2,
+  "diag_live_until": 1782043500,
+  "coredump_ack": "37315f06",
+  "ota": {
+    "attempt": 3,
+    "auto": false,
+    "build": "42f7f65e",
+    "retry": false,
+    "sha256": "de7e409603f8e06e88ed25982476a271aeb0cc76b5f25a6d98f931e503a4d95c",
+    "size": 71680,
+    "url": "/v1/devices/self/firmware/0.9.14",
+    "version": "0.9.14"
+  }
+}
+

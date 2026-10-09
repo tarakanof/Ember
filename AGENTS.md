@@ -16,6 +16,9 @@ on Unraid, kept small: stdlib Go plus `modernc.org/sqlite`.
   non-trivial change.
 - [`docs/API.md`](docs/API.md): every route by auth. Read before adding or
   calling an endpoint.
+- [`docs/DEVICE-PROTOCOL.md`](docs/DEVICE-PROTOCOL.md): the knob contract
+  (routes, compatibility rules, golden fixtures cinder tests against). Read
+  before changing anything the knob sends or receives.
 - [`docs/RUNBOOK.md`](docs/RUNBOOK.md): build/test, deploy, producer and app
   install, headless Linux producers, the `EMBER_*` toggles, on-device checks.
 - [`docs/STYLE.md`](docs/STYLE.md): coding and commit guide. Read before
