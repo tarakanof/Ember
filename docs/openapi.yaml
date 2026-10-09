@@ -392,16 +392,17 @@ components:
           description: Completed focus phases in the current cycle.
     DeviceView:
       type: object
-      description: "A device record, or a client token (`kind: client`), without token material."
+      description: "A device record (a knob or the clock), or a client token (`kind: client`), without token material."
       properties:
         id:
           type: string
+          description: "`knob-…`, `clock-…` (last 6 characters of the clock's NG uid; at most one clock record, rewritten in place when the uid at the clock URL changes) or `client-…`."
         kind:
           type: string
-          enum: [cinder-knob, client]
+          enum: [cinder-knob, awtrix-ng, client]
         hw_id:
           type: string
-          description: 12 hex digits for a knob; empty for a client.
+          description: 12 hex digits for a knob; the NG uid (lower case) for the clock; empty for a client.
         name:
           type: string
           maxLength: 64
@@ -410,7 +411,7 @@ components:
           format: date-time
         config_version:
           type: integer
-          description: 0 for a client.
+          description: 0 for a client. For the clock, a hash of its composed config (compare for inequality).
         rotation_pending:
           type: boolean
         rotated_at:
@@ -435,6 +436,21 @@ components:
                   type: integer
                   minimum: 2
                   description: How far `boots` jumped between two checkins when it rose by more than one.
+        last_seen:
+          type: object
+          description: "Clock only: the last good device-watch probe. Absent until one succeeds."
+          properties:
+            seen_at:
+              type: string
+              format: date-time
+            fw:
+              type: string
+            ip:
+              type: string
+            rssi:
+              type: integer
+            uptime_s:
+              type: integer
         scopes:
           type: array
           description: Clients only.
@@ -1633,8 +1649,11 @@ paths:
     delete:
       tags: [devices]
       operationId: deleteDevice
-      summary: Revoke a knob or client token
-      description: Deleting a client takes the master token (403 for any client token).
+      summary: Revoke a knob or client token, or forget the clock record
+      description: |
+        Deleting a client takes the master token (403 for any client token).
+        A deleted clock record comes back, with its default name, at the
+        next good probe of the effective clock URL.
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
         "204":
@@ -1656,7 +1675,8 @@ paths:
         A client's new token is minted at once and returned (200); the old
         one stops working. A knob's rotation is only marked (202) and its
         next checkin collects the new token. Rotating a client takes the
-        master token (403 for any client token).
+        master token (403 for any client token). The clock has no token:
+        400 for `awtrix-ng`.
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
         "200":
@@ -1671,6 +1691,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeviceView"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1683,7 +1705,12 @@ paths:
     get:
       tags: [devices]
       operationId: getKnobConfig
-      summary: A knob's settings
+      summary: A device's settings
+      description: |
+        A knob's settings, or for the clock (`awtrix-ng`) the façade
+        composed from the overlay slices, the hidden tools and the clock's
+        own app order (ARCHITECTURE "Clock record and config façade").
+        `X-Ember-Config-Version` carries the version.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
@@ -1698,7 +1725,16 @@ paths:
     put:
       tags: [devices]
       operationId: putKnobConfig
-      summary: Merge a knob's settings
+      summary: Merge a device's settings
+      description: |
+        Objects merge field by field, arrays (and the clock's `icon_ids`)
+        replace whole, an unknown key is a 400, `{}` changes nothing. For
+        the clock the body is merged onto the current slices under the
+        config lock and stored in one SQLite transaction; a failed store is
+        a 500 and changes nothing in memory or the store. A `rotation` that
+        differs from the clock's last read list is sent to the clock first
+        (its error status passes through, 502 when unreachable); if the
+        slices then fail, the error says the app order was already written.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
@@ -1712,6 +1748,14 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          description: The settings store failed; no settings changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/BadGateway"
   /v1/devices/{id}/stats:
     parameters:
       - $ref: "#/components/parameters/DeviceID"

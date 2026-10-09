@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
+	"github.com/tarakanof/ember/internal/discovery"
 )
 
 const clockProbeTTL = 30 * time.Second
@@ -210,6 +211,7 @@ type clockDeviceOut struct {
 
 	lightLevel *float64
 	ip         string
+	uid        string
 }
 
 type publishHealthOut struct {
@@ -249,6 +251,8 @@ type clockDeviceWire struct {
 	Humidity    *float64 `json:"humidity"`
 	LightLevel  *float64 `json:"lightLevel"`
 	IPAddress   string   `json:"ipAddress"`
+	UID         string   `json:"uid"`
+	BoardType   string   `json:"boardType"`
 	WiFi        struct {
 		Connects *int `json:"connects"`
 	} `json:"wifi"`
@@ -313,12 +317,22 @@ func (a *App) probeClockHealthWithin(ctx context.Context, now time.Time, maxAge 
 			dev.HumidityPercent = raw.Humidity
 			dev.lightLevel = raw.LightLevel
 			dev.ip = raw.IPAddress
+			if raw.BoardType == discovery.NGBoardType {
+				dev.uid = raw.UID
+			}
 		}
 	}
 	c.mu.Lock()
 	c.at, c.base, c.dev, c.inflight = now, base, dev, nil
 	c.mu.Unlock()
 	a.recordClockProbe(now, base, dev)
+	if dev.uid != "" && a.cfg.Load().effectiveClockURL() == base {
+		seen := &clockSeen{IP: dev.ip, RSSI: dev.WifiRSSIDbm, UptimeS: dev.UptimeSec}
+		if dev.Firmware != nil {
+			seen.FW = *dev.Firmware
+		}
+		a.observeClock(dev.uid, seen)
+	}
 	return &dev
 }
 

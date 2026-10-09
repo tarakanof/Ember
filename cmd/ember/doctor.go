@@ -228,6 +228,22 @@ func checkDevices(app *App) CheckResult {
 	status := StatusOK
 	detail := fmt.Sprintf("registered=%d", len(devices))
 	for _, d := range devices {
+		if d.Kind == deviceKindClock {
+			switch {
+			case clockDisabled():
+				detail += fmt.Sprintf(" %s clock disabled", d.ID)
+			case d.LastSeen == nil:
+				status = StatusWarn
+				detail += fmt.Sprintf(" %s never probed", d.ID)
+			default:
+				age := now.Sub(d.LastSeen.SeenAt).Truncate(time.Second)
+				if age > deviceStaleAfter {
+					status = StatusWarn
+				}
+				detail += fmt.Sprintf(" %s seen=%v ago", d.ID, age)
+			}
+			continue
+		}
 		if d.LastCheckin == nil {
 			status = StatusWarn
 			detail += fmt.Sprintf(" %s never checked in", d.ID)

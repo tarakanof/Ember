@@ -155,6 +155,31 @@ func (s *Store) GetSetting(key string) (value string, ok bool, err error) {
 	}
 }
 
+func (s *Store) PutSettings(values map[string]string) (err error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("put settings: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	for key, value := range values {
+		if _, err = tx.Exec(
+			`INSERT INTO settings (key, value) VALUES (?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+			key, value,
+		); err != nil {
+			return fmt.Errorf("put setting %q: %w", key, err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("put settings: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) PutSetting(key, value string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO settings (key, value) VALUES (?, ?)

@@ -75,6 +75,7 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	}
 	a.lastRediscoverResult.Store("swapped")
 	a.logger.Info("clock auto-discovered", "base_url", cands[0].BaseURL, "uid", cands[0].UID)
+	a.observeClock(cands[0].UID, nil)
 	a.refreshCapabilities(ctx)
 	return true
 }

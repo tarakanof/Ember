@@ -231,6 +231,10 @@ func (a *App) writeClientError(w http.ResponseWriter, r *http.Request, err error
 }
 
 func (a *App) handleDeviceConfigGetOwner(w http.ResponseWriter, r *http.Request) {
+	if kind, _ := a.devices.kindOf(r.PathValue("id")); kind == deviceKindClock {
+		a.handleClockConfigGet(w, r)
+		return
+	}
 	cfg, version, err := a.devices.config(r.PathValue("id"))
 	if err != nil {
 		a.writeDeviceError(w, r, err)
@@ -246,6 +250,10 @@ func (a *App) handleDeviceConfigPutOwner(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	id := r.PathValue("id")
+	if kind, _ := a.devices.kindOf(id); kind == deviceKindClock {
+		a.handleClockConfigPut(w, r, id, patch)
+		return
+	}
 	cfg, version, changed, err := a.devices.putConfig(id, patch)
 	if err != nil {
 		a.writeDeviceError(w, r, err)

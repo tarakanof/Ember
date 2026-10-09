@@ -34,9 +34,12 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 optional `Idempotency-Key`), `GET/POST /v1/devices` (`GET` lists devices
 only; a pre-#340 server also lists clients there, `kind: client`),
 `GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340), `GET/PUT
-/v1/devices/{id}/config` (same merge; includes `quiet{calm, dim_level}`), `PATCH`/`DELETE /v1/devices/{id}`,
+/v1/devices/{id}/config` (same merge; includes `quiet{calm, dim_level}`; for the
+clock record, kind `awtrix-ng`, the config façade over the overlay slices,
+ARCHITECTURE "Clock record and config façade"), `PATCH`/`DELETE /v1/devices/{id}`
+(a deleted clock record returns at the next good probe),
 `POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
-registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
+registry"; 400 for the clock, which has no token), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
 `GET`/`PUT /v1/devices/{id}/ota` (knob firmware update: `{"mode":"manual|auto","target":"0.9.14"|null,"retry":true}` merge;
 `target:null` also dismisses a failed or rolled-back attempt, 409 `ota_in_progress` while downloading;
 a target or retry of a version no longer stored is 400; 409 `firmware_changed` if the store kept changing;
@@ -129,7 +132,7 @@ the image its checkin's `ota` offers: 409 for any other version, `Range`/`If-Ran
 single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
 `X-Ember-View-Wait`; `"quiet":true` while quiet hours are on, and a waiting
 poll wakes at the quiet-hours edges — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
-on any knob config change or rotation). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
+on any knob config change or rotation and on any clock record or clock config change). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
 the Plex poller). Device-only (unauthenticated): `POST /hooks/awtrix/button`
 (NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG
 the form `button=…&state=1|0&uid` — both accepted; `select` accepted as an

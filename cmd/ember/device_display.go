@@ -65,7 +65,15 @@ type deviceAppsPutBody struct {
 }
 
 func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
-	a.proxyRead(w, r, (*awtrix.Client).RawApps)
+	body, err := a.clock.fetch(r.Context(), (*awtrix.Client).RawApps)
+	if err != nil {
+		writeClockError(w, err)
+		return
+	}
+	a.noteClockApps(body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }
 
 func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
@@ -74,5 +82,10 @@ func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(body)
-	a.proxyAction(w, r, withBody((*awtrix.Client).RawPutAppOrder, payload))
+	if _, err := a.clock.fetch(r.Context(), withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
+		writeClockError(w, err)
+		return
+	}
+	a.clockRotation.Store(nil)
+	w.WriteHeader(http.StatusOK)
 }

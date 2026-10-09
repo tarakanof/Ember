@@ -2213,8 +2213,9 @@ Dashboard rendering constraints:
 ### Device registry — `cmd/ember/devices*.go`, `clients.go`, `knob_settings.go` (#221)
 
 Per-device tokens so the master `EMBER_TOKEN` never leaves the Mac/server.
-The registry holds devices only: today kind `cinder-knob` (the ESP32-S3 knob
-in the cinder repo); #230 adds the clock as `awtrix-ng`. Scoped API tokens for
+The registry holds devices only: kind `cinder-knob` (the ESP32-S3 knob
+in the cinder repo) and, since #230, the clock as `awtrix-ng` (no token;
+"Clock record and config façade" below). Scoped API tokens for
 sources and controllers (`client`, below) live in their own store
 (`clients.go`, #340), so nothing that ranges over devices (list, view,
 checkin, OTA, stats, doctor, epoch) can meet one. Knob-only lookups
@@ -2340,7 +2341,8 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   version in `X-Ember-Config-Version`.
 - **Epoch:** `/state` carries `X-Ember-Devices-Epoch`, an opaque counter
   (compare for inequality) persisted with the registry and bumped on mint,
-  config change, rotate, rotation promotion and delete; checkins don't move it. The knob checks in
+  config change, rotate, rotation promotion and delete, and on a clock record's
+  creation or `config_version` change; checkins and probes don't move it. The knob checks in
   when it changes, else every 60 s, so a settings edit lands in about one
   `/state` poll without putting per-device data in a public response.
 - **Client migration (#340):** before either store loads,
@@ -2357,8 +2359,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   auth and writes answer 500 until a restart succeeds. The device registry
   also refuses to load a `client` record, so an unmigrated blob can't put a
   client back into device iteration.
-- **Doctor:** `devices` check lists each device's last-checkin age; warns
-  when one never checked in or is silent for more than 5 min. It sees
+- **Doctor:** `devices` check lists each knob's last-checkin age and the
+  clock's last good probe (`last_seen`); warns when a knob never checked in, a
+  clock was never probed, or either is silent for more than 5 min. Under
+  `EMBER_CLOCK=off` the clock shows as `clock disabled`, no warning. It sees
   devices only; `client_tokens` reports `count=N`, or fails when the client
   store didn't load.
 - **App (Settings › Knob, #222/#223):** EmberKit `Knob/` holds the protocol
@@ -2444,6 +2448,131 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   still. The Pages overview has no timers: it redraws when the polled data
   changes. `KNOB_SNAPSHOT_DIR=… swift test --filter knobFaces` writes PNGs
   of every face.
+
+### Clock record and config façade — `cmd/ember/clock_device.go`, `clock_config.go` (#230)
+
+The TC001 is a registry record of kind `awtrix-ng`, so both displays are
+addressed as `/v1/devices/{id}`. Phase 2 of the per-device apps spec
+(`Specs/ember/2026-10-04-per-device-apps-design.md` in the vault): the
+record carries identity and liveness; its presentation settings stay in the
+overlay slices and are served through a façade. #232 moves them onto the
+record.
+
+- **Lifecycle.** A good probe of the effective clock URL (`GET
+  /api/v1/device` answering `boardType: awtrixng` and a `uid`, through the
+  clock-health probe the device watch and the sampler share; the body is
+  read through the clock client's 1 MiB reply cap) creates the record. A
+  probe result counts only if the URL it probed is still the effective one
+  when it lands, so a probe of the old clock that finishes after a
+  rediscovery swap is dropped. A discovery swap registers only the
+  candidate it just made effective, never the others a scan touched. There
+  is at most one `awtrix-ng` record (one clock in phase 2). A different uid
+  at the effective URL replaces the record's identity only when the same
+  new uid is seen twice in a row (two probes, or the swap plus a probe):
+  the record is rewritten in place (new id and `hw_id`, `last_seen` reset,
+  `created_at` and a user-set name kept, one epoch bump). A host answering
+  with a fresh or alternating uid therefore never flips the record or moves
+  the epoch, and `devices_json` cannot grow from the probe. Id `clock-` +
+  last 6 characters of the uid (lower-cased, `:`/`-` stripped,
+  `[a-z0-9_]{1,32}`, else ignored), `hw_id` = uid, name `Clock <SUFFIX>`,
+  no `token_sha256`, no `config` stored (`omitzero`), creation bumps the
+  epoch. Each later good probe sets `last_seen` (`seen_at`, `fw`, `ip`,
+  `rssi`, `uptime_s`) in memory, never moves the epoch, and writes the blob
+  on the checkin rule (every 10 min, or with any other registry write, and
+  on shutdown). The URL stays in `clock_url.go`: the record does not own
+  it. Multi-clock needs the URL on the record first.
+- **Kind gates.** Device auth skips non-knob records, so the clock never
+  authenticates even if a hash were planted on it. `rotate` and the registry
+  `checkin` answer 400 (`… applies to kind "cinder-knob" only`). Stats,
+  coredumps and OTA routes look up knobs only (`findKnob`), so a clock id
+  is 404 there, and the OTA loops (`otaTargets`, `otaKeeps`, `otaRetire`)
+  skip other kinds. `POST /v1/devices` still mints only knobs and clients.
+  `PATCH` renames (a probe never resets the name). `DELETE` removes the
+  record (204); the next good probe re-creates it with the default name.
+- **Façade.** `GET /v1/devices/{clock}/config` composes; `PUT` splits back.
+  Every `awtrix-ng` record serves the same config (one clock in phase 2).
+
+  | Façade field | Source | Old endpoint |
+  |---|---|---|
+  | `apps.agents.usage_cards` | `usage_widget` | `/v1/usage/config` (`usage_json`) |
+  | `apps.agents.usage_per_model` | `usage_per_model` | `/v1/usage/config` |
+  | `apps.agents.hidden_tools` | hidden tools, sorted | `/v1/apps` (`display_hidden_apps`) |
+  | `apps.focus.focus_color`, `break_color` | Pomodoro colours | `/v1/pomodoro/config` (`settings_json`) |
+  | `apps.weather.on` | `rotate_in_apps` (current-conditions tile) | `/v1/weather/config` (`weather_json`) |
+  | `apps.weather.native_icon` | `tile_native_icons` | same |
+  | `apps.weather.forecast`, `forecast_hours` | `forecast_tile`, `forecast_hours` | same |
+  | `apps.weather.air`, `moon`, `overlay` | `air_tile`, `moon_phase`, `overlay` | same |
+  | `apps.weather.popups.on_change`, `sun`, `severe` | `popup_on_change`, `sun_popups`, `severe_alert` | same |
+  | `apps.weather.popups.native_icons` | `use_native_icons` | same |
+  | `apps.weather.popups.interval_minutes`, `duration_seconds` | `popup_interval_minutes` (0 = off), `popup_duration_seconds` | same |
+  | `apps.weather.icon_ids` | `icon_ids` (overrides only) | same |
+  | `apps.calendar.on` | meetings `enabled` | `/v1/meetings/config` (`meetings_json`) |
+  | `apps.calendar.tile_lead_minutes`, `popup_lead_minutes` | same names (0 = popup off) | same |
+  | `rotation.order`, `rotation.disabled` | the clock's own apps: enabled ones in NG order / disabled ones; Ember's pushed tiles (`origin: pushed`) left out | `/v1/device/apps` (on the clock) |
+
+  The field list is what the coordinator and the weather/meetings popups
+  read for the clock today, so the coordinator is unchanged. Left out on
+  purpose: source settings (weather provider/location/units/refresh, the
+  air popup threshold, `weather.enabled`, `pomodoro.enabled`, Pomodoro
+  durations, usage threshold and limit alarm), every sound (`severe_sound`,
+  meetings `chime`, Pomodoro sound, attention chime: Sounds are their own
+  move), the agent-card spine flags (they stay per Mac in `producer.env`),
+  and the rotation dwell (a `config.json`-only field). Focus and agents have
+  no `on`: no clock-only toggle exists for them. The knob reads none of
+  this: its Pomodoro colours and pages are its own (`knobSettings`), and the
+  clock's hidden tools do not apply to it.
+- **Merge.** As the knob: the body is decoded onto a copy of the composed
+  config with unknown fields rejected, so objects merge field by field
+  (`{"apps":{"weather":{"popups":{"sun":false}}}}` keeps the other popup
+  fields), arrays replace whole, `icon_ids` replaces whole too (a map, so an
+  override can be dropped), `schema` must stay 1, an unknown app or key is a
+  400, `{}` writes nothing. `hidden_tools` takes what `/v1/apps` takes (any
+  non-empty name, no count cap), so a GET body can always be PUT back. Each
+  touched slice is staged through its `settingSpec` (`setting.stage`: the
+  same `apply` and validation as the old endpoint). A dry run on a copy
+  comes first, so any 400 lands before any write. Then, inside one
+  `tryUpdateConfig` (under `cfgMu`), the patch is merged again onto the
+  config and hidden tools as they are at that moment and staged, so a
+  write that landed meanwhile (an old endpoint, another façade PUT, a
+  `/v1/apps` toggle, which also takes `cfgMu`) is kept: a PUT changes only
+  the fields it names. Every changed slice and the hidden tools are stored
+  in one SQLite transaction (`Store.PutSettings`); only after it commits do
+  the new config and hidden tools go live, so a failed store answers 500
+  and leaves memory and the store unchanged. A slice whose view didn't
+  change isn't rewritten; the specs' `after` hooks run after.
+- **Rotation.** `rotation` keeps NG's meaning in both directions: `order`
+  names the enabled apps in order, `disabled` the ones switched off, so a
+  GET's `rotation` can be sent back. A PUT carrying `rotation` first reads
+  the clock's list again; only when that read succeeds and equals the patch
+  is the clock write skipped. A failed read, or any difference (a reorder
+  made on the old route, the clock's web UI or a read that failed earlier),
+  writes: the patch's `rotation` is forwarded as is (the `PUT /v1/device/apps`
+  body) to the clock after validation and before the slices; a clock error
+  is returned (502 when unreachable) and nothing else changes. After a
+  successful write the cached list is dropped and read again; if that read
+  fails the reply's `rotation` is `null` (unknown) rather than the old
+  list. If the clock write went through and the slices then fail (a 500
+  store error, or a 400 from a concurrent change), the error body and the
+  log say the app order was already written.
+- **Version.** `config_version` is a hash of the composed config (31 bits of
+  SHA-256 of its JSON, never 0), composed from one snapshot (config and
+  hidden tools read under `cfgMu`) and stored on the record so the list
+  shows it. Compute and store are serialised (`clockSyncGate.mu`), so a
+  stale hash never overwrites a newer one. It is resynced after every
+  `tryUpdateConfig`, hidden-tool change, record creation and app-list read;
+  a change bumps the epoch once, whichever endpoint caused it, and a façade
+  PUT bumps it once. `rotation` is the last app list the server read from
+  the clock (façade GET, `GET /v1/device/apps`), kept in memory, `null`
+  until one succeeds. Pushed Ember tiles are not part of it, so tiles
+  coming and going never move the hash. `PUT /v1/device/apps` clears the
+  cache without a resync and without an extra clock read, so a reorder
+  there moves the version once, at the next read of the list (the app re-reads after a
+  write; the façade GET always reads). A reorder on the clock's own web UI
+  also shows at the next read. The façade GET re-reads the list with a 2 s
+  budget and falls back to the last one. Boot and `/admin/reload` reapply
+  the overlay with the resync paused and resync once after, so a restart
+  moves the epoch at most once (it does once if the stored version
+  included an app list the new process hasn't read yet).
 
 ### Knob diagnostics — `cmd/ember/devices_stats.go` (#239)
 

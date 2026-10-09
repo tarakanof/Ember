@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "apps": {
+    "agents": {
+      "usage_cards": false,
+      "usage_per_model": false,
+      "hidden_tools": [
+        "codex",
+        "t3"
+      ]
+    },
+    "focus": {
+      "focus_color": "#112233",
+      "break_color": "#445566"
+    },
+    "weather": {
+      "on": false,
+      "native_icon": true,
+      "forecast": false,
+      "forecast_hours": 6,
+      "air": false,
+      "moon": false,
+      "overlay": false,
+      "popups": {
+        "on_change": false,
+        "sun": false,
+        "severe": false,
+        "native_icons": true,
+        "interval_minutes": 0,
+        "duration_seconds": 8
+      },
+      "icon_ids": {
+        "clear": "123"
+      }
+    },
+    "calendar": {
+      "on": false,
+      "tile_lead_minutes": 15,
+      "popup_lead_minutes": 0
+    }
+  },
+  "rotation": {
+    "order": [
+      "date",
+      "time"
+    ],
+    "disabled": [
+      "hum"
+    ]
+  }
+}
+
