@@ -1709,6 +1709,21 @@ boot check and the periodic probe never browse mDNS concurrently.
 
 Hidden apps (`display_hidden_apps`) are a set toggle, not a config overlay.
 
+**Clock presentation keys (#232).** Four slices also carry keys that are the
+TC001's presentation, not source settings: `weather_json` (tile toggles,
+popups, native icons, icon ids), `meetings_json` (`tile_lead_minutes`,
+`popup_lead_minutes`), `usage_json` (`usage_widget`, `usage_per_model`) and
+`settings_json` (`focus_color`, `break_color`). Their `settingSpec` lists them
+in `presentation`. Once the clock config is migrated ("Clock record and config
+façade" below), those keys belong to the clock config row
+(`clock_config_json`): the slice's stored blob drops them, a stored blob that
+still has them (written by an older server) has them ignored on reapply, and a
+PUT that changes them stores the clock config row and the slice in one
+`PutSettings` transaction (the slice only if its source part changed). A PUT
+or GET of the old endpoint still takes and returns the merged legacy shape.
+The clock config row is registered first, so reapply loads it before the
+slices.
+
 ### Meetings — next-meeting countdown (`internal/meetings`, `cmd/ember/meetings*.go`)
 
 A server-side ICS poller that puts a rotating **`ember-meet`** countdown tile on
@@ -2459,14 +2474,15 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   changes. `KNOB_SNAPSHOT_DIR=… swift test --filter knobFaces` writes PNGs
   of every face.
 
-### Clock record and config façade — `cmd/ember/clock_device.go`, `clock_config.go` (#230)
+### Clock record and config façade — `cmd/ember/clock_device.go`, `clock_config.go`, `clock_presentation.go` (#230, #232)
 
 The TC001 is a registry record of kind `awtrix-ng`, so both displays are
-addressed as `/v1/devices/{id}`. Phase 2 of the per-device apps spec
+addressed as `/v1/devices/{id}`. Phases 2 and 4 of the per-device apps spec
 (`Specs/ember/2026-10-04-per-device-apps-design.md` in the vault): the
-record carries identity and liveness; its presentation settings stay in the
-overlay slices and are served through a façade. #232 moves them onto the
-record.
+record carries identity, liveness and `config_version`; its presentation
+config is stored as the clock's own config row (#232), with the old
+endpoints as aliases. Before the migration (no clock record yet, or a failed
+migration) the same config is a façade over the overlay slices, as in #230.
 
 - **Lifecycle.** A good probe of the effective clock URL (`GET
   /api/v1/device` answering `boardType: awtrixng` and a `uid`, through the
@@ -2499,8 +2515,51 @@ record.
   skip other kinds. `POST /v1/devices` still mints only knobs and clients.
   `PATCH` renames (a probe never resets the name). `DELETE` removes the
   record (204); the next good probe re-creates it with the default name.
+- **Storage (#232).** The clock's presentation lives in the settings row
+  `clock_config_json`: `{"schema":1,"apps":{…},"migrated_from_overlay":"<server
+  version>"}`. `apps` holds an entry per app that has a store override:
+  `agents` (`usage_cards`, `usage_per_model`), `focus` (both colours),
+  `weather` (the whole weather app below, `on` included) and `calendar`
+  (`tile_lead_minutes`, `popup_lead_minutes`). An app with no entry follows
+  `config.json` (the baseline tier, same rule as the overlay: a stored entry
+  pins all of that app's fields, an absent one leaves them to the file).
+  Not stored there: `apps.calendar.on` stays meetings `enabled` (it gates
+  the ICS poll, a source switch), `hidden_tools` stays `display_hidden_apps`
+  (already a clock-only row), and `rotation` stays on the clock (NG keeps
+  its own order; a second copy would drift whenever the order changes on the
+  clock's web UI or the old route). The row sits beside `devices_json`, not
+  inside the record: every registry write rewrites `devices_json`, and an
+  older server would drop an unknown record field on its next write
+  (a knob checkin persists within 10 min), losing the config; a separate row
+  also lets one `PutSettings` cover a slice and the clock config without
+  taking the registry lock under `cfgMu`, and survives a `DELETE` of the
+  record. In memory the row is `Config.clockPresentation` (unexported, so
+  invisible to `config.json` and `diffConfig`), and its apps are applied onto
+  the `Config` presentation fields the coordinator reads. Those fields have
+  one writer after the migration, the clock config: the slices no longer set
+  them, so the coordinator reads the clock's presentation and nothing else,
+  with no code change on its side (goldens unchanged).
+- **Migration (#232).** `migrateClockConfig` runs at boot right after
+  `reapplySettings` when a clock record exists, else when the first good
+  probe creates the record (a server with `EMBER_CLOCK=off` and no record stays
+  on the façade). It does nothing if the clock config is loaded. If
+  `clock_config_json` exists but did not load (bad JSON, bad schema, invalid
+  value), it refuses to overwrite it and stays on the façade. Otherwise,
+  under `cfgMu`, every slice with a stored row that still has presentation
+  keys gives its app's current effective value to `apps` (which after reapply
+  is exactly what the façade composed, so the clock shows the same thing),
+  and one `PutSettings` writes `clock_config_json` and every stored slice
+  rewritten without its presentation keys. A failed transaction changes
+  nothing, keeps the façade, logs `clock config not migrated` once and makes
+  the doctor `devices` check warn; the next boot or record creation retries.
+  A crash before the commit is a rerun; after it, the next boot loads the row
+  and finds nothing left to move. Doctor `devices` reports `clock config
+  migrated (from <version>)`.
 - **Façade.** `GET /v1/devices/{clock}/config` composes; `PUT` splits back.
-  Every `awtrix-ng` record serves the same config (one clock in phase 2).
+  Every `awtrix-ng` record serves the same config (one clock). After the
+  migration the presentation fields come from the clock config (which the
+  `Config` mirrors), so the table below names each field's old endpoint, the
+  alias that still reads and writes it.
 
   | Façade field | Source | Old endpoint |
   |---|---|---|
@@ -2546,9 +2605,11 @@ record.
   write that landed meanwhile (an old endpoint, another façade PUT, a
   `/v1/apps` toggle, which also takes `cfgMu`) is kept: a PUT changes only
   the fields it names. Every changed slice and the hidden tools are stored
-  in one SQLite transaction (`Store.PutSettings`); only after it commits do
-  the new config and hidden tools go live, so a failed store answers 500
-  and leaves memory and the store unchanged. A slice whose view didn't
+  in one SQLite transaction (`Store.PutSettings`); after the migration that
+  transaction carries `clock_config_json` when a presentation field
+  changed, and a slice only when its source part changed. Only after it
+  commits do the new config and hidden tools go live, so a failed store
+  answers 500 and leaves memory and the store unchanged. A slice whose view didn't
   change isn't rewritten; the specs' `after` hooks run after.
 - **Rotation.** `rotation` keeps NG's meaning in both directions: `order`
   names the enabled apps in order, `disabled` the ones switched off, so a
@@ -2592,22 +2653,31 @@ record.
     holder runs (at most its 11 s budget plus the local commit).
   - Writes that don't touch the clock (`/v1/apps`, the settings endpoints)
     don't take the lock.
-- **Version.** `config_version` is a hash of the composed config (31 bits of
-  SHA-256 of its JSON, never 0), composed from one snapshot (config and
-  hidden tools read under `cfgMu`) and stored on the record so the list
-  shows it. Compute, store and the pause check all run under
-  `clockSyncGate.mu`, and pausing or resuming takes it too, so a stale hash
-  never overwrites a newer one and a resync can't start before a pause and
-  finish inside it. It is resynced after every `tryUpdateConfig`,
+- **Version.** `config_version` is a counter on the record (#232; it was a
+  hash of the composed config in #230). The record also stores
+  `config_digest`, the SHA-256 of the composed config's JSON, composed from
+  one snapshot (config and hidden tools read under `cfgMu`). A resync that
+  finds a different digest stores it and adds 1 to `config_version`, so the
+  version moves on every change, even one back to an earlier config.
+  A record from #230 has no digest and holds the old hash: if that hash
+  still matches the config, the digest is adopted with no bump; otherwise
+  the counter continues from the hash + 1, so the move to a counter never
+  goes backwards. A new record starts at 1, so deleting the clock record and
+  letting the probe re-create it restarts the count; clients compare for
+  inequality. Compute, store and the pause check all run under
+  `clockSyncGate.mu`, and pausing or resuming takes it too, so a stale
+  digest never overwrites a newer one and a resync can't start before a
+  pause and finish inside it. It is resynced after every `tryUpdateConfig`,
   hidden-tool change, record creation and app-list read; a change bumps
-  the epoch once, whichever endpoint caused it. A façade PUT bumps it once:
-  its pre-read and read-back stay local while it talks to the clock; then,
-  with the resync paused, it stores the final list (the read-back, or the
-  pre-read when it skipped the write) and commits the slices, and resyncs
-  once.
+  the epoch once, whichever endpoint caused it. The GET resyncs and reads
+  the version before it composes the body, so the header is never newer
+  than the body. A façade PUT bumps it once: its pre-read and read-back
+  stay local while it talks to the clock; then, with the resync paused, it
+  stores the final list (the read-back, or the pre-read when it skipped the
+  write) and commits the clock config or the slices, and resyncs once.
 - **Rotation cache.** `rotation` is the last app list the server read from
   the clock, kept in memory, `null` until one succeeds. Pushed Ember tiles
-  are not part of it, so tiles coming and going never move the hash. The
+  are not part of it, so tiles coming and going never move the version. The
   façade GET, the façade pre-read and the read-back after a write on
   either route each have a 2 s budget (`clockRotationReadBudget`);
   `GET /v1/device/apps` uses the menu call timeout (8 s), cut to what is
@@ -3152,7 +3222,10 @@ Reload keeps the running token, so it is copied from the running config before
 diffing (else every reload 409s), and `formatLeafValue` redacts it in the 409
 message anyway. Loading the old config and storing the new one is one `cfgMu`
 critical section, so a concurrent settings PUT is not lost. Reload re-syncs the
-Pomodoro engine and re-applies persisted overlay settings, and starts
+Pomodoro engine and re-applies persisted overlay settings (the clock config
+is carried over in the same critical section as the config swap, like the
+clock URL tiers, so a PUT landing before the reapply still sees it migrated),
+and starts
 `ensureBootPingScript` off the request path because it does device HTTP and the
 reply must not wait on an unreachable clock. `adminRequireAuth` is stricter than
 `requireAuth`: an empty `EMBER_TOKEN` closes the admin endpoints (they expose

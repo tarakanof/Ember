@@ -411,7 +411,7 @@ components:
           format: date-time
         config_version:
           type: integer
-          description: 0 for a client. For the clock, a hash of its composed config (compare for inequality).
+          description: 0 for a client. For the clock, a counter bumped on every change to its composed config (compare for inequality).
         rotation_pending:
           type: boolean
         rotated_at:
@@ -1266,6 +1266,11 @@ paths:
     put:
       tags: [settings]
       operationId: putPomodoroConfig
+      description: |
+        Merge semantics. Once the clock config is migrated, this config's
+        clock presentation keys are stored in the clock config (an alias,
+        ARCHITECTURE "Clock record and config façade"); the GET still
+        returns the merged shape.
       summary: Merge Pomodoro settings
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
@@ -1452,6 +1457,11 @@ paths:
     put:
       tags: [settings]
       operationId: putUsageConfig
+      description: |
+        Merge semantics. Once the clock config is migrated, this config's
+        clock presentation keys are stored in the clock config (an alias,
+        ARCHITECTURE "Clock record and config façade"); the GET still
+        returns the merged shape.
       summary: Merge usage card settings
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
@@ -1560,6 +1570,11 @@ paths:
     put:
       tags: [settings]
       operationId: putWeatherConfig
+      description: |
+        Merge semantics. Once the clock config is migrated, this config's
+        clock presentation keys are stored in the clock config (an alias,
+        ARCHITECTURE "Clock record and config façade"); the GET still
+        returns the merged shape.
       summary: Merge weather settings
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
@@ -1587,6 +1602,11 @@ paths:
     put:
       tags: [settings]
       operationId: putMeetingsConfig
+      description: |
+        Merge semantics. Once the clock config is migrated, this config's
+        clock presentation keys are stored in the clock config (an alias,
+        ARCHITECTURE "Clock record and config façade"); the GET still
+        returns the merged shape.
       summary: Merge meetings settings
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
@@ -1789,8 +1809,9 @@ paths:
       operationId: getKnobConfig
       summary: A device's settings
       description: |
-        A knob's settings, or for the clock (`awtrix-ng`) the façade
-        composed from the overlay slices, the hidden tools and the clock's
+        A knob's settings, or for the clock (`awtrix-ng`) its presentation
+        config (stored in `clock_config_json` once migrated, before that a
+        façade over the overlay slices), the hidden tools and the clock's
         own app order (ARCHITECTURE "Clock record and config façade").
         `X-Ember-Config-Version` carries the version.
       x-internal: true
@@ -1818,8 +1839,9 @@ paths:
       description: |
         Objects merge field by field, arrays (and the clock's `icon_ids`)
         replace whole, an unknown key is a 400, `{}` changes nothing. For
-        the clock the body is merged onto the current slices under the
-        config lock and stored in one SQLite transaction; a failed store is
+        the clock the body is merged onto the current config under the
+        config lock and stored (clock config, changed slices, hidden tools)
+        in one SQLite transaction; a failed store is
         a 500 and changes nothing in memory or the store. A `rotation` that
         differs from the clock's list, read just before, is sent to the
         clock first (its error status passes through, 502 when unreachable),
