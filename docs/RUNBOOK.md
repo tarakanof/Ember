@@ -653,7 +653,9 @@ curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c -H "$H"   # revoke
   store unavailable" until the row is fixed and the server restarted.
 - **Knob gets 401:** it was deleted, re-provisioned elsewhere, or missed a
   rotation; `/admin/doctor` → `devices` lists each knob's last checkin
-  (warns when one never checked in or is silent > 5 min).
+  (warns when one never checked in or is silent > 5 min) and the clock
+  record's last good probe (`clock-… seen=…`; warns past 5 min, says
+  `clock disabled` under `EMBER_CLOCK=off`).
 - The registry lives in the SQLite store (key `devices_json`, next to
   `pomodoro.db`), so the same writable volume is needed; without it, minted
   tokens are lost on restart.

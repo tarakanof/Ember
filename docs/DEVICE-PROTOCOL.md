@@ -26,7 +26,10 @@ Every route the knob calls, all with its device token (`ekd_…`):
 | `GET /v1/nowplaying/art?kind=&size=&v=` | Art for the view's `art_version`: `kind` `album`/`artist`/`backdrop`, `size` the square edge in px from a fixed list per kind (album 240 or 120, artist 64 or 120, backdrop 466; default the first, anything else 400), `v` the `art_version` (public, no token). |
 
 The knob learns of a config change or a rotation when the view's `epoch` or
-`config_version` moves, then checks in.
+`config_version` moves, then checks in. The epoch is shared by every device
+record, so a clock change (its record created, renamed or deleted, or its
+composed config changed, #230) moves it too and costs the knob one checkin
+that finds nothing new.
 
 **Fallback (legacy) routes.** cinder drops to per-endpoint polling when the
 view answers 404 or 405 (a server without the view; re-probe after 10 min),
