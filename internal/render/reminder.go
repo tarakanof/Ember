@@ -27,7 +27,6 @@ func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[s
 		"text":       text,
 		"durationMs": msOf(durationSec),
 		"wakeup":     true,
-		"stack":      true,
 		"hold":       hold,
 		"textColor":  hexOf(reminderGold),
 	})

@@ -113,7 +113,6 @@ func LimitResetPopupPayload(tool string, durationSec int) map[string]any {
 		"text":        label,
 		"durationMs":  msOf(durationSec),
 		"wakeup":      true,
-		"stack":       true,
 		"textColor":   hexOf(color),
 		"draw":        []any{iconOp(bitmap8(icon, color))},
 		"textCenter":  false,

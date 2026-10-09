@@ -60,7 +60,6 @@ func MeetingPopupPayload(title string, leadMinutes, durationSec int) map[string]
 		"textColor":   hexOf(meetingInk),
 		"durationMs":  msOf(durationSec),
 		"wakeup":      true,
-		"stack":       true,
 		"draw":        []any{iconOp(meetingIconPixels())},
 		"textCenter":  false,
 		"textOffsetX": 9,

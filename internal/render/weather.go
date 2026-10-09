@@ -172,7 +172,6 @@ func WeatherPopupPayload(cond, label, iconID string, durationSec int) map[string
 		"text":       label,
 		"durationMs": msOf(durationSec),
 		"wakeup":     true,
-		"stack":      false,
 		"textColor":  hexOf(WeatherColor(cond)),
 	})
 	if iconID != "" {

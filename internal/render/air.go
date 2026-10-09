@@ -74,7 +74,6 @@ func AirPopupPayload(aqi float64, durationSec int) map[string]any {
 		"textColor":   hexOf(col),
 		"durationMs":  msOf(durationSec),
 		"wakeup":      true,
-		"stack":       false,
 		"draw":        []any{iconOp(iconPx)},
 		"textCenter":  false,
 		"textOffsetX": 9,

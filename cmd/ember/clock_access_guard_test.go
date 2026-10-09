@@ -40,7 +40,7 @@ func TestClockAccessIsTheOnlyWayToTheClock(t *testing.T) {
 			fn, ok := obj.(*types.Func)
 			if !ok {
 				if tn, ok := obj.(*types.TypeName); ok && tn.Name() == "clockPublisher" && tn.Pkg() == info.pkg && name != "publisher.go" && name != "app.go" {
-					t.Errorf("%s: clockPublisher outside publisher.go/app.go; the ungated publisher must stay behind quietPublisher", pos)
+					t.Errorf("%s: clockPublisher outside publisher.go/app.go; NewApp builds the one clock publisher", pos)
 				}
 				continue
 			}
@@ -56,12 +56,16 @@ func TestClockAccessIsTheOnlyWayToTheClock(t *testing.T) {
 				t.Errorf("%s: discovery.Reachable outside clock_access.go; use clockAccess.reachable", pos)
 			case (recv != "" && slices.Contains([]string{"CustomApp", "ClearApp"}, fn.Name()) && pkg == info.pkg.Path() ||
 				recv == "Client" && pkg == awtrixPkg && slices.Contains([]string{"PushApp", "DeleteApp"}, fn.Name())) &&
-				!strings.HasPrefix(name, "coordinator") && name != "publisher.go" && name != "quiet_publisher.go":
+				!strings.HasPrefix(name, "coordinator") && name != "publisher.go":
 				t.Errorf("%s: %s outside the coordinator; pushed apps have one writer", pos, fn.Name())
 			case recv == "Client" && pkg == awtrixPkg &&
 				slices.Contains([]string{"Notify", "PlayRTTTL", "PlayMelody", "PlaySound"}, fn.Name()) &&
 				name != "publisher.go" && name != "device_audio.go":
 				t.Errorf("%s: awtrix %s outside publisher.go/device_audio.go bypasses the quiet-hours gate", pos, fn.Name())
+			case recv != "" && pkg == info.pkg.Path() &&
+				slices.Contains([]string{"Notify", "DismissNotifyByName", "PlayRTTTL"}, fn.Name()) &&
+				name != "coordinator_notices.go" && name != "publisher.go":
+				t.Errorf("%s: %s outside coordinator_notices.go; popups and chimes go through notices", pos, fn.Name())
 			}
 		}
 		ast.Inspect(f, func(n ast.Node) bool {

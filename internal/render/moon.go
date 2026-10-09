@@ -60,7 +60,6 @@ func SunPopupPayload(rising bool, label string, durationSec int) map[string]any 
 		"text":        label,
 		"durationMs":  msOf(durationSec),
 		"wakeup":      true,
-		"stack":       false,
 		"textColor":   hexOf(col),
 		"draw":        []any{iconOp(iconPx)},
 		"textCenter":  false,

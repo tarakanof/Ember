@@ -163,7 +163,7 @@ func TestReminderLoopStopsAtQuietHours(t *testing.T) {
 		t.Fatalf("notifications = %d, want the alarm + its silent re-push", len(notes))
 	}
 	re := notes[1]
-	for _, k := range soundKeys {
+	for _, k := range []string{"sound", "soundRtttl", "soundLoop"} {
 		if _, has := re[k]; has {
 			t.Errorf("silent re-push carries %q: %v", k, re)
 		}

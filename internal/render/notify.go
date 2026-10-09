@@ -7,7 +7,6 @@ func NotifyPayload(text, color, textCase string, durationSec int, hold bool) map
 		"durationMs": msOf(durationSec),
 		"hold":       hold,
 		"wakeup":     true,
-		"stack":      false,
 	})
 	if textCase != "" {
 		p["textCase"] = textCase

@@ -49,9 +49,6 @@ func TestMeetingPopupPayloadShape(t *testing.T) {
 	if p["wakeup"] != true {
 		t.Errorf("wakeup = %v, want true", p["wakeup"])
 	}
-	if p["stack"] != true {
-		t.Errorf("stack = %v, want true", p["stack"])
-	}
 	if p["textCenter"] != false {
 		t.Errorf("textCenter = %v, want false", p["textCenter"])
 	}

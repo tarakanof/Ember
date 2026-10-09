@@ -213,12 +213,12 @@ func (a *App) checkMeetingPopup(ctx context.Context, now time.Time, cfg Meetings
 		a.meetings.fired[key] = struct{}{}
 		a.meetings.mu.Unlock()
 
-		payload := render.MeetingPopupPayload(sanitizeMeetingTitle(occ.Title), cfg.PopupLeadMins(), meetingPopupDurationSeconds)
-		payload["name"] = notifyNameMeeting
+		n := notice{app: "meetings", kind: noticeMeeting, priority: noticeQueue,
+			payload: render.MeetingPopupPayload(sanitizeMeetingTitle(occ.Title), cfg.PopupLeadMins(), meetingPopupDurationSeconds)}
 		if cfg.ChimeEnabled() {
-			payload["soundRtttl"] = defaultMeetingChime
+			n.sound.rtttl = defaultMeetingChime
 		}
-		if err := a.publisher.Notify(cctx, payload); err != nil {
+		if err := a.coord.showNotice(cctx, n); err != nil {
 			a.logger.Warn("meeting popup failed", "err", err)
 		}
 	}

@@ -183,18 +183,16 @@ func (a *App) pomoPhaseEndAlert(res *pomodoro.PhaseResult) {
 	if res.Phase == pomodoro.PhaseFocus {
 		text = "BREAK"
 	}
-	payload := map[string]any{
-		"text": text, "wakeup": true, "durationMs": 4000, "stack": false,
-		"name": notifyNamePomodoro,
-	}
+	n := notice{app: "pomodoro", kind: noticePomodoro, priority: noticeInterrupt,
+		payload: map[string]any{"text": text, "wakeup": true, "durationMs": 4000}}
 	if p.SoundMelody != "" {
-		payload["sound"] = p.SoundMelody
+		n.sound.melody = p.SoundMelody
 	} else {
-		payload["soundRtttl"] = defaultPomoMelody
+		n.sound.rtttl = defaultPomoMelody
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := a.publisher.Notify(ctx, payload); err != nil {
+	if err := a.coord.showNotice(ctx, n); err != nil {
 		a.logger.Warn("pomodoro phase-end alert failed", "err", err)
 	}
 }
@@ -379,11 +377,8 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	if held := a.reminderHeldUntil.Load(); held != 0 && now.UnixNano() < held {
 		if down && (button == "middle" || button == "select") {
 			a.reminderHeldUntil.Store(0)
-			if a.publisher != nil {
-				err := a.publisher.DismissNotifyByName(r.Context(), notifyNameReminder)
-				if err != nil && !isAPINotFound(err) {
-					a.logger.Warn("reminder dismiss failed", "err", err)
-				}
+			if err := a.coord.dismissNotice(r.Context(), noticeReminder); err != nil && !isAPINotFound(err) {
+				a.logger.Warn("reminder dismiss failed", "err", err)
 			}
 		}
 		w.WriteHeader(http.StatusOK)

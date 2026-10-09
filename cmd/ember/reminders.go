@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -62,19 +61,19 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	if req.Hold {
 		a.reminderHeldUntil.Store(now.Add(reminderHoldWindow).UnixNano())
 	}
-	payload := render.ReminderPopupPayload(text, req.NativeIconID, dur, req.Hold)
-	payload["name"] = notifyNameReminder
+	n := notice{app: "reminders", kind: noticeReminder, priority: noticeQueue,
+		payload: render.ReminderPopupPayload(text, req.NativeIconID, dur, req.Hold)}
 	loop := req.Sound && req.Hold && req.RepeatSound
 	switch {
 	case loop:
-		payload["soundRtttl"] = defaultReminderAlarm
-		payload["soundLoop"] = true
+		n.sound = noticeSound{rtttl: defaultReminderAlarm, loop: true}
 	case req.Sound:
-		payload["soundRtttl"] = defaultReminderSound
+		n.sound = noticeSound{rtttl: defaultReminderSound}
 	}
+	quiet := a.coord.quietNow()
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	if err := a.publisher.Notify(ctx, payload); err != nil {
+	if err := a.coord.showNotice(ctx, n); err != nil {
 		if key != "" {
 			a.reminderKeys.release(key)
 		}
@@ -82,43 +81,38 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	if loop && !a.quietNow(now) {
-		a.reminderLoop.arm(now.Add(reminderHoldWindow), payload)
+	if loop && !quiet {
+		a.reminderLoop.arm(now.Add(reminderHoldWindow), n)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 type reminderLoop struct {
-	mu      sync.Mutex
-	until   time.Time
-	payload map[string]any
-	gen     int
+	mu     sync.Mutex
+	until  time.Time
+	notice *notice
+	gen    int
 }
 
-func (l *reminderLoop) arm(until time.Time, payload map[string]any) {
+func (l *reminderLoop) arm(until time.Time, n notice) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.until, l.payload = until, payload
+	l.until, l.notice = until, &n
 	l.gen++
 }
 
-func (l *reminderLoop) current() (until time.Time, payload map[string]any, gen int) {
+func (l *reminderLoop) current() (until time.Time, n *notice, gen int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.until, l.payload, l.gen
+	return l.until, l.notice, l.gen
 }
 
 func (l *reminderLoop) clear(gen int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.gen == gen {
-		l.payload = nil
+		l.notice = nil
 	}
-}
-
-func (a *App) quietNow(now time.Time) bool {
-	enabled, start, end := a.cfg.Load().quietHoursWindow()
-	return enabled && quietActive(start, end, now)
 }
 
 func (a *App) StartReminderLoopGuard(ctx context.Context) {
@@ -135,8 +129,8 @@ func (a *App) StartReminderLoopGuard(ctx context.Context) {
 }
 
 func (a *App) checkReminderLoop(ctx context.Context, now time.Time) {
-	until, payload, gen := a.reminderLoop.current()
-	if payload == nil {
+	until, n, gen := a.reminderLoop.current()
+	if n == nil {
 		return
 	}
 	if a.reminderHeldUntil.Load() == 0 {
@@ -144,26 +138,22 @@ func (a *App) checkReminderLoop(ctx context.Context, now time.Time) {
 		return
 	}
 	expired := !now.Before(until)
-	quiet := a.quietNow(now)
+	quiet := a.coord.quietAt(now)
 	if !expired && !quiet {
 		return
 	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := a.publisher.DismissNotifyByName(cctx, notifyNameReminder); err != nil && !isAPINotFound(err) {
+	if err := a.coord.dismissNotice(cctx, noticeReminder); err != nil && !isAPINotFound(err) {
 		a.logger.Warn("reminder loop stop failed", "err", err)
 		return
 	}
 	reason := "window"
 	if !expired {
 		reason = "quiet_hours"
-		silent := make(map[string]any, len(payload))
-		for k, v := range payload {
-			if !slices.Contains(soundKeys, k) {
-				silent[k] = v
-			}
-		}
-		if err := a.publisher.Notify(cctx, silent); err != nil {
+		silent := *n
+		silent.sound = noticeSound{}
+		if err := a.coord.showNotice(cctx, silent); err != nil {
 			a.logger.Warn("reminder silent re-push failed", "err", err)
 		}
 	}
