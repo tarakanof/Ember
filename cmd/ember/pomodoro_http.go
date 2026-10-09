@@ -117,13 +117,11 @@ func (a *App) pomodoroOn() bool {
 }
 
 func (a *App) pomoView() (render.PomodoroView, bool) {
-	if !a.pomodoroOn() {
+	ps := a.pomodoroState(time.Now())
+	if !ps.active() {
 		return render.PomodoroView{}, false
 	}
-	st := a.engine.Status(time.Now())
-	if st.Phase == pomodoro.PhaseIdle {
-		return render.PomodoroView{}, false
-	}
+	st := ps.Status
 	p := a.cfg.Load().Pomodoro
 	fc, _ := render.HexRGB(p.FocusColor)
 	bc, _ := render.HexRGB(p.BreakColor)

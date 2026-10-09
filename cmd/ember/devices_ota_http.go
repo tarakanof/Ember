@@ -16,13 +16,7 @@ const (
 	firmwareDownloadPerSec = 0.1
 )
 
-func (a *App) pomodoroBusy() bool {
-	if !a.pomodoroOn() {
-		return false
-	}
-	st := a.engine.Status(time.Now())
-	return st.Running || st.Paused
-}
+func (a *App) pomodoroBusy() bool { return a.pomodoroState(time.Now()).busy() }
 
 func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) error {
 	if a.knobFW == nil {

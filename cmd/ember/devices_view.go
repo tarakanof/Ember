@@ -150,10 +150,11 @@ func (a *App) knobNowPlaying(now time.Time) *knobNowPlaying {
 }
 
 func (a *App) knobPomo(now time.Time) *knobPomo {
-	if !a.pomodoroOn() {
+	ps := a.pomodoroState(now)
+	if !ps.On {
 		return nil
 	}
-	st, end, counting := a.engine.Snapshot(now)
+	st := ps.Status
 	p := &knobPomo{
 		Phase:      string(st.Phase),
 		Running:    st.Running,
@@ -161,8 +162,8 @@ func (a *App) knobPomo(now time.Time) *knobPomo {
 		PlannedSec: st.PlannedSec,
 		Round:      st.Round,
 	}
-	if counting {
-		t := end.Unix()
+	if ps.Counting {
+		t := ps.EndsAt.Unix()
 		p.EndsAt = &t
 	} else {
 		rem := st.RemainingSec

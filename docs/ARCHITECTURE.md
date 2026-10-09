@@ -1197,6 +1197,17 @@ streak tolerates, default 1, `0` = strict), `work_hours_gap_minutes` (default
 middle=pause/resume/start, right=skip, left=stop — all on press (the AWTRIX3-era
 left+right chord is removed).
 
+**Pomodoro state** (`cmd/ember/pomodoro_state.go`, #338). The readers of the
+timer go through one projection, `App.pomodoroState(now)` → `pomodoroState`:
+`On` (an engine exists and `pomodoro.enabled`), the engine `Status`, and
+`Counting`/`EndsAt` (running and not paused) from one `Engine.Snapshot`. The
+engine stays the only authority; the state knows nothing about devices.
+`active()` (on and not idle) gates the clock's takeover view (`pomoView`, which
+adds the colours), `busy()` (on and running or paused) holds back a knob OTA
+offer, and the knob's `pomo` block (`knobPomo`) is `null` when off and sends
+`ends_at` while counting, `remaining_sec` otherwise. The action replies and
+`GET /v1/pomodoro/state` stay the engine `Status`, behind the same on check.
+
 ### Weather — `cmd/ember/weather.go`
 
 A standalone widget that shows current conditions. The server fetches them
