@@ -1512,6 +1512,12 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
   its track or state changes, so Plex re-reporting a long-paused session
   doesn't bring it back; entries silent for 1 h are forgotten, and at most
   32 players are kept.
+- **App state** (#338): the registry already is now playing's app state.
+  `Registry.Current(now)` holds the one expiry rule, and every reader goes
+  through it with its own `now`: the knob view's `nowplaying` block,
+  `GET /v1/nowplaying/state`, the art route and control's "still shown"
+  check. None of them re-derives freshness, so there is no separate state
+  type (pinned by `TestNowPlayingConsumersShareTheRegistryExpiry`).
 - **Position anchor:** the entry stores `position_ms` at `position_at`. A
   report for the same track and state moves the anchor only when it is more
   than 3 s off the extrapolation (a seek). Plex re-reports `viewOffset`
