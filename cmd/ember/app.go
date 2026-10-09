@@ -60,6 +60,8 @@ type App struct {
 	settings appSettings
 
 	devices       *deviceRegistry
+	clockSync     clockSyncGate
+	clockRotation atomic.Pointer[clockRotation]
 	clients       *clientRegistry
 	changes       *changeBroadcaster
 	viewWaiters   viewWaiters
@@ -176,13 +178,15 @@ func (a *App) updateConfig(mutate func(*Config)) {
 
 func (a *App) tryUpdateConfig(mutate func(*Config) error) error {
 	a.cfgMu.Lock()
-	defer a.cfgMu.Unlock()
 	cur := *a.cfg.Load()
 	if err := mutate(&cur); err != nil {
+		a.cfgMu.Unlock()
 		return err
 	}
 	a.cfg.Store(&cur)
 	a.changes.notify(topicConfig)
+	a.cfgMu.Unlock()
+	a.syncClockConfigVersion()
 	return nil
 }
 

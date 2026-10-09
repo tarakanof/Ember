@@ -87,10 +87,11 @@ type deviceRecord struct {
 	TokenSHA256        string         `json:"token_sha256"`
 	PendingTokenSHA256 string         `json:"pending_token_sha256,omitempty"`
 	RotatedAt          *time.Time     `json:"rotated_at,omitempty"`
-	Config             knobSettings   `json:"config"`
+	Config             knobSettings   `json:"config,omitzero"`
 	ConfigVersion      int            `json:"config_version"`
 	CreatedAt          time.Time      `json:"created_at"`
 	LastCheckin        *deviceCheckin `json:"last_checkin,omitempty"`
+	LastSeen           *clockSeen     `json:"last_seen,omitempty"`
 	OTA                *knobOTA       `json:"ota,omitempty"`
 }
 
@@ -111,6 +112,7 @@ func (d deviceRecord) clone() deviceRecord {
 		c.OTA = c.OTA.clone()
 		d.LastCheckin = &c
 	}
+	d.LastSeen = d.LastSeen.clone()
 	return d
 }
 
@@ -153,6 +155,7 @@ type deviceView struct {
 	RotationPending bool           `json:"rotation_pending"`
 	RotatedAt       *time.Time     `json:"rotated_at"`
 	LastCheckin     *deviceCheckin `json:"last_checkin"`
+	LastSeen        *clockSeen     `json:"last_seen,omitempty"`
 }
 
 func (d deviceRecord) view() deviceView {
@@ -166,6 +169,7 @@ func (d deviceRecord) view() deviceView {
 		ConfigVersion:   d.ConfigVersion,
 		RotationPending: d.RotatedAt != nil,
 		LastCheckin:     d.LastCheckin,
+		LastSeen:        d.LastSeen,
 	}
 	if d.RotatedAt != nil {
 		t := d.RotatedAt.UTC().Truncate(time.Second)
@@ -173,6 +177,9 @@ func (d deviceRecord) view() deviceView {
 	}
 	if v.LastCheckin != nil {
 		v.LastCheckin.SeenAt = v.LastCheckin.SeenAt.UTC().Truncate(time.Second)
+	}
+	if v.LastSeen != nil {
+		v.LastSeen.SeenAt = v.LastSeen.SeenAt.UTC().Truncate(time.Second)
 	}
 	return v
 }
@@ -229,7 +236,9 @@ func readDeviceState(kv settingsKV) (deviceState, error) {
 		if st.Devices[i].Kind == clientKind {
 			return deviceState{}, fmt.Errorf("decode devices: client record %s was not moved to the client token store", st.Devices[i].ID)
 		}
-		st.Devices[i].Config.fillDefaults()
+		if st.Devices[i].Kind == deviceKindKnob {
+			st.Devices[i].Config.fillDefaults()
+		}
 	}
 	return st, nil
 }
@@ -437,6 +446,9 @@ func (r *deviceRegistry) rotate(id string) (deviceView, error) {
 		if d == nil {
 			return errDeviceNotFound
 		}
+		if d.Kind != deviceKindKnob {
+			return knobOnly("rotate")
+		}
 		now := r.now().UTC()
 		d.RotatedAt = &now
 		d.PendingTokenSHA256 = ""
@@ -505,6 +517,9 @@ func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 	now := r.now()
 	match, pending := -1, false
 	for i, d := range r.state.Devices {
+		if d.Kind != deviceKindKnob {
+			continue
+		}
 		cur := subtle.ConstantTimeCompare(h, []byte(d.TokenSHA256)) == 1
 		if cur && d.RotatedAt != nil && now.Sub(*d.RotatedAt) > deviceRotationGrace {
 			cur = false
@@ -553,6 +568,9 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult
 	defer r.mu.Unlock()
 	if err := r.writableLocked(); err != nil {
 		return checkinResult{}, err
+	}
+	if d := r.state.find(id); d != nil && d.Kind != deviceKindKnob {
+		return checkinResult{}, knobOnly("checkin")
 	}
 	d := r.state.findKnob(id)
 	if d == nil {

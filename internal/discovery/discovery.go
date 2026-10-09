@@ -30,7 +30,7 @@ type service struct {
 const (
 	awtrixServiceType = "_awtrixng._tcp.local."
 
-	ngBoardType = "awtrixng"
+	NGBoardType = "awtrixng"
 
 	defaultProbeTimeout = 1500 * time.Millisecond
 )
@@ -40,7 +40,7 @@ func probe(ctx context.Context, timeout time.Duration, baseURL string) (awtrix.D
 		timeout = defaultProbeTimeout
 	}
 	info, err := awtrix.NewClient(baseURL, timeout).DeviceInfo(ctx)
-	if err != nil || info.UID == "" || info.BoardType != ngBoardType {
+	if err != nil || info.UID == "" || info.BoardType != NGBoardType {
 		return awtrix.DeviceInfo{}, false
 	}
 	return info, true

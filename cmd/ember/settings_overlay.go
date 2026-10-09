@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -107,6 +108,31 @@ func (s *setting[D]) putWith(patch []byte, also func(*Config)) (D, error) {
 		s.spec.after(next)
 	}
 	return s.spec.view(next), nil
+}
+
+type stagedSetting struct {
+	persist func(Config)
+	after   func(Config)
+}
+
+func (s *setting[D]) stage(cur *Config, edit func(*D)) (*stagedSetting, error) {
+	d := s.spec.view(*cur)
+	before, err := json.Marshal(d)
+	if err != nil {
+		return nil, err
+	}
+	edit(&d)
+	after, err := json.Marshal(d)
+	if err != nil {
+		return nil, err
+	}
+	if bytes.Equal(before, after) {
+		return nil, nil
+	}
+	if err := s.spec.apply(cur, d); err != nil {
+		return nil, fmt.Errorf("%w: %w", errSettingBody, err)
+	}
+	return &stagedSetting{persist: s.persist, after: s.spec.after}, nil
 }
 
 func (s *setting[D]) persist(c Config) {

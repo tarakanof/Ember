@@ -61,18 +61,48 @@ func (a *App) setAppHidden(name string, hidden bool) {
 	} else {
 		delete(a.hiddenApps, name)
 	}
-	names := make([]string, 0, len(a.hiddenApps))
-	for n := range a.hiddenApps {
-		names = append(names, n)
-	}
+	a.persistHiddenAppsLocked()
 	a.appsMu.Unlock()
-	sort.Strings(names)
-	if a.store != nil {
-		if blob, err := json.Marshal(names); err == nil {
-			if err := a.store.PutSetting(hiddenAppsKey, string(blob)); err != nil {
-				a.logger.Warn("hidden apps persist failed", "err", err)
-			}
+	a.syncClockConfigVersion()
+}
+
+func (a *App) hiddenAppNames() []string {
+	a.appsMu.Lock()
+	defer a.appsMu.Unlock()
+	return a.hiddenAppNamesLocked()
+}
+
+func (a *App) hiddenAppNamesLocked() []string {
+	names := make([]string, 0, len(a.hiddenApps))
+	for n, v := range a.hiddenApps {
+		if v {
+			names = append(names, n)
 		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (a *App) replaceHiddenApps(names []string) {
+	a.appsMu.Lock()
+	defer a.appsMu.Unlock()
+	a.hiddenApps = make(map[string]bool, len(names))
+	for _, n := range names {
+		a.hiddenApps[n] = true
+	}
+	a.persistHiddenAppsLocked()
+}
+
+func (a *App) persistHiddenAppsLocked() {
+	if a.store == nil {
+		return
+	}
+	blob, err := json.Marshal(a.hiddenAppNamesLocked())
+	if err != nil {
+		return
+	}
+	if err := a.store.PutSetting(hiddenAppsKey, string(blob)); err != nil {
+		a.logger.Warn("hidden apps persist failed", "err", err)
 	}
 }
 
