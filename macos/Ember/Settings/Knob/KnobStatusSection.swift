@@ -39,7 +39,7 @@ struct KnobStatusSection: View {
                     Text("Rejected: \(error)",
                          comment: "Settings › Knob › Status: Ember dropped the capabilities the knob reported; the server's reason follows.")
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .help(error)
                         .textSelection(.enabled)
                 }
             }
