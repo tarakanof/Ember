@@ -439,8 +439,12 @@ func TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes(t *testing.T) {
 	cfg, _, _ := f.app.devices.config(f.m.ID)
 	cur, _ := json.Marshal(cfg)
 	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather"}, Features: []string{},
-		Limits: &deviceCapsLimits{ConfigBytes: len(cur) - 10}})
+		Limits: &deviceCapsLimits{ConfigBytes: len(cur) - 100}})
 	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"page-0000000001","on":false}]}`)
+	cfg, _, _ = f.app.devices.config(f.m.ID)
+	if shrunk, _ := json.Marshal(cfg); len(shrunk) <= len(cur)-100 {
+		t.Fatalf("shrunk config is %d B, want it still over the %d B limit", len(shrunk), len(cur)-100)
+	}
 	putKnobConfig(t, f.srv, f.m.ID, `{"poll_ms":3000}`)
 	resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, `{"pages":[{"id":"bot","on":true},{"id":"page-0000000001","on":false},{"id":"page-0000000003","on":false}]}`)
 	if resp.StatusCode != http.StatusBadRequest {
