@@ -8,8 +8,9 @@ compatibility rules and the golden fixtures in `cmd/ember/testdata/devices`.
 
 **Tokens.** `EMBER_TOKEN` (master) passes every bearer route below. Scoped
 client tokens (`ekc_…`) and knob tokens are minted only by the master token with `POST /v1/devices
-{"kind":"client","name","scopes"}` (at most 64; rotate/delete also master-only)
-and pass only their scopes: `ingest` (`POST`/`DELETE /v1/status`,
+{"kind":"client","name","scopes"}` (at most 64; rotate/delete also master-only;
+listed by `GET /v1/clients`, owner or `admin`, kept out of the device
+registry since #340) and pass only their scopes: `ingest` (`POST`/`DELETE /v1/status`,
 `POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire`), `control`
 (`POST /v1/pomodoro/{start,pause,resume,stop,skip}`), `read` (the non-secret
 settings GETs: apps, pomodoro/usage/display/brightness/quiet config,
@@ -30,7 +31,9 @@ Server routes, grouped by auth. Behavior and wire shapes: [`ARCHITECTURE.md`](AR
 Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}` and
 `POST /v1/nowplaying/control` (also accept a knob device token; control takes an
-optional `Idempotency-Key`), `GET/POST /v1/devices`, `GET/PUT
+optional `Idempotency-Key`), `GET/POST /v1/devices` (`GET` lists devices
+only; a pre-#340 server also lists clients there, `kind: client`),
+`GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340), `GET/PUT
 /v1/devices/{id}/config` (same merge; includes `quiet{calm, dim_level}`), `PATCH`/`DELETE /v1/devices/{id}`,
 `POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
 registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
