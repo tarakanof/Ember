@@ -2461,22 +2461,26 @@ record.
 - **Lifecycle.** A good probe of the effective clock URL (`GET
   /api/v1/device` answering `boardType: awtrixng` and a `uid`, through the
   clock-health probe the device watch and the sampler share; the body is
-  read through the clock client's 1 MiB reply cap) creates the record. Only
-  the effective clock URL is ever probed for it: the probe dials
-  `effectiveClockURL()`, and a discovery swap registers only the candidate
-  it just made effective, never the others a scan touched. There is at most
-  one `awtrix-ng` record (one clock in phase 2): a different uid at the
-  effective URL (a swapped clock, or a LAN host answering with a fresh uid)
-  rewrites that record in place (new id and `hw_id`, `last_seen` reset,
-  `created_at` and a user-set name kept, epoch bumped once), so
-  `devices_json` cannot grow from the probe. Id `clock-` + last 6
-  characters of the uid (lower-cased, `:`/`-` stripped, `[a-z0-9_]{1,32}`,
-  else ignored), `hw_id` = uid, name `Clock <SUFFIX>`, no `token_sha256`, no
-  `config` stored (`omitzero`), creation bumps the epoch. Each later good
-  probe sets `last_seen` (`seen_at`, `fw`, `ip`, `rssi`, `uptime_s`) in
-  memory and writes the blob on the checkin rule (every 10 min, or with any
-  other registry write, and on shutdown). The URL stays in `clock_url.go`:
-  the record does not own it. Multi-clock needs the URL on the record first.
+  read through the clock client's 1 MiB reply cap) creates the record. A
+  probe result counts only if the URL it probed is still the effective one
+  when it lands, so a probe of the old clock that finishes after a
+  rediscovery swap is dropped. A discovery swap registers only the
+  candidate it just made effective, never the others a scan touched. There
+  is at most one `awtrix-ng` record (one clock in phase 2). A different uid
+  at the effective URL replaces the record's identity only when the same
+  new uid is seen twice in a row (two probes, or the swap plus a probe):
+  the record is rewritten in place (new id and `hw_id`, `last_seen` reset,
+  `created_at` and a user-set name kept, one epoch bump). A host answering
+  with a fresh or alternating uid therefore never flips the record or moves
+  the epoch, and `devices_json` cannot grow from the probe. Id `clock-` +
+  last 6 characters of the uid (lower-cased, `:`/`-` stripped,
+  `[a-z0-9_]{1,32}`, else ignored), `hw_id` = uid, name `Clock <SUFFIX>`,
+  no `token_sha256`, no `config` stored (`omitzero`), creation bumps the
+  epoch. Each later good probe sets `last_seen` (`seen_at`, `fw`, `ip`,
+  `rssi`, `uptime_s`) in memory, never moves the epoch, and writes the blob
+  on the checkin rule (every 10 min, or with any other registry write, and
+  on shutdown). The URL stays in `clock_url.go`: the record does not own
+  it. Multi-clock needs the URL on the record first.
 - **Kind gates.** Device auth skips non-knob records, so the clock never
   authenticates even if a hash were planted on it. `rotate` and the registry
   `checkin` answer 400 (`… applies to kind "cinder-knob" only`). Stats,
@@ -2504,7 +2508,7 @@ record.
   | `apps.weather.icon_ids` | `icon_ids` (overrides only) | same |
   | `apps.calendar.on` | meetings `enabled` | `/v1/meetings/config` (`meetings_json`) |
   | `apps.calendar.tile_lead_minutes`, `popup_lead_minutes` | same names (0 = popup off) | same |
-  | `rotation.order`, `rotation.disabled` | the clock's app list, in NG order / not enabled | `/v1/device/apps` (on the clock) |
+  | `rotation.order`, `rotation.disabled` | the clock's own apps: enabled ones in NG order / disabled ones; Ember's pushed tiles (`origin: pushed`) left out | `/v1/device/apps` (on the clock) |
 
   The field list is what the coordinator and the weather/meetings popups
   read for the clock today, so the coordinator is unchanged. Left out on
@@ -2522,29 +2526,51 @@ record.
   (`{"apps":{"weather":{"popups":{"sun":false}}}}` keeps the other popup
   fields), arrays replace whole, `icon_ids` replaces whole too (a map, so an
   override can be dropped), `schema` must stay 1, an unknown app or key is a
-  400, `{}` writes nothing. Each touched slice is staged through its
-  `settingSpec` (`setting.stage`: the same `apply` and validation as the old
-  endpoint), first on a copy (any 400 before any write), then for real in
-  one `tryUpdateConfig`: all slices applied, then persisted, then the hidden
-  tools replaced, under `cfgMu`; the specs' `after` hooks run after. A slice
-  whose view didn't change isn't rewritten. `rotation` is forwarded as is
-  (the `PUT /v1/device/apps` body, NG semantics) to the clock before the
-  slices, after validation; a clock error is returned (502 when
-  unreachable) and nothing else changes. Its keys follow NG, not the merge:
-  `order` names the enabled apps in order, `disabled` the ones to switch off.
+  400, `{}` writes nothing. `hidden_tools` takes what `/v1/apps` takes (any
+  non-empty name, no count cap), so a GET body can always be PUT back. Each
+  touched slice is staged through its `settingSpec` (`setting.stage`: the
+  same `apply` and validation as the old endpoint). A dry run on a copy
+  comes first, so any 400 lands before any write. Then, inside one
+  `tryUpdateConfig` (under `cfgMu`), the patch is merged again onto the
+  config and hidden tools as they are at that moment and staged, so a
+  write that landed meanwhile (an old endpoint, another façade PUT, a
+  `/v1/apps` toggle, which also takes `cfgMu`) is kept: a PUT changes only
+  the fields it names. Every changed slice and the hidden tools are stored
+  in one SQLite transaction (`Store.PutSettings`); only after it commits do
+  the new config and hidden tools go live, so a failed store answers 500
+  and leaves memory and the store unchanged. A slice whose view didn't
+  change isn't rewritten; the specs' `after` hooks run after.
+- **Rotation.** `rotation` keeps NG's meaning in both directions: `order`
+  names the enabled apps in order, `disabled` the ones switched off, so a
+  GET's `rotation` can be sent back. A PUT whose `rotation` equals the last
+  list read from the clock writes nothing to the clock (no 502 while it is
+  offline). Otherwise it is forwarded as is (the `PUT /v1/device/apps`
+  body) to the clock after validation and before the slices; a clock error
+  is returned (502 when unreachable) and nothing else changes. After a
+  successful write the cached list is dropped and read again; if that read
+  fails the reply's `rotation` is `null` (unknown) rather than the old
+  list. If the clock write went through and the slices then fail (a 500
+  store error, or a 400 from a concurrent change), the error body and the
+  log say the app order was already written.
 - **Version.** `config_version` is a hash of the composed config (31 bits of
-  SHA-256 of its JSON, never 0), stored on the record so the list shows it,
-  and resynced after every `tryUpdateConfig`, hidden-tool change, record
-  creation and app-list read; a change bumps the epoch once, whichever
-  endpoint caused it. `rotation` is the last app list the server read from
-  the clock (façade GET, `GET /v1/device/apps`), kept in memory: `null`
-  until one succeeds, and `PUT /v1/device/apps` forgets it (no extra clock
-  read on the old route), so a reorder there moves the version too. A
-  reorder on the clock's own web UI shows at the next read. The façade GET
-  re-reads the list with a 2 s budget and falls back to the last one. Boot
-  and `/admin/reload` reapply the overlay with the resync paused and resync
-  once after, so a restart moves the epoch at most once (it does once if
-  the stored version included an app list the new process hasn't read yet).
+  SHA-256 of its JSON, never 0), composed from one snapshot (config and
+  hidden tools read under `cfgMu`) and stored on the record so the list
+  shows it. Compute and store are serialised (`clockSyncGate.mu`), so a
+  stale hash never overwrites a newer one. It is resynced after every
+  `tryUpdateConfig`, hidden-tool change, record creation and app-list read;
+  a change bumps the epoch once, whichever endpoint caused it, and a façade
+  PUT bumps it once. `rotation` is the last app list the server read from
+  the clock (façade GET, `GET /v1/device/apps`), kept in memory, `null`
+  until one succeeds. Pushed Ember tiles are not part of it, so tiles
+  coming and going never move the hash. `PUT /v1/device/apps` leaves the
+  cache alone (no extra clock read on the old route): a reorder there moves
+  the version once, at the next read of the list (the app re-reads after a
+  write; the façade GET always reads). A reorder on the clock's own web UI
+  also shows at the next read. The façade GET re-reads the list with a 2 s
+  budget and falls back to the last one. Boot and `/admin/reload` reapply
+  the overlay with the resync paused and resync once after, so a restart
+  moves the epoch at most once (it does once if the stored version
+  included an app list the new process hasn't read yet).
 
 ### Knob diagnostics — `cmd/ember/devices_stats.go` (#239)
 

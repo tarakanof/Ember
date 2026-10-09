@@ -1729,9 +1729,12 @@ paths:
       description: |
         Objects merge field by field, arrays (and the clock's `icon_ids`)
         replace whole, an unknown key is a 400, `{}` changes nothing. For
-        the clock the body is split back into the slices in one atomic
-        update; a `rotation` object is sent to the clock first (its error
-        status passes through, 502 when unreachable).
+        the clock the body is merged onto the current slices under the
+        config lock and stored in one SQLite transaction; a failed store is
+        a 500 and changes nothing in memory or the store. A `rotation` that
+        differs from the clock's last read list is sent to the clock first
+        (its error status passes through, 502 when unreachable); if the
+        slices then fail, the error says the app order was already written.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
@@ -1745,6 +1748,12 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          description: The settings store failed; nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "502":
           $ref: "#/components/responses/BadGateway"
   /v1/devices/{id}/stats:
