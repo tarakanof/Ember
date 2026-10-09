@@ -2,21 +2,43 @@ package main
 
 import (
 	"strings"
+	"time"
 
 	"github.com/tarakanof/ember/internal/sessions"
 )
 
-type knobLead struct {
+type moodState struct {
+	Now      time.Time
+	Sessions []Session
+	Render   Render
+	Lead     moodLead
+}
+
+func newMoodState(v sessions.View, idleText string) moodState {
+	return moodState{Now: v.Now, Sessions: v.Sessions, Render: legacyRender(v, idleText), Lead: leadOf(v)}
+}
+
+func (a *App) moodOf(v sessions.View) moodState {
+	return newMoodState(v, a.cfg.Load().Display.IdleText)
+}
+
+func (a *App) moodState() moodState { return a.moodOf(a.sessions.View()) }
+
+func (s moodState) snapshot() Snapshot {
+	return Snapshot{Now: s.Now, Sessions: s.Sessions, Render: s.Render}
+}
+
+type moodLead struct {
 	Lead  string
 	Hosts int
 	Color string
 	Tool  string
 }
 
-func knobLeadOf(v sessions.View) knobLead {
+func leadOf(v sessions.View) moodLead {
 	win := v.Winner()
 	if win == nil {
-		return knobLead{}
+		return moodLead{}
 	}
 	count := map[string]int{}
 	for _, s := range v.Sessions {
@@ -24,7 +46,7 @@ func knobLeadOf(v sessions.View) knobLead {
 			count[strings.ToUpper(s.Source)]++
 		}
 	}
-	var l knobLead
+	var l moodLead
 	for src, n := range count {
 		if l.Lead == "" || n > count[l.Lead] || (n == count[l.Lead] && src < l.Lead) {
 			l.Lead = src

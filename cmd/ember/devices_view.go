@@ -36,7 +36,7 @@ type knobMood struct {
 	Tool      string `json:"tool,omitempty"`
 }
 
-func newKnobMood(r Render, l knobLead) knobMood {
+func newKnobMood(r Render, l moodLead) knobMood {
 	m := knobMood{Waiting: r.Waiting, Errors: r.Errors, Running: r.Running, Done: r.Done, Source: r.Source,
 		LeadColor: l.Color, Tool: l.Tool}
 	if !strings.EqualFold(l.Lead, r.Source) {
@@ -102,14 +102,13 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	sv := a.sessions.View()
-	r := a.legacyRender(sv)
+	mood := a.moodState()
 	b := a.currentBrightness(now)
 	v := knobView{
 		V:             1,
 		Epoch:         epoch,
 		ConfigVersion: version,
-		Mood:          newKnobMood(r, knobLeadOf(sv)),
+		Mood:          newKnobMood(mood.Render, mood.Lead),
 		Pomo:          a.knobPomo(now),
 		Weather:       a.knobWeather(now),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},

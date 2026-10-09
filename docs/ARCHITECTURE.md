@@ -58,6 +58,17 @@ The aggregator and the only writer to the device.
   `/admin/doctor`) reaps first, so no reader ever sees a stale session and
   reaping doesn't depend on anything rendering. Each reap logs `session reaped`
   and bumps `ember_sessions_evicted_total`.
+- **Mood state** (`cmd/ember/mood_state.go`, #338). The agent-session readers
+  go through one projection of a registry view, `App.moodState()` →
+  `moodState` (`newMoodState(view, idleText)` for tests): the sessions, the
+  legacy `render` (counts, winner text, colour, `source`/`tool`) and the
+  `moodLead` (who leads the winning state, see "Knob view"). It knows nothing
+  about devices. `App.Snapshot()` (`GET /state`, the coordinator, the
+  preview) is its `snapshot()`; the knob's `mood` is its render plus lead;
+  `Upsert` notifies when either moves. The clock's hidden apps are not part
+  of it: the coordinator filters its own copy of the sessions
+  (`filteredSnapshot`), and the knob, `/state` and the render counters stay
+  unfiltered (user decision 2026-10-09: each device keeps its own app list).
 - **Render priority.** `waiting > error > running > done`; `idle` never wins
   (it cedes the slot, publishing nothing). For ≥2 sessions in the winning group,
   an aggregate label is shown. One Go ordering, `render.StatePriority`: the
@@ -3155,9 +3166,10 @@ draws-if-present in `internal/render`, add a menu checkbox.
   order fixed):
   `{"v":1,"epoch":1,"config_version":1,"mood":{"waiting":1,"errors":0,"running":1,"done":0,"source":"M4"},"pomo":{"phase":"focus","running":true,"paused":false,"ends_at":1782044100,"planned_sec":1500,"round":0},"weather":{"provider":"open-meteo","cond":"rain","code":"61","temp_c":12.5,"stale":false,"severe":false,"night":false,"sunrise":1782013200,"sunset":1782072900},"brightness":{"level":255,"night":false}}`.
   `mood` is `/state`'s `render` counters and `source` (the winning host),
-  then who leads the winning state (#282, `knob_lead.go`): `lead` (the source
-  with the most sessions in that state, ties to the smaller name, so it does
-  not flip as sessions heartbeat; left out when it equals `source`), `hosts`
+  then who leads the winning state (#282, `moodLead` in `mood_state.go`):
+  `lead` (the source with the most sessions in that state, ties to the
+  smaller name, so it does not flip as sessions heartbeat; left out when it
+  equals `source`), `hosts`
   (distinct sources in that state; left out at 0 or 1), `lead_color` (first
   valid `source_color` of the lead's sessions, uppercased) and `tool` (the
   lead's tool when its sessions agree), all omitted when empty, so an idle

@@ -18,47 +18,47 @@ func leadView(ss ...render.Session) sessions.View {
 	return sessions.View{Now: t0, Sessions: ss}
 }
 
-func TestKnobLeadOf(t *testing.T) {
+func TestLeadOf(t *testing.T) {
 	purple, bad := "#b48cff", "purple"
 	cases := []struct {
 		name string
 		v    sessions.View
-		want knobLead
+		want moodLead
 	}{
-		{"none", leadView(), knobLead{}},
-		{"idle only", leadView(render.Session{Source: "M4", State: "idle"}), knobLead{}},
+		{"none", leadView(), moodLead{}},
+		{"idle only", leadView(render.Session{Source: "M4", State: "idle"}), moodLead{}},
 		{"one host", leadView(render.Session{Source: "M4", Tool: "claude", State: "running", SourceColor: &purple}),
-			knobLead{Lead: "M4", Hosts: 1, Color: "#B48CFF", Tool: "claude"}},
+			moodLead{Lead: "M4", Hosts: 1, Color: "#B48CFF", Tool: "claude"}},
 		{"most sessions wins over newest", leadView(
 			render.Session{Source: "MINI", Tool: "codex", Session: "a", State: "running"},
 			render.Session{Source: "M4", Tool: "claude", Session: "b", State: "running"},
 			render.Session{Source: "M4", Tool: "claude", Session: "c", State: "running"}),
-			knobLead{Lead: "M4", Hosts: 2, Tool: "claude"}},
+			moodLead{Lead: "M4", Hosts: 2, Tool: "claude"}},
 		{"tie goes to the smaller name", leadView(
 			render.Session{Source: "MINI", Tool: "codex", State: "running"},
 			render.Session{Source: "M4", Tool: "claude", State: "running"}),
-			knobLead{Lead: "M4", Hosts: 2, Tool: "claude"}},
+			moodLead{Lead: "M4", Hosts: 2, Tool: "claude"}},
 		{"only the winning state counts", leadView(
 			render.Session{Source: "MINI", State: "running"},
 			render.Session{Source: "MINI", State: "running"},
 			render.Session{Source: "M4", Tool: "codex", State: "waiting"}),
-			knobLead{Lead: "M4", Hosts: 1, Tool: "codex"}},
+			moodLead{Lead: "M4", Hosts: 1, Tool: "codex"}},
 		{"tools disagree", leadView(
 			render.Session{Source: "M4", Tool: "claude", Session: "a", State: "running"},
 			render.Session{Source: "M4", Tool: "codex", Session: "b", State: "running"}),
-			knobLead{Lead: "M4", Hosts: 1}},
+			moodLead{Lead: "M4", Hosts: 1}},
 		{"invalid colour skipped", leadView(
 			render.Session{Source: "M4", Session: "a", State: "error", SourceColor: &bad},
 			render.Session{Source: "M4", Session: "b", State: "error", SourceColor: &purple}),
-			knobLead{Lead: "M4", Hosts: 1, Color: "#B48CFF"}},
-		{"no source", leadView(render.Session{Tool: "claude", State: "running"}), knobLead{}},
+			moodLead{Lead: "M4", Hosts: 1, Color: "#B48CFF"}},
+		{"no source", leadView(render.Session{Tool: "claude", State: "running"}), moodLead{}},
 		{"case-insensitive hosts", leadView(
 			render.Session{Source: "m4", Tool: "claude", Session: "a", State: "running"},
 			render.Session{Source: "M4", Tool: "claude", Session: "b", State: "running"}),
-			knobLead{Lead: "M4", Hosts: 1, Tool: "claude"}},
+			moodLead{Lead: "M4", Hosts: 1, Tool: "claude"}},
 	}
 	for _, c := range cases {
-		if got := knobLeadOf(c.v); got != c.want {
+		if got := leadOf(c.v); got != c.want {
 			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
 		}
 	}
@@ -146,8 +146,30 @@ func TestKnobBotFlagsDefaultOnAndMerge(t *testing.T) {
 }
 
 func TestNewKnobMoodLeavesOutALeadThatOnlyDiffersInCase(t *testing.T) {
-	m := newKnobMood(Render{Running: 1, Source: "m4"}, knobLead{Lead: "M4", Hosts: 1, Tool: "codex"})
+	m := newKnobMood(Render{Running: 1, Source: "m4"}, moodLead{Lead: "M4", Hosts: 1, Tool: "codex"})
 	if m.Lead != "" || m.Hosts != 0 || m.Tool != "codex" {
 		t.Fatalf("mood = %+v", m)
+	}
+}
+
+func TestMoodStateProjectsOneView(t *testing.T) {
+	idle := newMoodState(leadView(), "zzz")
+	if idle.Render.Text != "zzz" || idle.Render.Color != "#707070" || idle.Lead != (moodLead{}) || len(idle.Sessions) != 0 {
+		t.Fatalf("idle = %+v", idle)
+	}
+	v := leadView(
+		render.Session{Source: "M4", Tool: "claude", Session: "a", State: "error", Message: "boom"},
+		render.Session{Source: "MINI", Tool: "codex", Session: "b", State: "running"},
+	)
+	s := newMoodState(v, "zzz")
+	if s.Render.Text != "ERR Claude boom" || s.Render.Errors != 1 || s.Render.Running != 1 || s.Render.Source != "M4" {
+		t.Errorf("render = %+v", s.Render)
+	}
+	if s.Lead != (moodLead{Lead: "M4", Hosts: 1, Tool: "claude"}) {
+		t.Errorf("lead = %+v", s.Lead)
+	}
+	snap := s.snapshot()
+	if !snap.Now.Equal(v.Now) || len(snap.Sessions) != 2 || snap.Render != s.Render {
+		t.Errorf("snapshot = %+v", snap)
 	}
 }

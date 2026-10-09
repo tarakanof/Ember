@@ -35,45 +35,37 @@ func (a *App) onSessionReaped(r sessions.Reaped) {
 }
 
 func (a *App) Upsert(req StatusRequest) (Render, string) {
-	bv := a.sessions.View()
-	before := a.legacyRender(bv)
+	before := a.moodState()
 	v, prior := a.sessions.Upsert(req.normalized())
-	after := a.legacyRender(v)
-	if after != before || knobLeadOf(v) != knobLeadOf(bv) {
+	after := a.moodOf(v)
+	if after.Render != before.Render || after.Lead != before.Lead {
 		a.changes.notify(topicSessions)
 	}
-	return after, prior
+	return after.Render, prior
 }
 
 func (a *App) Clear() Render {
 	v := a.sessions.Clear()
 	a.changes.notify(topicSessions)
-	return a.legacyRender(v)
+	return a.moodOf(v).Render
 }
 
 func (a *App) Delete(key string) Render {
 	v := a.sessions.Delete(key)
 	a.changes.notify(topicSessions)
-	return a.legacyRender(v)
+	return a.moodOf(v).Render
 }
 
-func (a *App) Snapshot() Snapshot {
-	v := a.sessions.View()
-	return Snapshot{
-		Now:      v.Now,
-		Sessions: v.Sessions,
-		Render:   a.legacyRender(v),
-	}
-}
+func (a *App) Snapshot() Snapshot { return a.moodState().snapshot() }
 
-func (a *App) legacyRender(v sessions.View) Render {
+func legacyRender(v sessions.View, idleText string) Render {
 	waiting, running, errored, done := v.Count("waiting"), v.Count("running"), v.Count("error"), v.Count("done")
 	activeTotal := waiting + running + errored
 
 	win := v.Winner()
 	if win == nil {
 		return Render{
-			Text:        a.cfg.Load().Display.IdleText,
+			Text:        idleText,
 			Color:       "#707070",
 			ActiveTotal: activeTotal,
 		}
