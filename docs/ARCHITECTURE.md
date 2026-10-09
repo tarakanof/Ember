@@ -1209,18 +1209,22 @@ only) the location's **UTC offset** (`&timezone=auto` → `utc_offset_seconds`).
 latest observation lives in an in-memory `weatherStore`, the single source: one
 poller fills it and nothing fetches per device.
 
-**Weather state** (`cmd/ember/weather_state.go`, #337). Every reader goes
-through one projection, `weatherStore.state(cfg, now)` → `weatherState`
-(`newWeatherState` for drafts and tests): the observation and air reading,
-`Fresh`/`AirFresh` (younger than `weatherStaleAfter`, 30 min; false when
-missing), `enabled` and whether coordinates are set, `Night` and the local
-day's `Sunrise`/`Sunset` (`HaveSun`). It knows nothing about devices; the
-freshness rule and the sun math live only here. Its readers: the clock tiles
-(`live` = enabled and fresh; views and the moon read the state), the sun
-popups, the knob view (`knobWeather`), the dashboard's `/v1/weather/state` and
-the weather preview (which swaps in sample observations when the store has
-none). Presentation stays with each reader (`roundedSun` gives the 5-min
-rounding the dashboard and knob share).
+**Weather state** (`cmd/ember/weather_state.go`, #337). Every reader of the
+stored weather goes through one projection, `weatherStore.state(cfg, now)` →
+`weatherState` (`newWeatherState` for drafts and tests): the observation and
+air reading, `Fresh`/`AirFresh` (younger than `weatherStaleAfter`, 30 min;
+false when missing), `enabled`, the location's `LocalDay`, `Night` and the
+local day's `Sunrise`/`Sunset` (`HaveSun`, false without coordinates). It
+knows nothing about devices; the freshness rule and the sun math live only
+here. Its readers: the clock tiles (`live` = enabled and fresh; views and the
+moon read the state), the sun popups (times and once-a-day key), the knob
+view (`knobWeather`), the dashboard's `/v1/weather/state` and the weather
+preview (which swaps in sample observations when the store has none). The
+condition, interval, severe and AQI popups are not readers: they fire on a
+fetch and take that fetch's result directly. Presentation stays with each
+reader (`roundedSun` gives the 5-min rounding the dashboard and knob share).
+The state shares the store's `Hourly`/`HourlyAQI` slices: readers treat them
+as read-only, and the poller only ever replaces whole observations.
 
 The coordinator reconciles three rotating tiles with the same
 change-and-staleness dedupe as the usage card:
@@ -1382,11 +1386,16 @@ Weather constraints:
   +13h, Kiritimati +14h at −157°, the lon ≤ −172.5° fallback). A sunset after
   local midnight (high latitudes in summer) belongs to yesterday, so its popup
   never fires.
-- **Night is the sun schedule's call.** `Night` is `sunNight`: the latest sun
-  event among the neighbouring UTC dates (`sunEventsAround`, the same bracket
-  brightness `sunLevel` uses) was a sunset, else `polarNight`. So the knob's
-  `night`, the clock's moon and the brightness night agree, including a
-  post-midnight sunset, which stays day until it happens.
+- **Night is the sun schedule's call.** `Night` is `sunNight` over the sun
+  events of the neighbouring UTC dates (`sunEventsAround`, the same bracket
+  brightness `sunLevel` uses): night when the last event was a sunset, or,
+  with no earlier event, when the next one is a sunrise. Only with no event
+  on either side does `polarNight` decide. Next to polar night one side is
+  often missing (McMurdo after its last sunset, 68°N before the first
+  sunrise), so falling back to `polarNight` there would read day in the
+  dark. The knob's `night`, the clock's moon and the brightness night agree,
+  including at the sunset second and a post-midnight sunset, which stays day
+  until it happens.
 
 ### Reminders — Apple Reminders + `POST /v1/reminders/fire`
 
@@ -2082,8 +2091,8 @@ coordinates to a few hundred metres; the location is the user-typed label only.
   `stale_seconds`, or the clock never reported `lightLevel`, the answer is
   `sun`: `day_level` by day, ramping to `night_level` over `twilight_minutes`
   after sunset and back up ending at sunrise (`sunTimes` for the weather
-  lat/lon, neighbouring UTC dates included; with no sunrise or sunset it
-  follows noon sun altitude, so polar winter reads night). That fallback resets
+  lat/lon, neighbouring UTC dates included, one side enough; with no sunrise
+  or sunset on either side it follows noon sun altitude, so polar winter reads night). That fallback resets
   the filter. No weather location either: `default` (`day_level`). `night` is
   the schedule's own call (after sunset, before sunrise) whenever a location is
   set, in every source; the weather state's `Night` uses the same bracket

@@ -7,8 +7,7 @@ const weatherStaleAfter = 30 * time.Minute
 const sunRounding = 5 * time.Minute
 
 type weatherState struct {
-	Enabled   bool
-	HasCoords bool
+	Enabled bool
 
 	Obs     weatherObservation
 	HaveObs bool
@@ -18,24 +17,25 @@ type weatherState struct {
 	HaveAir  bool
 	AirFresh bool
 
-	Night   bool
-	HaveSun bool
-	Sunrise time.Time
-	Sunset  time.Time
+	LocalDay string
+	Night    bool
+	HaveSun  bool
+	Sunrise  time.Time
+	Sunset   time.Time
 }
 
 func newWeatherState(cfg WeatherConfig, obs weatherObservation, haveObs bool, air airObservation, haveAir bool, now time.Time) weatherState {
 	s := weatherState{
-		Enabled:   cfg.Enabled,
-		HasCoords: cfg.Latitude != 0 || cfg.Longitude != 0,
-		Obs:       obs,
-		HaveObs:   haveObs,
-		Fresh:     haveObs && now.Sub(obs.FetchedAt) < weatherStaleAfter,
-		Air:       air,
-		HaveAir:   haveAir,
-		AirFresh:  haveAir && now.Sub(air.FetchedAt) < weatherStaleAfter,
+		Enabled:  cfg.Enabled,
+		Obs:      obs,
+		HaveObs:  haveObs,
+		Fresh:    haveObs && now.Sub(obs.FetchedAt) < weatherStaleAfter,
+		Air:      air,
+		HaveAir:  haveAir,
+		AirFresh: haveAir && now.Sub(air.FetchedAt) < weatherStaleAfter,
+		LocalDay: localDay(now, obs, cfg.Longitude),
 	}
-	if s.HasCoords {
+	if cfg.Latitude != 0 || cfg.Longitude != 0 {
 		s.Night = sunNight(cfg.Latitude, cfg.Longitude, now)
 		s.Sunrise, s.Sunset, s.HaveSun = localSunTimes(cfg.Latitude, cfg.Longitude, now, obs)
 	}

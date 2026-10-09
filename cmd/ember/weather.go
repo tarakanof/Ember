@@ -631,9 +631,8 @@ func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConf
 	if !wx.HaveSun {
 		return
 	}
-	today := localDay(now, wx.Obs, cfg.Longitude)
-	a.maybeFireSun(ctx, now, wx.Sunrise, true, today, cfg, wx.Obs)
-	a.maybeFireSun(ctx, now, wx.Sunset, false, today, cfg, wx.Obs)
+	a.maybeFireSun(ctx, now, wx.Sunrise, true, wx.LocalDay, cfg, wx.Obs)
+	a.maybeFireSun(ctx, now, wx.Sunset, false, wx.LocalDay, cfg, wx.Obs)
 }
 
 func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising bool, today string, cfg WeatherConfig, obs weatherObservation) {

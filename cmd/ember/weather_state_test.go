@@ -43,8 +43,8 @@ func TestWeatherStateFreshness(t *testing.T) {
 			if s.live() != tc.live || s.airLive() != tc.airLive {
 				t.Errorf("live = %v / air %v, want %v / %v", s.live(), s.airLive(), tc.live, tc.airLive)
 			}
-			if s.HasCoords != tc.hasCoords || s.HaveSun != tc.haveSun {
-				t.Errorf("coords = %v, sun = %v, want %v, %v", s.HasCoords, s.HaveSun, tc.hasCoords, tc.haveSun)
+			if s.HaveSun != tc.haveSun {
+				t.Errorf("sun = %v, want %v", s.HaveSun, tc.haveSun)
 			}
 			if !tc.hasCoords && s.Night {
 				t.Error("night without coordinates")
@@ -70,6 +70,7 @@ func TestWeatherStateNightBoundaries(t *testing.T) {
 		{"at sunrise", rise, false},
 		{"midday", day, false},
 		{"a second before sunset", set.Add(-time.Second), false},
+		{"at sunset", set, true},
 		{"a second after sunset", set.Add(time.Second), true},
 	}
 	for _, tc := range cases {
@@ -84,6 +85,29 @@ func TestWeatherStateNightBoundaries(t *testing.T) {
 			r, st := s.roundedSun()
 			if r.Unix()%int64(sunRounding/time.Second) != 0 || st.Unix()%int64(sunRounding/time.Second) != 0 {
 				t.Errorf("rounded sun %v / %v not on a %v boundary", r, st, sunRounding)
+			}
+		})
+	}
+}
+
+func TestNightNextToPolarNight(t *testing.T) {
+	cases := []struct {
+		name     string
+		lat, lon float64
+		now      time.Time
+	}{
+		{"McMurdo after the last sunset", -77.8, 166.7, time.Date(2026, 4, 25, 5, 0, 0, 0, time.UTC)},
+		{"68N before the first sunrise", 68, 0, time.Date(2026, 1, 4, 5, 0, 0, 0, time.UTC)},
+	}
+	bc := BrightnessConfig{DayLevel: 255, NightLevel: 20, TwilightMinutes: 30}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newWeatherState(WeatherConfig{Enabled: true, Latitude: tc.lat, Longitude: tc.lon}, weatherObservation{}, true, airObservation{}, false, tc.now)
+			if !s.Night {
+				t.Errorf("weather state night = false, want true (sun %v %v..%v)", s.HaveSun, s.Sunrise, s.Sunset)
+			}
+			if level, night := sunLevel(bc, tc.lat, tc.lon, tc.now); !night || level != bc.NightLevel {
+				t.Errorf("sunLevel = %d,%v, want %d,true", level, night, bc.NightLevel)
 			}
 		})
 	}
@@ -119,11 +143,12 @@ func TestWeatherStoreStateSnapshotsTheStore(t *testing.T) {
 		t.Fatalf("empty store state = %+v, want nothing live", got)
 	}
 	s.mu.Lock()
-	s.obs, s.have = weatherObservation{Condition: "rain", FetchedAt: now}, true
-	s.air, s.haveAir = airObservation{AQI: 42, FetchedAt: now}, true
+	s.obs, s.have = weatherObservation{Condition: "rain", FetchedAt: now, Hourly: []float64{1, 2}}, true
+	s.air, s.haveAir = airObservation{AQI: 42, FetchedAt: now, HourlyAQI: []float64{42, 40}}, true
 	s.mu.Unlock()
 	got := s.state(WeatherConfig{Enabled: true}, now)
-	if !got.live() || !got.airLive() || got.Obs.Condition != "rain" || got.Air.AQI != 42 {
+	if !got.live() || !got.airLive() || got.Obs.Condition != "rain" || got.Air.AQI != 42 ||
+		len(got.Obs.Hourly) != 2 || len(got.Air.HourlyAQI) != 2 {
 		t.Errorf("state = %+v, want the stored observations live", got)
 	}
 }

@@ -115,8 +115,15 @@ func sunEventsAround(lat, lon float64, now time.Time) (last, next *sunEvent) {
 
 func sunNight(lat, lon float64, now time.Time) bool {
 	last, next := sunEventsAround(lat, lon, now)
-	if last == nil || next == nil {
-		return polarNight(lat, now)
+	return nightBetween(last, next, lat, now)
+}
+
+func nightBetween(last, next *sunEvent, lat float64, now time.Time) bool {
+	switch {
+	case last != nil:
+		return !last.rise
+	case next != nil:
+		return next.rise
 	}
-	return !last.rise
+	return polarNight(lat, now)
 }
