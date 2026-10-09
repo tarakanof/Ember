@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"maps"
+	"time"
 )
 
 type noticeKind int
@@ -50,10 +51,12 @@ type notice struct {
 	payload  map[string]any
 }
 
-func (c *coordinator) quietNow() bool {
+func (c *coordinator) quietAt(t time.Time) bool {
 	enabled, start, end := c.loadCfg().quietHoursWindow()
-	return enabled && quietActive(start, end, c.clk.Now())
+	return enabled && quietActive(start, end, t)
 }
+
+func (c *coordinator) quietNow() bool { return c.quietAt(c.clk.Now()) }
 
 func (c *coordinator) showNotice(ctx context.Context, n notice) error {
 	p := make(map[string]any, len(n.payload)+5)

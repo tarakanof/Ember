@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"go/constant"
+	"go/types"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -197,28 +199,48 @@ func runMeetingNotice(t *testing.T, app *App) {
 
 func TestNoticesReachTheClockUnchanged(t *testing.T) {
 	for _, s := range noticeScenarios() {
+		golden := filepath.Join("testdata", "notices", strings.ReplaceAll(s.name, "/", "_")+".jsonl")
 		t.Run(s.name, func(t *testing.T) {
-			cfg := defaultConfig()
-			cfg.applyDefaults()
-			cfg.Weather.Enabled = true
-			if s.cfg != nil {
-				s.cfg(&cfg)
-			}
-			log := newClockCallLog()
-			app := NewApp(cfg, log, testLogger())
-			setQuietHours(app, s.quiet)
-			s.run(t, app)
-			var got []byte
-			for _, c := range log.snapshot() {
-				line, err := json.Marshal(c)
-				if err != nil {
-					t.Fatal(err)
-				}
-				got = append(append(got, line...), '\n')
-			}
-			compareGolden(t, filepath.Join("testdata", "notices", strings.ReplaceAll(s.name, "/", "_")+".jsonl"), got)
+			compareGolden(t, golden, runNoticeScenario(t, s, func(app *App) { setQuietHours(app, s.quiet) }))
+		})
+		if s.quiet {
+			continue
+		}
+		t.Run(s.name+"_outside_quiet_window", func(t *testing.T) {
+			compareGolden(t, golden, runNoticeScenario(t, s, setQuietHoursElsewhere))
 		})
 	}
+}
+
+func setQuietHoursElsewhere(app *App) {
+	now := time.Now()
+	app.updateConfig(func(c *Config) {
+		c.QuietHours = QuietHoursConfig{Enabled: true,
+			Start: now.Add(2 * time.Hour).Format("15:04"), End: now.Add(3 * time.Hour).Format("15:04")}
+	})
+}
+
+func runNoticeScenario(t *testing.T, s noticeScenario, quiet func(*App)) []byte {
+	t.Helper()
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	cfg.Weather.Enabled = true
+	if s.cfg != nil {
+		s.cfg(&cfg)
+	}
+	log := newClockCallLog()
+	app := NewApp(cfg, log, testLogger())
+	quiet(app)
+	s.run(t, app)
+	var got []byte
+	for _, c := range log.snapshot() {
+		line, err := json.Marshal(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(append(got, line...), '\n')
+	}
+	return got
 }
 
 func TestShowNoticeLeavesCallerPayloadUntouched(t *testing.T) {
@@ -230,5 +252,105 @@ func TestShowNoticeLeavesCallerPayloadUntouched(t *testing.T) {
 	}
 	if len(payload) != 1 {
 		t.Errorf("caller payload mutated: %v", payload)
+	}
+}
+
+func nightClockApp(t *testing.T, pub Publisher, at time.Time) (*App, *fakeClock) {
+	t.Helper()
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	cfg.Display.AttentionChime = true
+	cfg.Pomodoro.Sound = true
+	cfg.QuietHours = QuietHoursConfig{Enabled: true, Start: "22:00", End: "08:00"}
+	app := NewApp(cfg, pub, testLogger())
+	clk := &fakeClock{now: at}
+	app.coord.clk = clk
+	app.coord.ctx = context.Background()
+	app.coord.snapshot = func() Snapshot { return Snapshot{} }
+	return app, clk
+}
+
+func TestQuietHoursEndResumesNoticeSoundAndChime(t *testing.T) {
+	log := newClockCallLog()
+	app, clk := nightClockApp(t, log, time.Date(2026, 1, 1, 7, 59, 0, 0, time.Local))
+	ring := func() {
+		app.pomoPhaseEndAlert(&pomodoro.PhaseResult{Phase: pomodoro.PhaseFocus})
+		app.coord.onUpsert("mbp/claude/a", "running", "waiting")
+		app.coord.onUpsert("mbp/claude/a", "waiting", "running")
+	}
+	ring()
+	clk.Advance(time.Minute)
+	ring()
+	var notes []map[string]any
+	var chimes int
+	for _, c := range log.snapshot() {
+		switch c.Op {
+		case "notify":
+			notes = append(notes, c.Payload)
+		case "rtttl":
+			chimes++
+		}
+	}
+	if len(notes) != 2 {
+		t.Fatalf("notifications = %d, want 2", len(notes))
+	}
+	if _, has := notes[0]["soundRtttl"]; has {
+		t.Errorf("07:59 inside 22:00–08:00 must be silent: %v", notes[0])
+	}
+	if notes[1]["soundRtttl"] != defaultPomoMelody {
+		t.Errorf("08:00 is past the window, sound must resume: %v", notes[1])
+	}
+	if chimes != 1 {
+		t.Errorf("attention chimes = %d, want 1 (only after the window ends)", chimes)
+	}
+}
+
+func TestReminderLoopArmsOnTheCoordinatorClock(t *testing.T) {
+	pub := &recordingPublisher{}
+	app, _ := nightClockApp(t, pub, time.Date(2026, 1, 1, 3, 0, 0, 0, time.Local))
+	fireReminder(t, app, `{"text":"Walk","sound":true,"hold":true,"repeat_sound":true}`)
+	if _, has := pub.NotifySnapshot()[0]["soundRtttl"]; has {
+		t.Errorf("alarm pushed with sound at 03:00 inside quiet hours: %v", pub.NotifySnapshot()[0])
+	}
+	if _, n, _ := app.reminderLoop.current(); n != nil {
+		t.Error("loop armed for an alarm pushed silent; quiet hours must read one clock")
+	}
+}
+
+func TestDismissNoticeIgnoresQuietHours(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	setQuietHours(app, true)
+	if err := app.coord.dismissNotice(context.Background(), noticeReminder); err != nil {
+		t.Fatal(err)
+	}
+	if got := pub.DismissedNamesSnapshot(); len(got) != 1 || got[0] != notifyNameReminder {
+		t.Errorf("dismissed = %v, want [%s] even during quiet hours", got, notifyNameReminder)
+	}
+}
+
+func TestEveryNoticeKindHasAUniqueName(t *testing.T) {
+	_, _, info := typeCheckPackage(t)
+	seen := map[string]string{}
+	kinds := 0
+	for _, id := range info.pkg.Scope().Names() {
+		c, ok := info.pkg.Scope().Lookup(id).(*types.Const)
+		if !ok || types.TypeString(c.Type(), nil) != info.pkg.Path()+".noticeKind" {
+			continue
+		}
+		kinds++
+		v, _ := constant.Int64Val(c.Val())
+		name := noticeNames[noticeKind(v)]
+		if name == "" {
+			t.Errorf("%s has no name in noticeNames", id)
+			continue
+		}
+		if prev, dup := seen[name]; dup {
+			t.Errorf("%s and %s share the name %q", prev, id, name)
+		}
+		seen[name] = id
+	}
+	if kinds == 0 {
+		t.Fatal("found no noticeKind constants")
 	}
 }

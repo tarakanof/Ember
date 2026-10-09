@@ -80,7 +80,7 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	if loop && !a.quietNow(now) {
+	if loop && !a.coord.quietNow() {
 		a.reminderLoop.arm(now.Add(reminderHoldWindow), n)
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -114,11 +114,6 @@ func (l *reminderLoop) clear(gen int) {
 	}
 }
 
-func (a *App) quietNow(now time.Time) bool {
-	enabled, start, end := a.cfg.Load().quietHoursWindow()
-	return enabled && quietActive(start, end, now)
-}
-
 func (a *App) StartReminderLoopGuard(ctx context.Context) {
 	t := time.NewTicker(reminderLoopCheckInterval)
 	defer t.Stop()
@@ -142,7 +137,7 @@ func (a *App) checkReminderLoop(ctx context.Context, now time.Time) {
 		return
 	}
 	expired := !now.Before(until)
-	quiet := a.quietNow(now)
+	quiet := a.coord.quietAt(now)
 	if !expired && !quiet {
 		return
 	}
