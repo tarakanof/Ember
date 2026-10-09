@@ -63,13 +63,33 @@ func julianToTime(jd float64) time.Time {
 	return time.Unix(int64(math.Round(unixSeconds)), 0).UTC()
 }
 
-func localClock(t time.Time, lon float64) string {
-	offset := time.Duration(math.Round(lon/15.0)) * time.Hour
-	return t.Add(offset).UTC().Format("15:04")
+func sunClock(event time.Time, obs weatherObservation, lon float64) string {
+	return event.UTC().Add(localOffset(obs, lon)).Format("15:04")
 }
 
-func isNight(lat, lon float64, now time.Time) bool {
-	sunrise, sunset, ok := sunTimes(lat, lon, now)
+func localOffset(obs weatherObservation, lon float64) time.Duration {
+	if obs.TZKnown {
+		return time.Duration(obs.TZOffsetSeconds) * time.Second
+	}
+	return time.Duration(math.Round(lon/15)) * time.Hour
+}
+
+func localDay(now time.Time, obs weatherObservation, lon float64) string {
+	return now.UTC().Add(localOffset(obs, lon)).Format("2006-01-02")
+}
+
+func localNoon(now time.Time, obs weatherObservation, lon float64) time.Time {
+	off := localOffset(obs, lon)
+	y, m, d := now.UTC().Add(off).Date()
+	return time.Date(y, m, d, 12, 0, 0, 0, time.UTC).Add(-off)
+}
+
+func localSunTimes(lat, lon float64, now time.Time, obs weatherObservation) (sunrise, sunset time.Time, ok bool) {
+	return sunTimes(lat, lon, localNoon(now, obs, lon))
+}
+
+func isNight(lat, lon float64, now time.Time, obs weatherObservation) bool {
+	sunrise, sunset, ok := localSunTimes(lat, lon, now, obs)
 	if !ok {
 		return false
 	}

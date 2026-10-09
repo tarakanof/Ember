@@ -159,7 +159,7 @@ func TestSunPopupIsNamed(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(cfg, pub, testLogger())
 	now := time.Date(2026, 6, 13, 5, 0, 0, 0, time.UTC)
-	app.maybeFireSun(context.Background(), now, now, true, "2026-06-13", cfg.Weather, false, 0)
+	app.maybeFireSun(context.Background(), now, now, true, "2026-06-13", cfg.Weather, weatherObservation{})
 	if got := notifyName(t, pub, 0); got != notifyNameSunPopup {
 		t.Errorf("name = %q, want %q", got, notifyNameSunPopup)
 	}

@@ -56,23 +56,22 @@ func TestSunTimesPolar(t *testing.T) {
 	}
 }
 
-func TestLocalClockOffset(t *testing.T) {
+func TestSunClockUsesKnownOffsetElseLongitude(t *testing.T) {
 	noonUTC := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
-	if got := localClock(noonUTC, 15); got != "13:00" {
-		t.Errorf("lon +15 → %q, want 13:00", got)
+	known := weatherObservation{TZKnown: true, TZOffsetSeconds: 7200}
+	cases := []struct {
+		obs  weatherObservation
+		lon  float64
+		want string
+	}{
+		{known, 20.479, "14:00"},
+		{weatherObservation{}, 20.479, "13:00"},
+		{weatherObservation{}, 15, "13:00"},
+		{weatherObservation{}, -30, "10:00"},
 	}
-	if got := localClock(noonUTC, -30); got != "10:00" {
-		t.Errorf("lon -30 → %q, want 10:00", got)
-	}
-}
-
-func TestSunClockUsesKnownOffset(t *testing.T) {
-	noonUTC := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
-	cfg := WeatherConfig{Longitude: 20.479}
-	if got := sunClock(noonUTC, cfg, true, 7200); got != "14:00" {
-		t.Errorf("known-offset clock = %q, want 14:00", got)
-	}
-	if got := sunClock(noonUTC, cfg, false, 0); got != "13:00" {
-		t.Errorf("fallback clock = %q, want 13:00", got)
+	for _, c := range cases {
+		if got := sunClock(noonUTC, c.obs, c.lon); got != c.want {
+			t.Errorf("sunClock(known=%v, lon %v) = %q, want %s", c.obs.TZKnown, c.lon, got, c.want)
+		}
 	}
 }
