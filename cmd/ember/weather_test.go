@@ -408,7 +408,8 @@ func TestPollAirStoresAndPopsOnEdge(t *testing.T) {
 	}
 
 	app.pollWeather(context.Background(), t0)
-	air, have := app.weather.currentAir()
+	wx := app.weather.state(app.cfg.Load().Weather, t0)
+	air, have := wx.Air, wx.HaveAir
 	if !have || air.AQI != 50 || len(air.HourlyAQI) != 1 {
 		t.Fatalf("air obs not stored: %+v have=%v", air, have)
 	}
@@ -491,10 +492,11 @@ func TestPollAirFailureKeepsWeatherWorking(t *testing.T) {
 	app.weatherFetcher.airQualityBase = airSrv.URL
 
 	app.pollWeather(context.Background(), time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC))
-	if _, have := app.weather.current(); !have {
+	wx := app.weather.state(app.cfg.Load().Weather, time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC))
+	if !wx.HaveObs {
 		t.Error("a failing AQ fetch must not block the weather observation")
 	}
-	if _, haveAir := app.weather.currentAir(); haveAir {
+	if wx.HaveAir {
 		t.Error("failed AQ fetch must not record an observation")
 	}
 }

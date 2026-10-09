@@ -293,8 +293,6 @@ func (a *App) handleActivitySummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-const sunRounding = 5 * time.Minute
-
 type tempPoint struct {
 	Time  time.Time `json:"time"`
 	TempC float64   `json:"temp_c"`
@@ -351,10 +349,12 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 		LocationName: optString(cfg.LocationName),
 	}
 
-	if obs, ok := a.weather.current(); ok {
+	wx := a.weather.state(cfg, now)
+	if wx.HaveObs {
+		obs := wx.Obs
 		cur := &weatherCurrentOut{
 			FetchedAt:     wireTime(obs.FetchedAt, loc),
-			Stale:         now.Sub(obs.FetchedAt) >= weatherTileStaleTTL,
+			Stale:         !wx.Fresh,
 			Condition:     obs.Condition,
 			ConditionCode: optString(obs.ConditionCode),
 			Severe:        obs.Severe,
@@ -368,10 +368,11 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 		}
 		out.Current = cur
 	}
-	if air, ok := a.weather.currentAir(); ok {
+	if wx.HaveAir {
+		air := wx.Air
 		ao := &airOut{
 			FetchedAt: wireTime(air.FetchedAt, loc),
-			Stale:     now.Sub(air.FetchedAt) >= weatherTileStaleTTL,
+			Stale:     !wx.AirFresh,
 			AQI:       air.AQI,
 			PM25:      air.PM25,
 			PM10:      air.PM10,
@@ -384,11 +385,9 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 		}
 		out.Air = ao
 	}
-	if cfg.Latitude != 0 || cfg.Longitude != 0 {
-		obs, _ := a.weather.current()
-		if rise, set, ok := localSunTimes(cfg.Latitude, cfg.Longitude, now, obs); ok {
-			out.Sun = &sunOut{Sunrise: rise.Round(sunRounding).In(loc), Sunset: set.Round(sunRounding).In(loc)}
-		}
+	if wx.HaveSun {
+		rise, set := wx.roundedSun()
+		out.Sun = &sunOut{Sunrise: rise.In(loc), Sunset: set.In(loc)}
 	}
 	return out
 }

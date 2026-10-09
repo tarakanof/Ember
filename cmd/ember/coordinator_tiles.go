@@ -16,10 +16,7 @@ type tileInputs struct {
 	now time.Time
 
 	weather WeatherConfig
-	obs     weatherObservation
-	haveObs bool
-	air     airObservation
-	haveAir bool
+	wx      weatherState
 
 	meet      MeetingsConfig
 	nextMeet  meetings.Occurrence
@@ -173,8 +170,7 @@ func (c *coordinator) tileInputs(now time.Time) tileInputs {
 	cfg := c.loadCfg()
 	in := tileInputs{now: now, weather: cfg.Weather, meet: cfg.Meetings}
 	if c.weather != nil {
-		in.obs, in.haveObs = c.weather.current()
-		in.air, in.haveAir = c.weather.currentAir()
+		in.wx = c.weather.state(cfg.Weather, now)
 	}
 	if c.meetings != nil {
 		in.nextMeet, in.haveMeet = c.meetings.next(now)

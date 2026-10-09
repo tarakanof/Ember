@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"sort"
 	"sync"
 	"time"
 )
@@ -153,50 +152,18 @@ func holdWithinBand(prev int, hasPrev bool, target, band, floor, ceiling int) in
 }
 
 func sunLevel(c BrightnessConfig, lat, lon float64, now time.Time) (level int, night bool) {
-	type event struct {
-		at   time.Time
-		rise bool
-	}
-	var evs []event
-	for d := -1; d <= 1; d++ {
-		if rise, set, ok := sunTimes(lat, lon, now.AddDate(0, 0, d)); ok {
-			evs = append(evs, event{rise, true}, event{set, false})
-		}
-	}
-	sort.Slice(evs, func(i, j int) bool { return evs[i].at.Before(evs[j].at) })
-
-	var last, next *event
-	for i := range evs {
-		if !evs[i].at.After(now) {
-			last = &evs[i]
-		} else if next == nil {
-			next = &evs[i]
-		}
-	}
-	if last == nil || next == nil {
-		if polarNight(lat, now) {
-			return c.NightLevel, true
-		}
+	last, next := sunEventsAround(lat, lon, now)
+	if !nightBetween(last, next, lat, lon, now) {
 		return c.DayLevel, false
 	}
-	night = !last.rise
 	tw := time.Duration(c.TwilightMinutes) * time.Minute
-	frac := 1.0
-	if night {
-		frac = 0
-		if since := now.Sub(last.at); since < tw {
-			frac = 1 - float64(since)/float64(tw)
-		} else if until := next.at.Sub(now); next.rise && until < tw {
-			frac = 1 - float64(until)/float64(tw)
-		}
+	frac := 0.0
+	if last != nil && !last.rise && now.Sub(last.at) < tw {
+		frac = 1 - float64(now.Sub(last.at))/float64(tw)
+	} else if next != nil && next.rise && next.at.Sub(now) < tw {
+		frac = 1 - float64(next.at.Sub(now))/float64(tw)
 	}
-	return c.NightLevel + int(math.Round(frac*float64(c.DayLevel-c.NightLevel))), night
-}
-
-func polarNight(lat float64, now time.Time) bool {
-	decl := -23.44 * math.Cos(2*math.Pi*float64(now.UTC().YearDay()+10)/365)
-	noonAltitude := 90 - math.Abs(lat-decl)
-	return noonAltitude < -0.833
+	return c.NightLevel + int(math.Round(frac*float64(c.DayLevel-c.NightLevel))), true
 }
 
 func decideBrightness(c BrightnessConfig, st brightnessState, s *luxSample, geo brightnessGeo, now time.Time) (brightnessOut, brightnessState) {

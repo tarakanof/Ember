@@ -235,18 +235,6 @@ type weatherStore struct {
 
 func newWeatherStore() *weatherStore { return &weatherStore{} }
 
-func (s *weatherStore) current() (weatherObservation, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.obs, s.have
-}
-
-func (s *weatherStore) currentAir() (airObservation, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.air, s.haveAir
-}
-
 type weatherFetcher struct {
 	client         *http.Client
 	openMeteoBase  string
@@ -639,19 +627,12 @@ func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConf
 	if !cfg.SunPopupsEnabled() {
 		return
 	}
-	if cfg.Latitude == 0 && cfg.Longitude == 0 {
+	wx := a.weather.state(cfg, now)
+	if !wx.HaveSun {
 		return
 	}
-	a.weather.mu.RLock()
-	obs := a.weather.obs
-	a.weather.mu.RUnlock()
-	sunrise, sunset, ok := localSunTimes(cfg.Latitude, cfg.Longitude, now, obs)
-	if !ok {
-		return
-	}
-	today := localDay(now, obs, cfg.Longitude)
-	a.maybeFireSun(ctx, now, sunrise, true, today, cfg, obs)
-	a.maybeFireSun(ctx, now, sunset, false, today, cfg, obs)
+	a.maybeFireSun(ctx, now, wx.Sunrise, true, wx.LocalDay, cfg, wx.Obs)
+	a.maybeFireSun(ctx, now, wx.Sunset, false, wx.LocalDay, cfg, wx.Obs)
 }
 
 func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising bool, today string, cfg WeatherConfig, obs weatherObservation) {

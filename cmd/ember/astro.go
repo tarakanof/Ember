@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"sort"
 	"time"
 )
 
@@ -22,10 +23,9 @@ func moonIllumination(t time.Time) (illum float64, waxing bool) {
 	return illum, frac < 0.5
 }
 
-func sunTimes(lat, lon float64, date time.Time) (sunrise, sunset time.Time, ok bool) {
-	jd := julianDate(date)
-	n := math.Round(jd - 2451545.0 + 0.0008)
+const sunHorizonDeg = -0.833
 
+func solarTransit(n, lon float64) (jTransit, sinDecl, decl float64) {
 	jStar := n - lon/360.0
 	m := math.Mod(357.5291+0.98560028*jStar, 360)
 	mRad := m * deg2rad
@@ -33,11 +33,17 @@ func sunTimes(lat, lon float64, date time.Time) (sunrise, sunset time.Time, ok b
 	lambda := math.Mod(m+c+180+102.9372, 360)
 	lRad := lambda * deg2rad
 
-	jTransit := 2451545.0 + jStar + 0.0053*math.Sin(mRad) - 0.0069*math.Sin(2*lRad)
-	sinDecl := math.Sin(lRad) * math.Sin(23.4397*deg2rad)
-	decl := math.Asin(sinDecl)
+	jTransit = 2451545.0 + jStar + 0.0053*math.Sin(mRad) - 0.0069*math.Sin(2*lRad)
+	sinDecl = math.Sin(lRad) * math.Sin(23.4397*deg2rad)
+	return jTransit, sinDecl, math.Asin(sinDecl)
+}
 
-	cosOmega := (math.Sin(-0.833*deg2rad) - math.Sin(lat*deg2rad)*sinDecl) /
+func sunTimes(lat, lon float64, date time.Time) (sunrise, sunset time.Time, ok bool) {
+	jd := julianDate(date)
+	n := math.Round(jd - 2451545.0 + 0.0008)
+	jTransit, sinDecl, decl := solarTransit(n, lon)
+
+	cosOmega := (math.Sin(sunHorizonDeg*deg2rad) - math.Sin(lat*deg2rad)*sinDecl) /
 		(math.Cos(lat*deg2rad) * math.Cos(decl))
 	if cosOmega > 1 || cosOmega < -1 {
 		return time.Time{}, time.Time{}, false
@@ -47,6 +53,15 @@ func sunTimes(lat, lon float64, date time.Time) (sunrise, sunset time.Time, ok b
 	jRise := jTransit - omega/360.0
 	jSet := jTransit + omega/360.0
 	return julianToTime(jRise), julianToTime(jSet), true
+}
+
+func solarElevation(lat, lon float64, now time.Time) float64 {
+	jd := float64(now.Unix())/86400 + 2440587.5
+	n := math.Round(jd - 2451545.0 + lon/360.0)
+	jTransit, sinDecl, decl := solarTransit(n, lon)
+	hourAngle := (jd - jTransit) * 2 * math.Pi
+	sinAlt := math.Sin(lat*deg2rad)*sinDecl + math.Cos(lat*deg2rad)*math.Cos(decl)*math.Cos(hourAngle)
+	return math.Asin(sinAlt) / deg2rad
 }
 
 func julianDate(date time.Time) float64 {
@@ -89,10 +104,37 @@ func localSunTimes(lat, lon float64, now time.Time, obs weatherObservation) (sun
 	return sunTimes(lat, lon, solarDate)
 }
 
-func isNight(lat, lon float64, now time.Time, obs weatherObservation) bool {
-	sunrise, sunset, ok := localSunTimes(lat, lon, now, obs)
-	if !ok {
-		return false
+type sunEvent struct {
+	at   time.Time
+	rise bool
+}
+
+func sunEventsAround(lat, lon float64, now time.Time) (last, next *sunEvent) {
+	var evs []sunEvent
+	for d := -1; d <= 1; d++ {
+		if rise, set, ok := sunTimes(lat, lon, now.AddDate(0, 0, d)); ok {
+			evs = append(evs, sunEvent{rise, true}, sunEvent{set, false})
+		}
 	}
-	return now.Before(sunrise) || now.After(sunset)
+	sort.Slice(evs, func(i, j int) bool { return evs[i].at.Before(evs[j].at) })
+	for i := range evs {
+		if !evs[i].at.After(now) {
+			last = &evs[i]
+		} else if next == nil {
+			next = &evs[i]
+		}
+	}
+	return last, next
+}
+
+func sunNight(lat, lon float64, now time.Time) bool {
+	last, next := sunEventsAround(lat, lon, now)
+	return nightBetween(last, next, lat, lon, now)
+}
+
+func nightBetween(last, next *sunEvent, lat, lon float64, now time.Time) bool {
+	if last != nil && next != nil {
+		return !last.rise
+	}
+	return solarElevation(lat, lon, now) < sunHorizonDeg
 }

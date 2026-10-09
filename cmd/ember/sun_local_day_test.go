@@ -117,13 +117,13 @@ func TestSunTimesUseTheLocalDayEverywhere(t *testing.T) {
 
 			wantNight := c.now.Before(rise) || c.now.After(set)
 			cfg := app.cfg.Load().Weather
-			if gotNight := weatherTileMoon(cfg, app.weather.obs, c.now) != nil; gotNight != wantNight {
+			if gotNight := weatherTileMoon(cfg, app.weather.state(cfg, c.now), c.now) != nil; gotNight != wantNight {
 				t.Errorf("clock night = %v, want %v (sunrise %v, sunset %v)", gotNight, wantNight, rise, set)
 			}
 
 			local := c.now.UTC().Add(c.offset())
 			noon := time.Date(local.Year(), local.Month(), local.Day(), 12, 0, 0, 0, time.UTC).Add(-c.offset())
-			if weatherTileMoon(cfg, app.weather.obs, noon) != nil {
+			if weatherTileMoon(cfg, app.weather.state(cfg, noon), noon) != nil {
 				t.Errorf("clock night at local noon %v (sunrise %v, sunset %v)", noon, rise, set)
 			}
 		})

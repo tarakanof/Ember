@@ -31,14 +31,14 @@ func (a *App) weatherPreview(q url.Values, now time.Time) render.Preview {
 		cfg.Latitude, cfg.Longitude = lat, lon
 	}
 
-	in := tileInputs{now: now, weather: cfg}
-	var have bool
-	if in.obs, have = a.weather.current(); !have {
-		in.obs = sampleWeatherObservation(now)
+	wx := a.weather.state(cfg, now)
+	if !wx.HaveObs {
+		wx.Obs = sampleWeatherObservation(now)
 	}
-	if in.air, have = a.weather.currentAir(); !have {
-		in.air = sampleAirObservation(now)
+	if !wx.HaveAir {
+		wx.Air = sampleAirObservation(now)
 	}
+	in := tileInputs{now: now, weather: cfg, wx: wx}
 	return previewTiles(in, weatherTile.card, forecastTile.card, airTile.card)
 }
 
