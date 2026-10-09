@@ -78,7 +78,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobFollowBrightness:
             "The knob has no light sensor, so it uses the level Ember works out from the clock's light sensor, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on."
         case .knobMinBrightness:
-            "The knob never goes below this, whether it follows Ember or not. Raising it above Brightness raises Brightness too. Default: 4 percent."
+            "The knob never goes below this, whether it follows Ember or not, except during quiet hours, when Quiet brightness applies. Raising it above Brightness raises Brightness too. Default: 4 percent."
         case .knobStartupBrightness:
             "The screen stays dark while the knob boots, then lights at this level until your brightness setting takes over. Default: 60 percent."
         case .knobSleepy:

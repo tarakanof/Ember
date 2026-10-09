@@ -244,7 +244,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
             case calm
             case dimLevel = "dim_level"
         }
-        public init(calm: Bool = true, dimLevel: Int = 20) { self.calm = calm; self.dimLevel = dimLevel }
+        public init(calm: Bool, dimLevel: Int) { self.calm = calm; self.dimLevel = dimLevel }
     }
 
     public struct Bot: Codable, Equatable, Sendable {

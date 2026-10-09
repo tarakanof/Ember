@@ -1707,6 +1707,7 @@
     "Publishing" : {},
     "Pulsing" : {},
     "Quiet Hours" : {},
+    "Quiet brightness" : {},
     "Quit Ember" : {},
     "Quit other apps using the port (such as idf.py monitor), then unplug and plug the knob back in." : {},
     "Rain" : {},
@@ -2105,7 +2106,7 @@
     "The knob checks in with Ember every minute and picks up setting changes within a few seconds." : {},
     "The knob didn't report its hardware ID. Update its firmware." : {},
     "The knob didn't return a scan. Type the network name." : {},
-    "The knob dims and brightens with the clock. It never goes below the minimum." : {},
+    "The knob dims and brightens with the clock. It never goes below the minimum, except during quiet hours." : {},
     "The knob forgets its Wi-Fi, Ember address and token, then restarts to its setup screen. Ember keeps its settings here until you forget it." : {},
     "The knob has already started this update. Wait until it finishes." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2139,7 +2140,7 @@
     "The knob is saving; wait until it finishes." : {},
     "The knob is scanning…" : {},
     "The knob is set up and talking to Ember." : {},
-    "The knob never goes below this, whether it follows Ember or not. Raising it above Brightness raises Brightness too. Default: 4 percent." : {
+    "The knob never goes below this, whether it follows Ember or not, except during quiet hours, when Quiet brightness applies. Raising it above Brightness raises Brightness too. Default: 4 percent." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -2157,7 +2158,7 @@
     "The knob saved a crash dump in flash. It uploads the dump to Ember and erases it once Ember has it; older firmware reports it on every check-in until it is erased over USB (idf.py coredump-erase or a reflash)." : {},
     "The knob sends hardware stats every minute, and every 5 seconds while this page is open. It needs firmware with diagnostics." : {},
     "The knob sends no hardware stats." : {},
-    "The knob stays at this brightness. It never goes below the minimum." : {},
+    "The knob stays at this brightness. It never goes below the minimum, except during quiet hours." : {},
     "The knob stopped answering. Check that it's plugged in and try again." : {},
     "The knob was disconnected. Plug it back in and try again." : {},
     "The knob's old token no longer works. Run the setup again to finish." : {},

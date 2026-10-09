@@ -31,9 +31,9 @@ struct KnobDisplaySection: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if follow {
-                    Text("The knob dims and brightens with the clock. It never goes below the minimum.")
+                    Text("The knob dims and brightens with the clock. It never goes below the minimum, except during quiet hours.")
                 } else {
-                    Text("The knob stays at this brightness. It never goes below the minimum.")
+                    Text("The knob stays at this brightness. It never goes below the minimum, except during quiet hours.")
                 }
                 SaveErrorFooter(error: knob.settings.saveError)
             }
@@ -52,7 +52,7 @@ struct KnobQuietSection: View {
                     get: { quiet.calm },
                     set: { v in knob.edit { $0.quiet?.calm = v } }),
                     info: .knobQuietCalm, requirement: .loading)
-                PercentSliderRow(title: "Brightness", percent: Binding(
+                PercentSliderRow(title: "Quiet brightness", percent: Binding(
                     get: { DeviceUnits.brightnessPercent(raw: quiet.dimLevel) },
                     set: { p in knob.edit { $0.quiet?.dimLevel = DeviceUnits.brightnessRaw(percent: p) } }),
                     range: 1...100, info: .knobQuietDim, requirement: .loading)
