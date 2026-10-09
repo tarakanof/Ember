@@ -269,9 +269,9 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 	if req.Duration <= 0 {
 		req.Duration = 5
 	}
-	payload := render.NotifyPayload(req.Text, req.Color, req.TextCase, req.Duration, req.Hold)
-	payload["name"] = notifyNameNotify
-	if err := a.publisher.Notify(r.Context(), payload); err != nil {
+	n := notice{app: "notify", kind: noticeMessage, priority: noticeInterrupt,
+		payload: render.NotifyPayload(req.Text, req.Color, req.TextCase, req.Duration, req.Hold)}
+	if err := a.coord.showNotice(r.Context(), n); err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}

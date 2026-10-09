@@ -53,20 +53,9 @@ func TestReminderPopupSilentOmitsSoundKey(t *testing.T) {
 }
 
 func TestReminderChimeStrippedDuringQuietHours(t *testing.T) {
-	cfg := defaultConfig()
-	app := NewApp(cfg, &recordingPublisher{}, testLogger())
 	pub := &recordingPublisher{}
-	app.publisher = &quietPublisher{
-		Publisher: pub,
-		cfg: func() *Config {
-			c := *app.cfg.Load()
-			c.QuietHours.Enabled = true
-			c.QuietHours.Start = "00:00"
-			c.QuietHours.End = "23:59"
-			return &c
-		},
-		now: func() time.Time { return time.Date(2026, 1, 1, 3, 0, 0, 0, time.UTC) },
-	}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	setQuietHours(app, true)
 	req := httptest.NewRequest(http.MethodPost, "/v1/reminders/fire",
 		strings.NewReader(`{"text":"Night","sound":true}`))
 	app.handleReminderFire(httptest.NewRecorder(), req)

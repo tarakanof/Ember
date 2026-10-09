@@ -220,3 +220,15 @@ func TestNoticesReachTheClockUnchanged(t *testing.T) {
 		})
 	}
 }
+
+func TestShowNoticeLeavesCallerPayloadUntouched(t *testing.T) {
+	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	payload := map[string]any{"text": "hi"}
+	n := notice{app: "test", kind: noticeMessage, sound: noticeSound{rtttl: "x:d=4:c"}, payload: payload}
+	if err := app.coord.showNotice(context.Background(), n); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) != 1 {
+		t.Errorf("caller payload mutated: %v", payload)
+	}
+}

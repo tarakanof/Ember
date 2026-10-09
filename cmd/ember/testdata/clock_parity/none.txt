@@ -101,25 +101,25 @@ tick 38 state=error pomo=false hold=0
   dev#061 PUT /api/v1/apps/pushed/ember body=6b84814a ok
 tick 39 state=error pomo=false hold=0
   dev#062 PUT /api/v1/apps/pushed/ember body=6b84814a ok
-  dev#063 POST /api/v1/notifications body=78a203d6 ok
+  dev#063 POST /api/v1/notifications body=481a706c ok
 quiet=false notify #0 err=<nil>
   dev#064 POST /api/v1/audio/play body=b599ab2e ok
 quiet=false rtttl #0 err=<nil>
-  dev#065 POST /api/v1/notifications body=78a203d6 ok
+  dev#065 POST /api/v1/notifications body=481a706c ok
 quiet=false notify #1 err=<nil>
   dev#066 POST /api/v1/audio/play body=b599ab2e ok
 quiet=false rtttl #1 err=<nil>
-  dev#067 POST /api/v1/notifications body=78a203d6 ok
+  dev#067 POST /api/v1/notifications body=481a706c ok
 quiet=false notify #2 err=<nil>
   dev#068 POST /api/v1/audio/play body=b599ab2e ok
 quiet=false rtttl #2 err=<nil>
-  dev#069 POST /api/v1/notifications body=e7b995ef ok
+  dev#069 POST /api/v1/notifications body=d26d7059 ok
 quiet=true notify #0 err=<nil>
 quiet=true rtttl #0 err=<nil>
-  dev#070 POST /api/v1/notifications body=e7b995ef ok
+  dev#070 POST /api/v1/notifications body=d26d7059 ok
 quiet=true notify #1 err=<nil>
 quiet=true rtttl #1 err=<nil>
-  dev#071 POST /api/v1/notifications body=e7b995ef ok
+  dev#071 POST /api/v1/notifications body=d26d7059 ok
 quiet=true notify #2 err=<nil>
 quiet=true rtttl #2 err=<nil>
   dev#072 GET /api/v1/settings body=e3b0c442 ok

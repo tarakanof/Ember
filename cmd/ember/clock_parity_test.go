@@ -309,10 +309,6 @@ func runClockParity(t *testing.T, pat []bool) string {
 	app.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return []discovery.Candidate{{BaseURL: srv.URL, UID: "abc"}}, nil
 	}
-	night := time.Date(2026, 9, 26, 23, 0, 0, 0, time.Local)
-	qp := app.publisher.(*quietPublisher)
-	qp.now = func() time.Time { return night }
-
 	step := func(format string, args ...any) {
 		dev.mu.Lock()
 		fmt.Fprintf(&log, format+"\n", args...)
@@ -368,17 +364,20 @@ func runClockParity(t *testing.T, pat []bool) string {
 		clk.Advance(37 * time.Second)
 	}
 
+	c.clk = &fakeClock{now: time.Date(2026, 9, 26, 23, 0, 0, 0, time.Local)}
 	for _, quiet := range []bool{false, true} {
 		cur := *app.cfg.Load()
 		cur.QuietHours = QuietHoursConfig{Enabled: quiet, Start: "22:00", End: "08:00"}
 		app.cfg.Store(&cur)
 		for i := 0; i < 3; i++ {
-			err := app.publisher.Notify(context.Background(), map[string]any{"text": "hi", "sound": "chime", "soundRtttl": "x:d=4:c"})
+			err := c.showNotice(context.Background(), notice{app: "parity", kind: noticeMessage,
+				sound: noticeSound{melody: "chime", rtttl: "x:d=4:c"}, payload: map[string]any{"text": "hi"}})
 			step("quiet=%v notify #%d err=%v", quiet, i, norm(fmt.Sprint(err)))
-			err = app.publisher.PlayRTTTL(context.Background(), "x:d=4:c")
+			err = c.playChime(context.Background(), "x:d=4:c")
 			step("quiet=%v rtttl #%d err=%v", quiet, i, norm(fmt.Sprint(err)))
 		}
 	}
+	c.clk = clk
 	quietOff := *app.cfg.Load()
 	quietOff.QuietHours.Enabled = false
 	app.cfg.Store(&quietOff)

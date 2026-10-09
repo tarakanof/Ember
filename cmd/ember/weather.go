@@ -588,11 +588,11 @@ func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
 
 	t := float64(cfg.AirPopupThreshold)
 	if cfg.AirPopupThreshold > 0 && obs.AQI >= t && (!havePrev || prev < t) {
-		payload := render.AirPopupPayload(obs.AQI, cfg.PopupDurationSeconds)
-		payload["name"] = notifyNameAirPopup
+		n := notice{app: "weather", kind: noticeAir, priority: noticeInterrupt,
+			payload: render.AirPopupPayload(obs.AQI, cfg.PopupDurationSeconds)}
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		if err := a.publisher.Notify(cctx, payload); err != nil {
+		if err := a.coord.showNotice(cctx, n); err != nil {
 			a.logger.Warn("air popup failed", "err", err)
 		}
 	}
@@ -656,11 +656,11 @@ func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising boo
 		word = "SUNRISE"
 	}
 	label := word + " " + sunClock(event, obs, cfg.Longitude)
-	payload := render.SunPopupPayload(rising, label, cfg.PopupDurationSeconds)
-	payload["name"] = notifyNameSunPopup
+	n := notice{app: "weather", kind: noticeSun, priority: noticeInterrupt,
+		payload: render.SunPopupPayload(rising, label, cfg.PopupDurationSeconds)}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := a.publisher.Notify(cctx, payload); err != nil {
+	if err := a.coord.showNotice(cctx, n); err != nil {
 		a.logger.Warn("sun popup failed", "err", err)
 	}
 }
@@ -670,19 +670,17 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 	if cfg.UseNativeIcons {
 		iconID = cfg.weatherIconID(obs.Condition)
 	}
-	payload := render.WithOverlay(render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec),
-		weatherOverlay(obs, cfg))
-	payload["name"] = notifyNameWeatherPopup
-	if sound != "" {
-		if strings.Contains(sound, ":") {
-			payload["soundRtttl"] = sound
-		} else {
-			payload["sound"] = sound
-		}
+	n := notice{app: "weather", kind: noticeWeather, priority: noticeInterrupt,
+		payload: render.WithOverlay(render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec),
+			weatherOverlay(obs, cfg))}
+	if strings.Contains(sound, ":") {
+		n.sound.rtttl = sound
+	} else {
+		n.sound.melody = sound
 	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := a.publisher.Notify(cctx, payload); err != nil {
+	if err := a.coord.showNotice(cctx, n); err != nil {
 		a.logger.Warn("weather popup failed", "err", err)
 	}
 }

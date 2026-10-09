@@ -246,7 +246,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		if err := c.publisher.PlayRTTTL(ctx, attentionRTTTL); err != nil {
+		if err := c.playChime(ctx, attentionRTTTL); err != nil {
 			c.logger.Warn("attention chime failed", "err", err)
 		}
 	}

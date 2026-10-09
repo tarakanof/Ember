@@ -155,9 +155,8 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 			publisher = clockPublisher{a.clock}
 		}
 	}
-	quiet := &quietPublisher{Publisher: publisher, cfg: a.cfg.Load, now: time.Now}
-	a.publisher = quiet
-	a.coord = newCoordinator(cfg, a.cfg.Load, quiet, realClock{}, logger, a.metrics)
+	a.publisher = publisher
+	a.coord = newCoordinator(cfg, a.cfg.Load, publisher, realClock{}, logger, a.metrics)
 	a.coord.snapshot = a.Snapshot
 	a.coord.onPublishResult = a.recordPublish
 	a.hiddenApps = map[string]bool{}

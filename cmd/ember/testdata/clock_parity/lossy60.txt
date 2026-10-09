@@ -158,25 +158,25 @@ tick 38 state=error pomo=false hold=0
   dev#118 PUT /api/v1/apps/pushed/ember body=6b84814a DROP
 tick 39 state=error pomo=false hold=0
   dev#119 PUT /api/v1/apps/pushed/ember body=6b84814a ok
-  dev#120 POST /api/v1/notifications body=78a203d6 DROP
+  dev#120 POST /api/v1/notifications body=481a706c DROP
 quiet=false notify #0 err=Post "CLOCK/api/v1/notifications": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
   dev#121 POST /api/v1/audio/play body=b599ab2e ok
 quiet=false rtttl #0 err=<nil>
-  dev#122 POST /api/v1/notifications body=78a203d6 DROP
+  dev#122 POST /api/v1/notifications body=481a706c DROP
 quiet=false notify #1 err=Post "CLOCK/api/v1/notifications": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
   dev#123 POST /api/v1/audio/play body=b599ab2e DROP
 quiet=false rtttl #1 err=Post "CLOCK/api/v1/audio/play": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
-  dev#124 POST /api/v1/notifications body=78a203d6 ok
+  dev#124 POST /api/v1/notifications body=481a706c ok
 quiet=false notify #2 err=<nil>
   dev#125 POST /api/v1/audio/play body=b599ab2e DROP
 quiet=false rtttl #2 err=Post "CLOCK/api/v1/audio/play": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
-  dev#126 POST /api/v1/notifications body=e7b995ef ok
+  dev#126 POST /api/v1/notifications body=d26d7059 ok
 quiet=true notify #0 err=<nil>
 quiet=true rtttl #0 err=<nil>
-  dev#127 POST /api/v1/notifications body=e7b995ef DROP
+  dev#127 POST /api/v1/notifications body=d26d7059 DROP
 quiet=true notify #1 err=Post "CLOCK/api/v1/notifications": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
 quiet=true rtttl #1 err=<nil>
-  dev#128 POST /api/v1/notifications body=e7b995ef DROP
+  dev#128 POST /api/v1/notifications body=d26d7059 DROP
 quiet=true notify #2 err=Post "CLOCK/api/v1/notifications": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
 quiet=true rtttl #2 err=<nil>
   dev#129 GET /api/v1/settings body=e3b0c442 ok

@@ -51,10 +51,10 @@ func (c *coordinator) fireLimitAlarm(tool string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	payload := render.LimitResetPopupPayload(tool, limitAlarmPopupSec)
-	payload["name"] = notifyNameUsageAlarm
-	payload["soundRtttl"] = limitAlarmRTTTL
-	if err := c.publisher.Notify(ctx, payload); err != nil {
+	n := notice{app: "usage", kind: noticeUsageReset, priority: noticeQueue,
+		sound:   noticeSound{rtttl: limitAlarmRTTTL},
+		payload: render.LimitResetPopupPayload(tool, limitAlarmPopupSec)}
+	if err := c.showNotice(ctx, n); err != nil {
 		c.logger.Warn("limit alarm notify failed", "tool", tool, "err", err)
 		return err
 	}
