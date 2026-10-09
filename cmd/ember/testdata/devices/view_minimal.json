@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "epoch": 1,
+  "config_version": 1,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 0,
+    "done": 0,
+    "source": ""
+  },
+  "pomo": null,
+  "weather": null,
+  "brightness": {
+    "level": 255,
+    "night": false
+  }
+}

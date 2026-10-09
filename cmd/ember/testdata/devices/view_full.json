@@ -1,0 +1,55 @@
+{
+  "v": 1,
+  "epoch": 2,
+  "config_version": 2,
+  "mood": {
+    "waiting": 3,
+    "errors": 0,
+    "running": 1,
+    "done": 0,
+    "source": "",
+    "lead": "STUDIO",
+    "hosts": 2,
+    "lead_color": "#00C8C8",
+    "tool": "claude"
+  },
+  "pomo": {
+    "phase": "focus",
+    "running": true,
+    "paused": false,
+    "ends_at": 1782044700,
+    "planned_sec": 1500,
+    "round": 0
+  },
+  "weather": {
+    "provider": "open-meteo",
+    "cond": "rain",
+    "code": "61",
+    "temp_c": 12.5,
+    "stale": false,
+    "severe": false,
+    "night": false,
+    "sunrise": 1782013500,
+    "sunset": 1782073200
+  },
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "nowplaying": {
+    "state": "playing",
+    "source": "plex",
+    "title": "Example Song",
+    "artist": "Example Artist",
+    "album": "Example Album",
+    "track_id": "4242",
+    "duration_ms": 330000,
+    "position_ms": 61000,
+    "position_at": 1782043198000,
+    "art_version": "1351688abc58",
+    "album_art": true,
+    "artist_art": true,
+    "volume": 40
+  },
+  "diag_live_until": 1782043500
+}

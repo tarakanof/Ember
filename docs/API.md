@@ -3,6 +3,8 @@
 The contract (request/response shapes, auth per route) is
 [`openapi.yaml`](openapi.yaml); operations marked `x-internal` serve Ember.app
 and may change.
+The knob's routes also follow [`DEVICE-PROTOCOL.md`](DEVICE-PROTOCOL.md):
+compatibility rules and the golden fixtures in `cmd/ember/testdata/devices`.
 
 **Tokens.** `EMBER_TOKEN` (master) passes every bearer route below. Scoped
 client tokens (`ekc_…`) and knob tokens are minted only by the master token with `POST /v1/devices

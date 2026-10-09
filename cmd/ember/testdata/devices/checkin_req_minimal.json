@@ -1,0 +1,9 @@
+{
+  "config_version": 1,
+  "fw": "0.9.13",
+  "heap_internal_free": 47104,
+  "heap_internal_largest": 31744,
+  "ip": "192.0.2.10",
+  "rssi": -58,
+  "uptime_s": 812
+}
