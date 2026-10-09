@@ -1601,6 +1601,7 @@ paths:
       tags: [devices]
       operationId: renameDevice
       summary: Rename a record
+      description: Renaming a client takes the master token (403 for any client token).
       security: [{ownerToken: []}, {clientToken: [admin]}]
       requestBody:
         required: true

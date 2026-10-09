@@ -8,7 +8,7 @@ compatibility rules and the golden fixtures in `cmd/ember/testdata/devices`.
 
 **Tokens.** `EMBER_TOKEN` (master) passes every bearer route below. Scoped
 client tokens (`ekc_…`) and knob tokens are minted only by the master token with `POST /v1/devices
-{"kind":"client","name","scopes"}` (at most 64; rotate/delete also master-only;
+{"kind":"client","name","scopes"}` (at most 64; rename/rotate/delete also master-only;
 listed by `GET /v1/clients`, owner or `admin`, kept out of the device
 registry since #340) and pass only their scopes: `ingest` (`POST`/`DELETE /v1/status`,
 `POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire`), `control`

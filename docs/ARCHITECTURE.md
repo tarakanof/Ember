@@ -2263,8 +2263,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `hw_id`; at most 64 clients (every mint rewrites the client blob).
   `POST /v1/devices {"kind":"client","name","scopes"}` mints one
   (201, token once); `GET /v1/clients` lists them (owner or `admin`), and
-  `PATCH`/`DELETE /v1/devices/{id}` and `/rotate` route a `client-` id to
-  the client store, so those routes and every client response keep the
+  `PATCH`/`DELETE /v1/devices/{id}` and `/rotate` route any `client-` id to
+  the client store by prefix (so a client store that failed to load answers
+  500 there, and `GET /v1/clients` too, never a 404 from the device side), so those routes and every client response keep the
   pre-#340 wire shape (`clientView` mirrors `deviceView`: `kind: client`,
   `hw_id: ""`, `config_version: 0`, `last_checkin: null`, plus `scopes` and
   `sources`). Device ids must never start with `client-`. `requireAuth` admits a client on an owner route when it
@@ -2277,7 +2278,7 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   or `/admin/*`. Rotating a client mints and returns the new token at once (200)
   and revokes the old one: there is no checkin to deliver it on. Config,
   stats and checkin lookups only see devices, so a client id is 404 there.
-  Mint, rotate and delete leave the devices epoch alone (no knob needs to
+  Mint, rename, rotate and delete leave the devices epoch alone (no knob needs to
   re-check in for a client change) and take the master
   token (a client caller, admin included, is 403: `requireAuth` marks
   client callers in the request context), and mint stops at 64 clients

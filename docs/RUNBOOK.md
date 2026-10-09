@@ -644,7 +644,11 @@ curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c -H "$H"   # revoke
   re-POST its `hw_id` (USB setup) instead; both revoke immediately.
 - **`/admin/doctor` `devices` fails with "registry load failed":** the stored
   `devices_json` row didn't decode, or a `client` record in it couldn't be
-  moved to `clients_json` (then `client_tokens` fails too). Device writes and knob auth answer 500
+  moved to `clients_json` (then `client_tokens` fails too).
+- **`/admin/doctor` `client_tokens` fails, `devices` ok:** `clients_json`
+  didn't decode. Knobs keep working; every `ekc_` token and client route
+  (`GET /v1/clients`, mint, rename, rotate, delete) answers 500 "client token
+  store unavailable" until the row is fixed and the server restarted. Device writes and knob auth answer 500
   until restart so the row isn't overwritten; fix or delete the row in
   `pomodoro.db`, then restart.
 - **Knob gets 401:** it was deleted, re-provisioned elsewhere, or missed a
@@ -809,7 +813,7 @@ curl -s -XPOST localhost:3627/v1/devices -H "$H" \
 ```
 
 Only `EMBER_TOKEN` mints tokens (client or knob) and manages client tokens
-(any client token gets 403), and
+(rename, rotate, delete; any client token gets 403), and
 there are at most 64 (400 past that). Only the token's SHA-256 is stored, in
 their own store (`clients_json`, next to the device registry's `devices_json`).
 `GET /v1/clients` lists them; `GET /v1/devices` and the doctor `devices` check
@@ -828,8 +832,11 @@ and client auth answer 500 until a restart succeeds, and `/admin/doctor`
 clients in `clients_json`, which an older server doesn't read: every `ekc_`
 token is 401 there until you upgrade again. A client minted on the older
 server in between lands in `devices_json` and moves over on the next upgrade.
+Deletes don't travel back: if a #340 server crashed mid-move and you rolled
+back, a client you delete on the older server reappears after the upgrade, so
+delete it again there (`DELETE /v1/devices/client-…`).
 
-**Rolling back past this release: delete every client token first**
+**Rolling back below #269: delete every client token first**
 (`DELETE /v1/devices/client-…`). Older servers don't know the `client` kind and
 accept any registry token as a knob's, so an ingest-only `ekc_` token would pass
 `/v1/devices/self/*`, now-playing control and the Pomodoro actions there. A
