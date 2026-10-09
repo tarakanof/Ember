@@ -31,6 +31,9 @@ they apply at every step.
     build, `scripts/strings.sh check`.
   - Dashboard JSON shape changed: regenerate goldens with `-update`
     (`cmd/ember/testdata/dashboard`); they are also EmberKit's decode fixtures.
+  - Knob view, checkin or config shape changed: regenerate the device goldens
+    the same way (`cmd/ember/testdata/devices`) and call the change out in the
+    PR: cinder syncs them ([`DEVICE-PROTOCOL.md`](DEVICE-PROTOCOL.md)).
 - Conventional Commits (`feat(knob): …`, `fix: …`), body says why. No
   `Co-Authored-By`. Details: [`STYLE.md`](STYLE.md) Appendix A.
 - New behavior also updates the doc that owns it: routes in [`API.md`](API.md),
