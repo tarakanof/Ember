@@ -377,11 +377,8 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	if held := a.reminderHeldUntil.Load(); held != 0 && now.UnixNano() < held {
 		if down && (button == "middle" || button == "select") {
 			a.reminderHeldUntil.Store(0)
-			if a.publisher != nil {
-				err := a.coord.dismissNotice(r.Context(), noticeReminder)
-				if err != nil && !isAPINotFound(err) {
-					a.logger.Warn("reminder dismiss failed", "err", err)
-				}
+			if err := a.coord.dismissNotice(r.Context(), noticeReminder); err != nil && !isAPINotFound(err) {
+				a.logger.Warn("reminder dismiss failed", "err", err)
 			}
 		}
 		w.WriteHeader(http.StatusOK)
