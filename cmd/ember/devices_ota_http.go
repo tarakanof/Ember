@@ -16,7 +16,7 @@ const (
 	firmwareDownloadPerSec = 0.1
 )
 
-func (a *App) pomodoroBusy() bool { return a.pomodoroState(time.Now()).busy() }
+func (a *App) pomodoroBusy(now time.Time) bool { return a.pomodoroState(now).busy() }
 
 func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) error {
 	if a.knobFW == nil {
@@ -30,7 +30,7 @@ func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) er
 	in := otaInput{
 		report:   report,
 		now:      a.devices.now().UTC(),
-		pomodoro: a.pomodoroBusy(),
+		pomodoro: a.pomodoroBusy(time.Now()),
 		coredump: res.CoredumpWanted != "",
 	}
 	if snap.Target != "" {

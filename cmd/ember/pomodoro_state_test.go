@@ -28,6 +28,10 @@ func TestPomodoroStateFollowsTheEngine(t *testing.T) {
 			clk.now = t0.Add(5 * time.Minute)
 			e.Pause(clk.now)
 		}, 10 * time.Minute, pomodoro.PhaseFocus, true, true, false, 0, 20 * 60},
+		{"parked", func(e *pomodoro.Engine, _ *stepClock) {
+			e.Start(pomodoro.PhaseFocus)
+			e.Tick(t0.Add(25 * time.Minute))
+		}, 30 * time.Minute, pomodoro.PhaseShort, true, false, false, 0, 5 * 60},
 		{"overrun", func(e *pomodoro.Engine, _ *stepClock) { e.Start(pomodoro.PhaseShort) }, time.Hour,
 			pomodoro.PhaseShort, true, true, true, 5 * time.Minute, 0},
 	}

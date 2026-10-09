@@ -3309,8 +3309,9 @@ stored usage goes through one projection, `UsageStore.state(sessions, now)` →
 from the future counts as fresh) and, for `claude` and `codex`, the effective
 5h window: `FiveHourPct`/`ResetAt` from a fresh report's 5h window, otherwise
 from the newest session carrying `rate_window_pct` and a reset; `ResetLabel`
-is the fresh report's label, otherwise the newest session's
-`rate_reset_label`. It knows nothing about devices. Readers: the clock usage
+is the fresh report's 5h label (empty when that report has no 5h window,
+even if the numbers fall back to a session), and only with no fresh report
+the newest labelled session's `rate_reset_label`. It knows nothing about devices. Readers: the clock usage
 cards (`usageViews`; 7d and per-model only when `Fresh`), the limit alarm
 (`checkLimitAlarms`), and `GET /v1/usage` (`stale` = `!Fresh`; it passes no
 sessions and reads only the reports). The clock passes its hidden-filtered

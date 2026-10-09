@@ -97,6 +97,18 @@ func TestUpsertNotifiesWhenOnlyTheLeadMoves(t *testing.T) {
 	}
 }
 
+func TestUpsertStaysQuietOnAnUnchangedHeartbeat(t *testing.T) {
+	f := newViewFixture(t)
+	purple := "#B48CFF"
+	req := StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "waiting", Message: "approve", SourceColor: &purple}
+	f.app.Upsert(req)
+	seq, _ := f.app.changes.subscribe()
+	f.app.Upsert(req)
+	if got := f.app.changes.since(seq); got&topicSessions != 0 {
+		t.Fatal("an unchanged heartbeat notified")
+	}
+}
+
 func TestKnobDisplayFastLinkDefaultsOnAndMerges(t *testing.T) {
 	var s knobSettings
 	if err := json.Unmarshal([]byte(`{"bot":{"sleepy_after_s":300,"demo_hold_s":20}}`), &s); err != nil {
