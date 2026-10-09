@@ -392,7 +392,7 @@ components:
           description: Completed focus phases in the current cycle.
     DeviceView:
       type: object
-      description: A device record, or a client token (`kind: client`), without token material.
+      description: "A device record, or a client token (`kind: client`), without token material."
       properties:
         id:
           type: string
