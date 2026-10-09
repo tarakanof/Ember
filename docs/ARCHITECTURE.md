@@ -157,9 +157,9 @@ The aggregator and the only writer to the device.
   `usageRefreshInterval` (below the lifetime) re-pushes an unchanged usage app
   so the device doesn't evict it. `usageViews` prefers endpoint usage and
   falls back to the statusline with the same precedence as the limit alarm;
-  hidden and below-threshold tools are absent. Weather tiles clear after
-  `weatherTileStaleTTL` (30 min) so a wedged poller leaves no stale
-  temperature. The meeting countdown is the ceiling of the remaining time (at
+  hidden and below-threshold tools are absent. Weather tiles are live only
+  while the weather state is fresh (`weatherStaleAfter`, 30 min, see
+  "Weather"), so a wedged poller leaves no stale temperature. The meeting countdown is the ceiling of the remaining time (at
   least 1) and needs no timer: the text changes each minute, so the bytes diff
   re-pushes. The device renders that text natively while the preview draws
   `font3x5`.
@@ -1206,8 +1206,24 @@ codes (WMO for Open-Meteo, `symbol_code` for MET) map to six render buckets
 (`clear/clouds/fog/rain/snow/storm`) + a `severe` flag (`internal/render`
 `weather.go`). The fetch also pulls the next ~24 **hourly temperatures** and (Open-Meteo
 only) the location's **UTC offset** (`&timezone=auto` → `utc_offset_seconds`). The
-latest observation lives in an in-memory `weatherStore`; the coordinator reconciles
-three rotating tiles with the same change-and-staleness dedupe as the usage card:
+latest observation lives in an in-memory `weatherStore`, the single source: one
+poller fills it and nothing fetches per device.
+
+**Weather state** (`cmd/ember/weather_state.go`, #337). Every reader goes
+through one projection, `weatherStore.state(cfg, now)` → `weatherState`
+(`newWeatherState` for drafts and tests): the observation and air reading,
+`Fresh`/`AirFresh` (younger than `weatherStaleAfter`, 30 min; false when
+missing), `enabled` and whether coordinates are set, `Night` and the local
+day's `Sunrise`/`Sunset` (`HaveSun`). It knows nothing about devices; the
+freshness rule and the sun math live only here. Its readers: the clock tiles
+(`live` = enabled and fresh; views and the moon read the state), the sun
+popups, the knob view (`knobWeather`), the dashboard's `/v1/weather/state` and
+the weather preview (which swaps in sample observations when the store has
+none). Presentation stays with each reader (`roundedSun` gives the 5-min
+rounding the dashboard and knob share).
+
+The coordinator reconciles three rotating tiles with the same
+change-and-staleness dedupe as the usage card:
 
 - **`ember-weather`** — 8×8 condition icon + the current temperature **centred**
   in the free area (rows 1–5), its digits in the strip's `TempColor` gradient
@@ -1349,11 +1365,13 @@ Weather constraints:
   precision (a minute or two). The "local" label time uses the UTC offset Open-Meteo
   supplies (`TZKnown`/`TZOffsetSeconds`); only without it (MET) does it fall back
   to longitude (15° per hour, no tz database), which can differ from civil time at
-  DST/zone boundaries. At polar day/night `isNight` defaults to day (the sun
-  icon), since declination versus latitude isn't cheaply distinguished.
+  DST/zone boundaries. At polar day/night there are no sun times; `Night` then
+  comes from `polarNight` (noon altitude), and the clock's moon icon, which
+  also needs sun times, stays off (the sun icon).
 - **Sun times are the location's local day.** Every caller (dashboard
-  `/v1/weather/state`, the knob view, the clock's night/moon icon `isNight`,
-  sun popups and their once-a-day key) goes through `localSunTimes`: the
+  `/v1/weather/state`, the knob view, the clock's moon icon, sun popups and
+  their once-a-day key) reads them from the weather state, which calls
+  `localSunTimes`: the
   sunrise/sunset of the local date containing now, with the same offset rule as
   the label (provider offset, else longitude). `sunTimes` itself picks the UTC
   date of its argument, so passing raw `now` gave yesterday's times after local
@@ -1361,11 +1379,14 @@ Weather constraints:
   handed to `sunTimes` is local noon shifted by `lon/15` hours (≈ 12:00 UTC on
   the right solar date); neither the UTC instant of local noon nor the local
   calendar date works once the offset and longitude disagree by ~12h (NZDT
-  +13h, Kiritimati +14h at −157°, the lon ≤ −172.5° fallback). `isNight` is
-  before today's sunrise or after today's sunset. A sunset after local midnight
-  (high latitudes in summer) belongs to yesterday, so its popup never fires and
-  `isNight` reads night for those minutes. Brightness `sunLevel` scans
-  neighbouring dates on purpose and stays separate.
+  +13h, Kiritimati +14h at −157°, the lon ≤ −172.5° fallback). A sunset after
+  local midnight (high latitudes in summer) belongs to yesterday, so its popup
+  never fires.
+- **Night is the sun schedule's call.** `Night` is `sunNight`: the latest sun
+  event among the neighbouring UTC dates (`sunEventsAround`, the same bracket
+  brightness `sunLevel` uses) was a sunset, else `polarNight`. So the knob's
+  `night`, the clock's moon and the brightness night agree, including a
+  post-midnight sunset, which stays day until it happens.
 
 ### Reminders — Apple Reminders + `POST /v1/reminders/fire`
 
@@ -2065,8 +2086,8 @@ coordinates to a few hundred metres; the location is the user-typed label only.
   follows noon sun altitude, so polar winter reads night). That fallback resets
   the filter. No weather location either: `default` (`day_level`). `night` is
   the schedule's own call (after sunset, before sunrise) whenever a location is
-  set, in every source; `isNight` uses only the local day's times, so the two
-  can differ.
+  set, in every source; the weather state's `Night` uses the same bracket
+  (`sunNight`), so they agree.
   `lightLevel` reads 0 in a dark room (observed overnight, `ldrRaw` 0); the
   defaults assume lux and want a daytime check. Policy is pure
   (`decideBrightness` in `brightness.go`); the clock's own brightness is
@@ -3119,7 +3140,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `pomo` is null with the Pomodoro off, and carries `ends_at` (server Unix
   seconds) while counting down, `remaining_sec` otherwise (paused, parked,
   idle), never both; `weather` is null when disabled or never fetched,
-  `night` is the sun schedule's call (`sunLevel`, neighbouring UTC dates
+  `night` is the weather state's `Night` (`sunNight`, neighbouring UTC dates
   merged, so a western evening after UTC midnight is still day until its
   sunset; false without a location) and is what the knob should use;
   `sunrise`/`sunset` are informational Unix seconds rounded to 5 min for the

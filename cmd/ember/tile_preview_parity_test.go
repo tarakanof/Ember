@@ -109,7 +109,7 @@ func arc(n int) []float64 {
 
 func TestWeatherPreviewMatchesDevicePayload(t *testing.T) {
 	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
-	if !isNight(51.5, -0.1, night, weatherObservation{}) {
+	if !sunNight(51.5, -0.1, night) {
 		t.Fatal("fixture: expected night in London")
 	}
 	noon := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)

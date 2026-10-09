@@ -173,24 +173,23 @@ func (a *App) knobPomo(now time.Time) *knobPomo {
 
 func (a *App) knobWeather(now time.Time) *knobWeather {
 	cfg := a.cfg.Load().Weather
-	obs, ok := a.weather.current()
-	if !ok || !cfg.Enabled {
+	wx := a.weather.state(cfg, now)
+	if !wx.HaveObs || !wx.Enabled {
 		return nil
 	}
 	w := &knobWeather{
 		Provider: cfg.Provider,
-		Cond:     obs.Condition,
-		Code:     obs.ConditionCode,
-		TempC:    obs.TempC,
-		Stale:    now.Sub(obs.FetchedAt) >= weatherTileStaleTTL,
-		Severe:   obs.Severe,
+		Cond:     wx.Obs.Condition,
+		Code:     wx.Obs.ConditionCode,
+		TempC:    wx.Obs.TempC,
+		Stale:    !wx.Fresh,
+		Severe:   wx.Obs.Severe,
+		Night:    wx.Night,
 	}
-	if cfg.Latitude != 0 || cfg.Longitude != 0 {
-		_, w.Night = sunLevel(a.cfg.Load().Brightness.resolved(), cfg.Latitude, cfg.Longitude, now)
-		if rise, set, ok := localSunTimes(cfg.Latitude, cfg.Longitude, now, obs); ok {
-			r, s := rise.Round(sunRounding).Unix(), set.Round(sunRounding).Unix()
-			w.Sunrise, w.Sunset = &r, &s
-		}
+	if wx.HaveSun {
+		rise, set := wx.roundedSun()
+		r, s := rise.Unix(), set.Unix()
+		w.Sunrise, w.Sunset = &r, &s
 	}
 	return w
 }

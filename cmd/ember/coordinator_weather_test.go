@@ -31,7 +31,7 @@ func TestReconcileWeatherTilePushesAndClears(t *testing.T) {
 		t.Errorf("unchanged tile re-pushed: %d, want 1", got)
 	}
 
-	c.reconcileTiles(now.Add(weatherTileStaleTTL + time.Minute))
+	c.reconcileTiles(now.Add(weatherStaleAfter + time.Minute))
 	if cleared := pub.ClearedAppsSnapshot(); len(cleared) != 1 || cleared[0] != "ember-weather" {
 		t.Errorf("stale tile should be cleared, got %v", cleared)
 	}
@@ -108,7 +108,7 @@ func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 		t.Errorf("unchanged forecast tile re-pushed: %d, want 1", got)
 	}
 
-	c.reconcileTiles(now.Add(weatherTileStaleTTL + time.Minute))
+	c.reconcileTiles(now.Add(weatherStaleAfter + time.Minute))
 	if cleared := pub.ClearedAppsSnapshot(); len(cleared) != 1 || cleared[0] != "ember-forecast" {
 		t.Errorf("stale forecast tile should be cleared, got %v", cleared)
 	}
@@ -138,7 +138,7 @@ func TestReconcileAirTilePushesAndClears(t *testing.T) {
 		t.Errorf("unchanged air tile re-pushed: %d, want 1", got)
 	}
 
-	c.reconcileTiles(now.Add(weatherTileStaleTTL + time.Minute))
+	c.reconcileTiles(now.Add(weatherStaleAfter + time.Minute))
 	if cleared := pub.ClearedAppsSnapshot(); len(cleared) != 1 || cleared[0] != "ember-air" {
 		t.Errorf("stale air tile should be cleared, got %v", cleared)
 	}

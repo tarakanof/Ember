@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"sort"
 	"time"
 )
 
@@ -89,10 +90,33 @@ func localSunTimes(lat, lon float64, now time.Time, obs weatherObservation) (sun
 	return sunTimes(lat, lon, solarDate)
 }
 
-func isNight(lat, lon float64, now time.Time, obs weatherObservation) bool {
-	sunrise, sunset, ok := localSunTimes(lat, lon, now, obs)
-	if !ok {
-		return false
+type sunEvent struct {
+	at   time.Time
+	rise bool
+}
+
+func sunEventsAround(lat, lon float64, now time.Time) (last, next *sunEvent) {
+	var evs []sunEvent
+	for d := -1; d <= 1; d++ {
+		if rise, set, ok := sunTimes(lat, lon, now.AddDate(0, 0, d)); ok {
+			evs = append(evs, sunEvent{rise, true}, sunEvent{set, false})
+		}
 	}
-	return now.Before(sunrise) || now.After(sunset)
+	sort.Slice(evs, func(i, j int) bool { return evs[i].at.Before(evs[j].at) })
+	for i := range evs {
+		if !evs[i].at.After(now) {
+			last = &evs[i]
+		} else if next == nil {
+			next = &evs[i]
+		}
+	}
+	return last, next
+}
+
+func sunNight(lat, lon float64, now time.Time) bool {
+	last, next := sunEventsAround(lat, lon, now)
+	if last == nil || next == nil {
+		return polarNight(lat, now)
+	}
+	return !last.rise
 }

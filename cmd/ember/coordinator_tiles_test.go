@@ -39,7 +39,7 @@ func airOnly(now time.Time, aqi float64) tileInputs {
 	cfg.Enabled = true
 	cfg.RotateInApps, cfg.ForecastTile = boolPtr(false), boolPtr(false)
 	return tileInputs{now: now, weather: cfg,
-		air: airObservation{AQI: aqi, FetchedAt: now}, haveAir: true}
+		wx: newWeatherState(cfg, weatherObservation{}, false, airObservation{AQI: aqi, FetchedAt: now}, true, now)}
 }
 
 func TestTileSetDedupesAndRefreshes(t *testing.T) {
@@ -127,8 +127,9 @@ func TestPreviewTilesHonoursToggleNotLiveGate(t *testing.T) {
 	cfg.applyDefaults()
 	cfg.ForecastTile = boolPtr(false)
 	in := tileInputs{now: now, weather: cfg,
-		obs:      weatherObservation{Condition: render.WeatherRain, TempC: 3, Hourly: arc(24), FetchedAt: now.Add(-24 * time.Hour)},
-		air:      airObservation{AQI: 20},
+		wx: newWeatherState(cfg,
+			weatherObservation{Condition: render.WeatherRain, TempC: 3, Hourly: arc(24), FetchedAt: now.Add(-24 * time.Hour)}, false,
+			airObservation{AQI: 20}, false, now),
 		nextMeet: meetings.Occurrence{Title: "1:1", Start: now.Add(3 * time.Hour)},
 	}
 	for i := range tiles {

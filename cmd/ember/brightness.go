@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"sort"
 	"sync"
 	"time"
 )
@@ -153,26 +152,7 @@ func holdWithinBand(prev int, hasPrev bool, target, band, floor, ceiling int) in
 }
 
 func sunLevel(c BrightnessConfig, lat, lon float64, now time.Time) (level int, night bool) {
-	type event struct {
-		at   time.Time
-		rise bool
-	}
-	var evs []event
-	for d := -1; d <= 1; d++ {
-		if rise, set, ok := sunTimes(lat, lon, now.AddDate(0, 0, d)); ok {
-			evs = append(evs, event{rise, true}, event{set, false})
-		}
-	}
-	sort.Slice(evs, func(i, j int) bool { return evs[i].at.Before(evs[j].at) })
-
-	var last, next *event
-	for i := range evs {
-		if !evs[i].at.After(now) {
-			last = &evs[i]
-		} else if next == nil {
-			next = &evs[i]
-		}
-	}
+	last, next := sunEventsAround(lat, lon, now)
 	if last == nil || next == nil {
 		if polarNight(lat, now) {
 			return c.NightLevel, true
