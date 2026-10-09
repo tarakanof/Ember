@@ -644,13 +644,13 @@ curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c -H "$H"   # revoke
   re-POST its `hw_id` (USB setup) instead; both revoke immediately.
 - **`/admin/doctor` `devices` fails with "registry load failed":** the stored
   `devices_json` row didn't decode, or a `client` record in it couldn't be
-  moved to `clients_json` (then `client_tokens` fails too).
+  moved to `clients_json` (then `client_tokens` fails too). Device writes and
+  knob auth answer 500 until restart so the row isn't overwritten; fix or
+  delete the row in `pomodoro.db`, then restart.
 - **`/admin/doctor` `client_tokens` fails, `devices` ok:** `clients_json`
   didn't decode. Knobs keep working; every `ekc_` token and client route
   (`GET /v1/clients`, mint, rename, rotate, delete) answers 500 "client token
-  store unavailable" until the row is fixed and the server restarted. Device writes and knob auth answer 500
-  until restart so the row isn't overwritten; fix or delete the row in
-  `pomodoro.db`, then restart.
+  store unavailable" until the row is fixed and the server restarted.
 - **Knob gets 401:** it was deleted, re-provisioned elsewhere, or missed a
   rotation; `/admin/doctor` → `devices` lists each knob's last checkin
   (warns when one never checked in or is silent > 5 min).

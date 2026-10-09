@@ -2264,9 +2264,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `POST /v1/devices {"kind":"client","name","scopes"}` mints one
   (201, token once); `GET /v1/clients` lists them (owner or `admin`), and
   `PATCH`/`DELETE /v1/devices/{id}` and `/rotate` route any `client-` id to
-  the client store by prefix (so a client store that failed to load answers
-  500 there, and `GET /v1/clients` too, never a 404 from the device side), so those routes and every client response keep the
-  pre-#340 wire shape (`clientView` mirrors `deviceView`: `kind: client`,
+  the client store by prefix. A client store that failed to load answers
+  500 there and on `GET /v1/clients`, never a 404 from the device side.
+  Those routes and every client response keep the pre-#340 wire shape (`clientView` mirrors `deviceView`: `kind: client`,
   `hw_id: ""`, `config_version: 0`, `last_checkin: null`, plus `scopes` and
   `sources`). Device ids must never start with `client-`. `requireAuth` admits a client on an owner route when it
   holds `requiredScope(pattern)` (`client_tokens.go`; any route not listed
