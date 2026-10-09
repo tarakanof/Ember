@@ -1444,8 +1444,9 @@ caps that loop, since an alarm nobody is there to dismiss would ring for
 hours: `StartReminderLoopGuard` checks every 15 s and dismisses the alarm by
 name when its 15-min hold window runs out, and at quiet-hours start dismisses
 it and re-pushes it held but silent (the notice adapter strips sound only at
-push time, so the re-push is the stored notice with its sound cleared). A button acknowledgement just forgets the loop; a failed dismiss
-is retried on the next check. An unheld reminder carries `repeat:1`, so a
+push time, so the re-push is the stored notice with its sound cleared). A
+button acknowledgement just forgets the loop; a failed dismiss is retried on
+the next check. An unheld reminder carries `repeat:1`, so a
 long text scrolls through fully before it leaves (the meeting and weather
 popups do the same). The server keeps only that in-memory loop state for
 reminders — no list, no schedule, no stored config;
@@ -3368,9 +3369,13 @@ RTTTL (optionally looping), `priority` is interrupt or queue, and `kind`
 selects the popup. The clock adapter (`coordinator.showNotice`) turns it into
 one `POST /api/v1/notifications`: `name` from the kind (`ember-weather-popup`,
 `ember-reminder`, …, `notify_names.go`), `stack` from the priority (queue =
-`stack:true`), sound keys unless quiet hours are on. `dismissNotice` retracts
-a kind by name and `playChime` plays an out-of-band chime (the attention
-lock), both quiet-gated in the same file. Firing decisions (meeting
+`stack:true`), sound keys unless quiet hours are on. `playChime` plays an
+out-of-band chime (the attention lock) and is quiet-gated too.
+`dismissNotice` retracts a kind by name and is **never** quiet-gated: the
+reminder loop guard dismisses a looping alarm at quiet-hours start, so a gated
+dismiss would leave it ringing all night (`TestDismissNoticeIgnoresQuietHours`).
+Every quiet decision, including the reminder loop's arm and stop, goes through
+`coordinator.quietAt`, read on the coordinator clock. Firing decisions (meeting
 per-occurrence dedupe, sun once-a-day, weather edge triggers, the usage alarm
 arm/fire state, reminder idempotency keys) stay with the app that owns the
 state. A notice is plain data, so a later knob subscription can read the same
