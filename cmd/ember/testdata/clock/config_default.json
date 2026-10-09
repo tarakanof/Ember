@@ -37,9 +37,7 @@
   "rotation": {
     "order": [
       "time",
-      "date",
-      "hum",
-      "ember"
+      "date"
     ],
     "disabled": [
       "hum"

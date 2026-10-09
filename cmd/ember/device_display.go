@@ -86,6 +86,5 @@ func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
 		writeClockError(w, err)
 		return
 	}
-	a.forgetClockRotation()
 	w.WriteHeader(http.StatusOK)
 }

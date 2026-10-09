@@ -111,8 +111,9 @@ func (s *setting[D]) putWith(patch []byte, also func(*Config)) (D, error) {
 }
 
 type stagedSetting struct {
-	persist func(Config)
-	after   func(Config)
+	key   string
+	blob  func(Config) (string, bool)
+	after func(Config)
 }
 
 func (s *setting[D]) stage(cur *Config, edit func(*D)) (*stagedSetting, error) {
@@ -132,7 +133,20 @@ func (s *setting[D]) stage(cur *Config, edit func(*D)) (*stagedSetting, error) {
 	if err := s.spec.apply(cur, d); err != nil {
 		return nil, fmt.Errorf("%w: %w", errSettingBody, err)
 	}
-	return &stagedSetting{persist: s.persist, after: s.spec.after}, nil
+	return &stagedSetting{key: s.spec.key, blob: s.blob, after: s.spec.after}, nil
+}
+
+func (s *setting[D]) blob(c Config) (string, bool) {
+	if s.spec.encode != nil {
+		blob := s.spec.encode(s.spec.view(c))
+		return blob, blob != ""
+	}
+	b, err := json.Marshal(s.spec.view(c))
+	if err != nil {
+		s.o.logger.Warn("settings marshal failed", "key", s.spec.key, "err", err)
+		return "", false
+	}
+	return string(b), true
 }
 
 func (s *setting[D]) persist(c Config) {
@@ -140,18 +154,9 @@ func (s *setting[D]) persist(c Config) {
 	if kv == nil {
 		return
 	}
-	var blob string
-	if s.spec.encode != nil {
-		if blob = s.spec.encode(s.spec.view(c)); blob == "" {
-			return
-		}
-	} else {
-		b, err := json.Marshal(s.spec.view(c))
-		if err != nil {
-			s.o.logger.Warn("settings marshal failed", "key", s.spec.key, "err", err)
-			return
-		}
-		blob = string(b)
+	blob, ok := s.blob(c)
+	if !ok {
+		return
 	}
 	if err := kv.PutSetting(s.spec.key, blob); err != nil {
 		s.o.logger.Warn("settings persist failed", "key", s.spec.key, "err", err)

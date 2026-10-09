@@ -52,6 +52,7 @@ func (a *App) loadHiddenApps() {
 }
 
 func (a *App) setAppHidden(name string, hidden bool) {
+	a.cfgMu.Lock()
 	a.appsMu.Lock()
 	if a.hiddenApps == nil {
 		a.hiddenApps = map[string]bool{}
@@ -63,6 +64,7 @@ func (a *App) setAppHidden(name string, hidden bool) {
 	}
 	a.persistHiddenAppsLocked()
 	a.appsMu.Unlock()
+	a.cfgMu.Unlock()
 	a.syncClockConfigVersion()
 }
 
@@ -83,14 +85,13 @@ func (a *App) hiddenAppNamesLocked() []string {
 	return names
 }
 
-func (a *App) replaceHiddenApps(names []string) {
+func (a *App) setHiddenAppsMemory(names []string) {
 	a.appsMu.Lock()
 	defer a.appsMu.Unlock()
 	a.hiddenApps = make(map[string]bool, len(names))
 	for _, n := range names {
 		a.hiddenApps[n] = true
 	}
-	a.persistHiddenAppsLocked()
 }
 
 func (a *App) persistHiddenAppsLocked() {

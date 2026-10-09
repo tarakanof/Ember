@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -268,19 +272,130 @@ func TestClockConfigPutWithRotationBumpsEpochOnce(t *testing.T) {
 	}
 }
 
-func TestClockConfigOldAppOrderPutMovesVersion(t *testing.T) {
+func TestClockConfigOldAppOrderMovesVersionOnceAtNextRead(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	_, v := getClockConfig(t, srv, d.ID)
 	epoch := a.devices.epochValue()
 	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
 	mustOK(t, "apps order", resp, b)
-	if a.devices.epochValue() == epoch || listDevices(t, srv)[0].ConfigVersion == v {
-		t.Fatal("an app-order change through the old endpoint left the version alone")
+	if a.devices.epochValue() != epoch {
+		t.Fatal("the old-endpoint write moved the epoch before any read")
+	}
+	resp, b = devReq(t, srv, "GET", "/v1/device/apps", testToken, "")
+	mustOK(t, "apps read", resp, b)
+	if got := a.devices.epochValue(); got != epoch+1 || listDevices(t, srv)[0].ConfigVersion == v {
+		t.Fatalf("epoch = %d after the read, want %d with a new version", got, epoch+1)
 	}
 	c, _ := getClockConfig(t, srv, d.ID)
-	if c.Rotation == nil || c.Rotation.Order[0] != "date" {
-		t.Fatalf("rotation = %+v", c.Rotation)
+	if c.Rotation == nil || c.Rotation.Order[0] != "date" || a.devices.epochValue() != epoch+1 {
+		t.Fatalf("rotation = %+v epoch %d", c.Rotation, a.devices.epochValue())
+	}
+}
+
+func TestClockConfigPushedAppsDoNotMoveVersion(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	_, v := getClockConfig(t, srv, d.ID)
+	epoch := a.devices.epochValue()
+	stub.mu.Lock()
+	stub.apps = append(stub.apps, map[string]any{"name": "ember-weather", "enabled": true, "inLoop": true, "origin": "pushed"})
+	stub.mu.Unlock()
+	if _, v2 := getClockConfig(t, srv, d.ID); v2 != v || a.devices.epochValue() != epoch {
+		t.Fatal("a pushed Ember tile moved the clock config version")
+	}
+}
+
+func TestClockConfigRotationRoundTripsWithoutClockWrite(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	c, _ := getClockConfig(t, srv, d.ID)
+	stub.mu.Lock()
+	stub.orderFail = true
+	stub.mu.Unlock()
+	body, _ := json.Marshal(map[string]any{"apps": map[string]any{"weather": map[string]any{"moon": false}}, "rotation": c.Rotation})
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, string(body))
+	mustOK(t, "resend rotation", resp, b)
+	if n := len(stub.puts()); n != 0 {
+		t.Fatalf("an unchanged rotation was written to the clock %d times", n)
+	}
+}
+
+func TestClockConfigRotationReadbackFailureReturnsNull(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	stub.mu.Lock()
+	stub.appsFail = true
+	stub.mu.Unlock()
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["date","time"]}}`)
+	mustOK(t, "put", resp, b)
+	var c clockConfig
+	if err := json.Unmarshal(b, &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Rotation != nil {
+		t.Fatalf("rotation = %+v, want null after a failed readback", c.Rotation)
+	}
+	if v, _ := strconv.Atoi(resp.Header.Get(deviceConfigVersion)); v != clockConfigHash(c) {
+		t.Fatalf("version %d does not describe the body", v)
+	}
+}
+
+func holdClockOrder(t *testing.T, stub *clockStub) (release func()) {
+	t.Helper()
+	hold, in := make(chan struct{}), make(chan struct{}, 1)
+	stub.mu.Lock()
+	stub.orderHold, stub.orderIn = hold, in
+	stub.mu.Unlock()
+	return func() { close(hold) }
+}
+
+func TestClockConfigPutKeepsConcurrentOldEndpointWrite(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	release := holdClockOrder(t, stub)
+	done := make(chan []byte)
+	go func() {
+		_, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"calendar":{"tile_lead_minutes":15}},"rotation":{"order":["date","time"]}}`)
+		done <- b
+	}()
+	<-stub.orderIn
+	resp, b := devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"moon_phase":false}`)
+	mustOK(t, "weather put", resp, b)
+	resp, b = devReq(t, srv, "PUT", "/v1/apps", testToken, `{"app":"codex","enabled":false}`)
+	mustOK(t, "apps put", resp, b)
+	release()
+	<-done
+	c, _ := getClockConfig(t, srv, d.ID)
+	if c.Apps.Weather.Moon || c.Apps.Calendar.TileLeadMinutes != 15 || !slices.Equal(c.Apps.Agents.HiddenTools, []string{"codex"}) {
+		t.Fatalf("lost update: %+v", c.Apps)
+	}
+	blob, _, _ := a.store.GetSetting(weatherSettingsKey)
+	if !strings.Contains(blob, `"moon_phase":false`) {
+		t.Fatalf("stored weather lost moon_phase: %s", blob)
+	}
+}
+
+func TestClockConfigConcurrentFacadePutsKeepBoth(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	release := holdClockOrder(t, stub)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"calendar":{"tile_lead_minutes":15}},"rotation":{"order":["date","time"]}}`)
+	}()
+	<-stub.orderIn
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false},"agents":{"usage_cards":false}}}`)
+	mustOK(t, "second put", resp, b)
+	release()
+	<-done
+	c, _ := getClockConfig(t, srv, d.ID)
+	if c.Apps.Weather.Moon || c.Apps.Agents.UsageCards || c.Apps.Calendar.TileLeadMinutes != 15 {
+		t.Fatalf("lost update: %+v", c.Apps)
 	}
 }
 
@@ -307,5 +422,74 @@ func TestKnobConfigUnaffectedByClockRecord(t *testing.T) {
 	var k knobSettings
 	if err := json.Unmarshal(b, &k); err != nil || len(k.Pages) == 0 {
 		t.Fatalf("knob config = %s", b)
+	}
+}
+
+func TestClockConfigPersistFailureChangesNothing(t *testing.T) {
+	t.Setenv("EMBER_CLOCK", "")
+	dbPath := filepath.Join(t.TempDir(), "s.db")
+	a, srv := newDevicesApp(t, dbPath)
+	stub := newClockStub(t)
+	pointAtClock(a, stub.URL)
+	d := registeredClock(t, a, srv)
+	before, _ := getClockConfig(t, srv, d.ID)
+	usage, _, _ := a.store.GetSetting(usageSettingsKey)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for _, op := range []string{"INSERT", "UPDATE"} {
+		if _, err := db.Exec(`CREATE TRIGGER fail_weather_` + op + ` BEFORE ` + op + ` ON settings WHEN NEW.key = 'weather_json' BEGIN SELECT RAISE(ABORT, 'injected'); END`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"agents":{"usage_cards":false,"hidden_tools":["codex"]},"weather":{"moon":false}},"rotation":{"order":["date","time"]}}`)
+	if resp.StatusCode != http.StatusInternalServerError || !strings.Contains(string(b), "app order was already written") {
+		t.Fatalf("PUT = %d: %s", resp.StatusCode, b)
+	}
+	after, _ := getClockConfig(t, srv, d.ID)
+	if !reflect.DeepEqual(before.Apps, after.Apps) {
+		t.Fatalf("memory changed after a failed store:\n%+v\n%+v", before.Apps, after.Apps)
+	}
+	if got, _, _ := a.store.GetSetting(usageSettingsKey); got != usage {
+		t.Fatalf("usage_json written in a failed batch: %s", got)
+	}
+	if _, ok, _ := a.store.GetSetting(hiddenAppsKey); ok {
+		t.Fatal("display_hidden_apps written in a failed batch")
+	}
+}
+
+func TestClockConfigHiddenToolsFromOldEndpointRoundTrip(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	long := strings.Repeat("x", 100)
+	for i := range 70 {
+		resp, b := devReq(t, srv, "PUT", "/v1/apps", testToken, `{"app":"`+long+strconv.Itoa(i)+`","enabled":false}`)
+		mustOK(t, "apps put", resp, b)
+	}
+	resp, b := clockConfigReq(t, srv, "GET", d.ID, "")
+	mustOK(t, "get", resp, b)
+	resp, b = clockConfigReq(t, srv, "PUT", d.ID, string(b))
+	mustOK(t, "put back", resp, b)
+}
+
+func TestClockConfigVersionSyncRace(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Go(func() {
+			body := `{"moon_phase":` + strconv.FormatBool(i%2 == 0) + `}`
+			devReq(t, srv, "PUT", "/v1/weather/config", testToken, body)
+		})
+		wg.Go(func() {
+			a.noteClockApps([]byte(`[{"name":"time","enabled":true},{"name":"t` + strconv.Itoa(i) + `","enabled":true}]`))
+		})
+	}
+	wg.Wait()
+	if got, want := listDevices(t, srv)[0].ConfigVersion, a.clockConfigVersion(); got != want {
+		t.Fatalf("stored version %d, current %d", got, want)
 	}
 }

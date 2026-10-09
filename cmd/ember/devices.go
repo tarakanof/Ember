@@ -196,6 +196,8 @@ type deviceRegistry struct {
 	dirty        bool
 	fwGen        uint64
 
+	pendingClockUID string
+
 	// Runs under mu: it must not block or call back into the registry.
 	onChange func()
 }

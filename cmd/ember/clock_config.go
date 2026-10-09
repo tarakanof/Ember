@@ -13,14 +13,12 @@ import (
 	"slices"
 	"strconv"
 	"time"
-	"unicode/utf8"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 const (
 	clockConfigSchema       = 1
-	clockHiddenToolsMax     = 64
 	clockRotationReadBudget = 2 * time.Second
 )
 
@@ -123,9 +121,13 @@ func composeClockApps(c Config, hidden []string) clockApps {
 }
 
 func (a *App) composeClockConfig() clockConfig {
+	a.cfgMu.Lock()
+	cfg := *a.cfg.Load()
+	hidden := a.hiddenAppNames()
+	a.cfgMu.Unlock()
 	return clockConfig{
 		Schema:   clockConfigSchema,
-		Apps:     composeClockApps(*a.cfg.Load(), a.hiddenAppNames()),
+		Apps:     composeClockApps(cfg, hidden),
 		Rotation: a.clockRotation.Load(),
 	}
 }
@@ -204,13 +206,10 @@ func (a *App) stageClockApps(cur *Config, apps clockApps) ([]*stagedSetting, err
 }
 
 func normalizeHiddenTools(names []string) ([]string, error) {
-	if len(names) > clockHiddenToolsMax {
-		return nil, fmt.Errorf("%w: apps.agents.hidden_tools holds at most %d names", errSettingBody, clockHiddenToolsMax)
-	}
 	out := make([]string, 0, len(names))
 	for _, n := range names {
-		if n == "" || !utf8.ValidString(n) || utf8.RuneCountInString(n) > 64 {
-			return nil, fmt.Errorf("%w: apps.agents.hidden_tools names must be 1-64 characters", errSettingBody)
+		if n == "" {
+			return nil, fmt.Errorf("%w: apps.agents.hidden_tools names must not be empty", errSettingBody)
 		}
 		out = append(out, n)
 	}
@@ -267,14 +266,26 @@ func rotationFromApps(body []byte) (*clockRotation, error) {
 	if err := json.Unmarshal(body, &apps); err != nil {
 		return nil, fmt.Errorf("decode clock apps: %w", err)
 	}
-	r := &clockRotation{Order: make([]string, 0, len(apps)), Disabled: []string{}}
+	r := &clockRotation{Order: []string{}, Disabled: []string{}}
 	for _, app := range apps {
-		r.Order = append(r.Order, app.Name)
-		if !app.Enabled {
+		switch {
+		case app.Origin == "pushed":
+		case app.Enabled:
+			r.Order = append(r.Order, app.Name)
+		default:
 			r.Disabled = append(r.Disabled, app.Name)
 		}
 	}
 	return r, nil
+}
+
+func rotationUnchanged(patch *deviceAppsPutBody, cur *clockRotation) bool {
+	if cur == nil || !slices.Equal(patch.Order, cur.Order) {
+		return false
+	}
+	want := slices.Sorted(slices.Values(patch.Disabled))
+	have := slices.Sorted(slices.Values(cur.Disabled))
+	return slices.Equal(slices.Compact(want), slices.Compact(have))
 }
 
 func (a *App) noteClockApps(body []byte) {
@@ -287,26 +298,36 @@ func (a *App) noteClockApps(body []byte) {
 	a.syncClockConfigVersion()
 }
 
-func (a *App) forgetClockRotation() {
-	if a.clockRotation.Swap(nil) != nil {
-		a.syncClockConfigVersion()
-	}
-}
-
-func (a *App) refreshClockRotation(ctx context.Context) {
+func (a *App) refreshClockRotation(ctx context.Context) bool {
 	ctx, cancel := context.WithTimeout(ctx, clockRotationReadBudget)
 	defer cancel()
 	body, err := a.clock.fetch(ctx, (*awtrix.Client).RawApps)
 	if err != nil {
 		a.logger.Debug("clock app list not read", "err", err)
-		return
+		return false
 	}
 	a.noteClockApps(body)
+	return true
 }
 
-var errClockWrite = errors.New("clock write failed")
+var (
+	errClockWrite      = errors.New("clock write failed")
+	errSettingsPersist = errors.New("settings not stored")
+)
 
-func (a *App) putClockConfig(ctx context.Context, patch []byte) error {
+func (a *App) putSettingsBatch(values map[string]string) error {
+	if a.store == nil || len(values) == 0 {
+		return nil
+	}
+	return a.store.PutSettings(values)
+}
+
+type clockPutResult struct {
+	rotationWritten bool
+}
+
+func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult, error) {
+	var res clockPutResult
 	a.clockSync.paused.Add(1)
 	defer func() {
 		a.clockSync.paused.Add(-1)
@@ -315,40 +336,63 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) error {
 	cur := a.composeClockConfig()
 	next, err := mergeClockConfig(cur, patch)
 	if err != nil {
-		return err
+		return res, err
 	}
 	dry := *a.cfg.Load()
-	pending, err := a.stageClockApps(&dry, next.Apps)
-	if err != nil {
-		return err
+	if _, err := a.stageClockApps(&dry, next.Apps); err != nil {
+		return res, err
 	}
-	if next.Rotation != nil {
+	if next.Rotation != nil && !rotationUnchanged(next.Rotation, cur.Rotation) {
 		payload, _ := json.Marshal(next.Rotation)
 		if _, err := a.clock.fetch(ctx, withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
-			return fmt.Errorf("%w: %w", errClockWrite, err)
+			return res, fmt.Errorf("%w: %w", errClockWrite, err)
 		}
-		a.refreshClockRotation(ctx)
-	}
-	hiddenChanged := !slices.Equal(next.Apps.Agents.HiddenTools, cur.Apps.Agents.HiddenTools)
-	if len(pending) == 0 && !hiddenChanged {
-		return nil
+		res.rotationWritten = true
+		a.clockRotation.Store(nil)
+		if !a.refreshClockRotation(ctx) {
+			a.logger.WarnContext(ctx, "clock app order written but not read back")
+		}
 	}
 	var staged []*stagedSetting
+	hiddenChanged := false
 	err = a.tryUpdateConfig(func(c *Config) error {
-		var err error
-		if staged, err = a.stageClockApps(c, next.Apps); err != nil {
+		a.appsMu.Lock()
+		hidden := a.hiddenAppNamesLocked()
+		a.appsMu.Unlock()
+		n, err := mergeClockConfig(clockConfig{Schema: clockConfigSchema, Apps: composeClockApps(*c, hidden)}, patch)
+		if err != nil {
 			return err
 		}
+		if staged, err = a.stageClockApps(c, n.Apps); err != nil {
+			return err
+		}
+		hiddenChanged = !slices.Equal(n.Apps.Agents.HiddenTools, hidden)
+		if len(staged) == 0 && !hiddenChanged {
+			return errNoChange
+		}
+		batch := make(map[string]string, len(staged)+1)
 		for _, s := range staged {
-			s.persist(*c)
+			if blob, ok := s.blob(*c); ok {
+				batch[s.key] = blob
+			}
 		}
 		if hiddenChanged {
-			a.replaceHiddenApps(next.Apps.Agents.HiddenTools)
+			blob, _ := json.Marshal(n.Apps.Agents.HiddenTools)
+			batch[hiddenAppsKey] = string(blob)
+		}
+		if err := a.putSettingsBatch(batch); err != nil {
+			return fmt.Errorf("%w: %w", errSettingsPersist, err)
+		}
+		if hiddenChanged {
+			a.setHiddenAppsMemory(n.Apps.Agents.HiddenTools)
 		}
 		return nil
 	})
+	if errors.Is(err, errNoChange) {
+		return res, nil
+	}
 	if err != nil {
-		return err
+		return res, err
 	}
 	final := *a.cfg.Load()
 	for _, s := range staged {
@@ -359,7 +403,7 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) error {
 	if hiddenChanged {
 		a.nudgePomo()
 	}
-	return nil
+	return res, nil
 }
 
 func (a *App) handleClockConfigGet(w http.ResponseWriter, r *http.Request) {
@@ -371,12 +415,20 @@ func (a *App) handleClockConfigGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleClockConfigPut(w http.ResponseWriter, r *http.Request, id string, patch []byte) {
 	before := a.clockConfigVersion()
-	if err := a.putClockConfig(r.Context(), patch); err != nil {
+	res, err := a.putClockConfig(r.Context(), patch)
+	if err != nil {
+		if res.rotationWritten {
+			a.logger.WarnContext(r.Context(), "clock app order written, settings not applied", "device_id", id, "err", err)
+			err = fmt.Errorf("%w (the clock's app order was already written)", err)
+		}
 		switch {
 		case errors.Is(err, errClockWrite):
 			writeClockError(w, err)
 		case errors.Is(err, errSettingBody):
 			a.writeDeviceError(w, r, err)
+		case errors.Is(err, errSettingsPersist):
+			a.logger.WarnContext(r.Context(), "device config not stored", "device_id", id, "err", err)
+			writeError(w, http.StatusInternalServerError, err)
 		default:
 			writeError(w, http.StatusInternalServerError, err)
 		}

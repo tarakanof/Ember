@@ -326,7 +326,7 @@ func (a *App) probeClockHealthWithin(ctx context.Context, now time.Time, maxAge 
 	c.at, c.base, c.dev, c.inflight = now, base, dev, nil
 	c.mu.Unlock()
 	a.recordClockProbe(now, base, dev)
-	if dev.uid != "" {
+	if dev.uid != "" && a.cfg.Load().effectiveClockURL() == base {
 		seen := &clockSeen{IP: dev.ip, RSSI: dev.WifiRSSIDbm, UptimeS: dev.UptimeSec}
 		if dev.Firmware != nil {
 			seen.FW = *dev.Firmware

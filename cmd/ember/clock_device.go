@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -49,13 +50,9 @@ func normalizeClockUID(raw string) (string, bool) {
 	return s, clockUIDPattern.MatchString(s)
 }
 
-func clockDeviceID(st *deviceState, uid string) string {
-	suffix := uid
+func clockDeviceID(uid string) string {
 	if len(uid) > 6 {
-		suffix = uid[len(uid)-6:]
-	}
-	if id := clockIDPrefix + suffix; st.find(id) == nil {
-		return id
+		uid = uid[len(uid)-6:]
 	}
 	return clockIDPrefix + uid
 }
@@ -93,7 +90,13 @@ func (r *deviceRegistry) seenClock(uid string, seen *clockSeen, version int) (de
 		seen = seen.clone()
 		seen.SeenAt = r.now().UTC()
 	}
-	if d := r.state.findClock(); d != nil && d.HwID == uid {
+	d := r.state.findClock()
+	if d != nil && d.HwID != uid && r.pendingClockUID != uid {
+		r.pendingClockUID = uid
+		return d.view(), false, nil
+	}
+	r.pendingClockUID = ""
+	if d != nil && d.HwID == uid {
 		if seen == nil {
 			return d.view(), false, nil
 		}
@@ -110,8 +113,7 @@ func (r *deviceRegistry) seenClock(uid string, seen *clockSeen, version int) (de
 	err := r.mutateLocked(func(st *deviceState) error {
 		if d := st.findClock(); d != nil {
 			renamed := d.Name != defaultClockName(d.ID)
-			d.ID = ""
-			d.ID = clockDeviceID(st, uid)
+			d.ID = clockDeviceID(uid)
 			d.HwID = uid
 			if !renamed {
 				d.Name = defaultClockName(d.ID)
@@ -122,7 +124,7 @@ func (r *deviceRegistry) seenClock(uid string, seen *clockSeen, version int) (de
 			st.Epoch++
 			return nil
 		}
-		id := clockDeviceID(st, uid)
+		id := clockDeviceID(uid)
 		d := deviceRecord{
 			ID:            id,
 			Kind:          deviceKindClock,
@@ -180,12 +182,15 @@ func (a *App) observeClock(rawUID string, seen *clockSeen) {
 
 type clockSyncGate struct {
 	paused atomic.Int32
+	mu     sync.Mutex
 }
 
 func (a *App) syncClockConfigVersion() {
 	if a.devices == nil || a.clockSync.paused.Load() > 0 {
 		return
 	}
+	a.clockSync.mu.Lock()
+	defer a.clockSync.mu.Unlock()
 	changed, err := a.devices.setClockConfigVersion(a.clockConfigVersion())
 	if err != nil {
 		a.logger.Warn("clock config version not stored", "err", err)

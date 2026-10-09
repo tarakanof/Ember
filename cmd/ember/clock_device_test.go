@@ -25,6 +25,10 @@ type clockStub struct {
 	apps      []map[string]any
 	orderPuts []string
 	orderFail bool
+	appsFail  bool
+	onDevice  func()
+	orderHold chan struct{}
+	orderIn   chan struct{}
 }
 
 func newClockStub(t *testing.T) *clockStub {
@@ -41,16 +45,32 @@ func newClockStub(t *testing.T) *clockStub {
 }
 
 func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut && r.URL.Path == "/api/v1/apps/order" {
+		s.mu.Lock()
+		hold, in := s.orderHold, s.orderIn
+		s.mu.Unlock()
+		if hold != nil {
+			in <- struct{}{}
+			<-hold
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method + " " + r.URL.Path {
 	case "GET /api/v1/device":
+		if s.onDevice != nil {
+			s.onDevice()
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"uid": s.uid, "boardType": s.board, "version": "1.0.13", "uptimeSeconds": 42,
 			"wifiRssi": -61, "ipAddress": "192.0.2.66",
 		})
 	case "GET /api/v1/apps":
+		if s.appsFail {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(s.apps)
 	case "PUT /api/v1/apps/order":
 		b, _ := io.ReadAll(r.Body)
@@ -232,18 +252,66 @@ func TestClockRecordCreatedOnDiscoverySwap(t *testing.T) {
 	}
 }
 
-func TestManyClockUIDsKeepOneRecord(t *testing.T) {
+func setStubUID(stub *clockStub, uid string) {
+	stub.mu.Lock()
+	stub.uid = uid
+	stub.mu.Unlock()
+}
+
+func TestFlappingClockUIDNeitherFlipsNorBumps(t *testing.T) {
 	a, srv, stub := newClockApp(t)
-	registeredClock(t, a, srv)
+	d := registeredClock(t, a, srv)
+	epoch := a.devices.epochValue()
 	for i := range 50 {
-		stub.mu.Lock()
-		stub.uid = "spoof" + strconv.Itoa(i)
-		stub.mu.Unlock()
+		setStubUID(stub, "spoof"+strconv.Itoa(i))
+		probeClock(t, a)
+	}
+	for range 10 {
+		setStubUID(stub, "aabbcc112233")
+		probeClock(t, a)
+		setStubUID(stub, testClockUID)
 		probeClock(t, a)
 	}
 	devs := listDevices(t, srv)
-	if len(devs) != 1 || devs[0].HwID != "spoof49" || devs[0].ID != "clock-poof49" {
+	if len(devs) != 1 || devs[0].ID != d.ID || devs[0].HwID != testClockUID {
 		t.Fatalf("records = %+v", devs)
+	}
+	if got := a.devices.epochValue(); got != epoch {
+		t.Fatalf("epoch moved %d times", got-epoch)
+	}
+}
+
+func TestLastSeenUpdateLeavesEpochAlone(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	registeredClock(t, a, srv)
+	epoch := a.devices.epochValue()
+	for range 5 {
+		probeClock(t, a)
+	}
+	if got := a.devices.epochValue(); got != epoch {
+		t.Fatalf("last_seen updates moved the epoch to %d", got)
+	}
+}
+
+func TestClockUIDReplacedAfterTwoProbes(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	epoch := a.devices.epochValue()
+	setStubUID(stub, "aabbcc112233")
+	probeClock(t, a)
+	if devs := listDevices(t, srv); devs[0].ID != d.ID {
+		t.Fatalf("one sighting replaced the record: %+v", devs)
+	}
+	probeClock(t, a)
+	devs := listDevices(t, srv)
+	if len(devs) != 1 || devs[0].ID != "clock-112233" || devs[0].HwID != "aabbcc112233" || devs[0].Name != "Clock 112233" {
+		t.Fatalf("records = %+v", devs)
+	}
+	if !devs[0].CreatedAt.Equal(d.CreatedAt) {
+		t.Fatalf("created_at moved: %v -> %v", d.CreatedAt, devs[0].CreatedAt)
+	}
+	if got := a.devices.epochValue(); got != epoch+1 {
+		t.Fatalf("epoch = %d, want %d", got, epoch+1)
 	}
 }
 
@@ -252,28 +320,31 @@ func TestClockUIDReplacementKeepsName(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	resp, b := devReq(t, srv, "PATCH", "/v1/devices/"+d.ID, testToken, `{"name":"Desk clock"}`)
 	mustOK(t, "rename", resp, b)
-	stub.mu.Lock()
-	stub.uid = "aabbcc112233"
-	stub.mu.Unlock()
+	setStubUID(stub, "aabbcc112233")
+	probeClock(t, a)
 	probeClock(t, a)
 	devs := listDevices(t, srv)
-	if len(devs) != 1 || devs[0].ID != "clock-112233" || devs[0].HwID != "aabbcc112233" || devs[0].Name != "Desk clock" {
+	if len(devs) != 1 || devs[0].ID != "clock-112233" || devs[0].Name != "Desk clock" {
 		t.Fatalf("records = %+v", devs)
-	}
-	if !devs[0].CreatedAt.Equal(d.CreatedAt) {
-		t.Fatalf("created_at moved: %v -> %v", d.CreatedAt, devs[0].CreatedAt)
 	}
 }
 
-func TestClockUIDReplacementRenamesDefaultName(t *testing.T) {
-	a, srv, stub := newClockApp(t)
-	registeredClock(t, a, srv)
-	stub.mu.Lock()
-	stub.uid = "aabbcc112233"
-	stub.mu.Unlock()
-	probeClock(t, a)
-	if devs := listDevices(t, srv); len(devs) != 1 || devs[0].Name != "Clock 112233" {
-		t.Fatalf("records = %+v", devs)
+func TestStaleProbeAfterRediscoveryNotRegistered(t *testing.T) {
+	a, srv, stubA := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	stubB := newClockStub(t)
+	setStubUID(stubB, "bbbbbb000001")
+	setStubUID(stubA, "aaaaaa000002")
+	stubA.mu.Lock()
+	stubA.onDevice = func() { pointAtClock(a, stubB.URL) }
+	stubA.mu.Unlock()
+	for range 2 {
+		a.probeClockHealthWithin(context.Background(), time.Now(), 0)
+		pointAtClock(a, stubA.URL)
+	}
+	devs := listDevices(t, srv)
+	if len(devs) != 1 || devs[0].ID != d.ID || devs[0].HwID != testClockUID {
+		t.Fatalf("a stale probe changed the record: %+v", devs)
 	}
 }
 
