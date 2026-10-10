@@ -27,6 +27,13 @@ func clampQueryInt(r *http.Request, key string, def, lo, hi int) int {
 
 func (a *App) statsLoc() *time.Location { return time.Local }
 
+func (a *App) statsNow() time.Time {
+	if a.statsClock != nil {
+		return a.statsClock()
+	}
+	return time.Now()
+}
+
 const activityThrottle = 2 * time.Minute
 
 const activitySweepInterval = time.Hour
@@ -216,7 +223,7 @@ func (a *App) handlePomodoroStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)
 		return
 	}
-	stats, err := a.cachedStats(time.Now())
+	stats, err := a.cachedStats(a.statsNow())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -238,7 +245,7 @@ func (a *App) handlePomodoroHeatmap(w http.ResponseWriter, r *http.Request) {
 	days := clampQueryInt(r, "days", 84, 7, 366)
 	p := a.cfg.Load().Pomodoro
 	loc := a.statsLoc()
-	recs, err := a.loadPhaseRecords(time.Now(), days)
+	recs, err := a.loadPhaseRecords(a.statsNow(), days)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -266,7 +273,7 @@ func (a *App) handlePomodoroWorkHours(w http.ResponseWriter, r *http.Request) {
 	days := clampQueryInt(r, "days", 14, 1, 90)
 	p := a.cfg.Load().Pomodoro
 	loc := a.statsLoc()
-	now := time.Now()
+	now := a.statsNow()
 	recs, err := a.loadPhaseRecords(now, days+1)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)

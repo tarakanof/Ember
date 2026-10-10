@@ -56,6 +56,7 @@ type App struct {
 	brightness brightnessTracker
 
 	statsCache statsCache
+	statsClock func() time.Time
 
 	settings appSettings
 
