@@ -226,12 +226,12 @@ func TestKnobViewWeatherObservedAt(t *testing.T) {
 	f := newViewFixture(t)
 	f.app.updateConfig(func(c *Config) { c.Weather.Enabled = true })
 	f.app.weather.have = true
-	weatherOf := func(t *testing.T) map[string]any {
+	weatherOf := func(t *testing.T) (map[string]json.RawMessage, string) {
 		t.Helper()
 		resp, b := f.get(t, "")
 		mustOK(t, "view", resp, b)
 		var view struct {
-			Weather map[string]any `json:"weather"`
+			Weather map[string]json.RawMessage `json:"weather"`
 		}
 		if err := json.Unmarshal(b, &view); err != nil {
 			t.Fatal(err)
@@ -239,26 +239,30 @@ func TestKnobViewWeatherObservedAt(t *testing.T) {
 		if view.Weather == nil {
 			t.Fatalf("view has no weather: %s", b)
 		}
-		return view.Weather
+		return view.Weather, string(b)
 	}
 
-	t.Run("present in UTC RFC 3339 when known", func(t *testing.T) {
+	t.Run("present as Unix seconds when known", func(t *testing.T) {
 		amsterdam := time.FixedZone("CEST", 2*3600)
 		observed := time.Date(2026, 6, 21, 13, 45, 0, 500_000_000, amsterdam)
 		f.app.weather.obs = weatherObservation{Condition: "rain", ObservedAt: observed, FetchedAt: f.clk.Now()}
-		got, ok := weatherOf(t)["observed_at"].(string)
-		if !ok || got != "2026-06-21T11:45:00Z" {
-			t.Fatalf("observed_at = %v, want \"2026-06-21T11:45:00Z\"", got)
+		w, body := weatherOf(t)
+		raw, ok := w["observed_at"]
+		if !ok {
+			t.Fatalf("observed_at missing: %s", body)
 		}
-		parsed, err := time.Parse(time.RFC3339, got)
-		if err != nil || !parsed.Equal(observed.Truncate(time.Second)) {
-			t.Fatalf("observed_at %q parses to %v (%v), want %v", got, parsed, err, observed.Truncate(time.Second))
+		var got int64
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("observed_at = %s, want an integer of Unix seconds: %v", raw, err)
+		}
+		if want := time.Date(2026, 6, 21, 11, 45, 0, 0, time.UTC).Unix(); got != want {
+			t.Fatalf("observed_at = %d, want %d", got, want)
 		}
 	})
 	t.Run("absent when unknown", func(t *testing.T) {
 		f.app.weather.obs = weatherObservation{Condition: "rain", FetchedAt: f.clk.Now()}
-		if v, ok := weatherOf(t)["observed_at"]; ok {
-			t.Fatalf("observed_at = %v, want the key left out", v)
+		if w, body := weatherOf(t); w["observed_at"] != nil {
+			t.Fatalf("observed_at present, want the key left out: %s", body)
 		}
 	})
 }

@@ -69,7 +69,7 @@ type knobWeather struct {
 	Night      bool    `json:"night"`
 	Sunrise    *int64  `json:"sunrise"`
 	Sunset     *int64  `json:"sunset"`
-	ObservedAt string  `json:"observed_at,omitempty"`
+	ObservedAt *int64  `json:"observed_at,omitempty"`
 }
 
 type knobNowPlaying struct {
@@ -249,7 +249,8 @@ func (a *App) knobWeather(now time.Time) *knobWeather {
 		w.Sunrise, w.Sunset = &r, &s
 	}
 	if !wx.Obs.ObservedAt.IsZero() {
-		w.ObservedAt = wx.Obs.ObservedAt.UTC().Format(time.RFC3339)
+		o := wx.Obs.ObservedAt.Unix()
+		w.ObservedAt = &o
 	}
 	return w
 }

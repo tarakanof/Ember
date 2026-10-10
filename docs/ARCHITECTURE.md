@@ -3647,7 +3647,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
   hour; null without a location or in polar day/night), `stale` as in
   `/v1/weather/state`, and `observed_at` (#355) the provider's time for the
   current values (Open-Meteo `current.time`, MET Norway's first timeseries
-  `time`) as RFC 3339 UTC, left out when the provider sent none (see
+  `time`) as Unix seconds, left out when the provider sent none (see
   DEVICE-PROTOCOL.md "Weather observation time");
   `brightness` is the read-only `/v1/display/brightness` level and `night`;
   `"quiet":true` follows it while quiet hours are on (#343, left out

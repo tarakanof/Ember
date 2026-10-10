@@ -253,16 +253,17 @@ knob view. The knob has no speaker, so on the knob quiet is display only:
 knob can show how old the observation itself is, not only how long ago
 Ember last fetched it (`stale`):
 
-- **Format:** RFC 3339 in UTC to the second (`"2026-06-21T11:30:00Z"`),
-  the last key of `weather`. The view's other times are Unix seconds;
-  this one is a string so a knob can tell it apart and print it as is.
+- **Format:** an integer of Unix seconds (UTC), like `ends_at` and
+  `sunrise`/`sunset`, the last key of `weather`
+  (`"observed_at":1782041400`). The knob gets the age as
+  `X-Ember-Now` minus it, with no date parsing.
 - **Source:** the provider's own time for the current values. Open-Meteo:
   `current.time`, the time of its current 15-minute step. MET Norway: the
   first `properties.timeseries[].time`, the hour the instant values are
   for. Not Ember's fetch time.
 - **Absent** when the provider sent no time (and in the `weather: null`
-  cases). Never `null`, never empty.
-- **Old firmware** skips the unknown key. The body grows by about 38 B.
+  cases). Never `null` or `0`.
+- **Old firmware** skips the unknown key. The body grows by 25 B.
   A new fetch with a new provider time moves the ETag even when the
   shown values did not change.
 
