@@ -22,6 +22,7 @@ import (
 func putClockOverride(a *App, url string) error {
 	body, _ := json.Marshal(map[string]string{"base_url": url})
 	w := putDeviceConfig(a, string(body))
+	a.clockJobs.Wait()
 	if w.Code != http.StatusOK {
 		return fmt.Errorf("PUT /v1/device/config: %d %s", w.Code, w.Body)
 	}

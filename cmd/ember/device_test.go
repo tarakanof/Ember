@@ -18,6 +18,7 @@ func newTestAppWithStore(t *testing.T) *App {
 		t.Fatal(err)
 	}
 	ownIconJobs(t, a)
+	stubRemoteClock(t, a)
 	return a
 }
 

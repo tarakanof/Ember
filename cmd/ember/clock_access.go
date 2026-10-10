@@ -14,7 +14,8 @@ import (
 )
 
 type clockAccess struct {
-	cfg func() *Config
+	cfg     func() *Config
+	connect func(base string, timeout time.Duration) *awtrix.Client
 
 	systemLock ctxLock
 
@@ -23,7 +24,7 @@ type clockAccess struct {
 }
 
 func newClockAccess(cfg func() *Config) *clockAccess {
-	return &clockAccess{cfg: cfg, systemLock: newCtxLock(), writeBudget: clockWriteBudget, readBudget: clockReadBudget}
+	return &clockAccess{cfg: cfg, connect: awtrix.NewClient, systemLock: newCtxLock(), writeBudget: clockWriteBudget, readBudget: clockReadBudget}
 }
 
 type ctxLock chan struct{}
@@ -111,7 +112,7 @@ func (k *clockAccess) client(c callClass) (*awtrix.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return awtrix.NewClient(base, c.timeout(cfg)), nil
+	return k.connect(base, c.timeout(cfg)), nil
 }
 
 func (k *clockAccess) do(ctx context.Context, c callClass, fn func(context.Context, *awtrix.Client) error) error {

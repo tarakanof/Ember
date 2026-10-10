@@ -1102,7 +1102,9 @@ fingerprint doesn't exist on NG). The server advertises itself as
   Disabled, those fields are `null` and no request leaves the server.
 - **Troubleshooting — clock dark after its IP changed:** the server self-heals
   within ~30s (mDNS). To apply the new IP now, restart the container (re-runs boot discovery) or
-  `PUT /v1/device/config {"base_url": …}`; `/admin/doctor` shows the clock's
+  `PUT /v1/device/config {"base_url": …}` (republishes, sends the native
+  icons to the new address and installs or removes the boot-ping script there,
+  following `awtrix.boot_ping`); `/admin/doctor` shows the clock's
   reachability + last re-discovery. A DHCP reservation avoids the whole
   problem.
 

@@ -34,6 +34,9 @@ func fakeAudioClock(t *testing.T, status int, reply string) (*App, func() []fake
 	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
+	mu.Lock()
+	calls = nil
+	mu.Unlock()
 	return a, func() []fakeClockCall {
 		mu.Lock()
 		defer mu.Unlock()

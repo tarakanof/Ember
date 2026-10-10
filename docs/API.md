@@ -101,7 +101,9 @@ config once it is migrated: stored there, returned merged here, kept for at
 least two releases after #232), `GET/PUT /v1/device/config`
 (`{"base_url"}`, the same merge: `{}` changes nothing, an empty or non-http(s)
 URL is a 400; GET answers the effective URL and its `source` — see
-`clock_url.go`),
+`clock_url.go`; a PUT that changes the effective URL republishes and, in the
+background, provisions icons on the new clock and installs or removes the
+boot-ping script there, following `awtrix.boot_ping`),
 `GET /v1/device/discover`, `GET/PUT /v1/device/settings` (whitelisted
 `PATCH /api/v1/settings` keys — see `device_settings.go`; during a Pomodoro
 takeover `autoTransition`/`blockNavigation` read and write the saved prior,

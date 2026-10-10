@@ -1313,8 +1313,8 @@ precipitating. The previews can't animate it and don't draw it.
 **Icon provisioning** (`ensureNativeIcons`): the device's own on-demand
 gallery downloads proved unreliable (observed failing for hours → iconless
 tile), so the **server provisions icons**: on startup, on every weather or
-Pomodoro config apply, after a config reload and whenever rediscovery moves the
-clock to a new URL, it lists the clock's `/ICONS` folder (`GET
+Pomodoro config apply, after a config reload and whenever the clock moves to a
+new URL (rediscovery or a `PUT /v1/device/config`), it lists the clock's `/ICONS` folder (`GET
 /api/v1/files?dir=/ICONS`), downloads any missing configured icon ID from the
 LaMetric gallery (`.gif`→`.jpg` fallback, then the extensionless URL as a
 last resort — some IDs, e.g. the Pomodoro tomato `29802`, exist only as a
@@ -1326,12 +1326,20 @@ POST /api/v1/files?dir=/ICONS`, `Publisher.ListIcons`/`PutIcon`). List failures 
 per-icon failures log and retry on the next apply/restart. The startup run
 comes from `initDeviceDiscovery`, once the boot rediscover has judged the URL
 (`provisionClockInBackground`, which also starts the boot-ping install; both
-run on `App.clockJobs`, which shutdown waits for). `reapplySettings` holds icon
+run on `App.clockJobs`, a `clockJobGroup` that hands each job its context).
+Shutdown closes the group first: it refuses new jobs from then on (so a handler
+still running past the `server.Shutdown` deadline can't add to a WaitGroup
+already being waited on) and cancels the context, so a job stalled on the lossy
+link aborts instead of eating the deadline. A cancelled job logs at Debug, not
+Warn, and the icon loop stops at the first cancel. Shutdown then stops the
+clock migration before it waits for the workers and the clock jobs, so neither
+a hung worker nor a hung job keeps `clockMigrate.stopAndWait()` from running
+before the store closes. `reapplySettings` holds icon
 provisioning (`iconHold`, released by `defer`) while it restores stored slices,
 because the weather and Pomodoro `after` hooks fire before the clock URL
 override (`clock` is registered last) and before rediscovery has judged that
 URL, so a provisioning job started there listed `/ICONS` on a stale address
-(#382); `/admin/reload` provisions explicitly after its reapply. Covers both the
+(#382); `/admin/reload` calls `provisionClockInBackground` after its reapply. Covers both the
 weather condition icons and the Pomodoro tomato/coffee icons (`29802`/`6396`)
 whenever their owning feature is enabled.
 
@@ -1713,9 +1721,14 @@ tier, not a swap. `sameDeviceURL` normalises because discovery builds
 to a different clock clears the cached capabilities (they described the previous
 clock and the audio gate would refuse on their word), and a PUT naming
 `base_url` clears a swap even when the URL equals the override discovery swapped
-away from. A swap found by the watch also re-runs the per-clock one-shots that
+away from. A swap found by the watch, and a PUT that changes the effective URL
+(compared with `sameDeviceURL`), both go through `clockMoved`: a republish
+(`clock_rediscovered` / `clock_url_changed`) plus the per-clock one-shots that
 otherwise run only at boot or reload: icon provisioning and the boot-ping script
-install (`ensureBootPingScript`), so a clock found after boot gets them too.
+install (`ensureBootPingScript`), so a clock found or pinned after boot gets
+them too. The PUT handler decides this, not a settings `after` hook, because
+`reapplySettings` replays the stored override at boot before rediscovery has
+judged it (#382).
 They start in the background after `rediscoverClock` returns, so neither
 `deviceRediscoverMu` nor the `clock_rediscovered` republish waits on them.
 `rediscoverClock` is single-flighted by `deviceRediscoverMu` so the
@@ -2593,8 +2606,9 @@ migration) the same config is a façade over the overlay slices, as in #230.
   A probe only starts it in a goroutine (one at a time), so the probe's
   single-flight and `deviceRediscoverMu` are never held while it waits.
   Shutdown waits for it, within its deadline, before it flushes the
-  registry and closes the store. Once the workers have stopped, it refuses
-  new runs before it waits, so a late probe can't join the wait. A run
+  registry and closes the store. It refuses new runs before it waits, and
+  does both before waiting on the workers, so a late probe can't join the
+  wait and a hung worker can't skip it. A run
   that finds the row already loaded (for example an unreadable row fixed
   and loaded by `/admin/reload`) clears the recorded error.
   Lock order `rotationOp` → `cfgMu`, as for the façade. Doctor `devices`

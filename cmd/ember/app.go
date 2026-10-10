@@ -102,7 +102,7 @@ type App struct {
 
 	iconFetch func(ctx context.Context, id string) (data []byte, ext string, err error)
 	iconMu    sync.Mutex
-	clockJobs sync.WaitGroup
+	clockJobs *clockJobGroup
 	iconHold  atomic.Int32
 
 	republish republishGate
@@ -142,6 +142,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.nowPlaying = newNowPlayingService()
 	a.nowPlaying.reg.OnChange = func() { a.changes.notify(topicNowPlaying) }
 	a.iconFetch = fetchLaMetricIcon
+	a.clockJobs = newClockJobGroup()
 	a.cfg.Store(&cfg)
 	a.changes = newChangeBroadcaster()
 	a.clock = newClockAccess(a.cfg.Load)

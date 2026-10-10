@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -81,5 +82,112 @@ func TestShutdownIsBoundedByItsDeadline(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("shutdown blocked on a stuck worker past its deadline")
+	}
+}
+
+func TestShutdownCancelsStalledIconJob(t *testing.T) {
+	clock := &iconClockStub{fingerprint: true, stallList: make(chan struct{})}
+	clockSrv := clock.server(t)
+	a := iconClockApp(t, clockSrv.URL)
+	t.Cleanup(func() { close(clock.stallList) })
+	if err := a.ensureStore(t.TempDir() + "/s.db"); err != nil {
+		t.Fatal(err)
+	}
+	a.provisionIconsInBackground()
+	waitFor(t, "icon list request", func() bool {
+		return len(clock.requests("GET /api/v1/files")) > 0
+	})
+
+	ctx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stop()
+	start := time.Now()
+	a.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("shutdown took %v behind a stalled icon job", took)
+	}
+	assertMigrationStopped(t, a)
+}
+
+func TestShutdownStopsMigrationBehindStalledClockJob(t *testing.T) {
+	a := newTestAppWithStore(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	a.clockJobs.Go(func(context.Context) { <-release })
+
+	ctx, stop := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer stop()
+	a.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
+	assertMigrationStopped(t, a)
+}
+
+func assertMigrationStopped(t *testing.T, a *App) {
+	t.Helper()
+	ran := make(chan struct{})
+	a.clockMigrate.start(func() { close(ran) })
+	select {
+	case <-ran:
+		t.Fatal("a clock migration started after shutdown: the migration was never stopped")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestShutdownStopsMigrationBehindHungWorker(t *testing.T) {
+	a := newTestAppWithStore(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	var workers sync.WaitGroup
+	workers.Go(func() { <-release })
+
+	ctx, stop := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer stop()
+	a.shutdown(ctx, &http.Server{}, &workers)
+	assertMigrationStopped(t, a)
+}
+
+type stallingIconPublisher struct {
+	*recordingPublisher
+	entered chan struct{}
+	release chan struct{}
+	lists   atomic.Int32
+}
+
+func (p *stallingIconPublisher) ListIcons(context.Context) ([]string, error) {
+	if p.lists.Add(1) == 1 {
+		close(p.entered)
+		<-p.release
+	}
+	return nil, nil
+}
+
+func TestShutdownRefusesLateClockJob(t *testing.T) {
+	pub := &stallingIconPublisher{
+		recordingPublisher: &recordingPublisher{},
+		entered:            make(chan struct{}),
+		release:            make(chan struct{}),
+	}
+	cfg := defaultConfig()
+	cfg.Pomodoro.Enabled = true
+	a := NewApp(cfg, pub, testLogger())
+	a.iconFetch = func(context.Context, string) ([]byte, string, error) { return nil, "", errTest }
+	if err := a.ensureStore(t.TempDir() + "/s.db"); err != nil {
+		t.Fatal(err)
+	}
+	release := sync.OnceFunc(func() { close(pub.release) })
+	t.Cleanup(func() {
+		release()
+		a.clockJobs.Wait()
+	})
+
+	a.provisionIconsInBackground()
+	<-pub.entered
+	ctx, stop := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer stop()
+	a.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
+
+	a.provisionIconsInBackground()
+	release()
+	a.clockJobs.Wait()
+	if n := pub.lists.Load(); n != 1 {
+		t.Fatalf("icon lists = %d, want 1: a clock job started after shutdown ran", n)
 	}
 }

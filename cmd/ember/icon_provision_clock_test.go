@@ -3,14 +3,19 @@ package main
 import (
 	"context"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/berry"
 	"github.com/tarakanof/ember/internal/discovery"
 )
@@ -19,6 +24,8 @@ type iconClockStub struct {
 	mu          sync.Mutex
 	fingerprint bool
 	stallScript chan struct{}
+	stallList   chan struct{}
+	script      string
 	seen        []string
 	scriptPuts  []string
 }
@@ -41,7 +48,18 @@ func (s *iconClockStub) server(t *testing.T) *httptest.Server {
 			}
 			return
 		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/files" && s.stallList != nil {
+			select {
+			case <-s.stallList:
+			case <-r.Context().Done():
+			}
+			return
+		}
 		switch {
+		case r.Method == http.MethodGet && r.URL.Path == scriptPath && s.script != "":
+			_, _ = io.WriteString(w, s.script)
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/apps/"+berry.BootPingName:
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/device":
 			_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/files":
@@ -79,6 +97,29 @@ func (s *iconClockStub) puts() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.scriptPuts...)
+}
+
+func stubRemoteClock(t *testing.T, a *App) {
+	t.Helper()
+	srv := (&iconClockStub{fingerprint: true}).server(t)
+	a.clock.connect = func(base string, timeout time.Duration) *awtrix.Client {
+		if !loopbackURL(base) {
+			base = srv.URL
+		}
+		return awtrix.NewClient(base, timeout)
+	}
+}
+
+func loopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if u.Hostname() == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(u.Hostname())
+	return ip != nil && ip.IsLoopback()
 }
 
 func iconClockApp(t *testing.T, staleURL string) *App {
@@ -232,7 +273,6 @@ func TestAdminReload_ProvisionsIcons(t *testing.T) {
 	app.iconFetch = func(_ context.Context, id string) ([]byte, string, error) {
 		return []byte("gif-bytes-" + id), "gif", nil
 	}
-	t.Cleanup(app.clockJobs.Wait)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
@@ -290,5 +330,178 @@ func TestBootSequence_ProvisionsIconsOnlyAfterRediscover(t *testing.T) {
 	want := []string{"POST /api/v1/files?dir=%2FICONS", "POST /api/v1/files?dir=%2FICONS"}
 	if got := moved.requests("POST /api/v1/files"); !slices.Equal(got, want) {
 		t.Fatalf("rediscovered clock uploads %v, want the 2 pomodoro icons; stale saw %v", got, stale.requests(""))
+	}
+}
+
+func TestDeviceConfigPut_ProvisionsNewClock(t *testing.T) {
+	old := &iconClockStub{fingerprint: true}
+	oldSrv := old.server(t)
+	moved := &iconClockStub{fingerprint: true}
+	movedSrv := moved.server(t)
+
+	a := iconClockApp(t, oldSrv.URL)
+	a.updateConfig(func(c *Config) { c.AWTRIX.BootPing = true })
+
+	if err := putClockOverride(a, movedSrv.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := moved.requests("POST /api/v1/files"); !slices.Equal(got, twoIconUploads) {
+		t.Fatalf("new clock uploads %v, want the 2 pomodoro icons", got)
+	}
+	want := berry.BootPingSource(a.expectedBootCallback())
+	if got := moved.puts(); len(got) != 1 || got[0] != want {
+		t.Fatalf("boot ping installs %q, want one with callback %s", got, a.expectedBootCallback())
+	}
+	if got := old.requests(""); len(got) != 0 {
+		t.Fatalf("previous clock URL got requests %v", got)
+	}
+}
+
+func TestDeviceConfigPut_SameURLDoesNotProvision(t *testing.T) {
+	clock := &iconClockStub{fingerprint: true}
+	clockSrv := clock.server(t)
+
+	a := iconClockApp(t, clockSrv.URL)
+	if err := putClockOverride(a, clockSrv.URL+"/"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := clock.requests(""); len(got) != 0 {
+		t.Fatalf("unchanged clock URL got requests %v", got)
+	}
+}
+
+func TestAdminReload_TracksBootPing(t *testing.T) {
+	clock := &iconClockStub{fingerprint: true, stallScript: make(chan struct{})}
+	clockSrv := clock.server(t)
+	app, _ := newAppForReload(t, `{"awtrix":{"http_base_url":"`+clockSrv.URL+`"}}`)
+	release := sync.OnceFunc(func() { close(clock.stallScript) })
+	t.Cleanup(release)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reload status=%d want 200", resp.StatusCode)
+	}
+	waitFor(t, "boot ping read after reload", func() bool {
+		return len(clock.requests("GET /api/v1/apps/script/")) > 0
+	})
+
+	started := make(chan struct{})
+	waited := make(chan struct{})
+	go func() {
+		close(started)
+		app.clockJobs.Wait()
+		close(waited)
+	}()
+	<-started
+	select {
+	case <-waited:
+		t.Fatal("clockJobs.Wait returned while the reload boot ping was still running")
+	case <-time.After(200 * time.Millisecond):
+	}
+	release()
+	<-waited
+}
+
+func TestDeviceConfigPut_BootPingOffRemovesScript(t *testing.T) {
+	old := &iconClockStub{fingerprint: true}
+	oldSrv := old.server(t)
+	moved := &iconClockStub{fingerprint: true, script: "stale boot ping"}
+	movedSrv := moved.server(t)
+
+	a := iconClockApp(t, oldSrv.URL)
+	if err := putClockOverride(a, movedSrv.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := moved.requests("DELETE /api/v1/apps/" + berry.BootPingName); len(got) != 1 {
+		t.Fatalf("boot ping deletes %v on the new clock, want one; saw %v", got, moved.requests(""))
+	}
+	if got := moved.puts(); len(got) != 0 {
+		t.Fatalf("boot ping installs %q with boot_ping off", got)
+	}
+}
+
+func TestDeviceConfigPut_ClockOffStartsNoJobs(t *testing.T) {
+	t.Setenv("EMBER_CLOCK", "off")
+	old := &iconClockStub{fingerprint: true}
+	oldSrv := old.server(t)
+	moved := &iconClockStub{fingerprint: true}
+	movedSrv := moved.server(t)
+
+	a := iconClockApp(t, oldSrv.URL)
+	var logs syncBuffer
+	a.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	a.updateConfig(func(c *Config) { c.AWTRIX.BootPing = true })
+	if err := putClockOverride(a, movedSrv.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := append(old.requests(""), moved.requests("")...); len(got) != 0 {
+		t.Fatalf("clock requests with EMBER_CLOCK=off: %v", got)
+	}
+	if strings.Contains(logs.String(), "boot ping") || strings.Contains(logs.String(), "icon provision") {
+		t.Fatalf("clock jobs ran with EMBER_CLOCK=off:\n%s", logs.String())
+	}
+}
+
+func TestEnsureNativeIcons_CancelStopsQuietly(t *testing.T) {
+	clock := &iconClockStub{fingerprint: true}
+	clockSrv := clock.server(t)
+	a := iconClockApp(t, clockSrv.URL)
+	var logs syncBuffer
+	a.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var fetches atomic.Int32
+	a.iconFetch = func(ctx context.Context, _ string) ([]byte, string, error) {
+		fetches.Add(1)
+		cancel()
+		return nil, "", ctx.Err()
+	}
+	a.ensureNativeIcons(ctx)
+
+	if n := fetches.Load(); n != 1 {
+		t.Fatalf("icon fetches after cancel = %d, want the loop to stop at the first", n)
+	}
+	if strings.Contains(logs.String(), "level=WARN") {
+		t.Fatalf("a cancelled icon job logged a warning:\n%s", logs.String())
+	}
+}
+
+func TestEnsureBootPingScript_CancelIsQuiet(t *testing.T) {
+	clock := &iconClockStub{fingerprint: true, stallScript: make(chan struct{})}
+	clockSrv := clock.server(t)
+	t.Cleanup(func() { close(clock.stallScript) })
+	a := iconClockApp(t, clockSrv.URL)
+	a.updateConfig(func(c *Config) { c.AWTRIX.BootPing = true })
+	var logs syncBuffer
+	a.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		for len(clock.requests("GET /api/v1/apps/script/")) == 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
+		cancel()
+	}()
+	a.ensureBootPingScript(ctx)
+
+	if strings.Contains(logs.String(), "level=WARN") {
+		t.Fatalf("a cancelled boot ping job logged a warning:\n%s", logs.String())
 	}
 }

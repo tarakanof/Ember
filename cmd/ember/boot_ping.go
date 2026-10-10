@@ -42,14 +42,14 @@ func (a *App) ensureBootPingScript(ctx context.Context) {
 	if !a.cfg.Load().AWTRIX.BootPing {
 		_, present, err := a.getScript(ctx, berry.BootPingName)
 		if err != nil {
-			a.logger.Warn("boot ping: device read failed", "err", err)
+			a.clockJobFailed(ctx, "boot ping: device read failed", "err", err)
 			return
 		}
 		if !present {
 			return
 		}
 		if err := a.deleteScript(ctx, berry.BootPingName); err != nil {
-			a.logger.Warn("boot ping: uninstall failed", "err", err)
+			a.clockJobFailed(ctx, "boot ping: uninstall failed", "err", err)
 			return
 		}
 		a.logger.Info("boot ping script removed from device", "name", berry.BootPingName)
@@ -64,14 +64,14 @@ func (a *App) ensureBootPingScript(ctx context.Context) {
 	want := berry.BootPingSource(url)
 	cur, present, err := a.getScript(ctx, berry.BootPingName)
 	if err != nil {
-		a.logger.Warn("boot ping: device read failed", "err", err)
+		a.clockJobFailed(ctx, "boot ping: device read failed", "err", err)
 		return
 	}
 	if present && cur == want {
 		return
 	}
 	if err := a.putScript(ctx, berry.BootPingName, want); err != nil {
-		a.logger.Warn("boot ping: install failed", "err", err)
+		a.clockJobFailed(ctx, "boot ping: install failed", "err", err)
 		return
 	}
 	a.logger.Info("boot ping script provisioned to device",
