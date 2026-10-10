@@ -253,18 +253,6 @@ func noteOnce(ch chan bool, v bool) {
 	}
 }
 
-func received[T any](t *testing.T, ch <-chan T, what string) T {
-	t.Helper()
-	select {
-	case v := <-ch:
-		return v
-	case <-time.After(5 * time.Second):
-		t.Fatalf("timed out waiting for %s", what)
-		var zero T
-		return zero
-	}
-}
-
 func TestFirmwarePruneHoldsTheRegistryOnlyWhileRetiring(t *testing.T) {
 	k := newOTAKnob(t)
 	k.idle(t)
@@ -287,14 +275,14 @@ func TestFirmwarePruneHoldsTheRegistryOnlyWhileRetiring(t *testing.T) {
 		return removeAll(path)
 	}
 	k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", firmwareKept+1)}), "")
-	if received(t, retiring, "the retire of 0.9.1") {
+	if recvWithin(t, retiring, "the retire of 0.9.1") {
 		t.Error("retention retired 0.9.1 without holding the registry")
 	}
-	if !received(t, dropping, "the removal of the retired 0.9.1") {
+	if !recvWithin(t, dropping, "the removal of the retired 0.9.1") {
 		t.Error("the registry stayed held while the retired copy was removed")
 	}
 	done, err := checkinWithin(t, k, "0.9.1", 2*time.Second)
-	received(t, done, "a checkin after the prune")
+	recvWithin(t, done, "a checkin after the prune")
 	if *err != nil {
 		t.Fatal(*err)
 	}
