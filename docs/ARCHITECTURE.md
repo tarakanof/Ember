@@ -1326,11 +1326,15 @@ POST /api/v1/files?dir=/ICONS`, `Publisher.ListIcons`/`PutIcon`). List failures 
 per-icon failures log and retry on the next apply/restart. The startup run
 comes from `initDeviceDiscovery`, once the boot rediscover has judged the URL
 (`provisionClockInBackground`, which also starts the boot-ping install; both
-run on `App.clockJobs` under `App.clockJobsCtx`). Shutdown cancels that context
-first, so a job stalled on the lossy link aborts instead of eating the
-deadline, then stops the clock migration and only after that waits for the
-clock jobs, so a job that still hangs can't keep `clockMigrate.stopAndWait()`
-from running before the store closes. `reapplySettings` holds icon
+run on `App.clockJobs`, a `clockJobGroup` that hands each job its context).
+Shutdown closes the group first: it refuses new jobs from then on (so a handler
+still running past the `server.Shutdown` deadline can't add to a WaitGroup
+already being waited on) and cancels the context, so a job stalled on the lossy
+link aborts instead of eating the deadline. A cancelled job logs at Debug, not
+Warn, and the icon loop stops at the first cancel. Shutdown then stops the
+clock migration before it waits for the workers and the clock jobs, so neither
+a hung worker nor a hung job keeps `clockMigrate.stopAndWait()` from running
+before the store closes. `reapplySettings` holds icon
 provisioning (`iconHold`, released by `defer`) while it restores stored slices,
 because the weather and Pomodoro `after` hooks fire before the clock URL
 override (`clock` is registered last) and before rediscovery has judged that
@@ -2602,8 +2606,9 @@ migration) the same config is a façade over the overlay slices, as in #230.
   A probe only starts it in a goroutine (one at a time), so the probe's
   single-flight and `deviceRediscoverMu` are never held while it waits.
   Shutdown waits for it, within its deadline, before it flushes the
-  registry and closes the store. Once the workers have stopped, it refuses
-  new runs before it waits, so a late probe can't join the wait. A run
+  registry and closes the store. It refuses new runs before it waits, and
+  does both before waiting on the workers, so a late probe can't join the
+  wait and a hung worker can't skip it. A run
   that finds the row already loaded (for example an unreadable row fixed
   and loaded by `/admin/reload`) clears the recorded error.
   Lock order `rotationOp` → `cfgMu`, as for the façade. Doctor `devices`

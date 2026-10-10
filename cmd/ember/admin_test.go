@@ -281,6 +281,7 @@ func newAppForReload(t *testing.T, cfgBody string) (*App, string) {
 	app.configPath = path
 	app.configSource = "flag"
 	stubRemoteClock(t, app)
+	t.Cleanup(app.clockJobs.Wait)
 	return app, path
 }
 

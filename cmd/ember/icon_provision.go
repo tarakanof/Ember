@@ -9,24 +9,64 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
 )
 
+type clockJobGroup struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	mu     sync.Mutex
+	closed bool
+	wg     sync.WaitGroup
+}
+
+func newClockJobGroup() *clockJobGroup {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &clockJobGroup{ctx: ctx, cancel: cancel}
+}
+
+func (g *clockJobGroup) Go(job func(context.Context)) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		return
+	}
+	g.wg.Go(func() { job(g.ctx) })
+}
+
+func (g *clockJobGroup) Wait() { g.wg.Wait() }
+
+func (g *clockJobGroup) close() {
+	g.mu.Lock()
+	g.closed = true
+	g.mu.Unlock()
+	g.cancel()
+}
+
 func (a *App) provisionIconsInBackground() {
 	if a.iconHold.Load() > 0 {
 		return
 	}
-	a.clockJobs.Go(func() { a.ensureNativeIcons(a.clockJobsCtx) })
+	a.clockJobs.Go(a.ensureNativeIcons)
 }
 
 func (a *App) provisionClockInBackground() {
 	if clockDisabled() {
 		return
 	}
-	a.clockJobs.Go(func() { a.ensureNativeIcons(a.clockJobsCtx) })
-	a.clockJobs.Go(func() { a.ensureBootPingScript(a.clockJobsCtx) })
+	a.clockJobs.Go(a.ensureNativeIcons)
+	a.clockJobs.Go(a.ensureBootPingScript)
+}
+
+func (a *App) clockJobFailed(ctx context.Context, msg string, args ...any) {
+	if ctx.Err() != nil {
+		a.logger.Debug(msg, args...)
+		return
+	}
+	a.logger.Warn(msg, args...)
 }
 
 func (a *App) clockMoved(reason string) {
@@ -56,7 +96,7 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 
 	have, err := a.publisher.ListIcons(ctx)
 	if err != nil {
-		a.logger.Warn("icon provision: device list failed", "err", err)
+		a.clockJobFailed(ctx, "icon provision: device list failed", "err", err)
 		return
 	}
 	present := map[string]bool{}
@@ -69,17 +109,20 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 	}
 
 	for id := range need {
+		if ctx.Err() != nil {
+			return
+		}
 		if present[id] {
 			continue
 		}
 		data, ext, err := a.iconFetch(ctx, id)
 		if err != nil {
-			a.logger.Warn("icon provision: gallery fetch failed", "id", id, "err", err)
+			a.clockJobFailed(ctx, "icon provision: gallery fetch failed", "id", id, "err", err)
 			continue
 		}
 		name := id + "." + ext
 		if err := a.publisher.PutIcon(ctx, name, data); err != nil {
-			a.logger.Warn("icon provision: device upload failed", "name", name, "err", err)
+			a.clockJobFailed(ctx, "icon provision: device upload failed", "name", name, "err", err)
 			continue
 		}
 		a.logger.Info("icon provisioned to device", "name", name)
