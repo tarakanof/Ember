@@ -518,3 +518,48 @@ func itoa(n int) string {
 	b, _ := json.Marshal(n)
 	return string(b)
 }
+
+func TestClockConfigMigrationWaitsForReapply(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	resp, b := devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"moon_phase":false}`)
+	mustOK(t, "weather put", resp, b)
+	release := a.holdClockRotation()
+	a.updateConfig(func(c *Config) {
+		c.Weather.MoonPhase = boolPtr(true)
+	})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		probeClock(t, a)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+	}
+	a.reapplySettings()
+	release()
+	<-done
+	if c := storedClock(t, a); c.Apps.Weather == nil || c.Apps.Weather.Moon {
+		t.Fatalf("migration during a reapply stored the baseline: %+v", c.Apps.Weather)
+	}
+}
+
+func TestClockRecordDeleteKeepsClockConfig(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	resp, b := devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"moon_phase":false}`)
+	mustOK(t, "weather put", resp, b)
+	row, _, _ := a.store.GetSetting(clockConfigKey)
+	resp, b = devReq(t, srv, "DELETE", "/v1/devices/"+d.ID, testToken, "")
+	mustOK(t, "delete", resp, b)
+	again := registeredClock(t, a, srv)
+	if got, _, _ := a.store.GetSetting(clockConfigKey); got != row {
+		t.Fatalf("clock config changed by delete and re-create:\n%s\n%s", row, got)
+	}
+	if a.cfg.Load().Weather.MoonPhaseEnabled() {
+		t.Fatal("presentation lost with the record")
+	}
+	if again.ConfigVersion != 1 {
+		t.Fatalf("re-created record version = %d, want 1", again.ConfigVersion)
+	}
+}

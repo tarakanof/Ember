@@ -1719,7 +1719,9 @@ façade" below), those keys belong to the clock config row
 (`clock_config_json`): the slice's stored blob drops them, a stored blob that
 still has them (written by an older server) has them ignored on reapply, and a
 PUT that changes them stores the clock config row and the slice in one
-`PutSettings` transaction (the slice only if its source part changed). A PUT
+`PutSettings` transaction (the slice only if its source part changed). Like
+the slices' own writes, a failed store there is logged and the PUT still
+answers 200 with memory changed (the façade PUT answers 500 instead). A PUT
 or GET of the old endpoint still takes and returns the merged legacy shape.
 The clock config row is registered first, so reapply loads it before the
 slices.
@@ -2545,16 +2547,24 @@ migration) the same config is a façade over the overlay slices, as in #230.
   on the façade). It does nothing if the clock config is loaded. If
   `clock_config_json` exists but did not load (bad JSON, bad schema, invalid
   value), it refuses to overwrite it and stays on the façade. Otherwise,
-  under `cfgMu`, every slice with a stored row that still has presentation
-  keys gives its app's current effective value to `apps` (which after reapply
-  is exactly what the façade composed, so the clock shows the same thing),
+  under `cfgMu`, every slice with a stored row that has presentation keys
+  gives its app's current effective value to `apps` (reapply rewrites every
+  stored row with its full view, so in practice every stored slice pins its
+  app, as it already did; after reapply the value is exactly what the façade
+  composed, so the clock shows the same thing),
   and one `PutSettings` writes `clock_config_json` and every stored slice
   rewritten without its presentation keys. A failed transaction changes
   nothing, keeps the façade, logs `clock config not migrated` once and makes
   the doctor `devices` check warn; the next boot or record creation retries.
   A crash before the commit is a rerun; after it, the next boot loads the row
-  and finds nothing left to move. Doctor `devices` reports `clock config
-  migrated (from <version>)`.
+  and finds nothing left to move. The migration holds `App.rotationOp`
+  (waiting with no deadline, like reload), the lock boot and `/admin/reload`
+  hold from the config swap through their reapply, so a record created
+  mid-reload can't migrate from half-reapplied memory and store the
+  `config.json` values over the slices'. It also can't interleave with a
+  façade PUT. Boot releases the lock after its reapply and then migrates.
+  Lock order `rotationOp` → `cfgMu`, as for the façade. Doctor `devices`
+  reports `clock config migrated (from <version>)`.
 - **Façade.** `GET /v1/devices/{clock}/config` composes; `PUT` splits back.
   Every `awtrix-ng` record serves the same config (one clock). After the
   migration the presentation fields come from the clock config (which the
@@ -2627,8 +2637,8 @@ migration) the same config is a façade over the overlay slices, as in #230.
   already written.
 - **One operation at a time.** Every request that reads or writes the
   clock's app order or the cached list (façade GET and PUT, `GET` and
-  `PUT /v1/device/apps`), and the settings reapply at boot and
-  `/admin/reload`, holds one lock (`App.rotationOp`) for the whole
+  `PUT /v1/device/apps`), the settings reapply at boot and
+  `/admin/reload`, and the clock config migration (#232), holds one lock (`App.rotationOp`) for the whole
   operation: the pre-read, the write, the read-back, the cache update, the
   settings commit, the record's version sync and the response snapshot. So
   a read can't land after a newer write, two writes can't interleave their
