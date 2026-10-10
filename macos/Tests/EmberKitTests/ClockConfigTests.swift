@@ -617,13 +617,16 @@ private final class LoadGate: @unchecked Sendable {
         }
         throw APIError.http(status: 500, body: "")
     }, save: { _ in })
+    defer { gate.release.signal() }
     let first = Task { await m.load() }
     try await waitFor { gate.count == 1 }
     await m.load()
+    try #require(m.loadError != nil)
     gate.release.signal()
     await first.value
     #expect(m.isLoaded)
     #expect(m.draft == 7)
+    #expect(m.loadError != nil)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func olderLoadSucceedingLastKeepsANewerLoadsError() async throws {
@@ -638,6 +641,7 @@ private final class LoadGate: @unchecked Sendable {
         }
     }, save: { _ in })
     await m.load()
+    defer { gate.release.signal() }
     let older = Task { await m.load() }
     try await waitFor { gate.count == 2 }
     await m.load()

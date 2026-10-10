@@ -116,6 +116,12 @@ private var fast: KnobProvisioner.Timeouts {
     return t
 }
 
+private var patient: KnobProvisioner.Timeouts {
+    var t = fast
+    t.reply = .seconds(30); t.ember = .seconds(30)
+    return t
+}
+
 private let minted = MintedKnob(device: KnobDevice(id: "knob-61fc8c", hwID: "3cdc7561fc8c", name: "Desk knob",
                                                    createdAt: Date(timeIntervalSince1970: 0)),
                                 token: "ekd_" + String(repeating: "A", count: 43))
@@ -268,7 +274,7 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
 
 @Test func emberUnauthorizedIsReported() async throws {
     let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
-    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unauthorized")]))
+    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unauthorized")]), timeouts: patient)
     let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
     await #expect(throws: KnobSetupError.emberUnauthorized) {
         _ = try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
@@ -277,7 +283,9 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
 
 @Test func emberUnreachableCarriesTheKnobIP() async throws {
     let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
-    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unreachable")]))
+    var replyPatient = fast
+    replyPatient.reply = .seconds(30)
+    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unreachable")]), timeouts: replyPatient)
     let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
     await #expect(throws: KnobSetupError.emberUnreachable(ip: "192.168.0.39", url: "http://192.168.0.2:3627")) {
         _ = try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
@@ -327,7 +335,8 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
 @Test func remintAfterRebootUsesTheLiveSessionAndIgnoresStaleEvents() async throws {
     let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
     let calls = Calls()
-    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unauthorized", okAfterSetEmber: true)]), calls: calls)
+    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unauthorized", okAfterSetEmber: true)]), calls: calls,
+                        timeouts: patient)
     let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
     let sink = SessionSink()
     await #expect(throws: KnobSetupError.emberUnauthorized) {
@@ -465,7 +474,8 @@ private func waitFor(_ model: KnobSetupModel, _ done: (KnobSetupModel.Stage) -> 
             return [FakeKnob.reply(["id": id, "ok": true])]
         }
     }
-    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unauthorized", okAfterSetEmber: true)]))
+    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unauthorized", okAfterSetEmber: true)]),
+                        timeouts: patient)
     let port = KnobSerialPort(path: "/dev/cu.fake", vendorID: 0x303A, productID: 0x1001, serialNumber: "3C:DC:75:61:FC:8C")
     let m = KnobSetupModel(mode: .setup, provisioner: p, emberURL: .init(url: "http://192.168.0.2:3627", replacedHost: nil),
                            name: "Desk knob", preferredSSID: "home")
@@ -551,7 +561,7 @@ private func knobCancellingAtSetEmber(_ box: TaskBox) -> FakeKnob {
 @Test func remintDropsAStaleEventQueuedAfterTheFailure() async throws {
     let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
     let rebooted = rebootedKnob(ember: "unauthorized", okAfterSetEmber: true)
-    let p = provisioner(FakeOpener(knob, later: [rebooted]))
+    let p = provisioner(FakeOpener(knob, later: [rebooted]), timeouts: patient)
     let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
     let sink = SessionSink()
     await #expect(throws: KnobSetupError.emberUnauthorized) {
@@ -684,8 +694,6 @@ private func connectingKnob(okAfter: Int?) -> FakeKnob {
 }
 
 @Test func emberConnectingIsStillInProgress() async throws {
-    var patient = fast
-    patient.ember = .seconds(30)
     let p = provisioner(FakeOpener(connectingKnob(okAfter: 2)), timeouts: patient)
     let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
     _ = try await p.provision(session, identity: id, serialNumber: nil, request: request, progress: { _ in })
