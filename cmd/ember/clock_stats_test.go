@@ -251,7 +251,7 @@ func TestClockStatsSamplerProbesAtStart(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
-	<-done
+	recvWithin(t, done, "clock sampler exit")
 	if f.hits.Load() == 0 {
 		t.Fatal("sampler never probed the clock")
 	}

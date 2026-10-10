@@ -262,7 +262,7 @@ func TestCoredumpUploadAnswersConflictWhileOneRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = pw.Close()
-	if got := <-done; got != http.StatusNoContent {
+	if got := recvWithin(t, done, "first upload"); got != http.StatusNoContent {
 		t.Fatalf("first upload = %d", got)
 	}
 	if resp, b := putDump(t, srv, m.Token, otherID, bytes.NewReader(other)); resp.StatusCode != http.StatusNoContent {

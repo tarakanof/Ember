@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1331,7 +1332,7 @@ func TestOTARetryDuringADeleteOfTheParkedVersionIsRefused(t *testing.T) {
 	if got := offerOf(t, k.idle(t)); got != nil {
 		t.Fatalf("checkin offered a version deleted after it read the store: %v", got)
 	}
-	if code := <-retry; del != http.StatusNoContent || code != http.StatusBadRequest {
+	if code := recvWithin(t, retry, "retry"); del != http.StatusNoContent || code != http.StatusBadRequest {
 		t.Fatalf("delete = %d, retry = %d; want 204, 400", del, code)
 	}
 	if st := k.status(t); st.Target != nil || st.Version != nil || st.Phase != otaPhaseIdle {
@@ -1511,13 +1512,15 @@ func goReq(srv *httptest.Server, method, path string, body []byte) <-chan int {
 	return done
 }
 
-func (k otaKnob) holdPurgeOf(version string) (reached, release chan struct{}) {
-	reached, release = make(chan struct{}), make(chan struct{})
+func (k otaKnob) holdPurgeOf(t *testing.T, version string) (reached chan struct{}, release func()) {
+	reached, gate := make(chan struct{}), make(chan struct{})
+	release = sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
 	var once atomic.Bool
 	k.app.knobFW.rename = func(oldpath, newpath string) error {
 		if filepath.Base(oldpath) == version && once.CompareAndSwap(false, true) {
 			close(reached)
-			<-release
+			<-gate
 		}
 		return os.Rename(oldpath, newpath)
 	}
@@ -1531,15 +1534,19 @@ func TestOTAAutoCheckinCommittingMidDeleteDoesNotOffer(t *testing.T) {
 	if code, _ := k.put(t, `{"mode":"auto"}`); code != http.StatusOK {
 		t.Fatal("mode auto")
 	}
-	reached, release := k.holdPurgeOf("0.9.14")
+	reached, release := k.holdPurgeOf(t, "0.9.14")
 	var del <-chan int
 	k.onceAfterRead(func() {
 		del = goReq(k.srv, "DELETE", "/v1/firmware/0.9.14", nil)
-		<-reached
+		select {
+		case <-reached:
+		case <-time.After(chanWaitBound):
+			t.Error("delete never reached the purge")
+		}
 	})
 	got := offerOf(t, k.idle(t))
-	close(release)
-	if code := <-del; code != http.StatusNoContent {
+	release()
+	if code := recvWithin(t, del, "delete"); code != http.StatusNoContent {
 		t.Fatalf("delete = %d", code)
 	}
 	if got != nil {
@@ -1557,7 +1564,7 @@ func TestOTAAutoCheckinRacingAnEvictionDoesNotOffer(t *testing.T) {
 	if code, _ := k.put(t, `{"mode":"auto"}`); code != http.StatusOK {
 		t.Fatal("mode auto")
 	}
-	reached, release := k.holdPurgeOf("0.9.14")
+	reached, release := k.holdPurgeOf(t, "0.9.14")
 	park := k.app.knobFW.rename
 	purgeGen := make(chan uint64, 1)
 	k.app.knobFW.rename = func(oldpath, newpath string) error {
@@ -1578,13 +1585,13 @@ func TestOTAAutoCheckinRacingAnEvictionDoesNotOffer(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Error("the eviction never reached the purge")
 		}
-		close(release)
+		release()
 	})
 	got := offerOf(t, k.idle(t))
-	if code := received(t, up, "the upload"); code != http.StatusCreated {
+	if code := recvWithin(t, up, "the upload"); code != http.StatusCreated {
 		t.Fatalf("upload = %d", code)
 	}
-	if gen := received(t, purgeGen, "the eviction's purge"); gen <= readGen {
+	if gen := recvWithin(t, purgeGen, "the eviction's purge"); gen <= readGen {
 		t.Fatalf("fwGen at the purge = %d, want past the checkin's read %d", gen, readGen)
 	}
 	if _, ok := k.app.knobFW.get("0.9.14"); ok {

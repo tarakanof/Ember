@@ -352,7 +352,7 @@ func TestReminderLoopGuardTickStopsLoopAtQuietHoursOnCoordinatorClock(t *testing
 	}()
 	t.Cleanup(func() {
 		cancel()
-		<-stopped
+		recvWithin(t, stopped, "reminder loop guard exit")
 	})
 	send := func() {
 		t.Helper()
