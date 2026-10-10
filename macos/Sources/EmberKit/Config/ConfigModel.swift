@@ -161,6 +161,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
 
     func amend(overlapped: Bool, _ change: (inout T) -> Void) {
         loadSeq += 1
+        if applied != nil { loadError = nil }
         change(&draft)
         if !overlapped, var a = applied {
             change(&a)
