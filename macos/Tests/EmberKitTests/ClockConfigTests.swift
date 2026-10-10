@@ -192,9 +192,10 @@ private func waitFor(_ cond: () -> Bool) async throws {
 }
 
 @MainActor
-private func facade(_ server: FacadeServer, id: String? = "clock-a") async -> (ClockConfigModel, APIClient) {
+private func facade(_ server: FacadeServer, id: String? = "clock-a",
+                    clock: ManualClock = ManualClock()) async -> (ClockConfigModel, APIClient) {
     let client = stubbedClient(token: "t") { server.handle($0) }
-    let m = ClockConfigModel(client: client, debounce: .milliseconds(600), sleep: ManualClock().sleepFn)
+    let m = ClockConfigModel(client: client, debounce: .milliseconds(600), sleep: clock.sleepFn)
     m.configure(client: client, deviceID: id)
     if id != nil { try? await waitFor { m.config.isLoaded || m.missing || m.config.loadError != nil } }
     return (m, client)
@@ -411,7 +412,8 @@ private let legacyPomodoro = ##"{"enabled":true,"focus_minutes":25,"short_break_
 private let legacyWeather = #"{"enabled":true,"rotate_in_apps":true,"air_tile":true}"#
 
 @MainActor
-private func linked(_ server: FacadeServer, probeBackoff: TimeInterval = 300) async throws -> (ClockConfigModel, SettingsModels, APIClient) {
+private func linked(_ server: FacadeServer, probeBackoff: TimeInterval = 300,
+                    clock: ManualClock = ManualClock()) async throws -> (ClockConfigModel, SettingsModels, APIClient) {
     server.respond("GET /v1/pomodoro/config", 200, legacyPomodoro)
     server.respond("PUT /v1/pomodoro/config", 200, "")
     server.respond("GET /v1/weather/config", 200, legacyWeather)
@@ -420,7 +422,7 @@ private func linked(_ server: FacadeServer, probeBackoff: TimeInterval = 300) as
     server.respond("PUT /v1/meetings/config", 200, "")
     let client = stubbedClient(token: "t") { server.handle($0) }
     let settings = SettingsModels(client: client, envStore: EnvFileStore(path: URL(fileURLWithPath: "/nonexistent/producer.env")))
-    let m = ClockConfigModel(client: client, debounce: .milliseconds(600), sleep: ManualClock().sleepFn,
+    let m = ClockConfigModel(client: client, debounce: .milliseconds(600), sleep: clock.sleepFn,
                              probeBackoff: probeBackoff)
     m.legacy = settings
     m.configure(client: client, deviceID: "clock-a")
@@ -495,7 +497,8 @@ private func count(_ server: FacadeServer, _ key: String) -> Int { server.log.fi
 
 @MainActor @Test(.timeLimit(.minutes(1))) func recoveredSaveKeepsEditsMadeWhileItWasInFlight() async throws {
     let server = FacadeServer(config: try fixtureText("config_default"))
-    let (m, _) = await facade(server)
+    let clock = ManualClock()
+    let (m, _) = await facade(server, clock: clock)
     server.respond("PUT /v1/devices/clock-a/config", 503, #"{"error":"busy"}"#)
     let gate = server.hold("PUT /v1/devices/clock-a/config")
     m.config.draft.apps.weather.forecastHours = 12
@@ -512,6 +515,15 @@ private func count(_ server: FacadeServer, _ key: String) -> Int { server.log.fi
     #expect(m.config.draft.apps.weather == custom.apps.weather)
     #expect(m.config.draft.patch(from: custom) == ["apps": .object(["calendar": .object(["tile_lead_minutes": .int(30)])])])
     #expect(m.config.hasPendingSave)
+    await clock.advance(by: .milliseconds(600))
+    try await waitFor { !m.config.isSaving }
+    #expect(count(server, "PUT /v1/devices/clock-a/config") == 2)
+    #expect(server.bodies("PUT /v1/devices/clock-a/config").last?["apps"] as? [String: [String: Int]]
+            == ["calendar": ["tile_lead_minutes": 30]])
+    #expect(m.config.draft == custom)
+    #expect(!m.config.hasUnsavedChanges && !m.config.hasPendingSave)
+    await clock.advance(by: .seconds(5))
+    #expect(count(server, "PUT /v1/devices/clock-a/config") == 2)
 }
 
 @Test func rebaseReplacesWholeValuesInsteadOfMergingThem() throws {
@@ -657,6 +669,10 @@ private final class LoadGate: @unchecked Sendable {
     await m.config.saveNow()
     #expect(settings.meetings.draft.enabled == true)
     #expect(settings.meetings.draft.tileLeadMinutes == 30)
+    await settings.meetings.saveNow()
+    let body = try #require(server.bodies("PUT /v1/meetings/config").last)
+    #expect(body["enabled"] as? Bool == true)
+    #expect(body["tile_lead_minutes"] as? Int == 30)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func legacyLoadInFlightAcrossAFacadeSaveIsDropped() async throws {
@@ -712,4 +728,137 @@ private final class LoadGate: @unchecked Sendable {
     await m.load()
     #expect(m.missing)
     #expect(count(server, "GET /v1/devices/clock-a/config") == gets)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func replayDropsTheFacadeSaveScheduledDuringThePut() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let clock = ManualClock()
+    let (m, settings, _) = try await linked(server, clock: clock)
+    server.respond("PUT /v1/devices/clock-a/config", 404, #"{"error":"not found"}"#)
+    let gate = server.hold("PUT /v1/devices/clock-a/config")
+    m.config.draft.apps.weather.air = false
+    let save = Task { await m.config.saveNow() }
+    try await waitFor { server.arrived("PUT /v1/devices/clock-a/config") }
+    m.config.draft.apps.weather.forecastHours = 12
+    m.config.scheduleSave()
+    gate.signal()
+    await save.value
+    #expect(settings.weather.draft.forecastHours == 12)
+    settings.weather.draft.forecastHours = 6
+    await clock.advance(by: .milliseconds(600))
+    #expect(count(server, "PUT /v1/devices/clock-a/config") == 1)
+    #expect(settings.weather.draft.forecastHours == 6)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func facadeSaveClearsAStaleLegacyLoadError() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let (m, settings, _) = try await linked(server)
+    server.respond("GET /v1/pomodoro/config", 500, #"{"error":"boom"}"#)
+    await settings.pomodoro.load()
+    try #require(settings.pomodoro.loadError != nil && settings.pomodoro.isLoaded)
+    server.respond("GET /v1/pomodoro/config", 200, legacyPomodoro)
+    let gate = server.hold("GET /v1/pomodoro/config")
+    let retry = Task { await settings.pomodoro.load() }
+    try await waitFor { server.arrived("GET /v1/pomodoro/config") }
+    m.config.draft.apps.focus.focusColor = "#123456"
+    await m.config.saveNow()
+    gate.signal()
+    await retry.value
+    #expect(settings.pomodoro.loadError == nil)
+    #expect(ClockAppLens(source: settings.pomodoro, clock: m, slice: \.focus).loadError == nil)
+}
+
+private func checkFieldDiff<S: ClockAppSlice>(_ base: S, other: S, blank: S.Source,
+                                              _ fields: [(name: String, change: (inout S) -> Void)]) {
+    var fromBase = blank
+    base.apply(to: &fromBase)
+    var fromOther = blank
+    other.apply(to: &fromOther)
+    var all = base
+    for (name, change) in fields {
+        var sent = base
+        change(&sent)
+        #expect(sent != base, "\(name) leaves the slice unchanged")
+        var written = fromBase
+        sent.apply(to: &written, changedFrom: base)
+        #expect(written != fromBase, "\(name) is not written")
+        var kept = fromOther
+        sent.apply(to: &kept, changedFrom: base)
+        var only = other
+        only.take(from: fromOther)
+        change(&only)
+        var want = fromOther
+        only.apply(to: &want)
+        #expect(kept == want, "\(name) writes more than itself")
+        change(&all)
+    }
+    var got = fromBase
+    all.apply(to: &got, changedFrom: base)
+    var want = fromBase
+    all.apply(to: &want)
+    #expect(got == want, "apply(to:) maps a field apply(to:changedFrom:) misses")
+}
+
+@MainActor @Test func everyFacadeFieldIsWrittenAloneWhenItChanged() {
+    checkFieldDiff(ClockConfig.Agents(), other: ClockConfig.Agents(usageCards: false, usagePerModel: false),
+                   blank: UsageConfig(), [
+        ("usageCards", { $0.usageCards = false }),
+        ("usagePerModel", { $0.usagePerModel = false }),
+    ])
+    checkFieldDiff(ClockConfig.Focus(), other: ClockConfig.Focus(focusColor: "#111111", breakColor: "#222222"),
+                   blank: SettingsModels.defaultPomoConfig, [
+        ("focusColor", { $0.focusColor = "#AAAAAA" }),
+        ("breakColor", { $0.breakColor = "#BBBBBB" }),
+    ])
+    let otherWeather = ClockConfig.Weather(
+        on: false, nativeIcon: true, forecast: false, forecastHours: 6, air: false, moon: false, overlay: false,
+        popups: ClockConfig.Popups(onChange: false, sun: false, severe: false, nativeIcons: true,
+                                   intervalMinutes: 30, durationSeconds: 8),
+        iconIds: ["clear": "1"])
+    checkFieldDiff(ClockConfig.Weather(), other: otherWeather, blank: WeatherConfig(), [
+        ("on", { $0.on = false }),
+        ("nativeIcon", { $0.nativeIcon = true }),
+        ("forecast", { $0.forecast = false }),
+        ("forecastHours", { $0.forecastHours = 12 }),
+        ("air", { $0.air = false }),
+        ("moon", { $0.moon = false }),
+        ("overlay", { $0.overlay = false }),
+        ("popups.onChange", { $0.popups.onChange = false }),
+        ("popups.sun", { $0.popups.sun = false }),
+        ("popups.severe", { $0.popups.severe = false }),
+        ("popups.nativeIcons", { $0.popups.nativeIcons = true }),
+        ("popups.intervalMinutes", { $0.popups.intervalMinutes = 60 }),
+        ("popups.durationSeconds", { $0.popups.durationSeconds = 15 }),
+        ("iconIds", { $0.iconIds = ["rain": "9"] }),
+    ])
+    checkFieldDiff(ClockConfig.Calendar(), other: ClockConfig.Calendar(on: false, tileLeadMinutes: 15, popupLeadMinutes: 0),
+                   blank: MeetingsConfig(), [
+        ("on", { $0.on = false }),
+        ("tileLeadMinutes", { $0.tileLeadMinutes = 30 }),
+        ("popupLeadMinutes", { $0.popupLeadMinutes = 5 }),
+    ])
+}
+
+@Test func iconOverridesAreWrittenAsAWholeValue() {
+    let before = ClockConfig.Weather(iconIds: ["clear": "1", "rain": "2"])
+    var sent = before
+    sent.iconIds = ["clear": "1"]
+    var source = WeatherConfig(iconIds: ["clear": "1", "rain": "2", "snow": "3"])
+    sent.apply(to: &source, changedFrom: before)
+    #expect(source.iconIds == ["clear": "1"])
+}
+
+@Test func aFieldChangedAndChangedBackIsNotWritten() {
+    let before = ClockConfig.Weather(iconIds: ["clear": "1"])
+    var sent = before
+    sent.popups.sun = false
+    sent.iconIds = [:]
+    sent.air = false
+    sent.popups.sun = true
+    sent.iconIds = ["clear": "1"]
+    var source = WeatherConfig(sunPopups: false, iconIds: ["rain": "2"], airTile: true)
+    sent.apply(to: &source, changedFrom: before)
+    #expect(source.sunPopups == false)
+    #expect(source.iconIds == ["rain": "2"])
+    #expect(source.airTile == false)
 }
