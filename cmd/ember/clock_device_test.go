@@ -29,6 +29,11 @@ type clockStub struct {
 	onDevice  func()
 	orderHold chan struct{}
 	orderIn   chan struct{}
+	appsHold  chan struct{}
+	appsIn    chan struct{}
+	appsLate  int
+	appsBody  string
+	appsDelay time.Duration
 }
 
 func newClockStub(t *testing.T) *clockStub {
@@ -48,11 +53,15 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPut && r.URL.Path == "/api/v1/apps/order" {
 		s.mu.Lock()
 		hold, in := s.orderHold, s.orderIn
+		s.orderHold = nil
 		s.mu.Unlock()
 		if hold != nil {
 			in <- struct{}{}
 			<-hold
 		}
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps" && s.serveApps(w, r) {
+		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -69,6 +78,10 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 	case "GET /api/v1/apps":
 		if s.appsFail {
 			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if s.appsBody != "" {
+			_, _ = w.Write([]byte(s.appsBody))
 			return
 		}
 		_ = json.NewEncoder(w).Encode(s.apps)
@@ -114,6 +127,44 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+func (s *clockStub) serveApps(w http.ResponseWriter, r *http.Request) bool {
+	s.mu.Lock()
+	hold, in, late, delay := s.appsHold, s.appsIn, s.appsLate, s.appsDelay
+	s.appsHold = nil
+	snapshot, _ := json.Marshal(s.apps)
+	s.mu.Unlock()
+	switch {
+	case hold != nil:
+		in <- struct{}{}
+		<-hold
+		if late != http.StatusOK {
+			w.WriteHeader(late)
+			return true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(snapshot)
+		return true
+	case delay > 0:
+		select {
+		case <-time.After(delay):
+		case <-r.Context().Done():
+			return true
+		}
+	}
+	return false
+}
+
+func (s *clockStub) holdApps(t *testing.T, late int) (in <-chan struct{}, release func()) {
+	t.Helper()
+	hold, ch := make(chan struct{}), make(chan struct{}, 1)
+	s.mu.Lock()
+	s.appsHold, s.appsIn, s.appsLate = hold, ch, late
+	s.mu.Unlock()
+	release = sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+	return ch, release
 }
 
 func (s *clockStub) puts() []string {

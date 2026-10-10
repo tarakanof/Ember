@@ -11,7 +11,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 const customClockConfig = `{
@@ -386,7 +388,9 @@ func holdClockOrder(t *testing.T, stub *clockStub) (release func()) {
 	stub.mu.Lock()
 	stub.orderHold, stub.orderIn = hold, in
 	stub.mu.Unlock()
-	return func() { close(hold) }
+	release = sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+	return release
 }
 
 func TestClockConfigPutKeepsConcurrentOldEndpointWrite(t *testing.T) {
@@ -561,4 +565,137 @@ func TestClockConfigRotationResendAfterWebUIReorderIsWritten(t *testing.T) {
 	if !reflect.DeepEqual(after.Rotation, c.Rotation) {
 		t.Fatalf("rotation = %+v, want %+v", after.Rotation, c.Rotation)
 	}
+}
+
+func assertClockRecordInStep(t *testing.T, a *App, srv *httptest.Server) {
+	t.Helper()
+	if rec, want := listDevices(t, srv)[0].ConfigVersion, a.clockConfigVersion(); rec != want {
+		t.Fatalf("record version %d, composed config hashes to %d", rec, want)
+	}
+}
+
+func TestClockRotationStaleReadDoesNotOverwriteNewerWrite(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	in, release := stub.holdApps(t, http.StatusOK)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		devReq(t, srv, "GET", "/v1/device/apps", testToken, "")
+	}()
+	<-in
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	mustOK(t, "apps order", resp, b)
+	epoch := a.devices.epochValue()
+	release()
+	<-done
+	if r := a.clockRotation.Load(); r == nil || r.Order[0] != "date" || a.devices.epochValue() != epoch {
+		t.Fatalf("rotation = %+v epoch %d (want %d): a read sent before the write overwrote it", r, a.devices.epochValue(), epoch)
+	}
+	assertClockRecordInStep(t, a, srv)
+}
+
+func TestClockRotationFailedOlderReadbackKeepsNewerList(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	in, release := stub.holdApps(t, http.StatusInternalServerError)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["time","date"]}`)
+	}()
+	<-in
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	mustOK(t, "apps order", resp, b)
+	release()
+	<-done
+	if r := a.clockRotation.Load(); r == nil || r.Order[0] != "date" {
+		t.Fatalf("rotation = %+v: an older failed read-back cleared the newer list", r)
+	}
+	assertClockRecordInStep(t, a, srv)
+}
+
+func TestClockConfigOldRouteDuringFacadePutKeepsRecordInStep(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	release := holdClockOrder(t, stub)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"]}}`)
+	}()
+	<-stub.orderIn
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	mustOK(t, "apps order", resp, b)
+	_, v := getClockConfig(t, srv, d.ID)
+	if rec := listDevices(t, srv)[0].ConfigVersion; v != rec {
+		t.Fatalf("while a facade PUT waits on the clock: header version %d, record %d", v, rec)
+	}
+	release()
+	<-done
+	_, v = getClockConfig(t, srv, d.ID)
+	if rec := listDevices(t, srv)[0].ConfigVersion; v != rec {
+		t.Fatalf("after the facade PUT: header version %d, record %d", v, rec)
+	}
+}
+
+func TestClockConfigOldAppOrderMalformedReadbackClears(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	stub.mu.Lock()
+	stub.appsBody = `[{"name":`
+	stub.mu.Unlock()
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	mustOK(t, "apps order", resp, b)
+	if r := a.clockRotation.Load(); r != nil {
+		t.Fatalf("rotation = %+v, want null after a malformed read-back", r)
+	}
+	assertClockRecordInStep(t, a, srv)
+	c, v := getClockConfig(t, srv, d.ID)
+	if c.Rotation != nil || v != listDevices(t, srv)[0].ConfigVersion {
+		t.Fatalf("rotation = %+v, header %d, record %d", c.Rotation, v, listDevices(t, srv)[0].ConfigVersion)
+	}
+}
+
+func TestClockConfigRotationMalformedReadbackReturnsNull(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	stub.mu.Lock()
+	stub.appsBody = `[{"name":`
+	stub.mu.Unlock()
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["date","time"]}}`)
+	mustOK(t, "put", resp, b)
+	var c clockConfig
+	if err := json.Unmarshal(b, &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Rotation != nil || len(stub.puts()) != 1 {
+		t.Fatalf("rotation = %+v writes %d, want null and 1 write", c.Rotation, len(stub.puts()))
+	}
+	assertClockRecordInStep(t, a, srv)
+}
+
+func TestClockConfigOldAppOrderReadbackHasTwoSecondBudget(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	stub.mu.Lock()
+	stub.appsDelay = 10 * time.Second
+	stub.mu.Unlock()
+	start := time.Now()
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	elapsed := time.Since(start)
+	mustOK(t, "apps order", resp, b)
+	if elapsed < clockRotationReadBudget || elapsed > clockRotationReadBudget+900*time.Millisecond {
+		t.Fatalf("old-route PUT took %v, want about %v", elapsed, clockRotationReadBudget)
+	}
+	if r := a.clockRotation.Load(); r != nil {
+		t.Fatalf("rotation = %+v, want null after a timed-out read-back", r)
+	}
+	assertClockRecordInStep(t, a, srv)
 }

@@ -59,27 +59,28 @@ type App struct {
 
 	settings appSettings
 
-	devices       *deviceRegistry
-	clockSync     clockSyncGate
-	clockRotation atomic.Pointer[clockRotation]
-	clients       *clientRegistry
-	changes       *changeBroadcaster
-	viewWaiters   viewWaiters
-	viewRecheck   time.Duration
-	viewClock     func() time.Time
-	viewWaitHook  func()
-	otaReadHook   func()
-	knobStats     *knobStatsStore
-	wifiDrops     checkinDropLog
-	diagDrops     checkinDropLog
-	coredumps     *coredumpStore
-	knobFW        *firmwareStore
-	ota           otaLive
-	otaDrops      checkinDropLog
-	capsDrops     checkinDropLog
-	viewOverLimit checkinDropLog
-	firmwareLimit *callerLimiter
-	clockStats    *clockStatsStore
+	devices          *deviceRegistry
+	clockSync        clockSyncGate
+	clockRotation    atomic.Pointer[clockRotation]
+	clockRotationGen clockRotationGen
+	clients          *clientRegistry
+	changes          *changeBroadcaster
+	viewWaiters      viewWaiters
+	viewRecheck      time.Duration
+	viewClock        func() time.Time
+	viewWaitHook     func()
+	otaReadHook      func()
+	knobStats        *knobStatsStore
+	wifiDrops        checkinDropLog
+	diagDrops        checkinDropLog
+	coredumps        *coredumpStore
+	knobFW           *firmwareStore
+	ota              otaLive
+	otaDrops         checkinDropLog
+	capsDrops        checkinDropLog
+	viewOverLimit    checkinDropLog
+	firmwareLimit    *callerLimiter
+	clockStats       *clockStatsStore
 
 	appsMu     sync.Mutex
 	hiddenApps map[string]bool
