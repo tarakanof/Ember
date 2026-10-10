@@ -127,10 +127,11 @@ struct ClockCalendarAppPane: View {
     @State private var meetingPreview = PreviewModel()
     @State private var reminderPreview = PreviewModel()
 
-    private var model: ServerConfigModel<MeetingsConfig> { env.settings.meetings }
+    private var model: ClockAppLens<ClockConfig.Calendar> { env.clockCalendar }
 
     var body: some View {
-        @Bindable var model = model
+        let model = model
+        let draft = model.binding
         @Bindable var watcher = env.reminderWatcher
         let c = model.draft
         Form {
@@ -152,9 +153,9 @@ struct ClockCalendarAppPane: View {
                              retry: { await model.load() })
 
             Section {
-                StepperRow(title: "Show tile from", value: $model.draft.tileLeadMinutes,
+                StepperRow(title: "Show tile from", value: draft.tileLeadMinutes,
                            range: (5...240).including(c.tileLeadMinutes), step: 5) { Text("\($0) min before") }
-                StepperRow(title: "Popup", value: $model.draft.popupLeadMinutes,
+                StepperRow(title: "Popup", value: draft.popupLeadMinutes,
                            range: (0...30).including(c.popupLeadMinutes), info: .meetingPopupLead,
                            requirement: model.isLoaded ? .meetingsOn : .loading) { m in
                     m == 0 ? Text("Off") : Text("\(m) min before")

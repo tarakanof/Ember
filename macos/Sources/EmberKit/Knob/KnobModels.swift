@@ -211,6 +211,7 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
     }
 
     public static let knobKind = "cinder-knob"
+    public static let clockKind = "awtrix-ng"
 
     public var shortID: String { String(hwID.suffix(6)).uppercased() }
 
@@ -253,6 +254,10 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
 
     public static func current(in devices: [KnobDevice]) -> KnobDevice? {
         devices.filter { $0.kind == knobKind }.max { $0.createdAt < $1.createdAt }
+    }
+
+    public static func clock(in devices: [KnobDevice]) -> KnobDevice? {
+        devices.filter { $0.kind == clockKind }.min { $0.id < $1.id }
     }
 }
 

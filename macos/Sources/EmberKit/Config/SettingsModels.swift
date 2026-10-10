@@ -91,6 +91,15 @@ public final class SettingsModels {
         _ = await (a, b, c, d, e, f)
     }
 
+    public func reload(changedBy saved: ClockConfig, previous: ClockConfig?) async {
+        let apps = saved.apps, before = previous?.apps
+        async let a: Void = apps.agents != before?.agents ? usage.load() : ()
+        async let b: Void = apps.focus != before?.focus ? pomodoro.load() : ()
+        async let c: Void = apps.weather != before?.weather ? weather.load() : ()
+        async let d: Void = apps.calendar != before?.calendar ? meetings.load() : ()
+        _ = await (a, b, c, d)
+    }
+
     public func loadAll() async {
         async let server: Void = loadServerModels()
         async let g: Void = agentsEnv.load()

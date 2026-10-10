@@ -66,7 +66,7 @@ struct ClockAgentsAppPane: View {
     @State private var preview = PreviewModel()
 
     private var cards: EnvConfigModel<DisplaySettings> { env.settings.agentsEnv }
-    private var usage: ServerConfigModel<UsageConfig> { env.settings.usage }
+    private var usage: ClockAppLens<ClockConfig.Agents> { env.clockAgents }
 
     private func meta(_ card: String) -> (title: LocalizedStringKey, caption: LocalizedStringKey) {
         switch card {
@@ -90,7 +90,8 @@ struct ClockAgentsAppPane: View {
 
     var body: some View {
         @Bindable var cards = cards
-        @Bindable var usage = usage
+        let usage = usage
+        let usageDraft = usage.binding
         Form {
             SourceLinkSection(source: .agents)
 
@@ -126,8 +127,8 @@ struct ClockAgentsAppPane: View {
             .disabled(!cards.isLoaded)
 
             Section {
-                Toggle("Usage cards", isOn: $usage.draft.usageWidget)
-                Toggle("Per-model usage", isOn: $usage.draft.usagePerModel)
+                Toggle("Usage cards", isOn: usageDraft.usageWidget)
+                Toggle("Per-model usage", isOn: usageDraft.usagePerModel)
                     .disabled(!usage.draft.usageWidget)
             } header: {
                 Text("Usage")
@@ -161,9 +162,8 @@ struct ClockAgentsAppPane: View {
         .autosaves(usage)
         .previews(previewDraft, into: preview) { try await env.preview.fetchPreview($0) }
         .reloads {
-            let s = env.settings
-            async let a: Void = s.agentsEnv.load()
-            async let b: Void = s.usage.load()
+            async let a: Void = env.settings.agentsEnv.load()
+            async let b: Void = env.clockAgents.load()
             _ = await (a, b)
         }
     }

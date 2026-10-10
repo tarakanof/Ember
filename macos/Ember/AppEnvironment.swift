@@ -14,6 +14,7 @@ public final class AppEnvironment {
     public var serverURL: URL? { connection.serverURL }
     public var preview: PreviewService { PreviewService(client: connection.client) }
     public let deviceSettings: DeviceSettingsModel
+    public let clockConfig: ClockConfigModel
     public let knob: KnobModel
     public let knobStats: KnobStatsModel
     public let clockStats: ClockStatsModel
@@ -82,6 +83,15 @@ public final class AppEnvironment {
         if label != menuBarLabel { menuBarLabel = label }
     }
 
+    private func feedClockRecord() {
+        let id = withObservationTracking {
+            KnobDevice.clock(in: knob.devices)?.id
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedClockRecord() }
+        }
+        clockConfig.configure(client: connection.client, deviceID: id)
+    }
+
     static func applyAppIcon(_ palette: String) {
         if palette == "bot" {
             BotAnimator.shared.showInDock(true)
@@ -108,6 +118,8 @@ public final class AppEnvironment {
         envStore = EnvFileStore(path: producerEnvPath)
         settings = SettingsModels(client: client, envStore: envStore)
         deviceSettings = DeviceSettingsModel(service: connection.device, live: live)
+        clockConfig = ClockConfigModel(client: client)
+        deviceSettings.clockConfig = clockConfig
         knob = KnobModel(service: KnobService(client: client))
         knobStats = KnobStatsModel(service: KnobService(client: client))
         clockStats = ClockStatsModel(service: ClockStatsClient(client: client))
@@ -130,6 +142,9 @@ public final class AppEnvironment {
         #endif
         live.configure(client: client)
         settings.connectionEnv.onSaved = { [weak self] _, _ in self?.reloadConnection() }
+        clockConfig.onSaved = { [settings] saved, previous in
+            Task { await settings.reload(changedBy: saved, previous: previous) }
+        }
         settings.producerTuning.onSaved = { [producers] saved, previous in
             guard let previous, saved.changesCodex(from: previous) else { return }
             Task { await producers.restart(.codex) }
@@ -142,6 +157,7 @@ public final class AppEnvironment {
         BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
         feedBot()
         feedMenuBarLabel()
+        feedClockRecord()
         reconcileProducers()
         watchKnobPorts()
     }
@@ -195,6 +211,7 @@ public final class AppEnvironment {
         settings.configure(client: client)
         deviceSettings.configure(service: connection.device)
         knob.configure(service: KnobService(client: client))
+        clockConfig.configure(client: client, deviceID: KnobDevice.clock(in: knob.devices)?.id)
         knobStats.configure(service: KnobService(client: client))
         clockStats.configure(service: ClockStatsClient(client: client))
     }

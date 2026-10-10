@@ -2097,6 +2097,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The clock didn't confirm the change, so it may be only partly saved. Showing the current settings." : {
+      "comment" : "Error: the server answered 502 to a clock settings change (the clock write was cut short); the app reloaded the settings.",
+      "extractionState" : "manual"
+    },
     "The clock didn't finish in time." : {
       "comment" : "Error: reading the clock's settings failed because the clock was too slow; nothing was changed.",
       "extractionState" : "manual"
@@ -2122,6 +2126,10 @@
     "The clock is unreachable" : {},
     "The clock rotates these cards for each active session. The icon uses this Mac's source color; its eyes show the session state." : {},
     "The clock shows animated icons; the preview shows the drawn ones." : {},
+    "The clock was busy with another change, so this one wasn't saved. Showing the current settings." : {
+      "comment" : "Error: the server answered 503 to a clock settings change (another change held the clock); nothing was saved and the app reloaded the settings.",
+      "extractionState" : "manual"
+    },
     "The clock's left and right buttons no longer change apps. A running Pomodoro turns this on so the buttons control the timer, then puts your setting back when it stops. Default: off." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

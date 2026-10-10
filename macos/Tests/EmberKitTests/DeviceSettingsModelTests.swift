@@ -409,3 +409,68 @@ private func ngServer() -> FakeClock {
     #expect(DeviceUnits.snap(140, in: 0...100, step: 5) == 100)
     #expect(DeviceUnits.snap(7, in: 1...100, step: 5) == 6)
 }
+
+private let facadeConfig = ##"{"schema":1,"apps":{"agents":{"usage_cards":true,"usage_per_model":true,"hidden_tools":[]},"focus":{"focus_color":"#FF0000","break_color":"#00FF00"},"weather":{"on":true,"native_icon":false,"forecast":true,"forecast_hours":24,"air":true,"moon":true,"overlay":true,"popups":{"on_change":true,"sun":true,"severe":true,"native_icons":false,"interval_minutes":120,"duration_seconds":30},"icon_ids":{}},"calendar":{"on":true,"tile_lead_minutes":60,"popup_lead_minutes":2}},"rotation":{"order":["Time"],"disabled":[]}}"##
+
+@MainActor
+private func facadeModel(_ fake: FakeClock) async -> (DeviceSettingsModel, ClockConfigModel) {
+    fake.responses["GET /v1/devices/clock-a1b2c3/config"] = (200, facadeConfig)
+    fake.responses["PUT /v1/devices/clock-a1b2c3/config"] = (200, facadeConfig)
+    let client = stubbedClient(token: "t") { fake.handle($0) }
+    let m = DeviceSettingsModel(service: DeviceService(client: client), debounce: .milliseconds(600),
+                                sleep: ManualClock().sleepFn, now: { Date() })
+    let clock = ClockConfigModel(client: client, debounce: .milliseconds(600), sleep: ManualClock().sleepFn)
+    clock.configure(client: client, deviceID: "clock-a1b2c3")
+    await clock.load()
+    m.clockConfig = clock
+    await m.load()
+    return (m, clock)
+}
+
+@MainActor @Test func appToggleGoesThroughTheFacadeWhenTheClockRecordExists() async throws {
+    let fake = ngServer()
+    let (m, clock) = await facadeModel(fake)
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Time", enabled: false)
+    let put = try #require(fake.log.last { $0.method == "PUT" })
+    #expect(put.path == "/v1/devices/clock-a1b2c3/config")
+    #expect(Array(put.body.keys) == ["rotation"])
+    let rotation = try #require(put.body["rotation"] as? [String: Any])
+    #expect(rotation["order"] as? [String] == [])
+    #expect(rotation["disabled"] as? [String] == ["Time"])
+    #expect(!fake.paths.contains("PUT /v1/device/apps"))
+    #expect(m.writes.status == .saved)
+}
+
+@MainActor @Test func appToggleUsesTheOldRouteWithoutAClockRecord() async throws {
+    let fake = ngServer()
+    let (m, clock) = await facadeModel(fake)
+    defer { withExtendedLifetime(clock) {} }
+    clock.configure(client: m.service.client, deviceID: nil)
+    await m.setApp("Time", enabled: false)
+    #expect(fake.log.last { $0.method == "PUT" }?.path == "/v1/device/apps")
+}
+
+@MainActor @Test func cutShortFacadeWriteShowsWhyAndRereadsTheApps() async throws {
+    let fake = ngServer()
+    let (m, clock) = await facadeModel(fake)
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["PUT /v1/devices/clock-a1b2c3/config"] = (502, #"{"error":"clock write failed"}"#)
+    fake.responses["GET /v1/device/apps"] = (200, #"[{"name":"Time","enabled":false,"inLoop":true,"origin":"builtin","present":true}]"#)
+    let reads = fake.paths.filter { $0 == "GET /v1/device/apps" }.count
+    await m.setApp("Time", enabled: false)
+    let error = try #require(m.actionErrors[.apps])
+    guard case .rejected = error else { Issue.record("expected a facade message, got \(error)"); return }
+    #expect(fake.paths.filter { $0 == "GET /v1/device/apps" }.count == reads + 1)
+    #expect(m.nativeApps.first?.enabled == false)
+}
+
+@MainActor @Test func busyFacadeWriteRollsBackToTheClocksList() async throws {
+    let fake = ngServer()
+    let (m, clock) = await facadeModel(fake)
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["PUT /v1/devices/clock-a1b2c3/config"] = (503, #"{"error":"another clock app order change is still running"}"#)
+    await m.setApp("Time", enabled: false)
+    guard case .rejected? = m.actionErrors[.apps] else { Issue.record("expected a facade message"); return }
+    #expect(m.nativeApps.first?.enabled == true)
+}

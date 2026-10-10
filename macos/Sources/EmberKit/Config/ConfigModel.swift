@@ -29,6 +29,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private var savedReset: Task<Void, Never>?
     @ObservationIgnored private var saving = false
+    @ObservationIgnored private var loadSeq = 0
 
     static var rateLimitAttempts: Int { 3 }
 
@@ -69,15 +70,18 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
             if e == .featureOff { revert() } else { await saveNow(); return }
         }
         guard pending == nil, !saving, !hasUnsavedChanges else { return }
+        loadSeq += 1
+        let seq = loadSeq
         for attempt in 1...Self.rateLimitAttempts {
             do {
                 let value = try await loader()
-                guard pending == nil, !saving, !hasUnsavedChanges else { return }
+                guard seq == loadSeq, pending == nil, !saving, !hasUnsavedChanges else { return }
                 applied = value
                 draft = value
                 loadError = nil
                 return
             } catch {
+                guard seq == loadSeq else { return }
                 let e = FeedError(error)
                 if e == .rateLimited, attempt < Self.rateLimitAttempts {
                     try? await sleep((error as? APIError)?.retryAfter ?? RateLimitBackoff.fallbackRetryAfter)
@@ -108,6 +112,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         guard hasUnsavedChanges, !saving else { return }
         saving = true
         defer { saving = false }
+        loadSeq += 1
         let sent = draft
         let previous = applied
         savedReset?.cancel()
@@ -121,6 +126,13 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
                 onSaved?(sent, previous)
                 holdSaved()
                 break
+            } catch let recovered as SaveRecovered<T> {
+                cancelPendingSave()
+                applied = recovered.current
+                draft = recovered.current
+                saveError = recovered.cause
+                status = .error(String(localized: recovered.cause.saveMessage))
+                return
             } catch {
                 let e = FeedError(error)
                 if e == .rateLimited, attempt < Self.rateLimitAttempts {
@@ -163,6 +175,11 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
             self.status = .idle
         }
     }
+}
+
+struct SaveRecovered<T: Sendable>: Error {
+    let current: T
+    let cause: FeedError
 }
 
 public typealias ServerConfigModel<T: Equatable & Sendable> = ConfigModel<T>

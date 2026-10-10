@@ -18,7 +18,7 @@ struct SettingsRootView: View {
             : !knob.isLoaded ? (knob.loadError == nil ? .loading : .unavailable)
             : .notSetUp
         return [
-            SettingsDevice(id: clockDeviceID, kind: .clock, name: String(localized: DeviceKind.clock.title), state: .ready),
+            SettingsDevice(id: KnobDevice.clock(in: knob.devices)?.id ?? clockDeviceID, kind: .clock, name: String(localized: DeviceKind.clock.title), state: .ready),
             SettingsDevice(id: knob.knob?.id ?? DeviceKind.knob.placeholderID, kind: .knob,
                            name: knob.knob?.name ?? String(localized: DeviceKind.knob.title), state: knobState,
                            supportedPages: knob.knob?.supportedPages),
@@ -125,7 +125,7 @@ struct SettingsRootView: View {
     }
 
     private func subtitle(_ device: DeviceSettingsModel) -> Text {
-        let status = AggregateSaveStatus.combine((env.settings.all + device.all + env.knob.all).map(\.status))
+        let status = AggregateSaveStatus.combine((env.settings.all + device.all + env.knob.all + [env.clockConfig]).map(\.status))
         return status.subtitle.map { Text($0) } ?? Text(verbatim: "")
     }
 }

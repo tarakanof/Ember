@@ -89,6 +89,8 @@ public final class DeviceSettingsModel {
     }
 
     @ObservationIgnored public private(set) var service: DeviceService
+    @ObservationIgnored public weak var clockConfig: ClockConfigModel?
+    @ObservationIgnored private var appsSeq = 0
     @ObservationIgnored private weak var live: LiveModel?
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let debounce: Duration
@@ -121,7 +123,7 @@ public final class DeviceSettingsModel {
         (settings, display, sensors) = Self.models(next, live: live, debounce: debounce, sleep: sleep)
         capabilities = nil; config = nil; apps = []; buttons = nil; stats = nil
         melodies = []; audio = .unknown; discovered = nil
-        actionErrors = [:]; lastFullLoad = nil
+        actionErrors = [:]; lastFullLoad = nil; appsSeq += 1
         writes.clear()
         Task { await load(force: true) }
     }
@@ -152,7 +154,8 @@ public final class DeviceSettingsModel {
         let svc = service
         config = (try? await svc.config()) ?? config
         capabilities = (try? await svc.capabilities()) ?? capabilities
-        if let a = try? await svc.apps() { apps = a }
+        let seq = appsSeq
+        if let a = try? await svc.apps(), seq == appsSeq { apps = a }
         buttons = (try? await svc.buttons()) ?? buttons
         stats = (try? await svc.stats()) ?? stats
         await loadMelodies()
@@ -181,7 +184,7 @@ public final class DeviceSettingsModel {
         let before = apps
         let update = NativeAppsPlan.toggle(name, enabled: enabled, in: apps)
         apps = apps.map { a in var a = a; if a.name == name { a.enabled = enabled }; return a }
-        await write(.apps, rollback: { self.apps = before }) { try await self.service.updateApps(update) }
+        await writeApps(update, rollback: before)
     }
 
     public func moveApps(fromOffsets source: IndexSet, toOffset destination: Int) async {
@@ -189,7 +192,19 @@ public final class DeviceSettingsModel {
         let (next, update) = NativeAppsPlan.move(in: apps, fromOffsets: source, toOffset: destination)
         guard next != apps else { return }
         apps = next
-        await write(.apps, rollback: { self.apps = before }) { try await self.service.updateApps(update) }
+        await writeApps(update, rollback: before)
+    }
+
+    private func writeApps(_ update: AppsUpdate, rollback before: [AppInfo]) async {
+        appsSeq += 1
+        let seq = appsSeq
+        guard let clock = clockConfig, clock.isActive else {
+            await write(.apps, rollback: { self.apps = before }) { try await self.service.updateApps(update) }
+            return
+        }
+        await write(.apps, rollback: { self.apps = before }) { try await clock.writeRotation(update) }
+        guard actionErrors[.apps] != nil, let current = try? await service.apps(), seq == appsSeq else { return }
+        apps = current
     }
 
     public func setButtonsEnabled(_ on: Bool) async {
