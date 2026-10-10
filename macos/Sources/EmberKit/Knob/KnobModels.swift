@@ -144,17 +144,19 @@ public struct KnobCaps: Codable, Equatable, Sendable {
     public var pages: [String]
     public var features: [String]
     public var limits: Limits?
+    public var rotations: [Int]?
     public var source: String?
     public var capsError: String?
 
     enum CodingKeys: String, CodingKey {
-        case view, pages, features, limits, source
+        case view, pages, features, limits, rotations, source
         case capsError = "caps_error"
     }
 
     public init(view: [Int] = [1, 1], pages: [String], features: [String] = [], limits: Limits? = nil,
-                source: String? = nil, capsError: String? = nil) {
-        self.view = view; self.pages = pages; self.features = features; self.limits = limits; self.source = source
+                rotations: [Int]? = nil, source: String? = nil, capsError: String? = nil) {
+        self.view = view; self.pages = pages; self.features = features; self.limits = limits
+        self.rotations = rotations; self.source = source
         self.capsError = capsError
     }
 
@@ -231,6 +233,16 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
         if AppCatalog.knobDefaultPages.contains(page) { return true }
         guard let floor = KnobCaps.legacyPageFloors[page] else { return false }
         return Self.firmware(lastCheckin?.fw, atLeast: floor)
+    }
+
+    public var supportedRotations: [Int] {
+        let listed = (effectiveCaps?.rotations ?? []).filter { KnobSettings.rotations.contains($0) }
+        return Set(listed + [0]).sorted()
+    }
+
+    public func rotationChoices(current: Int?) -> [Int] {
+        guard let current, supportedRotations.count > 1 else { return [] }
+        return KnobSettings.choices(supportedRotations, current: current)
     }
 
     public var supportedPages: [String] {
@@ -345,9 +357,10 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public var liveIntervalS: Int?
     public var display: Display?
     public var quiet: Quiet?
+    public var rotation: Int?
 
     enum CodingKeys: String, CodingKey {
-        case brightness, pages, home, bot, diagnostics, display, quiet
+        case brightness, pages, home, bot, diagnostics, display, quiet, rotation
         case pollMS = "poll_ms"
         case statsIntervalS = "stats_interval_s"
         case liveIntervalS = "live_interval_s"
@@ -372,6 +385,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         liveIntervalS = try c.decodeIfPresent(Int.self, forKey: .liveIntervalS)
         display = try c.decodeIfPresent(Display.self, forKey: .display)
         quiet = try c.decodeIfPresent(Quiet.self, forKey: .quiet)
+        rotation = try c.decodeIfPresent(Int.self, forKey: .rotation)
     }
 
     public static let defaults = KnobSettings(
@@ -387,6 +401,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public static let demoHoldRange = 1...600
     public static let statsIntervals = [30, 60, 120, 300]
     public static let liveIntervals = [2, 5, 10]
+    public static let rotations = [0, 90, 180, 270]
 
     public static func choices(_ allowed: [Int], current: Int?) -> [Int] {
         guard let current, !allowed.contains(current) else { return allowed }

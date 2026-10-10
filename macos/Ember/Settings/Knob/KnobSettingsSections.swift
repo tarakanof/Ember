@@ -28,6 +28,15 @@ struct KnobDisplaySection: View {
                              info: .knobMinBrightness, requirement: .loading)
             PercentSliderRow(title: "Brightness at startup", percent: knob.percent(\.brightness.startup),
                              info: .knobStartupBrightness, requirement: .loading)
+            let rotations = knob.knob?.rotationChoices(current: knob.settings.draft.rotation) ?? []
+            if !rotations.isEmpty {
+                Picker("Rotation", selection: knob.binding(\.rotation)) {
+                    ForEach(rotations, id: \.self) { deg in
+                        Text("\(deg)°", comment: "Settings › Knob › Display: a screen rotation in degrees (\"180°\").")
+                            .tag(Int?.some(deg))
+                    }
+                }
+            }
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if follow {

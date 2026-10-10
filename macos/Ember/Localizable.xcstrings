@@ -480,6 +480,9 @@
     "%lld to go today" : {
       "comment" : "Focus card: focus sessions still needed to meet today's goal."
     },
+    "%lld°" : {
+      "comment" : "Settings › Knob › Display: a screen rotation in degrees (\"180°\")."
+    },
     "1 Hour" : {},
     "12 weeks" : {},
     "15 Minutes" : {},

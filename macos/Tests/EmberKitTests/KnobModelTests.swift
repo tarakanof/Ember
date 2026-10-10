@@ -239,6 +239,32 @@ private func model(_ fake: FakeRegistry) -> KnobModel {
     #expect(put.2 == #"{"brightness":{"follow_ember":false}}"#)
 }
 
+@Test func knobRotationDecodesAndPatchesAlone() throws {
+    let base = #""brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true}],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20}"#
+    let s = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + #","rotation":0}"#).utf8))
+    #expect(s.rotation == 0)
+    var edited = s
+    edited.rotation = 180
+    #expect(edited.patch(from: s) == ["rotation": .int(180)])
+    let old = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + "}").utf8))
+    #expect(old.rotation == nil)
+    #expect(!String(decoding: try JSONEncoder().encode(old), as: UTF8.self).contains("rotation"))
+}
+
+@MainActor
+@Test func knobModelSavesRotation() async throws {
+    let fake = FakeRegistry()
+    fake.config = String(fake.config.dropLast()) + #","rotation":0}"#
+    let m = model(fake)
+    await m.load()
+    #expect(m.settings.draft.rotation == 0)
+    m.edit { $0.rotation = 180 }
+    await m.settings.saveNow()
+    let put = try #require(fake.log.last { $0.0 == "PUT" })
+    #expect(put.1 == "/v1/devices/knob-61fc8c/config")
+    #expect(put.2 == #"{"rotation":180}"#)
+}
+
 @MainActor
 @Test func knobModelEmptyWhenNothingRegistered() async {
     let fake = FakeRegistry()
