@@ -69,6 +69,23 @@ The aggregator and the only writer to the device.
   of it: the coordinator filters its own copy of the sessions
   (`filteredSnapshot`), and the knob, `/state` and the render counters stay
   unfiltered (user decision 2026-10-09: each device keeps its own app list).
+- **Attention state** (`cmd/ember/attention_state.go`, #351). Which session
+  holds attention, since when, and why it ends, as app state with no device
+  knowledge. `attentionState.onTransition(key, prior, next)` decides a status
+  edge: `attentionAcquire` (a session entered waiting/error from outside it,
+  which steals any current hold), `attentionRenew` (a waiting↔error shift on
+  the holder), `attentionDrain` (the holder left waiting/error) or
+  `attentionKeep`. `ended(active, sessions, now, ackTimeout)` says whether the
+  hold is over: `reap` (the holder is not active), `drain` (it left
+  waiting/error) or `ack_timeout`, checked in that order. It never reads the
+  clock's hidden apps. The coordinator owns the clock's instance (embedded,
+  so the fields are `c.locked`/`c.lockedKey`/`c.lockEnteredAt`) and applies
+  the clock gate when it maps a decision to the device: an acquire for a
+  hidden tool (`keyHidden`) is dropped, so no pointer jump, lock or chime, and
+  `ended` reads the clock's `filteredSnapshot`, so hiding the locked tool
+  releases the hold as `reap`. A knob that wants attention later builds its
+  own instance from its own app list. The rendering (pointer, card cursor,
+  ack timer, chime, hold, corner LED) stays in the coordinator.
 - **Render priority.** `waiting > error > running > done`; `idle` never wins
   (it cedes the slot, publishing nothing). For ≥2 sessions in the winning group,
   an aggregate label is shown. One Go ordering, `render.StatePriority`: the
@@ -121,8 +138,15 @@ The aggregator and the only writer to the device.
   - **`stateMu`** guards the pointer, `cardCursor`, the lock fields and
     `idleSince`. Only the coordinator goroutine writes them, taking `stateMu`
     for each write, so its own reads skip the lock; every other goroutine must
-    `RLock`. The idle usage-face cursor shares `cardCursor`.
-  - **Attention lock release.** A lock ends on ack timeout (`ackTimeoutDur`,
+    `RLock`. The idle usage-face cursor shares `cardCursor`. The attention
+    decisions (`onTransition`, `ended`) and `keyHidden` run on the coordinator
+    goroutine before `stateMu` is taken; only applying them
+    (`applyAttentionLocked`, `releaseLockLocked`: lock fields, pointer, cursor
+    and the `lockReleaseTimer`) happens under it. `keyHidden` takes the App's
+    hidden-apps lock, so it is never called with `stateMu` held, and the
+    `time.AfterFunc` callback only `Send`s a tick, never touching `stateMu`.
+  - **Attention lock release.** The decision is `attentionState.ended` (see
+    "Attention state"). A lock ends on ack timeout (`ackTimeoutDur`,
     read live), on drain (the locked session left the attention state;
     released at once, not at the next dwell), or on reap (the locked key is no
     longer active). A waiting↔error shift on the locked session resets the ack
@@ -3797,8 +3821,11 @@ the coordinator publishes a **dimmed usage frame** (the same usage card content
 at ~40% brightness) during the `DIMMED` phase instead of going dark
 immediately. Under threshold the app leaves the device rotation normally.
 
-**5h limit-reset alarm.** A small per-tool state machine in the coordinator
-(`usage_alarm.go`, checked each tick): when the effective 5h window — fresh
+**5h limit-reset alarm.** A small per-tool state machine, app state in
+`limitAlarmState` (`usage_alarm_state.go`, #351), checked each tick by the
+coordinator (`usage_alarm.go` `checkLimitAlarms`). `due(usageState, now)`
+updates the armed state and returns the tools to fire; the coordinator
+renders each as a notice and calls `fired` only when the push succeeded. When the effective 5h window — fresh
 endpoint usage, else the live-session statusline fallback — reads **≥ 99.5 %
 with a known future reset**, it arms for that `resets_at`; once the reset
 passes (+60 s grace, never early) it fires **one** auto-dismiss notification
