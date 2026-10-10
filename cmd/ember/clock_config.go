@@ -503,9 +503,7 @@ func (a *App) handleClockConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 	defer release()
 	a.refreshClockRotation(ctx)
-	a.syncClockConfigVersion()
-	version := a.clockConfigVersion()
-	cfg := a.composeClockConfig()
+	cfg, version := a.clockConfigSnapshot()
 	w.Header().Set(deviceConfigVersion, strconv.Itoa(version))
 	writeJSON(w, http.StatusOK, cfg)
 }
@@ -544,8 +542,7 @@ func (a *App) handleClockConfigPut(w http.ResponseWriter, r *http.Request, id st
 		}
 		return
 	}
-	version := a.clockConfigVersion()
-	cfg := a.composeClockConfig()
+	cfg, version := a.clockConfigSnapshot()
 	if version != before {
 		a.logger.InfoContext(r.Context(), "device config updated", "device_id", id, "config_version", version)
 	}

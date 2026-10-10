@@ -2,13 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -90,6 +94,7 @@ func bootApp(t *testing.T, dbPath string, seed map[string]string) *App {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.store.Close() })
+	t.Cleanup(a.clockMigrate.jobs.Wait)
 	if len(seed) > 0 {
 		if err := a.store.PutSettings(seed); err != nil {
 			t.Fatal(err)
@@ -527,18 +532,18 @@ func TestClockConfigMigrationWaitsForReapply(t *testing.T) {
 	a.updateConfig(func(c *Config) {
 		c.Weather.MoonPhase = boolPtr(true)
 	})
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		probeClock(t, a)
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
+	if dev := a.probeClockHealthWithin(context.Background(), time.Now(), 0); dev == nil || !dev.Reachable {
+		release()
+		t.Fatalf("probe failed: %+v", dev)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, ok, _ := a.store.GetSetting(clockConfigKey); ok {
+		release()
+		t.Fatal("migrated while a reapply held the clock app order lock")
 	}
 	a.reapplySettings()
 	release()
-	<-done
+	a.clockMigrate.jobs.Wait()
 	if c := storedClock(t, a); c.Apps.Weather == nil || c.Apps.Weather.Moon {
 		t.Fatalf("migration during a reapply stored the baseline: %+v", c.Apps.Weather)
 	}
@@ -559,7 +564,178 @@ func TestClockRecordDeleteKeepsClockConfig(t *testing.T) {
 	if a.cfg.Load().Weather.MoonPhaseEnabled() {
 		t.Fatal("presentation lost with the record")
 	}
-	if again.ConfigVersion != 1 {
-		t.Fatalf("re-created record version = %d, want 1", again.ConfigVersion)
+	if again.ConfigVersion <= d.ConfigVersion {
+		t.Fatalf("re-created record version = %d, not above %d", again.ConfigVersion, d.ConfigVersion)
+	}
+}
+
+func waitClockRow(t *testing.T, a *App) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok, _ := a.store.GetSetting(clockConfigKey); ok {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("clock config never migrated")
+}
+
+func TestClockVersionNeverRepeatsAfterRecordRecreate(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	for _, body := range []string{`{"moon_phase":false}`, `{"moon_phase":true}`, `{"moon_phase":false}`} {
+		resp, b := devReq(t, srv, "PUT", "/v1/weather/config", testToken, body)
+		mustOK(t, "weather put", resp, b)
+	}
+	seen := listDevices(t, srv)[0].ConfigVersion
+	if seen < 3 {
+		t.Fatalf("version = %d after three changes", seen)
+	}
+	resp, b := devReq(t, srv, "DELETE", "/v1/devices/"+d.ID, testToken, "")
+	mustOK(t, "delete", resp, b)
+	if again := registeredClock(t, a, srv); again.ConfigVersion <= seen {
+		t.Fatalf("re-created record version = %d, a client that saw %d could miss changes", again.ConfigVersion, seen)
+	}
+}
+
+const futureClockRow = `{"schema":1,"apps":{"focus":{"focus_color":"#112233","break_color":"#445566","glow":true},"music":{"on":true}},"migrated_from_overlay":"v9","future_top":"k"}`
+
+func TestClockConfigRowKeepsUnknownFields(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	a := bootApp(t, db, map[string]string{devicesKey: legacyClockRecord, clockConfigKey: futureClockRow})
+	if a.cfg.Load().Pomodoro.FocusColor != "#112233" {
+		t.Fatalf("row not applied: %s", a.cfg.Load().Pomodoro.FocusColor)
+	}
+	wantKept := func(stage string) {
+		t.Helper()
+		row, _, _ := a.store.GetSetting(clockConfigKey)
+		for _, k := range []string{`"glow":true`, `"music":{"on":true}`, `"future_top":"k"`} {
+			if !strings.Contains(row, k) {
+				t.Fatalf("%s dropped %s: %s", stage, k, row)
+			}
+		}
+	}
+	wantKept("boot")
+	srv := httptest.NewServer(a.routes())
+	t.Cleanup(srv.Close)
+	resp, b := devReq(t, srv, "PUT", "/v1/pomodoro/config", testToken, `{"focus_color":"#abcdef"}`)
+	mustOK(t, "pomodoro put", resp, b)
+	wantKept("alias put")
+	if c := storedClock(t, a); c.Apps.Focus == nil || c.Apps.Focus.FocusColor != "#abcdef" {
+		t.Fatalf("alias put not stored: %+v", c.Apps.Focus)
+	}
+	resp, b = devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"moon_phase":false}`)
+	mustOK(t, "weather put", resp, b)
+	wantKept("new app entry")
+}
+
+func TestClockRecordCreationDoesNotHoldTheProbe(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	release := a.holdClockRotation()
+	released := false
+	defer func() {
+		if !released {
+			release()
+		}
+	}()
+	done := make(chan *clockDeviceOut, 1)
+	go func() { done <- a.probeClockHealthWithin(context.Background(), time.Now(), 0) }()
+	select {
+	case dev := <-done:
+		if dev == nil || !dev.Reachable {
+			t.Fatalf("probe = %+v", dev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the probe that created the record waited for the clock app order lock")
+	}
+	resp, b := devReq(t, srv, "GET", "/v1/clock/health", testToken, "")
+	mustOK(t, "health", resp, b)
+	if _, ok, _ := a.store.GetSetting(clockConfigKey); ok {
+		t.Fatal("migrated while the clock app order lock was held")
+	}
+	release()
+	released = true
+	waitClockRow(t, a)
+}
+
+func TestAliasPutStoreFailureAnswers500AndRetryPersists(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	a := bootApp(t, db, mixedLegacyRows)
+	a.migrateClockConfig()
+	srv := httptest.NewServer(a.routes())
+	t.Cleanup(srv.Close)
+	row, _, _ := a.store.GetSetting(clockConfigKey)
+	drop := failWrites(t, db, clockConfigKey)
+	resp, b := devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"moon_phase":true}`)
+	if resp.StatusCode != 500 {
+		t.Fatalf("status = %d, want 500: %s", resp.StatusCode, b)
+	}
+	if a.cfg.Load().Weather.MoonPhaseEnabled() {
+		t.Fatal("a failed store changed memory")
+	}
+	drop()
+	resp, b = devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"moon_phase":true}`)
+	mustOK(t, "retry", resp, b)
+	if got, _, _ := a.store.GetSetting(clockConfigKey); got == row || !storedClock(t, a).Apps.Weather.Moon {
+		t.Fatalf("retry not stored: %s", got)
+	}
+}
+
+func TestClockConfigMigrationRetriesOnNextProbe(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	a := bootApp(t, db, mixedLegacyRows)
+	drop := failWrites(t, db, clockConfigKey)
+	a.migrateClockConfig()
+	if a.clockMigrate.lastError() == nil {
+		t.Fatal("injected failure did not fail the migration")
+	}
+	drop()
+	stub := newClockStub(t)
+	pointAtClock(a, stub.URL)
+	probeClock(t, a)
+	waitClockRow(t, a)
+	if a.clockMigrate.lastError() != nil {
+		t.Fatal("migration error kept after a successful retry")
+	}
+}
+
+func TestClockFacadeVersionMatchesBody(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for w := range 3 {
+		wg.Go(func() {
+			for i := 0; ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				body := fmt.Sprintf(`{"forecast_hours":%d}`, 1+(i+w)%6)
+				req, _ := http.NewRequest("PUT", srv.URL+"/v1/weather/config", strings.NewReader(body))
+				req.Header.Set("Authorization", "Bearer "+testToken)
+				if resp, err := http.DefaultClient.Do(req); err == nil {
+					_ = resp.Body.Close()
+				}
+			}
+		})
+	}
+	seen := map[string]string{}
+	var bad string
+	for range 300 {
+		resp, b := devReq(t, srv, "GET", "/v1/devices/"+d.ID+"/config", testToken, "")
+		v := resp.Header.Get(deviceConfigVersion)
+		if prev, ok := seen[v]; ok && prev != string(b) {
+			bad = v
+			break
+		}
+		seen[v] = string(b)
+	}
+	close(stop)
+	wg.Wait()
+	if bad != "" {
+		t.Fatalf("version %s served two different bodies", bad)
 	}
 }

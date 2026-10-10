@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"sync"
+	"sync/atomic"
 )
 
 const clockConfigKey = "clock_config_json"
@@ -15,6 +18,61 @@ type clockStoredConfig struct {
 	Schema              int             `json:"schema"`
 	Apps                clockStoredApps `json:"apps"`
 	MigratedFromOverlay string          `json:"migrated_from_overlay"`
+	raw                 json.RawMessage
+}
+
+type clockStoredConfigFields clockStoredConfig
+
+func (s *clockStoredConfig) UnmarshalJSON(b []byte) error {
+	if err := json.Unmarshal(b, (*clockStoredConfigFields)(s)); err != nil {
+		return err
+	}
+	s.raw = slices.Clone(b)
+	return nil
+}
+
+func (s clockStoredConfig) MarshalJSON() ([]byte, error) {
+	known, err := json.Marshal(clockStoredConfigFields(s))
+	if err != nil || len(s.raw) == 0 {
+		return known, err
+	}
+	out, _ := overlayKnown(s.raw, known)
+	return out, nil
+}
+
+func overlayKnown(raw, known []byte) ([]byte, bool) {
+	var base, top map[string]json.RawMessage
+	if json.Unmarshal(raw, &base) != nil || base == nil || json.Unmarshal(known, &top) != nil || top == nil {
+		return known, false
+	}
+	extra := false
+	for k := range base {
+		if _, ok := top[k]; !ok {
+			extra = true
+		}
+	}
+	for k, v := range top {
+		if prev, ok := base[k]; ok && k != "icon_ids" && isJSONObject(prev) && isJSONObject(v) {
+			merged, kept := overlayKnown(prev, v)
+			if kept {
+				v, extra = merged, true
+			}
+		}
+		base[k] = v
+	}
+	if !extra {
+		return known, false
+	}
+	out, err := json.Marshal(base)
+	if err != nil {
+		return known, false
+	}
+	return out, true
+}
+
+func isJSONObject(b json.RawMessage) bool {
+	b = bytes.TrimSpace(b)
+	return len(b) > 0 && b[0] == '{'
 }
 
 type clockStoredApps struct {
@@ -244,9 +302,11 @@ func hasAnyKey(blob string, keys []string) bool {
 }
 
 type clockMigration struct {
-	mu     sync.Mutex
-	logged bool
-	err    error
+	mu      sync.Mutex
+	logged  bool
+	err     error
+	running atomic.Bool
+	jobs    sync.WaitGroup
 }
 
 func (m *clockMigration) fail(err error) bool {
@@ -262,6 +322,7 @@ func (m *clockMigration) done() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.err = nil
+	m.logged = false
 }
 
 func (m *clockMigration) lastError() error {
@@ -287,6 +348,18 @@ func (a *App) presentationSlices() []presentationSlice {
 		{weatherSettingsKey, weatherPresentationKeys, s.weather.blob, func(d *clockStoredApps, e clockStoredApps) { d.Weather = e.Weather }},
 		{meetingsSettingsKey, meetingsPresentationKeys, s.meetings.blob, func(d *clockStoredApps, e clockStoredApps) { d.Calendar = e.Calendar }},
 	}
+}
+
+func (a *App) migrateClockConfigInBackground() {
+	m := &a.clockMigrate
+	if !m.running.CompareAndSwap(false, true) {
+		return
+	}
+	m.jobs.Go(func() {
+		defer m.running.Store(false)
+		a.migrateClockConfig()
+		a.syncClockConfigVersion()
+	})
 }
 
 func (a *App) migrateClockConfig() {

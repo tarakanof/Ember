@@ -1719,9 +1719,10 @@ façade" below), those keys belong to the clock config row
 (`clock_config_json`): the slice's stored blob drops them, a stored blob that
 still has them (written by an older server) has them ignored on reapply, and a
 PUT that changes them stores the clock config row and the slice in one
-`PutSettings` transaction (the slice only if its source part changed). Like
-the slices' own writes, a failed store there is logged and the PUT still
-answers 200 with memory changed (the façade PUT answers 500 instead). A PUT
+`PutSettings` transaction (the slice only if its source part changed). A
+failed store there answers 500 with memory unchanged, like the façade PUT, so
+an identical retry stores it (a slice's own write, before the migration or
+with no presentation change, still logs and answers 200 as before). A PUT
 or GET of the old endpoint still takes and returns the merged legacy shape.
 The clock config row is registered first, so reapply loads it before the
 slices.
@@ -2535,15 +2536,18 @@ migration) the same config is a façade over the overlay slices, as in #230.
   (a knob checkin persists within 10 min), losing the config; a separate row
   also lets one `PutSettings` cover a slice and the clock config without
   taking the registry lock under `cfgMu`, and survives a `DELETE` of the
-  record. In memory the row is `Config.clockPresentation` (unexported, so
+  record. The row keeps fields and apps this server doesn't know: they are
+  read with it and written back on every rewrite (reapply, alias PUT,
+  façade PUT; `icon_ids` replaces whole), so rolling back from a newer
+  server that added some loses nothing. In memory the row is `Config.clockPresentation` (unexported, so
   invisible to `config.json` and `diffConfig`), and its apps are applied onto
   the `Config` presentation fields the coordinator reads. Those fields have
   one writer after the migration, the clock config: the slices no longer set
   them, so the coordinator reads the clock's presentation and nothing else,
   with no code change on its side (goldens unchanged).
 - **Migration (#232).** `migrateClockConfig` runs at boot right after
-  `reapplySettings` when a clock record exists, else when the first good
-  probe creates the record (a server with `EMBER_CLOCK=off` and no record stays
+  `reapplySettings` when a clock record exists, else in the background after
+  the first good probe creates the record (a server with `EMBER_CLOCK=off` and no record stays
   on the façade). It does nothing if the clock config is loaded. If
   `clock_config_json` exists but did not load (bad JSON, bad schema, invalid
   value), it refuses to overwrite it and stays on the façade. Otherwise,
@@ -2555,7 +2559,8 @@ migration) the same config is a façade over the overlay slices, as in #230.
   and one `PutSettings` writes `clock_config_json` and every stored slice
   rewritten without its presentation keys. A failed transaction changes
   nothing, keeps the façade, logs `clock config not migrated` once and makes
-  the doctor `devices` check warn; the next boot or record creation retries.
+  the doctor `devices` check warn; the next good probe (or boot) retries in
+  the background, and a success clears the warning.
   A crash before the commit is a rerun; after it, the next boot loads the row
   and finds nothing left to move. The migration holds `App.rotationOp`
   (waiting with no deadline, like reload), the lock boot and `/admin/reload`
@@ -2563,6 +2568,8 @@ migration) the same config is a façade over the overlay slices, as in #230.
   mid-reload can't migrate from half-reapplied memory and store the
   `config.json` values over the slices'. It also can't interleave with a
   façade PUT. Boot releases the lock after its reapply and then migrates.
+  A probe only starts it in a goroutine (one at a time), so the probe's
+  single-flight and `deviceRediscoverMu` are never held while it waits.
   Lock order `rotationOp` → `cfgMu`, as for the façade. Doctor `devices`
   reports `clock config migrated (from <version>)`.
 - **Façade.** `GET /v1/devices/{clock}/config` composes; `PUT` splits back.
@@ -2672,16 +2679,20 @@ migration) the same config is a façade over the overlay slices, as in #230.
   A record from #230 has no digest and holds the old hash: if that hash
   still matches the config, the digest is adopted with no bump; otherwise
   the counter continues from the hash + 1, so the move to a counter never
-  goes backwards. A new record starts at 1, so deleting the clock record and
-  letting the probe re-create it restarts the count; clients compare for
-  inequality. Compute, store and the pause check all run under
+  goes backwards. The registry keeps a high-water mark
+  (`clock_version_mark` in `devices_json`, raised on every bump and when a
+  clock record is deleted), and a new record starts at mark + 1, so deleting
+  the clock record and letting the probe re-create it never repeats a
+  version a client has seen; clients compare for inequality. Compute, store and the pause check all run under
   `clockSyncGate.mu`, and pausing or resuming takes it too, so a stale
   digest never overwrites a newer one and a resync can't start before a
   pause and finish inside it. It is resynced after every `tryUpdateConfig`,
   hidden-tool change, record creation and app-list read; a change bumps
-  the epoch once, whichever endpoint caused it. The GET resyncs and reads
-  the version before it composes the body, so the header is never newer
-  than the body. A façade PUT bumps it once: its pre-read and read-back
+  the epoch once, whichever endpoint caused it. The façade GET and PUT
+  reply from one snapshot: under `clockSyncGate.mu` they compose the body,
+  resync the record to that body's digest and read the version, so a
+  settings PUT on an old endpoint (which doesn't take `rotationOp`) can't
+  land between the two and one version never carries two bodies. A façade PUT bumps it once: its pre-read and read-back
   stay local while it talks to the clock; then, with the resync paused, it
   stores the final list (the read-back, or the pre-read when it skipped the
   write) and commits the clock config or the slices, and resyncs once.

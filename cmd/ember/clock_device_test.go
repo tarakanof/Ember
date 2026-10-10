@@ -211,6 +211,7 @@ func newClockApp(t *testing.T) (*App, *httptest.Server, *clockStub) {
 	app, srv := newDevicesApp(t, "")
 	stub := newClockStub(t)
 	pointAtClock(app, stub.URL)
+	t.Cleanup(app.clockMigrate.jobs.Wait)
 	return app, srv, stub
 }
 
@@ -219,6 +220,7 @@ func probeClock(t *testing.T, a *App) {
 	if dev := a.probeClockHealthWithin(context.Background(), time.Now(), 0); dev == nil || !dev.Reachable {
 		t.Fatalf("probe failed: %+v", dev)
 	}
+	a.clockMigrate.jobs.Wait()
 }
 
 func listDevices(t *testing.T, srv *httptest.Server) []deviceView {

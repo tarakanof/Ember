@@ -121,12 +121,13 @@ func (d deviceRecord) clone() deviceRecord {
 }
 
 type deviceState struct {
-	Epoch   uint64         `json:"epoch"`
-	Devices []deviceRecord `json:"devices"`
+	Epoch            uint64         `json:"epoch"`
+	Devices          []deviceRecord `json:"devices"`
+	ClockVersionMark int            `json:"clock_version_mark,omitempty"`
 }
 
 func (s deviceState) clone() deviceState {
-	out := deviceState{Epoch: s.Epoch, Devices: make([]deviceRecord, 0, len(s.Devices)+1)}
+	out := deviceState{Epoch: s.Epoch, ClockVersionMark: s.ClockVersionMark, Devices: make([]deviceRecord, 0, len(s.Devices)+1)}
 	for _, d := range s.Devices {
 		out.Devices = append(out.Devices, d.clone())
 	}
@@ -490,6 +491,9 @@ func (r *deviceRegistry) remove(id string) error {
 		i := slices.IndexFunc(st.Devices, func(d deviceRecord) bool { return d.ID == id })
 		if i < 0 {
 			return errDeviceNotFound
+		}
+		if d := st.Devices[i]; d.Kind == deviceKindClock {
+			st.ClockVersionMark = max(st.ClockVersionMark, d.ConfigVersion)
 		}
 		st.Devices = slices.Delete(st.Devices, i, i+1)
 		delete(r.pendingPlain, id)

@@ -111,7 +111,9 @@ func (s *setting[D]) write(patch []byte, also func(*Config), stored bool) (D, er
 			also(cur)
 		}
 		if moved && captureClockPresentation(before, cur) {
-			s.persistWithClock(before, *cur)
+			if err := s.persistWithClock(before, *cur); err != nil {
+				return err
+			}
 		} else {
 			s.persist(*cur)
 		}
@@ -170,7 +172,7 @@ func (s *setting[D]) blob(c Config) (string, bool) {
 	return string(b), true
 }
 
-func (s *setting[D]) persistWithClock(before, c Config) {
+func (s *setting[D]) persistWithClock(before, c Config) error {
 	batch := map[string]string{clockConfigKey: clockPresentationBlob(c.clockPresentation)}
 	if blob, ok := s.blob(c); ok {
 		if prev, _ := s.blob(before); blob != prev {
@@ -179,7 +181,9 @@ func (s *setting[D]) persistWithClock(before, c Config) {
 	}
 	if err := s.o.putBatch(batch); err != nil {
 		s.o.logger.Warn("settings persist failed", "key", s.spec.key, "clock_key", clockConfigKey, "err", err)
+		return fmt.Errorf("%w: %w", errSettingsPersist, err)
 	}
+	return nil
 }
 
 func (s *setting[D]) persist(c Config) {
@@ -273,6 +277,10 @@ func serveSettingPutWith[D any](a *App, w http.ResponseWriter, r *http.Request, 
 	d, err := s.putWith(patch, fn)
 	if errors.Is(err, errSettingBody) {
 		a.rejectBody(w, r, err)
+		return d, false
+	}
+	if errors.Is(err, errSettingsPersist) {
+		writeError(w, http.StatusInternalServerError, err)
 		return d, false
 	}
 	if err != nil {

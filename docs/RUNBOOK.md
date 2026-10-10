@@ -1297,12 +1297,13 @@ still the baseline for an app with no stored value, and `/admin/reload` still
 applies it. Under
 `EMBER_CLOCK=off`, or until the clock is found, the settings stay in the old
 rows. The clock's `config_version` is now a counter (it was a hash); it never
-drops below the old hash value.
+drops below the old hash value, and deleting the clock record doesn't reset it
+(a re-created record continues above the highest version handed out).
 
 - **`/admin/doctor` `devices` warns `clock config not migrated: …`:** the
   move's SQLite transaction failed (nothing was written; the old rows still
   hold the settings and everything works as before). It retries at the next
-  restart. With `clock_config_json is stored but did not load`, the row exists
+  good clock probe (about a minute) or restart. With `clock_config_json is stored but did not load`, the row exists
   but is invalid: the server won't overwrite it; fix or delete that row in
   `pomodoro.db` and restart (deleting it re-runs the move from the old rows,
   which no longer hold the presentation, so the clock falls back to
