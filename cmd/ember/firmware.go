@@ -362,9 +362,15 @@ func (s *firmwareStore) copiesLocked(version string) (asides []string, live bool
 }
 
 func (s *firmwareStore) purgeLocked(version string) error {
+	doomed, err := s.retireAllLocked(version)
+	s.dropRetiredLocked(doomed)
+	return err
+}
+
+func (s *firmwareStore) retireAllLocked(version string) ([]string, error) {
 	asides, live, err := s.copiesLocked(version)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if live {
 		asides = append(asides, s.versionDir(version))
@@ -373,13 +379,11 @@ func (s *firmwareStore) purgeLocked(version string) error {
 	for _, dir := range asides {
 		gone, err := s.retireLocked(dir, version)
 		if err != nil {
-			s.dropRetiredLocked(doomed)
-			return err
+			return doomed, err
 		}
 		doomed = append(doomed, gone)
 	}
-	s.dropRetiredLocked(doomed)
-	return nil
+	return doomed, nil
 }
 
 func (s *firmwareStore) retireLocked(dir, version string) (string, error) {
@@ -697,23 +701,29 @@ func (s *firmwareStore) removeGuarded(version string, inUse func(string) bool, h
 }
 
 func (s *firmwareStore) purgeHeldLocked(version string, hold func(string) (bool, func()), guard func() error) error {
+	doomed, err := s.retireHeldLocked(version, hold, guard)
+	s.dropRetiredLocked(doomed)
+	if err != nil {
+		return err
+	}
+	delete(s.index, version)
+	return nil
+}
+
+func (s *firmwareStore) retireHeldLocked(version string, hold func(string) (bool, func()), guard func() error) ([]string, error) {
 	if hold != nil {
 		kept, release := hold(version)
 		if kept {
-			return errFirmwareKeptInUse
+			return nil, errFirmwareKeptInUse
 		}
 		defer release()
 	}
 	if guard != nil {
 		if err := guard(); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	if err := s.purgeLocked(version); err != nil {
-		return err
-	}
-	delete(s.index, version)
-	return nil
+	return s.retireAllLocked(version)
 }
 
 func (s *firmwareStore) open(version, name string) (firmwareMeta, *os.File, error) {

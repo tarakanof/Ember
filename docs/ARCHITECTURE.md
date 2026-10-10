@@ -3013,10 +3013,14 @@ as its in-use check (`otaTargets` for a DELETE or replace,
 `holdUnlessKept` for a guarded DELETE and for each version retention
 evicts), while the store lock is still held, so the check, the bump, the
 purge and the retire are one step to anyone who reads the store.
-`holdUnlessKept` also keeps the registry locked until that purge ends,
-so a checkin reporting the version waits instead of landing between the
-check and the purge. The store releases that hold with `defer`, before
-`unblock` runs, so a panicking purge cannot wedge later checkins. A checkin reads `fwGen` and the epoch before it reads the
+`holdUnlessKept` also keeps the registry locked until the version's
+copies are renamed out of their live paths, so every registry call
+(checkins, OTA reads, clock config) waits for those renames, and a
+checkin reporting the version can't land between the check and the
+retire. The `RemoveAll` of the retired copies runs after the hold is
+released, still under the store lock. The store releases the hold with
+`defer`, before `unblock` runs, so a panicking purge cannot wedge later
+checkins. A checkin reads `fwGen` and the epoch before it reads the
 store, and its registry update offers or clears only if `fwGen`, the
 target, the mode and the attempt are unchanged; otherwise it records the
 knob's result and waits for the next checkin. Its dangling-target clear
@@ -3031,8 +3035,8 @@ also needs that version unchanged at commit. So a Retry can't revive a version a
 eviction has claimed: a Retry before the claim makes the version held
 (DELETE 409), and one after it finds the image gone (400). Both orders
 are pinned by tests through `otaReadHook` and the store's `rename` seam, as
-is an auto checkin that commits while a DELETE or an eviction is purging
-its candidate (no offer).
+is an auto checkin that commits while a plain DELETE is purging its
+candidate, or that waits out an eviction's hold (no offer either way).
 
 **Checkin.** The knob adds `fw_build` (8 hex; ignored when malformed) and
 `ota` `{"image":"valid|pending_verify|new|undefined","last":{"attempt","error","result":"ok|failed|rolled_back","version"},"phase":"idle|waiting|rebooting","rollback":bool,"slot":0|1}`
@@ -3174,8 +3178,8 @@ downloading or installing update's `version` and the offered update.
 Without a `running` report it picks nothing. The server enforces the same
 rule (`firmwareNewestKept` plus `holdUnlessKept`) under the store lock and
 answers 409 `firmware_kept_in_use` or `firmware_kept_newest` (the
-registry stays locked from the keep check until the purge ends, so a
-check-in reporting that version waits), which the row shows as a grey "Kept" note,
+registry stays locked from the keep check until the retire renames end,
+so a check-in reporting that version waits), which the row shows as a grey "Kept" note,
 not an error; an update target's 409 counts as kept too. So the client's
 rule is only a pre-filter, and races with polls, channel changes or other
 knobs cost at most a "Kept" answer. On confirm,

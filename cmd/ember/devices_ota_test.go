@@ -1558,15 +1558,34 @@ func TestOTAAutoCheckinRacingAnEvictionDoesNotOffer(t *testing.T) {
 		t.Fatal("mode auto")
 	}
 	reached, release := k.holdPurgeOf("0.9.14")
+	park := k.app.knobFW.rename
+	purgeGen := make(chan uint64, 1)
+	k.app.knobFW.rename = func(oldpath, newpath string) error {
+		if filepath.Base(oldpath) == "0.9.14" {
+			select {
+			case purgeGen <- k.app.devices.fwGen:
+			default:
+			}
+		}
+		return park(oldpath, newpath)
+	}
 	var up <-chan int
+	readGen := k.app.devices.firmwareGen()
 	k.onceAfterRead(func() {
 		up = goReq(k.srv, "POST", "/v1/firmware", fakeFirmware(fwOpts{version: "0.9.30"}))
-		<-reached
-		go close(release)
+		select {
+		case <-reached:
+		case <-time.After(5 * time.Second):
+			t.Error("the eviction never reached the purge")
+		}
+		close(release)
 	})
 	got := offerOf(t, k.idle(t))
-	if code := <-up; code != http.StatusCreated {
+	if code := received(t, up, "the upload"); code != http.StatusCreated {
 		t.Fatalf("upload = %d", code)
+	}
+	if gen := received(t, purgeGen, "the eviction's purge"); gen <= readGen {
+		t.Fatalf("fwGen at the purge = %d, want past the checkin's read %d", gen, readGen)
 	}
 	if _, ok := k.app.knobFW.get("0.9.14"); ok {
 		t.Fatal("0.9.14 not evicted")

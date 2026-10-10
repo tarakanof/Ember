@@ -238,34 +238,65 @@ func TestFirmwareGuardedDeletePanicReleasesTheRegistry(t *testing.T) {
 	}
 }
 
-func TestFirmwarePruneHoldsCheckinsUntilThePurgeEnds(t *testing.T) {
+func registryFree(r *deviceRegistry) bool {
+	if !r.mu.TryLock() {
+		return false
+	}
+	r.mu.Unlock()
+	return true
+}
+
+func noteOnce(ch chan bool, v bool) {
+	select {
+	case ch <- v:
+	default:
+	}
+}
+
+func received[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", what)
+		var zero T
+		return zero
+	}
+}
+
+func TestFirmwarePruneHoldsTheRegistryOnlyWhileRetiring(t *testing.T) {
 	k := newOTAKnob(t)
 	k.idle(t)
 	for i := 1; i <= firmwareKept; i++ {
 		k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)}), "")
 	}
 	store := k.app.knobFW
-	rename := store.rename
-	var done chan struct{}
-	var checkinErr *error
+	rename, removeAll := store.rename, store.removeAll
+	retiring, dropping := make(chan bool, 1), make(chan bool, 1)
 	store.rename = func(oldpath, newpath string) error {
-		if done == nil && filepath.Base(oldpath) == "0.9.1" {
-			done, checkinErr = checkinWithin(t, k, "0.9.1", 50*time.Millisecond)
-			select {
-			case <-done:
-				t.Error("a checkin ran while retention was purging")
-			default:
-			}
+		if filepath.Base(oldpath) == "0.9.1" {
+			noteOnce(retiring, registryFree(k.app.devices))
 		}
 		return rename(oldpath, newpath)
 	}
-	k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", firmwareKept+1)}), "")
-	if done == nil {
-		t.Fatal("retention did not purge 0.9.1")
+	store.removeAll = func(path string) error {
+		if strings.HasPrefix(filepath.Base(path), firmwareTempPrefix+"0.9.1-") {
+			noteOnce(dropping, registryFree(k.app.devices))
+		}
+		return removeAll(path)
 	}
-	<-done
-	if *checkinErr != nil {
-		t.Fatal(*checkinErr)
+	k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", firmwareKept+1)}), "")
+	if received(t, retiring, "the retire of 0.9.1") {
+		t.Error("retention retired 0.9.1 without holding the registry")
+	}
+	if !received(t, dropping, "the removal of the retired 0.9.1") {
+		t.Error("the registry stayed held while the retired copy was removed")
+	}
+	done, err := checkinWithin(t, k, "0.9.1", 2*time.Second)
+	received(t, done, "a checkin after the prune")
+	if *err != nil {
+		t.Fatal(*err)
 	}
 	if _, ok := store.get("0.9.1"); ok {
 		t.Fatal("0.9.1 not evicted")
