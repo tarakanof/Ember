@@ -769,9 +769,29 @@ func blockedMigration(t *testing.T, a *App, release func()) {
 }
 
 func TestMigrationHoldHookIgnoresOtherRotationHolders(t *testing.T) {
-	a, _, _ := newClockApp(t)
-	a.migrationHoldHook = func() { t.Error("a non-migration holdClockRotation caller fired the migration hook") }
-	a.holdClockRotation()()
+	a, srv, stub := newClockApp(t)
+	path := filepath.Join(t.TempDir(), "config.json")
+	body := fmt.Sprintf(`{"awtrix":{"http_base_url":%q,"auto_rediscover":false},"display":{"idle_text":"reloaded"}}`, stub.URL)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a.configPath = path
+	var fired atomic.Int64
+	a.migrationHoldHook = func() { fired.Add(1) }
+
+	resp, b := devReq(t, srv, "POST", "/admin/reload", testToken, "")
+	mustOK(t, "reload", resp, b)
+	if got := a.cfg.Load().Display.IdleText; got != "reloaded" {
+		t.Fatalf("idle_text = %q, want the reloaded value", got)
+	}
+	if n := fired.Load(); n != 0 {
+		t.Fatalf("/admin/reload took the clock rotation lock and fired the migration hook %d times", n)
+	}
+
+	probeClock(t, a)
+	if n := fired.Load(); n != 1 {
+		t.Fatalf("the clock config migration fired the hook %d times, want 1", n)
+	}
 }
 
 func TestShutdownStopsWaitingForClockMigrationAtDeadline(t *testing.T) {
