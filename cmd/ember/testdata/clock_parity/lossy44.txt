@@ -182,30 +182,30 @@ menu display.put r0 → 502 {"error":"Patch \"CLOCK/api/v1/display\": net/http: 
   dev#121 GET /api/v1/apps body=e3b0c442 ok
 menu apps.get r0 → 200 [{"enabled":true,"inLoop":true,"name":"Time","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"Date","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"ember","origin":"pushed"}]
   dev#122 PUT /api/v1/apps/order body=a9665164 ok
+  dev#123 GET /api/v1/apps body=e3b0c442 DROP
 menu apps.put r0 → 200 
-  dev#123 POST /api/v1/apps/next body=e3b0c442 DROP
-menu next r0 → 502 {"error":"Post \"CLOCK/api/v1/apps/next\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#124 POST /api/v1/apps/previous body=e3b0c442 ok
-menu prev r0 → 200 
-  dev#125 DELETE /api/v1/notifications/active body=e3b0c442 DROP
-menu dismiss r0 → 502 {"error":"Delete \"CLOCK/api/v1/notifications/active\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#126 POST /api/v1/device/reboot body=e3b0c442 ok
-menu reboot r0 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
-  dev#127 PATCH /api/v1/display body=867fdf54 DROP
-menu power r0 → 502 {"error":"Patch \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#128 POST /api/v1/audio/play body=b77b9736 ok
-menu audio.test r0 → 200 {"ok":true}
-  dev#129 POST /api/v1/audio/stop body=e3b0c442 DROP
-menu audio.stop r0 → 502 {"error":"Post \"CLOCK/api/v1/audio/stop\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#130 GET /api/v1/audio/melodies body=e3b0c442 ok
+  dev#124 POST /api/v1/apps/next body=e3b0c442 ok
+menu next r0 → 200 
+  dev#125 POST /api/v1/apps/previous body=e3b0c442 DROP
+menu prev r0 → 502 {"error":"Post \"CLOCK/api/v1/apps/previous\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#126 DELETE /api/v1/notifications/active body=e3b0c442 ok
+menu dismiss r0 → 200 
+  dev#127 POST /api/v1/device/reboot body=e3b0c442 DROP
+menu reboot r0 → 502 {"error":"Post \"CLOCK/api/v1/device/reboot\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#128 PATCH /api/v1/display body=867fdf54 ok
+menu power r0 → 404 {"code":"notFound","error":"clock returned 404: no route"}
+  dev#129 POST /api/v1/audio/play body=b77b9736 DROP
+menu audio.test r0 → 502 {"error":"Post \"CLOCK/api/v1/audio/play\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#130 POST /api/v1/audio/stop body=e3b0c442 ok
+menu audio.stop r0 → 200 {"ok":true}
+  dev#131 GET /api/v1/audio/melodies body=e3b0c442 ok
 menu audio.melodies r0 → 200 {"melodies":[],"usedBytes":0,"totalBytes":4096}
-  dev#131 GET /api/v1/capabilities body=e3b0c442 ok
-menu capabilities r0 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
-  dev#132 GET /api/v1/system body=e3b0c442 DROP
-menu sensors.get r0 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#132 GET /api/v1/capabilities body=e3b0c442 DROP
+menu capabilities r0 → 502 {"error":"Get \"CLOCK/api/v1/capabilities\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
   dev#133 GET /api/v1/system body=e3b0c442 ok
-  dev#134 PUT /api/v1/system body=90640fd6 DROP
-menu sensors.put r0 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+menu sensors.get r0 → 200 {"temp_offset":-9,"hum_offset":0}
+  dev#134 GET /api/v1/system body=e3b0c442 DROP
+menu sensors.put r0 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
   dev#135 GET /api/v1/system body=e3b0c442 ok
   dev#136 PUT /api/v1/system body=7a703937 DROP
 menu sensors.put.refused r0 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
@@ -232,145 +232,147 @@ menu display.put r1 → 404 {"code":"notFound","error":"clock returned 404: no r
   dev#147 GET /api/v1/apps body=e3b0c442 DROP
 menu apps.get r1 → 502 {"error":"Get \"CLOCK/api/v1/apps\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
   dev#148 PUT /api/v1/apps/order body=a9665164 ok
+  dev#149 GET /api/v1/apps body=e3b0c442 ok
 menu apps.put r1 → 200 
-  dev#149 POST /api/v1/apps/next body=e3b0c442 ok
-menu next r1 → 200 
-  dev#150 POST /api/v1/apps/previous body=e3b0c442 DROP
-menu prev r1 → 502 {"error":"Post \"CLOCK/api/v1/apps/previous\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#151 DELETE /api/v1/notifications/active body=e3b0c442 ok
-menu dismiss r1 → 200 
-  dev#152 POST /api/v1/device/reboot body=e3b0c442 DROP
-menu reboot r1 → 502 {"error":"Post \"CLOCK/api/v1/device/reboot\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#153 PATCH /api/v1/display body=867fdf54 ok
-menu power r1 → 404 {"code":"notFound","error":"clock returned 404: no route"}
-  dev#154 POST /api/v1/audio/play body=b77b9736 DROP
-menu audio.test r1 → 502 {"error":"Post \"CLOCK/api/v1/audio/play\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#155 POST /api/v1/audio/stop body=e3b0c442 ok
-menu audio.stop r1 → 200 {"ok":true}
-  dev#156 GET /api/v1/audio/melodies body=e3b0c442 DROP
-menu audio.melodies r1 → 502 {"error":"Get \"CLOCK/api/v1/audio/melodies\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#157 GET /api/v1/capabilities body=e3b0c442 ok
+  dev#150 POST /api/v1/apps/next body=e3b0c442 DROP
+menu next r1 → 502 {"error":"Post \"CLOCK/api/v1/apps/next\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#151 POST /api/v1/apps/previous body=e3b0c442 ok
+menu prev r1 → 200 
+  dev#152 DELETE /api/v1/notifications/active body=e3b0c442 DROP
+menu dismiss r1 → 502 {"error":"Delete \"CLOCK/api/v1/notifications/active\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#153 POST /api/v1/device/reboot body=e3b0c442 ok
+menu reboot r1 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
+  dev#154 PATCH /api/v1/display body=867fdf54 DROP
+menu power r1 → 502 {"error":"Patch \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#155 POST /api/v1/audio/play body=b77b9736 ok
+menu audio.test r1 → 200 {"ok":true}
+  dev#156 POST /api/v1/audio/stop body=e3b0c442 DROP
+menu audio.stop r1 → 502 {"error":"Post \"CLOCK/api/v1/audio/stop\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#157 GET /api/v1/audio/melodies body=e3b0c442 ok
+menu audio.melodies r1 → 200 {"melodies":[],"usedBytes":0,"totalBytes":4096}
+  dev#158 GET /api/v1/capabilities body=e3b0c442 ok
 menu capabilities r1 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
-  dev#158 GET /api/v1/system body=e3b0c442 ok
-menu sensors.get r1 → 200 {"temp_offset":-9,"hum_offset":0}
   dev#159 GET /api/v1/system body=e3b0c442 DROP
-menu sensors.put r1 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+menu sensors.get r1 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
   dev#160 GET /api/v1/system body=e3b0c442 ok
-  dev#161 PUT /api/v1/system body=7a703937 DROP
-menu sensors.put.refused r1 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#161 PUT /api/v1/system body=90640fd6 DROP
+menu sensors.put r1 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
   dev#162 GET /api/v1/system body=e3b0c442 ok
+  dev#163 PUT /api/v1/system body=7a703937 DROP
+menu sensors.put.refused r1 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#164 GET /api/v1/system body=e3b0c442 ok
 menu buttons.get r1 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"","configured":false,"last_press_unix":N,"seconds_since":null}
-  dev#163 GET /api/v1/system body=e3b0c442 DROP
+  dev#165 GET /api/v1/system body=e3b0c442 DROP
 menu buttons.put r1 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#164 GET /api/v1/settings body=e3b0c442 ok
+  dev#166 GET /api/v1/settings body=e3b0c442 ok
 menu settings.get r2 → 200 {"autoTransition":true,"blockNavigation":false,"brightness":50,"textColor":"#FFFFFF"}
-  dev#165 PATCH /api/v1/settings body=aec2473c DROP
-menu settings.put r2 → 502 {"error":"Patch \"CLOCK/api/v1/settings\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#166 PATCH /api/v1/settings body=791d161a ok
-menu settings.put.takeover_key r2 → 200 
-  dev#167 PATCH /api/v1/settings body=502108c2 ok
+  dev#167 PATCH /api/v1/settings body=aec2473c ok
+menu settings.put r2 → 200 
+  dev#168 PATCH /api/v1/settings body=791d161a DROP
+menu settings.put.takeover_key r2 → 502 {"error":"Patch \"CLOCK/api/v1/settings\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#169 PATCH /api/v1/settings body=502108c2 ok
 menu settings.put.refused r2 → 422 {"code":"validationFailed","error":"clock returned 422: not on this build (field uppercase)","field":"uppercase"}
-  dev#168 GET /api/v1/device body=e3b0c442 DROP
+  dev#170 GET /api/v1/device body=e3b0c442 DROP
 menu stats r2 → 502 {"error":"Get \"CLOCK/api/v1/device\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#169 GET /api/v1/display/screen body=e3b0c442 ok
+  dev#171 GET /api/v1/display/screen body=e3b0c442 ok
 menu screen r2 → 200 {"width":32,"height":8,"pixels":[0]}
-  dev#170 GET /api/v1/display body=e3b0c442 DROP
+  dev#172 GET /api/v1/display body=e3b0c442 DROP
 menu display.get r2 → 502 {"error":"Get \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#171 PATCH /api/v1/display body=e868752a ok
+  dev#173 PATCH /api/v1/display body=e868752a ok
 menu display.put r2 → 404 {"code":"notFound","error":"clock returned 404: no route"}
-  dev#172 GET /api/v1/apps body=e3b0c442 DROP
+  dev#174 GET /api/v1/apps body=e3b0c442 DROP
 menu apps.get r2 → 502 {"error":"Get \"CLOCK/api/v1/apps\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#173 PUT /api/v1/apps/order body=a9665164 ok
+  dev#175 PUT /api/v1/apps/order body=a9665164 ok
+  dev#176 GET /api/v1/apps body=e3b0c442 ok
 menu apps.put r2 → 200 
-  dev#174 POST /api/v1/apps/next body=e3b0c442 DROP
+  dev#177 POST /api/v1/apps/next body=e3b0c442 DROP
 menu next r2 → 502 {"error":"Post \"CLOCK/api/v1/apps/next\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#175 POST /api/v1/apps/previous body=e3b0c442 ok
+  dev#178 POST /api/v1/apps/previous body=e3b0c442 ok
 menu prev r2 → 200 
-  dev#176 DELETE /api/v1/notifications/active body=e3b0c442 ok
-menu dismiss r2 → 200 
-  dev#177 POST /api/v1/device/reboot body=e3b0c442 DROP
-menu reboot r2 → 502 {"error":"Post \"CLOCK/api/v1/device/reboot\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#178 PATCH /api/v1/display body=867fdf54 ok
-menu power r2 → 404 {"code":"notFound","error":"clock returned 404: no route"}
-  dev#179 POST /api/v1/audio/play body=b77b9736 DROP
-menu audio.test r2 → 502 {"error":"Post \"CLOCK/api/v1/audio/play\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#180 POST /api/v1/audio/stop body=e3b0c442 ok
-menu audio.stop r2 → 200 {"ok":true}
-  dev#181 GET /api/v1/audio/melodies body=e3b0c442 DROP
-menu audio.melodies r2 → 502 {"error":"Get \"CLOCK/api/v1/audio/melodies\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#182 GET /api/v1/capabilities body=e3b0c442 ok
+  dev#179 DELETE /api/v1/notifications/active body=e3b0c442 DROP
+menu dismiss r2 → 502 {"error":"Delete \"CLOCK/api/v1/notifications/active\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#180 POST /api/v1/device/reboot body=e3b0c442 ok
+menu reboot r2 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
+  dev#181 PATCH /api/v1/display body=867fdf54 DROP
+menu power r2 → 502 {"error":"Patch \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#182 POST /api/v1/audio/play body=b77b9736 ok
+menu audio.test r2 → 200 {"ok":true}
+  dev#183 POST /api/v1/audio/stop body=e3b0c442 DROP
+menu audio.stop r2 → 502 {"error":"Post \"CLOCK/api/v1/audio/stop\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#184 GET /api/v1/audio/melodies body=e3b0c442 ok
+menu audio.melodies r2 → 200 {"melodies":[],"usedBytes":0,"totalBytes":4096}
+  dev#185 GET /api/v1/capabilities body=e3b0c442 ok
 menu capabilities r2 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
-  dev#183 GET /api/v1/system body=e3b0c442 DROP
-menu sensors.get r2 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#184 GET /api/v1/system body=e3b0c442 ok
-  dev#185 PUT /api/v1/system body=90640fd6 ok
   dev#186 GET /api/v1/system body=e3b0c442 DROP
-menu sensors.put r2 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+menu sensors.get r2 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
   dev#187 GET /api/v1/system body=e3b0c442 ok
-  dev#188 PUT /api/v1/system body=7a703937 DROP
-menu sensors.put.refused r2 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#188 PUT /api/v1/system body=90640fd6 DROP
+menu sensors.put r2 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
   dev#189 GET /api/v1/system body=e3b0c442 ok
+  dev#190 PUT /api/v1/system body=7a703937 DROP
+menu sensors.put.refused r2 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#191 GET /api/v1/system body=e3b0c442 ok
 menu buttons.get r2 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"","configured":false,"last_press_unix":N,"seconds_since":null}
-  dev#190 GET /api/v1/system body=e3b0c442 DROP
+  dev#192 GET /api/v1/system body=e3b0c442 DROP
 menu buttons.put r2 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
-  dev#191 POST /api/v1/notifications body=be2768bf slow
+  dev#193 POST /api/v1/notifications body=be2768bf slow
 slow publish err=<nil>
-  dev#192 GET /api/v1/device body=e3b0c442 slow
-slow menu stats → 200
-  dev#193 GET /api/v1/device body=e3b0c442 slow
-slow probe reachable=false
   dev#194 GET /api/v1/device body=e3b0c442 slow
-  dev#195 GET /api/v1/capabilities body=e3b0c442 DROP
-slow capabilities cached=false
+slow menu stats → 200
+  dev#195 GET /api/v1/device body=e3b0c442 slow
+slow probe reachable=false
   dev#196 GET /api/v1/device body=e3b0c442 slow
-slow doctor.awtrix ok
-  dev#197 GET /api/v1/device body=e3b0c442 slow
-slow doctor.clock reachable=false
+  dev#197 GET /api/v1/capabilities body=e3b0c442 DROP
+slow capabilities cached=false
   dev#198 GET /api/v1/device body=e3b0c442 slow
-  dev#199 GET /api/v1/device body=e3b0c442 DROP
-slow rediscover swapped=false
-  dev#200 GET /api/v1/device body=e3b0c442 ok
-probe #0 reachable=true uptime=1120
+slow doctor.awtrix ok
+  dev#199 GET /api/v1/device body=e3b0c442 slow
+slow doctor.clock reachable=false
+  dev#200 GET /api/v1/device body=e3b0c442 slow
   dev#201 GET /api/v1/device body=e3b0c442 DROP
-probe #1 reachable=false uptime=0
+slow rediscover swapped=false
   dev#202 GET /api/v1/device body=e3b0c442 ok
-probe #2 reachable=true uptime=1150
+probe #0 reachable=true uptime=1120
   dev#203 GET /api/v1/device body=e3b0c442 ok
-probe #3 reachable=true uptime=1180
+probe #1 reachable=true uptime=1150
   dev#204 GET /api/v1/device body=e3b0c442 DROP
+probe #2 reachable=false uptime=0
   dev#205 GET /api/v1/device body=e3b0c442 ok
-rediscover #0 swapped=false result=reachable
+probe #3 reachable=true uptime=1180
   dev#206 GET /api/v1/device body=e3b0c442 DROP
   dev#207 GET /api/v1/device body=e3b0c442 ok
-rediscover #1 swapped=false result=reachable
+rediscover #0 swapped=false result=reachable
   dev#208 GET /api/v1/device body=e3b0c442 DROP
   dev#209 GET /api/v1/device body=e3b0c442 ok
-rediscover #2 swapped=false result=reachable
+rediscover #1 swapped=false result=reachable
   dev#210 GET /api/v1/device body=e3b0c442 DROP
-  dev#211 GET /api/v1/capabilities body=e3b0c442 ok
-capabilities #0 cached=true
+  dev#211 GET /api/v1/device body=e3b0c442 ok
+rediscover #2 swapped=false result=reachable
   dev#212 GET /api/v1/device body=e3b0c442 ok
   dev#213 GET /api/v1/capabilities body=e3b0c442 DROP
-capabilities #1 cached=false
+capabilities #0 cached=false
   dev#214 GET /api/v1/device body=e3b0c442 ok
   dev#215 GET /api/v1/capabilities body=e3b0c442 DROP
-capabilities #2 cached=false
+capabilities #1 cached=false
   dev#216 GET /api/v1/device body=e3b0c442 ok
-doctor.awtrix #0 ok GET CLOCK/api/v1/device → 200 (T)
-  dev#217 GET /api/v1/device body=e3b0c442 DROP
-doctor.clock #0 warn reachable=false
+  dev#217 GET /api/v1/capabilities body=e3b0c442 DROP
+capabilities #2 cached=false
   dev#218 GET /api/v1/device body=e3b0c442 ok
-doctor.awtrix #1 ok GET CLOCK/api/v1/device → 200 (T)
+doctor.awtrix #0 ok GET CLOCK/api/v1/device → 200 (T)
   dev#219 GET /api/v1/device body=e3b0c442 DROP
-doctor.clock #1 warn reachable=false
+doctor.clock #0 warn reachable=false
   dev#220 GET /api/v1/device body=e3b0c442 ok
-doctor.awtrix #2 ok GET CLOCK/api/v1/device → 200 (T)
+doctor.awtrix #1 ok GET CLOCK/api/v1/device → 200 (T)
   dev#221 GET /api/v1/device body=e3b0c442 ok
+doctor.clock #1 ok reachable=true
+  dev#222 GET /api/v1/device body=e3b0c442 DROP
+doctor.awtrix #2 fail GET CLOCK/api/v1/device: Get "CLOCK/api/v1/device": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
+  dev#223 GET /api/v1/device body=e3b0c442 ok
 doctor.clock #2 ok reachable=true
 unconfigured notify err=clock not configured
 unconfigured stats → 502 {"error":"clock not configured"}
 unconfigured sensors.put → 502 {"error":"clock not configured"}
-requests=222
+requests=224
 bodies:
   1a19f1f2 {"autoTransition":true,"blockNavigation":false}
   1fa7a0a7 {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16726586,13421772,13421772,16726586,13421772,0,0,13421772,13421772,16726586,13421772,13421772,16726586,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",8,7,24,1,[16726586,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":30000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"ERR MBP","textBlinkMs":500,"textCenter":false,"textColor":"#FF3A3A","textOffsetX":9}

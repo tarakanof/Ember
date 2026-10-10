@@ -2551,15 +2551,15 @@ record.
   GET's `rotation` can be sent back. A PUT carrying `rotation` first reads
   the clock's list again; only when that read succeeds and equals the patch
   is the clock write skipped. A failed read, or any difference (a reorder
-  made on the old route, the clock's web UI or a read that failed earlier),
-  writes: the patch's `rotation` is forwarded as is (the `PUT /v1/device/apps`
-  body) to the clock after validation and before the slices; a clock error
-  is returned (502 when unreachable) and nothing else changes. After a
-  successful write the cached list is dropped and read again; if that read
-  fails the reply's `rotation` is `null` (unknown) rather than the old
-  list. If the clock write went through and the slices then fail (a 500
-  store error, or a 400 from a concurrent change), the error body and the
-  log say the app order was already written.
+  made on the old route or the clock's web UI), writes: the patch's
+  `rotation` is forwarded as is (the `PUT /v1/device/apps` body) to the
+  clock after validation and before the slices; a clock error is returned
+  (502 when unreachable) and nothing else changes. After a successful
+  write the cached list is dropped and read again; if that read fails the
+  reply's `rotation` is `null` (unknown) rather than the old list. If the
+  clock write went through and the slices then fail (a 500 store error, or
+  a 400 from a concurrent change), the error body and the log say the app
+  order was already written.
 - **Version.** `config_version` is a hash of the composed config (31 bits of
   SHA-256 of its JSON, never 0), composed from one snapshot (config and
   hidden tools read under `cfgMu`) and stored on the record so the list
@@ -2568,16 +2568,21 @@ record.
   `tryUpdateConfig`, hidden-tool change, record creation and app-list read;
   a change bumps the epoch once, whichever endpoint caused it, and a façade
   PUT bumps it once. `rotation` is the last app list the server read from
-  the clock (façade GET, `GET /v1/device/apps`), kept in memory, `null`
-  until one succeeds. Pushed Ember tiles are not part of it, so tiles
-  coming and going never move the hash. `PUT /v1/device/apps` clears the
-  cache without a resync and without an extra clock read, so a reorder
-  there moves the version once, at the next read of the list (the app re-reads after a
-  write; the façade GET always reads). A reorder on the clock's own web UI
-  also shows at the next read. The façade GET re-reads the list with a 2 s
-  budget and falls back to the last one. Boot and `/admin/reload` reapply
-  the overlay with the resync paused and resync once after, so a restart
-  moves the epoch at most once (it does once if the stored version
+  the clock, kept in memory, `null` until one succeeds. Pushed Ember tiles
+  are not part of it, so tiles coming and going never move the hash.
+  The façade GET, the read before a façade rotation write and the
+  read-back after a write on either route each have a 2 s budget
+  (`clockRotationReadBudget`); `GET /v1/device/apps` uses the menu call
+  timeout. A failed GET or pre-write read keeps the cached list. Because
+  every write is read back, a reorder moves the version once, at the
+  write, and a write that leaves the order as it was doesn't move it. The
+  exception is a failed read-back: the cache is cleared and the version
+  resynced, so `rotation` is `null` and the stored version matches what a
+  GET returns, and the next successful read moves the version again (two
+  bumps, each describing what the server served). A reorder on the
+  clock's own web UI shows at the next read. Boot and `/admin/reload`
+  reapply the overlay with the resync paused and resync once after, so a
+  restart moves the epoch at most once (it does once if the stored version
   included an app list the new process hasn't read yet).
 
 ### Knob diagnostics — `cmd/ember/devices_stats.go` (#239)

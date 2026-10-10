@@ -271,24 +271,63 @@ func TestClockConfigPutWithRotationBumpsEpochOnce(t *testing.T) {
 	}
 }
 
-func TestClockConfigOldAppOrderMovesVersionOnceAtNextRead(t *testing.T) {
+func TestClockConfigOldAppOrderMovesVersionOnce(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	_, v := getClockConfig(t, srv, d.ID)
 	epoch := a.devices.epochValue()
 	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
 	mustOK(t, "apps order", resp, b)
-	if a.devices.epochValue() != epoch {
-		t.Fatal("the old-endpoint write moved the epoch before any read")
+	if got := a.devices.epochValue(); got != epoch+1 || listDevices(t, srv)[0].ConfigVersion == v {
+		t.Fatalf("epoch = %d after the write, want %d with a new version", got, epoch+1)
 	}
 	resp, b = devReq(t, srv, "GET", "/v1/device/apps", testToken, "")
 	mustOK(t, "apps read", resp, b)
-	if got := a.devices.epochValue(); got != epoch+1 || listDevices(t, srv)[0].ConfigVersion == v {
-		t.Fatalf("epoch = %d after the read, want %d with a new version", got, epoch+1)
-	}
-	c, _ := getClockConfig(t, srv, d.ID)
+	c, v2 := getClockConfig(t, srv, d.ID)
 	if c.Rotation == nil || c.Rotation.Order[0] != "date" || a.devices.epochValue() != epoch+1 {
 		t.Fatalf("rotation = %+v epoch %d", c.Rotation, a.devices.epochValue())
+	}
+	if v2 != listDevices(t, srv)[0].ConfigVersion {
+		t.Fatalf("header version %d, record %d", v2, listDevices(t, srv)[0].ConfigVersion)
+	}
+}
+
+func TestClockConfigOldAppOrderUnchangedDoesNotMoveVersion(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	_, v := getClockConfig(t, srv, d.ID)
+	epoch := a.devices.epochValue()
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["time","date"],"disabled":["hum"]}`)
+	mustOK(t, "apps order", resp, b)
+	a.syncClockConfigVersion()
+	if _, v2 := getClockConfig(t, srv, d.ID); v2 != v || a.devices.epochValue() != epoch {
+		t.Fatalf("an unchanged order moved the version: epoch %d, want %d", a.devices.epochValue(), epoch)
+	}
+}
+
+func TestClockConfigOldAppOrderReadbackFailureKeepsVersionConsistent(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	epoch := a.devices.epochValue()
+	stub.mu.Lock()
+	stub.appsFail = true
+	stub.mu.Unlock()
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	mustOK(t, "apps order", resp, b)
+	c, v := getClockConfig(t, srv, d.ID)
+	if c.Rotation != nil {
+		t.Fatalf("rotation = %+v, want null while the list can't be read", c.Rotation)
+	}
+	if rec := listDevices(t, srv)[0].ConfigVersion; v != rec || a.devices.epochValue() != epoch+1 {
+		t.Fatalf("header version %d, record %d, epoch %d (want %d)", v, rec, a.devices.epochValue(), epoch+1)
+	}
+	stub.mu.Lock()
+	stub.appsFail = false
+	stub.mu.Unlock()
+	c, v = getClockConfig(t, srv, d.ID)
+	if c.Rotation == nil || c.Rotation.Order[0] != "date" || v != listDevices(t, srv)[0].ConfigVersion {
+		t.Fatalf("rotation = %+v after the list came back, version %d", c.Rotation, v)
 	}
 }
 
