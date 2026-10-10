@@ -564,7 +564,7 @@ components:
           description: >-
             Largest body the firmware holds, in bytes; a missing or 0 key is unknown.
             Floors: `view_bytes` ≥ 4096, `config_bytes` ≥ the default config's compact
-            size (434 today); caps below them are dropped.
+            size (447 today); caps below them are dropped.
           properties:
             view_bytes:
               type: integer
@@ -574,6 +574,16 @@ components:
               type: integer
               minimum: 0
               maximum: 16777216
+        rotations:
+          type: array
+          description: >-
+            Display rotations in degrees the firmware can apply, `0` always listed.
+            Missing or empty means `[0]`. Always present in `effective_caps`.
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: integer
+            enum: [0, 90, 180, 270]
     CheckinResult:
       type: object
       properties:
@@ -1849,8 +1859,11 @@ paths:
         slices then fail, the error says the app order was already written.
         For a knob that reported `caps` (DEVICE-PROTOCOL "Capabilities"), a
         change that turns on a page outside `caps.pages` (one not already on)
-        or whose compact JSON exceeds `caps.limits.config_bytes` is a 400. A
-        legacy knob (no `caps`) gets no such check.
+        or whose compact JSON exceeds `caps.limits.config_bytes` is a 400, and
+        so is a change of the knob's `rotation` (`0`, `90`, `180` or `270`)
+        to a value not in `caps.rotations` (missing = `[0]`). A
+        legacy knob (no `caps`) gets no such check. Any knob `rotation`
+        outside `0|90|180|270` is a 400.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:

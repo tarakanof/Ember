@@ -42,7 +42,8 @@
     "quiet": {
       "calm": true,
       "dim_level": 20
-    }
+    },
+    "rotation": 0
   }
 }
 

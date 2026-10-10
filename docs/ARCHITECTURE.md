@@ -2352,6 +2352,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `quiet{calm, dim_level 1-255}` (#343, cinder#28: what the knob does while
   the view says `quiet`; absent or null = `calm` true and `dim_level` 20,
   Ember's default night level; see DEVICE-PROTOCOL "Quiet hours"),
+  `rotation` `0|90|180|270` (#386, cinder#45: the display's rotation in
+  degrees, default 0, a stored record without it reads 0; a knob that
+  reported `caps` takes only the values in `caps.rotations`; see
+  DEVICE-PROTOCOL "Display rotation"),
   `diagnostics` `off|basic|full` (default `off`; a record stored before #239
   loads as `off`; see "Knob diagnostics" below), `stats_interval_s`
   `30|60|120|300` and `live_interval_s` `2|5|10` (defaults 60 and 5, chosen
@@ -2435,8 +2439,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   old record) and autosaves `ConfigModel<KnobSettings>` as a merge PUT of the
   changed fields only. Tests use a fake link and a pty pair; nothing opens a
   real serial port. Feature gates (the now-playing page, the stats interval
-  pickers) read the record's `effective_caps` (`KnobDevice.supports(feature:)`,
-  `supports(page:)`); a server without `effective_caps` falls back to the
+  pickers, the Rotation picker) read the record's `effective_caps`
+  (`KnobDevice.supports(feature:)`, `supports(page:)`, `rotations`; the
+  Rotation picker shows only when `rotations` holds more than 0); a server without `effective_caps` falls back to the
   old fw semver floors (`KnobCaps.legacy*Floors`), kept for two releases.
 - **Knob page previews (#240):** Settings › Knob › Apps draws each page's
   466 px round face in SwiftUI (EmberKit `KnobFace/`), the way `PanelPreview`

@@ -21,10 +21,11 @@ import (
 )
 
 var knobCapsFull = map[string]any{
-	"view":     []int{1, 1},
-	"pages":    []string{"bot", "pomodoro", "weather", "nowplaying"},
-	"features": []string{"view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals"},
-	"limits":   map[string]any{"view_bytes": 16383, "config_bytes": 1024},
+	"view":      []int{1, 1},
+	"pages":     []string{"bot", "pomodoro", "weather", "nowplaying"},
+	"features":  []string{"view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals"},
+	"limits":    map[string]any{"view_bytes": 16383, "config_bytes": 1024},
+	"rotations": []int{0, 180},
 }
 
 func capsCheckinBody(t *testing.T, fw string, version int, caps any) string {
@@ -520,15 +521,19 @@ func TestCapsAreStoredExposedAndClearedOnDowngrade(t *testing.T) {
 
 func TestInvalidCapsAreDroppedWithoutAck(t *testing.T) {
 	cases := map[string]any{
-		"view not a pair":   map[string]any{"view": []int{1}, "pages": []string{"bot"}},
-		"view min over max": map[string]any{"view": []int{2, 1}, "pages": []string{"bot"}},
-		"view zero":         map[string]any{"view": []int{0, 1}, "pages": []string{"bot"}},
-		"no pages":          map[string]any{"view": []int{1, 1}, "pages": []string{}},
-		"bad page id":       map[string]any{"view": []int{1, 1}, "pages": []string{"Bot"}},
-		"duplicate page":    map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "bot"}},
-		"bad feature":       map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "features": []string{"np-control"}},
-		"negative limit":    map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "limits": map[string]any{"view_bytes": -1}},
-		"not an object":     "caps",
+		"view not a pair":    map[string]any{"view": []int{1}, "pages": []string{"bot"}},
+		"view min over max":  map[string]any{"view": []int{2, 1}, "pages": []string{"bot"}},
+		"view zero":          map[string]any{"view": []int{0, 1}, "pages": []string{"bot"}},
+		"no pages":           map[string]any{"view": []int{1, 1}, "pages": []string{}},
+		"bad page id":        map[string]any{"view": []int{1, 1}, "pages": []string{"Bot"}},
+		"duplicate page":     map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "bot"}},
+		"bad feature":        map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "features": []string{"np-control"}},
+		"negative limit":     map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "limits": map[string]any{"view_bytes": -1}},
+		"bad rotation":       map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "rotations": []int{0, 45}},
+		"rotations sans 0":   map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "rotations": []int{180}},
+		"duplicate rotation": map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "rotations": []int{0, 180, 180}},
+		"rotations not ints": map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "rotations": []string{"0"}},
+		"not an object":      "caps",
 	}
 	for name, caps := range cases {
 		t.Run(name, func(t *testing.T) {

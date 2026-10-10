@@ -18,6 +18,7 @@ const (
 
 const (
 	capsMaxPages     = 32
+	capsMaxRotations = 4
 	capsMaxFeatures  = 64
 	capsMaxViewMajor = 1000
 	capsMaxLimit     = 1 << 24
@@ -36,10 +37,11 @@ const (
 var capsFeaturePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
 type deviceCaps struct {
-	View     []int             `json:"view"`
-	Pages    []string          `json:"pages"`
-	Features []string          `json:"features"`
-	Limits   *deviceCapsLimits `json:"limits,omitempty"`
+	View      []int             `json:"view"`
+	Pages     []string          `json:"pages"`
+	Features  []string          `json:"features"`
+	Limits    *deviceCapsLimits `json:"limits,omitempty"`
+	Rotations []int             `json:"rotations,omitempty"`
 }
 
 type deviceCapsLimits struct {
@@ -52,6 +54,7 @@ type effectiveCapsView struct {
 	Pages     []string          `json:"pages"`
 	Features  []string          `json:"features"`
 	Limits    *deviceCapsLimits `json:"limits,omitempty"`
+	Rotations []int             `json:"rotations"`
 	Source    string            `json:"source"`
 	CapsError string            `json:"caps_error,omitempty"`
 }
@@ -60,7 +63,8 @@ func (c *deviceCaps) clone() *deviceCaps {
 	if c == nil {
 		return nil
 	}
-	out := &deviceCaps{View: slices.Clone(c.View), Pages: slices.Clone(c.Pages), Features: slices.Clone(c.Features)}
+	out := &deviceCaps{View: slices.Clone(c.View), Pages: slices.Clone(c.Pages), Features: slices.Clone(c.Features),
+		Rotations: slices.Clone(c.Rotations)}
 	if c.Limits != nil {
 		l := *c.Limits
 		out.Limits = &l
@@ -73,7 +77,7 @@ func (c *deviceCaps) equal(o *deviceCaps) bool {
 		return c == o
 	}
 	return slices.Equal(c.View, o.View) && slices.Equal(sortedCopy(c.Pages), sortedCopy(o.Pages)) &&
-		slices.Equal(c.Features, o.Features) && c.limits() == o.limits()
+		slices.Equal(c.Features, o.Features) && c.limits() == o.limits() && slices.Equal(c.rotations(), o.rotations())
 }
 
 func sortedCopy(s []string) []string {
@@ -106,6 +110,9 @@ func (c deviceCaps) validate() error {
 	if err := uniqueMatching("feature", c.Features, capsFeaturePattern); err != nil {
 		return err
 	}
+	if err := c.validateRotations(); err != nil {
+		return err
+	}
 	l := c.limits()
 	if l.ViewBytes < 0 || l.ViewBytes > capsMaxLimit || l.ConfigBytes < 0 || l.ConfigBytes > capsMaxLimit {
 		return fmt.Errorf("limits must be 0..%d bytes", capsMaxLimit)
@@ -115,6 +122,24 @@ func (c deviceCaps) validate() error {
 	}
 	if floor := defaultKnobConfigBytes(); l.ConfigBytes > 0 && l.ConfigBytes < floor {
 		return fmt.Errorf("limits.config_bytes must be 0 or at least %d, the default config", floor)
+	}
+	return nil
+}
+
+func (c deviceCaps) validateRotations() error {
+	if len(c.Rotations) == 0 {
+		return nil
+	}
+	if len(c.Rotations) > capsMaxRotations || !slices.Contains(c.Rotations, 0) {
+		return fmt.Errorf("rotations must list 0 and at most %d of %v", capsMaxRotations, knobRotations)
+	}
+	for i, r := range c.Rotations {
+		if !slices.Contains(knobRotations, r) {
+			return fmt.Errorf("rotation %d must be one of %v", r, knobRotations)
+		}
+		if slices.Contains(c.Rotations[:i], r) {
+			return fmt.Errorf("rotation %d listed twice", r)
+		}
 	}
 	return nil
 }
@@ -161,6 +186,10 @@ func (c deviceCaps) normalized() *deviceCaps {
 		out.Features = []string{}
 	}
 	slices.Sort(out.Features)
+	slices.Sort(out.Rotations)
+	if len(out.Rotations) == 0 {
+		out.Rotations = nil
+	}
 	if out.Limits != nil && *out.Limits == (deviceCapsLimits{}) {
 		out.Limits = nil
 	}
@@ -168,6 +197,13 @@ func (c deviceCaps) normalized() *deviceCaps {
 }
 
 func (c *deviceCaps) hasPage(id string) bool { return slices.Contains(c.Pages, id) }
+
+func (c *deviceCaps) rotations() []int {
+	if c == nil || len(c.Rotations) == 0 {
+		return []int{0}
+	}
+	return c.Rotations
+}
 
 func (c *deviceCaps) viewMajor() int { return min(knobViewMajorMax, c.View[1]) }
 
@@ -226,8 +262,8 @@ func (d deviceRecord) effectiveCapsView() *effectiveCapsView {
 		return nil
 	}
 	c, source := effectiveCaps(d)
-	return &effectiveCapsView{View: c.View, Pages: c.Pages, Features: c.Features, Limits: c.Limits, Source: source,
-		CapsError: d.CapsError}
+	return &effectiveCapsView{View: c.View, Pages: c.Pages, Features: c.Features, Limits: c.Limits,
+		Rotations: slices.Clone(c.rotations()), Source: source, CapsError: d.CapsError}
 }
 
 func checkConfigAgainstCaps(caps *deviceCaps, before, after knobSettings, beforeSize, size int) error {
@@ -238,6 +274,9 @@ func checkConfigAgainstCaps(caps *deviceCaps, before, after knobSettings, before
 		if p.On && !caps.hasPage(p.ID) && !before.pageOn(p.ID) {
 			return fmt.Errorf("%w: page %q is not in this knob's firmware (caps.pages)", errSettingBody, p.ID)
 		}
+	}
+	if after.Rotation != before.Rotation && !slices.Contains(caps.rotations(), after.Rotation) {
+		return fmt.Errorf("%w: rotation %d is not supported by this knob (caps.rotations %v)", errSettingBody, after.Rotation, caps.rotations())
 	}
 	if limit := caps.limits().ConfigBytes; limit > 0 && size > limit && size > beforeSize {
 		return fmt.Errorf("%w: config is %d bytes, over this knob's %d (caps.limits.config_bytes)", errSettingBody, size, limit)
