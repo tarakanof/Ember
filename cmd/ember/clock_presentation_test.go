@@ -762,22 +762,37 @@ func blockedMigration(t *testing.T, a *App, release func()) {
 	}
 }
 
-func TestShutdownWaitsForClockMigration(t *testing.T) {
+func TestShutdownStopsWaitingForClockMigrationAtDeadline(t *testing.T) {
 	a, _, _ := newClockApp(t)
 	var buf bytes.Buffer
 	a.logger = captureLogger(&buf)
 	release := a.holdClockRotation()
-	if dev := a.probeClockHealthWithin(context.Background(), time.Now(), 0); dev == nil || !dev.Reachable {
-		release()
-		t.Fatalf("probe failed: %+v", dev)
-	}
-	ctx, stop := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer stop()
+	blockedMigration(t, a, release)
+	ctx, stop := context.WithCancel(context.Background())
+	stop()
 	a.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
 	release()
 	a.clockMigrate.jobs.Wait()
 	if !strings.Contains(buf.String(), "still running at the shutdown deadline") {
 		t.Fatalf("shutdown closed the store without waiting for the clock config migration:\n%s", buf.String())
+	}
+}
+
+func TestShutdownLetsClockMigrationFinishBeforeStoreClose(t *testing.T) {
+	a, _, _ := newClockApp(t)
+	var buf bytes.Buffer
+	a.logger = captureLogger(&buf)
+	release := a.holdClockRotation()
+	blockedMigration(t, a, release)
+	server := &http.Server{}
+	server.RegisterOnShutdown(release)
+	a.shutdown(context.Background(), server, &sync.WaitGroup{})
+	logs := buf.String()
+	if strings.Contains(logs, "still running at the shutdown deadline") || !strings.Contains(logs, "clock config migrated") {
+		t.Fatalf("the clock config migration did not land before the store closed:\n%s", logs)
+	}
+	if err := a.clockMigrate.lastError(); err != nil {
+		t.Fatalf("migration error = %v", err)
 	}
 }
 
