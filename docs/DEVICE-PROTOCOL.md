@@ -254,8 +254,8 @@ fixture. A sync is a reviewed commit, so its diff is the contract change. No
 submodule: the pinned copy keeps cinder's CI hermetic.
 
 **New checkin request fields.** The rebuilt body must match the fixture key
-for key, except for paths in `NOT_YET_SENT[]` in `test_fixtures.c` (such as
-`".caps"` or `".diag.foo"`). The flow:
+for key and value for value, except for paths in `NOT_YET_SENT[]` in
+`test_fixtures.c` (such as `".diag.foo"`). The flow:
 
 1. The Ember PR adds the field to the server and to the `checkin_req_*`
    fixture (regenerated, not hand-edited).
