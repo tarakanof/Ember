@@ -1852,7 +1852,9 @@ present) as its `capabilities` check.
 apps, replacing the AWTRIX3 settings keys `TIM`/`DAT`/`TEMP`/`HUM`/`BAT` that
 NG has no equivalent for (name only what you want to change). After a
 successful order write the PUT reads the list back (2 s budget) to update the
-clock record's version; see "Rotation cache" under the clock config façade.
+clock record's version, and both routes run one at a time with the façade;
+see "One operation at a time" and "Rotation cache" under the clock config
+façade.
 The ambient weather overlay is a separate concern, `PATCH /api/v1/display`
 via `GET/PUT /v1/device/display` — not part of app ordering. Display power is
 its own route, `PUT /v1/device/display/power {"power":bool}`, which sends
@@ -2551,17 +2553,31 @@ record.
 - **Rotation.** `rotation` keeps NG's meaning in both directions: `order`
   names the enabled apps in order, `disabled` the ones switched off, so a
   GET's `rotation` can be sent back. A PUT carrying `rotation` first reads
-  the clock's list again; only when that read succeeds and equals the patch
-  is the clock write skipped. A failed read, or any difference (a reorder
-  made on the old route or the clock's web UI), writes: the patch's
-  `rotation` is forwarded as is (the `PUT /v1/device/apps` body) to the
-  clock after validation and before the slices; a clock error is returned
-  (502 when unreachable) and nothing else changes. After a successful
-  write the list is read back; if that read fails or doesn't parse, the
-  reply's `rotation` is `null` (unknown) rather than the old list. If the
-  clock write went through and the slices then fail (a 500 store error, or
-  a 400 from a concurrent change), the error body and the log say the app
-  order was already written.
+  the clock's list; only when that read succeeds and equals the patch is
+  the clock write skipped. A failed read, or any difference (a reorder made
+  on the old route or the clock's web UI), writes: the patch's `rotation`
+  is forwarded as is (the `PUT /v1/device/apps` body) to the clock after
+  validation and before the slices; a clock error is returned (502 when
+  unreachable) and nothing else changes. After a successful write the list
+  is read back; if that read fails or doesn't parse, the reply's `rotation`
+  is `null` (unknown) rather than the old list. If the clock write went
+  through and the slices then fail (a 500 store error, or a 400 from a
+  concurrent change), the error body and the log say the app order was
+  already written.
+- **One operation at a time.** Every request that reads or writes the
+  clock's app order or the cached list (façade GET and PUT, `GET` and
+  `PUT /v1/device/apps`) holds one lock (`App.rotationOp`) for the whole
+  operation: the pre-read, the write, the read-back, the cache update, the
+  settings commit, the record's version sync and the response snapshot. So
+  a read can't land after a newer write, two writes can't interleave their
+  read-backs, and a GET can't see a half-applied PUT. Each such request has
+  an 11 s deadline from arrival (`clockRotationOpBudget`) that covers the
+  wait for the lock and every clock call, under the app's 12 s `.clock`
+  timeout. A request that doesn't get the lock in time answers 503; one
+  that gets it late has only the rest of its deadline for its clock calls,
+  so a write may be cut short (502, as for any lost write). Writes that
+  don't touch the clock (`/v1/apps`, the settings endpoints) don't take
+  the lock.
 - **Version.** `config_version` is a hash of the composed config (31 bits of
   SHA-256 of its JSON, never 0), composed from one snapshot (config and
   hidden tools read under `cfgMu`) and stored on the record so the list
@@ -2569,35 +2585,27 @@ record.
   stale hash never overwrites a newer one. It is resynced after every
   `tryUpdateConfig`, hidden-tool change, record creation and app-list read;
   a change bumps the epoch once, whichever endpoint caused it. A façade PUT
-  bumps it once: it does its clock I/O (the read, the order write, the
-  read-back) first, then pauses the resync only while it stores the
-  read-back and commits the slices, and resyncs once after. The pause
-  covers no network I/O, so another route's change during the PUT's clock
-  calls still reaches the record at once.
+  bumps it once: its pre-read and read-back stay local while it talks to
+  the clock; then, with the resync paused, it stores the final list (the
+  read-back, or the pre-read when it skipped the write) and commits the
+  slices, and resyncs once.
 - **Rotation cache.** `rotation` is the last app list the server read from
   the clock, kept in memory, `null` until one succeeds. Pushed Ember tiles
   are not part of it, so tiles coming and going never move the hash. The
-  façade GET, the read before a façade rotation write and the read-back
-  after a write on either route each have a 2 s budget
-  (`clockRotationReadBudget`); `GET /v1/device/apps` uses the menu call
-  timeout. A failed or unparseable GET or pre-write read keeps the cached
-  list. Every successful order write, on either route, is read back, so a
-  reorder moves the version once, at the write, and a write that leaves
-  the order as it was doesn't move it. If the read-back fails or doesn't
-  parse, the cache is cleared and the version resynced: `rotation` is
-  `null` and the stored version matches what a GET returns, and the next
-  successful read moves the version again. On the lossy clock link that is
-  common (with ~44% of calls lost, about 4 reorders in 10 bump twice);
-  harmless, since nothing consumes the clock version yet. The server
-  doesn't cache the written body instead: `rotation` stays what the clock
-  reported, and NG may order the apps the body didn't name differently.
-  A write generation (`clockRotationGen`), shared by both routes, orders
-  the cache: every order write bumps it before its read-back, and a read
-  stores its list (or a failed read-back clears it) only if no write
-  landed since that read began. A read sent before a write and answered
-  after it, or an older write's late read-back, can't replace the newer
-  list. A reorder on the clock's own web UI shows at the next read. Boot
-  and `/admin/reload` reapply the overlay with the resync paused and
+  façade GET, the façade pre-read and the read-back after a write on
+  either route each have a 2 s budget (`clockRotationReadBudget`);
+  `GET /v1/device/apps` uses the menu call timeout. A failed or
+  unparseable GET or pre-read keeps the cached list. Every successful order
+  write is read back, so a reorder moves the version once, at the write,
+  and a write that leaves the order as it was doesn't move it. If the
+  read-back fails or doesn't parse, the cache becomes `null` and the
+  version moves; the next successful read moves it again. On the lossy
+  clock link that is common (with ~44% of calls lost, about 4 reorders in
+  10 bump twice); harmless, since nothing consumes the clock version yet.
+  The server doesn't cache the written body instead: `rotation` stays what
+  the clock reported, and NG may order the apps the body didn't name
+  differently. A reorder on the clock's own web UI shows at the next read.
+  Boot and `/admin/reload` reapply the overlay with the resync paused and
   resync once after, so a restart moves the epoch at most once (it does
   once if the stored version included an app list the new process hasn't
   read yet).

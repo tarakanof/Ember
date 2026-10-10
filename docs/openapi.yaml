@@ -1784,6 +1784,13 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          description: Clock only. Another clock app order change held the
+            lock until this request's 11 s deadline; nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     put:
       tags: [devices]
       operationId: putKnobConfig
@@ -1794,8 +1801,9 @@ paths:
         the clock the body is merged onto the current slices under the
         config lock and stored in one SQLite transaction; a failed store is
         a 500 and changes nothing in memory or the store. A `rotation` that
-        differs from the clock's last read list is sent to the clock first
-        (its error status passes through, 502 when unreachable); if the
+        differs from the clock's list, read just before, is sent to the
+        clock first (its error status passes through, 502 when unreachable),
+        and clock app order changes run one at a time; if the
         slices then fail, the error says the app order was already written.
         For a knob that reported `caps` (DEVICE-PROTOCOL "Capabilities"), a
         change that turns on a page outside `caps.pages` (one not already on)
@@ -1822,6 +1830,13 @@ paths:
                 $ref: "#/components/schemas/Error"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "503":
+          description: Clock only. Another clock app order change held the
+            lock until this request's 11 s deadline; nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/devices/{id}/stats:
     parameters:
       - $ref: "#/components/parameters/DeviceID"
@@ -2940,6 +2955,13 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "503":
+          description: Another clock app order change held the
+            lock until this request's 11 s deadline; nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     put:
       tags: [clock]
       operationId: putClockApps
@@ -2953,6 +2975,13 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "503":
+          description: Another clock app order change held the
+            lock until this request's 11 s deadline; nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/device/stats:
     get:
       tags: [clock]
