@@ -533,10 +533,7 @@ func TestClockConfigMigrationWaitsForReapply(t *testing.T) {
 	a.updateConfig(func(c *Config) {
 		c.Weather.MoonPhase = boolPtr(true)
 	})
-	if dev := a.probeClockHealthWithin(context.Background(), time.Now(), 0); dev == nil || !dev.Reachable {
-		release()
-		t.Fatalf("probe failed: %+v", dev)
-	}
+	blockedMigration(t, a, release)
 	if _, ok, _ := a.store.GetSetting(clockConfigKey); ok {
 		release()
 		t.Fatal("migrated while a reapply held the clock app order lock")
@@ -741,6 +738,27 @@ func TestClockFacadeVersionMatchesBody(t *testing.T) {
 	}
 	if landed.Load() == 0 || len(seen) < 2 {
 		t.Fatalf("no interleaving exercised: %d PUTs landed, %d versions seen", landed.Load(), len(seen))
+	}
+}
+
+func blockedMigration(t *testing.T, a *App, release func()) {
+	t.Helper()
+	waiting := make(chan struct{})
+	a.holdHook = sync.OnceFunc(func() { close(waiting) })
+	if dev := a.probeClockHealthWithin(context.Background(), time.Now(), 0); dev == nil || !dev.Reachable {
+		release()
+		t.Fatalf("probe failed: %+v", dev)
+	}
+	finished := make(chan struct{})
+	go func() {
+		a.clockMigrate.jobs.Wait()
+		close(finished)
+	}()
+	select {
+	case <-waiting:
+	case <-finished:
+		release()
+		t.Fatal("the clock config migration ran without taking the clock app order lock")
 	}
 }
 
