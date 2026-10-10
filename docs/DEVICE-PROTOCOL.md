@@ -245,7 +245,26 @@ and review the diff.
 
 **cinder side** (cinder#24): `firmware/test/host/fixtures/ember/` holds a copy
 pinned to an Ember tag or commit, refreshed by
-`tools/sync-ember-fixtures.sh <ref>`. Host tests parse every fixture with the
-real `knob_view` and `device_api` parsers. A sync is a reviewed commit, so its
-diff is the contract change. No submodule: the pinned copy keeps cinder's CI
-hermetic.
+`firmware/tools/sync-ember-fixtures.sh <ref>`. The host test
+[`firmware/test/host/test_fixtures.c`](https://github.com/tarakanof/cinder/blob/main/firmware/test/host/test_fixtures.c)
+parses every fixture with the firmware's own parsers, fails on a fixture it
+has no test for, and rebuilds each `checkin_req_*.json` body with the
+firmware's encoder; that file is the list of which parser covers which
+fixture. A sync is a reviewed commit, so its diff is the contract change. No
+submodule: the pinned copy keeps cinder's CI hermetic.
+
+**New checkin request fields.** The rebuilt body must match the fixture key
+for key and value for value, except for paths in `NOT_YET_SENT[]` in
+`test_fixtures.c` (such as `".diag.foo"`). The flow:
+
+1. The Ember PR adds the field to the server and to the `checkin_req_*`
+   fixture (regenerated, not hand-edited).
+2. The cinder sync commit for that ref adds the field's path to
+   `NOT_YET_SENT`, since the firmware doesn't send it yet and the host test
+   fails without the entry.
+3. The firmware PR that starts sending the field removes the entry.
+
+The host test fails on a listed path the firmware sends, on a listed path no
+fixture has, and on a key the firmware sends that the fixture lacks, so the
+firmware never sends a field before Ember's goldens have it. cinder's
+`docs/workflow.md` has the same rules from its side.
