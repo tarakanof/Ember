@@ -169,7 +169,7 @@ struct ClockWeatherAppPane: View {
     @State private var preview = PreviewModel()
     @AppStorage("weatherFold.icons") private var iconsExpanded = false
 
-    private var model: ServerConfigModel<WeatherConfig> { env.settings.weather }
+    private var model: ClockAppLens<ClockConfig.Weather> { env.clockWeather }
 
     private var weatherRequirement: SettingsInfoRequirement {
         !model.isLoaded ? .loading : .weatherOn
@@ -180,7 +180,8 @@ struct ClockWeatherAppPane: View {
     }
 
     var body: some View {
-        @Bindable var model = model
+        let model = model
+        let draft = model.binding
         let c = model.draft
         Form {
             SourceLinkSection(source: .weather, isOff: model.isLoaded && !c.enabled)
@@ -207,8 +208,8 @@ struct ClockWeatherAppPane: View {
                              retry: { await model.load() })
 
             Group {
-                tilesSection(model)
-                popupsSection(model)
+                tilesSection(draft, saveError: model.saveError)
+                popupsSection(draft)
                 if c.useNativeIcons || c.tileNativeIcons {
                     Section(isExpanded: $iconsExpanded) {
                         ForEach(Self.iconConditions, id: \.key) { row in
@@ -230,43 +231,41 @@ struct ClockWeatherAppPane: View {
         .reloads { await model.load() }
     }
 
-    private func tilesSection(_ model: ServerConfigModel<WeatherConfig>) -> some View {
-        @Bindable var model = model
-        let c = model.draft
+    private func tilesSection(_ draft: Binding<WeatherConfig>, saveError: FeedError?) -> some View {
+        let c = draft.wrappedValue
         return Section {
-            Toggle("Current conditions", isOn: $model.draft.rotateInApps)
+            Toggle("Current conditions", isOn: draft.rotateInApps)
             Group {
-                InfoToggle("Native animated icon", isOn: $model.draft.tileNativeIcons, info: .weatherNativeTileIcon,
+                InfoToggle("Native animated icon", isOn: draft.tileNativeIcons, info: .weatherNativeTileIcon,
                            requirement: tileRequirement)
-                InfoToggle("Moon phase at night", isOn: $model.draft.moonPhase, info: .weatherMoonPhase, requirement: tileRequirement)
-                InfoToggle("Rain and snow overlay", isOn: $model.draft.overlay, info: .weatherOverlay, requirement: tileRequirement)
+                InfoToggle("Moon phase at night", isOn: draft.moonPhase, info: .weatherMoonPhase, requirement: tileRequirement)
+                InfoToggle("Rain and snow overlay", isOn: draft.overlay, info: .weatherOverlay, requirement: tileRequirement)
             }
             .disabled(!c.rotateInApps)
-            Toggle("Hourly forecast", isOn: $model.draft.forecastTile)
-            StepperRow(title: "Hours ahead", value: $model.draft.forecastHours,
+            Toggle("Hourly forecast", isOn: draft.forecastTile)
+            StepperRow(title: "Hours ahead", value: draft.forecastHours,
                        range: 1...24) { Text("\($0) h") }
                 .disabled(!c.rotateInApps && !c.forecastTile)
-            Toggle("Air quality", isOn: $model.draft.airTile)
+            Toggle("Air quality", isOn: draft.airTile)
         } header: {
             Text("Tiles")
         } footer: {
-            SaveErrorFooter(error: model.saveError)
+            SaveErrorFooter(error: saveError)
         }
     }
 
-    private func popupsSection(_ model: ServerConfigModel<WeatherConfig>) -> some View {
-        @Bindable var model = model
-        return Section {
-            Toggle("When conditions change", isOn: $model.draft.popupOnChange)
-            Toggle("Sunrise and sunset", isOn: $model.draft.sunPopups)
-            StepperRow(title: "Every", value: $model.draft.popupIntervalMinutes,
-                       range: (0...360).including(model.draft.popupIntervalMinutes), step: 30,
+    private func popupsSection(_ draft: Binding<WeatherConfig>) -> some View {
+        Section {
+            Toggle("When conditions change", isOn: draft.popupOnChange)
+            Toggle("Sunrise and sunset", isOn: draft.sunPopups)
+            StepperRow(title: "Every", value: draft.popupIntervalMinutes,
+                       range: (0...360).including(draft.wrappedValue.popupIntervalMinutes), step: 30,
                        info: .weatherPopupInterval, requirement: weatherRequirement) { m in
                 m == 0 ? Text("Off") : Text(verbatim: DurationText.minutes(m))
             }
-            StepperRow(title: "Show for", value: $model.draft.popupDurationSeconds,
-                       range: (5...120).including(model.draft.popupDurationSeconds), step: 5) { Text("\($0) s") }
-            InfoToggle("Native icons in popups", isOn: $model.draft.useNativeIcons, info: .weatherNativePopupIcons,
+            StepperRow(title: "Show for", value: draft.popupDurationSeconds,
+                       range: (5...120).including(draft.wrappedValue.popupDurationSeconds), step: 5) { Text("\($0) s") }
+            InfoToggle("Native icons in popups", isOn: draft.useNativeIcons, info: .weatherNativePopupIcons,
                        requirement: weatherRequirement)
         } header: {
             Text("Popups")
@@ -289,7 +288,9 @@ struct ClockWeatherAppPane: View {
             get: { model.draft.iconIds[key] ?? "" },
             set: { v in
                 let t = v.trimmingCharacters(in: .whitespaces)
-                model.draft.iconIds[key] = t.isEmpty ? nil : t
+                var d = model.draft
+                d.iconIds[key] = t.isEmpty ? nil : t
+                model.draft = d
             })
     }
 

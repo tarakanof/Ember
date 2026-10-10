@@ -2724,6 +2724,48 @@ migration) the same config is a façade over the overlay slices, as in #230.
   resync once after, so a restart moves the epoch at most once (it does
   once if the stored version included an app list the new process hasn't
   read yet).
+- **App.** (`ClockConfig.swift`, `ClockConfigModel.swift` in EmberKit, #359.)
+  Ember.app uses the façade when `GET /v1/devices` lists an `awtrix-ng`
+  record; that record exists only on a server that has the façade, so no
+  `/version` feature is needed. The Settings clock node is then keyed by the
+  record id (`clock-…`); without one it stays `clock`, and stored routes and
+  expanded sidebar groups move between the two by kind. Settings › Clock › Apps › Agents, Focus, Weather
+  and Calendar read and write their façade fields through `ClockAppLens`: the
+  pane edits the old config type (`WeatherConfig`, …), the lens overlays the
+  façade slice on the old model's draft for reading and writes only the
+  slice back, so source-only fields (`weather.enabled`, Pomodoro rounds) still
+  come from the old endpoint, read-only. A save is a merge `PUT` of the
+  changed leaves (arrays, `icon_ids` and `rotation` whole). The Sources and
+  Sounds panes still `PUT` whole bodies to the old endpoints, so after a
+  façade save the fields it changed are written into the old models in
+  place (`SettingsModels.adopt`) instead of reloading them. Only the changed
+  fields are written, so an old-endpoint edit of a shared field such as
+  `meetings.enabled` survives, and a load already in flight is dropped. The
+  values go into the draft, so a pending edit carries them, and into the
+  baseline only if no old-endpoint save started or ran during the façade
+  `PUT` (a save epoch marks that). Otherwise the old
+  model stays dirty and saves again with the new values, so a whole-body
+  `PUT` that landed after the façade one is corrected. In the other direction,
+  an old-endpoint save of usage, Pomodoro, weather or meetings reloads the
+  façade. The Rotation page's app toggles and reorders send
+  `{"rotation":{"order","disabled"}}` (the same body as `PUT
+  /v1/device/apps`) through the façade; the list itself, which needs
+  `origin`/`present`, is still read from `/v1/device/apps`. A 503 (lock
+  timeout) or 502 (cut-short clock write) shows its own message and
+  refetches: the façade `GET` replaces the baseline, and edits made while the
+  `PUT` was in flight are rebased onto it and sent again; a failed app-order
+  write rereads the app list. A 404 marks the record missing: a settings edit,
+  including any made while the `PUT` was in flight, is replayed into the old
+  model and saved through the old endpoint, an app-order write is retried once on `PUT /v1/device/apps`, and the panes use
+  the old endpoints. A missing façade is probed again (only a fresh `GET`
+  turns it back on) when a pane reloads, or
+  at a device-list refresh at most every 5 min. Loads carry a sequence
+  number and model changes a generation, so a stale reply (an older load, or
+  one for a previous record or server) is dropped; a save also invalidates
+  loads already in flight. A pending façade edit is still sent when the
+  record briefly drops out of the device list. The clock's hidden tools stay
+  on the per-tool `/v1/apps` toggle: the façade's `hidden_tools` replaces the
+  whole list, so a toggle from the menu bar landing in between would be lost.
 
 ### Knob diagnostics — `cmd/ember/devices_stats.go` (#239)
 

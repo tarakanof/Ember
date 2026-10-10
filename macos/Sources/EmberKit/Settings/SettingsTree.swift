@@ -74,7 +74,16 @@ public struct SettingsTree: Equatable, Sendable {
     }
 
     public func expanded(_ expanded: Set<String>, revealing route: SettingsRoute) -> Set<String> {
-        expanded.union(expansionIDs(revealing: route))
+        Set(expanded.map(movedExpansionID)).union(expansionIDs(revealing: route))
+    }
+
+    private func movedExpansionID(_ stored: String) -> String {
+        let suffix = "/apps"
+        let base = stored.hasSuffix(suffix) ? String(stored.dropLast(suffix.count)) : stored
+        guard !devices.contains(where: { $0.id == base }), let kind = DeviceKind(deviceID: base) else { return stored }
+        let nodes = devices.filter { $0.device.kind == kind }
+        guard nodes.count == 1, let node = nodes.first else { return stored }
+        return stored.hasSuffix(suffix) ? node.appsExpansionID : node.expansionID
     }
 
     public func expansionIDs(revealing route: SettingsRoute) -> [String] {

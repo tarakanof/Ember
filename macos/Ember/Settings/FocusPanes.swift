@@ -89,10 +89,11 @@ struct ClockFocusAppPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var preview = PreviewModel()
 
-    private var model: ServerConfigModel<PomoConfig> { env.settings.pomodoro }
+    private var model: ClockAppLens<ClockConfig.Focus> { env.clockFocus }
 
     var body: some View {
-        @Bindable var model = model
+        let model = model
+        let draft = model.binding
         let c = model.draft
         Form {
             SourceLinkSection(source: .focus, isOff: model.isLoaded && !c.enabled)
@@ -116,8 +117,8 @@ struct ClockFocusAppPane: View {
                              retry: { await model.load() })
 
             Section {
-                HexColorRow(title: "Focus", hex: $model.draft.focusColor, fallback: "#3AA0FF")
-                HexColorRow(title: "Break", hex: $model.draft.breakColor, fallback: "#2EE85E")
+                HexColorRow(title: "Focus", hex: draft.focusColor, fallback: "#3AA0FF")
+                HexColorRow(title: "Break", hex: draft.breakColor, fallback: "#2EE85E")
             } header: {
                 Text("Colors")
             } footer: {

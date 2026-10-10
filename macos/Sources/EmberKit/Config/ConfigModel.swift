@@ -29,6 +29,10 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private var savedReset: Task<Void, Never>?
     @ObservationIgnored private var saving = false
+    @ObservationIgnored private var loadSeq = 0
+    @ObservationIgnored private(set) var saveEpoch = 0
+    var isSaving: Bool { saving }
+    var hasPendingSave: Bool { pending != nil }
 
     static var rateLimitAttempts: Int { 3 }
 
@@ -65,28 +69,37 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     }
 
     public func load() async {
+        await fetch()
+    }
+
+    @discardableResult
+    func fetch() async -> Bool {
         if let e = saveError, hasUnsavedChanges, pending == nil, !saving {
-            if e == .featureOff { revert() } else { await saveNow(); return }
+            if e == .featureOff { revert() } else { await saveNow(); return false }
         }
-        guard pending == nil, !saving, !hasUnsavedChanges else { return }
+        guard pending == nil, !saving, !hasUnsavedChanges else { return false }
+        loadSeq += 1
+        let seq = loadSeq
         for attempt in 1...Self.rateLimitAttempts {
             do {
                 let value = try await loader()
-                guard pending == nil, !saving, !hasUnsavedChanges else { return }
+                guard seq == loadSeq || applied == nil, pending == nil, !saving, !hasUnsavedChanges else { return false }
                 applied = value
                 draft = value
                 loadError = nil
-                return
+                return true
             } catch {
+                guard seq == loadSeq else { return false }
                 let e = FeedError(error)
                 if e == .rateLimited, attempt < Self.rateLimitAttempts {
                     try? await sleep((error as? APIError)?.retryAfter ?? RateLimitBackoff.fallbackRetryAfter)
                     continue
                 }
                 loadError = e
-                return
+                return false
             }
         }
+        return false
     }
 
     public func scheduleSave() {
@@ -108,6 +121,8 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         guard hasUnsavedChanges, !saving else { return }
         saving = true
         defer { saving = false }
+        loadSeq += 1
+        saveEpoch += 1
         let sent = draft
         let previous = applied
         savedReset?.cancel()
@@ -121,6 +136,15 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
                 onSaved?(sent, previous)
                 holdSaved()
                 break
+            } catch let recovered as SaveRecovered<T> {
+                cancelPendingSave()
+                let newer = draft
+                applied = recovered.current
+                draft = newer == sent ? recovered.current : recovered.rebase(sent, newer)
+                saveError = recovered.cause
+                status = .error(String(localized: recovered.cause.saveMessage))
+                if hasUnsavedChanges { scheduleSave() }
+                return
             } catch {
                 let e = FeedError(error)
                 if e == .rateLimited, attempt < Self.rateLimitAttempts {
@@ -133,6 +157,16 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
             }
         }
         if hasUnsavedChanges { scheduleSave() }
+    }
+
+    func amend(overlapped: Bool, _ change: (inout T) -> Void) {
+        loadSeq += 1
+        change(&draft)
+        if !overlapped, var a = applied {
+            change(&a)
+            applied = a
+        }
+        if hasUnsavedChanges, !saving { scheduleSave() }
     }
 
     public func reset(to value: T) {
@@ -163,6 +197,12 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
             self.status = .idle
         }
     }
+}
+
+struct SaveRecovered<T: Sendable>: Error {
+    let current: T
+    let cause: FeedError
+    let rebase: @Sendable (_ sent: T, _ draft: T) -> T
 }
 
 public typealias ServerConfigModel<T: Equatable & Sendable> = ConfigModel<T>
