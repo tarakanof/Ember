@@ -194,6 +194,7 @@ type weatherObservation struct {
 	ConditionCode   string
 	TempC           float64
 	Severe          bool
+	ObservedAt      time.Time
 	FetchedAt       time.Time
 	HourlyStart     time.Time
 	Hourly          []float64
@@ -287,6 +288,7 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 	var body struct {
 		UTCOffsetSeconds int `json:"utc_offset_seconds"`
 		Current          struct {
+			Time        int64   `json:"time"`
 			Temperature float64 `json:"temperature_2m"`
 			WeatherCode int     `json:"weather_code"`
 		} `json:"current"`
@@ -302,6 +304,10 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 	if len(body.Hourly.Time) > 0 {
 		start = time.Unix(body.Hourly.Time[0], 0)
 	}
+	var observed time.Time
+	if body.Current.Time > 0 {
+		observed = time.Unix(body.Current.Time, 0).UTC()
+	}
 	cond, severe := wmoCondition(body.Current.WeatherCode)
 	hourly := body.Hourly.Temperature
 	if len(hourly) > forecastFetchHours {
@@ -309,7 +315,7 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 	}
 	return weatherObservation{
 		Condition: cond, ConditionCode: strconv.Itoa(body.Current.WeatherCode),
-		TempC: body.Current.Temperature, Severe: severe, Hourly: hourly, HourlyStart: start,
+		TempC: body.Current.Temperature, Severe: severe, ObservedAt: observed, Hourly: hourly, HourlyStart: start,
 		Overlay:         wmoOverlay(body.Current.WeatherCode),
 		TZOffsetSeconds: body.UTCOffsetSeconds, TZKnown: true,
 	}, nil
@@ -355,7 +361,7 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (we
 	}
 	return weatherObservation{
 		Condition: cond, ConditionCode: first.Data.Next1Hours.Summary.SymbolCode,
-		TempC: first.Data.Instant.Details.AirTemperature, Severe: severe,
+		TempC: first.Data.Instant.Details.AirTemperature, Severe: severe, ObservedAt: first.Time.UTC(),
 		Hourly: hourly, HourlyStart: first.Time,
 		Overlay: metSymbolOverlay(first.Data.Next1Hours.Summary.SymbolCode),
 	}, nil

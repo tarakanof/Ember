@@ -2730,7 +2730,9 @@ paths:
         Everything the knob draws in one poll. ETag/304; `?wait=` (≤25 s)
         long-polls for a change, advertised by `X-Ember-View-Wait`. Carries
         `"quiet": true` while quiet hours are on (absent otherwise); a waiting
-        poll wakes at each quiet-hours edge. For a knob that reported `caps`,
+        poll wakes at each quiet-hours edge. `weather.observed_at` (RFC 3339,
+        UTC) is the provider's time for the current values, absent when
+        unknown. For a knob that reported `caps`,
         `v` is min(1, `caps.view[1]`) and a page's block (`mood`, `pomo`,
         `weather`, `nowplaying`) is sent only when the page is in `caps.pages`
         and on; a legacy knob's view is unchanged.
