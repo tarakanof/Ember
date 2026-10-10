@@ -48,11 +48,9 @@ type coordinator struct {
 	cmds  chan coordCmd
 	ticks chan struct{}
 
-	pointer          string
-	cardCursor       int
-	locked           bool
-	lockedKey        string
-	lockEnteredAt    time.Time
+	pointer    string
+	cardCursor int
+	attentionState
 	lockReleaseTimer *time.Timer
 
 	idleSince time.Time
@@ -215,33 +213,15 @@ func (c *coordinator) handle(cmd coordCmd) {
 }
 
 func (c *coordinator) onUpsert(key, prior, next string) {
-	attention := next == "waiting" || next == "error"
-	priorWasAttention := prior == "waiting" || prior == "error"
-	transition := prior != next
-
-	freshLock := false
-	c.stateMu.Lock()
-	switch {
-	case attention && transition && !priorWasAttention && !c.keyHidden(key):
-		c.pointer = key
-		c.cardCursor = 0
-		c.locked = true
-		c.lockedKey = key
-		c.lockEnteredAt = c.clk.Now()
-		c.armLockTimerLocked()
-		freshLock = true
-	case attention && transition && priorWasAttention && c.locked && c.lockedKey == key:
-		c.lockEnteredAt = c.clk.Now()
-		c.armLockTimerLocked()
-	case !attention && c.locked && c.lockedKey == key:
-		c.logger.Info("coord lock released", "key", c.lockedKey, "reason", "drain")
-		c.locked = false
-		c.lockedKey = ""
-		c.disarmLockTimerLocked()
+	step := c.attentionState.onTransition(key, prior, next)
+	if step == attentionAcquire && c.keyHidden(key) {
+		step = attentionKeep
 	}
+	c.stateMu.Lock()
+	c.applyAttentionLocked(step, key)
 	c.stateMu.Unlock()
 
-	if freshLock && c.loadCfg().Display.AttentionChime {
+	if step == attentionAcquire && c.loadCfg().Display.AttentionChime {
 		ctx := c.ctx
 		if ctx == nil {
 			ctx = context.Background()
@@ -258,9 +238,8 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 
 func (c *coordinator) onDelete(key string) {
 	c.stateMu.Lock()
-	if c.locked && c.lockedKey == key {
-		c.locked = false
-		c.lockedKey = ""
+	if c.attentionState.holds(key) {
+		c.attentionState.release()
 		c.disarmLockTimerLocked()
 	}
 	if c.pointer == key {
@@ -277,8 +256,7 @@ func (c *coordinator) onClear() {
 	c.stateMu.Lock()
 	c.pointer = ""
 	c.cardCursor = 0
-	c.locked = false
-	c.lockedKey = ""
+	c.attentionState.release()
 	c.disarmLockTimerLocked()
 	c.stateMu.Unlock()
 
@@ -328,32 +306,13 @@ func (c *coordinator) onTick() {
 	snap := c.filteredSnapshot()
 	keys := render.SortedActiveKeys(snap)
 
-	c.stateMu.Lock()
 	if c.locked {
-		releaseReason := ""
-		if !slices.Contains(keys, c.lockedKey) {
-			releaseReason = "reap"
-		} else {
-			for _, s := range snap.Sessions {
-				if s.Key() == c.lockedKey {
-					if s.State != "waiting" && s.State != "error" {
-						releaseReason = "drain"
-					}
-					break
-				}
-			}
-		}
-		if releaseReason == "" && c.clk.Now().Sub(c.lockEnteredAt) >= c.ackTimeoutDur() {
-			releaseReason = "ack_timeout"
-		}
-		if releaseReason != "" {
-			c.logger.Info("coord lock released", "key", c.lockedKey, "reason", releaseReason)
-			c.locked = false
-			c.lockedKey = ""
-			c.disarmLockTimerLocked()
+		if end := c.attentionState.ended(keys, snap.Sessions, c.clk.Now(), c.ackTimeoutDur()); end != attentionHeld {
+			c.stateMu.Lock()
+			c.releaseLockLocked(end)
+			c.stateMu.Unlock()
 		}
 	}
-	c.stateMu.Unlock()
 
 	c.stateMu.Lock()
 	switch {
