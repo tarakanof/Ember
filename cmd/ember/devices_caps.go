@@ -156,6 +156,9 @@ func decodeCaps(raw json.RawMessage) (*deviceCaps, string) {
 	var c deviceCaps
 	err := json.Unmarshal(raw, &c)
 	if err == nil {
+		err = rejectNullRotations(raw)
+	}
+	if err == nil {
 		err = c.validate()
 	}
 	if err != nil {
@@ -166,6 +169,21 @@ func decodeCaps(raw json.RawMessage) (*deviceCaps, string) {
 		return nil, msg
 	}
 	return c.normalized(), ""
+}
+
+func rejectNullRotations(raw json.RawMessage) error {
+	var probe struct {
+		Rotations []json.RawMessage `json:"rotations"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return err
+	}
+	for _, r := range probe.Rotations {
+		if string(r) == "null" {
+			return errors.New("rotations must list integers, not null")
+		}
+	}
+	return nil
 }
 
 func uniqueMatching(what string, ids []string, pattern *regexp.Regexp) error {
@@ -275,8 +293,8 @@ func checkConfigAgainstCaps(caps *deviceCaps, before, after knobSettings, before
 			return fmt.Errorf("%w: page %q is not in this knob's firmware (caps.pages)", errSettingBody, p.ID)
 		}
 	}
-	if after.Rotation != before.Rotation && !slices.Contains(caps.rotations(), after.Rotation) {
-		return fmt.Errorf("%w: rotation %d is not supported by this knob (caps.rotations %v)", errSettingBody, after.Rotation, caps.rotations())
+	if r := after.Display.Rotation; r != before.Display.Rotation && !slices.Contains(caps.rotations(), r) {
+		return fmt.Errorf("%w: display.rotation %d is not supported by this knob (caps.rotations %v)", errSettingBody, r, caps.rotations())
 	}
 	if limit := caps.limits().ConfigBytes; limit > 0 && size > limit && size > beforeSize {
 		return fmt.Errorf("%w: config is %d bytes, over this knob's %d (caps.limits.config_bytes)", errSettingBody, size, limit)

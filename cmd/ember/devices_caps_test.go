@@ -533,6 +533,8 @@ func TestInvalidCapsAreDroppedWithoutAck(t *testing.T) {
 		"rotations sans 0":   map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "rotations": []int{180}},
 		"duplicate rotation": map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "rotations": []int{0, 180, 180}},
 		"rotations not ints": map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "rotations": []string{"0"}},
+		"null rotation":      map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "rotations": []any{nil, 180}},
+		"float rotation":     map[string]any{"view": []int{1, 1}, "pages": []string{"bot"}, "rotations": []any{0, 180.5}},
 		"not an object":      "caps",
 	}
 	for name, caps := range cases {

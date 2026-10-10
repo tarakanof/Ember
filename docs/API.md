@@ -37,9 +37,9 @@ carries `effective_caps`, its reported or legacy capabilities, #341,
 DEVICE-PROTOCOL "Capabilities"),
 `GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340), `GET/PUT
 /v1/devices/{id}/config` (same merge; includes `quiet{calm, dim_level}` and
-`rotation` `0|90|180|270`;
+`display{fast_link, rotation 0|90|180|270}`;
 a knob that reported `caps` gets a 400 for turning on a page outside them,
-a `rotation` outside `caps.rotations` or a config over its `config_bytes`; for the
+a `display.rotation` outside `caps.rotations` or a config over its `config_bytes`; for the
 clock record, kind `awtrix-ng`, the clock's presentation config, stored in
 `clock_config_json` once migrated, else a façade over the overlay slices;
 `config_version` is a counter; ARCHITECTURE "Clock record and config façade"), `PATCH`/`DELETE /v1/devices/{id}`

@@ -29,9 +29,8 @@ const customKnobConfig = `{
 	"diagnostics": "basic",
 	"stats_interval_s": 120,
 	"live_interval_s": 2,
-	"display": {"fast_link": false},
-	"quiet": {"calm": false, "dim_level": 5},
-	"rotation": 180
+	"display": {"fast_link": false, "rotation": 180},
+	"quiet": {"calm": false, "dim_level": 5}
 }`
 
 func assertDeviceGolden(t *testing.T, name string, body []byte) {

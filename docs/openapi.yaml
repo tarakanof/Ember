@@ -456,7 +456,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/DeviceCaps"
             - type: object
-              required: [source]
+              required: [source, rotations]
               properties:
                 source:
                   type: string
@@ -578,9 +578,13 @@ components:
           type: array
           description: >-
             Display rotations in degrees the firmware can apply, `0` always listed.
-            Missing or empty means `[0]`. Always present in `effective_caps`.
+            Missing means `[0]` (the server reads an empty list the same). Always
+            present in `effective_caps`.
+          minItems: 1
           maxItems: 4
           uniqueItems: true
+          contains:
+            const: 0
           items:
             type: integer
             enum: [0, 90, 180, 270]
@@ -1860,10 +1864,10 @@ paths:
         For a knob that reported `caps` (DEVICE-PROTOCOL "Capabilities"), a
         change that turns on a page outside `caps.pages` (one not already on)
         or whose compact JSON exceeds `caps.limits.config_bytes` is a 400, and
-        so is a change of the knob's `rotation` (`0`, `90`, `180` or `270`)
-        to a value not in `caps.rotations` (missing = `[0]`). A
-        legacy knob (no `caps`) gets no such check. Any knob `rotation`
-        outside `0|90|180|270` is a 400.
+        so is a change of the knob's `display.rotation` (`0`, `90`, `180` or
+        `270`) to a value not in `caps.rotations` (missing = `[0]`). A
+        legacy knob (no `caps`) gets no such check. Any knob
+        `display.rotation` outside `0|90|180|270` is a 400.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:

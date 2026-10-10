@@ -61,12 +61,12 @@ func TestKnobSettingsValidate(t *testing.T) {
 		{"quiet dim zero", func(s *knobSettings) { s.Quiet.DimLevel = new(0) }, false},
 		{"quiet dim above 255", func(s *knobSettings) { s.Quiet.DimLevel = new(256) }, false},
 		{"quiet dim below floor", func(s *knobSettings) { s.Brightness.Floor = 40; s.Quiet.DimLevel = new(5) }, true},
-		{"rotation 90", func(s *knobSettings) { s.Rotation = 90 }, true},
-		{"rotation 180", func(s *knobSettings) { s.Rotation = 180 }, true},
-		{"rotation 270", func(s *knobSettings) { s.Rotation = 270 }, true},
-		{"rotation 45", func(s *knobSettings) { s.Rotation = 45 }, false},
-		{"rotation 360", func(s *knobSettings) { s.Rotation = 360 }, false},
-		{"rotation negative", func(s *knobSettings) { s.Rotation = -90 }, false},
+		{"rotation 90", func(s *knobSettings) { s.Display.Rotation = 90 }, true},
+		{"rotation 180", func(s *knobSettings) { s.Display.Rotation = 180 }, true},
+		{"rotation 270", func(s *knobSettings) { s.Display.Rotation = 270 }, true},
+		{"rotation 45", func(s *knobSettings) { s.Display.Rotation = 45 }, false},
+		{"rotation 360", func(s *knobSettings) { s.Display.Rotation = 360 }, false},
+		{"rotation negative", func(s *knobSettings) { s.Display.Rotation = -90 }, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -91,7 +91,7 @@ func TestKnobSettingsWireShape(t *testing.T) {
 	want := `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
 		`"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":false}],` +
 		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20,"source_label":true,"working_ring":true},"diagnostics":"off",` +
-		`"stats_interval_s":60,"live_interval_s":5,"display":{"fast_link":true},"quiet":{"calm":true,"dim_level":20},"rotation":0}`
+		`"stats_interval_s":60,"live_interval_s":5,"display":{"fast_link":true,"rotation":0},"quiet":{"calm":true,"dim_level":20}}`
 	if string(b) != want {
 		t.Fatalf("wire shape\n got %s\nwant %s", b, want)
 	}
@@ -204,7 +204,7 @@ func TestKnobConfigFitsTheFirmwareStore(t *testing.T) {
 	s.Bot.SleepyAfterS, s.Bot.DemoHoldS = 86400, 600
 	s.Bot.SourceLabel, s.Bot.WorkingRing = boolPtr(false), boolPtr(false)
 	s.Display.FastLink, s.Quiet.Calm, s.Quiet.DimLevel = boolPtr(false), boolPtr(false), new(255)
-	s.Rotation = 270
+	s.Display.Rotation = 270
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)

@@ -27,7 +27,6 @@ type knobSettings struct {
 	LiveIntervalS  int            `json:"live_interval_s"`
 	Display        knobDisplay    `json:"display"`
 	Quiet          knobQuiet      `json:"quiet"`
-	Rotation       int            `json:"rotation"`
 }
 
 type knobQuiet struct {
@@ -62,6 +61,7 @@ func (q *knobQuiet) fillDefaults() {
 type knobDisplay struct {
 	// Pointer: a record stored without it reads as on.
 	FastLink *bool `json:"fast_link,omitempty"`
+	Rotation int   `json:"rotation"`
 }
 
 func (d knobDisplay) clone() knobDisplay {
@@ -235,7 +235,7 @@ func (s knobSettings) validate() error {
 	if err := oneOf("live_interval_s", s.LiveIntervalS, knobLiveIntervals); err != nil {
 		return err
 	}
-	if err := oneOf("rotation", s.Rotation, knobRotations); err != nil {
+	if err := oneOf("display.rotation", s.Display.Rotation, knobRotations); err != nil {
 		return err
 	}
 	if err := inRange("bot.sleepy_after_s", s.Bot.SleepyAfterS, 0, 86400); err != nil {
