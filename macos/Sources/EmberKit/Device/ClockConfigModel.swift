@@ -101,7 +101,7 @@ public final class ClockConfigModel: SaveStatusReporting {
 
     private func replay(_ sent: ClockConfig, previous: ClockConfig?, since mark: ClockLegacyMark?, gen: Int) {
         let unsaved = gen == generation ? config.draft : sent
-        if gen == generation { config.cancelPendingSave() }
+        if gen == generation { config.revert() }
         if let mark { legacy?.adopt(unsaved, previous: previous, since: mark, resave: true) }
         markMissing(gen)
     }
