@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -283,5 +284,31 @@ func TestReminderDedupeForgetsKeysAfterTTL(t *testing.T) {
 	d.claim("other", now.Add(3*reminderDedupeTTL))
 	if n := d.size(); n != 1 {
 		t.Fatalf("expired keys should be pruned, size = %d, want 1", n)
+	}
+}
+
+type tickingClock struct {
+	mu   sync.Mutex
+	now  time.Time
+	step time.Duration
+}
+
+func (c *tickingClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t := c.now
+	c.now = c.now.Add(c.step)
+	return t
+}
+
+func TestHandleReminderFireSamplesQuietHoursOnce(t *testing.T) {
+	pub := &recordingPublisher{}
+	app, _ := nightClockApp(t, pub, time.Time{})
+	app.coord.clk = &tickingClock{now: time.Date(2026, 1, 1, 7, 59, 30, 0, time.Local), step: time.Minute}
+	fireLoopingReminder(t, app)
+	p := pub.NotifySnapshot()[0]
+	_, n, _ := app.reminderLoop.current()
+	if loud := p["soundLoop"] == true; loud != (n != nil) {
+		t.Errorf("soundLoop = %v but loop guard armed = %v: a looping alarm needs its guard", p["soundLoop"], n != nil)
 	}
 }

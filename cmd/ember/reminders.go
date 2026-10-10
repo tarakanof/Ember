@@ -73,7 +73,7 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	quiet := a.coord.quietNow()
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	if err := a.coord.showNotice(ctx, n); err != nil {
+	if err := a.coord.showNoticeQuiet(ctx, n, quiet); err != nil {
 		if key != "" {
 			a.reminderKeys.release(key)
 		}

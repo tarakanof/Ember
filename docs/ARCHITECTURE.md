@@ -3574,14 +3574,17 @@ reminder loop guard dismisses a looping alarm at quiet-hours start, so a gated
 dismiss would leave it ringing all night (`TestDismissNoticeIgnoresQuietHours`).
 Every quiet decision (notice sound, the chime, the reminder loop's arm and
 stop, the corner-LED quiet indicator) goes through `coordinator.quietAt`, read
-on the coordinator clock, which delegates to `Config.quietAt`. The reminder handler samples it before the push, so
-quiet hours starting during a slow push still leave a loud loop guarded. Firing decisions (meeting
-per-occurrence dedupe, sun once-a-day, weather edge triggers, the usage alarm
-arm/fire state, reminder idempotency keys) stay with the app that owns the
-state. A notice is plain data, so a later knob subscription can read the same
-stream. `notices_test.go` pins the exact clock calls of every notice source,
-quiet hours off and on, as JSONL goldens (`testdata/notices`, regenerate with
-`-update`).
+on the coordinator clock, which delegates to `Config.quietAt`. The reminder
+handler samples it once, before the push, and hands that value to
+`showNoticeQuiet`, so the alarm's sound and its loop guard always agree: quiet
+hours starting during a slow push still leave a loud loop guarded, and quiet
+hours ending between two samples can't send an unguarded loop. Firing
+decisions (meeting per-occurrence dedupe, sun once-a-day, weather edge triggers,
+the usage alarm arm/fire state, reminder idempotency keys) stay with the app
+that owns the state. A notice is plain data, so a later knob subscription can
+read the same stream. `notices_test.go` pins the exact clock calls of every
+notice source, quiet hours off and on, as JSONL goldens (`testdata/notices`,
+regenerate with `-update`).
 
 ## Display layout (32×8 matrix)
 
