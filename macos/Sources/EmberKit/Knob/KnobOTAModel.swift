@@ -14,7 +14,8 @@ public final class KnobOTAModel {
     public private(set) var unsupported = false
     public private(set) var running: Set<KnobOTAAction> = []
     public private(set) var errors: [KnobOTAAction: FeedError] = [:]
-    public private(set) var failedDelete: String?
+    public private(set) var failedDeletes: [String: FeedError] = [:]
+    public private(set) var keptDeletes: [String: KnobFirmwareKept] = [:]
     public private(set) var uploadProgress: Double?
     public private(set) var uploadStage: UploadStage?
 
@@ -22,6 +23,9 @@ public final class KnobOTAModel {
 
     @ObservationIgnored private(set) var service: KnobService
     @ObservationIgnored public private(set) var deviceID: String?
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var statusSeq = 0
+    @ObservationIgnored private var imagesSeq = 0
 
     public init(service: KnobService) { self.service = service }
 
@@ -32,9 +36,14 @@ public final class KnobOTAModel {
         }
         service = next
         deviceID = device
+        generation += 1
+        statusSeq += 1
+        imagesSeq += 1
+        running.remove(.delete)
         status = nil
         errors = [:]
-        failedDelete = nil
+        failedDeletes = [:]
+        keptDeletes = [:]
     }
 
     public var pollInterval: Duration {
@@ -53,22 +62,38 @@ public final class KnobOTAModel {
 
     public func loadStatus() async {
         guard let id = deviceID else { status = nil; return }
+        let gen = generation
+        statusSeq += 1
+        let seq = statusSeq
         do {
             let next = try await service.ota(id: id)
-            if deviceID == id { status = next; unsupported = false }
+            guard gen == generation, seq == statusSeq else { return }
+            status = next; unsupported = false
         } catch let e as APIError {
+            guard gen == generation, seq == statusSeq else { return }
             if case .http(404, _) = e, status == nil { unsupported = true }
         } catch {}
     }
 
     public func loadImages() async {
+        let gen = generation
+        imagesSeq += 1
+        let seq = imagesSeq
         do {
-            images = try await service.firmware()
+            let list = try await service.firmware()
+            guard gen == generation, seq == imagesSeq else { return }
+            images = list
             imagesLoaded = true
             unsupported = false
         } catch let e as APIError {
+            guard gen == generation, seq == imagesSeq else { return }
             if case .http(let code, _) = e, code == 404 || code == 503 { unsupported = true }
         } catch {}
+    }
+
+    private func apply(status next: KnobOTAStatus) {
+        statusSeq += 1
+        status = next
     }
 
     @discardableResult
@@ -89,7 +114,11 @@ public final class KnobOTAModel {
     public func clearError(_ action: KnobOTAAction) { errors[action] = nil }
 
     public func deleteError(for image: KnobFirmwareImage) -> FeedError? {
-        failedDelete == image.version ? errors[.delete] : nil
+        failedDeletes[image.version]
+    }
+
+    public func kept(_ image: KnobFirmwareImage) -> KnobFirmwareKept? {
+        keptDeletes[image.version]
     }
 
     @discardableResult
@@ -118,7 +147,7 @@ public final class KnobOTAModel {
         guard let id = deviceID else { return false }
         let ok = await perform(action, map: map) {
             let next = try await self.service.updateOTA(id: id, patch: patch)
-            if self.deviceID == id { self.status = next }
+            if self.deviceID == id { self.apply(status: next) }
         }
         if !ok { await loadStatus() }
         return ok
@@ -175,16 +204,89 @@ public final class KnobOTAModel {
 
     @discardableResult
     public func delete(_ image: KnobFirmwareImage) async -> Bool {
-        failedDelete = nil
-        let ok = await perform(.delete, map: KnobOTAError.deleteFailure) {
-            do {
-                try await self.service.deleteFirmware(version: image.version)
-            } catch APIError.http(404, _) {}
+        await delete([image])
+    }
+
+    @discardableResult
+    public func delete(_ images: [KnobFirmwareImage]) async -> Bool {
+        guard !images.isEmpty else { return true }
+        let gen = generation
+        running.insert(.delete)
+        defer { if gen == generation { running.remove(.delete) } }
+        errors[.delete] = nil
+        return await deleteEach(images, service: service, generation: gen, guarded: false, allowed: { _ in true })
+    }
+
+    @discardableResult
+    public func deleteOldBuilds(_ confirmed: [KnobFirmwareImage]) async -> Bool {
+        guard !confirmed.isEmpty, let id = deviceID else { return true }
+        let service = service
+        let gen = generation
+        running.insert(.delete)
+        defer { if gen == generation { running.remove(.delete) } }
+        errors[.delete] = nil
+        statusSeq += 1
+        imagesSeq += 1
+        let (sseq, iseq) = (statusSeq, imagesSeq)
+        let otherKnobs: [String]
+        do {
+            let info = try await service.serverVersion()
+            guard info.supports(VersionInfo.firmwareDeleteKeep) else {
+                if gen == generation { errors[.delete] = .rejected(KnobOTAError.serverCantKeep) }
+                return false
+            }
+            let next = try await service.ota(id: id)
+            let list = try await service.firmware()
+            let knobs = try await service.devices()
+            guard gen == generation else { return false }
+            if sseq == statusSeq { status = next }
+            if iseq == imagesSeq { images = list }
+            otherKnobs = Self.runningVersions(knobs)
+        } catch {
+            if gen == generation { errors[.delete] = FeedError(error) }
+            return false
         }
-        if !ok { failedDelete = image.version }
+        return await deleteEach(confirmed, service: service, generation: gen, guarded: true) { image in
+            self.oldBuilds(otherKnobs: otherKnobs).contains { $0.version == image.version && $0.build == image.build }
+        }
+    }
+
+    private func deleteEach(_ images: [KnobFirmwareImage], service: KnobService, generation gen: Int, guarded: Bool,
+                            allowed: (KnobFirmwareImage) -> Bool) async -> Bool {
+        failedDeletes = [:]
+        keptDeletes = [:]
+        for image in images {
+            guard gen == generation else { return false }
+            guard allowed(image) else { continue }
+            do {
+                do {
+                    try await service.deleteFirmware(version: image.version, keepProtected: guarded)
+                } catch APIError.http(404, _) {}
+            } catch {
+                guard gen == generation else { return false }
+                if guarded, let kept = KnobFirmwareKept(error) {
+                    keptDeletes[image.version] = kept
+                } else {
+                    failedDeletes[image.version] = KnobOTAError.deleteFailure(error)
+                }
+            }
+        }
+        guard gen == generation else { return false }
         await loadImages()
         await loadStatus()
-        return ok
+        return failedDeletes.isEmpty
+    }
+
+    nonisolated public static func runningVersions(_ devices: [KnobDevice]) -> [String] {
+        devices.filter { $0.kind == KnobDevice.knobKind }.compactMap(\.lastCheckin?.fw).filter { !$0.isEmpty }
+    }
+
+    public func oldBuilds(otherKnobs: [String]) -> [KnobFirmwareImage] {
+        KnobFirmwareImage.oldBuilds(images, status: status, otherKnobs: otherKnobs)
+    }
+
+    public func badges(for image: KnobFirmwareImage) -> [KnobFirmwareBadge] {
+        KnobFirmwareImage.badges(for: image, in: images, status: status)
     }
 
     public func elfData(version: String) async -> Data? {

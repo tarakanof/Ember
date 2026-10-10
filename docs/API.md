@@ -64,7 +64,14 @@ makes every knob outside an active attempt forget it (a target naming it
 cleared, a record whose last attempt it was reset unless done; eviction
 does the same), so no Retry points at a missing image; a removal
 that fails answers 500, keeps the block and keeps the version listed so the
-DELETE can be retried), `PUT`/`GET /v1/firmware/{version}/elf`
+DELETE can be retried; `DELETE …?keep=protected` also answers 409
+`firmware_kept_in_use` for a version any knob runs (last check-in `fw`) or
+targets, and `firmware_kept_newest` for the newest release image or the
+newest test image when newer than that release, checked under the store
+lock with the device registry held until the purge ends, so a check-in
+can't slip in; servers that support it list
+`firmware_delete_keep` in `/version` `features`; any other `keep` is 400),
+`PUT`/`GET /v1/firmware/{version}/elf`
 (≤64 MiB, 400 `elf_mismatch`), `GET /v1/firmware/{version}/bin`,
 `GET /v1/firmware/by-build/{build}/elf` (ARCHITECTURE "Knob firmware
 updates"),
@@ -129,7 +136,9 @@ background every 6h — `EMBER_FIRMWARE_CHECK=0` disables it). Dashboard
 JSON: RFC 3339 whole-second times, `null` not zero sentinels, arrays of points,
 units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
 `-update`) are also EmberKit's decode fixtures. Operator: `/admin/doctor`, `/admin/reload`,
-`/version`, `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
+`/version` (`binary`, `version`, `revision`, `dirty`, `go_version`,
+`features`: server capabilities clients gate on, today
+`firmware_delete_keep`), `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
 `GET /v1/devices/self/config`, `PUT /v1/devices/self/coredump?id=<dump>`
 (the core dump a checkin asked for: `application/octet-stream`, ≤128 KiB or
 413, CRC-checked or 400, 409 while another upload of this knob runs, 204 when

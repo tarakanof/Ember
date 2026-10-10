@@ -26,6 +26,7 @@ const (
 	firmwareMaxBytes       = 4 << 20
 	firmwareELFMaxBytes    = 64 << 20
 	firmwareKept           = 5
+	firmwareKeepProtected  = "protected"
 	firmwareChipESP32S3    = 9
 	firmwareProject        = "cinder"
 	firmwareDevSeedMarker  = "CINDER-DEV-SEED-BUILD"
@@ -48,6 +49,8 @@ var (
 	errFirmwareNotFound     = errors.New("firmware version not found")
 	errFirmwareConflict     = errors.New("this version is stored with other bytes; upload with ?replace=1")
 	errFirmwareInUse        = errors.New("this version is a device's update target")
+	errFirmwareKeptInUse    = errors.New("firmware_kept_in_use")
+	errFirmwareKeptNewest   = errors.New("firmware_kept_newest")
 	errFirmwareOff          = errors.New("firmware storage unavailable")
 )
 
@@ -638,17 +641,59 @@ func (s *firmwareStore) setChannel(version, channel string) (firmwareImage, erro
 	return m.firmwareImage, nil
 }
 
+func firmwareNewestKept(index map[string]firmwareMeta) []string {
+	var release, test string
+	for _, m := range index {
+		head := &test
+		if m.Channel == firmwareChannelRelease {
+			head = &release
+		}
+		if *head == "" || compareSemver(m.Version, *head) > 0 {
+			*head = m.Version
+		}
+	}
+	var out []string
+	if release != "" {
+		out = append(out, release)
+	}
+	if test != "" && (release == "" || compareSemver(test, release) > 0) {
+		out = append(out, test)
+	}
+	return out
+}
+
 func (s *firmwareStore) remove(version string, inUse func(string) bool, unblock func([]string)) error {
+	return s.removeGuarded(version, inUse, nil, unblock)
+}
+
+func (s *firmwareStore) removeGuarded(version string, inUse func(string) bool, hold func(string) (bool, func()),
+	unblock func([]string)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if inUse != nil && inUse(version) {
 		return errFirmwareInUse
 	}
+	release := func() {}
+	if hold != nil {
+		kept, unlock := hold(version)
+		if kept {
+			return errFirmwareKeptInUse
+		}
+		release = unlock
+		if slices.Contains(firmwareNewestKept(s.index), version) {
+			release()
+			return errFirmwareKeptNewest
+		}
+	}
 	_, indexed := s.index[version]
-	if err := s.purgeLocked(version); err != nil {
+	err := s.purgeLocked(version)
+	if err == nil {
+		delete(s.index, version)
+	}
+	release()
+	if err != nil {
 		return err
 	}
-	delete(s.index, version)
 	if unblock != nil {
 		unblock([]string{version})
 	}

@@ -364,6 +364,19 @@ func (r *deviceRegistry) otaTargets(version string) bool {
 func (r *deviceRegistry) otaKeeps(version string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.keepsLocked(version)
+}
+
+func (r *deviceRegistry) holdUnlessKept(version string) (kept bool, release func()) {
+	r.mu.Lock()
+	if r.keepsLocked(version) {
+		r.mu.Unlock()
+		return true, func() {}
+	}
+	return false, r.mu.Unlock
+}
+
+func (r *deviceRegistry) keepsLocked(version string) bool {
 	for _, d := range r.state.Devices {
 		if d.Kind != deviceKindKnob {
 			continue

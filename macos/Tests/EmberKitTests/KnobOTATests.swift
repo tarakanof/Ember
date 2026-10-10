@@ -495,3 +495,22 @@ private final class Ticks: @unchecked Sendable {
 @Test func otaUpdateFailureNamesAChangedStore() {
     #expect(KnobOTAError.updateFailure(APIError.http(status: 409, body: #"{"error":"firmware_changed"}"#)) == .rejected(KnobOTAError.firmwareChanged))
 }
+
+@MainActor
+@Test func otaBulkDeleteRunsInOrderReloadsOnceAndKeepsEachRowsError() async throws {
+    let server = OTAServer()
+    server.deleteInUse = true
+    let m = otaModel(server)
+    await m.load()
+    let rc = try #require(m.ota.images.first { $0.version == "0.9.15-rc1" })
+    let targeted = try #require(m.ota.images.first { $0.version == "0.9.14" })
+    let lists = server.log.filter { $0 == "GET /v1/firmware" }.count
+    #expect(await m.ota.delete([targeted, rc]) == false)
+    #expect(server.log.filter { $0.hasPrefix("DELETE ") } == ["DELETE /v1/firmware/0.9.14", "DELETE /v1/firmware/0.9.15-rc1"])
+    #expect(server.log.filter { $0 == "GET /v1/firmware" }.count == lists + 1)
+    #expect(m.ota.deleteError(for: targeted) == .rejected(KnobOTAError.inUse))
+    #expect(m.ota.deleteError(for: rc) == nil)
+    #expect(!m.ota.running.contains(.delete))
+    #expect(await m.ota.delete([]))
+    #expect(m.ota.deleteError(for: targeted) == .rejected(KnobOTAError.inUse))
+}

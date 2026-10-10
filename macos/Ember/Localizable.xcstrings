@@ -187,6 +187,17 @@
       "comment" : "Menu Pomodoro status: phase name, remaining time (\"18:42\"), round number.",
       "extractionState" : "manual"
     },
+    "%@ · %@ · IDF %@" : {
+      "comment" : "Settings › Knob Firmware & updates image row details for an image without an ELF (a No ELF badge says so): image size, upload date, ESP-IDF version (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ · IDF %3$@"
+          }
+        }
+      }
+    },
     "%@ · %@ · IDF %@ · ELF" : {
       "comment" : "Settings › Knob Firmware & updates image row details: image size, upload date, ESP-IDF version, and that the ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · ELF\").",
       "localizations" : {
@@ -194,17 +205,6 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ · %2$@ · IDF %3$@ · ELF"
-          }
-        }
-      }
-    },
-    "%@ · %@ · IDF %@ · no ELF" : {
-      "comment" : "Settings › Knob Firmware & updates image row details: image size, upload date, ESP-IDF version, and that no ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · no ELF\").",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ · %2$@ · IDF %3$@ · no ELF"
           }
         }
       }
@@ -858,6 +858,9 @@
       "comment" : "Settings › Knob Firmware section error; the argument is a short reason (\"Server unreachable\")."
     },
     "Couldn't check" : {},
+    "Couldn't check what to delete, so nothing was deleted: %@" : {
+      "comment" : "Settings › Knob Firmware & updates error when Delete Old Builds can't reload the server version, the knob status, the stored images or the knob list first, or the server is too old to guard the deletes; the argument is a short reason (\"Server unreachable\")."
+    },
     "Couldn't clear the update: %@" : {
       "comment" : "Settings › Knob Firmware row error after Dismiss or Cancel Update; the argument is a short reason (\"Server unreachable\")."
     },
@@ -988,6 +991,15 @@
     "Delete %@ from Ember?" : {
       "comment" : "Settings › Knob Firmware & updates: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\")."
     },
+    "Delete Old Builds…" : {
+      "comment" : "Settings › Knob Firmware & updates button: deletes every stored image except the one on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering."
+    },
+    "Delete ^[%lld old build](inflect: true) from Ember?" : {
+      "comment" : "Settings › Knob Firmware & updates: confirmation title before Delete Old Builds; the argument is how many images go (\"Delete 4 old builds from Ember?\")."
+    },
+    "Delete every stored build except the one on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering." : {
+      "comment" : "Settings › Knob Firmware & updates: tooltip on the Delete Old Builds button."
+    },
     "Delete this dump?" : {},
     "Delete…" : {},
     "Delivered" : {},
@@ -1086,6 +1098,9 @@
     },
     "Ember reads the clock every 30 seconds and keeps the last 24 hours while the server runs." : {},
     "Ember rejected the knob's token." : {},
+    "Ember removes %@, with any ELFs stored for them. It keeps the build on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering." : {
+      "comment" : "Settings › Knob Firmware & updates: confirmation before Delete Old Builds; the argument lists the versions that go (\"0.9.39, 0.9.40 and 0.9.41\")."
+    },
     "Ember removes the image and its ELF." : {},
     "Ember removes the image." : {},
     "Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB." : {},
@@ -1124,7 +1139,9 @@
     "Factory Reset" : {},
     "Factory Reset…" : {},
     "Fahrenheit" : {},
-    "Failed" : {},
+    "Failed" : {
+      "comment" : "Settings › Knob Firmware & updates: the red image row badge on a build whose last update failed or rolled back; also the Clock hardware chart line for failed publishes."
+    },
     "Failures" : {},
     "Fast display link" : {},
     "Find Clock from This Mac…" : {},
@@ -1297,7 +1314,9 @@
     "Install" : {},
     "Install this build on the knob." : {},
     "Installed from the CLI" : {},
-    "Installing" : {},
+    "Installing" : {
+      "comment" : "Settings › Knob Firmware & updates: the orange image row badge on the build the knob is downloading, installing, restarting into or verifying; also the Firmware row's progress phase while the knob writes the update."
+    },
     "Internal memory" : {},
     "Interrupt watchdog" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1323,6 +1342,12 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Kept %@: a knob runs it or an update targets it." : {
+      "comment" : "Settings › Knob Firmware & updates image row note after Delete Old Builds, when Ember refused to delete it; the argument is its version (\"Kept 0.9.42: a knob runs it or an update targets it.\")."
+    },
+    "Kept %@: it's the newest Release or a newer Test build." : {
+      "comment" : "Settings › Knob Firmware & updates image row note after Delete Old Builds, when Ember refused to delete it; the argument is its version (\"Kept 0.9.43: it's the newest Release or a newer Test build.\")."
+    },
     "Knob" : {},
     "Knob name" : {},
     "Knob stats unavailable" : {},
@@ -1337,6 +1362,9 @@
     "Last restart" : {},
     "Last update didn't reach the server: %@" : {
       "comment" : "Settings › Music: why the last Apple Music update failed (a short error message)."
+    },
+    "Latest" : {
+      "comment" : "Settings › Knob Firmware & updates image row badge (blue): the highest version stored on Ember."
     },
     "Latitude" : {},
     "Latitude runs from −90 to 90 and longitude from −180 to 180." : {},
@@ -1476,6 +1504,9 @@
     },
     "No Claude Code, Codex or T3 Code found on this Mac." : {},
     "No Claude hooks are registered in ~/.claude/settings.json (a plugin enabled only for a project isn't checked), so Claude Code sessions may not report." : {},
+    "No ELF" : {
+      "comment" : "Settings › Knob Firmware & updates image row badge (warning): Ember has no ELF for this build, so its crash dumps can't be decoded."
+    },
     "No Pomodoro data from Ember." : {},
     "No active sessions" : {},
     "No agent activity this week" : {},
@@ -1584,7 +1615,9 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "On the knob" : {},
+    "On the knob" : {
+      "comment" : "Settings › Knob Firmware & updates image row badge (green): the knob runs this build."
+    },
     "Online" : {},
     "Only on this Mac, while Ember is running. Ember reacts when Music changes track or pauses; it never starts Music and doesn't poll it." : {},
     "Only some agents are reporting." : {},
@@ -2218,6 +2251,10 @@
       "extractionState" : "manual"
     },
     "These settings apply only to this Mac, while it's awake and Ember is running." : {},
+    "This Ember server can't check which builds to keep. Update the server to delete old builds." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "This Mac" : {},
     "This Mac can't search the network" : {},
     "This Mac can't search: Local Network access is off" : {},

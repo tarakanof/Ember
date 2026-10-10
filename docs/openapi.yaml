@@ -822,7 +822,27 @@ paths:
       security: []
       responses:
         "200":
-          $ref: "#/components/responses/Object"
+          description: The build and the server's capabilities.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  binary:
+                    type: string
+                  version:
+                    type: string
+                  revision:
+                    type: string
+                  dirty:
+                    type: boolean
+                  go_version:
+                    type: string
+                  features:
+                    type: array
+                    description: Capabilities clients gate on. `firmware_delete_keep` means `DELETE /v1/firmware/{version}` takes `?keep=protected`.
+                    items:
+                      type: string
   /state:
     get:
       tags: [read]
@@ -2192,11 +2212,27 @@ paths:
         offered) or a failed removal (500)
         keeps it blocked; after a 500 the version stays listed and whole, so the
         DELETE can be retried.
+        With `?keep=protected` (servers listing `firmware_delete_keep` in
+        `/version` `features`) it also answers 409 `firmware_kept_in_use` for a
+        version any knob runs (by last check-in `fw`) or targets, and
+        `firmware_kept_newest` for the newest release image or the newest
+        test image when it is newer than the newest release. The check runs
+        under the store lock with the device registry held until the purge
+        ends. Without it, those versions can be deleted.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
+      parameters:
+        - name: keep
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [protected]
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2204,7 +2240,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: The version is a device's target (not one parked after it failed or rolled back) or is being offered.
+          description: The version is a device's target (not one parked after it failed or rolled back) or is being offered, or (with `keep=protected`) `firmware_kept_in_use` / `firmware_kept_newest`.
           content:
             application/json:
               schema:
