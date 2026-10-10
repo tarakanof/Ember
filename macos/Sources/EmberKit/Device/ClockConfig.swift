@@ -200,10 +200,21 @@ public struct ClockConfig: Codable, Equatable, Sendable {
 public protocol ClockAppSlice: Equatable, Sendable {
     associatedtype Source: Equatable & Sendable
     func apply(to source: inout Source)
+    func apply(to source: inout Source, changedFrom before: Self)
     mutating func take(from source: Source)
 }
 
+private func set<Slice, Value: Equatable, Source>(_ slice: Slice, _ before: Slice, _ field: KeyPath<Slice, Value>,
+                                                  _ source: inout Source, _ target: WritableKeyPath<Source, Value>) {
+    if slice[keyPath: field] != before[keyPath: field] { source[keyPath: target] = slice[keyPath: field] }
+}
+
 extension ClockConfig.Agents: ClockAppSlice {
+    public func apply(to source: inout UsageConfig, changedFrom before: Self) {
+        set(self, before, \.usageCards, &source, \.usageWidget)
+        set(self, before, \.usagePerModel, &source, \.usagePerModel)
+    }
+
     public func apply(to source: inout UsageConfig) {
         source.usageWidget = usageCards
         source.usagePerModel = usagePerModel
@@ -216,6 +227,11 @@ extension ClockConfig.Agents: ClockAppSlice {
 }
 
 extension ClockConfig.Focus: ClockAppSlice {
+    public func apply(to source: inout PomoConfig, changedFrom before: Self) {
+        set(self, before, \.focusColor, &source, \.focusColor)
+        set(self, before, \.breakColor, &source, \.breakColor)
+    }
+
     public func apply(to source: inout PomoConfig) {
         source.focusColor = focusColor
         source.breakColor = breakColor
@@ -228,6 +244,23 @@ extension ClockConfig.Focus: ClockAppSlice {
 }
 
 extension ClockConfig.Weather: ClockAppSlice {
+    public func apply(to source: inout WeatherConfig, changedFrom before: Self) {
+        set(self, before, \.on, &source, \.rotateInApps)
+        set(self, before, \.nativeIcon, &source, \.tileNativeIcons)
+        set(self, before, \.forecast, &source, \.forecastTile)
+        set(self, before, \.forecastHours, &source, \.forecastHours)
+        set(self, before, \.air, &source, \.airTile)
+        set(self, before, \.moon, &source, \.moonPhase)
+        set(self, before, \.overlay, &source, \.overlay)
+        set(self, before, \.popups.onChange, &source, \.popupOnChange)
+        set(self, before, \.popups.sun, &source, \.sunPopups)
+        set(self, before, \.popups.severe, &source, \.severeAlert)
+        set(self, before, \.popups.nativeIcons, &source, \.useNativeIcons)
+        set(self, before, \.popups.intervalMinutes, &source, \.popupIntervalMinutes)
+        set(self, before, \.popups.durationSeconds, &source, \.popupDurationSeconds)
+        set(self, before, \.iconIds, &source, \.iconIds)
+    }
+
     public func apply(to source: inout WeatherConfig) {
         source.rotateInApps = on
         source.tileNativeIcons = nativeIcon
@@ -264,6 +297,12 @@ extension ClockConfig.Weather: ClockAppSlice {
 }
 
 extension ClockConfig.Calendar: ClockAppSlice {
+    public func apply(to source: inout MeetingsConfig, changedFrom before: Self) {
+        set(self, before, \.on, &source, \.enabled)
+        set(self, before, \.tileLeadMinutes, &source, \.tileLeadMinutes)
+        set(self, before, \.popupLeadMinutes, &source, \.popupLeadMinutes)
+    }
+
     public func apply(to source: inout MeetingsConfig) {
         source.enabled = on
         source.tileLeadMinutes = tileLeadMinutes

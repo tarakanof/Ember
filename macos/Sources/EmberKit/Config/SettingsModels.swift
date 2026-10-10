@@ -116,8 +116,10 @@ public final class SettingsModels {
 
     private static func adopt<S: ClockAppSlice>(_ slice: S, _ before: S?, into model: ConfigModel<S.Source>,
                                                 slot: ClockLegacyMark.Slot, resave: Bool) {
-        guard slice != before, slot.model == ObjectIdentifier(model) else { return }
-        model.amend(overlapped: resave || slot.overlapped(model)) { slice.apply(to: &$0) }
+        guard slice != before, slot.model === model else { return }
+        model.amend(overlapped: resave || slot.overlapped(model)) { source in
+            if let before { slice.apply(to: &source, changedFrom: before) } else { slice.apply(to: &source) }
+        }
     }
 
     public func loadAll() async {
@@ -175,13 +177,13 @@ protocol PendingSaveCancelling {
 extension ConfigModel: PendingSaveCancelling {}
 
 public struct ClockLegacyMark: Sendable {
-    struct Slot: Sendable {
-        let model: ObjectIdentifier
+    struct Slot: @unchecked Sendable {
+        weak var model: AnyObject?
         let epoch: Int
         let saving: Bool
 
         @MainActor init<T>(_ m: ConfigModel<T>) {
-            model = ObjectIdentifier(m)
+            model = m
             epoch = m.saveEpoch
             saving = m.isSaving
         }

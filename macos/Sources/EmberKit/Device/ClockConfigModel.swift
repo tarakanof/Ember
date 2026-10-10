@@ -68,8 +68,7 @@ public final class ClockConfigModel: SaveStatusReporting {
         let model = config
         if missing {
             lastProbe = now()
-            await model.load()
-            guard gen == generation, model.isLoaded, model.loadError == nil else { return }
+            guard await model.fetch(), gen == generation else { return }
             missing = false
             return
         }
@@ -100,7 +99,8 @@ public final class ClockConfigModel: SaveStatusReporting {
         legacy?.adopt(saved, previous: previous, since: mark)
     }
 
-    private func replay(_ unsaved: ClockConfig, previous: ClockConfig?, since mark: ClockLegacyMark?, gen: Int) {
+    private func replay(_ sent: ClockConfig, previous: ClockConfig?, since mark: ClockLegacyMark?, gen: Int) {
+        let unsaved = gen == generation ? config.draft : sent
         if let mark { legacy?.adopt(unsaved, previous: previous, since: mark, resave: true) }
         markMissing(gen)
     }

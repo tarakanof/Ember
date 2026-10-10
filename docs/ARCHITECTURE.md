@@ -2639,10 +2639,13 @@ record.
   come from the old endpoint, read-only. A save is a merge `PUT` of the
   changed leaves (arrays, `icon_ids` and `rotation` whole). The Sources and
   Sounds panes still `PUT` whole bodies to the old endpoints, so after a
-  façade save the saved slice is written into the old models in place
-  (`SettingsModels.adopt`), not reloaded: into the draft, so a pending edit
-  carries it, and into the baseline only if no old-endpoint save started or
-  ran during the façade `PUT` (a save epoch marks that). Otherwise the old
+  façade save the fields it changed are written into the old models in
+  place (`SettingsModels.adopt`) instead of reloading them. Only the changed
+  fields are written, so an old-endpoint edit of a shared field such as
+  `meetings.enabled` survives, and a load already in flight is dropped. The
+  values go into the draft, so a pending edit carries them, and into the
+  baseline only if no old-endpoint save started or ran during the façade
+  `PUT` (a save epoch marks that). Otherwise the old
   model stays dirty and saves again with the new values, so a whole-body
   `PUT` that landed after the façade one is corrected. In the other direction,
   an old-endpoint save of usage, Pomodoro, weather or meetings reloads the
@@ -2652,11 +2655,12 @@ record.
   `origin`/`present`, is still read from `/v1/device/apps`. A 503 (lock
   timeout) or 502 (cut-short clock write) shows its own message and
   refetches: the façade `GET` replaces the baseline, and edits made while the
-  `PUT` was in flight are rebased onto it, not dropped; a failed app-order
-  write rereads the app list. A 404 marks the record missing: a settings edit
-  is replayed into the old model and saved through the old endpoint, an
-  app-order write is retried once on `PUT /v1/device/apps`, and the panes use
-  the old endpoints. A missing façade is probed again when a pane reloads, or
+  `PUT` was in flight are rebased onto it and sent again; a failed app-order
+  write rereads the app list. A 404 marks the record missing: a settings edit,
+  including any made while the `PUT` was in flight, is replayed into the old
+  model and saved through the old endpoint, an app-order write is retried once on `PUT /v1/device/apps`, and the panes use
+  the old endpoints. A missing façade is probed again (only a fresh `GET`
+  turns it back on) when a pane reloads, or
   at a device-list refresh at most every 5 min. Loads carry a sequence
   number and model changes a generation, so a stale reply (an older load, or
   one for a previous record or server) is dropped; a save also invalidates
