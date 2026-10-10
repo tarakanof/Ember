@@ -344,12 +344,12 @@ bodies:
   6952b9e0 {"blinkMs":500,"color":"#FFA000"}
   6b84814a {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16726586,13421772,13421772,16726586,13421772,0,0,13421772,13421772,16726586,13421772,13421772,16726586,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,16726586]],["bitmap",25,0,7,8,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",9,7,16,1,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":6000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"MBP","textCenter":false,"textColor":"#FFFFFF","textOffsetX":9}
   791d161a {"autoTransition":true}
-  7a703937 {"buttonCallback":"","humOffset":0,"tempOffset":7,"wifiPassword":"secret"}
+  7a703937 {"buttonCallback":"","humOffset":0,"tempOffset":7,"wifiPassword":"REDACTED"}
   867fdf54 {"power":true}
-  90640fd6 {"buttonCallback":"","humOffset":0,"tempOffset":-4,"wifiPassword":"secret"}
+  90640fd6 {"buttonCallback":"","humOffset":0,"tempOffset":-4,"wifiPassword":"REDACTED"}
   a9665164 {"order":["Time"],"disabled":null}
   aec2473c {"brightness":50}
-  b56b59ae {"buttonCallback":"http://HOST/hooks/awtrix/button","humOffset":0,"tempOffset":-4,"wifiPassword":"secret"}
+  b56b59ae {"buttonCallback":"http://HOST/hooks/awtrix/button","humOffset":0,"tempOffset":-4,"wifiPassword":"REDACTED"}
   b599ab2e {"rtttl":"x:d=4:c"}
   b721723d {"blinkMs":0,"color":"#004000"}
   b77b9736 {"rtttl":"test:d=16,o=6,b=180:c,e,g,8c7"}
@@ -361,7 +361,7 @@ bodies:
   cde3ecef {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16761165,13421772,13421772,16761165,13421772,0,0,13421772,13421772,16761165,13421772,13421772,16761165,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,16761165]],["bitmap",25,0,7,8,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",9,7,16,1,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":6000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"MBP","textCenter":false,"textColor":"#FFFFFF","textOffsetX":9}
   d26d7059 {"name":"ember-notify","stack":false,"text":"hi"}
   e868752a {"overlay":"rain"}
-  ef9ba6c2 {"buttonCallback":"http://HOST/hooks/awtrix/button","humOffset":0,"tempOffset":7,"wifiPassword":"secret"}
+  ef9ba6c2 {"buttonCallback":"http://HOST/hooks/awtrix/button","humOffset":0,"tempOffset":7,"wifiPassword":"REDACTED"}
   f361e984 {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16761165,13421772,13421772,16761165,13421772,0,0,13421772,13421772,16761165,13421772,13421772,16761165,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",8,7,24,1,[16761165,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":30000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"WAIT MBP","textBlinkMs":500,"textCenter":false,"textColor":"#FFC14D","textOffsetX":9}
   f435d972 {"name":"ember"}
   feb83a4a {"rtttl":"attn:d=16,o=6,b=200:c,e,g"}

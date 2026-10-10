@@ -245,6 +245,8 @@ type parityConnKey struct{}
 
 var parityPort = regexp.MustCompile(`127\.0\.0\.1:\d+`)
 
+var paritySecretValue = regexp.MustCompile(`"([^"]*(?i:password|token|secret)[^"]*)":"[^"]*"`)
+
 func TestClockParity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("clock parity harness sleeps past the probe timeouts")
@@ -502,7 +504,7 @@ func runClockParity(t *testing.T, pat []bool) string {
 	fmt.Fprintf(&log, "requests=%d\n", dev.n)
 	log.WriteString("bodies:\n")
 	for _, h := range slices.Sorted(maps.Keys(dev.bodies)) {
-		fmt.Fprintf(&log, "  %s %s\n", h, dev.bodies[h])
+		fmt.Fprintf(&log, "  %s %s\n", h, paritySecretValue.ReplaceAllString(dev.bodies[h], `"$1":"REDACTED"`))
 	}
 	if len(pat) == 1 && !pat[0] && len(dev.conns) > 10 {
 		t.Errorf("connections = %d for %d requests on a lossless link, want <= 10 (keep-alive reuse broken)", len(dev.conns), dev.n)
