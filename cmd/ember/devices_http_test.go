@@ -25,6 +25,7 @@ func newDevicesApp(t *testing.T, dbPath string) (*App, *httptest.Server) {
 	cfg.Auth.StatusToken = testToken
 	cfg.RateLimit.Disabled = true
 	app := NewApp(cfg, &recordingPublisher{}, testLogger())
+	ownIconJobs(t, app)
 	if dbPath == "" {
 		dbPath = filepath.Join(t.TempDir(), "s.db")
 	}

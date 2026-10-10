@@ -321,7 +321,7 @@ func (a *App) pomodoroSettingSpec() settingSpec[pomodoroSettingsDTO] {
 				}
 			}
 			a.pomoChanged()
-			go a.ensureNativeIcons(context.Background())
+			a.provisionIconsInBackground()
 		},
 	}
 }

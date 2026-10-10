@@ -14,6 +14,7 @@ import (
 func newTestAppWithStore(t *testing.T) *App {
 	t.Helper()
 	a := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	ownIconJobs(t, a)
 	if err := a.ensureStore(t.TempDir() + "/s.db"); err != nil {
 		t.Fatal(err)
 	}
