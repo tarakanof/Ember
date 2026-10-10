@@ -334,3 +334,56 @@ func TestReminderLoopWindowFollowsCoordinatorClock(t *testing.T) {
 		t.Errorf("dismissed = %v, want [%s] once the coordinator clock passes the window", got, notifyNameReminder)
 	}
 }
+
+func TestReminderLoopGuardTickStopsLoopAtQuietHoursOnCoordinatorClock(t *testing.T) {
+	pub := &recordingPublisher{}
+	at := time.Date(2026, 1, 1, 21, 58, 0, 0, time.Local)
+	app, clk := nightClockApp(t, pub, at)
+	fireLoopingReminder(t, app)
+	if _, n, _ := app.reminderLoop.current(); n == nil {
+		t.Fatal("loop guard not armed before quiet hours")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	tick := make(chan time.Time)
+	stopped := make(chan struct{})
+	go func() {
+		app.runReminderLoopGuard(ctx, tick)
+		close(stopped)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-stopped
+	})
+	send := func() {
+		t.Helper()
+		select {
+		case tick <- at:
+		case <-time.After(5 * time.Second):
+			t.Fatal("reminder loop guard stopped taking ticks")
+		}
+	}
+
+	send()
+	send()
+	if got := pub.DismissedNamesSnapshot(); len(got) != 0 {
+		t.Fatalf("dismissed before quiet hours: %v", got)
+	}
+	clk.Advance(3 * time.Minute)
+	send()
+	send()
+	if got := pub.DismissedNamesSnapshot(); len(got) != 1 || got[0] != notifyNameReminder {
+		t.Fatalf("dismissed = %v, want [%s] once the coordinator clock enters quiet hours", got, notifyNameReminder)
+	}
+	if n := len(pub.NotifySnapshot()); n != 2 {
+		t.Errorf("notifications = %d, want the alarm + its silent re-push", n)
+	}
+	if _, n, _ := app.reminderLoop.current(); n != nil {
+		t.Error("loop guard still armed after quiet hours stopped it")
+	}
+	cancel()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reminder loop guard ignored cancellation")
+	}
+}
