@@ -504,3 +504,22 @@ func TestClockConfigRotationWrittenWhenReadFails(t *testing.T) {
 		t.Fatalf("clock order writes = %d, want 1 when the list could not be read", n)
 	}
 }
+
+func TestClockConfigRotationResendAfterWebUIReorderIsWritten(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	c, _ := getClockConfig(t, srv, d.ID)
+	stub.mu.Lock()
+	stub.apps[0], stub.apps[1] = stub.apps[1], stub.apps[0]
+	stub.mu.Unlock()
+	body, _ := json.Marshal(map[string]any{"rotation": c.Rotation})
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, string(body))
+	mustOK(t, "resend rotation", resp, b)
+	if n := len(stub.puts()); n != 1 {
+		t.Fatalf("clock order writes = %d, want 1 after a reorder on the clock", n)
+	}
+	after, _ := getClockConfig(t, srv, d.ID)
+	if !reflect.DeepEqual(after.Rotation, c.Rotation) {
+		t.Fatalf("rotation = %+v, want %+v", after.Rotation, c.Rotation)
+	}
+}
