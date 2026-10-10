@@ -204,7 +204,8 @@ func TestPomodoroHeatmapEndpoint(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
-	recFocus(t, app, time.Now().Add(-30*time.Minute), 25, true, "completed")
+	now := pinStatsClock(t, app)
+	recFocus(t, app, now.Add(-30*time.Minute), 25, true, "completed")
 
 	_, body := doReq(t, srv, http.MethodGet, "/v1/pomodoro/heatmap?days=84", "", "")
 	grid, ok := body["grid"].([]any)
@@ -216,6 +217,45 @@ func TestPomodoroHeatmapEndpoint(t *testing.T) {
 	}
 	if _, ok := body["calendar"].([]any); !ok {
 		t.Errorf("missing calendar series")
+	}
+}
+
+func TestPomodoroHeatmapWindowFollowsStatsClockAcrossDayStart(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	loc := app.statsLoc()
+	startHour := app.cfg.Load().Pomodoro.DayStartHour
+	y, m, d := time.Now().AddDate(0, 0, -30).Date()
+	now := time.Date(y, m, d, startHour, 5, 0, 0, loc)
+	app.statsClock = func() time.Time { return now }
+
+	recFocus(t, app, now.Add(-10*time.Minute), 25, true, "completed")
+	recFocus(t, app, now.Add(-time.Minute), 25, true, "completed")
+	recFocus(t, app, now.Add(30*time.Minute), 25, true, "completed")
+	recFocus(t, app, now.AddDate(0, 0, -7).Add(-time.Minute), 25, true, "completed")
+
+	_, body := doReq(t, srv, http.MethodGet, "/v1/pomodoro/heatmap?days=7", "", "")
+	cal, ok := body["calendar"].([]any)
+	if !ok {
+		t.Fatalf("missing calendar series: %v", body)
+	}
+	got := map[string]float64{}
+	for _, b := range cal {
+		bm := b.(map[string]any)
+		got[bm["key"].(string)] = bm["sessions"].(float64)
+	}
+	want := map[string]float64{
+		now.AddDate(0, 0, -1).Format("2006-01-02"): 1,
+		now.Format("2006-01-02"):                   1,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("calendar = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("calendar[%s] = %v, want %v (calendar %v)", k, got[k], v, got)
+		}
 	}
 }
 

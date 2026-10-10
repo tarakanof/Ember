@@ -461,7 +461,11 @@ func runClockParity(t *testing.T, pat []bool) string {
 	sr := checkAWTRIXReachable(context.Background(), app.cfg.Load())
 	step("slow doctor.awtrix %s", sr.Status)
 	slow()
-	step("slow doctor.clock reachable=%v", *checkClock(context.Background(), app).Reachable)
+	dc := checkClock(context.Background(), app)
+	if dc.Reachable == nil {
+		t.Fatalf("doctor.clock reported no reachability: %+v", dc)
+	}
+	step("slow doctor.clock reachable=%v", *dc.Reachable)
 	slow()
 	step("slow rediscover swapped=%v", app.rediscoverClock(context.Background()))
 
@@ -484,6 +488,9 @@ func runClockParity(t *testing.T, pat []bool) string {
 		d := regexp.MustCompile(`\(\d+(\.\d+)?m?s\)`).ReplaceAllString(norm(r.Detail), "(T)")
 		step("doctor.awtrix #%d %s %s", i, r.Status, d)
 		cr := checkClock(context.Background(), app)
+		if cr.Reachable == nil {
+			t.Fatalf("doctor.clock #%d reported no reachability: %+v", i, cr)
+		}
 		step("doctor.clock #%d %s reachable=%v", i, cr.Status, *cr.Reachable)
 	}
 
