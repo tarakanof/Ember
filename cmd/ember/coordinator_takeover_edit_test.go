@@ -176,7 +176,7 @@ func TestMenuEditInFlightWhenTakeoverStartsIsRecorded(t *testing.T) {
 		held, err := c.applyMenuSettings(context.Background(), map[string]any{"autoTransition": true}, write)
 		res <- result{held, err}
 	}()
-	<-entered
+	waitEntered(t, entered, "menu edit")
 	*pomo = true
 	c.publish(*snap)
 	close(release)
@@ -257,13 +257,13 @@ type editResult struct {
 	err  error
 }
 
-func startEdit(c *coordinator, m map[string]any, g *gatedWrite) chan editResult {
+func startEdit(t *testing.T, c *coordinator, m map[string]any, g *gatedWrite) chan editResult {
 	res := make(chan editResult, 1)
 	go func() {
 		held, err := c.applyMenuSettings(context.Background(), m, g.write)
 		res <- editResult{held, err}
 	}()
-	<-g.entered
+	waitEntered(t, g.entered, "menu edit")
 	return res
 }
 
@@ -276,7 +276,7 @@ func TestOlderInFlightEditDoesNotReplaceNewer(t *testing.T) {
 		t.Run(map[bool]string{false: "during focus", true: "after focus"}[endBlockFirst], func(t *testing.T) {
 			c, clk, snap, pomo := modelFixture(t)
 			g := newGatedWrite(clk)
-			e1 := startEdit(c, map[string]any{"autoTransition": true}, g)
+			e1 := startEdit(t, c, map[string]any{"autoTransition": true}, g)
 
 			*pomo = true
 			c.publish(*snap)
@@ -311,7 +311,7 @@ func TestOlderInFlightEditDoesNotReplaceNewer(t *testing.T) {
 func TestMenuEditInFlightAcrossWholeTakeoverIsRewritten(t *testing.T) {
 	c, clk, snap, pomo := modelFixture(t)
 	g := newGatedWrite(clk)
-	e := startEdit(c, map[string]any{"autoTransition": true}, g)
+	e := startEdit(t, c, map[string]any{"autoTransition": true}, g)
 
 	*pomo = true
 	c.publish(*snap)
@@ -334,7 +334,7 @@ func TestMenuEditRewriteLostAnswersError(t *testing.T) {
 	c, clk, snap, pomo := modelFixture(t)
 	g := newGatedWrite(clk)
 	g.failAt = 2
-	e := startEdit(c, map[string]any{"autoTransition": true}, g)
+	e := startEdit(t, c, map[string]any{"autoTransition": true}, g)
 
 	*pomo = true
 	c.publish(*snap)
