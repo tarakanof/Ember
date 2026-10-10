@@ -746,8 +746,71 @@ private final class LoadGate: @unchecked Sendable {
     #expect(settings.weather.draft.forecastHours == 12)
     settings.weather.draft.forecastHours = 6
     await clock.advance(by: .milliseconds(600))
+    try await waitFor { !m.config.hasPendingSave && !m.config.isSaving }
     #expect(count(server, "PUT /v1/devices/clock-a/config") == 1)
     #expect(settings.weather.draft.forecastHours == 6)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func replayLeavesNothingForALateAutosave() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let clock = ManualClock()
+    let (m, settings, _) = try await linked(server, clock: clock)
+    server.respond("PUT /v1/devices/clock-a/config", 404, #"{"error":"not found"}"#)
+    let gate = server.hold("PUT /v1/devices/clock-a/config")
+    m.config.draft.apps.weather.air = false
+    let save = Task { await m.config.saveNow() }
+    try await waitFor { server.arrived("PUT /v1/devices/clock-a/config") }
+    m.config.draft.apps.weather.forecastHours = 12
+    gate.signal()
+    await save.value
+    m.config.scheduleSave()
+    #expect(settings.weather.draft.forecastHours == 12)
+    settings.weather.draft.forecastHours = 6
+    await clock.advance(by: .milliseconds(600))
+    try await waitFor { !m.config.hasPendingSave && !m.config.isSaving }
+    #expect(count(server, "PUT /v1/devices/clock-a/config") == 1)
+    #expect(settings.weather.draft.forecastHours == 6)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func replayForAnOldRecordKeepsTheNewRecordsSave() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    server.respond("GET /v1/devices/clock-b/config", 200, try fixtureText("config_default"))
+    server.respond("PUT /v1/devices/clock-b/config", 200, try fixtureText("config_default"))
+    let clock = ManualClock()
+    let (m, client) = await facade(server, clock: clock)
+    server.respond("PUT /v1/devices/clock-a/config", 404, #"{"error":"not found"}"#)
+    let gate = server.hold("PUT /v1/devices/clock-a/config")
+    m.config.draft.apps.calendar.on = false
+    let save = Task { await m.config.saveNow() }
+    try await waitFor { server.arrived("PUT /v1/devices/clock-a/config") }
+    m.configure(client: client, deviceID: "clock-b")
+    try await waitFor { m.config.isLoaded }
+    m.config.draft.apps.focus.focusColor = "#123456"
+    m.config.scheduleSave()
+    gate.signal()
+    await save.value
+    #expect(!m.missing)
+    await clock.advance(by: .milliseconds(600))
+    try await waitFor { count(server, "PUT /v1/devices/clock-b/config") == 1 }
+    #expect(server.bodies("PUT /v1/devices/clock-b/config").last?["apps"] as? [String: [String: String]]
+            == ["focus": ["focus_color": "#123456"]])
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func failedRetryDuringAFacadeSaveKeepsItsError() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let (m, settings, _) = try await linked(server)
+    server.respond("GET /v1/pomodoro/config", 500, #"{"error":"boom"}"#)
+    await settings.pomodoro.load()
+    try #require(settings.pomodoro.loadError != nil && settings.pomodoro.isLoaded)
+    let gate = server.hold("GET /v1/pomodoro/config")
+    let retry = Task { await settings.pomodoro.load() }
+    try await waitFor { server.arrived("GET /v1/pomodoro/config") }
+    m.config.draft.apps.focus.focusColor = "#123456"
+    await m.config.saveNow()
+    gate.signal()
+    await retry.value
+    #expect(settings.pomodoro.loadError != nil)
+    #expect(ClockAppLens(source: settings.pomodoro, clock: m, slice: \.focus).loadError != nil)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func facadeSaveClearsAStaleLegacyLoadError() async throws {
@@ -768,8 +831,23 @@ private final class LoadGate: @unchecked Sendable {
     #expect(ClockAppLens(source: settings.pomodoro, clock: m, slice: \.focus).loadError == nil)
 }
 
-private func checkFieldDiff<S: ClockAppSlice>(_ base: S, other: S, blank: S.Source,
+private func leafFields(_ value: Any, under prefix: String = "") -> Set<String> {
+    var out: Set<String> = []
+    for child in Mirror(reflecting: value).children {
+        guard let label = child.label else { continue }
+        let name = prefix.isEmpty ? label : prefix + "." + label
+        if Mirror(reflecting: child.value).displayStyle == .struct {
+            out.formUnion(leafFields(child.value, under: name))
+        } else {
+            out.insert(name)
+        }
+    }
+    return out
+}
+
+private func checkFieldDiff<S: ClockAppSlice>(_ base: S, other: S, blank: S.Source, unmapped: Set<String> = [],
                                               _ fields: [(name: String, change: (inout S) -> Void)]) {
+    #expect(Set(fields.map(\.name)).union(unmapped) == leafFields(base), "the table misses a field of \(S.self)")
     var fromBase = blank
     base.apply(to: &fromBase)
     var fromOther = blank
@@ -782,6 +860,9 @@ private func checkFieldDiff<S: ClockAppSlice>(_ base: S, other: S, blank: S.Sour
         var written = fromBase
         sent.apply(to: &written, changedFrom: base)
         #expect(written != fromBase, "\(name) is not written")
+        var exact = fromBase
+        sent.apply(to: &exact)
+        #expect(written == exact, "\(name) is written to the wrong field")
         var kept = fromOther
         sent.apply(to: &kept, changedFrom: base)
         var only = other
@@ -801,7 +882,7 @@ private func checkFieldDiff<S: ClockAppSlice>(_ base: S, other: S, blank: S.Sour
 
 @MainActor @Test func everyFacadeFieldIsWrittenAloneWhenItChanged() {
     checkFieldDiff(ClockConfig.Agents(), other: ClockConfig.Agents(usageCards: false, usagePerModel: false),
-                   blank: UsageConfig(), [
+                   blank: UsageConfig(), unmapped: ["hiddenTools"], [
         ("usageCards", { $0.usageCards = false }),
         ("usagePerModel", { $0.usagePerModel = false }),
     ])
