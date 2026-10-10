@@ -66,8 +66,9 @@ const meetingsSettingsKey = "meetings_json"
 
 func (a *App) meetingsSettingSpec() settingSpec[MeetingsConfig] {
 	return settingSpec[MeetingsConfig]{
-		key:  meetingsSettingsKey,
-		view: func(c Config) MeetingsConfig { return c.Meetings },
+		key:          meetingsSettingsKey,
+		presentation: meetingsPresentationKeys,
+		view:         func(c Config) MeetingsConfig { return c.Meetings },
 		apply: func(c *Config, m MeetingsConfig) error {
 			m.fillAbsent()
 			if err := validateMeetings(m); err != nil {

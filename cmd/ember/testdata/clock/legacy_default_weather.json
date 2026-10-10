@@ -1,0 +1,25 @@
+{
+  "enabled": false,
+  "provider": "open-meteo",
+  "latitude": 0,
+  "longitude": 0,
+  "location_name": "",
+  "units": "metric",
+  "refresh_minutes": 10,
+  "rotate_in_apps": true,
+  "forecast_tile": true,
+  "forecast_hours": 24,
+  "sun_popups": true,
+  "moon_phase": true,
+  "popup_interval_minutes": 120,
+  "popup_duration_seconds": 30,
+  "popup_on_change": true,
+  "severe_alert": true,
+  "severe_sound": "",
+  "use_native_icons": false,
+  "tile_native_icons": false,
+  "air_tile": true,
+  "air_popup_threshold": 80,
+  "overlay": true
+}
+

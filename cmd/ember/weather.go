@@ -689,8 +689,9 @@ const weatherSettingsKey = "weather_json"
 
 func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 	return settingSpec[WeatherConfig]{
-		key:  weatherSettingsKey,
-		view: func(c Config) WeatherConfig { return c.Weather },
+		key:          weatherSettingsKey,
+		presentation: weatherPresentationKeys,
+		view:         func(c Config) WeatherConfig { return c.Weather },
 		apply: func(c *Config, w WeatherConfig) error {
 			w.fillAbsent()
 			if w.ForecastHours == 0 {

@@ -1283,6 +1283,47 @@ all `[OK]`. For Unraid, see `README.md` → "Unraid install" + the
 
 ## Upgrade notes
 
+**Clock presentation moves to the clock config (#232).** The TC001's
+presentation settings (weather tiles and popups, icon ids, meeting tile and
+popup leads, usage cards, Pomodoro colours) move from `weather_json`,
+`meetings_json`, `usage_json` and `settings_json` into their own row,
+`clock_config_json`. The move runs once: at boot when a clock record exists,
+else when the first good probe registers the clock. The log says `clock config
+migrated apps=[…]`, and `/admin/doctor` `devices` says `clock config migrated
+(from <version>)`. Nothing changes on the clock, and Ember.app needs no update:
+`/v1/weather/config` and the other three still take and return every key (the
+presentation ones are aliases now). A presentation key in `config.json` is
+still the baseline for an app with no stored value, and `/admin/reload` still
+applies it. Under
+`EMBER_CLOCK=off`, or until the clock is found, the settings stay in the old
+rows. The clock's `config_version` is now a counter (it was a hash); it never
+drops below the old hash value, and deleting the clock record doesn't reset it
+(a re-created record continues above the highest version handed out). A
+rollback loses that high-water mark, so a delete and re-create done while an
+older server runs can restart the count.
+
+- **`/admin/doctor` `devices` warns `clock config not migrated: …`:** the
+  move's SQLite transaction failed (nothing was written; the old rows still
+  hold the settings and everything works as before). It retries at the next
+  good clock probe (about a minute) or restart. With `clock_config_json is stored but did not load`, the row exists
+  but is invalid: the server won't overwrite it; fix or delete that row in
+  `pomodoro.db` and restart (deleting it re-runs the move from the old rows,
+  which no longer hold the presentation, so the clock falls back to
+  `config.json` and the defaults).
+- **Rolling back below #232 after the move** is safe to run but resets the
+  clock's look: an older server doesn't read `clock_config_json`, and the old
+  rows now hold only source settings, so the tiles, popups, leads, usage cards
+  and Pomodoro colours fall back to `config.json` and the defaults. Sources
+  (location, units, Pomodoro durations, calendar on/off), hidden tools, the app
+  order and the knob are unaffected. Before rolling back, save the four GETs
+  (`/v1/weather/config`, `/v1/meetings/config`, `/v1/usage/config`,
+  `/v1/pomodoro/config`; they return the merged values) and PUT them back on
+  the older server. Rolling forward again keeps what `clock_config_json`
+  held: presentation edits made on the older server are dropped (its rows'
+  presentation keys are ignored), source edits are kept. The clock's
+  `config_version` on a #230 server is a hash again, so a client may see it go
+  down once; none reads it yet.
+
 **`display.idle_restore_seconds` default changed 1200 → 120 (2 min).** Only
 bare/default installs are affected — any deployment with an explicit
 `idle_restore_seconds` in `config.json` keeps its value unchanged. If an

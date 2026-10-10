@@ -39,8 +39,9 @@ DEVICE-PROTOCOL "Capabilities"),
 /v1/devices/{id}/config` (same merge; includes `quiet{calm, dim_level}`;
 a knob that reported `caps` gets a 400 for turning on a page outside them or
 a config over its `config_bytes`; for the
-clock record, kind `awtrix-ng`, the config façade over the overlay slices,
-ARCHITECTURE "Clock record and config façade"), `PATCH`/`DELETE /v1/devices/{id}`
+clock record, kind `awtrix-ng`, the clock's presentation config, stored in
+`clock_config_json` once migrated, else a façade over the overlay slices;
+`config_version` is a counter; ARCHITECTURE "Clock record and config façade"), `PATCH`/`DELETE /v1/devices/{id}`
 (a deleted clock record returns at the next good probe),
 `POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
 registry"; 400 for the clock, which has no token), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
@@ -93,7 +94,10 @@ long-poll for Music commands) and `PUT /v1/nowplaying/art?source=&player=&kind=a
 knob view's `quiet`), `GET/PUT /v1/brightness/config` (every `…/config`
 settings PUT above is merge semantics: the body is a JSON object whose omitted
 keys keep their current value; an invalid merged result is a 400 and changes
-nothing — see `settings_overlay.go`), `GET/PUT /v1/device/config`
+nothing — see `settings_overlay.go`; the clock presentation keys of the
+weather, meetings, usage and Pomodoro configs are aliases of the clock
+config once it is migrated: stored there, returned merged here, kept for at
+least two releases after #232), `GET/PUT /v1/device/config`
 (`{"base_url"}`, the same merge: `{}` changes nothing, an empty or non-http(s)
 URL is a 400; GET answers the effective URL and its `source` — see
 `clock_url.go`),
