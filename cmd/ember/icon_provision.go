@@ -15,6 +15,9 @@ import (
 )
 
 func (a *App) provisionIconsInBackground() {
+	if a.iconHold.Load() > 0 {
+		return
+	}
 	a.iconJobs.Go(func() { a.ensureNativeIcons(context.Background()) })
 }
 

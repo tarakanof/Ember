@@ -224,6 +224,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.resyncPomodoroAfterReload()
 		app.reapplySettings()
 		app.changes.notify(topicConfig | topicPomodoro)
+		app.provisionIconsInBackground()
 		if !clockDisabled() {
 			go app.ensureBootPingScript(context.Background())
 		}

@@ -1070,7 +1070,8 @@ fingerprint doesn't exist on NG). The server advertises itself as
   override included) at boot and every 30s via a background probe
   (`awtrix.auto_rediscover`, default on); an unreachable URL falls through to a
   fresh mDNS auto-pick without touching `config.json` or the store, so a
-  clock's IP changing (DHCP renumbering) recovers on its own within ~30s. The
+  clock's IP changing (DHCP renumbering) recovers on its own within ~30s; the
+  new address also gets the native icons and the boot-ping script. The
   same tick reads the clock's `uptimeSeconds` to detect a reboot and triggers a
   full republish of every pushed app — pushed apps are RAM-only on NG, so a
   reboot silently drops them all. The Berry boot-ping hook (#73)
