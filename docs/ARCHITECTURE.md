@@ -2571,9 +2571,10 @@ migration) the same config is a façade over the overlay slices, as in #230.
   A probe only starts it in a goroutine (one at a time), so the probe's
   single-flight and `deviceRediscoverMu` are never held while it waits.
   Shutdown waits for it, within its deadline, before it flushes the
-  registry and closes the store. A run that finds the row already loaded
-  (for example an unreadable row fixed and loaded by `/admin/reload`)
-  clears the recorded error.
+  registry and closes the store. Once the workers have stopped, it refuses
+  new runs before it waits, so a late probe can't join the wait. A run
+  that finds the row already loaded (for example an unreadable row fixed
+  and loaded by `/admin/reload`) clears the recorded error.
   Lock order `rotationOp` → `cfgMu`, as for the façade. Doctor `devices`
   reports `clock config migrated (from <version>)`.
 - **Façade.** `GET /v1/devices/{clock}/config` composes; `PUT` splits back.
@@ -2690,7 +2691,8 @@ migration) the same config is a façade over the overlay slices, as in #230.
   version a client has seen; clients compare for inequality. An older
   server drops the mark on its next registry write, so a delete and
   re-create done while one runs can still restart the count (the next
-  delete on this server raises the mark from the surviving record again). Compute, store and the pause check all run under
+  delete on this server raises the mark from the surviving record again).
+  Compute, store and the pause check all run under
   `clockSyncGate.mu`, and pausing or resuming takes it too, so a stale
   digest never overwrites a newer one and a resync can't start before a
   pause and finish inside it. It is resynced after every `tryUpdateConfig`,

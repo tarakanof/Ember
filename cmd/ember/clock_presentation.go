@@ -306,7 +306,28 @@ type clockMigration struct {
 	logged  bool
 	err     error
 	running atomic.Bool
+	startMu sync.Mutex
+	stopped bool
 	jobs    sync.WaitGroup
+}
+
+func (m *clockMigration) start(job func()) {
+	m.startMu.Lock()
+	defer m.startMu.Unlock()
+	if m.stopped || !m.running.CompareAndSwap(false, true) {
+		return
+	}
+	m.jobs.Go(func() {
+		defer m.running.Store(false)
+		job()
+	})
+}
+
+func (m *clockMigration) stopAndWait() {
+	m.startMu.Lock()
+	m.stopped = true
+	m.startMu.Unlock()
+	m.jobs.Wait()
 }
 
 func (m *clockMigration) fail(err error) bool {
@@ -351,12 +372,7 @@ func (a *App) presentationSlices() []presentationSlice {
 }
 
 func (a *App) migrateClockConfigInBackground() {
-	m := &a.clockMigrate
-	if !m.running.CompareAndSwap(false, true) {
-		return
-	}
-	m.jobs.Go(func() {
-		defer m.running.Store(false)
+	a.clockMigrate.start(func() {
 		a.migrateClockConfig()
 		a.syncClockConfigVersion()
 	})

@@ -65,6 +65,7 @@ type App struct {
 	rotationOp    clockRotationOp
 	commitHook    func()
 	clockMigrate  clockMigration
+	holdHook      func()
 	clients       *clientRegistry
 	changes       *changeBroadcaster
 	viewWaiters   viewWaiters
