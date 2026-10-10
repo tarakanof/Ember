@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -99,15 +100,80 @@ func (s *iconClockStub) puts() []string {
 	return append([]string(nil), s.scriptPuts...)
 }
 
+const unreachableClockURL = "http://unreachable-clock.invalid"
+
 func stubRemoteClock(t *testing.T, a *App) {
 	t.Helper()
-	srv := (&iconClockStub{fingerprint: true}).server(t)
+	live := (&iconClockStub{fingerprint: true}).server(t)
+	dead := deadClockServer(t)
 	a.clock.connect = func(base string, timeout time.Duration) *awtrix.Client {
-		if !loopbackURL(base) {
-			base = srv.URL
+		switch {
+		case loopbackURL(base):
+		case invalidHostURL(base):
+			base = dead.URL
+		default:
+			base = live.URL
 		}
 		return awtrix.NewClient(base, timeout)
 	}
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) { return nil, nil }
+}
+
+func deadClockServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func invalidHostURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && strings.HasSuffix(strings.ToLower(u.Hostname()), ".invalid")
+}
+
+type loopbackOnlyTransport struct {
+	mu      sync.Mutex
+	refused []string
+	next    http.RoundTripper
+}
+
+func (l *loopbackOnlyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if !loopbackURL(r.URL.String()) {
+		l.mu.Lock()
+		l.refused = append(l.refused, r.Method+" "+r.URL.String())
+		l.mu.Unlock()
+		return nil, errors.New("test refused a non-loopback request")
+	}
+	return l.next.RoundTrip(r)
+}
+
+func swapDefaultTransport(t *testing.T, wrap func(http.RoundTripper) http.RoundTripper) {
+	t.Helper()
+	t.Setenv("EMBER_TEST_DEFAULT_TRANSPORT_SWAP", "1")
+	prev := http.DefaultTransport
+	http.DefaultTransport = wrap(prev)
+	t.Cleanup(func() { http.DefaultTransport = prev })
+}
+
+func requireLoopbackOnly(t *testing.T) {
+	t.Helper()
+	var guard *loopbackOnlyTransport
+	swapDefaultTransport(t, func(next http.RoundTripper) http.RoundTripper {
+		guard = &loopbackOnlyTransport{next: next}
+		return guard
+	})
+	t.Cleanup(func() {
+		guard.mu.Lock()
+		defer guard.mu.Unlock()
+		if len(guard.refused) > 0 {
+			t.Errorf("non-loopback requests: %v", guard.refused)
+		}
+	})
 }
 
 func loopbackURL(raw string) bool {
@@ -120,6 +186,87 @@ func loopbackURL(raw string) bool {
 	}
 	ip := net.ParseIP(u.Hostname())
 	return ip != nil && ip.IsLoopback()
+}
+
+func TestRequireLoopbackOnly_RefusesParallelTests(t *testing.T) {
+	before := http.DefaultTransport
+	t.Run("parallel", func(t *testing.T) {
+		t.Parallel()
+		var refused any
+		func() {
+			defer func() { refused = recover() }()
+			requireLoopbackOnly(t)
+		}()
+		if refused == nil {
+			t.Error("requireLoopbackOnly ran in a parallel test")
+		}
+		if http.DefaultTransport != before {
+			t.Error("a parallel test swapped http.DefaultTransport")
+		}
+	})
+}
+
+func TestClockReachable_RejectsUnfingerprintedDevice(t *testing.T) {
+	esphome := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"uid":"esp_1","boardType":"esphome"}`)
+	}))
+	t.Cleanup(esphome.Close)
+	cases := []struct {
+		name string
+		base string
+		want bool
+	}{
+		{"awtrix-ng", (&iconClockStub{fingerprint: true}).server(t).URL, true},
+		{"no device route", (&iconClockStub{}).server(t).URL, false},
+		{"other board", esphome.URL, false},
+	}
+	a := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := a.clock.reachable(context.Background(), c.base); got != c.want {
+				t.Fatalf("reachable = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestStubRemoteClock_ProbesAndBrowseStayLocal(t *testing.T) {
+	requireLoopbackOnly(t)
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = unreachableClockURL
+	a := NewApp(cfg, &recordingPublisher{}, testLogger())
+	stubRemoteClock(t, a)
+	ctx := context.Background()
+
+	if !a.clock.reachable(ctx, "http://192.0.2.10") {
+		t.Fatal("probe of a remote clock URL missed the stub")
+	}
+	if a.rediscoverClock(ctx) {
+		t.Fatal("rediscovery swapped although the stubbed browse finds nothing")
+	}
+	if got := a.lastRediscoverResult.Load(); got != "no-device" {
+		t.Fatalf("rediscover result = %v, want no-device", got)
+	}
+}
+
+func TestStubRemoteClock_UnreachableHostFails(t *testing.T) {
+	requireLoopbackOnly(t)
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = unreachableClockURL
+	a := NewApp(cfg, &recordingPublisher{}, testLogger())
+	stubRemoteClock(t, a)
+	ctx := context.Background()
+
+	if a.clock.reachable(ctx, unreachableClockURL) {
+		t.Fatal("unreachable clock URL probed as reachable")
+	}
+	err := a.clock.do(ctx, callProbe, func(ctx context.Context, cl *awtrix.Client) error {
+		_, err := cl.DeviceInfo(ctx)
+		return err
+	})
+	if err == nil {
+		t.Fatal("request to the unreachable clock URL succeeded")
+	}
 }
 
 func iconClockApp(t *testing.T, staleURL string) *App {
@@ -372,6 +519,47 @@ func TestDeviceConfigPut_SameURLDoesNotProvision(t *testing.T) {
 	}
 }
 
+type swapOnReadBody struct {
+	io.Reader
+	once sync.Once
+	swap func()
+}
+
+func (b *swapOnReadBody) Read(p []byte) (int, error) {
+	b.once.Do(b.swap)
+	return b.Reader.Read(p)
+}
+
+func TestDeviceConfigPut_SwapDuringPutStillProvisions(t *testing.T) {
+	pinned := &iconClockStub{fingerprint: true}
+	pinnedSrv := pinned.server(t)
+	swapped := &iconClockStub{fingerprint: true}
+	swappedSrv := swapped.server(t)
+
+	a := iconClockApp(t, pinnedSrv.URL)
+	body := &swapOnReadBody{
+		Reader: strings.NewReader(`{"base_url":"` + pinnedSrv.URL + `"}`),
+		swap: func() {
+			if !a.swapDiscoveredClock(pinnedSrv.URL, swappedSrv.URL) {
+				t.Error("rediscovery swap did not apply")
+			}
+		},
+	}
+	w := httptest.NewRecorder()
+	a.handleDeviceConfigPut(w, httptest.NewRequest("PUT", "/v1/device/config", body))
+	a.clockJobs.Wait()
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT /v1/device/config: %d %s", w.Code, w.Body)
+	}
+
+	if got := a.cfg.Load().effectiveClockURL(); got != pinnedSrv.URL {
+		t.Fatalf("effective clock URL %s, want the pinned %s", got, pinnedSrv.URL)
+	}
+	if got := pinned.requests("POST /api/v1/files"); !slices.Equal(got, twoIconUploads) {
+		t.Fatalf("pinned clock uploads %v, want the 2 pomodoro icons after the PUT moved the clock back from %s", got, swappedSrv.URL)
+	}
+}
+
 func TestAdminReload_TracksBootPing(t *testing.T) {
 	clock := &iconClockStub{fingerprint: true, stallScript: make(chan struct{})}
 	clockSrv := clock.server(t)
@@ -493,14 +681,35 @@ func TestEnsureBootPingScript_CancelIsQuiet(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	polled := make(chan struct{})
+	var stalled atomic.Bool
 	go func() {
+		defer close(polled)
+		defer cancel()
+		tick := time.NewTicker(5 * time.Millisecond)
+		defer tick.Stop()
+		deadline := time.After(5 * time.Second)
 		for len(clock.requests("GET /api/v1/apps/script/")) == 0 {
-			time.Sleep(5 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return
+			case <-deadline:
+				stalled.Store(true)
+				return
+			case <-tick.C:
+			}
 		}
-		cancel()
 	}()
 	a.ensureBootPingScript(ctx)
+	cancel()
+	<-polled
 
+	if stalled.Load() {
+		t.Fatal("boot ping job sent no script read within 5 s")
+	}
+	if len(clock.requests("GET /api/v1/apps/script/")) == 0 {
+		t.Fatal("boot ping job returned before reading the script")
+	}
 	if strings.Contains(logs.String(), "level=WARN") {
 		t.Fatalf("a cancelled boot ping job logged a warning:\n%s", logs.String())
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,19 +39,14 @@ func probe(ctx context.Context, timeout time.Duration, baseURL string) (awtrix.D
 		timeout = defaultProbeTimeout
 	}
 	info, err := awtrix.NewClient(baseURL, timeout).DeviceInfo(ctx)
-	if err != nil || info.UID == "" || info.BoardType != NGBoardType {
+	if err != nil || !IsNG(info) {
 		return awtrix.DeviceInfo{}, false
 	}
 	return info, true
 }
 
-func Reachable(ctx context.Context, cl *http.Client, baseURL string) (string, bool) {
-	var timeout time.Duration
-	if cl != nil {
-		timeout = cl.Timeout
-	}
-	info, ok := probe(ctx, timeout, baseURL)
-	return info.Version, ok
+func IsNG(info awtrix.DeviceInfo) bool {
+	return info.UID != "" && info.BoardType == NGBoardType
 }
 
 func filterCandidates(ctx context.Context, timeout time.Duration, svcs []service) []Candidate {

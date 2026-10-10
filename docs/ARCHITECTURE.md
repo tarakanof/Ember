@@ -273,6 +273,17 @@ The aggregator and the only writer to the device.
     delay boot) and `callDoctor` also runs offline against a bare config. A
     caller's context can only shorten a class timeout. `reachable(base)` takes
     an explicit base because rediscovery probes the URL it is about to judge.
+    It reads `/api/v1/device` through the same `connect` seam as every other
+    call and checks the NG fingerprint (`discovery.IsNG`). Tests stub that seam
+    and `browseFn` together (`stubRemoteClock`): a non-loopback host answers as
+    a fingerprinted clock, a `.invalid` host fails like a dead one, and mDNS
+    finds nothing. `requireLoopbackOnly` (the reload tests use it) swaps
+    `http.DefaultTransport` for a guard that refuses and reports any
+    non-loopback request. That global swap is why such tests cannot run in
+    parallel: `swapDefaultTransport` calls `t.Setenv`, which panics in a
+    parallel test. The guard sees only clients on `DefaultTransport`; a client
+    with its own `Transport` bypasses it, and mDNS (UDP) is covered by the
+    stubbed `browseFn`, not the guard.
   - **`systemLock`.** `/api/v1/system` holds Wi-Fi credentials, sensor offsets
     and the button callback, and NG only offers a full replace, so two
     unserialised writers lose a write. The lock is a `ctxLock` (a channel-of-1
@@ -1721,14 +1732,16 @@ tier, not a swap. `sameDeviceURL` normalises because discovery builds
 to a different clock clears the cached capabilities (they described the previous
 clock and the audio gate would refuse on their word), and a PUT naming
 `base_url` clears a swap even when the URL equals the override discovery swapped
-away from. A swap found by the watch, and a PUT that changes the effective URL
-(compared with `sameDeviceURL`), both go through `clockMoved`: a republish
-(`clock_rediscovered` / `clock_url_changed`) plus the per-clock one-shots that
-otherwise run only at boot or reload: icon provisioning and the boot-ping script
-install (`ensureBootPingScript`), so a clock found or pinned after boot gets
-them too. The PUT handler decides this, not a settings `after` hook, because
-`reapplySettings` replays the stored override at boot before rediscovery has
-judged it (#382).
+away from. A swap found by the watch, and a PUT that changes the effective URL,
+both go through `clockMoved`. The PUT compares the URL before and after its
+write with `sameDeviceURL` inside the same `cfgMu` hold as the write, so a swap
+that lands while the PUT runs cannot hide the move (#390). `clockMoved` is a
+republish (`clock_rediscovered` / `clock_url_changed`) plus the per-clock
+one-shots that otherwise run only at boot or reload: icon provisioning and the
+boot-ping script install (`ensureBootPingScript`), so a clock found or pinned
+after boot gets them too. The PUT handler decides this, not a settings `after`
+hook, because `reapplySettings` replays the stored override at boot before
+rediscovery has judged it (#382).
 They start in the background after `rediscoverClock` returns, so neither
 `deviceRediscoverMu` nor the `clock_rediscovered` republish waits on them.
 `rediscoverClock` is single-flighted by `deviceRediscoverMu` so the
