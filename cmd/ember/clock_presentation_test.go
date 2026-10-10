@@ -796,6 +796,35 @@ func TestShutdownLetsClockMigrationFinishBeforeStoreClose(t *testing.T) {
 	}
 }
 
+func TestShutdownStopsNewClockMigrations(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	registeredClock(t, a, srv)
+	stop := make(chan struct{})
+	var starters sync.WaitGroup
+	for range 4 {
+		starters.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					a.migrateClockConfigInBackground()
+				}
+			}
+		})
+	}
+	a.shutdown(context.Background(), &http.Server{}, &sync.WaitGroup{})
+	close(stop)
+	starters.Wait()
+	a.clockMigrate.jobs.Wait()
+	release := a.holdClockRotation()
+	defer release()
+	a.migrateClockConfigInBackground()
+	if a.clockMigrate.running.Load() {
+		t.Fatal("a clock config migration started after shutdown")
+	}
+}
+
 func TestClockMigrationErrorClearsWhenFixedRowLoads(t *testing.T) {
 	seed := map[string]string{devicesKey: legacyClockRecord, clockConfigKey: `{"schema":7}`}
 	a := bootApp(t, filepath.Join(t.TempDir(), "s.db"), seed)
