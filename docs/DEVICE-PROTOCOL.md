@@ -247,6 +247,26 @@ knob view. The knob has no speaker, so on the knob quiet is display only:
 - **Size:** the default config grows by 13 B (447 B) and the largest valid
   one by 15 B (663 B), still under `CFG_SETTINGS_MAX`.
 
+## Weather observation time
+
+`weather.observed_at` (#355) is when the provider's data is valid, so the
+knob can show how old the observation itself is, not only how long ago
+Ember last fetched it (`stale`):
+
+- **Format:** an integer of Unix seconds (UTC), like `ends_at` and
+  `sunrise`/`sunset`, the last key of `weather`
+  (`"observed_at":1782041400`). The knob gets the age as
+  `X-Ember-Now` minus it, with no date parsing.
+- **Source:** the provider's own time for the current values. Open-Meteo:
+  `current.time`, the time of its current 15-minute step. MET Norway: the
+  first `properties.timeseries[].time`, the hour the instant values are
+  for. Not Ember's fetch time.
+- **Absent** when the provider sent no time (and in the `weather: null`
+  cases). Never `null` or `0`.
+- **Old firmware** skips the unknown key. The body grows by 25 B.
+  A new fetch with a new provider time moves the ETag even when the
+  shown values did not change.
+
 ## Fixtures
 
 `cmd/ember/testdata/devices/`, written by `devices_golden_test.go` through the
@@ -256,12 +276,12 @@ Indented JSON; key order is the wire order.
 
 | File | Content |
 |---|---|
-| `view_full.json` | Every block: two-host `mood` with `lead`/`hosts`/`lead_color`/`tool`, counting `pomo` (`ends_at`), `weather` with sun times, `nowplaying` playing with art and volume, `diag_live_until` |
+| `view_full.json` | Every block: two-host `mood` with `lead`/`hosts`/`lead_color`/`tool`, counting `pomo` (`ends_at`), `weather` with sun times and `observed_at`, `nowplaying` playing with art and volume, `diag_live_until` |
 | `view_minimal.json` | Pomodoro and weather off (`null`), `nowplaying` page off (block absent) |
 | `view_nowplaying_none.json` | `nowplaying` page on, nothing playing (`{"state":"none"}`); idle `pomo` (`remaining_sec`) |
 | `view_quiet.json` | Quiet hours on: `"quiet":true` after `brightness`; Pomodoro and weather off |
 | `view_caps_limited.json` | A knob whose caps list only `bot` and `weather`, every page on and every block live as in `view_full.json`: `pomo` and `nowplaying` left out |
-| `view_single_host_paused.json` | One host: `source` set, `lead`/`hosts` left out; paused `pomo` with `remaining_sec`; `weather` without a location (`sunrise`/`sunset` `null`) |
+| `view_single_host_paused.json` | One host: `source` set, `lead`/`hosts` left out; paused `pomo` with `remaining_sec`; `weather` without a location (`sunrise`/`sunset` `null`) and without a provider observation time (`observed_at` absent) |
 | `checkin_req_minimal.json` | The base fields every firmware sends |
 | `checkin_req_full.json` | Every block: `diag` with a crash, `ota` with `last`, `stats`, `wifi`, the display link |
 | `checkin_req_caps.json` | The base fields plus `caps` (every page and feature of 0.9.41, its limits, `rotations` `[0, 180]`) |

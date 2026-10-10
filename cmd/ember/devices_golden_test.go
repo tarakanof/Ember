@@ -82,7 +82,7 @@ func fullViewScenario(t *testing.T, f *viewFixture) {
 		c.Weather.Provider = "open-meteo"
 		c.Weather.Latitude, c.Weather.Longitude = lonLat, lonLon
 	})
-	f.app.weather.obs = weatherObservation{Condition: "rain", ConditionCode: "61", TempC: 12.5, FetchedAt: now.Add(-5 * time.Minute)}
+	f.app.weather.obs = weatherObservation{Condition: "rain", ConditionCode: "61", TempC: 12.5, ObservedAt: now.Add(-20 * time.Minute).Truncate(15 * time.Minute), FetchedAt: now.Add(-5 * time.Minute)}
 	f.app.weather.have = true
 	teal := "#00c8c8"
 	f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s1", State: "waiting", SourceColor: &teal})

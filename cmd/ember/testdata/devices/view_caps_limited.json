@@ -22,7 +22,8 @@
     "severe": false,
     "night": false,
     "sunrise": 1782013500,
-    "sunset": 1782073200
+    "sunset": 1782073200,
+    "observed_at": 1782041400
   },
   "brightness": {
     "level": 255,

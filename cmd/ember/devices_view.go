@@ -60,15 +60,16 @@ type knobPomo struct {
 }
 
 type knobWeather struct {
-	Provider string  `json:"provider"`
-	Cond     string  `json:"cond"`
-	Code     string  `json:"code"`
-	TempC    float64 `json:"temp_c"`
-	Stale    bool    `json:"stale"`
-	Severe   bool    `json:"severe"`
-	Night    bool    `json:"night"`
-	Sunrise  *int64  `json:"sunrise"`
-	Sunset   *int64  `json:"sunset"`
+	Provider   string  `json:"provider"`
+	Cond       string  `json:"cond"`
+	Code       string  `json:"code"`
+	TempC      float64 `json:"temp_c"`
+	Stale      bool    `json:"stale"`
+	Severe     bool    `json:"severe"`
+	Night      bool    `json:"night"`
+	Sunrise    *int64  `json:"sunrise"`
+	Sunset     *int64  `json:"sunset"`
+	ObservedAt *int64  `json:"observed_at,omitempty"`
 }
 
 type knobNowPlaying struct {
@@ -246,6 +247,10 @@ func (a *App) knobWeather(now time.Time) *knobWeather {
 		rise, set := wx.roundedSun()
 		r, s := rise.Unix(), set.Unix()
 		w.Sunrise, w.Sunset = &r, &s
+	}
+	if !wx.Obs.ObservedAt.IsZero() {
+		o := wx.Obs.ObservedAt.Unix()
+		w.ObservedAt = &o
 	}
 	return w
 }

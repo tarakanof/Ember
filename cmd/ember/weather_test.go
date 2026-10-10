@@ -155,7 +155,7 @@ func TestFetchOpenMeteo(t *testing.T) {
 		if r.URL.Query().Get("timezone") != "auto" {
 			t.Error("open-meteo fetch must request timezone=auto")
 		}
-		w.Write([]byte(`{"utc_offset_seconds":7200,"current":{"temperature_2m":12.5,"weather_code":61},"hourly":{"temperature_2m":[12.5,13.0,13.5]}}`))
+		w.Write([]byte(`{"utc_offset_seconds":7200,"current":{"time":1782036000,"temperature_2m":12.5,"weather_code":61},"hourly":{"temperature_2m":[12.5,13.0,13.5]}}`))
 	}))
 	defer srv.Close()
 	wf := newWeatherFetcher()
@@ -173,13 +173,38 @@ func TestFetchOpenMeteo(t *testing.T) {
 	if !obs.TZKnown || obs.TZOffsetSeconds != 7200 {
 		t.Errorf("tz = (%v,%d), want (true,7200)", obs.TZKnown, obs.TZOffsetSeconds)
 	}
+	if want := time.Unix(1782036000, 0); !obs.ObservedAt.Equal(want) {
+		t.Errorf("observed at = %v, want %v", obs.ObservedAt, want)
+	}
+}
+
+func TestFetchWithoutProviderTimeLeavesObservedAtZero(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "locationforecast") {
+			w.Write([]byte(`{"properties":{"timeseries":[{"data":{"instant":{"details":{"air_temperature":3}}}}]}}`))
+			return
+		}
+		w.Write([]byte(`{"current":{"temperature_2m":20,"weather_code":0}}`))
+	}))
+	defer srv.Close()
+	wf := newWeatherFetcher()
+	wf.openMeteoBase, wf.metNoBase = srv.URL, srv.URL
+	for _, provider := range []string{"open-meteo", "met-no"} {
+		obs, err := wf.fetch(context.Background(), WeatherConfig{Provider: provider, Latitude: 52.1, Longitude: 4.3})
+		if err != nil {
+			t.Fatalf("%s fetch: %v", provider, err)
+		}
+		if !obs.ObservedAt.IsZero() {
+			t.Errorf("%s observed at = %v, want zero", provider, obs.ObservedAt)
+		}
+	}
 }
 
 func TestFetchMetNoSendsUserAgent(t *testing.T) {
 	gotUA := ""
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUA = r.Header.Get("User-Agent")
-		w.Write([]byte(`{"properties":{"timeseries":[{"data":{"instant":{"details":{"air_temperature":3.2}},"next_1_hours":{"summary":{"symbol_code":"heavysnow"}}}}]}}`))
+		w.Write([]byte(`{"properties":{"timeseries":[{"time":"2026-06-21T10:00:00Z","data":{"instant":{"details":{"air_temperature":3.2}},"next_1_hours":{"summary":{"symbol_code":"heavysnow"}}}}]}}`))
 	}))
 	defer srv.Close()
 	wf := newWeatherFetcher()
@@ -196,6 +221,9 @@ func TestFetchMetNoSendsUserAgent(t *testing.T) {
 	}
 	if len(obs.Hourly) != 1 || obs.Hourly[0] != 3.2 {
 		t.Errorf("met-no hourly = %v, want [3.2]", obs.Hourly)
+	}
+	if want := time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC); !obs.ObservedAt.Equal(want) {
+		t.Errorf("met-no observed at = %v, want %v", obs.ObservedAt, want)
 	}
 }
 
