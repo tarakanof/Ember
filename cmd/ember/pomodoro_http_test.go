@@ -70,6 +70,7 @@ func newPomodoroApp(t *testing.T) *App {
 	}
 	t.Cleanup(func() { store.Close() })
 	app.EnablePomodoro(eng, store)
+	ownIconJobs(t, app)
 	return app
 }
 

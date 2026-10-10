@@ -37,6 +37,7 @@ func newDevicesApp(t *testing.T, dbPath string) (*App, *httptest.Server) {
 	}
 	srv := httptest.NewServer(app.routes())
 	t.Cleanup(srv.Close)
+	ownIconJobs(t, app)
 	return app, srv
 }
 

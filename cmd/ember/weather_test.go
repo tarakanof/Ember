@@ -249,6 +249,7 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 
 func TestApplyWeatherSettingsValidation(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	ownIconJobs(t, app)
 	bad := WeatherConfig{Provider: "open-meteo", Units: "metric", Latitude: 200, Longitude: 0, RefreshMinutes: 10, PopupDurationSeconds: 30}
 	if err := putWeather(app, bad); err == nil {
 		t.Error("latitude 200 should be rejected")
@@ -278,6 +279,7 @@ func TestWeatherIconIDOverride(t *testing.T) {
 
 func TestApplyWeatherSettingsPreservesDisables(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	ownIconJobs(t, app)
 	off := WeatherConfig{
 		Enabled: true, Provider: "open-meteo", Units: "metric", Latitude: 52, Longitude: 4,
 		RefreshMinutes: 10, PopupDurationSeconds: 30,
@@ -316,6 +318,7 @@ func TestWeatherAirDefaults(t *testing.T) {
 
 func TestWeatherAirValidation(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	ownIconJobs(t, app)
 	bad := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirPopupThreshold: 201}
 	if err := putWeather(app, bad); err == nil {
 		t.Error("air_popup_threshold 201 should be rejected")

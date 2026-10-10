@@ -14,6 +14,10 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
+func (a *App) provisionIconsInBackground() {
+	a.iconJobs.Go(func() { a.ensureNativeIcons(context.Background()) })
+}
+
 func (a *App) ensureNativeIcons(ctx context.Context) {
 	cfg := a.cfg.Load()
 

@@ -17,6 +17,7 @@ func newTestAppWithStore(t *testing.T) *App {
 	if err := a.ensureStore(t.TempDir() + "/s.db"); err != nil {
 		t.Fatal(err)
 	}
+	ownIconJobs(t, a)
 	return a
 }
 

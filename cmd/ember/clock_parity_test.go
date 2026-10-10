@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -40,6 +42,7 @@ type parityClock struct {
 	pushFaults []string
 
 	conns    map[net.Conn]int
+	bodies   map[string]string
 	uptime   int64
 	settings map[string]any
 	system   map[string]any
@@ -52,6 +55,7 @@ func newParityClock(t *testing.T, pat []bool, log *strings.Builder) *parityClock
 		pat:      pat,
 		log:      log,
 		conns:    map[net.Conn]int{},
+		bodies:   map[string]string{},
 		uptime:   1000,
 		settings: map[string]any{"autoTransition": true, "blockNavigation": false, "brightness": 90.0, "textColor": "#FFFFFF"},
 		system:   map[string]any{"tempOffset": -9.0, "humOffset": 0.0, "buttonCallback": "", "wifiPassword": "secret"},
@@ -92,6 +96,9 @@ func (f *parityClock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	f.connID(r.Context().Value(parityConnKey{}).(net.Conn))
 	h := sha256.Sum256(body)
+	if len(body) > 0 {
+		f.bodies[fmt.Sprintf("%x", h[:4])] = strings.TrimSpace(string(body))
+	}
 	outcome := "ok"
 	switch {
 	case drop:
@@ -237,6 +244,8 @@ func containsStr(xs []string, s string) bool {
 type parityConnKey struct{}
 
 var parityPort = regexp.MustCompile(`127\.0\.0\.1:\d+`)
+
+var paritySecretValue = regexp.MustCompile(`"([^"]*(?i:password|token|secret)[^"]*)":"[^"]*"`)
 
 func TestClockParity(t *testing.T) {
 	if testing.Short() {
@@ -493,6 +502,10 @@ func runClockParity(t *testing.T, pat []bool) string {
 	dev.mu.Lock()
 	defer dev.mu.Unlock()
 	fmt.Fprintf(&log, "requests=%d\n", dev.n)
+	log.WriteString("bodies:\n")
+	for _, h := range slices.Sorted(maps.Keys(dev.bodies)) {
+		fmt.Fprintf(&log, "  %s %s\n", h, paritySecretValue.ReplaceAllString(dev.bodies[h], `"$1":"REDACTED"`))
+	}
 	if len(pat) == 1 && !pat[0] && len(dev.conns) > 10 {
 		t.Errorf("connections = %d for %d requests on a lossless link, want <= 10 (keep-alive reuse broken)", len(dev.conns), dev.n)
 	}

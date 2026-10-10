@@ -15,6 +15,12 @@ import (
 
 var errTest = errors.New("test error")
 
+func ownIconJobs(t *testing.T, a *App) {
+	t.Helper()
+	a.iconFetch = func(context.Context, string) ([]byte, string, error) { return nil, "", errTest }
+	t.Cleanup(a.iconJobs.Wait)
+}
+
 func iconTestApp(t *testing.T, mutate func(*WeatherConfig)) (*App, *recordingPublisher) {
 	t.Helper()
 	pub := &recordingPublisher{}

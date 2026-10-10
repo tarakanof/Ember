@@ -704,7 +704,7 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 		},
 		after: func(Config) {
 			a.nudgePomo()
-			go a.ensureNativeIcons(context.Background())
+			a.provisionIconsInBackground()
 		},
 	}
 }
