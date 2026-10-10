@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"fmt"
 	"go/ast"
 	"go/importer"
@@ -10,6 +11,7 @@ import (
 	"go/token"
 	"go/types"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,58 +32,143 @@ var nonClockHTTPFiles = []string{
 
 func TestClockAccessIsTheOnlyWayToTheClock(t *testing.T) {
 	fset, files, info := typeCheckPackage(t)
+	for _, v := range clockAccessViolations(fset, files, info) {
+		t.Error(v)
+	}
+}
+
+func clockAccessViolations(fset *token.FileSet, files []*ast.File, info checkedInfo) []string {
+	var out []string
+	report := func(pos token.Pos, format string, args ...any) {
+		out = append(out, fmt.Sprintf("%s: "+format, append([]any{fset.Position(pos)}, args...)...))
+	}
 	for _, f := range files {
 		name := filepath.Base(fset.Position(f.Pos()).Filename)
-		for id, obj := range info.Uses {
-			if fset.Position(id.Pos()).Filename != fset.Position(f.Pos()).Filename {
-				continue
-			}
-			pos := fset.Position(id.Pos())
-			fn, ok := obj.(*types.Func)
-			if !ok {
-				if tn, ok := obj.(*types.TypeName); ok && tn.Name() == "clockPublisher" && tn.Pkg() == info.pkg && name != "publisher.go" && name != "app.go" {
-					t.Errorf("%s: clockPublisher outside publisher.go/app.go; NewApp builds the one clock publisher", pos)
+		for _, decl := range f.Decls {
+			inPublisher := name == "publisher.go" && isPublisherMethod(decl, info)
+			ast.Inspect(decl, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.Ident:
+					checkClockUse(n, name, inPublisher, info, report)
+				case *ast.CompositeLit:
+					checkHTTPClient(n, info.Types[n].Type, name, report)
+				case *ast.CallExpr:
+					if id, ok := n.Fun.(*ast.Ident); ok && id.Name == "new" && len(n.Args) == 1 {
+						checkHTTPClient(n, info.Types[n.Args[0]].Type, name, report)
+					}
 				}
-				continue
-			}
-			recv := recvName(fn)
-			pkg := ""
-			if fn.Pkg() != nil {
-				pkg = fn.Pkg().Path()
-			}
-			switch {
-			case pkg == awtrixPkg && recv == "" && fn.Name() == "NewClient" && name != "clock_access.go":
-				t.Errorf("%s: awtrix.NewClient outside clock_access.go; use clockAccess.client/do/fetch", pos)
-			case pkg == discoveryPkg && fn.Name() == "Reachable" && name != "clock_access.go":
-				t.Errorf("%s: discovery.Reachable outside clock_access.go; use clockAccess.reachable", pos)
-			case (recv != "" && slices.Contains([]string{"CustomApp", "ClearApp"}, fn.Name()) && pkg == info.pkg.Path() ||
-				recv == "Client" && pkg == awtrixPkg && slices.Contains([]string{"PushApp", "DeleteApp"}, fn.Name())) &&
-				!strings.HasPrefix(name, "coordinator") && name != "publisher.go":
-				t.Errorf("%s: %s outside the coordinator; pushed apps have one writer", pos, fn.Name())
-			case recv == "Client" && pkg == awtrixPkg &&
-				slices.Contains([]string{"Notify", "PlayRTTTL", "PlayMelody", "PlaySound"}, fn.Name()) &&
-				name != "publisher.go" && name != "device_audio.go":
-				t.Errorf("%s: awtrix %s outside publisher.go/device_audio.go bypasses the quiet-hours gate", pos, fn.Name())
-			case recv != "" && pkg == info.pkg.Path() &&
-				slices.Contains([]string{"Notify", "DismissNotifyByName", "PlayRTTTL"}, fn.Name()) &&
-				name != "coordinator_notices.go" && name != "publisher.go":
-				t.Errorf("%s: %s outside coordinator_notices.go; popups and chimes go through notices", pos, fn.Name())
-			}
+				return true
+			})
 		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			var typ types.Type
-			switch n := n.(type) {
-			case *ast.CompositeLit:
-				typ = info.Types[n].Type
-			case *ast.CallExpr:
-				if id, ok := n.Fun.(*ast.Ident); ok && id.Name == "new" && len(n.Args) == 1 {
-					typ = info.Types[n.Args[0]].Type
+	}
+	return out
+}
+
+func isPublisherMethod(decl ast.Decl, info checkedInfo) bool {
+	fd, ok := decl.(*ast.FuncDecl)
+	if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 {
+		return false
+	}
+	iface, ok := info.pkg.Scope().Lookup("Publisher").(*types.TypeName)
+	if !ok {
+		return false
+	}
+	recv := info.Types[fd.Recv.List[0].Type].Type
+	return recv != nil && types.Implements(recv, iface.Type().Underlying().(*types.Interface))
+}
+
+func checkHTTPClient(n ast.Node, typ types.Type, name string, report func(token.Pos, string, ...any)) {
+	if typ != nil && types.TypeString(typ, nil) == "net/http.Client" && !slices.Contains(nonClockHTTPFiles, name) {
+		report(n.Pos(), "http.Client built outside clock_access.go; clock calls go through clockAccess (or add the file to nonClockHTTPFiles if the host isn't the clock)")
+	}
+}
+
+func checkClockUse(id *ast.Ident, name string, inPublisher bool, info checkedInfo, report func(token.Pos, string, ...any)) {
+	obj := info.Uses[id]
+	if obj == nil {
+		return
+	}
+	fn, ok := obj.(*types.Func)
+	if !ok {
+		if tn, ok := obj.(*types.TypeName); ok && tn.Name() == "clockPublisher" && tn.Pkg() == info.pkg && name != "publisher.go" && name != "app.go" {
+			report(id.Pos(), "clockPublisher outside publisher.go/app.go; NewApp builds the one clock publisher")
+		}
+		return
+	}
+	recv := recvName(fn)
+	pkg := ""
+	if fn.Pkg() != nil {
+		pkg = fn.Pkg().Path()
+	}
+	switch {
+	case pkg == awtrixPkg && recv == "" && fn.Name() == "NewClient" && name != "clock_access.go":
+		report(id.Pos(), "awtrix.NewClient outside clock_access.go; use clockAccess.client/do/fetch")
+	case pkg == discoveryPkg && fn.Name() == "Reachable" && name != "clock_access.go":
+		report(id.Pos(), "discovery.Reachable outside clock_access.go; use clockAccess.reachable")
+	case (recv != "" && slices.Contains([]string{"CustomApp", "ClearApp"}, fn.Name()) && pkg == info.pkg.Path() ||
+		recv == "Client" && pkg == awtrixPkg && slices.Contains([]string{"PushApp", "DeleteApp"}, fn.Name())) &&
+		!strings.HasPrefix(name, "coordinator") && !inPublisher:
+		report(id.Pos(), "%s outside the coordinator; pushed apps have one writer", fn.Name())
+	case recv == "Client" && pkg == awtrixPkg &&
+		slices.Contains([]string{"Notify", "PlayRTTTL", "PlayMelody", "PlaySound"}, fn.Name()) &&
+		!inPublisher && name != "device_audio.go":
+		report(id.Pos(), "awtrix %s outside Publisher methods/device_audio.go bypasses the quiet-hours gate", fn.Name())
+	case recv != "" && pkg == info.pkg.Path() &&
+		slices.Contains([]string{"Notify", "DismissNotifyByName", "PlayRTTTL"}, fn.Name()) &&
+		name != "coordinator_notices.go" && !inPublisher:
+		report(id.Pos(), "%s outside coordinator_notices.go; popups and chimes go through notices", fn.Name())
+	}
+}
+
+const guardFixtureBase = `package main
+
+type Publisher interface {
+	Notify() error
+	CustomApp() error
+}
+
+type clockPublisher struct{}
+
+func (clockPublisher) Notify() error    { return nil }
+func (clockPublisher) CustomApp() error { return nil }
+
+type relay struct{ p Publisher }
+`
+
+func TestClockAccessGuardScopesPublisherExemption(t *testing.T) {
+	for _, tc := range []struct {
+		name, file, src string
+		want            int
+	}{
+		{"publisher method", "publisher.go", "func (c clockPublisher) Again() error { return c.Notify() }", 0},
+		{"publisher method closure", "publisher.go", "func (c clockPublisher) Later() func() error { return func() error { return c.CustomApp() } }", 0},
+		{"free func in publisher.go", "publisher.go", "func sneak(p Publisher) error { return p.Notify() }", 1},
+		{"free func push in publisher.go", "publisher.go", "func sneakPush(p Publisher) error { return p.CustomApp() }", 1},
+		{"non-Publisher method in publisher.go", "publisher.go", "func (r relay) send() error { return r.p.Notify() }", 1},
+		{"publisher method elsewhere", "other.go", "func (c clockPublisher) Again() error { return c.Notify() }", 2},
+		{"notices file", "coordinator_notices.go", "func show(p Publisher) error { return p.Notify() }", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srcs := map[string]string{"publisher.go": guardFixtureBase}
+			srcs[tc.file] = cmp.Or(srcs[tc.file], "package main\n") + "\n" + tc.src + "\n"
+			fset := token.NewFileSet()
+			var files []*ast.File
+			for _, name := range slices.Sorted(maps.Keys(srcs)) {
+				f, err := parser.ParseFile(fset, name, srcs[name], 0)
+				if err != nil {
+					t.Fatal(err)
 				}
+				files = append(files, f)
 			}
-			if typ != nil && types.TypeString(typ, nil) == "net/http.Client" && !slices.Contains(nonClockHTTPFiles, name) {
-				t.Errorf("%s: http.Client built outside clock_access.go; clock calls go through clockAccess (or add the file to nonClockHTTPFiles if the host isn't the clock)", fset.Position(n.Pos()))
+			info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
+			pkg, err := (&types.Config{}).Check("example.com/guardfixture", fset, files, info)
+			if err != nil {
+				t.Fatalf("type-check: %v", err)
 			}
-			return true
+			got := clockAccessViolations(fset, files, checkedInfo{info, pkg})
+			if len(got) != tc.want {
+				t.Fatalf("violations = %d %q, want %d", len(got), got, tc.want)
+			}
 		})
 	}
 }
