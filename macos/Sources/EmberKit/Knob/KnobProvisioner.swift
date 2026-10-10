@@ -401,7 +401,7 @@ public struct KnobProvisioner: Sendable {
                 continue
             }
             let id = statusID
-            let got = try? await s.expect(timeout: timeouts.poll) { e -> EmberEvent? in
+            let got = try? await s.expect(timeout: timeouts.reply) { e -> EmberEvent? in
                 switch e {
                 case .cinder(.event(let ev)) where ev.ev == "ember":
                     return ev.state.map { .state($0, ip: nil) }
