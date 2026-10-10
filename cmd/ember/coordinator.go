@@ -84,8 +84,7 @@ type coordinator struct {
 
 	usage *UsageStore
 
-	alarmArmed map[string]int64
-	alarmFired map[string]int64
+	limitAlarmState
 
 	weather  *weatherStore
 	meetings *meetingsStore

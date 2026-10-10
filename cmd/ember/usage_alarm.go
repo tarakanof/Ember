@@ -16,33 +16,13 @@ const (
 
 func (c *coordinator) checkLimitAlarms(now time.Time, snap Snapshot) {
 	if c.usage == nil || !c.loadCfg().limitAlarmEnabled() {
-		c.alarmArmed = nil
+		c.limitAlarmState.disable()
 		return
 	}
-	if c.alarmArmed == nil {
-		c.alarmArmed = map[string]int64{}
-		c.alarmFired = map[string]int64{}
-	}
-	state := c.usage.state(snap.Sessions, now)
-	for _, tool := range usageTools {
-		t := state.Tools[tool]
-		pct, resetAt, ok := t.FiveHourPct, t.ResetAt, t.HaveFiveHour
-		if ok && pct >= limitAlarmThreshold && resetAt > now.Unix() && c.alarmFired[tool] != resetAt {
-			c.alarmArmed[tool] = resetAt
+	for _, f := range c.limitAlarmState.due(c.usage.state(snap.Sessions, now), now) {
+		if c.fireLimitAlarm(f.Tool) == nil {
+			c.limitAlarmState.fired(f)
 		}
-		armed, isArmed := c.alarmArmed[tool]
-		if !isArmed || now.Unix() < armed+limitAlarmGraceSec {
-			continue
-		}
-		if ok && pct >= limitAlarmThreshold && resetAt > armed {
-			c.alarmArmed[tool] = resetAt
-			continue
-		}
-		if err := c.fireLimitAlarm(tool); err != nil {
-			continue
-		}
-		c.alarmFired[tool] = armed
-		delete(c.alarmArmed, tool)
 	}
 }
 
