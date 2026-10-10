@@ -1832,7 +1832,9 @@ paths:
           $ref: "#/components/responses/BadGateway"
         "503":
           description: Clock only. Another clock app order change held the
-            lock until this request's 11 s deadline; nothing changed.
+            lock until this request's 11 s deadline (nothing changed), the
+            PUT ran out of time before committing settings, or the clock
+            itself answered 503.
           content:
             application/json:
               schema:
@@ -2955,9 +2957,12 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
         "503":
-          description: Another clock app order change held the
-            lock until this request's 11 s deadline; nothing changed.
+          description: Another clock app order change held the lock until
+            this request's 11 s deadline (nothing changed), or the clock
+            itself answered 503.
           content:
             application/json:
               schema:
@@ -2975,9 +2980,12 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
         "503":
-          description: Another clock app order change held the
-            lock until this request's 11 s deadline; nothing changed.
+          description: Another clock app order change held the lock until
+            this request's 11 s deadline (nothing changed), or the clock
+            itself answered 503.
           content:
             application/json:
               schema:

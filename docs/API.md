@@ -101,7 +101,10 @@ matrix, runtime-only), `POST /v1/device/audio/test` (built-in chime, or
 `GET /v1/device/audio/melodies` (NG's melody list; the audio routes answer
 503 `unavailable` when cached capabilities show no buzzer / no output),
 `GET/PUT /v1/device/apps` (ordering + enable/disable,
-`PUT /api/v1/apps/order`), `GET/PUT /v1/device/sensors` (system
+`PUT /api/v1/apps/order`; these and the clock's
+`GET/PUT /v1/devices/{id}/config` run one at a time and answer 503 when
+another app order change holds them past the 11 s deadline),
+`GET/PUT /v1/device/sensors` (system
 `tempOffset`/`humOffset` via read-merge-PUT of `/api/v1/system`; applies live,
 no reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons` (read-merge-PUT
 of `/api/v1/system.buttonCallback`),

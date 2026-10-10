@@ -2566,35 +2566,46 @@ record.
   already written.
 - **One operation at a time.** Every request that reads or writes the
   clock's app order or the cached list (façade GET and PUT, `GET` and
-  `PUT /v1/device/apps`) holds one lock (`App.rotationOp`) for the whole
+  `PUT /v1/device/apps`), and the settings reapply at boot and
+  `/admin/reload`, holds one lock (`App.rotationOp`) for the whole
   operation: the pre-read, the write, the read-back, the cache update, the
   settings commit, the record's version sync and the response snapshot. So
   a read can't land after a newer write, two writes can't interleave their
-  read-backs, and a GET can't see a half-applied PUT. Each such request has
-  an 11 s deadline from arrival (`clockRotationOpBudget`) that covers the
-  wait for the lock and every clock call, under the app's 12 s `.clock`
-  timeout. A request that doesn't get the lock in time answers 503; one
-  that gets it late has only the rest of its deadline for its clock calls,
-  so a write may be cut short (502, as for any lost write). Writes that
-  don't touch the clock (`/v1/apps`, the settings endpoints) don't take
-  the lock.
+  read-backs, and a GET can't see a half-applied PUT or reload. Each such
+  request has a deadline from arrival (11 s, `rotationOp.budget`), started
+  before its body is read, that covers the body, the wait for the lock and
+  every clock call, under the app's 12 s `.clock` timeout.
+  - A request that doesn't get the lock in time, or gets it already
+    expired, answers 503 and changes nothing. If the client went away
+    while it waited, the server logs that and answers nothing.
+  - One that gets it late has only the rest of its deadline for its clock
+    calls, so a write may be cut short: 502, as for any lost write, and the
+    cached list is cleared because the clock may have applied it.
+  - A façade PUT checks its deadline again before it commits the slices;
+    if it ran out, it answers 503 with no settings changed (and says when
+    the clock's order was already written).
+  - Writes that don't touch the clock (`/v1/apps`, the settings endpoints)
+    don't take the lock.
 - **Version.** `config_version` is a hash of the composed config (31 bits of
   SHA-256 of its JSON, never 0), composed from one snapshot (config and
   hidden tools read under `cfgMu`) and stored on the record so the list
-  shows it. Compute and store are serialised (`clockSyncGate.mu`), so a
-  stale hash never overwrites a newer one. It is resynced after every
-  `tryUpdateConfig`, hidden-tool change, record creation and app-list read;
-  a change bumps the epoch once, whichever endpoint caused it. A façade PUT
-  bumps it once: its pre-read and read-back stay local while it talks to
-  the clock; then, with the resync paused, it stores the final list (the
-  read-back, or the pre-read when it skipped the write) and commits the
-  slices, and resyncs once.
+  shows it. Compute, store and the pause check all run under
+  `clockSyncGate.mu`, and pausing or resuming takes it too, so a stale hash
+  never overwrites a newer one and a resync can't start before a pause and
+  finish inside it. It is resynced after every `tryUpdateConfig`,
+  hidden-tool change, record creation and app-list read; a change bumps
+  the epoch once, whichever endpoint caused it. A façade PUT bumps it once:
+  its pre-read and read-back stay local while it talks to the clock; then,
+  with the resync paused, it stores the final list (the read-back, or the
+  pre-read when it skipped the write) and commits the slices, and resyncs
+  once.
 - **Rotation cache.** `rotation` is the last app list the server read from
   the clock, kept in memory, `null` until one succeeds. Pushed Ember tiles
   are not part of it, so tiles coming and going never move the hash. The
   façade GET, the façade pre-read and the read-back after a write on
   either route each have a 2 s budget (`clockRotationReadBudget`);
-  `GET /v1/device/apps` uses the menu call timeout. A failed or
+  `GET /v1/device/apps` uses the menu call timeout (8 s), cut to what is
+  left of its deadline. A failed or
   unparseable GET or pre-read keeps the cached list. Every successful order
   write is read back, so a reorder moves the version once, at the write,
   and a write that leaves the order as it was doesn't move it. If the
