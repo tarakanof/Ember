@@ -139,7 +139,7 @@ func TestMenuEditRacesTakeoverEdges(t *testing.T) {
 		*pomo = i%2 == 0
 		c.publish(*snap)
 	}
-	<-done
+	recvWithin(t, done, "menu edits")
 	*pomo = false
 	c.publish(*snap)
 
@@ -180,7 +180,7 @@ func TestMenuEditInFlightWhenTakeoverStartsIsRecorded(t *testing.T) {
 	*pomo = true
 	c.publish(*snap)
 	close(release)
-	r := <-res
+	r := recvWithin(t, res, "menu edit result")
 	if r.err != nil || len(r.held) != 1 || r.held[0] != "autoTransition" {
 		t.Fatalf("held=%v err=%v, want [autoTransition]", r.held, r.err)
 	}
@@ -288,7 +288,7 @@ func TestOlderInFlightEditDoesNotReplaceNewer(t *testing.T) {
 				c.publish(*snap)
 			}
 			close(g.release)
-			if r := <-e1; r.err != nil {
+			if r := recvWithin(t, e1, "older menu edit result"); r.err != nil {
 				t.Fatal(r.err)
 			}
 			if !endBlockFirst {
@@ -318,7 +318,7 @@ func TestMenuEditInFlightAcrossWholeTakeoverIsRewritten(t *testing.T) {
 	*pomo = false
 	c.publish(*snap)
 	close(g.release)
-	r := <-e
+	r := recvWithin(t, e, "menu edit result")
 	if r.err != nil || len(r.held) != 0 {
 		t.Fatalf("held=%v err=%v, want none and no error", r.held, r.err)
 	}
@@ -341,7 +341,7 @@ func TestMenuEditRewriteLostAnswersError(t *testing.T) {
 	*pomo = false
 	c.publish(*snap)
 	close(g.release)
-	if r := <-e; r.err == nil {
+	if r := recvWithin(t, e, "menu edit result"); r.err == nil {
 		t.Fatal("lost re-write answered success")
 	}
 	if got := clk.get("autoTransition"); got != true {

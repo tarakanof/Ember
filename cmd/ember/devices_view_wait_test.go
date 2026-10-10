@@ -381,7 +381,7 @@ func TestKnobViewWaitReleasesOnClientDisconnect(t *testing.T) {
 	}()
 	waitForWaiters(t, f.app, 1)
 	cancel()
-	if err := <-errc; !errors.Is(err, context.Canceled) {
+	if err := recvWithin(t, errc, "long poll"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 	waitForWaiters(t, f.app, 0)

@@ -191,12 +191,3 @@ func TestShutdownRefusesLateClockJob(t *testing.T) {
 		t.Fatalf("icon lists = %d, want 1: a clock job started after shutdown ran", n)
 	}
 }
-
-func waitEntered(t *testing.T, entered <-chan struct{}, what string) {
-	t.Helper()
-	select {
-	case <-entered:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("%s never started", what)
-	}
-}

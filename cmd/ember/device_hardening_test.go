@@ -204,7 +204,7 @@ func TestStartDeviceWatch_LostProbeIsNotAReboot(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { a.StartDeviceWatch(ctx, 10*time.Millisecond); close(done) }()
-	defer func() { cancel(); <-done }()
+	defer func() { cancel(); recvWithin(t, done, "device watch exit") }()
 
 	waitFor("a baseline probe", func() bool { return ok.Load() >= 4 })
 	down.Store(true)

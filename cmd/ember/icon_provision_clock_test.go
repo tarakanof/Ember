@@ -318,7 +318,7 @@ func TestDeviceWatch_ProvisionsMovedClock(t *testing.T) {
 		return len(moved.requests("POST /api/v1/files")) >= 2 && len(moved.puts()) >= 1
 	})
 	cancel()
-	<-done
+	recvWithin(t, done, "device watch exit")
 	a.clockJobs.Wait()
 
 	if got := a.cfg.Load().effectiveClockURL(); got != movedSrv.URL {
@@ -594,14 +594,14 @@ func TestAdminReload_TracksBootPing(t *testing.T) {
 		app.clockJobs.Wait()
 		close(waited)
 	}()
-	<-started
+	waitEntered(t, started, "clockJobs waiter")
 	select {
 	case <-waited:
 		t.Fatal("clockJobs.Wait returned while the reload boot ping was still running")
 	case <-time.After(200 * time.Millisecond):
 	}
 	release()
-	<-waited
+	recvWithin(t, waited, "clockJobs.Wait after the boot ping")
 }
 
 func TestDeviceConfigPut_BootPingOffRemovesScript(t *testing.T) {

@@ -296,7 +296,7 @@ func TestArtistLookupAttachesDeezerPicture(t *testing.T) {
 	if err := np.report(rep, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	j := <-np.jobs
+	j := recvWithin(t, np.jobs, "artist lookup job")
 	np.lookupArtist(context.Background(), j, app)
 	e, _ := np.reg.Get("music", "M4")
 	if e.ArtistArt == nil || fetchedPath != "/images/artist/abc/500x500-0.jpg" {

@@ -137,7 +137,7 @@ func TestFirmwareGuardedDeleteIsAtomicWithAChannelChange(t *testing.T) {
 	if err := s.removeGuarded("0.9.15", nil, hold, nil); err != nil {
 		t.Fatalf("delete before the promotion = %v", err)
 	}
-	<-done
+	recvWithin(t, done, "promotion after the delete")
 	if !errors.Is(chErr, errFirmwareNotFound) {
 		t.Fatalf("promotion after the delete = %v, want not found", chErr)
 	}
@@ -187,7 +187,7 @@ func TestFirmwareGuardedDeleteHoldsCheckinsUntilThePurgeEnds(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("guarded delete = %d %s", resp.StatusCode, b)
 	}
-	<-checkedIn
+	recvWithin(t, checkedIn, "checkin after the delete")
 	if checkinErr != nil {
 		t.Fatal(checkinErr)
 	}

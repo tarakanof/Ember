@@ -412,7 +412,7 @@ func TestClockConfigPutKeepsConcurrentOldEndpointWrite(t *testing.T) {
 	getClockConfig(t, srv, d.ID)
 	release := holdClockOrder(t, stub)
 	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"calendar":{"tile_lead_minutes":15}},"rotation":{"order":["date","time"]}}`)
-	<-stub.orderIn
+	waitEntered(t, stub.orderIn, "facade order write")
 	resp, b := devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"moon_phase":false}`)
 	mustOK(t, "weather put", resp, b)
 	resp, b = devReq(t, srv, "PUT", "/v1/apps", testToken, `{"app":"codex","enabled":false}`)
@@ -435,7 +435,7 @@ func TestClockConfigConcurrentFacadePutsRunOneAtATime(t *testing.T) {
 	getClockConfig(t, srv, d.ID)
 	release := holdClockOrder(t, stub)
 	first := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"calendar":{"tile_lead_minutes":15}},"rotation":{"order":["date","time"]}}`)
-	<-stub.orderIn
+	waitEntered(t, stub.orderIn, "first facade order write")
 	second := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false},"agents":{"usage_cards":false}}}`)
 	if r, done := waitReply(second, 200*time.Millisecond); done {
 		t.Fatalf("a second facade PUT finished (%d) while the first waited on the clock", r.code)
@@ -647,7 +647,7 @@ func TestClockRotationReadInFlightDelaysOldRouteWrite(t *testing.T) {
 	epoch := a.devices.epochValue()
 	in, release := stub.holdApps(t, http.StatusOK)
 	get := clockGoReq(srv, "GET", "/v1/device/apps", "")
-	<-in
+	waitEntered(t, in, "apps read")
 	put := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"]}`)
 	if r, done := waitReply(put, 200*time.Millisecond); done {
 		t.Fatalf("old-route PUT finished (%d) while a read of the list was in flight", r.code)
@@ -667,7 +667,7 @@ func TestClockRotationOldRouteWritesRunOneAtATime(t *testing.T) {
 	getClockConfig(t, srv, d.ID)
 	in, release := stub.holdApps(t, http.StatusInternalServerError)
 	first := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"]}`)
-	<-in
+	waitEntered(t, in, "first old-route read-back")
 	second := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"]}`)
 	if r, done := waitReply(second, 200*time.Millisecond); done {
 		t.Fatalf("second old-route PUT finished (%d) during the first one's read-back", r.code)
@@ -690,7 +690,7 @@ func TestClockRotationDelayedWriteReplyKeepsNewerList(t *testing.T) {
 	stub.mu.Unlock()
 	release := holdClockOrder(t, stub)
 	first := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"]}`)
-	<-stub.orderIn
+	waitEntered(t, stub.orderIn, "first order write")
 	second := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"]}`)
 	early, secondDone := waitReply(second, 300*time.Millisecond)
 	stub.mu.Lock()
@@ -756,7 +756,7 @@ func TestClockConfigGetWaitsForFacadeCommit(t *testing.T) {
 	release := sync.OnceFunc(func() { close(hold) })
 	t.Cleanup(release)
 	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"]}}`)
-	<-in
+	waitEntered(t, in, "facade commit")
 	get := clockGoReq(srv, "GET", "/v1/devices/"+d.ID+"/config", "")
 	if r, done := waitReply(get, 200*time.Millisecond); done {
 		if rec := listDevices(t, srv)[0].ConfigVersion; r.version != rec {
@@ -782,7 +782,7 @@ func TestClockConfigOldRouteWaitsForFacadePut(t *testing.T) {
 	getClockConfig(t, srv, d.ID)
 	release := holdClockOrder(t, stub)
 	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"]}}`)
-	<-stub.orderIn
+	waitEntered(t, stub.orderIn, "facade order write")
 	old := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"]}`)
 	if r, done := waitReply(old, 200*time.Millisecond); done {
 		t.Fatalf("old-route PUT finished (%d) while a facade PUT waited on the clock", r.code)
@@ -891,11 +891,11 @@ func TestClockResyncCannotHashAHalfCommittedFacadePut(t *testing.T) {
 	select {
 	case <-in:
 		unlock()
-		<-stalled
+		recvWithin(t, stalled, "clock config resync")
 	case <-time.After(300 * time.Millisecond):
 		unlock()
-		<-stalled
-		<-in
+		recvWithin(t, stalled, "clock config resync")
+		waitEntered(t, in, "facade commit")
 	}
 	release()
 	mustReply(t, "facade put", put)
@@ -924,7 +924,7 @@ func TestAdminReloadWaitsForClockRotationBeforePublishing(t *testing.T) {
 		t.Fatalf("reload published idle_text %q while a clock app order operation held the lock", got)
 	}
 	release()
-	if code := <-done; code != http.StatusOK {
+	if code := recvWithin(t, done, "admin reload"); code != http.StatusOK {
 		t.Fatalf("reload = %d, want 200", code)
 	}
 	if got := app.cfg.Load().Display.IdleText; got != "new" {
@@ -954,7 +954,7 @@ func TestClockRotationBudgetAnswers503Then502ThenFreesTheLock(t *testing.T) {
 	getClockConfig(t, srv, d.ID)
 	release := holdClockOrder(t, stub)
 	first := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"]}`)
-	<-stub.orderIn
+	waitEntered(t, stub.orderIn, "first order write")
 	a.rotationOp.budget.Store(int64(100 * time.Millisecond))
 	epoch := a.devices.epochValue()
 	busy := waitCode(t, "waiting order", clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"]}`))
@@ -968,7 +968,7 @@ func TestClockRotationBudgetAnswers503Then502ThenFreesTheLock(t *testing.T) {
 	mustReply(t, "first order", first)
 	releaseCut := holdClockOrder(t, stub)
 	cut := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"]}`)
-	<-stub.orderIn
+	waitEntered(t, stub.orderIn, "cut order write")
 	if r := waitCode(t, "cut order", cut); r.code != http.StatusBadGateway {
 		t.Fatalf("cut-short order = %d %s, want 502", r.code, r.body)
 	}

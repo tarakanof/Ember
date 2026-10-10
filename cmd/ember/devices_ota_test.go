@@ -1331,7 +1331,7 @@ func TestOTARetryDuringADeleteOfTheParkedVersionIsRefused(t *testing.T) {
 	if got := offerOf(t, k.idle(t)); got != nil {
 		t.Fatalf("checkin offered a version deleted after it read the store: %v", got)
 	}
-	if code := <-retry; del != http.StatusNoContent || code != http.StatusBadRequest {
+	if code := recvWithin(t, retry, "retry"); del != http.StatusNoContent || code != http.StatusBadRequest {
 		t.Fatalf("delete = %d, retry = %d; want 204, 400", del, code)
 	}
 	if st := k.status(t); st.Target != nil || st.Version != nil || st.Phase != otaPhaseIdle {
@@ -1535,11 +1535,15 @@ func TestOTAAutoCheckinCommittingMidDeleteDoesNotOffer(t *testing.T) {
 	var del <-chan int
 	k.onceAfterRead(func() {
 		del = goReq(k.srv, "DELETE", "/v1/firmware/0.9.14", nil)
-		<-reached
+		select {
+		case <-reached:
+		case <-time.After(chanWaitBound):
+			t.Error("delete never reached the purge")
+		}
 	})
 	got := offerOf(t, k.idle(t))
 	close(release)
-	if code := <-del; code != http.StatusNoContent {
+	if code := recvWithin(t, del, "delete"); code != http.StatusNoContent {
 		t.Fatalf("delete = %d", code)
 	}
 	if got != nil {
