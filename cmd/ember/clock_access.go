@@ -154,8 +154,8 @@ func (k *clockAccess) reachable(ctx context.Context, base string) bool {
 	if clockDisabled() {
 		return false
 	}
-	_, ok := discovery.Reachable(ctx, &http.Client{Timeout: probeCallTimeout}, base)
-	return ok
+	info, err := k.connect(base, probeCallTimeout).DeviceInfo(ctx)
+	return err == nil && discovery.IsNG(info)
 }
 
 func (k *clockAccess) readSystem(ctx context.Context) (map[string]any, error) {

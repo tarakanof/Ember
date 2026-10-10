@@ -280,8 +280,9 @@ func newAppForReload(t *testing.T, cfgBody string) (*App, string) {
 	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	app.configPath = path
 	app.configSource = "flag"
+	requireLoopbackOnly(t)
 	stubRemoteClock(t, app)
-	t.Cleanup(app.clockJobs.Wait)
+	ownIconJobs(t, app)
 	return app, path
 }
 

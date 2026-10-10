@@ -58,13 +58,7 @@ func TestProbeRejectsNonAwtrixHTTPServer(t *testing.T) {
 	}
 }
 
-func TestReachableUsesNGFingerprint(t *testing.T) {
-	srv := ngDeviceServer(t, `{"version":"1.0.13","uid":"e868e705ffb8","boardType":"awtrixng"}`)
-	ver, ok := Reachable(context.Background(), &http.Client{Timeout: time.Second}, srv.URL)
-	if !ok || ver != "1.0.13" {
-		t.Fatalf("Reachable = (%q, %v), want (\"1.0.13\", true)", ver, ok)
-	}
-
+func TestProbeRejectsLegacyStatsOnlyDevice(t *testing.T) {
 	legacy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/stats" {
 			_, _ = w.Write([]byte(`{"uid":"awtrix_116ae8","version":"0.98"}`))
@@ -73,7 +67,7 @@ func TestReachableUsesNGFingerprint(t *testing.T) {
 		http.NotFound(w, r)
 	}))
 	defer legacy.Close()
-	if _, ok := Reachable(context.Background(), &http.Client{Timeout: time.Second}, legacy.URL); ok {
+	if _, ok := probe(context.Background(), time.Second, legacy.URL); ok {
 		t.Fatal("legacy AWTRIX3 /api/stats-only device must not fingerprint as awtrix-ng")
 	}
 }
