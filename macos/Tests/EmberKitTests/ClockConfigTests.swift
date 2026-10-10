@@ -626,6 +626,28 @@ private final class LoadGate: @unchecked Sendable {
     #expect(m.draft == 7)
 }
 
+@MainActor @Test(.timeLimit(.minutes(1))) func olderLoadSucceedingLastKeepsANewerLoadsError() async throws {
+    let gate = LoadGate()
+    let m = ConfigModel<Int>(initial: 0, load: {
+        switch gate.next() {
+        case 1: return 1
+        case 2:
+            await withCheckedContinuation { c in DispatchQueue.global().async { gate.release.wait(); c.resume() } }
+            return 2
+        default: throw APIError.http(status: 500, body: "")
+        }
+    }, save: { _ in })
+    await m.load()
+    let older = Task { await m.load() }
+    try await waitFor { gate.count == 2 }
+    await m.load()
+    try #require(m.loadError != nil)
+    gate.release.signal()
+    await older.value
+    #expect(m.loadError != nil)
+    #expect(m.draft == 1)
+}
+
 @MainActor @Test func facadeSaveKeepsAPendingSharedFieldEdit() async throws {
     let server = FacadeServer(config: try fixtureText("config_custom"))
     let (m, settings, _) = try await linked(server)
@@ -831,32 +853,45 @@ private final class LoadGate: @unchecked Sendable {
     #expect(ClockAppLens(source: settings.pomodoro, clock: m, slice: \.focus).loadError == nil)
 }
 
-private func leafFields(_ value: Any, under prefix: String = "") -> Set<String> {
-    var out: Set<String> = []
+private func leafValues(_ value: Any, under prefix: String = "") -> [String: String] {
+    var out: [String: String] = [:]
     for child in Mirror(reflecting: value).children {
         guard let label = child.label else { continue }
         let name = prefix.isEmpty ? label : prefix + "." + label
         if Mirror(reflecting: child.value).displayStyle == .struct {
-            out.formUnion(leafFields(child.value, under: name))
+            out.merge(leafValues(child.value, under: name)) { a, _ in a }
         } else {
-            out.insert(name)
+            out[name] = String(describing: child.value)
         }
     }
     return out
 }
 
+private struct FieldRow<S> {
+    let name: String
+    let change: (inout S) -> Void
+
+    init<V>(_ name: String, _ path: WritableKeyPath<S, V>, _ value: V) {
+        self.name = name
+        change = { $0[keyPath: path] = value }
+    }
+}
+
 private func checkFieldDiff<S: ClockAppSlice>(_ base: S, other: S, blank: S.Source, unmapped: Set<String> = [],
-                                              _ fields: [(name: String, change: (inout S) -> Void)]) {
-    #expect(Set(fields.map(\.name)).union(unmapped) == leafFields(base), "the table misses a field of \(S.self)")
+                                              _ fields: [FieldRow<S>]) {
+    let leaves = leafValues(base)
+    #expect(Set(fields.map(\.name)).union(unmapped) == Set(leaves.keys), "the table misses a field of \(S.self)")
     var fromBase = blank
     base.apply(to: &fromBase)
     var fromOther = blank
     other.apply(to: &fromOther)
     var all = base
-    for (name, change) in fields {
+    for row in fields {
+        let name = row.name, change = row.change
         var sent = base
         change(&sent)
-        #expect(sent != base, "\(name) leaves the slice unchanged")
+        let touched = Set(leafValues(sent).filter { leaves[$0.key] != $0.value }.keys)
+        #expect(touched == [name], "row \(name) changes \(touched.sorted())")
         var written = fromBase
         sent.apply(to: &written, changedFrom: base)
         #expect(written != fromBase, "\(name) is not written")
@@ -883,13 +918,13 @@ private func checkFieldDiff<S: ClockAppSlice>(_ base: S, other: S, blank: S.Sour
 @MainActor @Test func everyFacadeFieldIsWrittenAloneWhenItChanged() {
     checkFieldDiff(ClockConfig.Agents(), other: ClockConfig.Agents(usageCards: false, usagePerModel: false),
                    blank: UsageConfig(), unmapped: ["hiddenTools"], [
-        ("usageCards", { $0.usageCards = false }),
-        ("usagePerModel", { $0.usagePerModel = false }),
+        FieldRow("usageCards", \.usageCards, false),
+        FieldRow("usagePerModel", \.usagePerModel, false),
     ])
     checkFieldDiff(ClockConfig.Focus(), other: ClockConfig.Focus(focusColor: "#111111", breakColor: "#222222"),
                    blank: SettingsModels.defaultPomoConfig, [
-        ("focusColor", { $0.focusColor = "#AAAAAA" }),
-        ("breakColor", { $0.breakColor = "#BBBBBB" }),
+        FieldRow("focusColor", \.focusColor, "#AAAAAA"),
+        FieldRow("breakColor", \.breakColor, "#BBBBBB"),
     ])
     let otherWeather = ClockConfig.Weather(
         on: false, nativeIcon: true, forecast: false, forecastHours: 6, air: false, moon: false, overlay: false,
@@ -897,26 +932,26 @@ private func checkFieldDiff<S: ClockAppSlice>(_ base: S, other: S, blank: S.Sour
                                    intervalMinutes: 30, durationSeconds: 8),
         iconIds: ["clear": "1"])
     checkFieldDiff(ClockConfig.Weather(), other: otherWeather, blank: WeatherConfig(), [
-        ("on", { $0.on = false }),
-        ("nativeIcon", { $0.nativeIcon = true }),
-        ("forecast", { $0.forecast = false }),
-        ("forecastHours", { $0.forecastHours = 12 }),
-        ("air", { $0.air = false }),
-        ("moon", { $0.moon = false }),
-        ("overlay", { $0.overlay = false }),
-        ("popups.onChange", { $0.popups.onChange = false }),
-        ("popups.sun", { $0.popups.sun = false }),
-        ("popups.severe", { $0.popups.severe = false }),
-        ("popups.nativeIcons", { $0.popups.nativeIcons = true }),
-        ("popups.intervalMinutes", { $0.popups.intervalMinutes = 60 }),
-        ("popups.durationSeconds", { $0.popups.durationSeconds = 15 }),
-        ("iconIds", { $0.iconIds = ["rain": "9"] }),
+        FieldRow("on", \.on, false),
+        FieldRow("nativeIcon", \.nativeIcon, true),
+        FieldRow("forecast", \.forecast, false),
+        FieldRow("forecastHours", \.forecastHours, 12),
+        FieldRow("air", \.air, false),
+        FieldRow("moon", \.moon, false),
+        FieldRow("overlay", \.overlay, false),
+        FieldRow("popups.onChange", \.popups.onChange, false),
+        FieldRow("popups.sun", \.popups.sun, false),
+        FieldRow("popups.severe", \.popups.severe, false),
+        FieldRow("popups.nativeIcons", \.popups.nativeIcons, true),
+        FieldRow("popups.intervalMinutes", \.popups.intervalMinutes, 60),
+        FieldRow("popups.durationSeconds", \.popups.durationSeconds, 15),
+        FieldRow("iconIds", \.iconIds, ["rain": "9"]),
     ])
     checkFieldDiff(ClockConfig.Calendar(), other: ClockConfig.Calendar(on: false, tileLeadMinutes: 15, popupLeadMinutes: 0),
                    blank: MeetingsConfig(), [
-        ("on", { $0.on = false }),
-        ("tileLeadMinutes", { $0.tileLeadMinutes = 30 }),
-        ("popupLeadMinutes", { $0.popupLeadMinutes = 5 }),
+        FieldRow("on", \.on, false),
+        FieldRow("tileLeadMinutes", \.tileLeadMinutes, 30),
+        FieldRow("popupLeadMinutes", \.popupLeadMinutes, 5),
     ])
 }
 
