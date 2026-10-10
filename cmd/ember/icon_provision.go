@@ -18,12 +18,20 @@ func (a *App) provisionIconsInBackground() {
 	if a.iconHold.Load() > 0 {
 		return
 	}
-	a.clockJobs.Go(func() { a.ensureNativeIcons(context.Background()) })
+	a.clockJobs.Go(func() { a.ensureNativeIcons(a.clockJobsCtx) })
 }
 
-func (a *App) provisionClockInBackground(ctx context.Context) {
-	a.clockJobs.Go(func() { a.ensureNativeIcons(ctx) })
-	a.clockJobs.Go(func() { a.ensureBootPingScript(ctx) })
+func (a *App) provisionClockInBackground() {
+	if clockDisabled() {
+		return
+	}
+	a.clockJobs.Go(func() { a.ensureNativeIcons(a.clockJobsCtx) })
+	a.clockJobs.Go(func() { a.ensureBootPingScript(a.clockJobsCtx) })
+}
+
+func (a *App) clockMoved(reason string) {
+	a.RepublishAll(reason)
+	a.provisionClockInBackground()
 }
 
 func (a *App) ensureNativeIcons(ctx context.Context) {

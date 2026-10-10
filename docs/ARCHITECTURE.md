@@ -1313,8 +1313,8 @@ precipitating. The previews can't animate it and don't draw it.
 **Icon provisioning** (`ensureNativeIcons`): the device's own on-demand
 gallery downloads proved unreliable (observed failing for hours → iconless
 tile), so the **server provisions icons**: on startup, on every weather or
-Pomodoro config apply, after a config reload and whenever rediscovery moves the
-clock to a new URL, it lists the clock's `/ICONS` folder (`GET
+Pomodoro config apply, after a config reload and whenever the clock moves to a
+new URL (rediscovery or a `PUT /v1/device/config`), it lists the clock's `/ICONS` folder (`GET
 /api/v1/files?dir=/ICONS`), downloads any missing configured icon ID from the
 LaMetric gallery (`.gif`→`.jpg` fallback, then the extensionless URL as a
 last resort — some IDs, e.g. the Pomodoro tomato `29802`, exist only as a
@@ -1326,12 +1326,16 @@ POST /api/v1/files?dir=/ICONS`, `Publisher.ListIcons`/`PutIcon`). List failures 
 per-icon failures log and retry on the next apply/restart. The startup run
 comes from `initDeviceDiscovery`, once the boot rediscover has judged the URL
 (`provisionClockInBackground`, which also starts the boot-ping install; both
-run on `App.clockJobs`, which shutdown waits for). `reapplySettings` holds icon
+run on `App.clockJobs` under `App.clockJobsCtx`). Shutdown cancels that context
+first, so a job stalled on the lossy link aborts instead of eating the
+deadline, then stops the clock migration and only after that waits for the
+clock jobs, so a job that still hangs can't keep `clockMigrate.stopAndWait()`
+from running before the store closes. `reapplySettings` holds icon
 provisioning (`iconHold`, released by `defer`) while it restores stored slices,
 because the weather and Pomodoro `after` hooks fire before the clock URL
 override (`clock` is registered last) and before rediscovery has judged that
 URL, so a provisioning job started there listed `/ICONS` on a stale address
-(#382); `/admin/reload` provisions explicitly after its reapply. Covers both the
+(#382); `/admin/reload` calls `provisionClockInBackground` after its reapply. Covers both the
 weather condition icons and the Pomodoro tomato/coffee icons (`29802`/`6396`)
 whenever their owning feature is enabled.
 
@@ -1713,9 +1717,14 @@ tier, not a swap. `sameDeviceURL` normalises because discovery builds
 to a different clock clears the cached capabilities (they described the previous
 clock and the audio gate would refuse on their word), and a PUT naming
 `base_url` clears a swap even when the URL equals the override discovery swapped
-away from. A swap found by the watch also re-runs the per-clock one-shots that
+away from. A swap found by the watch, and a PUT that changes the effective URL
+(compared with `sameDeviceURL`), both go through `clockMoved`: a republish
+(`clock_rediscovered` / `clock_url_changed`) plus the per-clock one-shots that
 otherwise run only at boot or reload: icon provisioning and the boot-ping script
-install (`ensureBootPingScript`), so a clock found after boot gets them too.
+install (`ensureBootPingScript`), so a clock found or pinned after boot gets
+them too. The PUT handler decides this, not a settings `after` hook, because
+`reapplySettings` replays the stored override at boot before rediscovery has
+judged it (#382).
 They start in the background after `rediscoverClock` returns, so neither
 `deviceRediscoverMu` nor the `clock_rediscovered` republish waits on them.
 `rediscoverClock` is single-flighted by `deviceRediscoverMu` so the

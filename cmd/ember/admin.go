@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -224,10 +223,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.resyncPomodoroAfterReload()
 		app.reapplySettings()
 		app.changes.notify(topicConfig | topicPomodoro)
-		app.provisionIconsInBackground()
-		if !clockDisabled() {
-			go app.ensureBootPingScript(context.Background())
-		}
+		app.provisionClockInBackground()
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,

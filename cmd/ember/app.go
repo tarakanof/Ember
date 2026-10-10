@@ -100,10 +100,12 @@ type App struct {
 	meetings        *meetingsStore
 	meetingsFetcher *icsFetcher
 
-	iconFetch func(ctx context.Context, id string) (data []byte, ext string, err error)
-	iconMu    sync.Mutex
-	clockJobs sync.WaitGroup
-	iconHold  atomic.Int32
+	iconFetch     func(ctx context.Context, id string) (data []byte, ext string, err error)
+	iconMu        sync.Mutex
+	clockJobs     sync.WaitGroup
+	clockJobsCtx  context.Context
+	stopClockJobs context.CancelFunc
+	iconHold      atomic.Int32
 
 	republish republishGate
 	browseFn  func(context.Context, time.Duration) ([]discovery.Candidate, error)
@@ -142,6 +144,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.nowPlaying = newNowPlayingService()
 	a.nowPlaying.reg.OnChange = func() { a.changes.notify(topicNowPlaying) }
 	a.iconFetch = fetchLaMetricIcon
+	a.clockJobsCtx, a.stopClockJobs = context.WithCancel(context.Background())
 	a.cfg.Store(&cfg)
 	a.changes = newChangeBroadcaster()
 	a.clock = newClockAccess(a.cfg.Load)

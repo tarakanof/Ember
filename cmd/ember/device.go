@@ -33,7 +33,7 @@ func validDeviceURL(raw string) error {
 func (a *App) initDeviceDiscovery(ctx context.Context) {
 	_ = a.rediscoverClock(ctx)
 	a.refreshCapabilities(ctx)
-	a.provisionClockInBackground(ctx)
+	a.provisionClockInBackground()
 }
 
 func (a *App) rediscoverClock(ctx context.Context) bool {
@@ -142,8 +142,7 @@ func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 		case <-t.C:
 			if a.rediscoverClock(ctx) {
 				last = deviceProbe{}
-				a.RepublishAll("clock_rediscovered")
-				a.provisionClockInBackground(ctx)
+				a.clockMoved("clock_rediscovered")
 			}
 			cur := a.probeDevice(ctx, interval/2)
 			if !cur.reachable {
@@ -227,10 +226,14 @@ func (a *App) handleDeviceConfigPut(w http.ResponseWriter, r *http.Request) {
 		}
 		return func(c *Config) { c.AWTRIX.clockDiscovered = "" }
 	}
+	before := a.cfg.Load().effectiveClockURL()
 	if _, ok := serveSettingPutWith(a, w, r, a.settings.clock, pin); !ok {
 		return
 	}
 	a.caps.Store(nil)
+	if !sameDeviceURL(before, a.cfg.Load().effectiveClockURL()) {
+		a.clockMoved("clock_url_changed")
+	}
 	a.handleDeviceConfigGet(w, r)
 }
 

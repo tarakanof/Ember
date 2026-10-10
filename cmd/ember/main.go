@@ -203,14 +203,15 @@ const shutdownTimeout = 8 * time.Second
 
 func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.WaitGroup) {
 	a.changes.close()
+	a.stopClockJobs()
 	if err := server.Shutdown(ctx); err != nil {
 		a.logger.Warn("server shutdown failed", "err", err)
 	}
 	done := make(chan struct{})
 	go func() {
 		workers.Wait()
-		a.clockJobs.Wait()
 		a.clockMigrate.stopAndWait()
+		a.clockJobs.Wait()
 		close(done)
 	}()
 	select {

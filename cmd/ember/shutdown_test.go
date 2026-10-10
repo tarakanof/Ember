@@ -83,3 +83,49 @@ func TestShutdownIsBoundedByItsDeadline(t *testing.T) {
 		t.Fatal("shutdown blocked on a stuck worker past its deadline")
 	}
 }
+
+func TestShutdownCancelsStalledIconJob(t *testing.T) {
+	clock := &iconClockStub{fingerprint: true, stallList: make(chan struct{})}
+	clockSrv := clock.server(t)
+	a := iconClockApp(t, clockSrv.URL)
+	t.Cleanup(func() { close(clock.stallList) })
+	if err := a.ensureStore(t.TempDir() + "/s.db"); err != nil {
+		t.Fatal(err)
+	}
+	a.provisionIconsInBackground()
+	waitFor(t, "icon list request", func() bool {
+		return len(clock.requests("GET /api/v1/files")) > 0
+	})
+
+	ctx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stop()
+	start := time.Now()
+	a.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("shutdown took %v behind a stalled icon job", took)
+	}
+	assertMigrationStopped(t, a)
+}
+
+func TestShutdownStopsMigrationBehindStalledClockJob(t *testing.T) {
+	a := newTestAppWithStore(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	a.clockJobs.Go(func() { <-release })
+
+	ctx, stop := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer stop()
+	a.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
+	assertMigrationStopped(t, a)
+}
+
+func assertMigrationStopped(t *testing.T, a *App) {
+	t.Helper()
+	ran := make(chan struct{})
+	a.clockMigrate.start(func() { close(ran) })
+	select {
+	case <-ran:
+		t.Fatal("a clock migration started after shutdown: the migration was never stopped")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
