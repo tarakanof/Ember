@@ -169,9 +169,9 @@ public enum KnobFirmwareKept: Equatable, Sendable {
 
     public init?(_ error: Error) {
         guard case .http(409, let body)? = error as? APIError else { return nil }
-        if body.contains("firmware_kept") {
-            self = body.contains("newest") ? .newest : .inUse
-        } else if body.contains("update target") {
+        if body.contains("firmware_kept_newest") {
+            self = .newest
+        } else if body.contains("firmware_kept_in_use") || body.contains("update target") {
             self = .inUse
         } else {
             return nil

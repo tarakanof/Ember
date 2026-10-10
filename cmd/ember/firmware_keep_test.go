@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestFirmwareNewestKept(t *testing.T) {
@@ -94,31 +95,102 @@ func TestFirmwareGuardedDeleteKeepsWhatAnotherKnobRuns(t *testing.T) {
 	k.idle(t)
 	other.checkin(t, otaReport("0.9.12", runningBuild, "valid", "idle", true, ""))
 	resp, b = devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.12?keep=protected", testToken, "")
-	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(b), "a knob runs") {
+	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(b), "firmware_kept_in_use") {
 		t.Fatalf("guarded delete of another knob's build = %d %s", resp.StatusCode, b)
 	}
 }
 
+func threeImageStore(t *testing.T) *firmwareStore {
+	t.Helper()
+	s := newFWStore(t)
+	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), firmwareChannelRelease)
+	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.15"}), firmwareChannelTest)
+	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.16"}), firmwareChannelTest)
+	return s
+}
+
+func noHold(string) (bool, func()) { return false, func() {} }
+
 func TestFirmwareGuardedDeleteIsAtomicWithAChannelChange(t *testing.T) {
+	s := threeImageStore(t)
+	if _, err := s.setChannel("0.9.15", firmwareChannelRelease); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.removeGuarded("0.9.15", nil, noHold, nil); !errors.Is(err, errFirmwareKeptNewest) {
+		t.Fatalf("delete after the promotion = %v, want firmware_kept_newest", err)
+	}
+
+	s = threeImageStore(t)
+	var chErr error
+	done := make(chan struct{})
+	hold := func(string) (bool, func()) {
+		go func() { _, chErr = s.setChannel("0.9.15", firmwareChannelRelease); close(done) }()
+		select {
+		case <-done:
+			t.Error("the promotion ran inside the guarded delete")
+		case <-time.After(50 * time.Millisecond):
+		}
+		return false, func() {}
+	}
+	if err := s.removeGuarded("0.9.15", nil, hold, nil); err != nil {
+		t.Fatalf("delete before the promotion = %v", err)
+	}
+	<-done
+	if !errors.Is(chErr, errFirmwareNotFound) {
+		t.Fatalf("promotion after the delete = %v, want not found", chErr)
+	}
+
 	for i := range 40 {
-		s := newFWStore(t)
-		putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), firmwareChannelRelease)
-		putFW(t, s, fakeFirmware(fwOpts{version: "0.9.15"}), firmwareChannelTest)
-		putFW(t, s, fakeFirmware(fwOpts{version: "0.9.16"}), firmwareChannelTest)
+		s := threeImageStore(t)
 		var wg sync.WaitGroup
 		var chErr, rmErr error
 		wg.Add(2)
 		go func() { defer wg.Done(); _, chErr = s.setChannel("0.9.15", firmwareChannelRelease) }()
-		go func() {
-			defer wg.Done()
-			rmErr = s.removeGuarded("0.9.15", nil, func(string) bool { return false }, nil)
-		}()
+		go func() { defer wg.Done(); rmErr = s.removeGuarded("0.9.15", nil, noHold, nil) }()
 		wg.Wait()
 		switch {
-		case chErr == nil && errors.Is(rmErr, errFirmwareKept):
+		case chErr == nil && errors.Is(rmErr, errFirmwareKeptNewest):
 		case rmErr == nil && errors.Is(chErr, errFirmwareNotFound):
 		default:
 			t.Fatalf("run %d: channel err %v, remove err %v", i, chErr, rmErr)
 		}
+	}
+}
+
+func TestFirmwareGuardedDeleteHoldsCheckinsUntilThePurgeEnds(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.12"}), "")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.20"}), "?channel=release")
+	k.idle(t)
+	store := k.app.knobFW
+	rename := store.rename
+	var checkinErr error
+	checkedIn := make(chan struct{})
+	var once sync.Once
+	store.rename = func(oldpath, newpath string) error {
+		once.Do(func() {
+			go func() {
+				_, checkinErr = k.app.devices.checkin(k.knob.ID, deviceCheckin{FW: "0.9.12"}, nil, "")
+				close(checkedIn)
+			}()
+			select {
+			case <-checkedIn:
+				t.Error("a checkin ran while the guarded delete was purging")
+			case <-time.After(50 * time.Millisecond):
+			}
+		})
+		return rename(oldpath, newpath)
+	}
+	resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.12?keep=protected", testToken, "")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("guarded delete = %d %s", resp.StatusCode, b)
+	}
+	<-checkedIn
+	if checkinErr != nil {
+		t.Fatal(checkinErr)
+	}
+	resp, b = devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.20?keep=protected", testToken, "")
+	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(b), "firmware_kept_newest") {
+		t.Fatalf("guarded delete of the newest release = %d %s", resp.StatusCode, b)
 	}
 }

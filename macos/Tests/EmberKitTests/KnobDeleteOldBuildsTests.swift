@@ -8,7 +8,7 @@ private final class FirmwareServer: @unchecked Sendable {
     private var _versions: [(String, String)] = []
     private var _ota = ""
     private var _devices = #"{"devices":[]}"#
-    private var _failing: Set<String> = []
+    private var _failing: [String: Int] = [:]
     private var _gate: DispatchSemaphore?
     private var _gatePrefix = "DELETE "
     private var _arrived = false
@@ -33,7 +33,8 @@ private final class FirmwareServer: @unchecked Sendable {
 
     func set(ota: String) { lock.withLock { _ota = ota } }
     func set(devices: String) { lock.withLock { _devices = devices } }
-    func fail(_ path: String) { lock.withLock { _ = _failing.insert(path) } }
+    func fail(_ path: String, status: Int = 500) { lock.withLock { _failing[path] = status } }
+    func heal(_ path: String) { lock.withLock { _ = _failing.removeValue(forKey: path) } }
     func holdFirstDelete() -> DispatchSemaphore { hold("DELETE ") }
     func hold(_ prefix: String) -> DispatchSemaphore {
         let s = DispatchSemaphore(value: 0)
@@ -52,10 +53,10 @@ private final class FirmwareServer: @unchecked Sendable {
             _log.append(key + (url.query.map { "?\($0)" } ?? ""))
             var gate: DispatchSemaphore?
             if let g = _gate, key.hasPrefix(_gatePrefix) { gate = g; _gate = nil; _arrived = true }
-            return (_failing.contains(url.path), _ota, _devices, _versions, _features, gate)
+            return (_failing[url.path], _ota, _devices, _versions, _features, gate)
         }
         gate?.wait()
-        if failing { return (okResponse(url, status: 500), Data(#"{"error":"boom"}"#.utf8)) }
+        if let failing { return (okResponse(url, status: failing), Data(#"{"error":"boom"}"#.utf8)) }
         switch (method, url.path) {
         case ("GET", "/v1/devices/knob-a/ota"):
             return (okResponse(url), Data(ota.utf8))
@@ -71,7 +72,7 @@ private final class FirmwareServer: @unchecked Sendable {
         case ("DELETE", _):
             let version = url.lastPathComponent
             if url.query == "keep=protected", let reason = lock.withLock({ _kept[version] }) {
-                return (okResponse(url, status: 409), Data(#"{"error":"firmware_kept: \#(reason)"}"#.utf8))
+                return (okResponse(url, status: 409), Data(#"{"error":"\#(reason)"}"#.utf8))
             }
             lock.withLock { _versions.removeAll { "/v1/firmware/\($0.0)" == url.path } }
             return (okResponse(url, status: 204), Data())
@@ -185,8 +186,8 @@ private func waitUntil(_ cond: () -> Bool) async throws {
 @MainActor
 @Test func deleteOldBuildsSendsTheGuardAndTreatsAKeptAnswerAsKept() async {
     let server = FirmwareServer(versions: versions, knobOn: "0.9.43")
-    server.keep("0.9.40", "a knob runs this version or an update targets it")
-    server.keep("0.9.41", "the newest release or a newer test build")
+    server.keep("0.9.40", "firmware_kept_in_use")
+    server.keep("0.9.41", "firmware_kept_newest")
     let m = await model(server)
     let confirmed = m.oldBuilds(otherKnobs: [])
     #expect(await m.deleteOldBuilds(confirmed))
@@ -265,4 +266,28 @@ private func waitUntil(_ cond: () -> Bool) async throws {
     gate.signal()
     _ = await run.value
     #expect(!m.running.contains(.delete))
+}
+
+@MainActor
+@Test func anOlderFailureNeverMarksTheStoreUnsupported() async throws {
+    let server = FirmwareServer(versions: versions, knobOn: "0.9.43")
+    let m = await model(server)
+    server.fail("/v1/firmware", status: 404)
+    let gate = server.hold("GET /v1/firmware")
+    let slow = Task { await m.loadImages() }
+    try await waitUntil { server.arrived }
+    server.heal("/v1/firmware")
+    await m.loadImages()
+    gate.signal()
+    await slow.value
+    #expect(!m.unsupported && m.images.count == 5)
+}
+
+@Test func keptAnswersAreReadFromTheirCodes() {
+    func kept(_ body: String) -> KnobFirmwareKept? { KnobFirmwareKept(APIError.http(status: 409, body: body)) }
+    #expect(kept(#"{"error":"firmware_kept_in_use"}"#) == .inUse)
+    #expect(kept(#"{"error":"firmware_kept_newest"}"#) == .newest)
+    #expect(kept(#"{"error":"this version is a device's update target"}"#) == .inUse)
+    #expect(kept(#"{"error":"boom"}"#) == nil)
+    #expect(KnobFirmwareKept(APIError.http(status: 500, body: "firmware_kept_newest")) == nil)
 }

@@ -49,7 +49,8 @@ var (
 	errFirmwareNotFound     = errors.New("firmware version not found")
 	errFirmwareConflict     = errors.New("this version is stored with other bytes; upload with ?replace=1")
 	errFirmwareInUse        = errors.New("this version is a device's update target")
-	errFirmwareKept         = errors.New("firmware_kept")
+	errFirmwareKeptInUse    = errors.New("firmware_kept_in_use")
+	errFirmwareKeptNewest   = errors.New("firmware_kept_newest")
 	errFirmwareOff          = errors.New("firmware storage unavailable")
 )
 
@@ -665,25 +666,34 @@ func (s *firmwareStore) remove(version string, inUse func(string) bool, unblock 
 	return s.removeGuarded(version, inUse, nil, unblock)
 }
 
-func (s *firmwareStore) removeGuarded(version string, inUse, keeps func(string) bool, unblock func([]string)) error {
+func (s *firmwareStore) removeGuarded(version string, inUse func(string) bool, hold func(string) (bool, func()),
+	unblock func([]string)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if inUse != nil && inUse(version) {
 		return errFirmwareInUse
 	}
-	if keeps != nil {
-		if keeps(version) {
-			return fmt.Errorf("%w: a knob runs this version or an update targets it", errFirmwareKept)
+	release := func() {}
+	if hold != nil {
+		kept, unlock := hold(version)
+		if kept {
+			return errFirmwareKeptInUse
 		}
+		release = unlock
 		if slices.Contains(firmwareNewestKept(s.index), version) {
-			return fmt.Errorf("%w: the newest release or a newer test build", errFirmwareKept)
+			release()
+			return errFirmwareKeptNewest
 		}
 	}
 	_, indexed := s.index[version]
-	if err := s.purgeLocked(version); err != nil {
+	err := s.purgeLocked(version)
+	if err == nil {
+		delete(s.index, version)
+	}
+	release()
+	if err != nil {
 		return err
 	}
-	delete(s.index, version)
 	if unblock != nil {
 		unblock([]string{version})
 	}

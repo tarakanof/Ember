@@ -3027,7 +3027,9 @@ Release (semver order, the server's `compareSemver`), `target`, a
 downloading or installing update's `version` and the offered update.
 Without a `running` report it picks nothing. The server enforces the same
 rule (`firmwareNewestKept` plus `otaKeeps`) under the store lock and
-answers 409 `firmware_kept`, which the row shows as a grey "Kept" note,
+answers 409 `firmware_kept_in_use` or `firmware_kept_newest` (the
+registry stays locked from the keep check until the purge ends, so a
+check-in reporting that version waits), which the row shows as a grey "Kept" note,
 not an error; an update target's 409 counts as kept too. So the client's
 rule is only a pre-filter, and races with polls, channel changes or other
 knobs cost at most a "Kept" answer. On confirm,

@@ -29,7 +29,8 @@ func (a *App) writeFirmwareError(w http.ResponseWriter, r *http.Request, err err
 		a.rejectFirmware(w, r, http.StatusRequestEntityTooLarge, err)
 	case errors.Is(err, errFirmwareNotFound):
 		writeError(w, http.StatusNotFound, err)
-	case errors.Is(err, errFirmwareConflict), errors.Is(err, errFirmwareInUse), errors.Is(err, errFirmwareKept):
+	case errors.Is(err, errFirmwareConflict), errors.Is(err, errFirmwareInUse),
+		errors.Is(err, errFirmwareKeptInUse), errors.Is(err, errFirmwareKeptNewest):
 		a.rejectFirmware(w, r, http.StatusConflict, err)
 	case errors.Is(err, errFirmwareBadImage), errors.Is(err, errFirmwareWrongChip), errors.Is(err, errFirmwareWrongProject),
 		errors.Is(err, errFirmwareBadVersion), errors.Is(err, errFirmwareDevSeed), errors.Is(err, errFirmwareELFMismatch):
@@ -199,16 +200,16 @@ func (a *App) handleFirmwareDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	version := r.PathValue("version")
-	var keeps func(string) bool
+	var hold func(string) (bool, func())
 	switch r.URL.Query().Get("keep") {
 	case "":
 	case firmwareKeepProtected:
-		keeps = a.devices.otaKeeps
+		hold = a.devices.holdUnlessKept
 	default:
 		a.rejectFirmware(w, r, http.StatusBadRequest, errors.New("keep must be protected"))
 		return
 	}
-	if err := store.removeGuarded(version, a.devices.otaTargets, keeps, a.otaRetirer(r.Context(), "")); err != nil {
+	if err := store.removeGuarded(version, a.devices.otaTargets, hold, a.otaRetirer(r.Context(), "")); err != nil {
 		a.writeFirmwareError(w, r, err)
 		return
 	}

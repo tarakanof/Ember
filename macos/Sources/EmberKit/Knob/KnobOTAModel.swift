@@ -70,7 +70,7 @@ public final class KnobOTAModel {
             guard gen == generation, seq == statusSeq else { return }
             status = next; unsupported = false
         } catch let e as APIError {
-            guard gen == generation else { return }
+            guard gen == generation, seq == statusSeq else { return }
             if case .http(404, _) = e, status == nil { unsupported = true }
         } catch {}
     }
@@ -86,7 +86,7 @@ public final class KnobOTAModel {
             imagesLoaded = true
             unsupported = false
         } catch let e as APIError {
-            guard gen == generation else { return }
+            guard gen == generation, seq == imagesSeq else { return }
             if case .http(let code, _) = e, code == 404 || code == 503 { unsupported = true }
         } catch {}
     }
