@@ -217,8 +217,6 @@ func (a *App) resumeClockSync() {
 }
 
 func (a *App) reapplySettings() {
-	a.rotationOp.slot <- struct{}{}
-	defer func() { <-a.rotationOp.slot }()
 	a.pauseClockSync()
 	a.settings.reapply()
 	a.resumeClockSync()

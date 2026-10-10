@@ -308,24 +308,29 @@ func (a *App) acquireClockRotation(ctx context.Context, w http.ResponseWriter, r
 	select {
 	case a.rotationOp.slot <- struct{}{}:
 	case <-ctx.Done():
-		a.rejectClockRotation(w, r)
+		a.rejectClockRotation(w, r, errClockRotationBusy)
 		return nil, false
 	}
 	release = func() { <-a.rotationOp.slot }
 	if ctx.Err() != nil {
 		release()
-		a.rejectClockRotation(w, r)
+		a.rejectClockRotation(w, r, errClockRotationExpired)
 		return nil, false
 	}
 	return release, true
 }
 
-func (a *App) rejectClockRotation(w http.ResponseWriter, r *http.Request) {
+func (a *App) holdClockRotation() (release func()) {
+	a.rotationOp.slot <- struct{}{}
+	return func() { <-a.rotationOp.slot }
+}
+
+func (a *App) rejectClockRotation(w http.ResponseWriter, r *http.Request, reason error) {
 	if r.Context().Err() != nil {
 		a.logger.InfoContext(r.Context(), "clock app order request dropped: client went away while waiting", "path", r.URL.Path)
 		return
 	}
-	writeError(w, http.StatusServiceUnavailable, errClockRotationBusy)
+	writeError(w, http.StatusServiceUnavailable, reason)
 }
 
 func (a *App) forgetClockRotationAfter(err error) {
@@ -410,12 +415,6 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 			rotation = a.readBackClockRotation(ctx)
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		if next.Rotation != nil {
-			a.setClockRotation(rotation)
-		}
-		return res, fmt.Errorf("%w: %w", errClockRotationExpired, err)
-	}
 	a.pauseClockSync()
 	defer a.resumeClockSync()
 	if next.Rotation != nil {
@@ -427,6 +426,9 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 	var staged []*stagedSetting
 	hiddenChanged := false
 	err = a.tryUpdateConfig(func(c *Config) error {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("%w: %w", errClockRotationExpired, err)
+		}
 		a.appsMu.Lock()
 		hidden := a.hiddenAppNamesLocked()
 		a.appsMu.Unlock()

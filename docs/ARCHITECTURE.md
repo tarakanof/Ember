@@ -2581,9 +2581,15 @@ record.
   - One that gets it late has only the rest of its deadline for its clock
     calls, so a write may be cut short: 502, as for any lost write, and the
     cached list is cleared because the clock may have applied it.
-  - A façade PUT checks its deadline again before it commits the slices;
-    if it ran out, it answers 503 with no settings changed (and says when
-    the clock's order was already written).
+  - A façade PUT checks its deadline again inside the commit, under
+    `cfgMu` and before anything is stored; if it ran out, it answers 503
+    with no settings changed (and says when the clock's order was already
+    written).
+  - `/admin/reload` takes the lock before it publishes the reloaded
+    config and holds it through the reapply and the version sync; boot
+    does the same around its reapply. The reload waits for the lock with
+    no deadline of its own, so it can stall for as long as the current
+    holder runs (at most its 11 s budget plus the local commit).
   - Writes that don't touch the clock (`/v1/apps`, the settings endpoints)
     don't take the lock.
 - **Version.** `config_version` is a hash of the composed config (31 bits of

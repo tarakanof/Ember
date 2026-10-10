@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -889,26 +890,46 @@ func TestClockResyncCannotHashAHalfCommittedFacadePut(t *testing.T) {
 	assertClockRecordInStep(t, a, srv)
 }
 
-func TestClockReapplyWaitsForRotationOperation(t *testing.T) {
-	a, srv, stub := newClockApp(t)
-	d := registeredClock(t, a, srv)
-	getClockConfig(t, srv, d.ID)
-	release := holdClockOrder(t, stub)
-	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"]}}`)
-	<-stub.orderIn
-	done := make(chan struct{})
+func TestAdminReloadWaitsForClockRotationBeforePublishing(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"old"}}`)
+	if err := os.WriteFile(path, []byte(`{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"new"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app.rotationOp.slot <- struct{}{}
+	release := sync.OnceFunc(func() { <-app.rotationOp.slot })
+	t.Cleanup(release)
+	done := make(chan int, 1)
 	go func() {
-		defer close(done)
-		a.reapplySettings()
+		w := httptest.NewRecorder()
+		handleAdminReload(app)(w, httptest.NewRequest("POST", "/admin/reload", nil))
+		done <- w.Code
 	}()
-	select {
-	case <-done:
-		t.Fatal("settings reapply ran while a facade PUT held the clock app order")
-	case <-time.After(200 * time.Millisecond):
+	time.Sleep(200 * time.Millisecond)
+	if got := app.cfg.Load().Display.IdleText; got != "old" {
+		t.Fatalf("reload published idle_text %q while a clock app order operation held the lock", got)
 	}
 	release()
-	mustReply(t, "facade put", put)
-	<-done
+	if code := <-done; code != http.StatusOK {
+		t.Fatalf("reload = %d, want 200", code)
+	}
+	if got := app.cfg.Load().Display.IdleText; got != "new" {
+		t.Fatalf("idle_text = %q after the reload, want new", got)
+	}
+}
+
+func TestClockConfigPutOutOfTimeInsideCommitChangesNoSettings(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	before, _ := getClockConfig(t, srv, d.ID)
+	a.rotationOp.budget.Store(int64(200 * time.Millisecond))
+	a.commitHook = func() { time.Sleep(300 * time.Millisecond) }
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":`+strconv.FormatBool(!before.Apps.Weather.Moon)+`}}}`)
+	if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(b), "ran out of time") {
+		t.Fatalf("PUT = %d %s, want 503 out of time", resp.StatusCode, b)
+	}
+	if c := a.composeClockConfig(); c.Apps.Weather.Moon != before.Apps.Weather.Moon {
+		t.Fatal("settings committed after the deadline passed")
+	}
 	assertClockRecordInStep(t, a, srv)
 }
 
@@ -967,7 +988,7 @@ func TestClockConfigPutOutOfTimeBeforeCommitChangesNoSettings(t *testing.T) {
 func TestClockRotationExpiredBeforeLockIsRejected(t *testing.T) {
 	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
-	a.rotationOp.budget.Store(1)
+	a.rotationOp.budget.Store(0)
 	for i := range 20 {
 		resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
 		if resp.StatusCode != http.StatusServiceUnavailable {
