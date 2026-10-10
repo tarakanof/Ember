@@ -1547,7 +1547,7 @@ func TestOTAAutoCheckinCommittingMidDeleteDoesNotOffer(t *testing.T) {
 	}
 }
 
-func TestOTAAutoCheckinCommittingMidEvictionDoesNotOffer(t *testing.T) {
+func TestOTAAutoCheckinRacingAnEvictionDoesNotOffer(t *testing.T) {
 	k := newOTAKnob(t)
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "?channel=release")
 	for i := 15; i < 14+firmwareKept; i++ {
@@ -1562,9 +1562,9 @@ func TestOTAAutoCheckinCommittingMidEvictionDoesNotOffer(t *testing.T) {
 	k.onceAfterRead(func() {
 		up = goReq(k.srv, "POST", "/v1/firmware", fakeFirmware(fwOpts{version: "0.9.30"}))
 		<-reached
+		go close(release)
 	})
 	got := offerOf(t, k.idle(t))
-	close(release)
 	if code := <-up; code != http.StatusCreated {
 		t.Fatalf("upload = %d", code)
 	}

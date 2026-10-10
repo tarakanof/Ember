@@ -2514,7 +2514,7 @@ migration) the same config is a façade over the overlay slices, as in #230.
   authenticates even if a hash were planted on it. `rotate` and the registry
   `checkin` answer 400 (`… applies to kind "cinder-knob" only`). Stats,
   coredumps and OTA routes look up knobs only (`findKnob`), so a clock id
-  is 404 there, and the OTA loops (`otaTargets`, `otaKeeps`, `otaRetire`)
+  is 404 there, and the OTA loops (`otaTargets`, `holdUnlessKept`, `otaRetire`)
   skip other kinds. `POST /v1/devices` still mints only knobs and clients.
   `PATCH` renames (a probe never resets the name). `DELETE` removes the
   record (204); the next good probe re-creates it with the default name.
@@ -3009,10 +3009,14 @@ mode stuck behind it, a Retry waiting for a checkin forever.
 
 **Firmware generation (#330).** The registry keeps an in-memory
 `fwGen`. Every removal bumps it under the registry lock in the same step
-as its in-use check (`otaTargets` for a DELETE or replace, `otaKeeps` for
-each version retention evicts), while the store lock is still held, so
-the check, the bump, the purge and the retire are one step to anyone who
-reads the store. A checkin reads `fwGen` and the epoch before it reads the
+as its in-use check (`otaTargets` for a DELETE or replace,
+`holdUnlessKept` for a guarded DELETE and for each version retention
+evicts), while the store lock is still held, so the check, the bump, the
+purge and the retire are one step to anyone who reads the store.
+`holdUnlessKept` also keeps the registry locked until that purge ends,
+so a checkin reporting the version waits instead of landing between the
+check and the purge. The store releases that hold with `defer`, before
+`unblock` runs, so a panicking purge cannot wedge later checkins. A checkin reads `fwGen` and the epoch before it reads the
 store, and its registry update offers or clears only if `fwGen`, the
 target, the mode and the attempt are unchanged; otherwise it records the
 knob's result and waits for the next checkin. Its dangling-target clear
@@ -3168,7 +3172,7 @@ knob's build and its `running.fw` version, the `fw` of every knob in
 Release (semver order, the server's `compareSemver`), `target`, a
 downloading or installing update's `version` and the offered update.
 Without a `running` report it picks nothing. The server enforces the same
-rule (`firmwareNewestKept` plus `otaKeeps`) under the store lock and
+rule (`firmwareNewestKept` plus `holdUnlessKept`) under the store lock and
 answers 409 `firmware_kept_in_use` or `firmware_kept_newest` (the
 registry stays locked from the keep check until the purge ends, so a
 check-in reporting that version waits), which the row shows as a grey "Kept" note,

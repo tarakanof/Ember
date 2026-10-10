@@ -361,12 +361,6 @@ func (r *deviceRegistry) otaTargets(version string) bool {
 	return false
 }
 
-func (r *deviceRegistry) otaKeeps(version string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.keepsLocked(version)
-}
-
 func (r *deviceRegistry) holdUnlessKept(version string) (kept bool, release func()) {
 	r.mu.Lock()
 	if r.keepsLocked(version) {

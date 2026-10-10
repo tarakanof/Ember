@@ -506,8 +506,10 @@ func TestOTASkipsClockRecords(t *testing.T) {
 	if r.otaTargets("0.9.0") {
 		t.Error("otaTargets counted a clock record")
 	}
-	if r.otaKeeps("0.9.0") {
-		t.Error("otaKeeps counted a clock record")
+	if kept, release := r.holdUnlessKept("0.9.0"); kept {
+		t.Error("holdUnlessKept counted a clock record")
+	} else {
+		release()
 	}
 	d.OTA.Phase = otaPhaseFailed
 	d.OTA.Blocked = []string{"0.9.0"}

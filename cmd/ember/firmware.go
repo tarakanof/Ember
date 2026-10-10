@@ -416,7 +416,8 @@ func (s *firmwareStore) writeMetaIn(dir string, m firmwareMeta) error {
 	return s.writeFile(filepath.Join(dir, firmwareMetaName), blob)
 }
 
-func (s *firmwareStore) put(d firmwareDesc, body []byte, channel string, replace bool, inUse, keep func(string) bool, unblock func([]string)) (firmwareImage, bool, error) {
+func (s *firmwareStore) put(d firmwareDesc, body []byte, channel string, replace bool, inUse func(string) bool,
+	hold func(string) (bool, func()), unblock func([]string)) (firmwareImage, bool, error) {
 	sum := sha256.Sum256(body)
 	m := firmwareMeta{
 		firmwareImage: firmwareImage{
@@ -463,7 +464,7 @@ func (s *firmwareStore) put(d firmwareDesc, body []byte, channel string, replace
 		return firmwareImage{}, false, err
 	}
 	s.index[d.Version] = m
-	evicted, pruneErr := s.pruneLocked(d.Version, keep)
+	evicted, pruneErr := s.pruneLocked(d.Version, hold)
 	if exists || replace {
 		evicted = append(evicted, d.Version)
 	}
@@ -507,19 +508,22 @@ func (s *firmwareStore) swapInLocked(tmp, version string, exists bool) (bool, er
 	return true, nil
 }
 
-func (s *firmwareStore) pruneLocked(just string, keep func(string) bool) ([]string, error) {
+func (s *firmwareStore) pruneLocked(just string, hold func(string) (bool, func())) ([]string, error) {
 	versions := s.versionsLocked()
 	var removed []string
 	var errs []error
 	for i, v := range versions {
-		if i < firmwareKept || v == just || (keep != nil && keep(v)) {
+		if i < firmwareKept || v == just {
 			continue
 		}
-		if err := s.purgeLocked(v); err != nil {
+		err := s.purgeHeldLocked(v, hold, nil)
+		if errors.Is(err, errFirmwareKeptInUse) {
+			continue
+		}
+		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		delete(s.index, v)
 		removed = append(removed, v)
 	}
 	return removed, errors.Join(errs...)
@@ -673,24 +677,13 @@ func (s *firmwareStore) removeGuarded(version string, inUse func(string) bool, h
 	if inUse != nil && inUse(version) {
 		return errFirmwareInUse
 	}
-	release := func() {}
-	if hold != nil {
-		kept, unlock := hold(version)
-		if kept {
-			return errFirmwareKeptInUse
-		}
-		release = unlock
-		if slices.Contains(firmwareNewestKept(s.index), version) {
-			release()
+	_, indexed := s.index[version]
+	err := s.purgeHeldLocked(version, hold, func() error {
+		if hold != nil && slices.Contains(firmwareNewestKept(s.index), version) {
 			return errFirmwareKeptNewest
 		}
-	}
-	_, indexed := s.index[version]
-	err := s.purgeLocked(version)
-	if err == nil {
-		delete(s.index, version)
-	}
-	release()
+		return nil
+	})
 	if err != nil {
 		return err
 	}
@@ -700,6 +693,26 @@ func (s *firmwareStore) removeGuarded(version string, inUse func(string) bool, h
 	if !indexed {
 		return errFirmwareNotFound
 	}
+	return nil
+}
+
+func (s *firmwareStore) purgeHeldLocked(version string, hold func(string) (bool, func()), guard func() error) error {
+	if hold != nil {
+		kept, release := hold(version)
+		if kept {
+			return errFirmwareKeptInUse
+		}
+		defer release()
+	}
+	if guard != nil {
+		if err := guard(); err != nil {
+			return err
+		}
+	}
+	if err := s.purgeLocked(version); err != nil {
+		return err
+	}
+	delete(s.index, version)
 	return nil
 }
 

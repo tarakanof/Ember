@@ -278,7 +278,7 @@ func TestFirmwareStorePruneKeepsFiveAndProtectedVersions(t *testing.T) {
 	for i, v := range versions {
 		d, _ := parseFirmwareImage(fakeFirmware(fwOpts{version: v, seed: byte(i)}))
 		img := fakeFirmware(fwOpts{version: v, seed: byte(i)})
-		if _, _, err := s.put(d, img, "test", false, nil, func(v string) bool { return v == "0.9.1" }, nil); err != nil {
+		if _, _, err := s.put(d, img, "test", false, nil, func(v string) (bool, func()) { return v == "0.9.1", func() {} }, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
