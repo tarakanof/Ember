@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -283,5 +284,53 @@ func TestReminderDedupeForgetsKeysAfterTTL(t *testing.T) {
 	d.claim("other", now.Add(3*reminderDedupeTTL))
 	if n := d.size(); n != 1 {
 		t.Fatalf("expired keys should be pruned, size = %d, want 1", n)
+	}
+}
+
+type tickingClock struct {
+	mu   sync.Mutex
+	now  time.Time
+	step time.Duration
+}
+
+func (c *tickingClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t := c.now
+	c.now = c.now.Add(c.step)
+	return t
+}
+
+func TestHandleReminderFireSamplesQuietHoursOnce(t *testing.T) {
+	pub := &recordingPublisher{}
+	app, _ := nightClockApp(t, pub, time.Time{})
+	app.coord.clk = &tickingClock{now: time.Date(2026, 1, 1, 7, 59, 30, 0, time.Local), step: time.Minute}
+	fireLoopingReminder(t, app)
+	p := pub.NotifySnapshot()[0]
+	_, n, _ := app.reminderLoop.current()
+	if loud := p["soundLoop"] == true; loud != (n != nil) {
+		t.Errorf("soundLoop = %v but loop guard armed = %v: a looping alarm needs its guard", p["soundLoop"], n != nil)
+	}
+	if _, has := p["soundLoop"]; has {
+		t.Errorf("soundLoop = %v, want absent: the first sample (07:59:30, quiet) decides", p["soundLoop"])
+	}
+}
+
+func TestReminderLoopWindowFollowsCoordinatorClock(t *testing.T) {
+	pub := &recordingPublisher{}
+	at := time.Date(2026, 1, 1, 12, 0, 0, 0, time.Local)
+	app, clk := nightClockApp(t, pub, at)
+	fireLoopingReminder(t, app)
+	until, n, _ := app.reminderLoop.current()
+	if n == nil {
+		t.Fatal("loop guard not armed at noon")
+	}
+	if want := at.Add(reminderHoldWindow); !until.Equal(want) {
+		t.Errorf("guard until = %v, want %v (coordinator clock + window)", until, want)
+	}
+	clk.Advance(reminderHoldWindow + time.Second)
+	app.checkReminderLoop(context.Background(), clk.Now())
+	if got := pub.DismissedNamesSnapshot(); len(got) != 1 || got[0] != notifyNameReminder {
+		t.Errorf("dismissed = %v, want [%s] once the coordinator clock passes the window", got, notifyNameReminder)
 	}
 }

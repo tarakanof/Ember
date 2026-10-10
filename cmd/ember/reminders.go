@@ -57,9 +57,8 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	}
 	a.logger.Info("reminder fire", "sound", req.Sound, "hold", req.Hold, "repeat_sound", req.RepeatSound,
 		"duration", dur, "native_icon", req.NativeIconID != "")
-	now := time.Now()
 	if req.Hold {
-		a.reminderHeldUntil.Store(now.Add(reminderHoldWindow).UnixNano())
+		a.reminderHeldUntil.Store(time.Now().Add(reminderHoldWindow).UnixNano())
 	}
 	n := notice{app: "reminders", kind: noticeReminder, priority: noticeQueue,
 		payload: render.ReminderPopupPayload(text, req.NativeIconID, dur, req.Hold)}
@@ -70,10 +69,11 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	case req.Sound:
 		n.sound = noticeSound{rtttl: defaultReminderSound}
 	}
-	quiet := a.coord.quietNow()
+	now := a.coord.clk.Now()
+	quiet := a.coord.quietAt(now)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	if err := a.coord.showNotice(ctx, n); err != nil {
+	if err := a.coord.showNoticeQuiet(ctx, n, quiet); err != nil {
 		if key != "" {
 			a.reminderKeys.release(key)
 		}
@@ -122,8 +122,8 @@ func (a *App) StartReminderLoopGuard(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case now := <-t.C:
-			a.checkReminderLoop(ctx, now)
+		case <-t.C:
+			a.checkReminderLoop(ctx, a.coord.clk.Now())
 		}
 	}
 }

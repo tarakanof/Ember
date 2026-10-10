@@ -58,11 +58,15 @@ func (c *coordinator) quietAt(t time.Time) bool {
 func (c *coordinator) quietNow() bool { return c.quietAt(c.clk.Now()) }
 
 func (c *coordinator) showNotice(ctx context.Context, n notice) error {
+	return c.showNoticeQuiet(ctx, n, c.quietNow())
+}
+
+func (c *coordinator) showNoticeQuiet(ctx context.Context, n notice, quiet bool) error {
 	p := make(map[string]any, len(n.payload)+5)
 	maps.Copy(p, n.payload)
 	p["name"] = noticeNames[n.kind]
 	p["stack"] = n.priority == noticeQueue
-	if !c.quietNow() {
+	if !quiet {
 		if n.sound.melody != "" {
 			p["sound"] = n.sound.melody
 		}
