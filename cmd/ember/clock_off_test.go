@@ -13,7 +13,6 @@ import (
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
-// Tests swapping http.DefaultTransport must not use t.Parallel().
 type countingTransport struct {
 	n    atomic.Int64
 	next http.RoundTripper
@@ -33,10 +32,11 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 		_, _ = w.Write([]byte(`{"uid":"awtrix_x","boardType":"awtrixng"}`))
 	}))
 	defer stub.Close()
-	ct := &countingTransport{next: http.DefaultTransport}
-	prev := http.DefaultTransport
-	http.DefaultTransport = ct
-	defer func() { http.DefaultTransport = prev }()
+	var ct *countingTransport
+	swapDefaultTransport(t, func(next http.RoundTripper) http.RoundTripper {
+		ct = &countingTransport{next: next}
+		return ct
+	})
 
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = stub.URL

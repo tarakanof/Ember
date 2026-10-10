@@ -152,13 +152,22 @@ func (l *loopbackOnlyTransport) RoundTrip(r *http.Request) (*http.Response, erro
 	return l.next.RoundTrip(r)
 }
 
+func swapDefaultTransport(t *testing.T, wrap func(http.RoundTripper) http.RoundTripper) {
+	t.Helper()
+	t.Setenv("EMBER_TEST_DEFAULT_TRANSPORT_SWAP", "1")
+	prev := http.DefaultTransport
+	http.DefaultTransport = wrap(prev)
+	t.Cleanup(func() { http.DefaultTransport = prev })
+}
+
 func requireLoopbackOnly(t *testing.T) {
 	t.Helper()
-	guard := &loopbackOnlyTransport{next: http.DefaultTransport}
-	prev := http.DefaultTransport
-	http.DefaultTransport = guard
+	var guard *loopbackOnlyTransport
+	swapDefaultTransport(t, func(next http.RoundTripper) http.RoundTripper {
+		guard = &loopbackOnlyTransport{next: next}
+		return guard
+	})
 	t.Cleanup(func() {
-		http.DefaultTransport = prev
 		guard.mu.Lock()
 		defer guard.mu.Unlock()
 		if len(guard.refused) > 0 {
@@ -177,6 +186,48 @@ func loopbackURL(raw string) bool {
 	}
 	ip := net.ParseIP(u.Hostname())
 	return ip != nil && ip.IsLoopback()
+}
+
+func TestRequireLoopbackOnly_RefusesParallelTests(t *testing.T) {
+	before := http.DefaultTransport
+	t.Run("parallel", func(t *testing.T) {
+		t.Parallel()
+		var refused any
+		func() {
+			defer func() { refused = recover() }()
+			requireLoopbackOnly(t)
+		}()
+		if refused == nil {
+			t.Error("requireLoopbackOnly ran in a parallel test")
+		}
+		if http.DefaultTransport != before {
+			t.Error("a parallel test swapped http.DefaultTransport")
+		}
+	})
+}
+
+func TestClockReachable_RejectsUnfingerprintedDevice(t *testing.T) {
+	esphome := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"uid":"esp_1","boardType":"esphome"}`)
+	}))
+	t.Cleanup(esphome.Close)
+	cases := []struct {
+		name string
+		base string
+		want bool
+	}{
+		{"awtrix-ng", (&iconClockStub{fingerprint: true}).server(t).URL, true},
+		{"no device route", (&iconClockStub{}).server(t).URL, false},
+		{"other board", esphome.URL, false},
+	}
+	a := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := a.clock.reachable(context.Background(), c.base); got != c.want {
+				t.Fatalf("reachable = %v, want %v", got, c.want)
+			}
+		})
+	}
 }
 
 func TestStubRemoteClock_ProbesAndBrowseStayLocal(t *testing.T) {
@@ -631,8 +682,10 @@ func TestEnsureBootPingScript_CancelIsQuiet(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	polled := make(chan struct{})
+	var stalled atomic.Bool
 	go func() {
 		defer close(polled)
+		defer cancel()
 		tick := time.NewTicker(5 * time.Millisecond)
 		defer tick.Stop()
 		deadline := time.After(5 * time.Second)
@@ -641,16 +694,19 @@ func TestEnsureBootPingScript_CancelIsQuiet(t *testing.T) {
 			case <-ctx.Done():
 				return
 			case <-deadline:
+				stalled.Store(true)
 				return
 			case <-tick.C:
 			}
 		}
-		cancel()
 	}()
 	a.ensureBootPingScript(ctx)
 	cancel()
 	<-polled
 
+	if stalled.Load() {
+		t.Fatal("boot ping job sent no script read within 5 s")
+	}
 	if len(clock.requests("GET /api/v1/apps/script/")) == 0 {
 		t.Fatal("boot ping job returned before reading the script")
 	}
