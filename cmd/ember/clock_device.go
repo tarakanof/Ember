@@ -261,6 +261,8 @@ func (a *App) resumeClockSync() {
 
 func (a *App) reapplySettings() {
 	a.pauseClockSync()
+	defer a.resumeClockSync()
+	a.iconHold.Add(1)
+	defer a.iconHold.Add(-1)
 	a.settings.reapply()
-	a.resumeClockSync()
 }

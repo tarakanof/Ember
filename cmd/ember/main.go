@@ -145,9 +145,6 @@ func main() {
 	workers.Go(func() { app.StartMeetings(ctx) })
 	workers.Go(func() { app.StartNowPlaying(ctx) })
 	workers.Go(func() { app.StartReminderLoopGuard(ctx) })
-	if !clockDisabled() {
-		workers.Go(func() { app.ensureBootPingScript(ctx) })
-	}
 
 	if clockDisabled() {
 		logger.Info("clock watch and sampler off (EMBER_CLOCK=off)")
@@ -212,6 +209,7 @@ func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.W
 	done := make(chan struct{})
 	go func() {
 		workers.Wait()
+		a.clockJobs.Wait()
 		a.clockMigrate.stopAndWait()
 		close(done)
 	}()

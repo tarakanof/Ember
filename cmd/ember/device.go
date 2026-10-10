@@ -33,6 +33,7 @@ func validDeviceURL(raw string) error {
 func (a *App) initDeviceDiscovery(ctx context.Context) {
 	_ = a.rediscoverClock(ctx)
 	a.refreshCapabilities(ctx)
+	a.provisionClockInBackground(ctx)
 }
 
 func (a *App) rediscoverClock(ctx context.Context) bool {
@@ -142,6 +143,7 @@ func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 			if a.rediscoverClock(ctx) {
 				last = deviceProbe{}
 				a.RepublishAll("clock_rediscovered")
+				a.provisionClockInBackground(ctx)
 			}
 			cur := a.probeDevice(ctx, interval/2)
 			if !cur.reachable {
