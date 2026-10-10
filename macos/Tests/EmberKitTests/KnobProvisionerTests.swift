@@ -121,12 +121,13 @@ private let minted = MintedKnob(device: KnobDevice(id: "knob-61fc8c", hwID: "3cd
                                 token: "ekd_" + String(repeating: "A", count: 43))
 
 private func provisioner(_ opener: FakeOpener, calls: Calls = Calls(), minted: MintedKnob = minted,
-                         mintError: Error? = nil, checkedIn: Bool = false) -> KnobProvisioner {
+                         mintError: Error? = nil, checkedIn: Bool = false,
+                         timeouts: KnobProvisioner.Timeouts = fast) -> KnobProvisioner {
     KnobProvisioner(opener: opener, mint: { hw, name in
         calls.mint(hw, name)
         if let mintError { throw mintError }
         return minted
-    }, checkedIn: { _, _ in checkedIn }, forget: { calls.forget($0) }, timeouts: fast)
+    }, checkedIn: { _, _ in checkedIn }, forget: { calls.forget($0) }, timeouts: timeouts)
 }
 
 private func freshKnob(wifi: @escaping (FakeKnob) -> [FakeKnob.Out]) -> FakeKnob {
@@ -683,7 +684,9 @@ private func connectingKnob(okAfter: Int?) -> FakeKnob {
 }
 
 @Test func emberConnectingIsStillInProgress() async throws {
-    let p = provisioner(FakeOpener(connectingKnob(okAfter: 2)))
+    var patient = fast
+    patient.ember = .seconds(30)
+    let p = provisioner(FakeOpener(connectingKnob(okAfter: 2)), timeouts: patient)
     let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
     _ = try await p.provision(session, identity: id, serialNumber: nil, request: request, progress: { _ in })
 }

@@ -30,6 +30,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     @ObservationIgnored private var savedReset: Task<Void, Never>?
     @ObservationIgnored private var saving = false
     @ObservationIgnored private var loadSeq = 0
+    @ObservationIgnored private var errorSeq = 0
     @ObservationIgnored private(set) var saveEpoch = 0
     var isSaving: Bool { saving }
     var hasPendingSave: Bool { pending != nil }
@@ -83,10 +84,10 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         for attempt in 1...Self.rateLimitAttempts {
             do {
                 let value = try await loader()
+                if seq >= errorSeq { loadError = nil }
                 guard seq == loadSeq || applied == nil, pending == nil, !saving, !hasUnsavedChanges else { return false }
                 applied = value
                 draft = value
-                loadError = nil
                 return true
             } catch {
                 guard seq == loadSeq else { return false }
@@ -96,6 +97,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
                     continue
                 }
                 loadError = e
+                errorSeq = seq
                 return false
             }
         }
