@@ -88,11 +88,11 @@ var errSettingNotObject = fmt.Errorf("%w: must be a JSON object", errSettingBody
 
 func (s *setting[D]) put(patch []byte) (D, error) { return s.putWith(patch, nil) }
 
-func (s *setting[D]) putWith(patch []byte, also func(*Config)) (D, error) {
+func (s *setting[D]) putWith(patch []byte, also func(before Config, cur *Config)) (D, error) {
 	return s.write(patch, also, false)
 }
 
-func (s *setting[D]) write(patch []byte, also func(*Config), stored bool) (D, error) {
+func (s *setting[D]) write(patch []byte, also func(before Config, cur *Config), stored bool) (D, error) {
 	var next Config
 	err := s.o.update(func(cur *Config) error {
 		before := *cur
@@ -108,7 +108,7 @@ func (s *setting[D]) write(patch []byte, also func(*Config), stored bool) (D, er
 			return err
 		}
 		if also != nil {
-			also(cur)
+			also(before, cur)
 		}
 		if moved && captureClockPresentation(before, cur) {
 			if err := s.persistWithClock(before, *cur); err != nil {
@@ -264,13 +264,13 @@ func serveSettingPut[D any](a *App, w http.ResponseWriter, r *http.Request, s *s
 	return serveSettingPutWith(a, w, r, s, nil)
 }
 
-func serveSettingPutWith[D any](a *App, w http.ResponseWriter, r *http.Request, s *setting[D], also func(patch []byte) func(*Config)) (D, bool) {
+func serveSettingPutWith[D any](a *App, w http.ResponseWriter, r *http.Request, s *setting[D], also func(patch []byte) func(before Config, cur *Config)) (D, bool) {
 	var patch json.RawMessage
 	if !a.decodeOrReject(w, r, &patch, false) {
 		var zero D
 		return zero, false
 	}
-	var fn func(*Config)
+	var fn func(Config, *Config)
 	if also != nil {
 		fn = also(patch)
 	}

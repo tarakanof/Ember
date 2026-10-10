@@ -219,19 +219,22 @@ func (a *App) handleDeviceConfigGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceConfigPut(w http.ResponseWriter, r *http.Request) {
-	pin := func(patch []byte) func(*Config) {
+	moved := false
+	pin := func(patch []byte) func(Config, *Config) {
 		var named clockConfigDTO
-		if json.Unmarshal(patch, &named) != nil || named.BaseURL == nil {
-			return nil
+		pinned := json.Unmarshal(patch, &named) == nil && named.BaseURL != nil
+		return func(before Config, c *Config) {
+			if pinned {
+				c.AWTRIX.clockDiscovered = ""
+			}
+			moved = !sameDeviceURL(before.effectiveClockURL(), c.effectiveClockURL())
 		}
-		return func(c *Config) { c.AWTRIX.clockDiscovered = "" }
 	}
-	before := a.cfg.Load().effectiveClockURL()
 	if _, ok := serveSettingPutWith(a, w, r, a.settings.clock, pin); !ok {
 		return
 	}
 	a.caps.Store(nil)
-	if !sameDeviceURL(before, a.cfg.Load().effectiveClockURL()) {
+	if moved {
 		a.clockMoved("clock_url_changed")
 	}
 	a.handleDeviceConfigGet(w, r)

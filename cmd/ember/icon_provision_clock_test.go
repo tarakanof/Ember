@@ -372,6 +372,47 @@ func TestDeviceConfigPut_SameURLDoesNotProvision(t *testing.T) {
 	}
 }
 
+type swapOnReadBody struct {
+	io.Reader
+	once sync.Once
+	swap func()
+}
+
+func (b *swapOnReadBody) Read(p []byte) (int, error) {
+	b.once.Do(b.swap)
+	return b.Reader.Read(p)
+}
+
+func TestDeviceConfigPut_SwapDuringPutStillProvisions(t *testing.T) {
+	pinned := &iconClockStub{fingerprint: true}
+	pinnedSrv := pinned.server(t)
+	swapped := &iconClockStub{fingerprint: true}
+	swappedSrv := swapped.server(t)
+
+	a := iconClockApp(t, pinnedSrv.URL)
+	body := &swapOnReadBody{
+		Reader: strings.NewReader(`{"base_url":"` + pinnedSrv.URL + `"}`),
+		swap: func() {
+			if !a.swapDiscoveredClock(pinnedSrv.URL, swappedSrv.URL) {
+				t.Error("rediscovery swap did not apply")
+			}
+		},
+	}
+	w := httptest.NewRecorder()
+	a.handleDeviceConfigPut(w, httptest.NewRequest("PUT", "/v1/device/config", body))
+	a.clockJobs.Wait()
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT /v1/device/config: %d %s", w.Code, w.Body)
+	}
+
+	if got := a.cfg.Load().effectiveClockURL(); got != pinnedSrv.URL {
+		t.Fatalf("effective clock URL %s, want the pinned %s", got, pinnedSrv.URL)
+	}
+	if got := pinned.requests("POST /api/v1/files"); !slices.Equal(got, twoIconUploads) {
+		t.Fatalf("pinned clock uploads %v, want the 2 pomodoro icons after the PUT moved the clock back from %s", got, swappedSrv.URL)
+	}
+}
+
 func TestAdminReload_TracksBootPing(t *testing.T) {
 	clock := &iconClockStub{fingerprint: true, stallScript: make(chan struct{})}
 	clockSrv := clock.server(t)
