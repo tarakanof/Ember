@@ -63,7 +63,6 @@ func newPomodoroApp(t *testing.T) *App {
 	cfg.applyDefaults()
 	cfg.Auth.StatusToken = testToken
 	app := NewApp(cfg, &recordingPublisher{}, testLogger())
-	ownIconJobs(t, app)
 	eng := pomodoro.New(pomodoro.Settings{FocusMin: 25, ShortMin: 5, LongMin: 15, RoundsBeforeLong: 4}, realClock{})
 	store, err := pomodoro.Open(filepath.Join(t.TempDir(), "p.db"))
 	if err != nil {
@@ -71,6 +70,7 @@ func newPomodoroApp(t *testing.T) *App {
 	}
 	t.Cleanup(func() { store.Close() })
 	app.EnablePomodoro(eng, store)
+	ownIconJobs(t, app)
 	return app
 }
 
