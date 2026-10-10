@@ -27,3 +27,24 @@ func (c *coordinator) disarmLockTimerLocked() {
 		c.lockReleaseTimer = nil
 	}
 }
+
+func (c *coordinator) applyAttentionLocked(step attentionStep, key string) {
+	switch step {
+	case attentionAcquire:
+		c.pointer = key
+		c.cardCursor = 0
+		c.attentionState.acquire(key, c.clk.Now())
+		c.armLockTimerLocked()
+	case attentionRenew:
+		c.attentionState.renew(c.clk.Now())
+		c.armLockTimerLocked()
+	case attentionDrain:
+		c.releaseLockLocked(attentionEndDrain)
+	}
+}
+
+func (c *coordinator) releaseLockLocked(end attentionEnd) {
+	c.logger.Info("coord lock released", "key", c.lockedKey, "reason", string(end))
+	c.attentionState.release()
+	c.disarmLockTimerLocked()
+}
