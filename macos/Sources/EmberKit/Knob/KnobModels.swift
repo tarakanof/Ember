@@ -167,6 +167,13 @@ public struct KnobCaps: Codable, Equatable, Sendable {
     static let legacyPageFloors: [String: [Int]] = [nowPlayingPage: [0, 9, 0]]
 }
 
+public struct KnobRotationChoice: Equatable, Hashable, Sendable {
+    public let degrees: Int
+    public let supported: Bool
+
+    public init(degrees: Int, supported: Bool) { self.degrees = degrees; self.supported = supported }
+}
+
 public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var kind: String
@@ -240,9 +247,13 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
         return Set(listed + [0]).sorted()
     }
 
-    public func rotationChoices(current: Int?) -> [Int] {
-        guard let current, supportedRotations.count > 1 else { return [] }
-        return KnobSettings.choices(supportedRotations, current: current)
+    public func rotationChoices(current: Int?) -> [KnobRotationChoice] {
+        guard let current else { return [] }
+        let supported = supportedRotations
+        guard supported.count > 1 || current != 0 else { return [] }
+        var out = supported.map { KnobRotationChoice(degrees: $0, supported: true) }
+        if !supported.contains(current) { out.append(KnobRotationChoice(degrees: current, supported: false)) }
+        return out.sorted { $0.degrees < $1.degrees }
     }
 
     public var supportedPages: [String] {
@@ -316,8 +327,12 @@ public struct KnobSettings: Codable, Equatable, Sendable {
 
     public struct Display: Codable, Equatable, Sendable {
         public var fastLink: Bool?
-        enum CodingKeys: String, CodingKey { case fastLink = "fast_link" }
-        public init(fastLink: Bool? = nil) { self.fastLink = fastLink }
+        public var rotation: Int?
+        enum CodingKeys: String, CodingKey {
+            case rotation
+            case fastLink = "fast_link"
+        }
+        public init(fastLink: Bool? = nil, rotation: Int? = nil) { self.fastLink = fastLink; self.rotation = rotation }
     }
 
     public struct Quiet: Codable, Equatable, Sendable {
@@ -357,10 +372,9 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public var liveIntervalS: Int?
     public var display: Display?
     public var quiet: Quiet?
-    public var rotation: Int?
 
     enum CodingKeys: String, CodingKey {
-        case brightness, pages, home, bot, diagnostics, display, quiet, rotation
+        case brightness, pages, home, bot, diagnostics, display, quiet
         case pollMS = "poll_ms"
         case statsIntervalS = "stats_interval_s"
         case liveIntervalS = "live_interval_s"
@@ -385,7 +399,6 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         liveIntervalS = try c.decodeIfPresent(Int.self, forKey: .liveIntervalS)
         display = try c.decodeIfPresent(Display.self, forKey: .display)
         quiet = try c.decodeIfPresent(Quiet.self, forKey: .quiet)
-        rotation = try c.decodeIfPresent(Int.self, forKey: .rotation)
     }
 
     public static let defaults = KnobSettings(

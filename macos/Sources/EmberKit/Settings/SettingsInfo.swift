@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SettingsInfo: String, CaseIterable, Sendable {
-    case knobPoll, knobStatsInterval, knobLiveInterval, knobFastLink
+    case knobPoll, knobStatsInterval, knobLiveInterval, knobFastLink, knobRotation
     case knobFollowBrightness, knobMinBrightness, knobStartupBrightness
     case knobSleepy, knobSourceLabel, knobWorkingRing
     case knobQuietCalm, knobQuietDim
@@ -23,6 +23,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobStatsInterval: "How often the knob uploads its hardware stats"
         case .knobLiveInterval: "How often the knob reports while its Hardware page is open"
         case .knobFastLink: "Runs the knob's screen link at 80 MHz instead of 40 MHz"
+        case .knobRotation: "Turns the knob's picture, in degrees"
         case .knobFollowBrightness: "Matches the brightness Ember works out for displays without a light sensor"
         case .knobMinBrightness: "The dimmest the knob ever gets"
         case .knobStartupBrightness: "The level the screen lights at when the knob starts"
@@ -75,6 +76,8 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "While the knob's Hardware page is open in Ember, the knob checks in this often so the charts move live, then goes back to normal. The real pace rounds up to the check interval, so 5 s can come out near 6 s. Default: 5 s."
         case .knobFastLink:
             "Redraws the screen faster (a full frame in about 25 ms instead of 35) and halves the time in which a redraw can tear. 80 MHz is beyond the panel's rated speed, so the knob checks the link at startup and every 5 s and drops back to 40 MHz by itself if a check fails. Changing it restarts the knob; default: on."
+        case .knobRotation:
+            "Turns the screen and touch so the knob reads right however it's mounted. Only the angles its firmware can apply are offered; a knob that can't apply the saved angle shows 0°. Default: 0°."
         case .knobFollowBrightness:
             "The knob has no light sensor, so it uses the level Ember works out from the clock's light sensor, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on."
         case .knobMinBrightness:

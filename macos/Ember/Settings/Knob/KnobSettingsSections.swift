@@ -28,13 +28,16 @@ struct KnobDisplaySection: View {
                              info: .knobMinBrightness, requirement: .loading)
             PercentSliderRow(title: "Brightness at startup", percent: knob.percent(\.brightness.startup),
                              info: .knobStartupBrightness, requirement: .loading)
-            let rotations = knob.knob?.rotationChoices(current: knob.settings.draft.rotation) ?? []
+            let rotations = knob.knob?.rotationChoices(current: knob.settings.draft.display?.rotation) ?? []
             if !rotations.isEmpty {
-                Picker("Rotation", selection: knob.binding(\.rotation)) {
-                    ForEach(rotations, id: \.self) { deg in
-                        Text("\(deg)°", comment: "Settings › Knob › Display: a screen rotation in degrees (\"180°\").")
-                            .tag(Int?.some(deg))
-                    }
+                InfoRow("Rotation", info: .knobRotation, requirement: .loading) { label in
+                    Picker(selection: Binding(
+                        get: { knob.settings.draft.display?.rotation },
+                        set: { v in knob.edit { $0.display?.rotation = v } })) {
+                        ForEach(rotations, id: \.self) { choice in
+                            rotationLabel(choice).tag(Int?.some(choice.degrees))
+                        }
+                    } label: { label }
                 }
             }
         } footer: {
@@ -48,6 +51,13 @@ struct KnobDisplaySection: View {
             }
         }
     }
+}
+
+private func rotationLabel(_ choice: KnobRotationChoice) -> Text {
+    let degrees = Text(verbatim: "\(choice.degrees)°")
+    guard !choice.supported else { return degrees }
+    return Text("\(degrees) (not supported by this firmware)",
+                comment: "Settings › Knob › Display: a saved rotation the knob's firmware can't apply (\"180° (not supported by this firmware)\").")
 }
 
 struct KnobQuietSection: View {
@@ -212,7 +222,7 @@ struct KnobPollSection: View {
             if s.display != nil {
                 InfoToggle("Fast display link", isOn: Binding(
                     get: { s.display?.fastLink ?? true },
-                    set: { v in knob.edit { $0.display = KnobSettings.Display(fastLink: v) } }),
+                    set: { v in knob.edit { $0.display?.fastLink = v } }),
                     info: .knobFastLink, requirement: .loading)
             }
             LabeledContent {
