@@ -30,6 +30,8 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     @ObservationIgnored private var savedReset: Task<Void, Never>?
     @ObservationIgnored private var saving = false
     @ObservationIgnored private var loadSeq = 0
+    @ObservationIgnored private(set) var saveEpoch = 0
+    var isSaving: Bool { saving }
 
     static var rateLimitAttempts: Int { 3 }
 
@@ -75,7 +77,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         for attempt in 1...Self.rateLimitAttempts {
             do {
                 let value = try await loader()
-                guard seq == loadSeq, pending == nil, !saving, !hasUnsavedChanges else { return }
+                guard seq == loadSeq || applied == nil, pending == nil, !saving, !hasUnsavedChanges else { return }
                 applied = value
                 draft = value
                 loadError = nil
@@ -113,6 +115,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         saving = true
         defer { saving = false }
         loadSeq += 1
+        saveEpoch += 1
         let sent = draft
         let previous = applied
         savedReset?.cancel()
@@ -128,8 +131,9 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
                 break
             } catch let recovered as SaveRecovered<T> {
                 cancelPendingSave()
+                let newer = draft
                 applied = recovered.current
-                draft = recovered.current
+                draft = newer == sent ? recovered.current : recovered.rebase(sent, newer)
                 saveError = recovered.cause
                 status = .error(String(localized: recovered.cause.saveMessage))
                 return
@@ -145,6 +149,15 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
             }
         }
         if hasUnsavedChanges { scheduleSave() }
+    }
+
+    func amend(overlapped: Bool, _ change: (inout T) -> Void) {
+        change(&draft)
+        if !overlapped, var a = applied {
+            change(&a)
+            applied = a
+        }
+        if hasUnsavedChanges, !saving { scheduleSave() }
     }
 
     public func reset(to value: T) {
@@ -180,6 +193,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
 struct SaveRecovered<T: Sendable>: Error {
     let current: T
     let cause: FeedError
+    let rebase: @Sendable (_ sent: T, _ draft: T) -> T
 }
 
 public typealias ServerConfigModel<T: Equatable & Sendable> = ConfigModel<T>

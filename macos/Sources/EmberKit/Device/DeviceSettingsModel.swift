@@ -202,7 +202,13 @@ public final class DeviceSettingsModel {
             await write(.apps, rollback: { self.apps = before }) { try await self.service.updateApps(update) }
             return
         }
-        await write(.apps, rollback: { self.apps = before }) { try await clock.writeRotation(update) }
+        await write(.apps, rollback: { self.apps = before }) {
+            do {
+                try await clock.writeRotation(update)
+            } catch where !clock.isActive {
+                try await self.service.updateApps(update)
+            }
+        }
         guard actionErrors[.apps] != nil, let current = try? await service.apps(), seq == appsSeq else { return }
         apps = current
     }

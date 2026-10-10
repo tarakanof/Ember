@@ -2630,29 +2630,40 @@ record.
   Ember.app uses the façade when `GET /v1/devices` lists an `awtrix-ng`
   record; that record exists only on a server that has the façade, so no
   `/version` feature is needed. The Settings clock node is then keyed by the
-  record id (`clock-…`); without one it stays `clock`, and stored routes move
-  between the two by kind. Settings › Clock › Apps › Agents, Focus, Weather
+  record id (`clock-…`); without one it stays `clock`, and stored routes and
+  expanded sidebar groups move between the two by kind. Settings › Clock › Apps › Agents, Focus, Weather
   and Calendar read and write their façade fields through `ClockAppLens`: the
   pane edits the old config type (`WeatherConfig`, …), the lens overlays the
   façade slice on the old model's draft for reading and writes only the
   slice back, so source-only fields (`weather.enabled`, Pomodoro rounds) still
   come from the old endpoint, read-only. A save is a merge `PUT` of the
-  changed leaves (arrays, `icon_ids` and `rotation` whole); after it the old
-  models of the changed slices reload, because the Sources panes still `PUT`
-  whole bodies to the old endpoints and would otherwise send the stale
-  values back. The Rotation page's app toggles and reorders send
+  changed leaves (arrays, `icon_ids` and `rotation` whole). The Sources and
+  Sounds panes still `PUT` whole bodies to the old endpoints, so after a
+  façade save the saved slice is written into the old models in place
+  (`SettingsModels.adopt`), not reloaded: into the draft, so a pending edit
+  carries it, and into the baseline only if no old-endpoint save started or
+  ran during the façade `PUT` (a save epoch marks that). Otherwise the old
+  model stays dirty and saves again with the new values, so a whole-body
+  `PUT` that landed after the façade one is corrected. In the other direction,
+  an old-endpoint save of usage, Pomodoro, weather or meetings reloads the
+  façade. The Rotation page's app toggles and reorders send
   `{"rotation":{"order","disabled"}}` (the same body as `PUT
   /v1/device/apps`) through the façade; the list itself, which needs
   `origin`/`present`, is still read from `/v1/device/apps`. A 503 (lock
-  timeout) or 502 (cut-short clock write) shows its own message and refetches:
-  the façade `GET` replaces the draft, a failed app-order write rereads the
-  app list. A 404 marks the record missing and the panes fall back to the old
-  endpoints until the device list names another record. Loads carry a
-  sequence number and model changes a generation, so a stale reply (an older
-  load, or one for a previous record or server) is dropped; a save also
-  invalidates loads already in flight. The clock's hidden tools stay on the
-  per-tool `/v1/apps` toggle: the façade's `hidden_tools` replaces the whole
-  list, so a toggle from the menu bar landing in between would be lost.
+  timeout) or 502 (cut-short clock write) shows its own message and
+  refetches: the façade `GET` replaces the baseline, and edits made while the
+  `PUT` was in flight are rebased onto it, not dropped; a failed app-order
+  write rereads the app list. A 404 marks the record missing: a settings edit
+  is replayed into the old model and saved through the old endpoint, an
+  app-order write is retried once on `PUT /v1/device/apps`, and the panes use
+  the old endpoints. A missing façade is probed again when a pane reloads, or
+  at a device-list refresh at most every 5 min. Loads carry a sequence
+  number and model changes a generation, so a stale reply (an older load, or
+  one for a previous record or server) is dropped; a save also invalidates
+  loads already in flight. A pending façade edit is still sent when the
+  record briefly drops out of the device list. The clock's hidden tools stay
+  on the per-tool `/v1/apps` toggle: the façade's `hidden_tools` replaces the
+  whole list, so a toggle from the menu bar landing in between would be lost.
 
 ### Knob diagnostics — `cmd/ember/devices_stats.go` (#239)
 

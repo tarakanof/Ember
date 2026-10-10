@@ -142,9 +142,8 @@ public final class AppEnvironment {
         #endif
         live.configure(client: client)
         settings.connectionEnv.onSaved = { [weak self] _, _ in self?.reloadConnection() }
-        clockConfig.onSaved = { [settings] saved, previous in
-            Task { await settings.reload(changedBy: saved, previous: previous) }
-        }
+        clockConfig.legacy = settings
+        settings.onClockSourceSaved = { [clockConfig] in Task { await clockConfig.load() } }
         settings.producerTuning.onSaved = { [producers] saved, previous in
             guard let previous, saved.changesCodex(from: previous) else { return }
             Task { await producers.restart(.codex) }

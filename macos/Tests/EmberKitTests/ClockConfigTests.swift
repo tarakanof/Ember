@@ -399,10 +399,213 @@ private func fixtureText(_ name: String) throws -> String {
     #expect(rotation == ["order": ["date", "time"], "disabled": ["hum"]])
 }
 
-@MainActor @Test func rotationWriteOnAMissingRecordFallsBack() async throws {
+@MainActor @Test func rotationWriteOnAMissingRecordMarksItMissing() async throws {
     let server = FacadeServer(config: try fixtureText("config_default"))
     let (m, _) = await facade(server)
     server.respond("PUT /v1/devices/clock-a/config", 404, #"{"error":"not found"}"#)
     await #expect(throws: (any Error).self) { try await m.writeRotation(AppsUpdate(order: ["time"])) }
     #expect(m.missing && !m.isActive)
+}
+
+private let legacyPomodoro = ##"{"enabled":true,"focus_minutes":25,"short_break_minutes":5,"long_break_minutes":15,"rounds_before_long_break":4,"auto_start_next":false,"sound":true,"focus_color":"#FF0000","break_color":"#00FF00","max_session_minutes":480}"##
+private let legacyWeather = #"{"enabled":true,"rotate_in_apps":true,"air_tile":true}"#
+
+@MainActor
+private func linked(_ server: FacadeServer, probeBackoff: TimeInterval = 300) async throws -> (ClockConfigModel, SettingsModels, APIClient) {
+    server.respond("GET /v1/pomodoro/config", 200, legacyPomodoro)
+    server.respond("PUT /v1/pomodoro/config", 200, "")
+    server.respond("GET /v1/weather/config", 200, legacyWeather)
+    server.respond("PUT /v1/weather/config", 200, "")
+    let client = stubbedClient(token: "t") { server.handle($0) }
+    let settings = SettingsModels(client: client, envStore: EnvFileStore(path: URL(fileURLWithPath: "/nonexistent/producer.env")))
+    let m = ClockConfigModel(client: client, debounce: .milliseconds(600), sleep: ManualClock().sleepFn,
+                             probeBackoff: probeBackoff)
+    m.legacy = settings
+    m.configure(client: client, deviceID: "clock-a")
+    try await waitFor { m.config.isLoaded || m.missing }
+    await settings.pomodoro.load()
+    await settings.weather.load()
+    try #require(settings.pomodoro.isLoaded && settings.weather.isLoaded)
+    return (m, settings, client)
+}
+
+private func count(_ server: FacadeServer, _ key: String) -> Int { server.log.filter { $0 == key }.count }
+
+@MainActor @Test func facadeSaveUpdatesAnIdleLegacyModelInPlace() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let (m, settings, _) = try await linked(server)
+    server.respond("GET /v1/pomodoro/config", 500, #"{"error":"boom"}"#)
+    m.config.draft.apps.focus.focusColor = "#123456"
+    await m.config.saveNow()
+    #expect(settings.pomodoro.draft.focusColor == "#123456")
+    #expect(settings.pomodoro.applied?.focusColor == "#123456")
+    #expect(!settings.pomodoro.hasUnsavedChanges)
+    #expect(count(server, "PUT /v1/pomodoro/config") == 0)
+}
+
+@MainActor @Test func pendingLegacyEditCarriesTheFacadeValue() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let (m, settings, _) = try await linked(server)
+    settings.pomodoro.draft.focusMinutes = 50
+    m.config.draft.apps.focus.focusColor = "#123456"
+    await m.config.saveNow()
+    await settings.pomodoro.saveNow()
+    let body = try #require(server.bodies("PUT /v1/pomodoro/config").last)
+    #expect(body["focus_color"] as? String == "#123456")
+    #expect(body["focus_minutes"] as? Int == 50)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func inFlightLegacySaveIsResentWithTheFacadeValue() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let (m, settings, _) = try await linked(server)
+    let gate = server.hold("PUT /v1/pomodoro/config")
+    settings.pomodoro.draft.focusMinutes = 50
+    let legacySave = Task { await settings.pomodoro.saveNow() }
+    try await waitFor { server.arrived("PUT /v1/pomodoro/config") }
+    m.config.draft.apps.focus.focusColor = "#123456"
+    await m.config.saveNow()
+    gate.signal()
+    await legacySave.value
+    try await waitFor { count(server, "PUT /v1/pomodoro/config") == 2 }
+    let bodies = server.bodies("PUT /v1/pomodoro/config")
+    #expect(bodies.first?["focus_color"] as? String == "#FF0000")
+    #expect(bodies.last?["focus_color"] as? String == "#123456")
+    #expect(bodies.last?["focus_minutes"] as? Int == 50)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func legacySaveDuringAFacadeSaveIsResentWithTheFacadeValue() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let (m, settings, _) = try await linked(server)
+    let gate = server.hold("PUT /v1/devices/clock-a/config")
+    m.config.draft.apps.focus.focusColor = "#123456"
+    let facadeSave = Task { await m.config.saveNow() }
+    try await waitFor { server.arrived("PUT /v1/devices/clock-a/config") }
+    settings.pomodoro.draft.focusMinutes = 50
+    await settings.pomodoro.saveNow()
+    gate.signal()
+    await facadeSave.value
+    try await waitFor { count(server, "PUT /v1/pomodoro/config") == 2 }
+    let last = try #require(server.bodies("PUT /v1/pomodoro/config").last)
+    #expect(last["focus_color"] as? String == "#123456")
+    #expect(last["focus_minutes"] as? Int == 50)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func recoveredSaveKeepsEditsMadeWhileItWasInFlight() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let (m, _) = await facade(server)
+    server.respond("PUT /v1/devices/clock-a/config", 503, #"{"error":"busy"}"#)
+    let gate = server.hold("PUT /v1/devices/clock-a/config")
+    m.config.draft.apps.weather.forecastHours = 12
+    let save = Task { await m.config.saveNow() }
+    try await waitFor { server.arrived("PUT /v1/devices/clock-a/config") }
+    m.config.draft.apps.calendar.tileLeadMinutes = 30
+    server.respond("GET /v1/devices/clock-a/config", 200, try fixtureText("config_custom"))
+    gate.signal()
+    await save.value
+    let custom = try decodeFixture("config_custom")
+    guard case .rejected? = m.config.saveError else { Issue.record("expected a facade message"); return }
+    #expect(m.config.applied == custom)
+    #expect(m.config.draft.apps.calendar.tileLeadMinutes == 30)
+    #expect(m.config.draft.apps.weather == custom.apps.weather)
+    #expect(m.config.draft.patch(from: custom) == ["apps": .object(["calendar": .object(["tile_lead_minutes": .int(30)])])])
+}
+
+@Test func rebaseReplacesWholeValuesInsteadOfMergingThem() throws {
+    let sent = try decodeFixture("config_custom")
+    var draft = sent
+    draft.apps.weather.iconIds = [:]
+    var current = sent
+    current.apps.focus.focusColor = "#000000"
+    let rebased = draft.rebased(onto: current, from: sent)
+    #expect(rebased.apps.weather.iconIds.isEmpty)
+    #expect(rebased.apps.focus.focusColor == "#000000")
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func facadeSaveOnAMissingRecordReplaysTheEditThroughTheOldEndpoint() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let (m, settings, _) = try await linked(server)
+    server.respond("PUT /v1/devices/clock-a/config", 404, #"{"error":"not found"}"#)
+    m.config.draft.apps.weather.air = false
+    await m.config.saveNow()
+    #expect(m.missing && !m.isActive)
+    #expect(m.status == .idle)
+    let lens = ClockAppLens(source: settings.weather, clock: m, slice: \.weather)
+    #expect(lens.draft.airTile == false)
+    try await waitFor { count(server, "PUT /v1/weather/config") == 1 }
+    #expect(server.bodies("PUT /v1/weather/config").last?["air_tile"] as? Bool == false)
+}
+
+@MainActor @Test func paneReloadRecoversAFacadeThatCameBack() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    server.respond("GET /v1/devices/clock-a/config", 404, #"{"error":"not found"}"#)
+    let (m, settings, _) = try await linked(server)
+    #expect(m.missing)
+    server.respond("GET /v1/devices/clock-a/config", 200, try fixtureText("config_custom"))
+    await ClockAppLens(source: settings.weather, clock: m, slice: \.weather).load()
+    #expect(!m.missing && m.isActive)
+    #expect(m.config.draft == (try decodeFixture("config_custom")))
+}
+
+@MainActor @Test func deviceRefreshRetriesAMissingFacadeAfterTheBackoff() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    server.respond("GET /v1/devices/clock-a/config", 404, #"{"error":"not found"}"#)
+    let (m, _, client) = try await linked(server, probeBackoff: 0)
+    #expect(m.missing)
+    server.respond("GET /v1/devices/clock-a/config", 200, try fixtureText("config_default"))
+    m.configure(client: client, deviceID: "clock-a")
+    try await waitFor { !m.missing }
+    #expect(m.isActive)
+}
+
+@MainActor @Test func legacySaveRefreshesTheFacade() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let (m, settings, _) = try await linked(server)
+    settings.onClockSourceSaved = { Task { await m.load() } }
+    let gets = count(server, "GET /v1/devices/clock-a/config")
+    settings.pomodoro.draft.focusMinutes = 50
+    await settings.pomodoro.saveNow()
+    try await waitFor { count(server, "GET /v1/devices/clock-a/config") == gets + 1 }
+}
+
+@MainActor @Test func recordFlapSendsAPendingFacadeEdit() async throws {
+    let server = FacadeServer(config: try fixtureText("config_default"))
+    let (m, client) = await facade(server)
+    m.config.draft.apps.calendar.on = false
+    m.config.scheduleSave()
+    m.configure(client: client, deviceID: nil)
+    try await waitFor { count(server, "PUT /v1/devices/clock-a/config") == 1 }
+    #expect(server.bodies("PUT /v1/devices/clock-a/config").last?["apps"] as? [String: [String: Bool]]
+            == ["calendar": ["on": false]])
+}
+
+@Test func expandedClockGroupsFollowTheRecordID() {
+    let tree = SettingsTree(devices: [SettingsDevice(id: "clock-05ffb8", kind: .clock, name: "Clock", state: .ready)])
+    let moved = tree.expanded(["clock", "clock/apps", "elsewhere"], revealing: .app(.general))
+    #expect(moved == ["clock-05ffb8", "clock-05ffb8/apps", "elsewhere"])
+}
+
+private final class LoadGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    let release = DispatchSemaphore(value: 0)
+    var count: Int { lock.withLock { calls } }
+    func next() -> Int { lock.withLock { calls += 1; return calls } }
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func olderLoadStillAppliesWhenANewerOneFailsBeforeAnyData() async throws {
+    let gate = LoadGate()
+    let m = ConfigModel<Int>(initial: 0, load: {
+        if gate.next() == 1 {
+            await withCheckedContinuation { c in DispatchQueue.global().async { gate.release.wait(); c.resume() } }
+            return 7
+        }
+        throw APIError.http(status: 500, body: "")
+    }, save: { _ in })
+    let first = Task { await m.load() }
+    try await waitFor { gate.count == 1 }
+    await m.load()
+    gate.release.signal()
+    await first.value
+    #expect(m.isLoaded)
+    #expect(m.draft == 7)
 }

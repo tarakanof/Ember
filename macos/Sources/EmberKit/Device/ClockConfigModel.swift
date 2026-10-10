@@ -9,13 +9,17 @@ public final class ClockConfigModel: SaveStatusReporting {
     public private(set) var missing = false
 
     public var isActive: Bool { deviceID != nil && !missing }
-    public var status: SaveState { config.status }
+    public var status: SaveState { isActive ? config.status : .idle }
 
     @ObservationIgnored public var onSaved: (@MainActor (_ saved: ClockConfig, _ previous: ClockConfig?) -> Void)? {
         didSet { config.onSaved = onSaved }
     }
 
+    @ObservationIgnored public weak var legacy: SettingsModels?
     @ObservationIgnored private var client: APIClient
+    @ObservationIgnored private var lastProbe: Date?
+    @ObservationIgnored private let probeBackoff: TimeInterval
+    @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
@@ -24,8 +28,11 @@ public final class ClockConfigModel: SaveStatusReporting {
         self.init(client: client, debounce: .milliseconds(600), sleep: { try await Task.sleep(for: $0) })
     }
 
-    init(client: APIClient, debounce: Duration, sleep: @escaping @Sendable (Duration) async throws -> Void) {
+    init(client: APIClient, debounce: Duration, sleep: @escaping @Sendable (Duration) async throws -> Void,
+         probeBackoff: TimeInterval = 300, now: @escaping @Sendable () -> Date = { Date() }) {
         self.client = client
+        self.probeBackoff = probeBackoff
+        self.now = now
         self.debounce = debounce
         self.sleep = sleep
         config = ConfigModel(initial: ClockConfig(), load: { throw APIError.notConfigured },
@@ -33,9 +40,21 @@ public final class ClockConfigModel: SaveStatusReporting {
     }
 
     public func configure(client next: APIClient, deviceID id: String?) {
-        guard ServerIdentity(next) != ServerIdentity(client) || id != deviceID else { return }
-        config.cancelPendingSave()
+        let sameServer = ServerIdentity(next) == ServerIdentity(client)
+        guard !sameServer || id != deviceID else {
+            if missing, lastProbe.map({ now().timeIntervalSince($0) >= probeBackoff }) ?? true {
+                Task { await load() }
+            }
+            return
+        }
+        if sameServer, config.hasUnsavedChanges {
+            let pendingEdit = config
+            Task { await pendingEdit.saveNow() }
+        } else {
+            config.cancelPendingSave()
+        }
         client = next
+        lastProbe = nil
         deviceID = id
         missing = false
         generation += 1
@@ -44,9 +63,16 @@ public final class ClockConfigModel: SaveStatusReporting {
     }
 
     public func load() async {
-        guard isActive else { return }
+        guard deviceID != nil else { return }
         let gen = generation
         let model = config
+        if missing {
+            lastProbe = now()
+            await model.load()
+            guard gen == generation, model.isLoaded, model.loadError == nil else { return }
+            missing = false
+            return
+        }
         await model.load()
         guard gen == generation, model.loadError == .featureOff, !model.isLoaded else { return }
         missing = true
@@ -65,6 +91,18 @@ public final class ClockConfigModel: SaveStatusReporting {
             if Self.isMissing(error) { markMissing(gen) }
             throw Self.facadeFailure(error) ?? error
         }
+    }
+
+    private func mark() -> ClockLegacyMark? { legacy?.clockMark() }
+
+    private func adopt(_ saved: ClockConfig, previous: ClockConfig?, since mark: ClockLegacyMark?) {
+        guard let mark else { return }
+        legacy?.adopt(saved, previous: previous, since: mark)
+    }
+
+    private func replay(_ unsaved: ClockConfig, previous: ClockConfig?, since mark: ClockLegacyMark?, gen: Int) {
+        if let mark { legacy?.adopt(unsaved, previous: previous, since: mark, resave: true) }
+        markMissing(gen)
     }
 
     nonisolated static func path(_ id: String) -> String { "/v1/devices/\(KnobService.escape(id))/config" }
@@ -107,15 +145,22 @@ public final class ClockConfigModel: SaveStatusReporting {
                 guard let id else { throw APIError.notConfigured }
                 let patch = value.patch(from: previous ?? value)
                 guard !patch.isEmpty else { return }
+                let mark = await self?.mark()
                 do {
                     let _: ClockConfig = try await client.request("PUT", Self.path(id), body: JSONValue.object(patch),
                                                                   budget: .clock)
                 } catch {
-                    if Self.isMissing(error) { await self?.markMissing(gen) }
+                    if Self.isMissing(error) {
+                        await self?.replay(value, previous: previous, since: mark, gen: gen)
+                        throw error
+                    }
                     guard let cause = Self.facadeFailure(error) else { throw error }
                     guard let current: ClockConfig = try? await client.get(Self.path(id), budget: .clock) else { throw cause }
-                    throw SaveRecovered(current: current, cause: cause)
+                    throw SaveRecovered(current: current, cause: cause) { sent, draft in
+                        draft.rebased(onto: current, from: sent)
+                    }
                 }
+                await self?.adopt(value, previous: previous, since: mark)
             },
             debounce: debounce, savedHold: .seconds(2), sleep: sleep)
         model.onSaved = onSaved
@@ -164,7 +209,6 @@ public struct ClockAppLens<Slice: ClockAppSlice> {
     public var saveError: FeedError? { usesFacade ? clock.config.saveError : source.saveError }
 
     public func load() async {
-        guard usesFacade else { return await source.load() }
         async let a: Void = source.load()
         async let b: Void = clock.load()
         _ = await (a, b)

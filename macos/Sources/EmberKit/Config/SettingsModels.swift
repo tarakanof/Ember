@@ -46,6 +46,7 @@ public final class SettingsModels {
     }
 
     @ObservationIgnored private var server: ServerIdentity
+    @ObservationIgnored public var onClockSourceSaved: (@MainActor () -> Void)?
 
     public init(client: APIClient, envStore: EnvFileStore) {
         server = ServerIdentity(client)
@@ -59,6 +60,15 @@ public final class SettingsModels {
             read: { ConnectionSettings(reading: $0) },
             apply: { value, env in try value.applyTolerant(to: &env, token: nil) })
         producerTuning = Self.producerTuningModel(envStore)
+        watchClockSources()
+    }
+
+    private func watchClockSources() {
+        let notify: @MainActor () -> Void = { [weak self] in self?.onClockSourceSaved?() }
+        usage.onSaved = { _, _ in notify() }
+        pomodoro.onSaved = { _, _ in notify() }
+        weather.onSaved = { _, _ in notify() }
+        meetings.onSaved = { _, _ in notify() }
     }
 
     static func producerTuningModel(_ store: EnvFileStore) -> EnvConfigModel<ProducerTuning> {
@@ -77,6 +87,7 @@ public final class SettingsModels {
             m.cancelPendingSave()
         }
         (pomodoro, weather, meetings, usage, quiet, display) = Self.serverModels(client)
+        watchClockSources()
         Task { await self.loadServerModels() }
         return true
     }
@@ -91,13 +102,22 @@ public final class SettingsModels {
         _ = await (a, b, c, d, e, f)
     }
 
-    public func reload(changedBy saved: ClockConfig, previous: ClockConfig?) async {
+    public func clockMark() -> ClockLegacyMark {
+        ClockLegacyMark(usage: .init(usage), pomodoro: .init(pomodoro), weather: .init(weather), meetings: .init(meetings))
+    }
+
+    public func adopt(_ saved: ClockConfig, previous: ClockConfig?, since mark: ClockLegacyMark, resave: Bool = false) {
         let apps = saved.apps, before = previous?.apps
-        async let a: Void = apps.agents != before?.agents ? usage.load() : ()
-        async let b: Void = apps.focus != before?.focus ? pomodoro.load() : ()
-        async let c: Void = apps.weather != before?.weather ? weather.load() : ()
-        async let d: Void = apps.calendar != before?.calendar ? meetings.load() : ()
-        _ = await (a, b, c, d)
+        Self.adopt(apps.agents, before?.agents, into: usage, slot: mark.usage, resave: resave)
+        Self.adopt(apps.focus, before?.focus, into: pomodoro, slot: mark.pomodoro, resave: resave)
+        Self.adopt(apps.weather, before?.weather, into: weather, slot: mark.weather, resave: resave)
+        Self.adopt(apps.calendar, before?.calendar, into: meetings, slot: mark.meetings, resave: resave)
+    }
+
+    private static func adopt<S: ClockAppSlice>(_ slice: S, _ before: S?, into model: ConfigModel<S.Source>,
+                                                slot: ClockLegacyMark.Slot, resave: Bool) {
+        guard slice != before, slot.model == ObjectIdentifier(model) else { return }
+        model.amend(overlapped: resave || slot.overlapped(model)) { slice.apply(to: &$0) }
     }
 
     public func loadAll() async {
@@ -153,3 +173,26 @@ protocol PendingSaveCancelling {
 }
 
 extension ConfigModel: PendingSaveCancelling {}
+
+public struct ClockLegacyMark: Sendable {
+    struct Slot: Sendable {
+        let model: ObjectIdentifier
+        let epoch: Int
+        let saving: Bool
+
+        @MainActor init<T>(_ m: ConfigModel<T>) {
+            model = ObjectIdentifier(m)
+            epoch = m.saveEpoch
+            saving = m.isSaving
+        }
+
+        @MainActor func overlapped<T>(_ m: ConfigModel<T>) -> Bool {
+            saving || m.isSaving || m.saveEpoch != epoch
+        }
+    }
+
+    let usage: Slot
+    let pomodoro: Slot
+    let weather: Slot
+    let meetings: Slot
+}

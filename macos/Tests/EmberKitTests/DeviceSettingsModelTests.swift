@@ -474,3 +474,17 @@ private func facadeModel(_ fake: FakeClock) async -> (DeviceSettingsModel, Clock
     guard case .rejected? = m.actionErrors[.apps] else { Issue.record("expected a facade message"); return }
     #expect(m.nativeApps.first?.enabled == true)
 }
+
+@MainActor @Test func appToggleRetriesTheOldRouteWhenTheRecordIsGone() async throws {
+    let fake = ngServer()
+    let (m, clock) = await facadeModel(fake)
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["PUT /v1/devices/clock-a1b2c3/config"] = (404, #"{"error":"not found"}"#)
+    await m.setApp("Time", enabled: false)
+    let puts = fake.log.filter { $0.method == "PUT" }.map(\.path)
+    #expect(puts == ["/v1/devices/clock-a1b2c3/config", "/v1/device/apps"])
+    #expect(fake.log.last { $0.method == "PUT" }?.body["disabled"] as? [String] == ["Time"])
+    #expect(m.actionErrors[.apps] == nil)
+    #expect(m.nativeApps.first?.enabled == false)
+    #expect(!clock.isActive)
+}

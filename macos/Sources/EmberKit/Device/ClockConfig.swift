@@ -151,6 +151,27 @@ public struct ClockConfig: Codable, Equatable, Sendable {
         }
     }
 
+    public func rebased(onto current: ClockConfig, from sent: ClockConfig) -> ClockConfig {
+        let edits = patch(from: sent)
+        guard !edits.isEmpty, let base = try? JSONValue.object(encoding: current),
+              let data = try? JSONEncoder().encode(JSONValue.object(Self.merge(base, edits, at: ""))),
+              let merged = try? JSONDecoder().decode(ClockConfig.self, from: data) else { return current }
+        return merged
+    }
+
+    private static func merge(_ base: [String: JSONValue], _ patch: [String: JSONValue], at path: String) -> [String: JSONValue] {
+        var out = base
+        for (key, value) in patch {
+            let here = path.isEmpty ? key : path + "." + key
+            if case .object(let p) = value, case .object(let b)? = base[key], !wholeValuePaths.contains(here) {
+                out[key] = .object(merge(b, p, at: here))
+            } else {
+                out[key] = value
+            }
+        }
+        return out
+    }
+
     static let wholeValuePaths: Set<String> = ["apps.weather.icon_ids", "rotation"]
 
     public func patch(from old: ClockConfig) -> [String: JSONValue] {
