@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -181,16 +180,19 @@ func (a *App) observeClock(rawUID string, seen *clockSeen) {
 }
 
 type clockSyncGate struct {
-	paused atomic.Int32
 	mu     sync.Mutex
+	paused int
 }
 
 func (a *App) syncClockConfigVersion() {
-	if a.devices == nil || a.clockSync.paused.Load() > 0 {
+	if a.devices == nil {
 		return
 	}
 	a.clockSync.mu.Lock()
 	defer a.clockSync.mu.Unlock()
+	if a.clockSync.paused > 0 {
+		return
+	}
 	changed, err := a.devices.setClockConfigVersion(a.clockConfigVersion())
 	if err != nil {
 		a.logger.Warn("clock config version not stored", "err", err)
@@ -201,9 +203,23 @@ func (a *App) syncClockConfigVersion() {
 	}
 }
 
-func (a *App) reapplySettings() {
-	a.clockSync.paused.Add(1)
-	a.settings.reapply()
-	a.clockSync.paused.Add(-1)
+func (a *App) pauseClockSync() {
+	a.clockSync.mu.Lock()
+	a.clockSync.paused++
+	a.clockSync.mu.Unlock()
+}
+
+func (a *App) resumeClockSync() {
+	a.clockSync.mu.Lock()
+	a.clockSync.paused--
+	a.clockSync.mu.Unlock()
 	a.syncClockConfigVersion()
+}
+
+func (a *App) reapplySettings() {
+	a.rotationOp.slot <- struct{}{}
+	defer func() { <-a.rotationOp.slot }()
+	a.pauseClockSync()
+	a.settings.reapply()
+	a.resumeClockSync()
 }

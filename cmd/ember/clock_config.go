@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
@@ -290,20 +290,48 @@ func rotationUnchanged(patch *deviceAppsPutBody, cur *clockRotation) bool {
 	return slices.Equal(slices.Compact(want), slices.Compact(have))
 }
 
-type clockRotationLock struct {
-	once sync.Once
-	ch   chan struct{}
+type clockRotationOp struct {
+	slot   chan struct{}
+	budget atomic.Int64
 }
 
-var errClockRotationBusy = errors.New("another clock app order change is still running")
+var (
+	errClockRotationBusy    = errors.New("another clock app order change is still running")
+	errClockRotationExpired = errors.New("the clock app order change ran out of time")
+)
 
-func (l *clockRotationLock) lock(ctx context.Context) (unlock func(), err error) {
-	l.once.Do(func() { l.ch = make(chan struct{}, 1) })
+func (a *App) startClockRotationOp(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(r.Context(), time.Duration(a.rotationOp.budget.Load()))
+}
+
+func (a *App) acquireClockRotation(ctx context.Context, w http.ResponseWriter, r *http.Request) (release func(), ok bool) {
 	select {
-	case l.ch <- struct{}{}:
-		return func() { <-l.ch }, nil
+	case a.rotationOp.slot <- struct{}{}:
 	case <-ctx.Done():
-		return nil, errClockRotationBusy
+		a.rejectClockRotation(w, r)
+		return nil, false
+	}
+	release = func() { <-a.rotationOp.slot }
+	if ctx.Err() != nil {
+		release()
+		a.rejectClockRotation(w, r)
+		return nil, false
+	}
+	return release, true
+}
+
+func (a *App) rejectClockRotation(w http.ResponseWriter, r *http.Request) {
+	if r.Context().Err() != nil {
+		a.logger.InfoContext(r.Context(), "clock app order request dropped: client went away while waiting", "path", r.URL.Path)
+		return
+	}
+	writeError(w, http.StatusServiceUnavailable, errClockRotationBusy)
+}
+
+func (a *App) forgetClockRotationAfter(err error) {
+	var apiErr *awtrix.APIError
+	if !errors.As(err, &apiErr) {
+		a.setClockRotation(nil)
 	}
 }
 
@@ -368,26 +396,29 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 		return res, err
 	}
 	var rotation *clockRotation
-	rotationKnown := false
 	if next.Rotation != nil {
 		pre, err := a.readClockRotation(ctx)
 		if err == nil && rotationUnchanged(next.Rotation, pre) {
-			rotation, rotationKnown = pre, true
+			rotation = pre
 		} else {
 			payload, _ := json.Marshal(next.Rotation)
 			if _, err := a.clock.fetch(ctx, withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
+				a.forgetClockRotationAfter(err)
 				return res, fmt.Errorf("%w: %w", errClockWrite, err)
 			}
 			res.rotationWritten = true
-			rotation, rotationKnown = a.readBackClockRotation(ctx), true
+			rotation = a.readBackClockRotation(ctx)
 		}
 	}
-	a.clockSync.paused.Add(1)
-	defer func() {
-		a.clockSync.paused.Add(-1)
-		a.syncClockConfigVersion()
-	}()
-	if rotationKnown {
+	if err := ctx.Err(); err != nil {
+		if next.Rotation != nil {
+			a.setClockRotation(rotation)
+		}
+		return res, fmt.Errorf("%w: %w", errClockRotationExpired, err)
+	}
+	a.pauseClockSync()
+	defer a.resumeClockSync()
+	if next.Rotation != nil {
 		a.clockRotation.Store(rotation)
 	}
 	if a.commitHook != nil {
@@ -446,38 +477,32 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 	return res, nil
 }
 
-func (a *App) lockClockRotation(w http.ResponseWriter, r *http.Request) (context.Context, func(), bool) {
-	ctx, cancel := context.WithTimeout(r.Context(), clockRotationOpBudget)
-	unlock, err := a.rotationOp.lock(ctx)
-	if err != nil {
-		cancel()
-		writeError(w, http.StatusServiceUnavailable, err)
-		return nil, nil, false
-	}
-	return ctx, func() {
-		unlock()
-		cancel()
-	}, true
-}
-
 func (a *App) handleClockConfigGet(w http.ResponseWriter, r *http.Request) {
-	ctx, done, ok := a.lockClockRotation(w, r)
+	ctx, cancel := a.startClockRotationOp(r)
+	defer cancel()
+	release, ok := a.acquireClockRotation(ctx, w, r)
 	if !ok {
 		return
 	}
-	defer done()
+	defer release()
 	a.refreshClockRotation(ctx)
 	cfg := a.composeClockConfig()
 	w.Header().Set(deviceConfigVersion, strconv.Itoa(clockConfigHash(cfg)))
 	writeJSON(w, http.StatusOK, cfg)
 }
 
-func (a *App) handleClockConfigPut(w http.ResponseWriter, r *http.Request, id string, patch []byte) {
-	ctx, done, ok := a.lockClockRotation(w, r)
+func (a *App) handleClockConfigPut(w http.ResponseWriter, r *http.Request, id string) {
+	ctx, cancel := a.startClockRotationOp(r)
+	defer cancel()
+	var patch json.RawMessage
+	if !a.decodeOrReject(w, r, &patch, false) {
+		return
+	}
+	release, ok := a.acquireClockRotation(ctx, w, r)
 	if !ok {
 		return
 	}
-	defer done()
+	defer release()
 	before := a.clockConfigVersion()
 	res, err := a.putClockConfig(ctx, patch)
 	if err != nil {
@@ -488,6 +513,8 @@ func (a *App) handleClockConfigPut(w http.ResponseWriter, r *http.Request, id st
 		switch {
 		case errors.Is(err, errClockWrite):
 			writeClockError(w, err)
+		case errors.Is(err, errClockRotationExpired):
+			writeError(w, http.StatusServiceUnavailable, err)
 		case errors.Is(err, errSettingBody):
 			a.writeDeviceError(w, r, err)
 		case errors.Is(err, errSettingsPersist):

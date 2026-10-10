@@ -36,6 +36,7 @@ type clockStub struct {
 	holdAfter bool
 	appsBody  string
 	appsDelay time.Duration
+	appsSlow  []time.Duration
 }
 
 func newClockStub(t *testing.T) *clockStub {
@@ -153,6 +154,9 @@ func (s *clockStub) serveApps(w http.ResponseWriter, r *http.Request) bool {
 	s.mu.Lock()
 	hold, in, late, delay := s.appsHold, s.appsIn, s.appsLate, s.appsDelay
 	s.appsHold = nil
+	if len(s.appsSlow) > 0 {
+		delay, s.appsSlow = s.appsSlow[0], s.appsSlow[1:]
+	}
 	snapshot, _ := json.Marshal(s.apps)
 	s.mu.Unlock()
 	switch {

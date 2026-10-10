@@ -65,11 +65,13 @@ type deviceAppsPutBody struct {
 }
 
 func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
-	ctx, done, ok := a.lockClockRotation(w, r)
+	ctx, cancel := a.startClockRotationOp(r)
+	defer cancel()
+	release, ok := a.acquireClockRotation(ctx, w, r)
 	if !ok {
 		return
 	}
-	defer done()
+	defer release()
 	body, err := a.clock.fetch(ctx, (*awtrix.Client).RawApps)
 	if err != nil {
 		writeClockError(w, err)
@@ -84,17 +86,20 @@ func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := a.startClockRotationOp(r)
+	defer cancel()
 	var body deviceAppsPutBody
 	if !a.decodeOrReject(w, r, &body, true) {
 		return
 	}
-	ctx, done, ok := a.lockClockRotation(w, r)
+	release, ok := a.acquireClockRotation(ctx, w, r)
 	if !ok {
 		return
 	}
-	defer done()
+	defer release()
 	payload, _ := json.Marshal(body)
 	if _, err := a.clock.fetch(ctx, withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
+		a.forgetClockRotationAfter(err)
 		writeClockError(w, err)
 		return
 	}

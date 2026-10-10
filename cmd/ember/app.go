@@ -62,7 +62,7 @@ type App struct {
 	devices       *deviceRegistry
 	clockSync     clockSyncGate
 	clockRotation atomic.Pointer[clockRotation]
-	rotationOp    clockRotationLock
+	rotationOp    clockRotationOp
 	commitHook    func()
 	clients       *clientRegistry
 	changes       *changeBroadcaster
@@ -142,6 +142,8 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.cfg.Store(&cfg)
 	a.changes = newChangeBroadcaster()
 	a.clock = newClockAccess(a.cfg.Load)
+	a.rotationOp.slot = make(chan struct{}, 1)
+	a.rotationOp.budget.Store(int64(clockRotationOpBudget))
 	a.sessions = a.newSessionRegistry(realClock{}.Now)
 	a.settings = newAppSettings(a)
 	a.devices = newDeviceRegistry(func() settingsKV {
