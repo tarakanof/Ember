@@ -232,8 +232,34 @@ func startAppServer(t *testing.T, cfg Config) *appServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { as.run(ctx); close(done) }()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() { stopAppServer(t, cancel, done) })
 	return as
+}
+
+func stopAppServer(t *testing.T, cancel context.CancelFunc, done <-chan struct{}) {
+	t.Helper()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Errorf("app-server loop did not stop within 5s of cancel")
+	}
+}
+
+func bootstrapped(as *appServer, ids ...string) func() bool {
+	return func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		if len(as.unread) != 0 {
+			return false
+		}
+		for _, id := range ids {
+			if as.threads[id] == nil && as.ephemeral[id].IsZero() {
+				return false
+			}
+		}
+		return true
+	}
 }
 
 func connected(as *appServer) func() bool {
@@ -308,14 +334,24 @@ func TestAppServer_BootstrapsLoadedThreadsAndMapsStatus(t *testing.T) {
 	f.addThread("t-eph", "cli", active(), map[string]any{"ephemeral": true})
 	f.loaded = []string{"t-run", "t-idle", "t-new", "t-eph"}
 	as := startAppServer(t, testAppServerConfig(sock))
+	waitFor(t, "loaded threads read", bootstrapped(as, f.loaded...))
 	waitState(t, as, "t-run", "running")
 	waitState(t, as, "t-idle", "done")
-	as.mu.Lock()
-	_, eph := as.threads["t-eph"]
-	newState := as.threads["t-new"].d.state
-	as.mu.Unlock()
+	eph, hasNew, newState := func() (bool, bool, string) {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		_, eph := as.threads["t-eph"]
+		th := as.threads["t-new"]
+		if th == nil {
+			return eph, false, ""
+		}
+		return eph, true, th.d.state
+	}()
 	if eph {
 		t.Error("ephemeral helper thread tracked")
+	}
+	if !hasNew {
+		t.Fatal("loaded thread t-new not tracked")
 	}
 	if newState != "" {
 		t.Errorf("thread without a turn has state %q, want none", newState)
@@ -651,7 +687,7 @@ func TestAppServer_ReconnectsWhenTheDaemonStopsAnswering(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { as.run(ctx); close(done) }()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() { stopAppServer(t, cancel, done) })
 	waitFor(t, "connect", connected(as))
 	f.mu.Lock()
 	f.hang = true
