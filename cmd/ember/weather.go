@@ -218,6 +218,7 @@ type airObservation struct {
 
 type weatherStore struct {
 	mu        sync.RWMutex
+	provider  string
 	obs       weatherObservation
 	have      bool
 	lastFetch time.Time
@@ -235,6 +236,25 @@ type weatherStore struct {
 }
 
 func newWeatherStore() *weatherStore { return &weatherStore{} }
+
+func (s *weatherStore) servesProvider(provider string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.provider == provider
+}
+
+func (s *weatherStore) switchProvider(provider string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.provider == provider {
+		return
+	}
+	s.provider = provider
+	s.obs = weatherObservation{}
+	s.have = false
+	s.lastFetch = time.Time{}
+	s.prevCondition = ""
+}
 
 type weatherFetcher struct {
 	client         *http.Client
@@ -516,17 +536,24 @@ func (a *App) StartWeather(ctx context.Context) {
 	defer ticker.Stop()
 	a.pollWeather(ctx, time.Now())
 	for {
+		_, changed := a.changes.subscribe()
+		if !a.weather.servesProvider(a.cfg.Load().Weather.Provider) {
+			a.pollWeather(ctx, time.Now())
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			a.pollWeather(ctx, time.Now())
+		case <-changed:
 		}
 	}
 }
 
 func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	cfg := a.cfg.Load().Weather
+	a.weather.switchProvider(cfg.Provider)
 	if !cfg.Enabled {
 		return
 	}
@@ -542,12 +569,18 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	if err != nil {
 		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "err", err)
 		a.weather.mu.Lock()
-		a.weather.lastFetch = now
+		if a.cfg.Load().Weather.Provider == cfg.Provider {
+			a.weather.lastFetch = now
+		}
 		a.weather.mu.Unlock()
 		return
 	}
 	obs.FetchedAt = now
 	a.weather.mu.Lock()
+	if a.cfg.Load().Weather.Provider != cfg.Provider {
+		a.weather.mu.Unlock()
+		return
+	}
 	a.weather.obs = obs
 	a.weather.have = true
 	a.weather.lastFetch = now
