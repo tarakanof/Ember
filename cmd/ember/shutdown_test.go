@@ -179,7 +179,7 @@ func TestShutdownRefusesLateClockJob(t *testing.T) {
 	})
 
 	a.provisionIconsInBackground()
-	<-pub.entered
+	waitEntered(t, pub.entered, "icon provisioning")
 	ctx, stop := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer stop()
 	a.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
@@ -189,5 +189,14 @@ func TestShutdownRefusesLateClockJob(t *testing.T) {
 	a.clockJobs.Wait()
 	if n := pub.lists.Load(); n != 1 {
 		t.Fatalf("icon lists = %d, want 1: a clock job started after shutdown ran", n)
+	}
+}
+
+func waitEntered(t *testing.T, entered <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s never started", what)
 	}
 }
