@@ -6,11 +6,16 @@ public struct VersionInfo: Codable, Sendable {
     public var revision: String?
     public var dirty: Bool?
     public var goVersion: String?
+    public var features: [String]?
+
+    public static let firmwareDeleteKeep = "firmware_delete_keep"
 
     enum CodingKeys: String, CodingKey {
-        case binary, version, revision, dirty
+        case binary, version, revision, dirty, features
         case goVersion = "go_version"
     }
+
+    public func supports(_ feature: String) -> Bool { features?.contains(feature) == true }
 
     public var release: String? {
         guard var ver = version?.trimmingCharacters(in: .whitespaces), !ver.isEmpty, ver != "dev" else { return nil }

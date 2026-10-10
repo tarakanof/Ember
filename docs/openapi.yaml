@@ -2192,11 +2192,26 @@ paths:
         offered) or a failed removal (500)
         keeps it blocked; after a 500 the version stays listed and whole, so the
         DELETE can be retried.
+        With `?keep=protected` (servers listing `firmware_delete_keep` in
+        `/version` `features`) it also answers 409 `firmware_kept: …` for a
+        version any knob runs or targets (by last check-in `fw`), the newest
+        release image, or the newest test image when it is newer than the
+        newest release, checked under the store lock. Without it, those
+        versions can be deleted.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
+      parameters:
+        - name: keep
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [protected]
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2204,7 +2219,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: The version is a device's target (not one parked after it failed or rolled back) or is being offered.
+          description: The version is a device's target (not one parked after it failed or rolled back) or is being offered, or (with `keep=protected`) `firmware_kept`.
           content:
             application/json:
               schema:

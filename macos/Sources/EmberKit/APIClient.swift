@@ -253,8 +253,9 @@ public struct APIClient: Sendable {
         try await perform("GET", path, query: query, body: nil, budget: budget)
     }
 
-    public func send(_ method: String, _ path: String, budget: RequestBudget = .server) async throws {
-        _ = try await perform(method, path, query: [], body: nil, budget: budget)
+    public func send(_ method: String, _ path: String, query: [URLQueryItem] = [],
+                     budget: RequestBudget = .server) async throws {
+        _ = try await perform(method, path, query: query, body: nil, budget: budget)
     }
 
     public func put<B: Encodable>(_ path: String, body: B, budget: RequestBudget = .server) async throws {

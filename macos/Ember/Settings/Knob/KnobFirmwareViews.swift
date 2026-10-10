@@ -184,7 +184,7 @@ struct KnobFirmwareSection: View {
             Button("Delete", role: .destructive) { Task { await ota.deleteOldBuilds(images) } }
             Button("Cancel", role: .cancel) {}
         } message: { images in
-            Text("Ember removes \(images.map(\.version).formatted(.list(type: .and))) and their ELFs. It keeps the build on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering.",
+            Text("Ember removes \(images.map(\.version).formatted(.list(type: .and))), with any ELFs stored for them. It keeps the build on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering.",
                  comment: "Settings › Knob Firmware & updates: confirmation before Delete Old Builds; the argument lists the versions that go (\"0.9.39, 0.9.40 and 0.9.41\").")
         }
         .confirmationDialog(releaseTitle, isPresented: Binding(
@@ -249,7 +249,7 @@ struct KnobFirmwareSection: View {
             }
             if let e = ota.errors[.delete] {
                 Label { Text("Couldn't check what to delete, so nothing was deleted: \(Text(e.message))",
-                             comment: "Settings › Knob Firmware & updates error when Delete Old Builds can't reload the knob status, the stored images or the knob list first; the argument is a short reason (\"Server unreachable\").") }
+                             comment: "Settings › Knob Firmware & updates error when Delete Old Builds can't reload the server version, the knob status, the stored images or the knob list first, or the server is too old to guard the deletes; the argument is a short reason (\"Server unreachable\").") }
                     icon: { Image(systemName: "exclamationmark.triangle.fill") }
                     .foregroundStyle(.red)
             }
@@ -342,6 +342,12 @@ struct KnobFirmwareSection: View {
                 Button("Delete…") { confirmDelete = image }
                     .disabled(ota.running.contains(.delete))
             }
+            if let kept = ota.kept(image) {
+                Label { keptText(image, kept) } icon: { Image(systemName: "info.circle") }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let e = ota.deleteError(for: image) {
                 Label { Text("Couldn't delete \(image.version): \(Text(e.message))",
                              comment: "Settings › Knob Firmware & updates image row error after Delete; the version, then why (\"Couldn't delete 0.9.17: A knob is updating to this version or waiting to. …\").") }
@@ -362,6 +368,17 @@ struct KnobFirmwareSection: View {
     private var deleteTitle: Text {
         Text("Delete \(confirmDelete?.version ?? "") from Ember?",
              comment: "Settings › Knob Firmware & updates: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\").")
+    }
+
+    private func keptText(_ image: KnobFirmwareImage, _ kept: KnobFirmwareKept) -> Text {
+        switch kept {
+        case .inUse:
+            Text("Kept \(image.version): a knob runs it or an update targets it.",
+                 comment: "Settings › Knob Firmware & updates image row note after Delete Old Builds, when Ember refused to delete it; the argument is its version (\"Kept 0.9.42: a knob runs it or an update targets it.\").")
+        case .newest:
+            Text("Kept \(image.version): it's the newest Release or a newer Test build.",
+                 comment: "Settings › Knob Firmware & updates image row note after Delete Old Builds, when Ember refused to delete it; the argument is its version (\"Kept 0.9.43: it's the newest Release or a newer Test build.\").")
+        }
     }
 
     private var oldBuilds: [KnobFirmwareImage] {
@@ -425,7 +442,7 @@ struct KnobFirmwareBadgeView: View {
         switch badge {
         case .onKnob: Text("On the knob", comment: "Settings › Knob Firmware & updates image row badge (green): the knob runs this build.")
         case .latest: Text("Latest", comment: "Settings › Knob Firmware & updates image row badge (blue): the highest version stored on Ember.")
-        case .installing: Text("Installing", comment: "Settings › Knob Firmware & updates: the orange image row badge on the build the knob is downloading or installing; also the Firmware row's progress phase while the knob writes the update.")
+        case .installing: Text("Installing", comment: "Settings › Knob Firmware & updates: the orange image row badge on the build the knob is downloading, installing, restarting into or verifying; also the Firmware row's progress phase while the knob writes the update.")
         case .failed: Text("Failed", comment: "Settings › Knob Firmware & updates: the red image row badge on a build whose last update failed or rolled back; also the Clock hardware chart line for failed publishes.")
         case .noELF: Text("No ELF", comment: "Settings › Knob Firmware & updates image row badge (warning): Ember has no ELF for this build, so its crash dumps can't be decoded.")
         }

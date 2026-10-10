@@ -3019,20 +3019,27 @@ row, a 409 as "a knob is updating to this version or waiting to", with the
 way out). Upload… sits under the list (upload
 `cinder.bin` plus a `cinder.elf` or `<name>.elf` next to it, channel Test
 by default, upload progress from the `URLSession` upload task).
-Delete Old Builds… under it deletes, one `DELETE` at a time, every image
-`KnobFirmwareImage.oldBuilds` picks: all but the selected knob's build and
-its `running.fw` version (like the server's `otaKeeps`), the `fw` of every
-knob in `/v1/devices`, the newest Release, the newest Test if it is newer
-than that Release (semver order, the server's `compareSemver`), `target`,
-a downloading or installing update's `version` and the offered update.
-Without a `running` report it picks nothing. On confirm,
-`KnobOTAModel.deleteOldBuilds` rereads the OTA status, the image list and
-`/v1/devices` (any failure aborts with nothing deleted), then before each
-`DELETE` re-applies the rule to the model's current state and skips images
-no longer picked (matched by version and build). It captures the service
-and a configure generation, and stops without touching state if the
-server or knob changes mid-run. Each failure shows on its row; the list
-reloads once.
+Delete Old Builds… under it deletes, one `DELETE …?keep=protected` at a
+time, every image `KnobFirmwareImage.oldBuilds` picks: all but the selected
+knob's build and its `running.fw` version, the `fw` of every knob in
+`/v1/devices`, the newest Release, the newest Test if it is newer than that
+Release (semver order, the server's `compareSemver`), `target`, a
+downloading or installing update's `version` and the offered update.
+Without a `running` report it picks nothing. The server enforces the same
+rule (`firmwareNewestKept` plus `otaKeeps`) under the store lock and
+answers 409 `firmware_kept`, which the row shows as a grey "Kept" note,
+not an error; an update target's 409 counts as kept too. So the client's
+rule is only a pre-filter, and races with polls, channel changes or other
+knobs cost at most a "Kept" answer. On confirm,
+`KnobOTAModel.deleteOldBuilds` reads `/version` and refuses to run unless
+`features` lists `firmware_delete_keep` (an older server would ignore the
+parameter), then rereads the OTA status, the image list and `/v1/devices`
+(any failure aborts with nothing deleted), and re-applies the rule before
+each `DELETE`. `configure` bumps a generation; every load and the batch
+check it before writing, and each loader drops an answer older than the
+latest one it started, so a switch of server or knob never lets old answers
+land. Each failure shows on its row; the list reloads once. A row's own
+Delete… stays unguarded and can remove the running build after its warning.
 Uploads and ELF downloads use the `transfer` request budget (60 s per
 request, 10 min per resource). The Crash rows get "Download ELF…" when
 Ember holds the ELF for the crash's build.

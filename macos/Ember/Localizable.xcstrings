@@ -859,7 +859,7 @@
     },
     "Couldn't check" : {},
     "Couldn't check what to delete, so nothing was deleted: %@" : {
-      "comment" : "Settings › Knob Firmware & updates error when Delete Old Builds can't reload the knob status, the stored images or the knob list first; the argument is a short reason (\"Server unreachable\")."
+      "comment" : "Settings › Knob Firmware & updates error when Delete Old Builds can't reload the server version, the knob status, the stored images or the knob list first, or the server is too old to guard the deletes; the argument is a short reason (\"Server unreachable\")."
     },
     "Couldn't clear the update: %@" : {
       "comment" : "Settings › Knob Firmware row error after Dismiss or Cancel Update; the argument is a short reason (\"Server unreachable\")."
@@ -1098,7 +1098,7 @@
     },
     "Ember reads the clock every 30 seconds and keeps the last 24 hours while the server runs." : {},
     "Ember rejected the knob's token." : {},
-    "Ember removes %@ and their ELFs. It keeps the build on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering." : {
+    "Ember removes %@, with any ELFs stored for them. It keeps the build on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering." : {
       "comment" : "Settings › Knob Firmware & updates: confirmation before Delete Old Builds; the argument lists the versions that go (\"0.9.39, 0.9.40 and 0.9.41\")."
     },
     "Ember removes the image and its ELF." : {},
@@ -1315,7 +1315,7 @@
     "Install this build on the knob." : {},
     "Installed from the CLI" : {},
     "Installing" : {
-      "comment" : "Settings › Knob Firmware & updates: the orange image row badge on the build the knob is downloading or installing; also the Firmware row's progress phase while the knob writes the update."
+      "comment" : "Settings › Knob Firmware & updates: the orange image row badge on the build the knob is downloading, installing, restarting into or verifying; also the Firmware row's progress phase while the knob writes the update."
     },
     "Internal memory" : {},
     "Interrupt watchdog" : {
@@ -1341,6 +1341,12 @@
     "Keeps the bot calm during quiet hours" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
+    },
+    "Kept %@: a knob runs it or an update targets it." : {
+      "comment" : "Settings › Knob Firmware & updates image row note after Delete Old Builds, when Ember refused to delete it; the argument is its version (\"Kept 0.9.42: a knob runs it or an update targets it.\")."
+    },
+    "Kept %@: it's the newest Release or a newer Test build." : {
+      "comment" : "Settings › Knob Firmware & updates image row note after Delete Old Builds, when Ember refused to delete it; the argument is its version (\"Kept 0.9.43: it's the newest Release or a newer Test build.\")."
     },
     "Knob" : {},
     "Knob name" : {},
@@ -2245,6 +2251,10 @@
       "extractionState" : "manual"
     },
     "These settings apply only to this Mac, while it's awake and Ember is running." : {},
+    "This Ember server can't check which builds to keep. Update the server to delete old builds." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "This Mac" : {},
     "This Mac can't search the network" : {},
     "This Mac can't search: Local Network access is off" : {},

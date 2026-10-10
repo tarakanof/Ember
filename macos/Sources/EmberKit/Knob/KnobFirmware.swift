@@ -164,6 +164,21 @@ public struct KnobOTAStatus: Codable, Equatable, Sendable {
     }
 }
 
+public enum KnobFirmwareKept: Equatable, Sendable {
+    case inUse, newest
+
+    public init?(_ error: Error) {
+        guard case .http(409, let body)? = error as? APIError else { return nil }
+        if body.contains("firmware_kept") {
+            self = body.contains("newest") ? .newest : .inUse
+        } else if body.contains("update target") {
+            self = .inUse
+        } else {
+            return nil
+        }
+    }
+}
+
 public enum KnobOTAError {
     public static let inProgress = LocalizedStringResource("The knob is already installing an update. Try again when it has finished.")
     public static let noRollback = LocalizedStringResource("This knob's bootloader can't roll back. Flash it once over USB (see cinder docs/workflow.md).")
@@ -171,6 +186,7 @@ public enum KnobOTAError {
     public static let inUse = LocalizedStringResource("A knob is updating to this version or waiting to. Wait until that update finishes, or use Cancel Update in the Firmware row if it shows, then delete again.")
     public static let alreadyDownloading = LocalizedStringResource("The knob has already started this update. Wait until it finishes.")
     public static let firmwareChanged = LocalizedStringResource("Ember's stored firmware changed while saving. Try again.")
+    public static let serverCantKeep = LocalizedStringResource("This Ember server can't check which builds to keep. Update the server to delete old builds.")
 
     public static func cancelFailure(_ error: Error) -> FeedError {
         if case .http(409, let body)? = error as? APIError, body.contains("ota_in_progress") {

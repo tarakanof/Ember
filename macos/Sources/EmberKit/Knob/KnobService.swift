@@ -79,8 +79,13 @@ public struct KnobService: Sendable, Equatable {
         try await client.request("PATCH", "/v1/firmware/\(Self.escape(version))", body: ["channel": channel])
     }
 
-    public func deleteFirmware(version: String) async throws {
-        try await client.send("DELETE", "/v1/firmware/\(Self.escape(version))")
+    public func deleteFirmware(version: String, keepProtected: Bool = false) async throws {
+        try await client.send("DELETE", "/v1/firmware/\(Self.escape(version))",
+                              query: keepProtected ? [URLQueryItem(name: "keep", value: "protected")] : [])
+    }
+
+    public func serverVersion() async throws -> VersionInfo {
+        try await client.get("/version")
     }
 
     public func firmwareELF(version: String) async throws -> Data {

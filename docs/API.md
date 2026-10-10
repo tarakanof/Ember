@@ -64,7 +64,12 @@ makes every knob outside an active attempt forget it (a target naming it
 cleared, a record whose last attempt it was reset unless done; eviction
 does the same), so no Retry points at a missing image; a removal
 that fails answers 500, keeps the block and keeps the version listed so the
-DELETE can be retried), `PUT`/`GET /v1/firmware/{version}/elf`
+DELETE can be retried; `DELETE …?keep=protected` also answers 409
+`firmware_kept: …` for a version any knob runs or targets, the newest
+release image, or the newest test image when newer than that release,
+checked under the store lock; servers that support it list
+`firmware_delete_keep` in `/version` `features`; any other `keep` is 400),
+`PUT`/`GET /v1/firmware/{version}/elf`
 (≤64 MiB, 400 `elf_mismatch`), `GET /v1/firmware/{version}/bin`,
 `GET /v1/firmware/by-build/{build}/elf` (ARCHITECTURE "Knob firmware
 updates"),

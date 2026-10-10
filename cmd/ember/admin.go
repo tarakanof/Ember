@@ -16,15 +16,19 @@ import (
 )
 
 type versionInfo struct {
-	Binary    string `json:"binary"`
-	Version   string `json:"version"`
-	Revision  string `json:"revision"`
-	Dirty     bool   `json:"dirty"`
-	GoVersion string `json:"go_version"`
+	Binary    string   `json:"binary"`
+	Version   string   `json:"version"`
+	Revision  string   `json:"revision"`
+	Dirty     bool     `json:"dirty"`
+	GoVersion string   `json:"go_version"`
+	Features  []string `json:"features"`
 }
 
+const featureFirmwareDeleteKeep = "firmware_delete_keep"
+
 func computeVersionInfo() versionInfo {
-	info := versionInfo{Binary: "ember", Version: version, GoVersion: runtime.Version()}
+	info := versionInfo{Binary: "ember", Version: version, GoVersion: runtime.Version(),
+		Features: []string{featureFirmwareDeleteKeep}}
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		for _, s := range bi.Settings {
 			switch s.Key {
