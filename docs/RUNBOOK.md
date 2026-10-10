@@ -1298,7 +1298,9 @@ applies it. Under
 `EMBER_CLOCK=off`, or until the clock is found, the settings stay in the old
 rows. The clock's `config_version` is now a counter (it was a hash); it never
 drops below the old hash value, and deleting the clock record doesn't reset it
-(a re-created record continues above the highest version handed out).
+(a re-created record continues above the highest version handed out). A
+rollback loses that high-water mark, so a delete and re-create done while an
+older server runs can restart the count.
 
 - **`/admin/doctor` `devices` warns `clock config not migrated: …`:** the
   move's SQLite transaction failed (nothing was written; the old rows still

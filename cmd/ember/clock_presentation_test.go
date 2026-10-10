@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -536,7 +537,6 @@ func TestClockConfigMigrationWaitsForReapply(t *testing.T) {
 		release()
 		t.Fatalf("probe failed: %+v", dev)
 	}
-	time.Sleep(100 * time.Millisecond)
 	if _, ok, _ := a.store.GetSetting(clockConfigKey); ok {
 		release()
 		t.Fatal("migrated while a reapply held the clock app order lock")
@@ -571,14 +571,10 @@ func TestClockRecordDeleteKeepsClockConfig(t *testing.T) {
 
 func waitClockRow(t *testing.T, a *App) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, ok, _ := a.store.GetSetting(clockConfigKey); ok {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	a.clockMigrate.jobs.Wait()
+	if _, ok, _ := a.store.GetSetting(clockConfigKey); !ok {
+		t.Fatal("clock config never migrated")
 	}
-	t.Fatal("clock config never migrated")
 }
 
 func TestClockVersionNeverRepeatsAfterRecordRecreate(t *testing.T) {
@@ -705,6 +701,8 @@ func TestClockFacadeVersionMatchesBody(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
+	var landed atomic.Int64
+	client := srv.Client()
 	for w := range 3 {
 		wg.Go(func() {
 			for i := 0; ; i++ {
@@ -716,7 +714,10 @@ func TestClockFacadeVersionMatchesBody(t *testing.T) {
 				body := fmt.Sprintf(`{"forecast_hours":%d}`, 1+(i+w)%6)
 				req, _ := http.NewRequest("PUT", srv.URL+"/v1/weather/config", strings.NewReader(body))
 				req.Header.Set("Authorization", "Bearer "+testToken)
-				if resp, err := http.DefaultClient.Do(req); err == nil {
+				if resp, err := client.Do(req); err == nil {
+					if resp.StatusCode == http.StatusOK {
+						landed.Add(1)
+					}
 					_ = resp.Body.Close()
 				}
 			}
@@ -737,5 +738,47 @@ func TestClockFacadeVersionMatchesBody(t *testing.T) {
 	wg.Wait()
 	if bad != "" {
 		t.Fatalf("version %s served two different bodies", bad)
+	}
+	if landed.Load() == 0 || len(seen) < 2 {
+		t.Fatalf("no interleaving exercised: %d PUTs landed, %d versions seen", landed.Load(), len(seen))
+	}
+}
+
+func TestShutdownWaitsForClockMigration(t *testing.T) {
+	a, _, _ := newClockApp(t)
+	var buf bytes.Buffer
+	a.logger = captureLogger(&buf)
+	release := a.holdClockRotation()
+	if dev := a.probeClockHealthWithin(context.Background(), time.Now(), 0); dev == nil || !dev.Reachable {
+		release()
+		t.Fatalf("probe failed: %+v", dev)
+	}
+	ctx, stop := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer stop()
+	a.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
+	release()
+	a.clockMigrate.jobs.Wait()
+	if !strings.Contains(buf.String(), "still running at the shutdown deadline") {
+		t.Fatalf("shutdown closed the store without waiting for the clock config migration:\n%s", buf.String())
+	}
+}
+
+func TestClockMigrationErrorClearsWhenFixedRowLoads(t *testing.T) {
+	seed := map[string]string{devicesKey: legacyClockRecord, clockConfigKey: `{"schema":7}`}
+	a := bootApp(t, filepath.Join(t.TempDir(), "s.db"), seed)
+	a.migrateClockConfig()
+	if a.clockMigrate.lastError() == nil {
+		t.Fatal("an unreadable row did not record an error")
+	}
+	if err := a.store.PutSettings(map[string]string{clockConfigKey: `{"schema":1,"apps":{},"migrated_from_overlay":"v1"}`}); err != nil {
+		t.Fatal(err)
+	}
+	a.reapplySettings()
+	a.migrateClockConfig()
+	if err := a.clockMigrate.lastError(); err != nil {
+		t.Fatalf("error kept after the fixed row loaded: %v", err)
+	}
+	if got := checkDevices(a); strings.Contains(got.Detail, "not migrated") {
+		t.Fatalf("doctor = %+v", got)
 	}
 }

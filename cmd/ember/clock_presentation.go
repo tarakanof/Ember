@@ -409,6 +409,7 @@ func (a *App) migrateClockConfig() {
 	})
 	switch {
 	case errors.Is(err, errNoChange):
+		a.clockMigrate.done()
 	case err != nil:
 		if a.clockMigrate.fail(err) {
 			a.logger.Warn("clock config not migrated; presentation stays in the source slices", "err", err)

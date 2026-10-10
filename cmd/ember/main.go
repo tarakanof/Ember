@@ -212,6 +212,7 @@ func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.W
 	done := make(chan struct{})
 	go func() {
 		workers.Wait()
+		a.clockMigrate.jobs.Wait()
 		close(done)
 	}()
 	select {
