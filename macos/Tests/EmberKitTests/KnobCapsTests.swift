@@ -86,3 +86,42 @@ private func knob(fw: String?, caps: KnobCaps? = nil) -> KnobDevice {
     #expect(KnobDevice.firmware("0.9.1-rc.1", atLeast: [0, 9, 0]))
     #expect(!knob(fw: "0.9.0-rc.1").supports(page: KnobCaps.nowPlayingPage))
 }
+
+private func degrees(_ c: [KnobRotationChoice]) -> [Int] { c.map(\.degrees) }
+
+@Test func knobRotationChoicesFollowCaps() {
+    let both = knob(fw: "0.10.0", caps: KnobCaps(pages: ["bot"], rotations: [180, 0]))
+    #expect(both.supportedRotations == [0, 180])
+    #expect(both.rotationChoices(current: 0) == [.init(degrees: 0, supported: true), .init(degrees: 180, supported: true)])
+    #expect(both.rotationChoices(current: nil).isEmpty, "a server that sends no rotation hides the picker")
+
+    let all = knob(fw: "0.10.0", caps: KnobCaps(pages: ["bot"], rotations: [0, 90, 180, 270]))
+    #expect(degrees(all.rotationChoices(current: 0)) == [0, 90, 180, 270])
+    #expect(all.rotationChoices(current: 0).allSatisfy { $0.supported })
+
+    #expect(knob(fw: "0.10.0", caps: KnobCaps(pages: ["bot"])).rotationChoices(current: 0).isEmpty)
+    #expect(knob(fw: "0.10.0", caps: KnobCaps(pages: ["bot"], rotations: [0])).rotationChoices(current: 0).isEmpty)
+    #expect(knob(fw: "0.10.0", caps: KnobCaps(pages: ["bot"], rotations: [])).rotationChoices(current: 0).isEmpty)
+    #expect(knob(fw: "0.9.41").rotationChoices(current: 0).isEmpty, "no effective_caps means [0]")
+    #expect(knob(fw: "0.10.0", caps: KnobCaps(pages: ["bot"], rotations: [45, 0])).supportedRotations == [0])
+}
+
+@Test func knobRotationPickerMarksAStoredValueTheCapsDropped() {
+    let narrow = knob(fw: "0.10.0", caps: KnobCaps(pages: ["bot"], rotations: [0, 90]))
+    #expect(narrow.rotationChoices(current: 180) == [.init(degrees: 0, supported: true), .init(degrees: 90, supported: true),
+                                                     .init(degrees: 180, supported: false)])
+    #expect(narrow.rotationChoices(current: 90).allSatisfy { $0.supported }, "an unsupported angle is not a normal choice")
+
+    let zeroOnly = knob(fw: "0.10.0", caps: KnobCaps(pages: ["bot"], rotations: [0]))
+    #expect(zeroOnly.rotationChoices(current: 180) == [.init(degrees: 0, supported: true), .init(degrees: 180, supported: false)],
+            "a stored 180 stays resettable after the caps fall back to [0]")
+    #expect(knob(fw: "0.9.41").rotationChoices(current: 270) == [.init(degrees: 0, supported: true), .init(degrees: 270, supported: false)],
+            "a legacy knob with a stored rotation can be set back to 0")
+}
+
+@Test func knobCapsDecodeRotations() throws {
+    let with = try JSONDecoder().decode(KnobCaps.self, from: Data(#"{"view":[1,1],"pages":["bot"],"features":[],"rotations":[0,180],"source":"reported"}"#.utf8))
+    #expect(with.rotations == [0, 180])
+    let without = try JSONDecoder().decode(KnobCaps.self, from: Data(#"{"view":[1,1],"pages":["bot"],"features":[],"source":"legacy"}"#.utf8))
+    #expect(without.rotations == nil)
+}

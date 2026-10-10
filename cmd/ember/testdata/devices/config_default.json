@@ -37,7 +37,8 @@
     "stats_interval_s": 60,
     "live_interval_s": 5,
     "display": {
-      "fast_link": true
+      "fast_link": true,
+      "rotation": 0
     },
     "quiet": {
       "calm": true,

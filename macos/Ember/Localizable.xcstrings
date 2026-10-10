@@ -39,6 +39,9 @@
         }
       }
     },
+    "%@ (not supported by this firmware)" : {
+      "comment" : "Settings › Knob › Display: a saved rotation the knob's firmware can't apply (\"180° (not supported by this firmware)\")."
+    },
     "%@ 5h %@" : {
       "comment" : "Menu usage row: tool name, then percent of its 5-hour window used (\"Claude 5h 47%\").",
       "extractionState" : "manual"
@@ -2353,6 +2356,14 @@
     "Turn On Full Diagnostics" : {},
     "Turn it on in Settings › Sources › Focus." : {},
     "Turning Sound off silences the clock completely, chimes included." : {},
+    "Turns the knob's picture, in degrees" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Turns the screen and touch so the knob reads right however it's mounted. Only the angles its firmware can apply are offered; a knob that can't apply the saved angle shows 0°. Default: 0°." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "USB" : {},
     "USB reset (flashing or serial)" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",

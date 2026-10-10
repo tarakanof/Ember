@@ -80,7 +80,8 @@ Since #341 the knob may say what it can do in every checkin (cinder#27):
   "view": [1, 1],
   "pages": ["bot", "pomodoro", "weather", "nowplaying"],
   "features": ["view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals"],
-  "limits": {"view_bytes": 16383, "config_bytes": 1024}
+  "limits": {"view_bytes": 16383, "config_bytes": 1024},
+  "rotations": [0, 180]
 }
 ```
 
@@ -97,10 +98,15 @@ Since #341 the knob may say what it can do in every checkin (cinder#27):
   knob stores it, compact JSON (cinder `CFG_SETTINGS_MAX`, 1024). Floors:
   `view_bytes` ≥ 4096 (a full view without `nowplaying` is under 700 B;
   the rest is headroom for long host labels and future fields) and
-  `config_bytes` ≥ the default config's compact size (434 B today; it
+  `config_bytes` ≥ the default config's compact size (447 B today; it
   follows `defaultKnobSettings`), so the knob can always hold a view and
   the config a new record starts with.
-- Order carries no meaning. The server sorts `features`; `pages` are
+- `rotations` (optional): the display rotations in degrees the firmware can
+  apply, integers each one of `0`, `90`, `180`, `270`, no duplicates, `0`
+  always listed (`null`, a fraction or a missing `0` drops the caps).
+  Missing means `[0]`; the server reads an empty list the same. See
+  "Display rotation".
+- Order carries no meaning. The server sorts `features` and `rotations`; `pages` are
   compared as a set and keep the order first stored, so a knob that lists
   the same caps in another order causes no registry write.
 - Unknown keys inside `caps` are ignored. Caps that break a rule above are
@@ -137,7 +143,9 @@ dropped caps, `caps_error`; absent for the clock and on servers before
   off, unknown ones included, are kept as before for the NVS round trip),
   and 400 when the changed config's compact JSON exceeds
   `limits.config_bytes` and is larger than the stored one (a config
-  already over the limit can still shrink). A no-op PUT is never rejected.
+  already over the limit can still shrink), and 400 when it changes
+  `display.rotation` to a value not in `caps.rotations` (a stored value
+  the caps no longer list stays valid). A no-op PUT is never rejected.
 
 **Legacy knobs** (no `caps`) keep today's behaviour exactly: the same view
 bytes and ETag as before #341, and no new 400s. The table feeds
@@ -184,6 +192,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new | caps stored and acked; view filtered by caps ∩ pages | `TestCapsKnobViewIsFilteredByCapsAndPages` (`view_caps_limited.json`), `TestDeviceCheckinCapsGolden`, `TestCapsAreStoredExposedAndClearedOnDowngrade`, `TestCapsCheckinWritesStoreOnlyWhenCapsChange`, `TestReorderedCapsDoNotWrite`, `TestCapsLimitFloors`, `TestInvalidCapsAreExposedOnceWithoutRewrites`; cinder host test: a view with no page block, `mood` included, parses |
 | old | new | no `caps_ack`; the knob behaves as today | cinder host test with the pre-caps fixtures; Ember side: a reply without accepted caps has no `caps_ack` (`TestInvalidCapsAreDroppedWithoutAck`) |
 | new | new, `v` outside range | server sends `v` = min(1, `caps.view[1]`); the knob keeps its last view and shows the update state | `TestCapsKnobViewMajorIsTheLowerOfServerAndFirmware`; cinder host test with a `v:99` fixture |
+| new | new, `rotations` listed or not | `effective_caps.rotations` sorted, `[0]` when missing; config PUT 400 for a rotation outside it, a stored one kept; a legacy or downgraded knob is unchecked | `TestCapsRotationsPresentAndMissing`, `TestCapsKnobConfigPutRejectsRotationOutsideCaps`, `TestCapsKnobDowngradedToLegacyFirmwareKeepsAndFreesRotation`, `TestLegacyKnobConfigPutIsNotCheckedForRotation`, `TestKnobRotationRoundTripsAndReachesTheKnob` |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Quiet hours
@@ -204,9 +213,39 @@ knob view. The knob has no speaker, so on the knob quiet is display only:
   reading, so quiet never makes the knob darker than an ordinary night by
   default, and it sits above the default knob `floor` (10).
 - **Old firmware** skips both unknown keys. The config grows by 37 B: the
-  default config is 434 B and the largest valid one 648 B, under cinder's
+  default config was 434 B and the largest valid one 648 B (447 B and
+  663 B since `display.rotation`), under cinder's
   `CFG_SETTINGS_MAX` (1024 B), which `TestKnobConfigFitsTheFirmwareStore`
   pins.
+
+## Display rotation
+
+`display.rotation` (#386, cinder#45) turns the knob's picture, per knob:
+
+- **Config:** `"display": {"fast_link": bool, "rotation": int}`, `rotation`
+  one of `0`, `90`, `180`, `270` (degrees), default `0`. Any other value is
+  a 400 on the owner PUT, and like the rest of `display` it merges field by
+  field (`{"display":{"rotation":180}}` keeps `fast_link`). It is always
+  sent, `0` included, so the knob never has to guess a default. A record
+  stored before #386 reads as `0` with no config push. It lives in
+  `display` rather than at the top level because the clock's config has an
+  unrelated top-level `rotation` (its app order) on the same route, and a
+  checkin's `new_token` rotation is a third meaning.
+- **Caps:** `"rotations": [int]`, what the firmware can apply ("Capabilities").
+  A knob that reported caps gets a 400 for changing `display.rotation` to
+  one it doesn't list. A legacy knob (no caps) gets no check: its firmware
+  (0.9.43 `knob_settings_parse` reads only `display.fast_link`) skips the
+  unknown key and stays at 0. `effective_caps.rotations` is always present
+  on a knob (`[0]` without the field or for a legacy knob).
+- **App:** Ember.app shows its Rotation picker when that list holds more
+  than `0`, or when the stored value isn't `0` (so a knob whose new caps
+  dropped it can still be set back). It offers the listed values; a stored
+  value outside them shows only while selected, marked as not supported by
+  the firmware.
+- **Knob:** applies a value it supports and falls back to `0` for one it
+  doesn't (cinder#45).
+- **Size:** the default config grows by 13 B (447 B) and the largest valid
+  one by 15 B (663 B), still under `CFG_SETTINGS_MAX`.
 
 ## Fixtures
 
@@ -225,7 +264,7 @@ Indented JSON; key order is the wire order.
 | `view_single_host_paused.json` | One host: `source` set, `lead`/`hosts` left out; paused `pomo` with `remaining_sec`; `weather` without a location (`sunrise`/`sunset` `null`) |
 | `checkin_req_minimal.json` | The base fields every firmware sends |
 | `checkin_req_full.json` | Every block: `diag` with a crash, `ota` with `last`, `stats`, `wifi`, the display link |
-| `checkin_req_caps.json` | The base fields plus `caps` (every page and feature of 0.9.41, its limits) |
+| `checkin_req_caps.json` | The base fields plus `caps` (every page and feature of 0.9.41, its limits, `rotations` `[0, 180]`) |
 | `checkin_reply_current.json` | Knob up to date: `config_version` only |
 | `checkin_reply_config.json` | Stale knob: `config` included |
 | `checkin_reply_coredump.json` | Live mode plus `coredump_wanted` |
@@ -233,8 +272,8 @@ Indented JSON; key order is the wire order.
 | `checkin_reply_caps.json` | Caps accepted: `config_version` and `caps_ack` |
 | `checkin_reply_rotation.json` | `new_token` from a real rotation, the token replaced by a dummy of the same length |
 | `pomodoro_action.json` | A Pomodoro action reply (pause during a short break) |
-| `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20) |
-| `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5), plus an unknown page id the knob must keep |
+| `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0 |
+| `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5, `display.rotation` 180), plus an unknown page id the knob must keep |
 
 The test also compares what the server stores for `checkin_req_full.json`
 (the checkin record and the stats sample) with every value sent, so a request

@@ -2360,9 +2360,13 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   working_ring}` (the two booleans, cinder#42: the curved host label and the
   glint orbiting the outline while working; absent or null = true, so a
   record stored before #282 keeps both on with no config push),
-  `display{fast_link}` (cinder#23: the knob's panel QSPI link at 80 MHz,
-  absent or null = true like the bot flags; the knob reboots to apply a
-  change and falls back to 40 MHz by itself after a failed link check),
+  `display{fast_link, rotation}` (`fast_link`, cinder#23: the knob's panel
+  QSPI link at 80 MHz, absent or null = true like the bot flags; the knob
+  reboots to apply a change and falls back to 40 MHz by itself after a
+  failed link check. `rotation` `0|90|180|270`, #386, cinder#45: the
+  display's rotation in degrees, default 0, a stored record without it
+  reads 0; a knob that reported `caps` can only change it to a value in
+  `caps.rotations`; see DEVICE-PROTOCOL "Display rotation"),
   `quiet{calm, dim_level 1-255}` (#343, cinder#28: what the knob does while
   the view says `quiet`; absent or null = `calm` true and `dim_level` 20,
   Ember's default night level; see DEVICE-PROTOCOL "Quiet hours"),
@@ -2449,9 +2453,13 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   old record) and autosaves `ConfigModel<KnobSettings>` as a merge PUT of the
   changed fields only. Tests use a fake link and a pty pair; nothing opens a
   real serial port. Feature gates (the now-playing page, the stats interval
-  pickers) read the record's `effective_caps` (`KnobDevice.supports(feature:)`,
-  `supports(page:)`); a server without `effective_caps` falls back to the
-  old fw semver floors (`KnobCaps.legacy*Floors`), kept for two releases.
+  pickers, the Rotation picker) read the record's `effective_caps`
+  (`KnobDevice.supports(feature:)`, `supports(page:)`,
+  `rotationChoices(current:)`: the Rotation picker shows when `rotations`
+  holds more than 0 or the stored value isn't 0, and marks a stored value
+  outside `rotations` as unsupported); a server without `effective_caps`
+  falls back to the old fw semver floors (`KnobCaps.legacy*Floors`), kept
+  for two releases.
 - **Knob page previews (#240):** Settings › Knob › Apps draws each page's
   466 px round face in SwiftUI (EmberKit `KnobFace/`), the way `PanelPreview`
   shows the clock's frames, but drawn locally: the knob renders on-device and

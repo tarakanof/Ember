@@ -17,6 +17,10 @@
       "weather",
       "nowplaying"
     ],
+    "rotations": [
+      0,
+      180
+    ],
     "view": [
       1,
       1
