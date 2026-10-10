@@ -858,6 +858,9 @@
       "comment" : "Settings › Knob Firmware section error; the argument is a short reason (\"Server unreachable\")."
     },
     "Couldn't check" : {},
+    "Couldn't check what to delete, so nothing was deleted: %@" : {
+      "comment" : "Settings › Knob Firmware & updates error when Delete Old Builds can't reload the knob status, the stored images or the knob list first; the argument is a short reason (\"Server unreachable\")."
+    },
     "Couldn't clear the update: %@" : {
       "comment" : "Settings › Knob Firmware row error after Dismiss or Cancel Update; the argument is a short reason (\"Server unreachable\")."
     },
@@ -989,12 +992,12 @@
       "comment" : "Settings › Knob Firmware & updates: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\")."
     },
     "Delete Old Builds…" : {
-      "comment" : "Settings › Knob Firmware & updates button: deletes every stored image except the one on the knob, the newest Release and Test builds, and any update target."
+      "comment" : "Settings › Knob Firmware & updates button: deletes every stored image except the one on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering."
     },
     "Delete ^[%lld old build](inflect: true) from Ember?" : {
       "comment" : "Settings › Knob Firmware & updates: confirmation title before Delete Old Builds; the argument is how many images go (\"Delete 4 old builds from Ember?\")."
     },
-    "Delete every stored build except the one on the knob, the newest Release and Test builds, and any build an update is installing." : {
+    "Delete every stored build except the one on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering." : {
       "comment" : "Settings › Knob Firmware & updates: tooltip on the Delete Old Builds button."
     },
     "Delete this dump?" : {},
@@ -1095,7 +1098,7 @@
     },
     "Ember reads the clock every 30 seconds and keeps the last 24 hours while the server runs." : {},
     "Ember rejected the knob's token." : {},
-    "Ember removes %@ and their ELFs. It keeps the build on the knob, the newest Release and Test builds, and any build an update is installing." : {
+    "Ember removes %@ and their ELFs. It keeps the build on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering." : {
       "comment" : "Settings › Knob Firmware & updates: confirmation before Delete Old Builds; the argument lists the versions that go (\"0.9.39, 0.9.40 and 0.9.41\")."
     },
     "Ember removes the image and its ELF." : {},
@@ -1312,7 +1315,7 @@
     "Install this build on the knob." : {},
     "Installed from the CLI" : {},
     "Installing" : {
-      "comment" : "Settings › Knob Firmware & updates: the orange image row badge on the build the knob is updating to (or waiting to); also the Firmware row's progress phase while the knob writes the update."
+      "comment" : "Settings › Knob Firmware & updates: the orange image row badge on the build the knob is downloading or installing; also the Firmware row's progress phase while the knob writes the update."
     },
     "Internal memory" : {},
     "Interrupt watchdog" : {

@@ -181,10 +181,10 @@ struct KnobFirmwareSection: View {
         .confirmationDialog(deleteOldTitle, isPresented: Binding(
             get: { confirmDeleteOld != nil },
             set: { if !$0 { confirmDeleteOld = nil } }), presenting: confirmDeleteOld) { images in
-            Button("Delete", role: .destructive) { Task { await ota.delete(images) } }
+            Button("Delete", role: .destructive) { Task { await ota.deleteOldBuilds(images) } }
             Button("Cancel", role: .cancel) {}
         } message: { images in
-            Text("Ember removes \(images.map(\.version).formatted(.list(type: .and))) and their ELFs. It keeps the build on the knob, the newest Release and Test builds, and any build an update is installing.",
+            Text("Ember removes \(images.map(\.version).formatted(.list(type: .and))) and their ELFs. It keeps the build on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering.",
                  comment: "Settings › Knob Firmware & updates: confirmation before Delete Old Builds; the argument lists the versions that go (\"0.9.39, 0.9.40 and 0.9.41\").")
         }
         .confirmationDialog(releaseTitle, isPresented: Binding(
@@ -247,6 +247,12 @@ struct KnobFirmwareSection: View {
                         .foregroundStyle(.red)
                 }
             }
+            if let e = ota.errors[.delete] {
+                Label { Text("Couldn't check what to delete, so nothing was deleted: \(Text(e.message))",
+                             comment: "Settings › Knob Firmware & updates error when Delete Old Builds can't reload the knob status, the stored images or the knob list first; the argument is a short reason (\"Server unreachable\").") }
+                    icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                    .foregroundStyle(.red)
+            }
             if let writeError {
                 Label { Text("Couldn't save the ELF: \(writeError)",
                              comment: "Settings › Knob Firmware & updates error after an ELF download; the argument is the file system's reason.") }
@@ -274,13 +280,13 @@ struct KnobFirmwareSection: View {
             HStack {
                 Spacer()
                 Button {
-                    confirmDeleteOld = ota.oldBuilds
+                    confirmDeleteOld = oldBuilds
                 } label: {
                     Text("Delete Old Builds…",
-                         comment: "Settings › Knob Firmware & updates button: deletes every stored image except the one on the knob, the newest Release and Test builds, and any update target.")
+                         comment: "Settings › Knob Firmware & updates button: deletes every stored image except the one on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering.")
                 }
-                .disabled(ota.oldBuilds.isEmpty || ota.running.contains(.delete))
-                .help(Text("Delete every stored build except the one on the knob, the newest Release and Test builds, and any build an update is installing.",
+                .disabled(oldBuilds.isEmpty || ota.running.contains(.delete))
+                .help(Text("Delete every stored build except the one on each knob, the newest Release (and a newer Test build), and any build an update is installing or offering.",
                            comment: "Settings › Knob Firmware & updates: tooltip on the Delete Old Builds button."))
             }
             if let p = ota.uploadProgress {
@@ -358,6 +364,10 @@ struct KnobFirmwareSection: View {
              comment: "Settings › Knob Firmware & updates: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\").")
     }
 
+    private var oldBuilds: [KnobFirmwareImage] {
+        env.knob.ota.oldBuilds(otherKnobs: KnobOTAModel.runningVersions(env.knob.devices))
+    }
+
     private var deleteOldTitle: Text {
         Text("Delete ^[\(confirmDeleteOld?.count ?? 0) old build](inflect: true) from Ember?",
              comment: "Settings › Knob Firmware & updates: confirmation title before Delete Old Builds; the argument is how many images go (\"Delete 4 old builds from Ember?\").")
@@ -415,7 +425,7 @@ struct KnobFirmwareBadgeView: View {
         switch badge {
         case .onKnob: Text("On the knob", comment: "Settings › Knob Firmware & updates image row badge (green): the knob runs this build.")
         case .latest: Text("Latest", comment: "Settings › Knob Firmware & updates image row badge (blue): the highest version stored on Ember.")
-        case .installing: Text("Installing", comment: "Settings › Knob Firmware & updates: the orange image row badge on the build the knob is updating to (or waiting to); also the Firmware row's progress phase while the knob writes the update.")
+        case .installing: Text("Installing", comment: "Settings › Knob Firmware & updates: the orange image row badge on the build the knob is downloading or installing; also the Firmware row's progress phase while the knob writes the update.")
         case .failed: Text("Failed", comment: "Settings › Knob Firmware & updates: the red image row badge on a build whose last update failed or rolled back; also the Clock hardware chart line for failed publishes.")
         case .noELF: Text("No ELF", comment: "Settings › Knob Firmware & updates image row badge (warning): Ember has no ELF for this build, so its crash dumps can't be decoded.")
         }
@@ -423,12 +433,12 @@ struct KnobFirmwareBadgeView: View {
 
     private static func style(_ badge: KnobFirmwareBadge) -> (foreground: Color, background: Color) {
         switch badge {
-        case .onKnob: (.white, adaptive(light: NSColor(srgbRed: 0.10, green: 0.50, blue: 0.20, alpha: 1),
-                                        dark: NSColor(srgbRed: 0.16, green: 0.58, blue: 0.27, alpha: 1)))
-        case .latest: tinted(light: (0.04, 0.32, 0.72), dark: (0.55, 0.75, 1.00))
-        case .installing: tinted(light: (0.62, 0.30, 0.00), dark: (1.00, 0.70, 0.35))
-        case .failed: tinted(light: (0.70, 0.10, 0.10), dark: (1.00, 0.55, 0.52))
-        case .noELF: tinted(light: (0.50, 0.38, 0.00), dark: (1.00, 0.84, 0.30))
+        case .onKnob: (.white, adaptive(light: NSColor(srgbRed: 0.08, green: 0.42, blue: 0.18, alpha: 1),
+                                        dark: NSColor(srgbRed: 0.08, green: 0.40, blue: 0.17, alpha: 1)))
+        case .latest: tinted(light: (0.00, 0.27, 0.62), dark: (0.62, 0.80, 1.00))
+        case .installing: tinted(light: (0.50, 0.23, 0.00), dark: (1.00, 0.74, 0.45))
+        case .failed: tinted(light: (0.62, 0.06, 0.06), dark: (1.00, 0.66, 0.64))
+        case .noELF: tinted(light: (0.40, 0.30, 0.00), dark: (1.00, 0.86, 0.40))
         }
     }
 

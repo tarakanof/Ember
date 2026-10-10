@@ -10,12 +10,11 @@ public enum KnobFirmwareVersion {
             let c = numeric(x, y)
             if c != .orderedSame { return c }
         }
-        if pa.count != pb.count { return pa.count < pb.count ? .orderedAscending : .orderedDescending }
-        switch (preA, preB) {
-        case (nil, nil): return .orderedSame
-        case (nil, _): return .orderedDescending
-        case (_, nil): return .orderedAscending
-        case let (x?, y?): return prerelease(x, y)
+        switch (preA.isEmpty, preB.isEmpty) {
+        case (true, true): return .orderedSame
+        case (true, false): return .orderedDescending
+        case (false, true): return .orderedAscending
+        case (false, false): return prerelease(preA, preB)
         }
     }
 
@@ -23,14 +22,22 @@ public enum KnobFirmwareVersion {
         compare(a, b) == .orderedDescending
     }
 
-    private static func split(_ v: String) -> (Substring, Substring?) {
-        guard let dash = v.firstIndex(of: "-") else { return (Substring(v), nil) }
+    private static func split(_ v: String) -> (Substring, Substring) {
+        guard let dash = v.firstIndex(of: "-") else { return (Substring(v), "") }
         return (v[..<dash], v[v.index(after: dash)...])
     }
 
+    private static func order<T: Comparable>(_ a: T, _ b: T) -> ComparisonResult {
+        a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
+    }
+
     private static func numeric(_ a: Substring, _ b: Substring) -> ComparisonResult {
-        if a.count != b.count { return a.count < b.count ? .orderedAscending : .orderedDescending }
-        return a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
+        a.count != b.count ? order(a.count, b.count) : order(a, b)
+    }
+
+    private static func unsigned(_ s: Substring) -> UInt64? {
+        guard !s.isEmpty, s.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        return UInt64(s)
     }
 
     private static func prerelease(_ a: Substring, _ b: Substring) -> ComparisonResult {
@@ -38,16 +45,15 @@ public enum KnobFirmwareVersion {
         let ib = b.split(separator: ".", omittingEmptySubsequences: false)
         for (x, y) in zip(ia, ib) {
             let c: ComparisonResult
-            switch (UInt64(x), UInt64(y)) {
-            case let (nx?, ny?): c = nx == ny ? .orderedSame : (nx < ny ? .orderedAscending : .orderedDescending)
+            switch (unsigned(x), unsigned(y)) {
+            case let (nx?, ny?): c = order(nx, ny)
             case (_?, nil): c = .orderedAscending
             case (nil, _?): c = .orderedDescending
-            case (nil, nil): c = x == y ? .orderedSame : (x < y ? .orderedAscending : .orderedDescending)
+            case (nil, nil): c = order(x, y)
             }
             if c != .orderedSame { return c }
         }
-        if ia.count == ib.count { return .orderedSame }
-        return ia.count < ib.count ? .orderedAscending : .orderedDescending
+        return order(ia.count, ib.count)
     }
 }
 
@@ -60,9 +66,11 @@ extension KnobFirmwareImage {
         images.max { KnobFirmwareVersion.compare($0.version, $1.version) == .orderedAscending }
     }
 
-    public static func oldBuilds(_ images: [KnobFirmwareImage], status: KnobOTAStatus?) -> [KnobFirmwareImage] {
-        guard let status, status.running != nil else { return [] }
-        var keep = Set<String>()
+    public static func oldBuilds(_ images: [KnobFirmwareImage], status: KnobOTAStatus?,
+                                 otherKnobs: [String] = []) -> [KnobFirmwareImage] {
+        guard let status, let running = status.running else { return [] }
+        var keep = Set(otherKnobs)
+        keep.insert(running.fw)
         let release = newest(images.filter(\.isRelease))
         let test = newest(images.filter { !$0.isRelease })
         if let release { keep.insert(release.version) }
@@ -82,7 +90,7 @@ extension KnobFirmwareImage {
         if status?.runs(image) == true { out.append(.onKnob) }
         if newest(images)?.version == image.version { out.append(.latest) }
         if let status, status.attemptVersion == image.version {
-            if status.isBusy { out.append(.installing) }
+            if status.phase.isInProgress, status.phase != .offered { out.append(.installing) }
             if status.phase.isFailure { out.append(.failed) }
         }
         if !image.elf { out.append(.noELF) }

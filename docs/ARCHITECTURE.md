@@ -3004,7 +3004,8 @@ that its ELF, needed to decode that build's crash dumps, goes too. The same
 group has Ask first / Automatic, then the images stored on Ember inline
 (no sheet): each row is the version with its badges (filled, tinted
 capsules: On the knob green, Latest blue on the highest stored version,
-Installing orange on a busy update's target, Failed red on the
+Installing orange on the target while it downloads, installs, restarts or
+is verified (nothing while it waits or is offered), Failed red on the
 `attemptVersion` of a failed or rolled-back update, No ELF yellow), size,
 date and ESP-IDF version, then Install (any stored build except the one the knob
 runs, matched by `build`, downgrades included; `PUT …/ota {"target"}`;
@@ -3019,10 +3020,18 @@ way out). Upload… sits under the list (upload
 `cinder.bin` plus a `cinder.elf` or `<name>.elf` next to it, channel Test
 by default, upload progress from the `URLSession` upload task).
 Delete Old Builds… under it deletes, one `DELETE` at a time, every image
-`KnobFirmwareImage.oldBuilds` picks: all but the knob's build, the newest
-Release, the newest Test if it is newer than that Release (semver order),
-`target`, a busy update's `version` and the offered update. Without a
-`running` report it picks nothing. Each failure shows on its row; the list
+`KnobFirmwareImage.oldBuilds` picks: all but the selected knob's build and
+its `running.fw` version (like the server's `otaKeeps`), the `fw` of every
+knob in `/v1/devices`, the newest Release, the newest Test if it is newer
+than that Release (semver order, the server's `compareSemver`), `target`,
+a downloading or installing update's `version` and the offered update.
+Without a `running` report it picks nothing. On confirm,
+`KnobOTAModel.deleteOldBuilds` rereads the OTA status, the image list and
+`/v1/devices` (any failure aborts with nothing deleted), then before each
+`DELETE` re-applies the rule to the model's current state and skips images
+no longer picked (matched by version and build). It captures the service
+and a configure generation, and stops without touching state if the
+server or knob changes mid-run. Each failure shows on its row; the list
 reloads once.
 Uploads and ELF downloads use the `transfer` request budget (60 s per
 request, 10 min per resource). The Crash rows get "Download ELF…" when
