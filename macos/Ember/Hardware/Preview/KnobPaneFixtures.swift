@@ -49,7 +49,7 @@ enum KnobPaneFixtures {
         let image = { (v: String, build: String, channel: String, ago: TimeInterval) in
             #"{"version":"\#(v)","build":"\#(build)","channel":"\#(channel)","elf":true,"idf_ver":"v5.5.1","project":"cinder","sha256":"00","size":1677721,"uploaded_at":"\#(iso(now.addingTimeInterval(-ago)))"}"#
         }
-        let firmware = "[\(image("0.9.16", "b2c3d4e5", "release", 7_200)),\(image("0.9.15", "a1b2c3d4", "release", 172_800)),\(image("0.9.13", "c0ffee13", "test", 604_800))]"
+        let firmware = "[\(image("0.9.16", "b2c3d4e5", "release", 7_200)),\(image("0.9.15", "a1b2c3d4", "release", 172_800)),\(image("0.9.13", "c0ffee13", "test", 604_800)),\(image("0.9.12", "0badf00d", "test", 864_000).replacingOccurrences(of: #""elf":true"#, with: #""elf":false"#))]"
         return [
             "/v1/devices": #"{"devices":[\#(device)]}"#,
             "/v1/devices/knob-61fc8c/config": config,

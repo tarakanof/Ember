@@ -14,7 +14,7 @@ public final class KnobOTAModel {
     public private(set) var unsupported = false
     public private(set) var running: Set<KnobOTAAction> = []
     public private(set) var errors: [KnobOTAAction: FeedError] = [:]
-    public private(set) var failedDelete: String?
+    public private(set) var failedDeletes: [String: FeedError] = [:]
     public private(set) var uploadProgress: Double?
     public private(set) var uploadStage: UploadStage?
 
@@ -34,7 +34,7 @@ public final class KnobOTAModel {
         deviceID = device
         status = nil
         errors = [:]
-        failedDelete = nil
+        failedDeletes = [:]
     }
 
     public var pollInterval: Duration {
@@ -89,7 +89,7 @@ public final class KnobOTAModel {
     public func clearError(_ action: KnobOTAAction) { errors[action] = nil }
 
     public func deleteError(for image: KnobFirmwareImage) -> FeedError? {
-        failedDelete == image.version ? errors[.delete] : nil
+        failedDeletes[image.version]
     }
 
     @discardableResult
@@ -175,16 +175,38 @@ public final class KnobOTAModel {
 
     @discardableResult
     public func delete(_ image: KnobFirmwareImage) async -> Bool {
-        failedDelete = nil
-        let ok = await perform(.delete, map: KnobOTAError.deleteFailure) {
+        await delete([image])
+    }
+
+    @discardableResult
+    public func delete(_ images: [KnobFirmwareImage]) async -> Bool {
+        guard !images.isEmpty else { return true }
+        running.insert(.delete)
+        defer { running.remove(.delete) }
+        failedDeletes = [:]
+        errors[.delete] = nil
+        for image in images {
             do {
-                try await self.service.deleteFirmware(version: image.version)
-            } catch APIError.http(404, _) {}
+                do {
+                    try await service.deleteFirmware(version: image.version)
+                } catch APIError.http(404, _) {}
+            } catch {
+                let e = KnobOTAError.deleteFailure(error)
+                failedDeletes[image.version] = e
+                errors[.delete] = e
+            }
         }
-        if !ok { failedDelete = image.version }
         await loadImages()
         await loadStatus()
-        return ok
+        return failedDeletes.isEmpty
+    }
+
+    public var oldBuilds: [KnobFirmwareImage] {
+        KnobFirmwareImage.oldBuilds(images, status: status)
+    }
+
+    public func badges(for image: KnobFirmwareImage) -> [KnobFirmwareBadge] {
+        KnobFirmwareImage.badges(for: image, in: images, status: status)
     }
 
     public func elfData(version: String) async -> Data? {

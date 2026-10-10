@@ -133,6 +133,7 @@ struct KnobFirmwareSection: View {
     @AppStorage(SettingsGroup.storageKey) private var collapsedGroups = ""
     @State private var channel = KnobFirmwareImage.test
     @State private var confirmDelete: KnobFirmwareImage?
+    @State private var confirmDeleteOld: [KnobFirmwareImage]?
     @State private var confirmRelease: KnobFirmwareImage?
     @State private var writeError: String?
 
@@ -176,6 +177,15 @@ struct KnobFirmwareSection: View {
             } else {
                 Text("Ember removes the image.")
             }
+        }
+        .confirmationDialog(deleteOldTitle, isPresented: Binding(
+            get: { confirmDeleteOld != nil },
+            set: { if !$0 { confirmDeleteOld = nil } }), presenting: confirmDeleteOld) { images in
+            Button("Delete", role: .destructive) { Task { await ota.delete(images) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { images in
+            Text("Ember removes \(images.map(\.version).formatted(.list(type: .and))) and their ELFs. It keeps the build on the knob, the newest Release and Test builds, and any build an update is installing.",
+                 comment: "Settings › Knob Firmware & updates: confirmation before Delete Old Builds; the argument lists the versions that go (\"0.9.39, 0.9.40 and 0.9.41\").")
         }
         .confirmationDialog(releaseTitle, isPresented: Binding(
             get: { confirmRelease != nil },
@@ -261,6 +271,18 @@ struct KnobFirmwareSection: View {
                 Button("Upload…") { Task { await upload() } }
                     .disabled(ota.running.contains(.upload))
             }
+            HStack {
+                Spacer()
+                Button {
+                    confirmDeleteOld = ota.oldBuilds
+                } label: {
+                    Text("Delete Old Builds…",
+                         comment: "Settings › Knob Firmware & updates button: deletes every stored image except the one on the knob, the newest Release and Test builds, and any update target.")
+                }
+                .disabled(ota.oldBuilds.isEmpty || ota.running.contains(.delete))
+                .help(Text("Delete every stored build except the one on the knob, the newest Release and Test builds, and any build an update is installing.",
+                           comment: "Settings › Knob Firmware & updates: tooltip on the Delete Old Builds button."))
+            }
             if let p = ota.uploadProgress {
                 HStack {
                     ProgressView(value: p)
@@ -281,12 +303,7 @@ struct KnobFirmwareSection: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(verbatim: image.version).font(.body.monospacedDigit())
-                if ota.runsOnKnob(image) {
-                    Text("On the knob")
-                        .font(.caption)
-                        .padding(.horizontal, 5)
-                        .background(Capsule().fill(Color.secondary.opacity(0.2)))
-                }
+                ForEach(ota.badges(for: image), id: \.self) { KnobFirmwareBadgeView(badge: $0) }
             }
             details(image).font(.callout).foregroundStyle(.secondary)
             HStack {
@@ -341,6 +358,11 @@ struct KnobFirmwareSection: View {
              comment: "Settings › Knob Firmware & updates: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\").")
     }
 
+    private var deleteOldTitle: Text {
+        Text("Delete ^[\(confirmDeleteOld?.count ?? 0) old build](inflect: true) from Ember?",
+             comment: "Settings › Knob Firmware & updates: confirmation title before Delete Old Builds; the argument is how many images go (\"Delete 4 old builds from Ember?\").")
+    }
+
     private func details(_ image: KnobFirmwareImage) -> Text {
         let size = ByteCountFormatter.string(fromByteCount: Int64(image.size), countStyle: .file)
         let date = image.uploadedAt.formatted(date: .abbreviated, time: .shortened)
@@ -348,8 +370,8 @@ struct KnobFirmwareSection: View {
             return Text("\(size) · \(date) · IDF \(image.idfVer) · ELF",
                         comment: "Settings › Knob Firmware & updates image row details: image size, upload date, ESP-IDF version, and that the ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · ELF\").")
         }
-        return Text("\(size) · \(date) · IDF \(image.idfVer) · no ELF",
-                    comment: "Settings › Knob Firmware & updates image row details: image size, upload date, ESP-IDF version, and that no ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · no ELF\").")
+        return Text("\(size) · \(date) · IDF \(image.idfVer)",
+                    comment: "Settings › Knob Firmware & updates image row details for an image without an ELF (a No ELF badge says so): image size, upload date, ESP-IDF version (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5\").")
     }
 
     private func upload() async {
@@ -372,5 +394,51 @@ struct KnobFirmwareSection: View {
         } catch {
             writeError = error.localizedDescription
         }
+    }
+}
+
+struct KnobFirmwareBadgeView: View {
+    let badge: KnobFirmwareBadge
+
+    var body: some View {
+        let style = Self.style(badge)
+        label
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(style.foreground)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(style.background))
+            .fixedSize()
+    }
+
+    private var label: Text {
+        switch badge {
+        case .onKnob: Text("On the knob", comment: "Settings › Knob Firmware & updates image row badge (green): the knob runs this build.")
+        case .latest: Text("Latest", comment: "Settings › Knob Firmware & updates image row badge (blue): the highest version stored on Ember.")
+        case .installing: Text("Installing", comment: "Settings › Knob Firmware & updates: the orange image row badge on the build the knob is updating to (or waiting to); also the Firmware row's progress phase while the knob writes the update.")
+        case .failed: Text("Failed", comment: "Settings › Knob Firmware & updates: the red image row badge on a build whose last update failed or rolled back; also the Clock hardware chart line for failed publishes.")
+        case .noELF: Text("No ELF", comment: "Settings › Knob Firmware & updates image row badge (warning): Ember has no ELF for this build, so its crash dumps can't be decoded.")
+        }
+    }
+
+    private static func style(_ badge: KnobFirmwareBadge) -> (foreground: Color, background: Color) {
+        switch badge {
+        case .onKnob: (.white, adaptive(light: NSColor(srgbRed: 0.10, green: 0.50, blue: 0.20, alpha: 1),
+                                        dark: NSColor(srgbRed: 0.16, green: 0.58, blue: 0.27, alpha: 1)))
+        case .latest: tinted(light: (0.04, 0.32, 0.72), dark: (0.55, 0.75, 1.00))
+        case .installing: tinted(light: (0.62, 0.30, 0.00), dark: (1.00, 0.70, 0.35))
+        case .failed: tinted(light: (0.70, 0.10, 0.10), dark: (1.00, 0.55, 0.52))
+        case .noELF: tinted(light: (0.50, 0.38, 0.00), dark: (1.00, 0.84, 0.30))
+        }
+    }
+
+    private static func tinted(light: (Double, Double, Double), dark: (Double, Double, Double)) -> (Color, Color) {
+        let fg = { (c: (Double, Double, Double)) in NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: 1) }
+        let bg = { (c: (Double, Double, Double), a: Double) in NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: a) }
+        return (adaptive(light: fg(light), dark: fg(dark)), adaptive(light: bg(light, 0.14), dark: bg(dark, 0.22)))
+    }
+
+    private static func adaptive(light: NSColor, dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light })
     }
 }
