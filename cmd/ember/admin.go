@@ -193,6 +193,8 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		newCfg.applyDefaults()
 		sanitizeConfigBaseline(&newCfg, app.logger)
 		warnDeprecatedConfig(newCfg, app.logger)
+		releaseRotation := app.holdClockRotation()
+		defer releaseRotation()
 		app.cfgMu.Lock()
 		oldCfg := *app.cfg.Load()
 		newCfg.Auth.StatusToken = oldCfg.Auth.StatusToken

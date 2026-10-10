@@ -245,13 +245,13 @@ func (a *App) handleDeviceConfigGetOwner(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *App) handleDeviceConfigPutOwner(w http.ResponseWriter, r *http.Request) {
-	var patch json.RawMessage
-	if !a.decodeOrReject(w, r, &patch, false) {
-		return
-	}
 	id := r.PathValue("id")
 	if kind, _ := a.devices.kindOf(id); kind == deviceKindClock {
-		a.handleClockConfigPut(w, r, id, patch)
+		a.handleClockConfigPut(w, r, id)
+		return
+	}
+	var patch json.RawMessage
+	if !a.decodeOrReject(w, r, &patch, false) {
 		return
 	}
 	cfg, version, changed, err := a.devices.putConfig(id, patch)

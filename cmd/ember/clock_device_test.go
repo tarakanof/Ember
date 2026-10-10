@@ -29,6 +29,14 @@ type clockStub struct {
 	onDevice  func()
 	orderHold chan struct{}
 	orderIn   chan struct{}
+	appsHold  chan struct{}
+	appsIn    chan struct{}
+	appsLate  int
+	appsFailN int
+	holdAfter bool
+	appsBody  string
+	appsDelay time.Duration
+	appsSlow  []time.Duration
 }
 
 func newClockStub(t *testing.T) *clockStub {
@@ -47,12 +55,27 @@ func newClockStub(t *testing.T) *clockStub {
 func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPut && r.URL.Path == "/api/v1/apps/order" {
 		s.mu.Lock()
-		hold, in := s.orderHold, s.orderIn
+		hold, in, after := s.orderHold, s.orderIn, s.holdAfter
+		s.orderHold = nil
 		s.mu.Unlock()
+		if hold != nil && after {
+			b, _ := io.ReadAll(r.Body)
+			s.mu.Lock()
+			s.orderPuts = append(s.orderPuts, string(b))
+			s.applyOrderLocked(b)
+			s.mu.Unlock()
+			in <- struct{}{}
+			<-hold
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
 		if hold != nil {
 			in <- struct{}{}
 			<-hold
 		}
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps" && s.serveApps(w, r) {
+		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -67,8 +90,15 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 			"wifiRssi": -61, "ipAddress": "192.0.2.66",
 		})
 	case "GET /api/v1/apps":
-		if s.appsFail {
+		if s.appsFail || s.appsFailN > 0 {
+			if s.appsFailN > 0 {
+				s.appsFailN--
+			}
 			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if s.appsBody != "" {
+			_, _ = w.Write([]byte(s.appsBody))
 			return
 		}
 		_ = json.NewEncoder(w).Encode(s.apps)
@@ -80,40 +110,85 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"error":"boom"}`))
 			return
 		}
-		var body struct {
-			Order    []string `json:"order"`
-			Disabled []string `json:"disabled"`
-		}
-		_ = json.Unmarshal(b, &body)
-		byName := map[string]map[string]any{}
-		for _, a := range s.apps {
-			byName[a["name"].(string)] = a
-		}
-		var next []map[string]any
-		for _, n := range body.Order {
-			if a, ok := byName[n]; ok {
-				a["enabled"] = true
-				next = append(next, a)
-				delete(byName, n)
-			}
-		}
-		for _, a := range s.apps {
-			if _, ok := byName[a["name"].(string)]; ok {
-				next = append(next, a)
-			}
-		}
-		for _, a := range next {
-			for _, d := range body.Disabled {
-				if a["name"] == d {
-					a["enabled"] = false
-				}
-			}
-		}
-		s.apps = next
+		s.applyOrderLocked(b)
 		_, _ = w.Write([]byte(`{}`))
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+func (s *clockStub) applyOrderLocked(b []byte) {
+	var body struct {
+		Order    []string `json:"order"`
+		Disabled []string `json:"disabled"`
+	}
+	_ = json.Unmarshal(b, &body)
+	byName := map[string]map[string]any{}
+	for _, a := range s.apps {
+		byName[a["name"].(string)] = a
+	}
+	var next []map[string]any
+	for _, n := range body.Order {
+		if a, ok := byName[n]; ok {
+			a["enabled"] = true
+			next = append(next, a)
+			delete(byName, n)
+		}
+	}
+	for _, a := range s.apps {
+		if _, ok := byName[a["name"].(string)]; ok {
+			next = append(next, a)
+		}
+	}
+	for _, a := range next {
+		for _, d := range body.Disabled {
+			if a["name"] == d {
+				a["enabled"] = false
+			}
+		}
+	}
+	s.apps = next
+}
+
+func (s *clockStub) serveApps(w http.ResponseWriter, r *http.Request) bool {
+	s.mu.Lock()
+	hold, in, late, delay := s.appsHold, s.appsIn, s.appsLate, s.appsDelay
+	s.appsHold = nil
+	if len(s.appsSlow) > 0 {
+		delay, s.appsSlow = s.appsSlow[0], s.appsSlow[1:]
+	}
+	snapshot, _ := json.Marshal(s.apps)
+	s.mu.Unlock()
+	switch {
+	case hold != nil:
+		in <- struct{}{}
+		<-hold
+		if late != http.StatusOK {
+			w.WriteHeader(late)
+			return true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(snapshot)
+		return true
+	case delay > 0:
+		select {
+		case <-time.After(delay):
+		case <-r.Context().Done():
+			return true
+		}
+	}
+	return false
+}
+
+func (s *clockStub) holdApps(t *testing.T, late int) (in <-chan struct{}, release func()) {
+	t.Helper()
+	hold, ch := make(chan struct{}), make(chan struct{}, 1)
+	s.mu.Lock()
+	s.appsHold, s.appsIn, s.appsLate = hold, ch, late
+	s.mu.Unlock()
+	release = sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+	return ch, release
 }
 
 func (s *clockStub) puts() []string {

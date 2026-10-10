@@ -84,16 +84,16 @@ func TestDeviceDisplayProxy(t *testing.T) {
 }
 
 func TestDeviceAppsProxy(t *testing.T) {
-	var gotMethod, gotPath, gotBody string
+	var gotPath, gotBody, putMethod, putPath string
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod, gotPath = r.Method, r.URL.Path
+		gotPath = r.URL.Path
 		switch r.URL.Path {
 		case "/api/v1/apps":
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`[{"name":"Time","enabled":true,"inLoop":true}]`))
 		case "/api/v1/apps/order":
 			b, _ := io.ReadAll(r.Body)
-			gotBody = string(b)
+			gotBody, putMethod, putPath = string(b), r.Method, r.URL.Path
 			w.WriteHeader(200)
 		default:
 			http.NotFound(w, r)
@@ -117,8 +117,8 @@ func TestDeviceAppsProxy(t *testing.T) {
 	pw := httptest.NewRecorder()
 	a.handleDeviceAppsPut(pw, httptest.NewRequest("PUT", "/v1/device/apps",
 		strings.NewReader(`{"order":["Time","Date"],"disabled":["Battery"]}`)))
-	if pw.Code != 200 || gotMethod != http.MethodPut || gotPath != "/api/v1/apps/order" {
-		t.Fatalf("put code=%d method=%s path=%s", pw.Code, gotMethod, gotPath)
+	if pw.Code != 200 || putMethod != http.MethodPut || putPath != "/api/v1/apps/order" {
+		t.Fatalf("put code=%d method=%s path=%s", pw.Code, putMethod, putPath)
 	}
 	if !strings.Contains(gotBody, "Battery") {
 		t.Fatalf("forwarded=%q", gotBody)

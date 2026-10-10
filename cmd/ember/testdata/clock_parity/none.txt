@@ -141,201 +141,204 @@ menu display.put r0 → 404 {"code":"notFound","error":"clock returned 404: no r
   dev#080 GET /api/v1/apps body=e3b0c442 ok
 menu apps.get r0 → 200 [{"enabled":true,"inLoop":true,"name":"Time","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"Date","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"ember","origin":"pushed"}]
   dev#081 PUT /api/v1/apps/order body=a9665164 ok
+  dev#082 GET /api/v1/apps body=e3b0c442 ok
 menu apps.put r0 → 200 
-  dev#082 POST /api/v1/apps/next body=e3b0c442 ok
+  dev#083 POST /api/v1/apps/next body=e3b0c442 ok
 menu next r0 → 200 
-  dev#083 POST /api/v1/apps/previous body=e3b0c442 ok
+  dev#084 POST /api/v1/apps/previous body=e3b0c442 ok
 menu prev r0 → 200 
-  dev#084 DELETE /api/v1/notifications/active body=e3b0c442 ok
+  dev#085 DELETE /api/v1/notifications/active body=e3b0c442 ok
 menu dismiss r0 → 200 
-  dev#085 POST /api/v1/device/reboot body=e3b0c442 ok
+  dev#086 POST /api/v1/device/reboot body=e3b0c442 ok
 menu reboot r0 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
-  dev#086 PATCH /api/v1/display body=867fdf54 ok
+  dev#087 PATCH /api/v1/display body=867fdf54 ok
 menu power r0 → 404 {"code":"notFound","error":"clock returned 404: no route"}
-  dev#087 POST /api/v1/audio/play body=b77b9736 ok
+  dev#088 POST /api/v1/audio/play body=b77b9736 ok
 menu audio.test r0 → 200 {"ok":true}
-  dev#088 POST /api/v1/audio/stop body=e3b0c442 ok
+  dev#089 POST /api/v1/audio/stop body=e3b0c442 ok
 menu audio.stop r0 → 200 {"ok":true}
-  dev#089 GET /api/v1/audio/melodies body=e3b0c442 ok
+  dev#090 GET /api/v1/audio/melodies body=e3b0c442 ok
 menu audio.melodies r0 → 200 {"melodies":[],"usedBytes":0,"totalBytes":4096}
-  dev#090 GET /api/v1/capabilities body=e3b0c442 ok
+  dev#091 GET /api/v1/capabilities body=e3b0c442 ok
 menu capabilities r0 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
-  dev#091 GET /api/v1/system body=e3b0c442 ok
-menu sensors.get r0 → 200 {"temp_offset":-9,"hum_offset":0}
   dev#092 GET /api/v1/system body=e3b0c442 ok
-  dev#093 PUT /api/v1/system body=90640fd6 ok
-  dev#094 GET /api/v1/system body=e3b0c442 ok
-menu sensors.put r0 → 200 {"temp_offset":-4,"hum_offset":0}
+menu sensors.get r0 → 200 {"temp_offset":-9,"hum_offset":0}
+  dev#093 GET /api/v1/system body=e3b0c442 ok
+  dev#094 PUT /api/v1/system body=90640fd6 ok
   dev#095 GET /api/v1/system body=e3b0c442 ok
-  dev#096 PUT /api/v1/system body=7a703937 ok
+menu sensors.put r0 → 200 {"temp_offset":-4,"hum_offset":0}
+  dev#096 GET /api/v1/system body=e3b0c442 ok
+  dev#097 PUT /api/v1/system body=7a703937 ok
 menu sensors.put.refused r0 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
-  dev#097 GET /api/v1/system body=e3b0c442 ok
-menu buttons.get r0 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"","configured":false,"last_press_unix":N,"seconds_since":null}
   dev#098 GET /api/v1/system body=e3b0c442 ok
-  dev#099 PUT /api/v1/system body=b56b59ae ok
-  dev#100 GET /api/v1/system body=e3b0c442 ok
+menu buttons.get r0 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"","configured":false,"last_press_unix":N,"seconds_since":null}
+  dev#099 GET /api/v1/system body=e3b0c442 ok
+  dev#100 PUT /api/v1/system body=b56b59ae ok
+  dev#101 GET /api/v1/system body=e3b0c442 ok
 menu buttons.put r0 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":0,"seconds_since":null}
-  dev#101 GET /api/v1/settings body=e3b0c442 ok
+  dev#102 GET /api/v1/settings body=e3b0c442 ok
 menu settings.get r1 → 200 {"autoTransition":true,"blockNavigation":false,"brightness":50,"textColor":"#FFFFFF"}
-  dev#102 PATCH /api/v1/settings body=aec2473c ok
+  dev#103 PATCH /api/v1/settings body=aec2473c ok
 menu settings.put r1 → 200 
-  dev#103 PATCH /api/v1/settings body=791d161a ok
+  dev#104 PATCH /api/v1/settings body=791d161a ok
 menu settings.put.takeover_key r1 → 200 
-  dev#104 PATCH /api/v1/settings body=502108c2 ok
+  dev#105 PATCH /api/v1/settings body=502108c2 ok
 menu settings.put.refused r1 → 422 {"code":"validationFailed","error":"clock returned 422: not on this build (field uppercase)","field":"uppercase"}
-  dev#105 GET /api/v1/device body=e3b0c442 ok
+  dev#106 GET /api/v1/device body=e3b0c442 ok
 menu stats r1 → 200 {"boardType":"awtrixng","currentApp":"Time","uid":"abc","uptimeSeconds":1060,"version":"1.1.2"}
-  dev#106 GET /api/v1/display/screen body=e3b0c442 ok
+  dev#107 GET /api/v1/display/screen body=e3b0c442 ok
 menu screen r1 → 200 {"width":32,"height":8,"pixels":[0]}
-  dev#107 GET /api/v1/display body=e3b0c442 ok
+  dev#108 GET /api/v1/display body=e3b0c442 ok
 menu display.get r1 → 200 {"power":true,"overlay":null}
-  dev#108 PATCH /api/v1/display body=e868752a ok
+  dev#109 PATCH /api/v1/display body=e868752a ok
 menu display.put r1 → 404 {"code":"notFound","error":"clock returned 404: no route"}
-  dev#109 GET /api/v1/apps body=e3b0c442 ok
+  dev#110 GET /api/v1/apps body=e3b0c442 ok
 menu apps.get r1 → 200 [{"enabled":true,"inLoop":true,"name":"Time","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"Date","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"ember","origin":"pushed"}]
-  dev#110 PUT /api/v1/apps/order body=a9665164 ok
+  dev#111 PUT /api/v1/apps/order body=a9665164 ok
+  dev#112 GET /api/v1/apps body=e3b0c442 ok
 menu apps.put r1 → 200 
-  dev#111 POST /api/v1/apps/next body=e3b0c442 ok
+  dev#113 POST /api/v1/apps/next body=e3b0c442 ok
 menu next r1 → 200 
-  dev#112 POST /api/v1/apps/previous body=e3b0c442 ok
+  dev#114 POST /api/v1/apps/previous body=e3b0c442 ok
 menu prev r1 → 200 
-  dev#113 DELETE /api/v1/notifications/active body=e3b0c442 ok
+  dev#115 DELETE /api/v1/notifications/active body=e3b0c442 ok
 menu dismiss r1 → 200 
-  dev#114 POST /api/v1/device/reboot body=e3b0c442 ok
+  dev#116 POST /api/v1/device/reboot body=e3b0c442 ok
 menu reboot r1 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
-  dev#115 PATCH /api/v1/display body=867fdf54 ok
+  dev#117 PATCH /api/v1/display body=867fdf54 ok
 menu power r1 → 404 {"code":"notFound","error":"clock returned 404: no route"}
-  dev#116 POST /api/v1/audio/play body=b77b9736 ok
+  dev#118 POST /api/v1/audio/play body=b77b9736 ok
 menu audio.test r1 → 200 {"ok":true}
-  dev#117 POST /api/v1/audio/stop body=e3b0c442 ok
+  dev#119 POST /api/v1/audio/stop body=e3b0c442 ok
 menu audio.stop r1 → 200 {"ok":true}
-  dev#118 GET /api/v1/audio/melodies body=e3b0c442 ok
+  dev#120 GET /api/v1/audio/melodies body=e3b0c442 ok
 menu audio.melodies r1 → 200 {"melodies":[],"usedBytes":0,"totalBytes":4096}
-  dev#119 GET /api/v1/capabilities body=e3b0c442 ok
+  dev#121 GET /api/v1/capabilities body=e3b0c442 ok
 menu capabilities r1 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
-  dev#120 GET /api/v1/system body=e3b0c442 ok
+  dev#122 GET /api/v1/system body=e3b0c442 ok
 menu sensors.get r1 → 200 {"temp_offset":-4,"hum_offset":0}
-  dev#121 GET /api/v1/system body=e3b0c442 ok
-  dev#122 PUT /api/v1/system body=b56b59ae ok
   dev#123 GET /api/v1/system body=e3b0c442 ok
+  dev#124 PUT /api/v1/system body=b56b59ae ok
+  dev#125 GET /api/v1/system body=e3b0c442 ok
 menu sensors.put r1 → 200 {"temp_offset":-4,"hum_offset":0}
-  dev#124 GET /api/v1/system body=e3b0c442 ok
-  dev#125 PUT /api/v1/system body=ef9ba6c2 ok
-menu sensors.put.refused r1 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
   dev#126 GET /api/v1/system body=e3b0c442 ok
+  dev#127 PUT /api/v1/system body=ef9ba6c2 ok
+menu sensors.put.refused r1 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
+  dev#128 GET /api/v1/system body=e3b0c442 ok
 menu buttons.get r1 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":N,"seconds_since":null}
-  dev#127 GET /api/v1/system body=e3b0c442 ok
-  dev#128 PUT /api/v1/system body=b56b59ae ok
   dev#129 GET /api/v1/system body=e3b0c442 ok
+  dev#130 PUT /api/v1/system body=b56b59ae ok
+  dev#131 GET /api/v1/system body=e3b0c442 ok
 menu buttons.put r1 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":0,"seconds_since":null}
-  dev#130 GET /api/v1/settings body=e3b0c442 ok
+  dev#132 GET /api/v1/settings body=e3b0c442 ok
 menu settings.get r2 → 200 {"autoTransition":true,"blockNavigation":false,"brightness":50,"textColor":"#FFFFFF"}
-  dev#131 PATCH /api/v1/settings body=aec2473c ok
+  dev#133 PATCH /api/v1/settings body=aec2473c ok
 menu settings.put r2 → 200 
-  dev#132 PATCH /api/v1/settings body=791d161a ok
+  dev#134 PATCH /api/v1/settings body=791d161a ok
 menu settings.put.takeover_key r2 → 200 
-  dev#133 PATCH /api/v1/settings body=502108c2 ok
+  dev#135 PATCH /api/v1/settings body=502108c2 ok
 menu settings.put.refused r2 → 422 {"code":"validationFailed","error":"clock returned 422: not on this build (field uppercase)","field":"uppercase"}
-  dev#134 GET /api/v1/device body=e3b0c442 ok
+  dev#136 GET /api/v1/device body=e3b0c442 ok
 menu stats r2 → 200 {"boardType":"awtrixng","currentApp":"Time","uid":"abc","uptimeSeconds":1090,"version":"1.1.2"}
-  dev#135 GET /api/v1/display/screen body=e3b0c442 ok
+  dev#137 GET /api/v1/display/screen body=e3b0c442 ok
 menu screen r2 → 200 {"width":32,"height":8,"pixels":[0]}
-  dev#136 GET /api/v1/display body=e3b0c442 ok
+  dev#138 GET /api/v1/display body=e3b0c442 ok
 menu display.get r2 → 200 {"power":true,"overlay":null}
-  dev#137 PATCH /api/v1/display body=e868752a ok
+  dev#139 PATCH /api/v1/display body=e868752a ok
 menu display.put r2 → 404 {"code":"notFound","error":"clock returned 404: no route"}
-  dev#138 GET /api/v1/apps body=e3b0c442 ok
+  dev#140 GET /api/v1/apps body=e3b0c442 ok
 menu apps.get r2 → 200 [{"enabled":true,"inLoop":true,"name":"Time","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"Date","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"ember","origin":"pushed"}]
-  dev#139 PUT /api/v1/apps/order body=a9665164 ok
+  dev#141 PUT /api/v1/apps/order body=a9665164 ok
+  dev#142 GET /api/v1/apps body=e3b0c442 ok
 menu apps.put r2 → 200 
-  dev#140 POST /api/v1/apps/next body=e3b0c442 ok
+  dev#143 POST /api/v1/apps/next body=e3b0c442 ok
 menu next r2 → 200 
-  dev#141 POST /api/v1/apps/previous body=e3b0c442 ok
+  dev#144 POST /api/v1/apps/previous body=e3b0c442 ok
 menu prev r2 → 200 
-  dev#142 DELETE /api/v1/notifications/active body=e3b0c442 ok
+  dev#145 DELETE /api/v1/notifications/active body=e3b0c442 ok
 menu dismiss r2 → 200 
-  dev#143 POST /api/v1/device/reboot body=e3b0c442 ok
+  dev#146 POST /api/v1/device/reboot body=e3b0c442 ok
 menu reboot r2 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
-  dev#144 PATCH /api/v1/display body=867fdf54 ok
+  dev#147 PATCH /api/v1/display body=867fdf54 ok
 menu power r2 → 404 {"code":"notFound","error":"clock returned 404: no route"}
-  dev#145 POST /api/v1/audio/play body=b77b9736 ok
+  dev#148 POST /api/v1/audio/play body=b77b9736 ok
 menu audio.test r2 → 200 {"ok":true}
-  dev#146 POST /api/v1/audio/stop body=e3b0c442 ok
+  dev#149 POST /api/v1/audio/stop body=e3b0c442 ok
 menu audio.stop r2 → 200 {"ok":true}
-  dev#147 GET /api/v1/audio/melodies body=e3b0c442 ok
+  dev#150 GET /api/v1/audio/melodies body=e3b0c442 ok
 menu audio.melodies r2 → 200 {"melodies":[],"usedBytes":0,"totalBytes":4096}
-  dev#148 GET /api/v1/capabilities body=e3b0c442 ok
+  dev#151 GET /api/v1/capabilities body=e3b0c442 ok
 menu capabilities r2 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
-  dev#149 GET /api/v1/system body=e3b0c442 ok
-menu sensors.get r2 → 200 {"temp_offset":-4,"hum_offset":0}
-  dev#150 GET /api/v1/system body=e3b0c442 ok
-  dev#151 PUT /api/v1/system body=b56b59ae ok
   dev#152 GET /api/v1/system body=e3b0c442 ok
-menu sensors.put r2 → 200 {"temp_offset":-4,"hum_offset":0}
+menu sensors.get r2 → 200 {"temp_offset":-4,"hum_offset":0}
   dev#153 GET /api/v1/system body=e3b0c442 ok
-  dev#154 PUT /api/v1/system body=ef9ba6c2 ok
-menu sensors.put.refused r2 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
+  dev#154 PUT /api/v1/system body=b56b59ae ok
   dev#155 GET /api/v1/system body=e3b0c442 ok
-menu buttons.get r2 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":N,"seconds_since":null}
+menu sensors.put r2 → 200 {"temp_offset":-4,"hum_offset":0}
   dev#156 GET /api/v1/system body=e3b0c442 ok
-  dev#157 PUT /api/v1/system body=b56b59ae ok
+  dev#157 PUT /api/v1/system body=ef9ba6c2 ok
+menu sensors.put.refused r2 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
   dev#158 GET /api/v1/system body=e3b0c442 ok
+menu buttons.get r2 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":N,"seconds_since":null}
+  dev#159 GET /api/v1/system body=e3b0c442 ok
+  dev#160 PUT /api/v1/system body=b56b59ae ok
+  dev#161 GET /api/v1/system body=e3b0c442 ok
 menu buttons.put r2 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":0,"seconds_since":null}
-  dev#159 POST /api/v1/notifications body=be2768bf slow
+  dev#162 POST /api/v1/notifications body=be2768bf slow
 slow publish err=<nil>
-  dev#160 GET /api/v1/device body=e3b0c442 slow
+  dev#163 GET /api/v1/device body=e3b0c442 slow
 slow menu stats → 200
-  dev#161 GET /api/v1/device body=e3b0c442 slow
-slow probe reachable=false
-  dev#162 GET /api/v1/device body=e3b0c442 slow
-  dev#163 GET /api/v1/capabilities body=e3b0c442 ok
-slow capabilities cached=true
   dev#164 GET /api/v1/device body=e3b0c442 slow
-slow doctor.awtrix ok
+slow probe reachable=false
   dev#165 GET /api/v1/device body=e3b0c442 slow
+  dev#166 GET /api/v1/capabilities body=e3b0c442 ok
+slow capabilities cached=true
+  dev#167 GET /api/v1/device body=e3b0c442 slow
+slow doctor.awtrix ok
+  dev#168 GET /api/v1/device body=e3b0c442 slow
 slow doctor.clock reachable=false
-  dev#166 GET /api/v1/device body=e3b0c442 slow
-  dev#167 GET /api/v1/device body=e3b0c442 ok
-slow rediscover swapped=false
-  dev#168 GET /api/v1/device body=e3b0c442 ok
-probe #0 reachable=true uptime=1210
-  dev#169 GET /api/v1/device body=e3b0c442 ok
-probe #1 reachable=true uptime=1240
+  dev#169 GET /api/v1/device body=e3b0c442 slow
   dev#170 GET /api/v1/device body=e3b0c442 ok
-probe #2 reachable=true uptime=1270
+slow rediscover swapped=false
   dev#171 GET /api/v1/device body=e3b0c442 ok
-probe #3 reachable=true uptime=1300
+probe #0 reachable=true uptime=1210
   dev#172 GET /api/v1/device body=e3b0c442 ok
-rediscover #0 swapped=false result=reachable
+probe #1 reachable=true uptime=1240
   dev#173 GET /api/v1/device body=e3b0c442 ok
-rediscover #1 swapped=false result=reachable
+probe #2 reachable=true uptime=1270
   dev#174 GET /api/v1/device body=e3b0c442 ok
-rediscover #2 swapped=false result=reachable
+probe #3 reachable=true uptime=1300
   dev#175 GET /api/v1/device body=e3b0c442 ok
-  dev#176 GET /api/v1/capabilities body=e3b0c442 ok
-capabilities #0 cached=true
+rediscover #0 swapped=false result=reachable
+  dev#176 GET /api/v1/device body=e3b0c442 ok
+rediscover #1 swapped=false result=reachable
   dev#177 GET /api/v1/device body=e3b0c442 ok
-  dev#178 GET /api/v1/capabilities body=e3b0c442 ok
+rediscover #2 swapped=false result=reachable
+  dev#178 GET /api/v1/device body=e3b0c442 ok
+  dev#179 GET /api/v1/capabilities body=e3b0c442 ok
+capabilities #0 cached=true
+  dev#180 GET /api/v1/device body=e3b0c442 ok
+  dev#181 GET /api/v1/capabilities body=e3b0c442 ok
 capabilities #1 cached=true
-  dev#179 GET /api/v1/device body=e3b0c442 ok
-  dev#180 GET /api/v1/capabilities body=e3b0c442 ok
-capabilities #2 cached=true
-  dev#181 GET /api/v1/device body=e3b0c442 ok
-doctor.awtrix #0 ok GET CLOCK/api/v1/device → 200 (T)
   dev#182 GET /api/v1/device body=e3b0c442 ok
-doctor.clock #0 ok reachable=true
-  dev#183 GET /api/v1/device body=e3b0c442 ok
-doctor.awtrix #1 ok GET CLOCK/api/v1/device → 200 (T)
+  dev#183 GET /api/v1/capabilities body=e3b0c442 ok
+capabilities #2 cached=true
   dev#184 GET /api/v1/device body=e3b0c442 ok
-doctor.clock #1 ok reachable=true
+doctor.awtrix #0 ok GET CLOCK/api/v1/device → 200 (T)
   dev#185 GET /api/v1/device body=e3b0c442 ok
-doctor.awtrix #2 ok GET CLOCK/api/v1/device → 200 (T)
+doctor.clock #0 ok reachable=true
   dev#186 GET /api/v1/device body=e3b0c442 ok
+doctor.awtrix #1 ok GET CLOCK/api/v1/device → 200 (T)
+  dev#187 GET /api/v1/device body=e3b0c442 ok
+doctor.clock #1 ok reachable=true
+  dev#188 GET /api/v1/device body=e3b0c442 ok
+doctor.awtrix #2 ok GET CLOCK/api/v1/device → 200 (T)
+  dev#189 GET /api/v1/device body=e3b0c442 ok
 doctor.clock #2 ok reachable=true
 unconfigured notify err=clock not configured
 unconfigured stats → 502 {"error":"clock not configured"}
 unconfigured sensors.put → 502 {"error":"clock not configured"}
-requests=187
+requests=190
 bodies:
   1a19f1f2 {"autoTransition":true,"blockNavigation":false}
   1fa7a0a7 {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16726586,13421772,13421772,16726586,13421772,0,0,13421772,13421772,16726586,13421772,13421772,16726586,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",8,7,24,1,[16726586,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":30000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"ERR MBP","textBlinkMs":500,"textCenter":false,"textColor":"#FF3A3A","textOffsetX":9}

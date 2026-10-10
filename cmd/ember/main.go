@@ -66,7 +66,9 @@ func main() {
 	app.configSource = configSource
 
 	pomoErr := app.initPomodoro(cfg.Pomodoro)
+	releaseRotation := app.holdClockRotation()
 	app.reapplySettings()
+	releaseRotation()
 	if pomoErr != nil {
 		logger.Warn("pomodoro init failed; feature unavailable and settings will not persist until the data store is writable", "err", pomoErr, "db_path", cfg.Pomodoro.DBPath)
 	} else {
