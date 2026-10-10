@@ -69,8 +69,8 @@ DELETE can be retried; `DELETE …?keep=protected` also answers 409
 `firmware_kept_in_use` for a version any knob runs (last check-in `fw`) or
 targets, and `firmware_kept_newest` for the newest release image or the
 newest test image when newer than that release, checked under the store
-lock with the device registry held until the purge ends, so a check-in
-can't slip in; servers that support it list
+lock with the device registry held until the build is renamed off its
+live path, so a check-in can't slip in; servers that support it list
 `firmware_delete_keep` in `/version` `features`; any other `keep` is 400),
 `PUT`/`GET /v1/firmware/{version}/elf`
 (≤64 MiB, 400 `elf_mismatch`), `GET /v1/firmware/{version}/bin`,
