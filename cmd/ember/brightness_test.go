@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -385,25 +386,39 @@ func TestBrightnessEndpointNeitherProbesNorAdvancesFilter(t *testing.T) {
 }
 
 func TestClockProbeReleasesLockDuringRequest(t *testing.T) {
+	t.Setenv("EMBER_CLOCK", "")
 	app := newPomodoroApp(t)
 	arrived, release := make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(arrived)
 		<-release
 		_, _ = w.Write([]byte(`{"version":"1.1.1","lightLevel":40}`))
 	}))
 	t.Cleanup(clock.Close)
+	t.Cleanup(unblock)
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
-	done := make(chan *clockDeviceOut)
+	done := make(chan *clockDeviceOut, 1)
 	go func() { done <- app.probeClockHealth(context.Background(), time.Now()) }()
-	<-arrived
+	select {
+	case <-arrived:
+	case dev := <-done:
+		t.Fatalf("probe returned %+v without contacting the clock", dev)
+	case <-time.After(5 * time.Second):
+		t.Fatal("probe never contacted the clock")
+	}
 	locked := app.clockProbe.mu.TryLock()
 	if locked {
 		app.clockProbe.mu.Unlock()
 	}
-	close(release)
-	if dev := <-done; dev == nil || !dev.Reachable {
-		t.Fatalf("probe = %+v, want reachable", dev)
+	unblock()
+	select {
+	case dev := <-done:
+		if dev == nil || !dev.Reachable {
+			t.Fatalf("probe = %+v, want reachable", dev)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("probe did not return after the clock answered")
 	}
 	if !locked {
 		t.Fatal("clockProbe.mu held across the clock request")

@@ -56,6 +56,7 @@ type App struct {
 	brightness brightnessTracker
 
 	statsCache statsCache
+	statsClock func() time.Time
 
 	settings appSettings
 
@@ -63,16 +64,12 @@ type App struct {
 	clockSync     clockSyncGate
 	clockRotation atomic.Pointer[clockRotation]
 	rotationOp    clockRotationOp
-	commitHook    func()
 	clockMigrate  clockMigration
-	holdHook      func()
 	clients       *clientRegistry
 	changes       *changeBroadcaster
 	viewWaiters   viewWaiters
 	viewRecheck   time.Duration
 	viewClock     func() time.Time
-	viewWaitHook  func()
-	otaReadHook   func()
 	knobStats     *knobStatsStore
 	wifiDrops     checkinDropLog
 	diagDrops     checkinDropLog
@@ -84,6 +81,11 @@ type App struct {
 	viewOverLimit checkinDropLog
 	firmwareLimit *callerLimiter
 	clockStats    *clockStatsStore
+
+	commitHook        func()
+	migrationHoldHook func()
+	viewWaitHook      func()
+	otaReadHook       func()
 
 	appsMu     sync.Mutex
 	hiddenApps map[string]bool

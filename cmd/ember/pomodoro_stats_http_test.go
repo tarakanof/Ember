@@ -25,11 +25,19 @@ func recFocus(t *testing.T, app *App, ended time.Time, durMin int, completed boo
 	}
 }
 
+func pinStatsClock(t *testing.T, app *App) time.Time {
+	t.Helper()
+	y, m, d := time.Now().Date()
+	now := time.Date(y, m, d, 12, 0, 0, 0, app.statsLoc())
+	app.statsClock = func() time.Time { return now }
+	return now
+}
+
 func TestPomodoroStatsRichPayload(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
-	now := time.Now()
+	now := pinStatsClock(t, app)
 
 	recFocus(t, app, now.Add(-10*time.Minute), 25, true, "completed")
 	recFocus(t, app, now.Add(-45*time.Minute), 25, true, "completed")
@@ -75,7 +83,7 @@ func TestPomodoroStatsCachedUntilPhaseWrite(t *testing.T) {
 	app.store = own
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
-	now := time.Now()
+	now := pinStatsClock(t, app)
 	todayCompleted := func() float64 {
 		t.Helper()
 		_, body := doReq(t, srv, http.MethodGet, "/v1/pomodoro/stats", "", "")
@@ -215,7 +223,7 @@ func TestPomodoroWorkHoursEndpoint(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
-	now := time.Now()
+	now := pinStatsClock(t, app)
 	recFocus(t, app, now.Add(-10*time.Minute), 25, true, "completed")
 	recFocus(t, app, now.Add(-45*time.Minute), 25, true, "completed")
 
@@ -237,7 +245,7 @@ func TestPomodoroWorkHoursOverlay(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
-	now := time.Now()
+	now := pinStatsClock(t, app)
 
 	recFocus(t, app, now.Add(-40*time.Minute), 25, true, "completed")
 	for tm := now.Add(-30 * time.Minute); !tm.After(now.Add(-20 * time.Minute)); tm = tm.Add(2 * time.Minute) {

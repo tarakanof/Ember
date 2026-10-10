@@ -197,8 +197,9 @@ func TestRequireLoopbackOnly_RefusesParallelTests(t *testing.T) {
 			defer func() { refused = recover() }()
 			requireLoopbackOnly(t)
 		}()
-		if refused == nil {
-			t.Error("requireLoopbackOnly ran in a parallel test")
+		msg, _ := refused.(string)
+		if !strings.Contains(msg, "t.Parallel") {
+			t.Errorf("requireLoopbackOnly in a parallel test: recovered %v, want the testing package's t.Parallel panic", refused)
 		}
 		if http.DefaultTransport != before {
 			t.Error("a parallel test swapped http.DefaultTransport")

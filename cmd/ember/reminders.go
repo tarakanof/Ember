@@ -118,11 +118,15 @@ func (l *reminderLoop) clear(gen int) {
 func (a *App) StartReminderLoopGuard(ctx context.Context) {
 	t := time.NewTicker(reminderLoopCheckInterval)
 	defer t.Stop()
+	a.runReminderLoopGuard(ctx, t.C)
+}
+
+func (a *App) runReminderLoopGuard(ctx context.Context, tick <-chan time.Time) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-tick:
 			a.checkReminderLoop(ctx, a.coord.clk.Now())
 		}
 	}
