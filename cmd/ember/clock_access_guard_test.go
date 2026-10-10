@@ -74,7 +74,16 @@ func isPublisherMethod(decl ast.Decl, info checkedInfo) bool {
 		return false
 	}
 	recv := info.Types[fd.Recv.List[0].Type].Type
-	return recv != nil && types.Implements(recv, iface.Type().Underlying().(*types.Interface))
+	if recv == nil {
+		return false
+	}
+	for m := range iface.Type().Underlying().(*types.Interface).Methods() {
+		obj, index, _ := types.LookupFieldOrMethod(recv, true, info.pkg, m.Name())
+		if _, ok := obj.(*types.Func); !ok || len(index) != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 func checkHTTPClient(n ast.Node, typ types.Type, name string, report func(token.Pos, string, ...any)) {
@@ -145,6 +154,7 @@ func TestClockAccessGuardScopesPublisherExemption(t *testing.T) {
 		{"free func in publisher.go", "publisher.go", "func sneak(p Publisher) error { return p.Notify() }", 1},
 		{"free func push in publisher.go", "publisher.go", "func sneakPush(p Publisher) error { return p.CustomApp() }", 1},
 		{"non-Publisher method in publisher.go", "publisher.go", "func (r relay) send() error { return r.p.Notify() }", 1},
+		{"embedding wrapper in publisher.go", "publisher.go", "type wrap struct{ Publisher }\n\nfunc (w wrap) send() error { return w.Notify() }", 1},
 		{"publisher method elsewhere", "other.go", "func (c clockPublisher) Again() error { return c.Notify() }", 2},
 		{"notices file", "coordinator_notices.go", "func show(p Publisher) error { return p.Notify() }", 0},
 	} {
