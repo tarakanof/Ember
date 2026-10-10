@@ -82,7 +82,7 @@ func (a *App) handleFirmwareUpload(w http.ResponseWriter, r *http.Request) {
 		a.writeFirmwareError(w, r, err)
 		return
 	}
-	img, created, err := store.put(desc, body, channel, replace, a.devices.otaTargets, a.devices.otaKeeps, a.otaRetirer(r.Context(), desc.Version))
+	img, created, err := store.put(desc, body, channel, replace, a.devices.otaTargets, a.devices.holdUnlessKept, a.otaRetirer(r.Context(), desc.Version))
 	if err != nil && !created {
 		a.writeFirmwareError(w, r, err)
 		return

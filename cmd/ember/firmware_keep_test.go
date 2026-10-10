@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -192,5 +194,111 @@ func TestFirmwareGuardedDeleteHoldsCheckinsUntilThePurgeEnds(t *testing.T) {
 	resp, b = devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.20?keep=protected", testToken, "")
 	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(b), "firmware_kept_newest") {
 		t.Fatalf("guarded delete of the newest release = %d %s", resp.StatusCode, b)
+	}
+}
+
+func checkinWithin(t *testing.T, k otaKnob, fw string, wait time.Duration) (chan struct{}, *error) {
+	t.Helper()
+	var err error
+	done := make(chan struct{})
+	go func() {
+		_, err = k.app.devices.checkin(k.knob.ID, deviceCheckin{FW: fw}, nil, "")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(wait):
+	}
+	return done, &err
+}
+
+func TestFirmwareGuardedDeletePanicReleasesTheRegistry(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.12"}), "")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.20"}), "?channel=release")
+	k.idle(t)
+	store := k.app.knobFW
+	store.rename = func(string, string) error { panic("rename blew up") }
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("the purge did not panic")
+			}
+		}()
+		_ = store.removeGuarded("0.9.12", k.app.devices.otaTargets, k.app.devices.holdUnlessKept, nil)
+	}()
+	done, err := checkinWithin(t, k, "0.9.12", 2*time.Second)
+	select {
+	case <-done:
+		if *err != nil {
+			t.Fatal(*err)
+		}
+	default:
+		t.Fatal("a checkin after the panicked purge is still waiting on the registry")
+	}
+}
+
+func registryFree(r *deviceRegistry) bool {
+	if !r.mu.TryLock() {
+		return false
+	}
+	r.mu.Unlock()
+	return true
+}
+
+func noteOnce(ch chan bool, v bool) {
+	select {
+	case ch <- v:
+	default:
+	}
+}
+
+func received[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", what)
+		var zero T
+		return zero
+	}
+}
+
+func TestFirmwarePruneHoldsTheRegistryOnlyWhileRetiring(t *testing.T) {
+	k := newOTAKnob(t)
+	k.idle(t)
+	for i := 1; i <= firmwareKept; i++ {
+		k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)}), "")
+	}
+	store := k.app.knobFW
+	rename, removeAll := store.rename, store.removeAll
+	retiring, dropping := make(chan bool, 1), make(chan bool, 1)
+	store.rename = func(oldpath, newpath string) error {
+		if filepath.Base(oldpath) == "0.9.1" {
+			noteOnce(retiring, registryFree(k.app.devices))
+		}
+		return rename(oldpath, newpath)
+	}
+	store.removeAll = func(path string) error {
+		if strings.HasPrefix(filepath.Base(path), firmwareTempPrefix+"0.9.1-") {
+			noteOnce(dropping, registryFree(k.app.devices))
+		}
+		return removeAll(path)
+	}
+	k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", firmwareKept+1)}), "")
+	if received(t, retiring, "the retire of 0.9.1") {
+		t.Error("retention retired 0.9.1 without holding the registry")
+	}
+	if !received(t, dropping, "the removal of the retired 0.9.1") {
+		t.Error("the registry stayed held while the retired copy was removed")
+	}
+	done, err := checkinWithin(t, k, "0.9.1", 2*time.Second)
+	received(t, done, "a checkin after the prune")
+	if *err != nil {
+		t.Fatal(*err)
+	}
+	if _, ok := store.get("0.9.1"); ok {
+		t.Fatal("0.9.1 not evicted")
 	}
 }
