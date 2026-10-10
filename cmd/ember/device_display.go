@@ -65,13 +65,19 @@ type deviceAppsPutBody struct {
 }
 
 func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
-	gen := a.clockRotationGenNow()
-	body, err := a.clock.fetch(r.Context(), (*awtrix.Client).RawApps)
+	ctx, done, ok := a.lockClockRotation(w, r)
+	if !ok {
+		return
+	}
+	defer done()
+	body, err := a.clock.fetch(ctx, (*awtrix.Client).RawApps)
 	if err != nil {
 		writeClockError(w, err)
 		return
 	}
-	a.noteClockApps(gen, body)
+	if rot, err := rotationFromApps(body); err == nil {
+		a.setClockRotation(rot)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
@@ -82,12 +88,16 @@ func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOrReject(w, r, &body, true) {
 		return
 	}
+	ctx, done, ok := a.lockClockRotation(w, r)
+	if !ok {
+		return
+	}
+	defer done()
 	payload, _ := json.Marshal(body)
-	if _, err := a.clock.fetch(r.Context(), withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
+	if _, err := a.clock.fetch(ctx, withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
 		writeClockError(w, err)
 		return
 	}
-	rb := a.readBackClockRotation(r.Context())
-	a.applyClockRotation(rb.gen, rb.r)
+	a.setClockRotation(a.readBackClockRotation(ctx))
 	w.WriteHeader(http.StatusOK)
 }

@@ -21,6 +21,7 @@ import (
 const (
 	clockConfigSchema       = 1
 	clockRotationReadBudget = 2 * time.Second
+	clockRotationOpBudget   = 11 * time.Second
 )
 
 type clockConfig struct {
@@ -289,76 +290,54 @@ func rotationUnchanged(patch *deviceAppsPutBody, cur *clockRotation) bool {
 	return slices.Equal(slices.Compact(want), slices.Compact(have))
 }
 
-type clockRotationGen struct {
-	mu  sync.Mutex
-	gen uint64
+type clockRotationLock struct {
+	once sync.Once
+	ch   chan struct{}
 }
 
-func (a *App) clockRotationGenNow() uint64 {
-	a.clockRotationGen.mu.Lock()
-	defer a.clockRotationGen.mu.Unlock()
-	return a.clockRotationGen.gen
-}
+var errClockRotationBusy = errors.New("another clock app order change is still running")
 
-func (a *App) clockRotationWritten() uint64 {
-	a.clockRotationGen.mu.Lock()
-	defer a.clockRotationGen.mu.Unlock()
-	a.clockRotationGen.gen++
-	return a.clockRotationGen.gen
-}
-
-func (a *App) applyClockRotation(gen uint64, r *clockRotation) bool {
-	a.clockRotationGen.mu.Lock()
-	if gen != a.clockRotationGen.gen {
-		a.clockRotationGen.mu.Unlock()
-		return false
+func (l *clockRotationLock) lock(ctx context.Context) (unlock func(), err error) {
+	l.once.Do(func() { l.ch = make(chan struct{}, 1) })
+	select {
+	case l.ch <- struct{}{}:
+		return func() { <-l.ch }, nil
+	case <-ctx.Done():
+		return nil, errClockRotationBusy
 	}
+}
+
+func (a *App) setClockRotation(r *clockRotation) {
 	a.clockRotation.Store(r)
-	a.clockRotationGen.mu.Unlock()
 	a.syncClockConfigVersion()
-	return true
 }
 
-func (a *App) noteClockApps(gen uint64, body []byte) bool {
-	r, err := rotationFromApps(body)
-	if err != nil {
-		a.logger.Debug("clock app list not cached", "err", err)
-		return false
-	}
-	return a.applyClockRotation(gen, r)
-}
-
-func (a *App) fetchClockApps(ctx context.Context) ([]byte, error) {
+func (a *App) readClockRotation(ctx context.Context) (*clockRotation, error) {
 	ctx, cancel := context.WithTimeout(ctx, clockRotationReadBudget)
 	defer cancel()
-	return a.clock.fetch(ctx, (*awtrix.Client).RawApps)
+	body, err := a.clock.fetch(ctx, (*awtrix.Client).RawApps)
+	if err != nil {
+		return nil, err
+	}
+	return rotationFromApps(body)
 }
 
-func (a *App) refreshClockRotation(ctx context.Context) bool {
-	gen := a.clockRotationGenNow()
-	body, err := a.fetchClockApps(ctx)
+func (a *App) refreshClockRotation(ctx context.Context) {
+	r, err := a.readClockRotation(ctx)
 	if err != nil {
 		a.logger.Debug("clock app list not read", "err", err)
-		return false
+		return
 	}
-	return a.noteClockApps(gen, body)
+	a.setClockRotation(r)
 }
 
-type clockRotationReadBack struct {
-	gen uint64
-	r   *clockRotation
-}
-
-func (a *App) readBackClockRotation(ctx context.Context) clockRotationReadBack {
-	rb := clockRotationReadBack{gen: a.clockRotationWritten()}
-	body, err := a.fetchClockApps(ctx)
-	if err == nil {
-		rb.r, err = rotationFromApps(body)
-	}
+func (a *App) readBackClockRotation(ctx context.Context) *clockRotation {
+	r, err := a.readClockRotation(ctx)
 	if err != nil {
 		a.logger.WarnContext(ctx, "clock app order written but not read back", "err", err)
+		return nil
 	}
-	return rb
+	return r
 }
 
 var (
@@ -388,22 +367,31 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 	if _, err := a.stageClockApps(&dry, next.Apps); err != nil {
 		return res, err
 	}
-	var readBack clockRotationReadBack
-	if next.Rotation != nil && !(a.refreshClockRotation(ctx) && rotationUnchanged(next.Rotation, a.clockRotation.Load())) {
-		payload, _ := json.Marshal(next.Rotation)
-		if _, err := a.clock.fetch(ctx, withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
-			return res, fmt.Errorf("%w: %w", errClockWrite, err)
+	var rotation *clockRotation
+	rotationKnown := false
+	if next.Rotation != nil {
+		pre, err := a.readClockRotation(ctx)
+		if err == nil && rotationUnchanged(next.Rotation, pre) {
+			rotation, rotationKnown = pre, true
+		} else {
+			payload, _ := json.Marshal(next.Rotation)
+			if _, err := a.clock.fetch(ctx, withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
+				return res, fmt.Errorf("%w: %w", errClockWrite, err)
+			}
+			res.rotationWritten = true
+			rotation, rotationKnown = a.readBackClockRotation(ctx), true
 		}
-		res.rotationWritten = true
-		readBack = a.readBackClockRotation(ctx)
 	}
 	a.clockSync.paused.Add(1)
 	defer func() {
 		a.clockSync.paused.Add(-1)
 		a.syncClockConfigVersion()
 	}()
-	if res.rotationWritten {
-		a.applyClockRotation(readBack.gen, readBack.r)
+	if rotationKnown {
+		a.clockRotation.Store(rotation)
+	}
+	if a.commitHook != nil {
+		a.commitHook()
 	}
 	var staged []*stagedSetting
 	hiddenChanged := false
@@ -458,16 +446,40 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 	return res, nil
 }
 
+func (a *App) lockClockRotation(w http.ResponseWriter, r *http.Request) (context.Context, func(), bool) {
+	ctx, cancel := context.WithTimeout(r.Context(), clockRotationOpBudget)
+	unlock, err := a.rotationOp.lock(ctx)
+	if err != nil {
+		cancel()
+		writeError(w, http.StatusServiceUnavailable, err)
+		return nil, nil, false
+	}
+	return ctx, func() {
+		unlock()
+		cancel()
+	}, true
+}
+
 func (a *App) handleClockConfigGet(w http.ResponseWriter, r *http.Request) {
-	a.refreshClockRotation(r.Context())
+	ctx, done, ok := a.lockClockRotation(w, r)
+	if !ok {
+		return
+	}
+	defer done()
+	a.refreshClockRotation(ctx)
 	cfg := a.composeClockConfig()
 	w.Header().Set(deviceConfigVersion, strconv.Itoa(clockConfigHash(cfg)))
 	writeJSON(w, http.StatusOK, cfg)
 }
 
 func (a *App) handleClockConfigPut(w http.ResponseWriter, r *http.Request, id string, patch []byte) {
+	ctx, done, ok := a.lockClockRotation(w, r)
+	if !ok {
+		return
+	}
+	defer done()
 	before := a.clockConfigVersion()
-	res, err := a.putClockConfig(r.Context(), patch)
+	res, err := a.putClockConfig(ctx, patch)
 	if err != nil {
 		if res.rotationWritten {
 			a.logger.WarnContext(r.Context(), "clock app order written, settings not applied", "device_id", id, "err", err)

@@ -32,6 +32,8 @@ type clockStub struct {
 	appsHold  chan struct{}
 	appsIn    chan struct{}
 	appsLate  int
+	appsFailN int
+	holdAfter bool
 	appsBody  string
 	appsDelay time.Duration
 }
@@ -52,9 +54,20 @@ func newClockStub(t *testing.T) *clockStub {
 func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPut && r.URL.Path == "/api/v1/apps/order" {
 		s.mu.Lock()
-		hold, in := s.orderHold, s.orderIn
+		hold, in, after := s.orderHold, s.orderIn, s.holdAfter
 		s.orderHold = nil
 		s.mu.Unlock()
+		if hold != nil && after {
+			b, _ := io.ReadAll(r.Body)
+			s.mu.Lock()
+			s.orderPuts = append(s.orderPuts, string(b))
+			s.applyOrderLocked(b)
+			s.mu.Unlock()
+			in <- struct{}{}
+			<-hold
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
 		if hold != nil {
 			in <- struct{}{}
 			<-hold
@@ -76,7 +89,10 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 			"wifiRssi": -61, "ipAddress": "192.0.2.66",
 		})
 	case "GET /api/v1/apps":
-		if s.appsFail {
+		if s.appsFail || s.appsFailN > 0 {
+			if s.appsFailN > 0 {
+				s.appsFailN--
+			}
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -93,40 +109,44 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"error":"boom"}`))
 			return
 		}
-		var body struct {
-			Order    []string `json:"order"`
-			Disabled []string `json:"disabled"`
-		}
-		_ = json.Unmarshal(b, &body)
-		byName := map[string]map[string]any{}
-		for _, a := range s.apps {
-			byName[a["name"].(string)] = a
-		}
-		var next []map[string]any
-		for _, n := range body.Order {
-			if a, ok := byName[n]; ok {
-				a["enabled"] = true
-				next = append(next, a)
-				delete(byName, n)
-			}
-		}
-		for _, a := range s.apps {
-			if _, ok := byName[a["name"].(string)]; ok {
-				next = append(next, a)
-			}
-		}
-		for _, a := range next {
-			for _, d := range body.Disabled {
-				if a["name"] == d {
-					a["enabled"] = false
-				}
-			}
-		}
-		s.apps = next
+		s.applyOrderLocked(b)
 		_, _ = w.Write([]byte(`{}`))
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+func (s *clockStub) applyOrderLocked(b []byte) {
+	var body struct {
+		Order    []string `json:"order"`
+		Disabled []string `json:"disabled"`
+	}
+	_ = json.Unmarshal(b, &body)
+	byName := map[string]map[string]any{}
+	for _, a := range s.apps {
+		byName[a["name"].(string)] = a
+	}
+	var next []map[string]any
+	for _, n := range body.Order {
+		if a, ok := byName[n]; ok {
+			a["enabled"] = true
+			next = append(next, a)
+			delete(byName, n)
+		}
+	}
+	for _, a := range s.apps {
+		if _, ok := byName[a["name"].(string)]; ok {
+			next = append(next, a)
+		}
+	}
+	for _, a := range next {
+		for _, d := range body.Disabled {
+			if a["name"] == d {
+				a["enabled"] = false
+			}
+		}
+	}
+	s.apps = next
 }
 
 func (s *clockStub) serveApps(w http.ResponseWriter, r *http.Request) bool {
