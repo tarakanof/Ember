@@ -331,9 +331,6 @@ func (a *App) acquireClockRotation(ctx context.Context, w http.ResponseWriter, r
 }
 
 func (a *App) holdClockRotation() (release func()) {
-	if a.holdHook != nil {
-		a.holdHook()
-	}
 	a.rotationOp.slot <- struct{}{}
 	return func() { <-a.rotationOp.slot }
 }

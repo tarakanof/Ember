@@ -744,22 +744,34 @@ func TestClockFacadeVersionMatchesBody(t *testing.T) {
 func blockedMigration(t *testing.T, a *App, release func()) {
 	t.Helper()
 	waiting := make(chan struct{})
-	a.holdHook = sync.OnceFunc(func() { close(waiting) })
+	a.migrationHoldHook = sync.OnceFunc(func() { close(waiting) })
 	if dev := a.probeClockHealthWithin(context.Background(), time.Now(), 0); dev == nil || !dev.Reachable {
 		release()
 		t.Fatalf("probe failed: %+v", dev)
 	}
-	finished := make(chan struct{})
-	go func() {
-		a.clockMigrate.jobs.Wait()
-		close(finished)
-	}()
-	select {
-	case <-waiting:
-	case <-finished:
-		release()
-		t.Fatal("the clock config migration ran without taking the clock app order lock")
+	poll := time.NewTicker(5 * time.Millisecond)
+	defer poll.Stop()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-waiting:
+			return
+		case <-poll.C:
+			if !a.clockMigrate.running.Load() {
+				release()
+				t.Fatal("the clock config migration ended without reaching the clock app order lock")
+			}
+		case <-deadline:
+			release()
+			t.Fatal("the clock config migration never reached the clock app order lock")
+		}
 	}
+}
+
+func TestMigrationHoldHookIgnoresOtherRotationHolders(t *testing.T) {
+	a, _, _ := newClockApp(t)
+	a.migrationHoldHook = func() { t.Error("a non-migration holdClockRotation caller fired the migration hook") }
+	a.holdClockRotation()()
 }
 
 func TestShutdownStopsWaitingForClockMigrationAtDeadline(t *testing.T) {

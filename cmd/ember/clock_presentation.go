@@ -382,6 +382,9 @@ func (a *App) migrateClockConfig() {
 	if a.store == nil || a.devices == nil || !a.devices.hasClock() {
 		return
 	}
+	if a.migrationHoldHook != nil {
+		a.migrationHoldHook()
+	}
 	release := a.holdClockRotation()
 	defer release()
 	var migrated *clockStoredConfig
