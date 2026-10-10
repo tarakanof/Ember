@@ -1267,7 +1267,14 @@ codes (WMO for Open-Meteo, `symbol_code` for MET) map to six render buckets
 `weather.go`). The fetch also pulls the next ~24 **hourly temperatures** and (Open-Meteo
 only) the location's **UTC offset** (`&timezone=auto` → `utc_offset_seconds`). The
 latest observation lives in an in-memory `weatherStore`, the single source: one
-poller fills it and nothing fetches per device.
+poller fills it and nothing fetches per device. The store is tagged with the
+provider it serves (#409): `state()` hides an observation tagged with another
+provider, so after a provider change every view shows weather as absent until
+the new provider's first fetch. `StartWeather` also wakes on change
+notifications; when the configured provider no longer matches the tag it
+clears the observation, `lastFetch` and the popup's previous condition, and
+fetches at once. A fetch that finishes after the provider changed is dropped
+(it doesn't set `lastFetch` either), so a slow old-provider reply can't land.
 
 **Weather state** (`cmd/ember/weather_state.go`, #337). Every reader of the
 stored weather goes through one projection, `weatherStore.state(cfg, now)` →
