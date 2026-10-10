@@ -3825,9 +3825,9 @@ immediately. Under threshold the app leaves the device rotation normally.
 `limitAlarmState` (`usage_alarm_state.go`, #351), checked each tick by the
 coordinator (`usage_alarm.go` `checkLimitAlarms`). `due(usageState, now)`
 updates the armed state and returns the tools to fire; the coordinator
-renders each as a notice and calls `fired` only when the push succeeded. When the effective 5h window — fresh
-endpoint usage, else the live-session statusline fallback — reads **≥ 99.5 %
-with a known future reset**, it arms for that `resets_at`; once the reset
+renders each as a notice and calls `fired` only when the push succeeded.
+When the effective 5h window — fresh endpoint usage, else the live-session
+statusline fallback — reads **≥ 99.5 % with a known future reset**, it arms for that `resets_at`; once the reset
 passes (+60 s grace, never early) it fires **one** auto-dismiss notification
 (`CLAUDE 5H RESET` / `CODEX 5H RESET`, drawn tool icon) plus an RTTTL chime.
 Drifted reset estimates re-arm instead of firing; an unreachable device retries
@@ -3836,11 +3836,13 @@ State is in-memory by design — a restart mid-window re-arms from the next
 snapshot. The endpoint percent is rounded, hence the 99.5 % threshold, and the
 alarm fires a minute after the estimated reset because reset estimates drift.
 Disabling the alarm drops armed state so re-enabling hours later cannot fire a
-stale "reset" popup, while fired entries are kept so a past `resets_at` cannot
-re-fire. `UsageStore` is not persisted: entries refresh at most every 5 min and
-a restart self-heals within one interval. Gated only by `limit_alarm` (usage config, default on); deliberately
-independent of the usage card threshold (the alarm is about resuming work, not
-tiles).
+stale "reset" popup; re-enabling recreates both maps, so fired entries are
+dropped too. A past `resets_at` still cannot re-fire: arming requires a reset
+still in the future, while a fire only happens after the reset plus the 60 s
+grace. `UsageStore` is not persisted: entries refresh at most every 5 min and
+a restart self-heals within one interval. Gated only by `limit_alarm` (usage
+config, default on); deliberately independent of the usage card threshold (the
+alarm is about resuming work, not tiles).
 
 **Quiet hours.** A global night mute (`quiet_hours` config: `enabled`,
 `start`/`end` `"HH:MM"`, default off / 22:00–08:00; runtime override via
