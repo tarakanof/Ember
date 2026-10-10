@@ -508,7 +508,6 @@ func (a *App) StartWeather(ctx context.Context) {
 	}
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	a.ensureNativeIcons(ctx)
 	a.pollWeather(ctx, time.Now())
 	for {
 		select {

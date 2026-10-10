@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -17,17 +18,27 @@ import (
 type iconClockStub struct {
 	mu          sync.Mutex
 	fingerprint bool
+	stallScript chan struct{}
 	seen        []string
+	scriptPuts  []string
 }
 
 func (s *iconClockStub) server(t *testing.T) *httptest.Server {
 	t.Helper()
+	scriptPath := "/api/v1/apps/script/" + berry.BootPingName
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.seen = append(s.seen, r.Method+" "+r.URL.RequestURI())
 		s.mu.Unlock()
 		if !s.fingerprint {
 			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Path == scriptPath && s.stallScript != nil {
+			select {
+			case <-s.stallScript:
+			case <-r.Context().Done():
+			}
 			return
 		}
 		switch {
@@ -37,6 +48,13 @@ func (s *iconClockStub) server(t *testing.T) *httptest.Server {
 			_, _ = w.Write([]byte(`{"files":[]}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/files":
 			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPut && r.URL.Path == scriptPath:
+			b, _ := io.ReadAll(r.Body)
+			s.mu.Lock()
+			s.scriptPuts = append(s.scriptPuts, string(b))
+			s.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"ok":true,"name":"`+berry.BootPingName+`","error":null}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -57,6 +75,12 @@ func (s *iconClockStub) requests(prefix string) []string {
 	return out
 }
 
+func (s *iconClockStub) puts() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.scriptPuts...)
+}
+
 func iconClockApp(t *testing.T, staleURL string) *App {
 	t.Helper()
 	cfg := defaultConfig()
@@ -66,42 +90,168 @@ func iconClockApp(t *testing.T, staleURL string) *App {
 	a.iconFetch = func(_ context.Context, id string) ([]byte, string, error) {
 		return []byte("gif-bytes-" + id), "gif", nil
 	}
-	t.Cleanup(a.iconJobs.Wait)
+	t.Cleanup(a.clockJobs.Wait)
 	return a
 }
 
-func TestRediscoverClock_ProvisionsIconsOnMovedClock(t *testing.T) {
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+var twoIconUploads = []string{"POST /api/v1/files?dir=%2FICONS", "POST /api/v1/files?dir=%2FICONS"}
+
+func TestDeviceWatch_ProvisionsMovedClock(t *testing.T) {
 	stale := &iconClockStub{}
 	staleSrv := stale.server(t)
 	moved := &iconClockStub{fingerprint: true}
 	movedSrv := moved.server(t)
 
 	a := iconClockApp(t, staleSrv.URL)
+	a.updateConfig(func(c *Config) { c.AWTRIX.BootPing = true })
 	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return []discovery.Candidate{{BaseURL: movedSrv.URL, UID: "awtrix_test"}}, nil
 	}
 
-	if !a.rediscoverClock(context.Background()) {
-		t.Fatalf("expected rediscover to move the clock to %s", movedSrv.URL)
-	}
-	a.iconJobs.Wait()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.StartDeviceWatch(ctx, 20*time.Millisecond)
+	}()
+	waitFor(t, "icon uploads and boot ping install on the moved clock", func() bool {
+		return len(moved.requests("POST /api/v1/files")) >= 2 && len(moved.puts()) >= 1
+	})
+	cancel()
+	<-done
+	a.clockJobs.Wait()
 
-	if got := moved.requests("GET /api/v1/files"); len(got) == 0 {
-		t.Fatalf("moved clock got no icon list request; saw %v", moved.requests(""))
+	if got := a.cfg.Load().effectiveClockURL(); got != movedSrv.URL {
+		t.Fatalf("effective clock URL %s, want %s", got, movedSrv.URL)
 	}
-	uploads := moved.requests("POST /api/v1/files")
-	if len(uploads) != 2 {
-		t.Fatalf("moved clock got %d icon uploads, want 2 (pomodoro icons); saw %v", len(uploads), moved.requests(""))
+	if got := moved.requests("POST /api/v1/files"); !slices.Equal(got, twoIconUploads) {
+		t.Fatalf("moved clock uploads %v, want the 2 pomodoro icons", got)
+	}
+	want := berry.BootPingSource(a.expectedBootCallback())
+	if got := moved.puts(); len(got) != 1 || got[0] != want {
+		t.Fatalf("boot ping installs %q, want one with callback %s", got, a.expectedBootCallback())
 	}
 	if got := stale.requests("GET /api/v1/files"); len(got) != 0 {
 		t.Fatalf("stale clock URL got icon requests %v", got)
 	}
-	if got := moved.requests("GET /api/v1/apps/script/" + berry.BootPingName); len(got) == 0 {
-		t.Fatalf("moved clock got no boot ping script check; saw %v", moved.requests(""))
-	}
 	if got := stale.requests("GET /api/v1/apps/"); len(got) != 0 {
 		t.Fatalf("stale clock URL got boot ping requests %v", got)
 	}
+}
+
+func TestRediscoverClock_DoesNotWaitOnStalledBootPing(t *testing.T) {
+	stale := &iconClockStub{}
+	staleSrv := stale.server(t)
+	moved := &iconClockStub{fingerprint: true, stallScript: make(chan struct{})}
+	movedSrv := moved.server(t)
+
+	a := iconClockApp(t, staleSrv.URL)
+	t.Cleanup(func() { close(moved.stallScript) })
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+		return []discovery.Candidate{{BaseURL: movedSrv.URL, UID: "awtrix_test"}}, nil
+	}
+
+	start := time.Now()
+	if !a.rediscoverClock(context.Background()) {
+		t.Fatalf("expected rediscover to move the clock to %s", movedSrv.URL)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("rediscoverClock took %v behind a stalled boot ping script request", took)
+	}
+}
+
+func TestInitDeviceDiscovery_ProvisionsReachableClockOnce(t *testing.T) {
+	clock := &iconClockStub{fingerprint: true}
+	clockSrv := clock.server(t)
+
+	a := iconClockApp(t, clockSrv.URL)
+	a.updateConfig(func(c *Config) { c.AWTRIX.BootPing = true })
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+		t.Error("reachable clock must not be browsed for")
+		return nil, nil
+	}
+
+	a.initDeviceDiscovery(context.Background())
+	a.clockJobs.Wait()
+
+	if got := clock.requests("GET /api/v1/files"); len(got) != 1 {
+		t.Fatalf("icon list requests %v, want exactly one boot run", got)
+	}
+	if got := clock.requests("POST /api/v1/files"); !slices.Equal(got, twoIconUploads) {
+		t.Fatalf("uploads %v, want the 2 pomodoro icons", got)
+	}
+	if got := clock.puts(); len(got) != 1 {
+		t.Fatalf("boot ping installs %d, want exactly one boot run", len(got))
+	}
+}
+
+func TestReapplySettings_PanickingHookReleasesHolds(t *testing.T) {
+	a := newTestAppWithStore(t)
+	register(a.settings.settingsOverlay, settingSpec[struct{}]{
+		key:   "panic_hook_test",
+		view:  func(Config) struct{} { return struct{}{} },
+		apply: func(*Config, struct{}) error { return nil },
+		after: func(Config) { panic("hook failed") },
+	})
+	if err := a.store.PutSetting("panic_hook_test", `{}`); err != nil {
+		t.Fatal(err)
+	}
+
+	func() {
+		defer func() { _ = recover() }()
+		a.reapplySettings()
+	}()
+
+	if got := a.iconHold.Load(); got != 0 {
+		t.Fatalf("iconHold=%d after a panicking reapply, want 0", got)
+	}
+	a.clockSync.mu.Lock()
+	paused := a.clockSync.paused
+	a.clockSync.mu.Unlock()
+	if paused != 0 {
+		t.Fatalf("clock sync paused=%d after a panicking reapply, want 0", paused)
+	}
+}
+
+func TestAdminReload_ProvisionsIcons(t *testing.T) {
+	clock := &iconClockStub{fingerprint: true}
+	clockSrv := clock.server(t)
+	body := `{"awtrix":{"http_base_url":"` + clockSrv.URL + `"},"pomodoro":{"enabled":true}}`
+	app, _ := newAppForReload(t, body)
+	app.iconFetch = func(_ context.Context, id string) ([]byte, string, error) {
+		return []byte("gif-bytes-" + id), "gif", nil
+	}
+	t.Cleanup(app.clockJobs.Wait)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reload status=%d want 200", resp.StatusCode)
+	}
+	waitFor(t, "icon list request after reload", func() bool {
+		return len(clock.requests("GET /api/v1/files")) > 0
+	})
 }
 
 func TestBootSequence_ProvisionsIconsOnlyAfterRediscover(t *testing.T) {
@@ -124,9 +274,12 @@ func TestBootSequence_ProvisionsIconsOnlyAfterRediscover(t *testing.T) {
 	}
 
 	a.reapplySettings()
-	a.iconJobs.Wait()
+	a.clockJobs.Wait()
 	a.initDeviceDiscovery(context.Background())
-	a.iconJobs.Wait()
+	a.clockJobs.Wait()
+	if got := moved.requests("GET /api/v1/files"); len(got) != 1 {
+		t.Fatalf("moved clock icon lists %v, want exactly one boot run", got)
+	}
 
 	if got := a.cfg.Load().effectiveClockURL(); got != movedSrv.URL {
 		t.Fatalf("effective clock URL %s, want rediscovered %s", got, movedSrv.URL)

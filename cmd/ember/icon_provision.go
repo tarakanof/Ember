@@ -18,7 +18,12 @@ func (a *App) provisionIconsInBackground() {
 	if a.iconHold.Load() > 0 {
 		return
 	}
-	a.iconJobs.Go(func() { a.ensureNativeIcons(context.Background()) })
+	a.clockJobs.Go(func() { a.ensureNativeIcons(context.Background()) })
+}
+
+func (a *App) provisionClockInBackground(ctx context.Context) {
+	a.clockJobs.Go(func() { a.ensureNativeIcons(ctx) })
+	a.clockJobs.Go(func() { a.ensureBootPingScript(ctx) })
 }
 
 func (a *App) ensureNativeIcons(ctx context.Context) {

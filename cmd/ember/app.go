@@ -102,7 +102,7 @@ type App struct {
 
 	iconFetch func(ctx context.Context, id string) (data []byte, ext string, err error)
 	iconMu    sync.Mutex
-	iconJobs  sync.WaitGroup
+	clockJobs sync.WaitGroup
 	iconHold  atomic.Int32
 
 	republish republishGate
