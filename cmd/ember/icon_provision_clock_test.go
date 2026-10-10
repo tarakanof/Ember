@@ -630,13 +630,30 @@ func TestEnsureBootPingScript_CancelIsQuiet(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	polled := make(chan struct{})
 	go func() {
+		defer close(polled)
+		tick := time.NewTicker(5 * time.Millisecond)
+		defer tick.Stop()
+		deadline := time.After(5 * time.Second)
 		for len(clock.requests("GET /api/v1/apps/script/")) == 0 {
-			time.Sleep(5 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return
+			case <-deadline:
+				return
+			case <-tick.C:
+			}
 		}
 		cancel()
 	}()
 	a.ensureBootPingScript(ctx)
+	cancel()
+	<-polled
+
+	if len(clock.requests("GET /api/v1/apps/script/")) == 0 {
+		t.Fatal("boot ping job returned before reading the script")
+	}
 	if strings.Contains(logs.String(), "level=WARN") {
 		t.Fatalf("a cancelled boot ping job logged a warning:\n%s", logs.String())
 	}
