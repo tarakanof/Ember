@@ -1,6 +1,18 @@
 package main
 
-import "testing"
+import (
+	"fmt"
+	"os"
+	"testing"
+)
+
+func TestMain(m *testing.M) {
+	if err := os.Unsetenv("EMBER_CLOCK"); err != nil {
+		fmt.Fprintln(os.Stderr, "unset EMBER_CLOCK:", err)
+		os.Exit(2)
+	}
+	os.Exit(m.Run())
+}
 
 func TestEnvEnabled(t *testing.T) {
 	cases := map[string]bool{
