@@ -337,21 +337,14 @@ func TestAppServer_BootstrapsLoadedThreadsAndMapsStatus(t *testing.T) {
 	waitFor(t, "loaded threads read", bootstrapped(as, f.loaded...))
 	waitState(t, as, "t-run", "running")
 	waitState(t, as, "t-idle", "done")
-	eph, hasNew, newState := func() (bool, bool, string) {
+	eph, newState := func() (bool, string) {
 		as.mu.Lock()
 		defer as.mu.Unlock()
 		_, eph := as.threads["t-eph"]
-		th := as.threads["t-new"]
-		if th == nil {
-			return eph, false, ""
-		}
-		return eph, true, th.d.state
+		return eph, as.threads["t-new"].d.state
 	}()
 	if eph {
 		t.Error("ephemeral helper thread tracked")
-	}
-	if !hasNew {
-		t.Fatal("loaded thread t-new not tracked")
 	}
 	if newState != "" {
 		t.Errorf("thread without a turn has state %q, want none", newState)
@@ -411,7 +404,11 @@ func TestAppServer_SubscribesOnlyWhileBusyAndRetriesNoRollout(t *testing.T) {
 	waitFor(t, "subscribed", func() bool {
 		as.mu.Lock()
 		defer as.mu.Unlock()
-		return as.threads["t1"].subscribed
+		th := as.threads["t1"]
+		if th == nil {
+			t.Fatal("t1 not tracked")
+		}
+		return th.subscribed
 	})
 
 	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
@@ -476,6 +473,7 @@ func TestAppServer_RespectsSourceAndClaudeFilters(t *testing.T) {
 	f.addThread("t-tui", "vscode", active(), nil)
 	f.loaded = []string{"t-exec", "t-claude", "t-sub", "t-tui"}
 	as := startAppServer(t, testAppServerConfig(sock))
+	waitFor(t, "loaded threads read", bootstrapped(as, f.loaded...))
 	waitState(t, as, "t-tui", "running")
 	waitFor(t, "t-tui subscribed", subscribed(as, "t-tui"))
 	tk := as.tick()
@@ -502,6 +500,7 @@ func TestAppServer_RespectsSourceAndClaudeFilters(t *testing.T) {
 	cfg.Sources = parseSources("cli,vscode,exec")
 	cfg.IncludeClaude = true
 	as2 := startAppServer(t, cfg)
+	waitFor(t, "second instance's loaded threads read", bootstrapped(as2, f.loaded...))
 	waitState(t, as2, "t-exec", "running")
 	waitFor(t, "t-claude subscribed", subscribed(as2, "t-claude"))
 	f.notify("item/completed", map[string]any{"threadId": "t-claude", "turnId": "u", "item": map[string]any{"type": "agentMessage", "id": "m", "text": "Doing it"}})
