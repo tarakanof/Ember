@@ -143,6 +143,17 @@ func (e Entry) Position(now time.Time) int64 {
 	return p
 }
 
+func (e Entry) CoverVersion() string {
+	return coverVersion(e.ArtVersion(), CoverRecipe)
+}
+
+func coverVersion(art, recipe string) string {
+	if art == "" {
+		return ""
+	}
+	return art + "-" + recipe
+}
+
 func (e Entry) ArtVersion() string {
 	if e.AlbumArt == nil && e.ArtistArt == nil {
 		return ""

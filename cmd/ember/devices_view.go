@@ -76,20 +76,21 @@ type knobWeather struct {
 }
 
 type knobNowPlaying struct {
-	State      string `json:"state"`
-	Source     string `json:"source,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Artist     string `json:"artist,omitempty"`
-	Album      string `json:"album,omitempty"`
-	TrackID    string `json:"track_id,omitempty"`
-	DurationMS int64  `json:"duration_ms,omitempty"`
-	PositionMS int64  `json:"position_ms,omitempty"`
-	PositionAt int64  `json:"position_at,omitempty"`
-	ArtVersion string `json:"art_version,omitempty"`
-	AlbumArt   bool   `json:"album_art,omitempty"`
-	ArtistArt  bool   `json:"artist_art,omitempty"`
-	Volume     *int   `json:"volume,omitempty"`
-	Accent     string `json:"accent,omitempty"`
+	State        string `json:"state"`
+	Source       string `json:"source,omitempty"`
+	Title        string `json:"title,omitempty"`
+	Artist       string `json:"artist,omitempty"`
+	Album        string `json:"album,omitempty"`
+	TrackID      string `json:"track_id,omitempty"`
+	DurationMS   int64  `json:"duration_ms,omitempty"`
+	PositionMS   int64  `json:"position_ms,omitempty"`
+	PositionAt   int64  `json:"position_at,omitempty"`
+	ArtVersion   string `json:"art_version,omitempty"`
+	AlbumArt     bool   `json:"album_art,omitempty"`
+	ArtistArt    bool   `json:"artist_art,omitempty"`
+	Volume       *int   `json:"volume,omitempty"`
+	Accent       string `json:"accent,omitempty"`
+	CoverVersion string `json:"cover_version,omitempty"`
 }
 
 const knobNowPlayingPage = "nowplaying"
@@ -215,6 +216,7 @@ func (a *App) knobNowPlaying(now time.Time, accent bool) *knobNowPlaying {
 	}
 	if img := e.Picture(nowplaying.Cover); accent && img != nil {
 		np.Accent = img.Accent
+		np.CoverVersion = e.CoverVersion()
 	}
 	return np
 }

@@ -296,3 +296,13 @@ func TestVolumeIsValidatedAndAChange(t *testing.T) {
 		t.Fatalf("no volume: %d changes, entry %v", changes, e.Volume)
 	}
 }
+
+func TestCoverVersionChangesWithTheRecipe(t *testing.T) {
+	if coverVersion("", CoverRecipe) != "" {
+		t.Fatal("cover version without pictures")
+	}
+	a, b := coverVersion("fb43cf74b67a", "r1"), coverVersion("fb43cf74b67a", "r2")
+	if a == b || !strings.HasPrefix(a, "fb43cf74b67a") {
+		t.Fatalf("cover versions %q and %q: a recipe bump must change the URL and keep the art version", a, b)
+	}
+}

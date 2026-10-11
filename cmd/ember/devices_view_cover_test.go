@@ -84,8 +84,10 @@ func TestKnobViewSendsAccentOnlyWithNPCover(t *testing.T) {
 	if !ok || len(a) != 7 || a[0] != '#' {
 		t.Fatalf("np_cover knob accent = %q: %s", a, body)
 	}
-	if string(viewKeys(t, body)["nowplaying"]) != strings.Replace(string(viewKeys(t, plain)["nowplaying"]), `}`, `,"accent":"`+a+`"}`, 1) {
-		t.Errorf("accent must be the only change to nowplaying:\n%s\n%s", viewKeys(t, plain)["nowplaying"], viewKeys(t, body)["nowplaying"])
+	e, _ := f.app.nowPlaying.reg.Current(f.clk.Now())
+	tail := `,"accent":"` + a + `","cover_version":"` + e.CoverVersion() + `"}`
+	if string(viewKeys(t, body)["nowplaying"]) != strings.Replace(string(viewKeys(t, plain)["nowplaying"]), `}`, tail, 1) {
+		t.Errorf("accent and cover_version must be the only change to nowplaying:\n%s\n%s", viewKeys(t, plain)["nowplaying"], viewKeys(t, body)["nowplaying"])
 	}
 }
 
@@ -107,8 +109,25 @@ func TestNowPlayingCoverRoute(t *testing.T) {
 	if resp, _ := npDo(t, f.srv, "GET", "/v1/nowplaying/art?kind=cover&size=240", "", nil, nil); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("cover at 240: %d, want 400", resp.StatusCode)
 	}
+	postCapsCheckin(t, f, "0.10.0", knobCapsCover)
+	var view struct {
+		NowPlaying struct {
+			ArtVersion   string `json:"art_version"`
+			CoverVersion string `json:"cover_version"`
+		} `json:"nowplaying"`
+	}
+	if err := json.Unmarshal(goldenView(t, f), &view); err != nil {
+		t.Fatal(err)
+	}
+	cv := view.NowPlaying.CoverVersion
+	if want := view.NowPlaying.ArtVersion + "-" + nowplaying.CoverRecipe; cv != want {
+		t.Fatalf("cover_version = %q, want %q: a recipe bump must change the cover URL", cv, want)
+	}
 	e, _ := f.app.nowPlaying.reg.Current(f.clk.Now())
-	resp, b := npDo(t, f.srv, "GET", "/v1/nowplaying/art?kind=cover&size=466&v="+e.ArtVersion(), "", nil, nil)
+	if resp, _ := npDo(t, f.srv, "GET", "/v1/nowplaying/art?kind=cover&size=466&v="+e.ArtVersion(), "", nil, nil); resp.Header.Get("Cache-Control") != "no-cache" {
+		t.Fatalf("cover at the bare art_version: Cache-Control %q, want no-cache so a recipe bump is refetched", resp.Header.Get("Cache-Control"))
+	}
+	resp, b := npDo(t, f.srv, "GET", "/v1/nowplaying/art?kind=cover&size=466&v="+cv, "", nil, nil)
 	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/jpeg" {
 		t.Fatalf("cover: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}

@@ -2741,7 +2741,9 @@ paths:
         `observed_at` (DEVICE-PROTOCOL.md "Weather detail"); a body over
         `caps.limits.view_bytes` drops them first. With the `np_cover` caps
         feature, `nowplaying` also carries `accent` (`#RRGGBB`, ≥ 3:1 on
-        black) when there is a picture (DEVICE-PROTOCOL.md "Prepared cover").
+        black) and `cover_version` (`<art_version>-<recipe>`, the `v` for
+        `kind=cover`) when there is a picture (DEVICE-PROTOCOL.md "Prepared
+        cover").
       security: [{deviceToken: []}]
       parameters:
         - name: wait
@@ -2809,7 +2811,8 @@ paths:
         into an r 208 circle on black with a rim vignette and a bottom scrim
         baked in; its ETag carries the recipe version
         (`"<hash>-cover-466-r1"`). `v` equal to the current `art_version`
-        makes the reply `immutable`.
+        (for `cover`, the `cover_version`, which carries the recipe) makes
+        the reply `immutable`.
       security: []
       parameters:
         - name: kind

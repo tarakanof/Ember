@@ -94,7 +94,11 @@ func (a *App) handleNowPlayingArt(w http.ResponseWriter, r *http.Request) {
 	etag := artETag(img, kind, size)
 	h := w.Header()
 	h.Set("ETag", etag)
-	if v := q.Get("v"); v != "" && v == e.ArtVersion() {
+	version := e.ArtVersion()
+	if kind == nowplaying.Cover {
+		version = e.CoverVersion()
+	}
+	if v := q.Get("v"); v != "" && v == version {
 		h.Set("Cache-Control", "public, max-age=86400, immutable")
 	} else {
 		h.Set("Cache-Control", "no-cache")
