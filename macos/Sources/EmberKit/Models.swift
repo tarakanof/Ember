@@ -221,6 +221,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     public var airTile: Bool
     public var airPopupThreshold: Int
     public var overlay: Bool
+    public var providersAvailable: [String]?
 
     public init(enabled: Bool = false, provider: String = "open-meteo",
                 openMeteoModel: String = WeatherSources.defaultOpenMeteoModel,
@@ -232,7 +233,8 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
                 popupOnChange: Bool = true, severeAlert: Bool = true,
                 severeSound: String = "", useNativeIcons: Bool = false,
                 iconIds: [String: String] = [:], tileNativeIcons: Bool = false,
-                airTile: Bool = true, airPopupThreshold: Int = 80, overlay: Bool = true) {
+                airTile: Bool = true, airPopupThreshold: Int = 80, overlay: Bool = true,
+                providersAvailable: [String]? = nil) {
         self.enabled = enabled
         self.provider = provider
         self.openMeteoModel = openMeteoModel
@@ -257,6 +259,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         self.airTile = airTile
         self.airPopupThreshold = airPopupThreshold
         self.overlay = overlay
+        self.providersAvailable = providersAvailable
     }
 
     enum CodingKeys: String, CodingKey {
@@ -281,6 +284,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         case airTile = "air_tile"
         case airPopupThreshold = "air_popup_threshold"
         case overlay
+        case providersAvailable = "providers_available"
     }
 
     public init(from decoder: Decoder) throws {
@@ -310,6 +314,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         airTile = try c.decodeIfPresent(Bool.self, forKey: .airTile) ?? true
         airPopupThreshold = try c.decodeIfPresent(Int.self, forKey: .airPopupThreshold) ?? 80
         overlay = try c.decodeIfPresent(Bool.self, forKey: .overlay) ?? true
+        providersAvailable = try c.decodeIfPresent([String].self, forKey: .providersAvailable)
     }
 }
 

@@ -412,7 +412,7 @@ func TestAppWeatherSourcesMatchTheServerLists(t *testing.T) {
 		}
 		return ids
 	}
-	resolve := map[string]string{"openMeteo": "open-meteo", "defaultOpenMeteoModel": defaultOpenMeteoModel}
+	resolve := map[string]string{"openMeteo": "open-meteo", "defaultOpenMeteoModel": defaultOpenMeteoModel, "tomorrowIO": tomorrowIO}
 	ids := func(raw []string) []string {
 		out := make([]string, len(raw))
 		for i, r := range raw {
@@ -430,7 +430,7 @@ func TestAppWeatherSourcesMatchTheServerLists(t *testing.T) {
 	if got := ids(block("openMeteoModels")); !slices.Equal(got, openMeteoModels) {
 		t.Errorf("app Open-Meteo models = %q, server = %q", got, openMeteoModels)
 	}
-	for name, want := range map[string]string{"openMeteo": "open-meteo", "defaultOpenMeteoModel": defaultOpenMeteoModel} {
+	for name, want := range resolve {
 		if !strings.Contains(string(src), "static let "+name+` = "`+want+`"`) {
 			t.Errorf("WeatherSources.%s is not %q", name, want)
 		}

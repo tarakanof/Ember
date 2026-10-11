@@ -21,6 +21,10 @@
   "tile_native_icons": false,
   "air_tile": true,
   "air_popup_threshold": 80,
-  "overlay": true
+  "overlay": true,
+  "providers_available": [
+    "open-meteo",
+    "met-no"
+  ]
 }
 

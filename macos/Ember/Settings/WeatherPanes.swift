@@ -25,7 +25,7 @@ struct WeatherSourcePane: View {
                 Section {
                     Toggle("Enable weather", isOn: $model.draft.enabled)
                 } footer: {
-                    Text("The server fetches conditions from a free provider that needs no key.")
+                    Text("The server fetches conditions from a free provider. Open-Meteo and MET Norway need no key.")
                 }
 
                 Group {
@@ -54,9 +54,11 @@ struct WeatherSourcePane: View {
         return Section {
             InfoRow("Provider", info: .weatherProvider, requirement: weatherRequirement) { label in
                 Picker(selection: $model.draft.provider) {
-                    sourceOptions(WeatherSources.providers, current: model.draft.provider)
+                    sourceOptions(WeatherSources.providers, current: model.draft.provider,
+                                  available: model.draft.providersAvailable)
                 } label: { label }
             }
+            keyHints(model.draft)
             if model.draft.provider == WeatherSources.openMeteo {
                 Picker("Model", selection: $model.draft.openMeteoModel) {
                     sourceOptions(WeatherSources.openMeteoModels, current: model.draft.openMeteoModel)
@@ -100,10 +102,31 @@ struct WeatherSourcePane: View {
         }
     }
 
-    @ViewBuilder private func sourceOptions(_ options: [WeatherSourceOption], current: String) -> some View {
-        ForEach(options) { Text(verbatim: $0.name).tag($0.id) }
+    @ViewBuilder private func sourceOptions(_ options: [WeatherSourceOption], current: String,
+                                            available: [String]? = nil) -> some View {
+        ForEach(options) { option in
+            Text(verbatim: option.name).tag(option.id)
+                .disabled(option.id != current && !WeatherSources.isAvailable(option.id, in: available))
+        }
         if !options.contains(where: { $0.id == current }) {
             Text(verbatim: current).tag(current)
+        }
+    }
+
+    @ViewBuilder private func keyHints(_ c: WeatherConfig) -> some View {
+        ForEach(WeatherSources.providers.filter {
+            c.providersAvailable != nil && $0.keyEnv != nil
+                && !WeatherSources.isAvailable($0.id, in: c.providersAvailable)
+        }) { option in
+            Label {
+                Text("To use \(option.name), set \(option.keyEnv ?? "") on the server and restart it.",
+                     comment: "Weather provider hint: a provider name, then the environment variable that holds its API key")
+            } icon: {
+                Image(systemName: "key")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 

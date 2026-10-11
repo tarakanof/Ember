@@ -588,13 +588,27 @@ func (s *weatherStore) due(cfg WeatherConfig, now time.Time) bool {
 	}
 	every := cfg.refreshEvery()
 	if !s.have {
-		every = weatherRetryDelay(s.failures, every)
+		every = max(weatherRetryDelay(s.failures, every), cfg.minFetchInterval())
 	}
 	return s.lastFetch.IsZero() || now.Sub(s.lastFetch) >= every
 }
 
 func (c WeatherConfig) refreshEvery() time.Duration {
-	return time.Duration(c.RefreshMinutes) * time.Minute
+	return max(time.Duration(c.RefreshMinutes)*time.Minute, c.minFetchInterval())
+}
+
+func (c WeatherConfig) minFetchInterval() time.Duration {
+	if c.Provider == tomorrowIO {
+		return tomorrowMinRefresh
+	}
+	return 0
+}
+
+func (c WeatherConfig) retryAfterCap() time.Duration {
+	if c.Provider == tomorrowIO {
+		return weatherRetryAfterMax
+	}
+	return c.refreshEvery()
 }
 
 func (c WeatherConfig) maxProviderFreshness() time.Duration {
@@ -618,7 +632,7 @@ func (a *App) markWeatherFailed(now time.Time, src weatherSource, retryAfter tim
 	}
 	a.weather.lastFetch = now
 	a.weather.failures++
-	a.weather.retryAt = now.Add(min(retryAfter, cfg.refreshEvery()))
+	a.weather.retryAt = now.Add(min(retryAfter, cfg.retryAfterCap()))
 }
 
 func (s *weatherStore) fetchHint(cfg WeatherConfig, now time.Time) (fetchHint, bool) {
@@ -828,7 +842,7 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 	return settingSpec[WeatherConfig]{
 		key:          weatherSettingsKey,
 		presentation: weatherPresentationKeys,
-		decode:       a.dropUnknownOpenMeteoModel,
+		decode:       a.sanitizeStoredWeather,
 		view:         func(c Config) WeatherConfig { return c.Weather },
 		apply: func(c *Config, w WeatherConfig) error {
 			w.fillAbsent()
@@ -837,6 +851,9 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 			}
 			if err := validateWeather(w); err != nil {
 				return err
+			}
+			if w.Provider != c.Weather.Provider && !a.weatherFetcher.providerAvailable(w.Provider) {
+				return fmt.Errorf("weather.provider %q needs %s set on the server", w.Provider, tomorrowKeyEnv)
 			}
 			c.Weather = w
 			return nil
@@ -848,18 +865,27 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 	}
 }
 
-func (a *App) dropUnknownOpenMeteoModel(blob string) []byte {
+func (a *App) sanitizeStoredWeather(blob string) []byte {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(blob), &m); err != nil {
 		return []byte(blob)
 	}
+	dropped := false
 	var model string
-	raw, ok := m["open_meteo_model"]
-	if !ok || (json.Unmarshal(raw, &model) == nil && (model == "" || slices.Contains(openMeteoModels, model))) {
+	if raw, ok := m["open_meteo_model"]; ok && (json.Unmarshal(raw, &model) != nil || (model != "" && !slices.Contains(openMeteoModels, model))) {
+		a.logger.Warn("persisted weather model ignored", "model", string(raw), "fallback", cmp.Or(a.cfg.Load().Weather.OpenMeteoModel, defaultOpenMeteoModel))
+		delete(m, "open_meteo_model")
+		dropped = true
+	}
+	var provider string
+	if raw, ok := m["provider"]; ok && json.Unmarshal(raw, &provider) == nil && !a.weatherFetcher.providerAvailable(provider) {
+		a.logger.Warn("persisted weather provider ignored", "provider", provider, "reason", tomorrowKeyEnv+" not set", "fallback", a.cfg.Load().Weather.Provider)
+		delete(m, "provider")
+		dropped = true
+	}
+	if !dropped {
 		return []byte(blob)
 	}
-	a.logger.Warn("persisted weather model ignored", "model", string(raw), "fallback", cmp.Or(a.cfg.Load().Weather.OpenMeteoModel, defaultOpenMeteoModel))
-	delete(m, "open_meteo_model")
 	out, err := json.Marshal(m)
 	if err != nil {
 		return []byte(blob)
