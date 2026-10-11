@@ -479,6 +479,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	hint, wait := a.weather.fetchHint(cfg, now)
 	if wait {
 		a.markWeatherPolled(now, src)
+		a.popKeptWeather(ctx, now, src, cfg)
 		return
 	}
 	res, err := a.weatherFetcher.fetch(ctx, cfg, hint)
@@ -490,6 +491,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	if res.NotModified {
 		if a.confirmWeather(now, src, res) {
 			a.changes.notify(topicWeather)
+			a.popKeptWeather(ctx, now, src, cfg)
 		} else {
 			a.markWeatherPolled(now, src)
 		}
@@ -507,6 +509,27 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.weather.lastFetch = now
 	a.weather.lastModified = res.LastModified
 	a.weather.notBefore = res.Expires
+	a.weather.mu.Unlock()
+	a.changes.notify(topicWeather)
+	a.popWeather(ctx, now, src, cfg, obs)
+	a.nudgePomo()
+}
+
+func (a *App) popKeptWeather(ctx context.Context, now time.Time, src weatherSource, cfg WeatherConfig) {
+	a.weather.mu.RLock()
+	obs, have := a.weather.obs.current(now), a.weather.have && a.weather.source == src
+	a.weather.mu.RUnlock()
+	if have {
+		a.popWeather(ctx, now, src, cfg, obs)
+	}
+}
+
+func (a *App) popWeather(ctx context.Context, now time.Time, src weatherSource, cfg WeatherConfig, obs weatherObservation) {
+	a.weather.mu.Lock()
+	if a.cfg.Load().Weather.source() != src {
+		a.weather.mu.Unlock()
+		return
+	}
 	prevCond := a.weather.prevCondition
 	prevSevere := a.weather.prevSevere
 	lastPopup := a.weather.lastPopupAt
@@ -515,7 +538,6 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		a.weather.lastPopupAt = now
 	}
 	a.weather.mu.Unlock()
-	a.changes.notify(topicWeather)
 
 	popped := a.evaluateWeatherPopup(ctx, now, obs, prevCond, prevSevere, lastPopup, cfg)
 
@@ -526,7 +548,6 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		a.weather.lastPopupAt = now
 	}
 	a.weather.mu.Unlock()
-	a.nudgePomo()
 }
 
 const weatherRetryAfter = 2 * time.Minute

@@ -481,3 +481,39 @@ func TestWeatherStaysFreshUntilProviderExpiry(t *testing.T) {
 		t.Fatal("observation the provider called valid 5 min ago is stale")
 	}
 }
+
+func TestMetNoPopsTheConditionChangeWithoutAFullFetch(t *testing.T) {
+	cases := []struct {
+		name        string
+		expires     time.Duration
+		notModified bool
+		hits        int32
+	}{
+		{"skipped until Expires", 3 * time.Hour, false, 1},
+		{"answered 304", 25 * time.Minute, true, 2},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: metT0.Add(c.expires), notModified: c.notModified}
+			app := newMetCacheApp(t, st, false)
+			pub := app.publisher.(*recordingPublisher)
+			app.updateConfig(func(cfg *Config) { cfg.Weather.PopupOnChange = boolPtr(true) })
+			app.pollWeather(context.Background(), metT0)
+			app.pollWeather(context.Background(), metT0.Add(61*time.Minute))
+			if n := st.hits.Load(); n != c.hits {
+				t.Fatalf("setup: %d MET requests, want %d", n, c.hits)
+			}
+			pub.mu.Lock()
+			defer pub.mu.Unlock()
+			var texts []string
+			for _, p := range pub.notify {
+				if s, _ := p["text"].(string); s != "" {
+					texts = append(texts, s)
+				}
+			}
+			if !slices.Contains(texts, "SNOW 13°") {
+				t.Errorf("popups %q at 21:01, want SNOW 13° for the 21:00 lightsleet entry", texts)
+			}
+		})
+	}
+}

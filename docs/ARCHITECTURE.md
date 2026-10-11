@@ -1332,7 +1332,7 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   keeps its cadence and the next due poll checks again; after `Expires` the
   request carries `If-Modified-Since`. A **304** keeps the observation,
   sets its `FetchedAt` to now and its `ValidUntil` and `notBefore` to the
-  new `Expires`, and notifies (the `stale` flag may move) without popups.
+  new `Expires`, and notifies (the `stale` flag may move).
   With the 10-min default that is about one call per 40 min instead of
   every 10.
 - **Freshness** is measured from the later of `FetchedAt` and the
@@ -1360,7 +1360,10 @@ moon read the state), the sun popups (times and once-a-day key), the knob
 view (`knobWeather`), the dashboard's `/v1/weather/state` and the weather
 preview (which swaps in sample observations when the store has none). The
 condition, interval, severe and AQI popups are not readers: they fire on a
-fetch and take that fetch's result directly. Presentation stays with each
+due poll and take the observation directly, a full fetch's result or, while
+MET is skipped until `Expires` or answers 304, the kept series' entry for now
+(`weatherObservation.current`), so they trail the hourly-advancing display by
+at most `refresh_minutes`. Presentation stays with each
 reader (`roundedSun` gives the 5-min rounding the dashboard and knob share).
 The state shares the store's `Hourly`/`HourlyAQI` slices: readers treat them
 as read-only, and the poller only ever replaces whole observations.
