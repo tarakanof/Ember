@@ -17,7 +17,7 @@ import (
 
 const defaultOpenMeteoModel = "best_match"
 
-var weatherProviders = []string{"open-meteo", "met-no", tomorrowIO}
+var weatherProviders = []string{"open-meteo", "met-no", tomorrowIO, weatherAPI}
 
 var openMeteoModels = []string{defaultOpenMeteoModel, "ecmwf_ifs", "ecmwf_ifs025", "icon_seamless", "gfs_seamless", "ukmo_seamless"}
 
@@ -33,8 +33,18 @@ type weatherFetcher struct {
 	metNoBase      string
 	tomorrowBase   string
 	tomorrowKey    string
+	weatherAPIBase string
+	weatherAPIKey  string
 	airQualityBase string
 	userAgent      string
+	now            func() time.Time
+}
+
+func (wf *weatherFetcher) clock() time.Time {
+	if wf.now != nil {
+		return wf.now()
+	}
+	return time.Now()
 }
 
 func newWeatherFetcher() *weatherFetcher {
@@ -43,6 +53,7 @@ func newWeatherFetcher() *weatherFetcher {
 		openMeteoBase:  "https://api.open-meteo.com",
 		metNoBase:      "https://api.met.no",
 		tomorrowBase:   "https://api.tomorrow.io",
+		weatherAPIBase: "https://api.weatherapi.com",
 		airQualityBase: "https://air-quality-api.open-meteo.com",
 		userAgent:      "ember-weather/0.1 (github.com/tarakanof/ember)",
 	}
@@ -87,6 +98,9 @@ func (wf *weatherFetcher) fetch(ctx context.Context, cfg WeatherConfig, hint fet
 		return wf.fetchMetNo(ctx, cfg, hint)
 	case tomorrowIO:
 		obs, err := wf.fetchTomorrow(ctx, cfg, hint)
+		return fetchResult{Obs: obs}, err
+	case weatherAPI:
+		obs, err := wf.fetchWeatherAPI(ctx, cfg, hint)
 		return fetchResult{Obs: obs}, err
 	default:
 		obs, err := wf.fetchOpenMeteo(ctx, cfg)
@@ -160,6 +174,14 @@ func parseRetryAfter(v string, now time.Time) time.Duration {
 	}
 	if t, err := http.ParseTime(v); err == nil {
 		return min(max(t.Sub(now), 0), weatherRetryAfterMax)
+	}
+	return 0
+}
+
+func statusOf(err error) int {
+	var he *weatherHTTPError
+	if errors.As(err, &he) {
+		return he.code
 	}
 	return 0
 }

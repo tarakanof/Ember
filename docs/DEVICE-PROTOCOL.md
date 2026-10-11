@@ -309,6 +309,18 @@ before now). The provider string (11 B) fits cinder's 16-byte field, and
 with short WMO codes the block stays under the MET worst case
 (`TestKnobViewWorstCaseFitsHalfTheBuffer`). Goldens unchanged.
 
+
+## Weather provider WeatherAPI.com
+
+`weather.provider` can be `"weatherapi"` (#437). As with Tomorrow.io, its
+condition codes reach `code` and `days[].code` as WMO, so the knob needs no
+change. It has no minutely data: `rain` spells start and end on the hour.
+The free plan's 3 forecast days leave `days` with 2 entries. Each day's
+`t` is its midnight under the block's `utc_offset`, as for MET and
+Tomorrow.io, so labels stay one per day across a DST change. A day's
+`cond`/`code` weighs each code's severity by its hours from now on. The
+provider string (10 B) fits cinder's 16-byte field; goldens unchanged.
+
 ## Weather detail
 
 With `wx_faces` in its caps (#350, cinder#33/#34), a knob's `weather`

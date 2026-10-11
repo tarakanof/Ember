@@ -464,8 +464,8 @@ fields (no format strings to fill in, unlike AWTRIX3's `TFORMAT`/`DFORMAT`),
 and sensor edits apply immediately. The **App** tab's *About* shows the app
 version + the connected server's `/version`.
 
-The **Weather** tab edits `weather` config (provider Open-Meteo/MET Norway/Tomorrow.io,
-Tomorrow.io greyed out with a hint until the server has its key,
+The **Weather** tab edits `weather` config (provider Open-Meteo/MET Norway/Tomorrow.io/WeatherAPI.com,
+the keyed ones greyed out with a hint until the server has their key,
 the Open-Meteo forecast model, `open_meteo_model`, with each source's limits
 under the pickers (table in ARCHITECTURE "Providers and models"), lat/lon, units, the rotating-tile + popup behaviour, severe-alert sound); the
 **Reminders** tab edits the alarm list (timezone, per-item time/text/weekdays/
@@ -942,16 +942,16 @@ does not affect other checks.
 `EMBER_TOMORROW_API_KEY` — the Tomorrow.io API key. Without it the provider
 can't be chosen (the app greys it out with a hint; `PUT /v1/weather/config
 {"provider":"tomorrow-io"}` is a 400). It is a **secret**: sent only as the
-`apikey` query parameter of the forecast call and replaced by `REDACTED` in
-any error or log line; never stored in the JSON config, the SQLite store, or
-any API response. `GET /v1/weather/config` shows only whether it is set
+`apikey` query parameter of the forecast call; errors are fixed text
+(ARCHITECTURE "Keyed providers"), and it is never stored in the JSON
+config, the SQLite store, or any API response. `GET /v1/weather/config` shows only whether it is set
 (`providers_available` lists `tomorrow-io`).
 
 **Getting a key.** Create a free account at tomorrow.io, open the API keys
 page of the developer dashboard (app.tomorrow.io → Development) and copy the
 key. Put it in the container's environment (Unraid template variable), restart,
 then pick Tomorrow.io in Settings › Weather. The startup log says
-`weather provider tomorrow-io available` (without the key).
+`weather provider available provider=tomorrow-io` (without the key).
 
 **Limits.** The free plan allows 500 calls a day (reset 00:00 UTC) and 25 an
 hour. Ember makes one forecast call per refresh and never refreshes or retries
@@ -959,9 +959,10 @@ faster than every 5 minutes under Tomorrow.io (≤ 288 a day; the 1-min poll
 tick may bring a call up to 30 s early), whatever
 `refresh_minutes` says, also across location edits, provider switches and
 restarts (the last attempt and any 429 deadline are kept in the SQLite
-store, without the key). A 429 backs off to its `Retry-After`, or to the next
-top of the hour when the reply has none (the free plan sends no rate-limit
-headers). Air quality still comes from Open-Meteo and costs no Tomorrow.io
+store, without the key). A 429, 401 or 403 backs off to its `Retry-After`,
+or to the next top of the hour when the reply has none (the free plan sends
+no rate-limit headers). Only the 429 deadline survives a restart: after
+fixing a rejected key, restart and Ember tries it at once. Air quality still comes from Open-Meteo and costs no Tomorrow.io
 calls. Other apps using the same key share its quota.
 
 **Key removed.** Tomorrow.io stays the chosen provider (stored or in
@@ -973,9 +974,35 @@ resume, or pick another provider.
 
 **Accepted risk: transport log.** Go's HTTP client logs (stdlib `log`,
 outside Ember's logger) any bytes a server sends on an idle keep-alive
-connection after a finished reply. Only Tomorrow.io could put its key
-there, and it already holds the key, so this is accepted; Ember's own
-log lines carry no reply text.
+connection after a finished reply. Only Tomorrow.io (or WeatherAPI.com)
+could put its key there, and it already holds the key, so this is
+accepted; Ember's own log lines carry no reply text.
+
+## WeatherAPI.com weather provider — #437
+
+`EMBER_WEATHERAPI_KEY` — the WeatherAPI.com API key, with the same rules as
+Tomorrow.io's: choosable only while it is set (`providers_available`, a PUT
+without it is a 400), sent only as the `key` query parameter, never stored
+or answered, and errors are fixed text.
+
+**Getting a key.** Create a free account at weatherapi.com (no card), copy
+the key from the dashboard, put it in the container's environment, restart,
+then pick WeatherAPI.com in Settings › Weather. The startup log says
+`weather provider available provider=weatherapi`.
+
+**Limits.** The free plan allows 100,000 calls a month and a 3-day forecast,
+so the knob's `days` shows 2 days ahead. Ember fetches at most every 5
+minutes (≤ 8,640 a month) with the same quota rules as Tomorrow.io, in its
+own settings row (`weather_quota_weatherapi`). A 401 (bad key), 403 (key
+disabled, monthly quota used up) or 429 waits for the next top of the hour;
+only the 429 wait survives a restart.
+There is no minute-by-minute rain: each hour's `precip_mm` is spread evenly
+over its four quarter hours, so a spell starts and ends on the hour.
+
+**Key removed.** As for Tomorrow.io: the choice stays, no call is made,
+`/v1/weather/state` answers
+`"error":"weatherapi needs EMBER_WEATHERAPI_KEY on the server"`, and the app
+shows it under the picker.
 
 ## Now playing (Plex, Apple Music) — #226
 

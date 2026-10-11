@@ -2625,6 +2625,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Worldwide, with a free API key set on the server. The free plan allows 100,000 calls a month and 3 forecast days, so the knob shows 2 days ahead, and Ember fetches at most every 5 minutes. No minute-by-minute rain: each hour's rain is spread evenly over its quarter hours. Air quality still comes from Open-Meteo." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Worldwide, with a free API key set on the server. The free plan allows 500 calls a day and 25 an hour, so Ember fetches at most every 5 minutes. Rain comes minute by minute for the next hour where your plan includes it, otherwise hourly; its days run from 6 am to 6 am. Air quality still comes from Open-Meteo." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
