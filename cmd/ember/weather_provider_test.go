@@ -13,25 +13,41 @@ import (
 type providerStubs struct {
 	omHits  atomic.Int32
 	metHits atomic.Int32
+	omReq   chan struct{}
+	metReq  chan struct{}
 	onOM    func()
+}
+
+func signalStub(ch chan struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
 }
 
 func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 	t.Helper()
-	st := &providerStubs{}
+	st := &providerStubs{omReq: make(chan struct{}, 1), metReq: make(chan struct{}, 1)}
 	om := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		st.omHits.Add(1)
 		if st.onOM != nil {
 			st.onOM()
 		}
 		_, _ = w.Write([]byte(`{"current":{"temperature_2m":21,"weather_code":61,"time":1790409600}}`))
+		signalStub(st.omReq)
 	}))
 	t.Cleanup(om.Close)
 	met := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		st.metHits.Add(1)
 		_, _ = w.Write([]byte(`{"properties":{"timeseries":[{"time":"2026-09-26T07:00:00Z","data":{"instant":{"details":{"air_temperature":4}},"next_1_hours":{"summary":{"symbol_code":"snow"}}}}]}}`))
+		signalStub(st.metReq)
 	}))
 	t.Cleanup(met.Close)
+	air := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected air-quality request %s", r.URL)
+		http.Error(w, "unexpected", http.StatusTeapot)
+	}))
+	t.Cleanup(air.Close)
 
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
@@ -42,10 +58,12 @@ func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 	cfg.Weather.PopupIntervalMinutes = intPtr(0)
 	cfg.Weather.SunPopups = boolPtr(false)
 	cfg.Weather.AirTile = boolPtr(false)
+	cfg.Weather.AirPopupThreshold = 0
 	app := NewApp(cfg, &recordingPublisher{}, testLogger())
 	app.weatherFetcher = newWeatherFetcher()
 	app.weatherFetcher.openMeteoBase = om.URL
 	app.weatherFetcher.metNoBase = met.URL
+	app.weatherFetcher.airQualityBase = air.URL
 	return app, st
 }
 
@@ -104,8 +122,48 @@ func TestWeatherProviderSwitchDiscardsInFlightFetch(t *testing.T) {
 	}
 }
 
+func TestWeatherProviderSwitchBackDuringFetchKeepsResult(t *testing.T) {
+	app, st := newProviderSwitchApp(t)
+	st.onOM = func() {
+		app.updateConfig(func(c *Config) { c.Weather.Provider = "met-no" })
+		app.updateConfig(func(c *Config) { c.Weather.Provider = "open-meteo" })
+	}
+	t0 := time.Now()
+	app.pollWeather(context.Background(), t0)
+
+	app.weather.mu.RLock()
+	provider, have, last := app.weather.provider, app.weather.have, app.weather.lastFetch
+	app.weather.mu.RUnlock()
+	if provider != "open-meteo" || !have || !last.Equal(t0) {
+		t.Fatalf("store after A->B->A = provider %q have=%v lastFetch=%v, want open-meteo, true, %v", provider, have, last, t0)
+	}
+	if kw := app.knobWeather(t0); kw == nil || kw.Provider != "open-meteo" || kw.Code != "61" {
+		t.Fatalf("knob weather after A->B->A = %+v", kw)
+	}
+	if st.metHits.Load() != 0 {
+		t.Errorf("met-no fetched %d times, want 0", st.metHits.Load())
+	}
+}
+
+func waitWeatherCommit(t *testing.T, app *App, seq uint64, what string) {
+	t.Helper()
+	deadline := time.After(chanWaitBound)
+	for {
+		_, changed := app.changes.subscribe()
+		if app.changes.since(seq)&topicWeather != 0 {
+			return
+		}
+		select {
+		case <-changed:
+		case <-deadline:
+			t.Fatalf("%s: no weather commit within %v", what, chanWaitBound)
+		}
+	}
+}
+
 func TestStartWeatherRefetchesOnProviderChange(t *testing.T) {
 	app, st := newProviderSwitchApp(t)
+	seq, _ := app.changes.subscribe()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -117,26 +175,21 @@ func TestStartWeatherRefetchesOnProviderChange(t *testing.T) {
 		<-done
 	})
 
-	waitFor := func(what string, cond func() bool) {
-		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
-		for !cond() {
-			if time.Now().After(deadline) {
-				t.Fatalf("timed out waiting for %s", what)
-			}
-			time.Sleep(5 * time.Millisecond)
-		}
+	recvWithin(t, st.omReq, "first open-meteo request")
+	waitWeatherCommit(t, app, seq, "open-meteo observation")
+	if kw := app.knobWeather(time.Now()); kw == nil || kw.Provider != "open-meteo" {
+		t.Fatalf("knob weather before switch = %+v", kw)
 	}
-	waitFor("first open-meteo fetch", func() bool { return app.knobWeather(time.Now()) != nil })
 
+	seq, _ = app.changes.subscribe()
 	putWeatherProvider(t, app, "met-no")
 
-	waitFor("met-no fetch", func() bool { return st.metHits.Load() == 1 })
-	waitFor("met-no observation", func() bool {
-		kw := app.knobWeather(time.Now())
-		return kw != nil && kw.Code == "snow"
-	})
-	if st.omHits.Load() != 1 {
-		t.Errorf("open-meteo fetched %d times, want 1", st.omHits.Load())
+	recvWithin(t, st.metReq, "met-no request")
+	waitWeatherCommit(t, app, seq, "met-no observation")
+	if kw := app.knobWeather(time.Now()); kw == nil || kw.Provider != "met-no" || kw.Code != "snow" {
+		t.Fatalf("knob weather after switch = %+v", kw)
+	}
+	if st.omHits.Load() != 1 || st.metHits.Load() != 1 {
+		t.Errorf("fetches open-meteo=%d met-no=%d, want 1 each", st.omHits.Load(), st.metHits.Load())
 	}
 }
