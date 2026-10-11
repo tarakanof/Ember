@@ -1324,6 +1324,10 @@ paths:
       description: >-
         Label but no coordinates; sun times rounded to 5 minutes. `model`
         names the Open-Meteo forecast model, absent under MET Norway.
+        `error` (absent otherwise, and while weather is off) gives the reason
+        the chosen provider can't fetch,
+        e.g. "weatherapi needs EMBER_WEATHERAPI_KEY on the server" when a
+        keyed provider is chosen without its key; `current` is then null.
       security: []
       responses:
         "200":

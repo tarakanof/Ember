@@ -1509,10 +1509,10 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   - **Day code** (`pickDayCode`): hours are counted per WMO code, and the
     code with the highest severity × hours wins (ties to the more severe).
     Severity is the index in `wmoSeverity` plus one: clear 1, clouds, fog,
-    drizzle and freezing drizzle, then rain by strength with showers just
-    above plain rain and freezing rain just above them (light freezing rain
-    66 ranks between light and moderate rain, heavy freezing rain 67 above
-    heavy rain), snow, storm last. So 10 h of heavy rain beat 1 h of
+    drizzle and freezing drizzle, then rain by strength, each strength's
+    showers just above its plain rain (light freezing rain 66 sits after
+    light showers and below moderate rain; heavy freezing rain 67 is the
+    top rain code, above heavy showers), snow, storm last. So 10 h of heavy rain beat 1 h of
     flurries, 23 h of clear beat 1 h of fog, and 1 h of thunder still
     outweighs a few cloudy hours. Providers' codes are pooled after the
     WMO translation, so codes sharing a WMO code count together
@@ -1527,8 +1527,8 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
     retried every 5 min), not capped at the refresh interval
     (`retryAfterCap`). Only a 429's deadline is persisted
     (`savedRetryAt`); a 401/403 hold lives in memory, because the key only
-    changes with a restart, which must be able to try the fixed key at
-    once. The state survives `switchSource`, so editing the
+    changes with a restart, which tries the fixed key within 5 min (the
+    persisted last attempt still holds the floor). The state survives `switchSource`, so editing the
     location or switching providers and back neither fetches sooner than
     5 min after the last attempt nor skips a running back-off, and a
     failure whose source changed mid-flight still sets it. `reserveQuota`
@@ -1539,7 +1539,12 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
     response (`Retry-After` plus the request's duration), the next-hour
     fallback likewise. Polls run on a 1-min ticker, so the floor allows
     30 s for the tick's jitter (`quotaTickSlack`): at least 4.5 min between
-    calls, at most 13 an hour. Both times persist per provider in the
+    calls. Ticks alone keep a 5-min cadence (12 an hour, 288 a day), but a
+    source change polls at once, so flipping providers can land a call on
+    the 4.5-min floor: at most 14 in a rolling hour and 320 in a UTC day
+    (only with a source change every 4.5 min all day), inside
+    Tomorrow.io's 25 and 500. An unreadable row warns once per failing
+    streak (and logs its recovery), not every poll. Both times persist per provider in the
     settings store (`weather_quota_tomorrow_io`, `weather_quota_weatherapi`:
     `attempt_at`, `retry_until`, no credential) and are loaded before the
     provider's first fetch, so a restart can't bypass them. A loaded

@@ -956,13 +956,15 @@ then pick Tomorrow.io in Settings › Weather. The startup log says
 **Limits.** The free plan allows 500 calls a day (reset 00:00 UTC) and 25 an
 hour. Ember makes one forecast call per refresh and never refreshes or retries
 faster than every 5 minutes under Tomorrow.io (≤ 288 a day; the 1-min poll
-tick may bring a call up to 30 s early), whatever
+tick may bring a call up to 30 s early, and flipping providers back and
+forth without pause can reach 14 in an hour and 320 a day, still inside the plan), whatever
 `refresh_minutes` says, also across location edits, provider switches and
 restarts (the last attempt and any 429 deadline are kept in the SQLite
 store, without the key). A 429, 401 or 403 backs off to its `Retry-After`,
 or to the next top of the hour when the reply has none (the free plan sends
 no rate-limit headers). Only the 429 deadline survives a restart: after
-fixing a rejected key, restart and Ember tries it at once. Air quality still comes from Open-Meteo and costs no Tomorrow.io
+fixing a rejected key, restart and Ember tries it within 5 minutes (the
+saved last attempt still holds the minimum interval). Air quality still comes from Open-Meteo and costs no Tomorrow.io
 calls. Other apps using the same key share its quota.
 
 **Key removed.** Tomorrow.io stays the chosen provider (stored or in
