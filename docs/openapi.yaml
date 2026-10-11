@@ -1321,7 +1321,9 @@ paths:
       tags: [read]
       operationId: getWeatherState
       summary: Cached weather observation
-      description: Label but no coordinates; sun times rounded to 5 minutes.
+      description: >-
+        Label but no coordinates; sun times rounded to 5 minutes. `model`
+        names the Open-Meteo forecast model, absent under MET Norway.
       security: []
       responses:
         "200":
@@ -1588,7 +1590,10 @@ paths:
         Merge semantics. Once the clock config is migrated, this config's
         clock presentation keys are stored in the clock config (an alias,
         ARCHITECTURE "Clock record and config façade"); the GET still
-        returns the merged shape.
+        returns the merged shape. `open_meteo_model` (default `best_match`)
+        is one of `best_match`, `ecmwf_ifs`, `ecmwf_ifs025`,
+        `icon_seamless`, `gfs_seamless`, `ukmo_seamless`; any other value
+        is a 400 (ARCHITECTURE "Providers and models").
       summary: Merge weather settings
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
@@ -2732,7 +2737,8 @@ paths:
         `"quiet": true` while quiet hours are on (absent otherwise); a waiting
         poll wakes at each quiet-hours edge. `weather.observed_at` (Unix
         seconds) is the provider's time for the current values, absent when
-        unknown. For a knob that reported `caps`,
+        unknown. `weather.model` follows `provider` for an Open-Meteo model
+        other than `best_match` (DEVICE-PROTOCOL.md "Weather model"). For a knob that reported `caps`,
         `v` is min(1, `caps.view[1]`) and a page's block (`mood`, `pomo`,
         `weather`, `nowplaying`) is sent only when the page is in `caps.pages`
         and on; a legacy knob's view is unchanged. With the `wx_faces` caps
