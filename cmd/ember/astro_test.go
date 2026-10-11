@@ -142,9 +142,9 @@ func TestMoonRiseSetMatchMETNorwayToTheRoundedMinute(t *testing.T) {
 }
 
 func TestMoonPositionMatchesMeeusExample47a(t *testing.T) {
-	lambda, beta, dist := moonEcliptic(time.Date(1992, 4, 12, 0, 0, 0, 0, time.UTC).Add(-deltaT))
+	lambda, beta, dist := moonEcliptic(time.Date(1992, 4, 12, 0, 0, 0, 0, time.UTC).Add(-69 * time.Second))
 	if math.Abs(lambda-133.162655) > 0.0005 || math.Abs(beta+3.229126) > 0.005 || math.Abs(dist-368409.7) > 20 {
-		t.Errorf("moon at 1992-04-12 0h TD (0h minus deltaT in UT): lambda %.6f beta %.6f dist %.1f km, want 133.162655, -3.229126, 368409.7", lambda, beta, dist)
+		t.Errorf("moon at 1992-04-12 0h TD (0h minus 69 s in UT): lambda %.6f beta %.6f dist %.1f km, want 133.162655, -3.229126, 368409.7", lambda, beta, dist)
 	}
 	if h := moonHorizon(368409.7); math.Abs(h-0.1550) > 0.0005 {
 		t.Errorf("rise/set altitude at 368409.7 km = %.4f deg, want 0.7275 pi - 0.5667 = 0.1550", h)
