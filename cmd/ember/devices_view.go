@@ -63,6 +63,7 @@ type knobPomo struct {
 
 type knobWeather struct {
 	Provider   string  `json:"provider"`
+	Model      string  `json:"model,omitempty"`
 	Cond       string  `json:"cond"`
 	Code       string  `json:"code"`
 	TempC      float64 `json:"temp_c"`
@@ -244,6 +245,13 @@ func (a *App) knobPomo(now time.Time) *knobPomo {
 	return p
 }
 
+func knobModel(m string) string {
+	if m == defaultOpenMeteoModel {
+		return ""
+	}
+	return m
+}
+
 func (a *App) knobWeather(now time.Time) *knobWeather { return a.knobWeatherFor(now, false) }
 
 func (a *App) knobWeatherFor(now time.Time, detail bool) *knobWeather {
@@ -254,6 +262,7 @@ func (a *App) knobWeatherFor(now time.Time, detail bool) *knobWeather {
 	}
 	w := &knobWeather{
 		Provider: cfg.Provider,
+		Model:    knobModel(cfg.model()),
 		Cond:     wx.Obs.Condition,
 		Code:     wx.Obs.ConditionCode,
 		TempC:    wx.Obs.TempC,

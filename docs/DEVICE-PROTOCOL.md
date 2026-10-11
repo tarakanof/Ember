@@ -201,6 +201,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `v` outside range | server sends `v` = min(1, `caps.view[1]`); the knob keeps its last view and shows the update state | `TestCapsKnobViewMajorIsTheLowerOfServerAndFirmware`; cinder host test with a `v:99` fixture |
 | new | new, `rotations` listed or not | `effective_caps.rotations` sorted, `[0]` when missing; config PUT 400 for a rotation outside it, a stored one kept; a legacy or downgraded knob is unchecked | `TestCapsRotationsPresentAndMissing`, `TestCapsKnobConfigPutRejectsRotationOutsideCaps`, `TestCapsKnobDowngradedToLegacyFirmwareKeepsAndFreesRotation`, `TestLegacyKnobConfigPutIsNotCheckedForRotation`, `TestKnobRotationRoundTripsAndReachesTheKnob` |
 | new | new, `wx_faces` or not | detail only with the token and the `weather` block; a caps knob without it gets the legacy block; dropped first to fit `view_bytes`; the worst case stays under 8 KB | `TestKnobViewWeatherFacesGolden` (`view_faces*.json`, `devices_view_weather_test.go`), `TestCapsKnobWithoutWxFacesGetsNoWeatherDetail`, `TestCapsKnobWithWxFacesButWeatherPageOffGetsNoWeather`, `TestCapsKnobViewDropsWeatherDetailFirst`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
+| new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
 | new | new, `np_cover` or not | `accent` and `cover_version` only with the token, only when there is a picture, and the only change to `nowplaying`; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
@@ -277,6 +278,21 @@ Ember last fetched it (`stale`):
 - **Old firmware** skips the unknown key. The body grows by 25 B.
   A new fetch with a new provider time moves the ETag even when the
   shown values did not change.
+
+## Weather model
+
+`weather.model` (#427) names the Open-Meteo forecast model the values come
+from, right after `provider` (`"provider":"open-meteo","model":"ecmwf_ifs"`).
+
+- **Absent** under MET Norway and for Open-Meteo's default `best_match`,
+  so a default view keeps its bytes and ETag; the goldens don't change.
+- Codes stay WMO whatever the model; the knob needs no change to read them.
+- **Old firmware** skips the unknown key (`TestWeatherReadoutsNameTheOpenMeteoModel`
+  pins where it goes). The block grows by at most 24 B, and an Open-Meteo
+  block with its longest model stays shorter than the MET block with the
+  longest symbol code, so `TestKnobViewWorstCaseFitsHalfTheBuffer` (MET)
+  remains the worst case
+  (`TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`).
 
 ## Weather detail
 

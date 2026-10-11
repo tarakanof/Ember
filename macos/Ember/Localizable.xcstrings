@@ -487,6 +487,10 @@
     "12 weeks" : {},
     "15 Minutes" : {},
     "2 digits" : {},
+    "2 km over the UK and Ireland, 10 km elsewhere. UV index only near the UK and only for the first two days; 15-minute rain is the hourly amount split evenly." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "24 Hours" : {},
     "24-hour time" : {},
     "4 digits" : {},
@@ -1050,6 +1054,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "ECMWF's coarser open-data run: worldwide, updated 4 times a day. Smooths out local showers. No UV index; 15-minute rain is the hourly amount split evenly." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Each device has its own look for this source." : {},
     "Each device with a speaker sets its own sounds. Quiet hours apply to all of them. The knob has no speaker: it dims and calms its bot instead, set in its Display settings." : {},
     "Edit %@ on %@" : {
@@ -1214,6 +1222,10 @@
     "From" : {},
     "Full" : {},
     "General" : {},
+    "Germany's models: 2 km over Germany and the Alps, 7 km over Europe, a coarser global run elsewhere. Updated every 3 hours near Germany. No UV index; outside the 2 km area, 15-minute rain is the hourly amount split evenly." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Give Ember the clock's address, or discover it, under Status." : {},
     "Goal" : {},
     "Goal %@ a day, met on ^[%lld day](inflect: true)." : {
@@ -1641,6 +1653,10 @@
     "Open in Browser" : {},
     "Open the clock's own web page" : {},
     "Open the server's statistics page" : {},
+    "Open-Meteo picks the best local model for your location and blends it with a global one. In much of central Europe that is DWD ICON, which can miss showers other models see. Has every value, UV included. Outside central Europe and the US, 15-minute rain is the hourly amount split evenly." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Opens System Settings, where you can turn it on for Ember." : {},
     "Opens the clock's web page, which installs firmware updates." : {},
     "Opens the pane that uses it." : {},
@@ -2073,7 +2089,15 @@
     "Text color" : {},
     "The Claude and Codex helpers send session status to the server. macOS asks for each helper separately." : {},
     "The Dashboard tracks these." : {},
+    "The European Centre's high-resolution global model: worldwide, updated 4 times a day. No UV index; 15-minute rain is the hourly amount split evenly." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The Pomodoro is off in Ember." : {},
+    "The US models: 3 km HRRR over the contiguous US, updated hourly, and 13 to 25 km GFS elsewhere, where 15-minute rain is the hourly amount split evenly. Has every value, UV included." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The activity card scrolls the current tool call next to the icon. These apply to this Mac's sessions." : {},
     "The activity card scrolls the last few tool calls, newest first, instead of only the current one. It needs the activity card." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2571,6 +2595,14 @@
     "Work hours" : {},
     "Work hours per day" : {},
     "Working: an agent is running." : {},
+    "Worldwide, free and without a key for non-commercial use, up to 10,000 calls a day. Rain comes in 15-minute steps. Air quality always comes from Open-Meteo. The model below decides what you get." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Worldwide, free and without a key. Finest in the Nordic countries; elsewhere it uses ECMWF's global model. Rain comes in hourly steps, and the chance of rain only in the Nordic area. It has no air quality, so that still comes from Open-Meteo." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Wrap around" : {},
     "Writes the agent's computer name along the bottom of the face" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,12 @@ import (
 
 	"github.com/tarakanof/ember/internal/render"
 )
+
+const defaultOpenMeteoModel = "best_match"
+
+var weatherProviders = []string{"open-meteo", "met-no"}
+
+var openMeteoModels = []string{defaultOpenMeteoModel, "ecmwf_ifs", "ecmwf_ifs025", "icon_seamless", "gfs_seamless", "ukmo_seamless"}
 
 const (
 	precipStepsOpenMeteo = 48
@@ -177,6 +184,9 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 		"&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,uv_index_max,wind_gusts_10m_max&forecast_days=%d"+
 		"&timezone=auto&timeformat=unixtime",
 		strings.TrimRight(wf.openMeteoBase, "/"), cfg.Latitude, cfg.Longitude, precipStepsOpenMeteo, forecastFetchHours, forecastDays)
+	if m := cmp.Or(cfg.OpenMeteoModel, defaultOpenMeteoModel); m != defaultOpenMeteoModel {
+		url += "&models=" + m
+	}
 	var body struct {
 		UTCOffsetSeconds int `json:"utc_offset_seconds"`
 		Current          struct {

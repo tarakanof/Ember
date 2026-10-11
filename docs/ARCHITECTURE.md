@@ -1268,11 +1268,13 @@ render buckets (`clear/clouds/fog/rain/snow/storm`) + a `severe` flag
 temperatures** and (Open-Meteo only) the location's **UTC offset**
 (`&timezone=auto` → `utc_offset_seconds`). The latest observation lives in an
 in-memory `weatherStore`, the single source: one poller fills it and nothing
-fetches per device. The store is tagged with the source it serves, provider
-and location (`weatherSource`; #409 for the provider, #350 added the
-location): `state()` hides an observation tagged with another source, so after
-a provider or location change every view shows weather as absent until the new
-source's first fetch. On every poll, `pollWeather` retags the store through
+fetches per device. The store is tagged with the source it serves, provider,
+Open-Meteo model and location (`weatherSource`; #409 for the provider, #350
+added the location, #427 the model): `state()` hides an observation tagged
+with another source, so after a provider, model or location change every view
+shows weather as absent until the new source's first fetch. The model is part
+of the tag only under Open-Meteo, so changing it while MET Norway serves
+changes nothing. On every poll, `pollWeather` retags the store through
 `switchSource` when the configured source differs, clearing the observation,
 `lastFetch`, the MET validators and the popup's previous condition.
 `StartWeather` also wakes on change notifications and polls at once on a
@@ -1302,6 +1304,44 @@ refresh)` after the last attempt (2, 4, 8 min … up to `refresh_minutes`, so
 with the error's `Retry-After` as a floor capped at `refresh_minutes`
 (`markAirFailed`). A success resets the count and floor; a location switch
 clears the reading, the count, the floor and the last-attempt time.
+
+**Providers and models** (#427, `weather_providers.go`). `provider` is one
+of `weatherProviders`; under Open-Meteo, `open_meteo_model` picks the
+forecast model from the fixed `openMeteoModels` list (default `best_match`,
+which sends no `models=`; any other adds `&models=<id>`). With one model
+Open-Meteo answers under the plain variable names, so parsing is the same.
+An unknown model (a comma list included) is a 400 on `PUT
+/v1/weather/config`. In `config.json`, at startup and on `/admin/reload`,
+`sanitizeConfigBaseline` logs `weather.open_meteo_model invalid` and falls
+back to `best_match`, like an invalid icon id (`validateConfig` doesn't run
+`validateWeather`). In a stored `weather_json` blob only that key is
+dropped (logged `persisted weather model ignored`), so a model removed in a
+later release doesn't throw away the rest of the weather settings. The
+merge then keeps the current model (the `config.json` one, `best_match`
+by default) and the reapply stores the blob with it, so the warning shows
+once.
+The app keeps the user-facing descriptions
+(`EmberKit/Settings/WeatherSources.swift`, shown under the pickers); this
+table mirrors them, and `TestAppWeatherSourcesMatchTheServerLists` keeps the
+app's ids equal to the server's. A new provider is one id in `weatherProviders`, a fetch
+branch, and an entry in `WeatherSources.providers`. Values checked on
+2026-10-11 at Belgrade and New York (#427):
+
+| Provider / model | Coverage and resolution | Limits in Ember |
+|---|---|---|
+| Open-Meteo | Worldwide, free, no key | Non-commercial use, 10,000 calls a day; 15-min rain; also serves air quality for both providers |
+| └ `best_match` (default) | Best local model blended with a global one; central Europe is mostly DWD ICON | Can miss showers other models see (#427: rain in Belgrade, 0 mm here); 15-min rain split from hourly outside central Europe and the US |
+| └ `ecmwf_ifs` | ECMWF IFS HRES 9 km, worldwide, 4 runs a day | No UV; 15-min rain is the hourly amount split evenly |
+| └ `ecmwf_ifs025` | ECMWF IFS open data 0.25° (~25 km), 4 runs a day | No UV; coarse, smooths local showers; 15-min rain split from hourly |
+| └ `icon_seamless` | DWD ICON-D2 2 km (Germany, Alps), ICON-EU 7 km, global elsewhere | No UV; 15-min rain split from hourly outside the ICON-D2 area |
+| └ `gfs_seamless` | NOAA HRRR 3 km (contiguous US, hourly runs), GFS 13–25 km elsewhere | 15-min rain split from hourly outside the US |
+| └ `ukmo_seamless` | UK Met Office UKV 2 km (UK, Ireland), global 10 km | UV only near the UK and for the first 2 days; 15-min rain split from hourly |
+| MET Norway | Worldwide, free, no key; MEPS 2.5 km in the Nordics, ECMWF elsewhere | Hourly rain steps; chance of rain only in the Nordic area; needs an identifying User-Agent; no air quality |
+
+Left out: `meteofrance_seamless` returns no chance of rain (hourly or daily)
+and only 4 days. Every listed model returns `current`, `minutely_15`
+precipitation and the daily `precipitation_probability_max`; a value a model
+lacks (UV for most) is nil and left out of the knob view like any missing value.
 
 **Face data** (#350, `weather_providers.go`). Each fetch also fills the
 observation's knob-face fields, nothing persisted: `Now` (cloud %, UV,

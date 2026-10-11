@@ -335,6 +335,7 @@ type weatherStateOut struct {
 	GeneratedAt  time.Time          `json:"generated_at"`
 	Enabled      bool               `json:"enabled"`
 	Provider     string             `json:"provider"`
+	Model        string             `json:"model,omitempty"`
 	Units        string             `json:"units"`
 	LocationName *string            `json:"location_name"`
 	Current      *weatherCurrentOut `json:"current"`
@@ -349,6 +350,7 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 		GeneratedAt:  wireTime(now, loc),
 		Enabled:      cfg.Enabled,
 		Provider:     cfg.Provider,
+		Model:        cfg.model(),
 		Units:        cfg.Units,
 		LocationName: optString(cfg.LocationName),
 	}

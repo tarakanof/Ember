@@ -465,7 +465,8 @@ and sensor edits apply immediately. The **App** tab's *About* shows the app
 version + the connected server's `/version`.
 
 The **Weather** tab edits `weather` config (provider Open-Meteo/MET Norway,
-lat/lon, units, the rotating-tile + popup behaviour, severe-alert sound); the
+the Open-Meteo forecast model, `open_meteo_model`, with each source's limits
+under the pickers (table in ARCHITECTURE "Providers and models"), lat/lon, units, the rotating-tile + popup behaviour, severe-alert sound); the
 **Reminders** tab edits the alarm list (timezone, per-item time/text/weekdays/
 sound). Both persist server-side (`/v1/{weather,reminders}/config` → the SQLite
 store) and survive `/admin/reload`. Weather/reminders run regardless of whether
