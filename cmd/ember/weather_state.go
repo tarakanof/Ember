@@ -29,7 +29,7 @@ func newWeatherState(cfg WeatherConfig, obs weatherObservation, haveObs bool, ai
 		Enabled:  cfg.Enabled,
 		Obs:      obs,
 		HaveObs:  haveObs,
-		Fresh:    haveObs && now.Sub(obs.FetchedAt) < weatherStaleAfter,
+		Fresh:    haveObs && now.Sub(later(obs.FetchedAt, obs.ValidUntil)) < weatherStaleAfter,
 		Air:      air,
 		HaveAir:  haveAir,
 		AirFresh: haveAir && now.Sub(air.FetchedAt) < weatherStaleAfter,
@@ -58,4 +58,11 @@ func (s weatherState) airLive() bool { return s.Enabled && s.AirFresh }
 
 func (s weatherState) roundedSun() (sunrise, sunset time.Time) {
 	return s.Sunrise.Round(sunRounding), s.Sunset.Round(sunRounding)
+}
+
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }

@@ -1257,7 +1257,7 @@ offer, and the knob's `pomo` block (`knobPomo`) is `null` when off and sends
 `ends_at` while counting, `remaining_sec` otherwise. The action replies and
 `GET /v1/pomodoro/state` stay the engine `Status`, behind the same on check.
 
-### Weather — `cmd/ember/weather.go`
+### Weather — `cmd/ember/weather.go`, `weather_providers.go`
 
 A standalone widget that shows current conditions. The server fetches them
 **itself** (not via a producer) from a free, key-less provider — **Open-Meteo**
@@ -1276,6 +1276,49 @@ the observation, `lastFetch` and the popup's previous condition.
 `StartWeather` also wakes on change notifications and polls at once on a
 mismatch; that poll fetches only when weather is enabled. A fetch that finishes after the provider changed is dropped
 (it doesn't set `lastFetch` either), so a slow old-provider reply can't land.
+
+**Face data** (#350, `weather_providers.go`). Each fetch also fills the
+observation's knob-face fields, nothing persisted: `Now` (cloud %, UV,
+wind and gust km/h, wind direction; each nil when the provider lacks it),
+`Precip` (the next 12 h of precipitation steps, mm/h plus a snow flag, every
+`PrecipStep`), `Days` (today plus the next 3 local days: condition, min/max
+°C, precipitation mm, probability, UV max, gust max; nil fields unknown).
+
+- **Open-Meteo**, one call of 17 variables: `current=` the seven current
+  values, `minutely_15=precipitation,snowfall&forecast_minutely_15=48` (mm
+  per 15 min, ×4 to mm/h; snow when `snowfall` > 0; a `null` step is left
+  out), `hourly=temperature_2m`, and
+  `daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,uv_index_max,wind_gusts_10m_max&forecast_days=4`
+  (day `time` is local midnight with `timezone=auto`). About 3 KB.
+- **MET Norway** reads `locationforecast/2.0/complete` (not `compact`): UV
+  (`ultraviolet_index_clear_sky`, short range, clear sky), gusts and
+  probabilities (Nordic only) and the 6-h min/max exist only there. ~90 KB
+  raw, ~7 KB gzipped (the client asks for gzip). `Now` is the first
+  timeseries entry (m/s × 3.6). `Precip` is the leading run of 1-h entries'
+  `next_1_hours.precipitation_amount` (snow for a snow or sleet symbol, at
+  most 14). `Days` are aggregated per local day: each entry uses
+  `next_1_hours` when the next entry is 1 h later, else `next_6_hours`
+  (its precipitation scaled by the gap / 6 h so a 2-h gap isn't counted 6 h;
+  its min/max joins the instant temperatures); the condition is the day's
+  worst symbol (storm > snow > rain > fog > clouds > clear) and `Code` that
+  symbol; probability and UV are maxima of what the entries carry.
+- **MET caching.** The store keeps `Last-Modified` and `Expires`
+  (`lastModified`, `notBefore`; cleared on a provider switch). A due poll
+  before `Expires` skips the MET call but still moves `lastFetch`, so air
+  keeps its cadence and the next due poll checks again; after `Expires` the
+  request carries `If-Modified-Since`. A **304** keeps the observation,
+  sets its `FetchedAt` to now and its `ValidUntil` and `notBefore` to the
+  new `Expires`, and notifies (the `stale` flag may move) without popups.
+  With the 10-min default that is about one call per 40 min instead of
+  every 10.
+- **Freshness** is measured from the later of `FetchedAt` and the
+  observation's `ValidUntil` (MET's `Expires`), so skipping MET until
+  `Expires` never marks the data stale early.
+- **Local day for MET.** MET sends no UTC offset. With air on, the air
+  call (fetched just before) carries `utc_offset_seconds`, and the MET
+  observation takes it as its `TZOffsetSeconds`/`TZKnown`, so day buckets,
+  sun times and labels follow DST. Without air, the longitude fallback
+  stays.
 
 **Weather state** (`cmd/ember/weather_state.go`, #337). Every reader of the
 stored weather goes through one projection, `weatherStore.state(cfg, now)` →
@@ -1452,7 +1495,7 @@ Weather constraints:
   fires on the very first reading, so a restart mid-episode still alerts.
 - **Astro.** Moon phase and sun times are computed locally (no API or key) at low
   precision (a minute or two). The "local" label time uses the UTC offset Open-Meteo
-  supplies (`TZKnown`/`TZOffsetSeconds`); only without it (MET) does it fall back
+  supplies (`TZKnown`/`TZOffsetSeconds`; for MET the air call's); only without it (MET with air off) does it fall back
   to longitude (15° per hour, no tz database), which can differ from civil time at
   DST/zone boundaries. At polar day/night there are no sun times; `Night` then
   comes from the sun's elevation (see below), and the clock's moon icon,

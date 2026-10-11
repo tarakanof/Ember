@@ -2,15 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
-	"net/http"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -201,19 +197,54 @@ type weatherObservation struct {
 	Overlay         string
 	TZOffsetSeconds int
 	TZKnown         bool
+	ValidUntil      time.Time
+	Now             weatherNow
+	PrecipStep      time.Duration
+	Precip          []precipStep
+	Days            []weatherDay
+}
+
+type weatherNow struct {
+	Cloud   *float64
+	UV      *float64
+	WindKmh *float64
+	GustKmh *float64
+	WindDir *float64
+}
+
+type precipStep struct {
+	At   time.Time
+	MMh  float64
+	Snow bool
+}
+
+type weatherDay struct {
+	Start      time.Time
+	Cond       string
+	Code       string
+	MinC       *float64
+	MaxC       *float64
+	PrecipMM   *float64
+	Pop        *float64
+	UVMax      *float64
+	GustMaxKmh *float64
 }
 
 const forecastFetchHours = 24
 
 const airFetchHours = 24
 
+const forecastDays = 4
+
 type airObservation struct {
-	AQI         float64
-	PM25        float64
-	PM10        float64
-	HourlyAQI   []float64
-	HourlyStart time.Time
-	FetchedAt   time.Time
+	AQI             float64
+	PM25            float64
+	PM10            float64
+	HourlyAQI       []float64
+	HourlyStart     time.Time
+	FetchedAt       time.Time
+	TZOffsetSeconds int
+	TZKnown         bool
 }
 
 type weatherStore struct {
@@ -222,6 +253,9 @@ type weatherStore struct {
 	obs       weatherObservation
 	have      bool
 	lastFetch time.Time
+
+	lastModified string
+	notBefore    time.Time
 
 	prevCondition  string
 	prevSevere     bool
@@ -253,166 +287,9 @@ func (s *weatherStore) switchProvider(provider string) {
 	s.obs = weatherObservation{}
 	s.have = false
 	s.lastFetch = time.Time{}
+	s.lastModified = ""
+	s.notBefore = time.Time{}
 	s.prevCondition = ""
-}
-
-type weatherFetcher struct {
-	client         *http.Client
-	openMeteoBase  string
-	metNoBase      string
-	airQualityBase string
-	userAgent      string
-}
-
-func newWeatherFetcher() *weatherFetcher {
-	return &weatherFetcher{
-		client:         &http.Client{Timeout: 12 * time.Second},
-		openMeteoBase:  "https://api.open-meteo.com",
-		metNoBase:      "https://api.met.no",
-		airQualityBase: "https://air-quality-api.open-meteo.com",
-		userAgent:      "ember-weather/0.1 (github.com/tarakanof/ember)",
-	}
-}
-
-func (wf *weatherFetcher) fetch(ctx context.Context, cfg WeatherConfig) (weatherObservation, error) {
-	switch cfg.Provider {
-	case "met-no":
-		return wf.fetchMetNo(ctx, cfg)
-	default:
-		return wf.fetchOpenMeteo(ctx, cfg)
-	}
-}
-
-func (wf *weatherFetcher) getJSON(ctx context.Context, url string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", wf.userAgent)
-	req.Header.Set("Accept", "application/json")
-	resp, err := wf.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("weather http %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out)
-}
-
-func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig) (weatherObservation, error) {
-	url := fmt.Sprintf("%s/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code&hourly=temperature_2m&forecast_hours=%d&timezone=auto&timeformat=unixtime",
-		strings.TrimRight(wf.openMeteoBase, "/"), cfg.Latitude, cfg.Longitude, forecastFetchHours)
-	var body struct {
-		UTCOffsetSeconds int `json:"utc_offset_seconds"`
-		Current          struct {
-			Time        int64   `json:"time"`
-			Temperature float64 `json:"temperature_2m"`
-			WeatherCode int     `json:"weather_code"`
-		} `json:"current"`
-		Hourly struct {
-			Time        []int64   `json:"time"`
-			Temperature []float64 `json:"temperature_2m"`
-		} `json:"hourly"`
-	}
-	if err := wf.getJSON(ctx, url, &body); err != nil {
-		return weatherObservation{}, err
-	}
-	var start time.Time
-	if len(body.Hourly.Time) > 0 {
-		start = time.Unix(body.Hourly.Time[0], 0)
-	}
-	var observed time.Time
-	if body.Current.Time > 0 {
-		observed = time.Unix(body.Current.Time, 0).UTC()
-	}
-	cond, severe := wmoCondition(body.Current.WeatherCode)
-	hourly := body.Hourly.Temperature
-	if len(hourly) > forecastFetchHours {
-		hourly = hourly[:forecastFetchHours]
-	}
-	return weatherObservation{
-		Condition: cond, ConditionCode: strconv.Itoa(body.Current.WeatherCode),
-		TempC: body.Current.Temperature, Severe: severe, ObservedAt: observed, Hourly: hourly, HourlyStart: start,
-		Overlay:         wmoOverlay(body.Current.WeatherCode),
-		TZOffsetSeconds: body.UTCOffsetSeconds, TZKnown: true,
-	}, nil
-}
-
-func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (weatherObservation, error) {
-	url := fmt.Sprintf("%s/weatherapi/locationforecast/2.0/compact?lat=%.4f&lon=%.4f",
-		strings.TrimRight(wf.metNoBase, "/"), cfg.Latitude, cfg.Longitude)
-	var body struct {
-		Properties struct {
-			Timeseries []struct {
-				Time time.Time `json:"time"`
-				Data struct {
-					Instant struct {
-						Details struct {
-							AirTemperature float64 `json:"air_temperature"`
-						} `json:"details"`
-					} `json:"instant"`
-					Next1Hours struct {
-						Summary struct {
-							SymbolCode string `json:"symbol_code"`
-						} `json:"summary"`
-					} `json:"next_1_hours"`
-				} `json:"data"`
-			} `json:"timeseries"`
-		} `json:"properties"`
-	}
-	if err := wf.getJSON(ctx, url, &body); err != nil {
-		return weatherObservation{}, err
-	}
-	if len(body.Properties.Timeseries) == 0 {
-		return weatherObservation{}, errors.New("met-no: empty timeseries")
-	}
-	first := body.Properties.Timeseries[0]
-	cond, severe := metSymbolCondition(first.Data.Next1Hours.Summary.SymbolCode)
-	n := len(body.Properties.Timeseries)
-	if n > forecastFetchHours {
-		n = forecastFetchHours
-	}
-	hourly := make([]float64, n)
-	for i := 0; i < n; i++ {
-		hourly[i] = body.Properties.Timeseries[i].Data.Instant.Details.AirTemperature
-	}
-	return weatherObservation{
-		Condition: cond, ConditionCode: first.Data.Next1Hours.Summary.SymbolCode,
-		TempC: first.Data.Instant.Details.AirTemperature, Severe: severe, ObservedAt: first.Time.UTC(),
-		Hourly: hourly, HourlyStart: first.Time,
-		Overlay: metSymbolOverlay(first.Data.Next1Hours.Summary.SymbolCode),
-	}, nil
-}
-
-func (wf *weatherFetcher) fetchAirQuality(ctx context.Context, cfg WeatherConfig) (airObservation, error) {
-	url := fmt.Sprintf("%s/v1/air-quality?latitude=%.4f&longitude=%.4f&current=european_aqi,pm2_5,pm10&hourly=european_aqi&forecast_hours=%d&timezone=auto&timeformat=unixtime",
-		strings.TrimRight(wf.airQualityBase, "/"), cfg.Latitude, cfg.Longitude, airFetchHours)
-	var body struct {
-		Current struct {
-			AQI  float64 `json:"european_aqi"`
-			PM25 float64 `json:"pm2_5"`
-			PM10 float64 `json:"pm10"`
-		} `json:"current"`
-		Hourly struct {
-			Time []int64   `json:"time"`
-			AQI  []float64 `json:"european_aqi"`
-		} `json:"hourly"`
-	}
-	if err := wf.getJSON(ctx, url, &body); err != nil {
-		return airObservation{}, err
-	}
-	hourly := body.Hourly.AQI
-	if len(hourly) > airFetchHours {
-		hourly = hourly[:airFetchHours]
-	}
-	var start time.Time
-	if len(body.Hourly.Time) > 0 {
-		start = time.Unix(body.Hourly.Time[0], 0)
-	}
-	return airObservation{AQI: body.Current.AQI, PM25: body.Current.PM25, PM10: body.Current.PM10, HourlyAQI: hourly, HourlyStart: start}, nil
 }
 
 func wmoCondition(code int) (string, bool) {
@@ -565,16 +442,26 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		return
 	}
 	a.pollAir(ctx, now, cfg)
-	obs, err := a.weatherFetcher.fetch(ctx, cfg)
-	if err != nil {
-		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "err", err)
-		a.weather.mu.Lock()
-		if a.cfg.Load().Weather.Provider == cfg.Provider {
-			a.weather.lastFetch = now
-		}
-		a.weather.mu.Unlock()
+	hint, wait := a.weather.fetchHint(now)
+	if wait {
+		a.markWeatherPolled(now, cfg.Provider)
 		return
 	}
+	res, err := a.weatherFetcher.fetch(ctx, cfg, hint)
+	if err != nil {
+		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "err", err)
+		a.markWeatherPolled(now, cfg.Provider)
+		return
+	}
+	if res.NotModified {
+		if a.confirmWeather(now, cfg.Provider, res) {
+			a.changes.notify(topicWeather)
+		} else {
+			a.markWeatherPolled(now, cfg.Provider)
+		}
+		return
+	}
+	obs := res.Obs
 	obs.FetchedAt = now
 	a.weather.mu.Lock()
 	if a.cfg.Load().Weather.Provider != cfg.Provider {
@@ -584,6 +471,8 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.weather.obs = obs
 	a.weather.have = true
 	a.weather.lastFetch = now
+	a.weather.lastModified = res.LastModified
+	a.weather.notBefore = res.Expires
 	prevCond := a.weather.prevCondition
 	prevSevere := a.weather.prevSevere
 	lastPopup := a.weather.lastPopupAt
@@ -604,6 +493,39 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	}
 	a.weather.mu.Unlock()
 	a.nudgePomo()
+}
+
+func (s *weatherStore) fetchHint(now time.Time) (fetchHint, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	h := fetchHint{LastModified: s.lastModified}
+	if s.haveAir && s.air.TZKnown {
+		h.TZOffsetSeconds, h.TZKnown = s.air.TZOffsetSeconds, true
+	}
+	return h, s.have && now.Before(s.notBefore)
+}
+
+func (a *App) markWeatherPolled(now time.Time, provider string) {
+	a.weather.mu.Lock()
+	defer a.weather.mu.Unlock()
+	if a.cfg.Load().Weather.Provider == provider {
+		a.weather.lastFetch = now
+	}
+}
+
+func (a *App) confirmWeather(now time.Time, provider string, res fetchResult) bool {
+	a.weather.mu.Lock()
+	defer a.weather.mu.Unlock()
+	if a.cfg.Load().Weather.Provider != provider || !a.weather.have {
+		return false
+	}
+	a.weather.lastFetch = now
+	a.weather.obs.FetchedAt = now
+	if !res.Expires.IsZero() {
+		a.weather.notBefore = res.Expires
+		a.weather.obs.ValidUntil = res.Expires
+	}
+	return true
 }
 
 func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
