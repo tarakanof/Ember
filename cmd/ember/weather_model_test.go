@@ -133,6 +133,7 @@ type modelStub struct {
 	mu     sync.Mutex
 	models []string
 	req    chan struct{}
+	onReq  func(model string)
 }
 
 func newModelSwitchApp(t *testing.T) (*App, *modelStub) {
@@ -144,6 +145,9 @@ func newModelSwitchApp(t *testing.T) (*App, *modelStub) {
 		st.mu.Lock()
 		st.models = append(st.models, m)
 		st.mu.Unlock()
+		if st.onReq != nil {
+			st.onReq(m)
+		}
 		code := "3"
 		if m == "ecmwf_ifs" {
 			code = "80"
@@ -326,5 +330,59 @@ func TestAdminReloadFallsBackFromAnUnknownOpenMeteoModel(t *testing.T) {
 		if got := app.cfg.Load().Weather.OpenMeteoModel; got != "best_match" {
 			t.Errorf("model after reload with %q = %q, want best_match", bad, got)
 		}
+	}
+}
+
+func TestStoredWeatherBlobWithUnknownModelIsRewrittenOnce(t *testing.T) {
+	a := newDefaultedAppWithStore(t)
+	var logs bytes.Buffer
+	a.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	a.settings.logger = a.logger
+	if err := a.store.PutSetting(weatherSettingsKey, `{"open_meteo_model":"retired_model","refresh_minutes":15}`); err != nil {
+		t.Fatal(err)
+	}
+	a.settings.reapply()
+	blob, _, err := a.store.GetSetting(weatherSettingsKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(blob, "retired_model") || !strings.Contains(blob, `"open_meteo_model":"best_match"`) {
+		t.Errorf("stored blob after reapply = %s, want the model rewritten to best_match", blob)
+	}
+	if n := strings.Count(logs.String(), "persisted weather model ignored"); n != 1 {
+		t.Fatalf("warnings after first reapply = %d, want 1", n)
+	}
+	a.settings.reapply()
+	if n := strings.Count(logs.String(), "persisted weather model ignored"); n != 1 {
+		t.Errorf("warnings after second reapply = %d, want still 1", n)
+	}
+}
+
+func TestWeatherModelSwitchBackDuringFetchDropsTheOtherModelsResult(t *testing.T) {
+	app, st := newModelSwitchApp(t)
+	t0 := time.Now()
+	app.pollWeather(context.Background(), t0)
+	app.updateConfig(func(c *Config) { c.Weather.OpenMeteoModel = "ecmwf_ifs" })
+	st.onReq = func(m string) {
+		if m == "ecmwf_ifs" {
+			app.updateConfig(func(c *Config) { c.Weather.OpenMeteoModel = "best_match" })
+		}
+	}
+
+	app.pollWeather(context.Background(), t0.Add(time.Second))
+	app.weather.mu.RLock()
+	have, last := app.weather.have, app.weather.lastFetch
+	app.weather.mu.RUnlock()
+	if have || !last.IsZero() {
+		t.Fatalf("ecmwf_ifs result landed after switching back to best_match: have=%v lastFetch=%v", have, last)
+	}
+
+	app.pollWeather(context.Background(), t0.Add(2*time.Second))
+	kw := app.knobWeather(t0.Add(2 * time.Second))
+	if kw == nil || kw.Code != "3" || kw.Model != "" {
+		t.Fatalf("knob weather after A->B->A = %+v, want the best_match result", kw)
+	}
+	if got := st.seen(); len(got) != 3 || got[0] != "" || got[1] != "ecmwf_ifs" || got[2] != "" {
+		t.Errorf("models fetched = %q, want [\"\" ecmwf_ifs \"\"]", got)
 	}
 }
