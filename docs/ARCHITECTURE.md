@@ -1369,7 +1369,10 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   15 min, so the step's `At` is the stamp − 15 min, MET's convention, where
   `next_1_hours` at `t` covers `[t, t+1h)`), `hourly=temperature_2m`, and
   `daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,uv_index_max,wind_gusts_10m_max&forecast_days=4`
-  (day `time` is local midnight with `timezone=auto`). About 3 KB.
+  (day `time` is each date's own local midnight with `timezone=auto`;
+  `dateStartAt` turns it into that date's midnight under the single
+  `utc_offset_seconds`, as MET, Tomorrow.io and WeatherAPI.com build
+  days, so the knob labels days right across DST, #439). About 3 KB.
 - **MET Norway** reads `locationforecast/2.0/complete` (not `compact`): UV
   (`ultraviolet_index_clear_sky`, short range, clear sky), gusts and
   probabilities (Nordic only) and the 6-h min/max exist only there. ~90 KB
