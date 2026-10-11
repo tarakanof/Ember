@@ -75,6 +75,7 @@
     "moon": {
       "phase": 65,
       "illum": 80,
+      "up": true,
       "rise": 1788186180
     }
   },

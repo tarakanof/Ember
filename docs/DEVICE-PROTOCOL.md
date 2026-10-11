@@ -296,7 +296,7 @@ byte-identical to before (`view_full.json`, `view_caps_limited.json`).
   ],
   "twilight": {"dawn": 1782010500, "blue_end": 1782011700, "golden_end": 1782016500,
                "golden_start": 1782069900, "blue_start": 1782075000, "dusk": 1782076200},
-  "moon": {"phase": 24, "illum": 46, "rise": 1782042000, "set": 1782085560},
+  "moon": {"phase": 24, "illum": 46, "up": true, "rise": 1782042000, "set": 1782085560},
   "aqi": 42
 }
 ```
@@ -348,10 +348,13 @@ Keys:
   (polar summer and winter) is left out; no location, no `twilight`.
 - **`moon`**: `phase` 0-99, the position in the cycle (0 new, 25 first
   quarter, 50 full, 75 last quarter; waxing = `phase` < 50); `illum`
-  0-100, the lit fraction. `rise`/`set` give the current or next
-  above-horizon interval within ±36 h, to the minute: `rise` may be in
-  the past, up = `rise` ≤ now < `set`. An end not found is left out
-  (polar); no location, neither.
+  0-100, the lit fraction. `up` is whether the moon is above the horizon
+  now; read it, not the ends, because "up for days" and "down for days"
+  both lack `rise` and `set`. `rise`/`set` give the current interval
+  above the horizon when `up` (`rise` in the past) or the next one, to
+  the minute, found within ±36 h of now. An end not found is left out
+  (polar). No location: phase and lit fraction only, no `up`, `rise` or
+  `set`.
 - **`aqi`**: the European AQI while the air reading is fresh. Absent
   otherwise.
 

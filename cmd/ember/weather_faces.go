@@ -30,6 +30,7 @@ type weatherFaces struct {
 	Twilight    twilight
 	MoonPhase   float64
 	MoonIllum   float64
+	MoonUp      bool
 	MoonRise    time.Time
 	MoonSet     time.Time
 }
@@ -55,7 +56,7 @@ func (s weatherState) faces() weatherFaces {
 	if s.HaveLocation {
 		f.HaveAstro = true
 		f.Twilight = localTwilight(s.Lat, s.Lon, s.At, s.Obs)
-		f.MoonRise, f.MoonSet, _ = moonUpWindow(s.Lat, s.Lon, s.At)
+		f.MoonRise, f.MoonSet, f.MoonUp = moonUpWindow(s.Lat, s.Lon, s.At)
 	}
 	return f
 }

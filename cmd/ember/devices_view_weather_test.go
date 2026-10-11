@@ -153,8 +153,12 @@ type facesWire struct {
 		Rain      *knobWxRain      `json:"rain"`
 		Days      []map[string]any `json:"days"`
 		Twilight  map[string]int64 `json:"twilight"`
-		Moon      map[string]int64 `json:"moon"`
-		AQI       *int             `json:"aqi"`
+		Moon      *struct {
+			Phase, Illum int
+			Up           *bool
+			Rise, Set    *int64
+		} `json:"moon"`
+		AQI *int `json:"aqi"`
 	} `json:"weather"`
 }
 
@@ -193,11 +197,32 @@ func TestKnobViewWeatherFacesContent(t *testing.T) {
 	if len(w.Days) != 3 || w.Days[0]["precip_mm10"] != float64(0) || w.Days[2]["min_c"] != float64(-4) || w.Days[2]["cond"] != "snow" {
 		t.Errorf("days = %v, want the 3 days after today, rounded", w.Days)
 	}
-	if len(w.Twilight) != 6 || w.Moon["illum"] < 0 || w.Moon["rise"] == 0 {
-		t.Errorf("twilight %v moon %v", w.Twilight, w.Moon)
+	if m := w.Moon; len(w.Twilight) != 6 || m == nil || m.Up == nil || !*m.Up || m.Rise == nil || *m.Rise > n || m.Set == nil || *m.Set <= n {
+		t.Errorf("twilight %v moon %+v, want six crossings and the moon up since rise until set", w.Twilight, w.Moon)
 	}
 	if w.AQI == nil || *w.AQI != 42 {
 		t.Errorf("aqi = %v, want 42", w.AQI)
+	}
+}
+
+func TestKnobViewMoonUpTellsPolarUpFromDown(t *testing.T) {
+	dry := func(int) (float64, float64) { return 0, 0 }
+	for _, c := range []struct {
+		name string
+		at   time.Time
+		up   bool
+	}{
+		{"up for days", time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC), true},
+		{"down for days", time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := facesViewFixture(t, c.at, "open-meteo", 78.22, 15.65, facesProviders{openMeteo: openMeteoFacesStub(c.at, 7200, dry)})
+			postCapsCheckin(t, f, "0.10.0", knobCapsFaces)
+			m := decodeFaces(t, goldenView(t, f)).Weather.Moon
+			if m == nil || m.Up == nil || *m.Up != c.up || m.Rise != nil || m.Set != nil {
+				t.Fatalf("moon = %+v, want up %v with neither rise nor set", m, c.up)
+			}
+		})
 	}
 }
 

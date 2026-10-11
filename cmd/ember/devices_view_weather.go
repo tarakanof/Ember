@@ -60,6 +60,7 @@ type knobTwilight struct {
 type knobMoon struct {
 	Phase int    `json:"phase"`
 	Illum int    `json:"illum"`
+	Up    *bool  `json:"up,omitempty"`
 	Rise  *int64 `json:"rise,omitempty"`
 	Set   *int64 `json:"set,omitempty"`
 }
@@ -120,6 +121,9 @@ func newKnobWeatherDetail(wx weatherState) *knobWeatherDetail {
 	}
 	d.Moon = knobMoon{Phase: int(math.Round(f.MoonPhase*100)) % 100, Illum: int(math.Round(f.MoonIllum * 100)),
 		Rise: unixOpt(f.MoonRise), Set: unixOpt(f.MoonSet)}
+	if f.HaveAstro {
+		d.Moon.Up = new(f.MoonUp)
+	}
 	if wx.airLive() {
 		d.AQI = new(int(math.Round(wx.Air.AQI)))
 	}
