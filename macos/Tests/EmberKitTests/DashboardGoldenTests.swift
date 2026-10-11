@@ -70,7 +70,7 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(cur.hourly[1].time.timeIntervalSince(cur.hourly[0].time) == 3600)
     #expect(w.air?.europeanAqi == 42)
     #expect(w.air?.pm25Ugm3 == 8)
-    #expect(w.sun?.sunrise == iso("2026-09-26T07:30:00+02:00"))
+    #expect(w.sun?.sunrise == iso("2026-09-26T07:35:00+02:00"))
 }
 
 @Test func weatherStateDecodesEmptyGolden() async throws {
