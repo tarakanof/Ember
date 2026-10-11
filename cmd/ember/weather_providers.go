@@ -92,9 +92,42 @@ func (wf *weatherFetcher) getJSON(ctx context.Context, url, ifModifiedSince stri
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return httpMeta{}, fmt.Errorf("weather http %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return httpMeta{}, &weatherHTTPError{status: resp.Status, body: strings.TrimSpace(string(body)),
+			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 	return meta, json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out)
+}
+
+type weatherHTTPError struct {
+	status     string
+	body       string
+	retryAfter time.Duration
+}
+
+func (e *weatherHTTPError) Error() string {
+	return fmt.Sprintf("weather http %s: %s", e.status, e.body)
+}
+
+func parseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		return max(time.Duration(secs)*time.Second, 0)
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		return max(t.Sub(now), 0)
+	}
+	return 0
+}
+
+func retryAfterOf(err error) time.Duration {
+	var he *weatherHTTPError
+	if errors.As(err, &he) {
+		return he.retryAfter
+	}
+	return 0
 }
 
 func at[T any](s []*T, i int) *T {

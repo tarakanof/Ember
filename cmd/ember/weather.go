@@ -286,6 +286,8 @@ type weatherStore struct {
 	obs       weatherObservation
 	have      bool
 	lastFetch time.Time
+	failures  int
+	retryAt   time.Time
 
 	lastModified string
 	notBefore    time.Time
@@ -323,6 +325,8 @@ func (s *weatherStore) switchSource(src weatherSource) {
 	s.obs = weatherObservation{}
 	s.have = false
 	s.lastFetch = time.Time{}
+	s.failures = 0
+	s.retryAt = time.Time{}
 	s.lastModified = ""
 	s.notBefore = time.Time{}
 	s.prevCondition = ""
@@ -485,7 +489,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	res, err := a.weatherFetcher.fetch(ctx, cfg, hint)
 	if err != nil {
 		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "err", err)
-		a.markWeatherPolled(now, src)
+		a.markWeatherFailed(now, src, retryAfterOf(err))
 		return
 	}
 	if res.NotModified {
@@ -507,6 +511,8 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.weather.obs = obs
 	a.weather.have = true
 	a.weather.lastFetch = now
+	a.weather.failures = 0
+	a.weather.retryAt = time.Time{}
 	a.weather.lastModified = res.LastModified
 	a.weather.notBefore = res.Expires
 	a.weather.mu.Unlock()
@@ -555,11 +561,37 @@ const weatherRetryAfter = 2 * time.Minute
 func (s *weatherStore) due(cfg WeatherConfig, now time.Time) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	every := time.Duration(cfg.RefreshMinutes) * time.Minute
+	if now.Before(s.retryAt) {
+		return false
+	}
+	every := cfg.refreshEvery()
 	if !s.have {
-		every = min(every, weatherRetryAfter)
+		every = weatherRetryDelay(s.failures, every)
 	}
 	return s.lastFetch.IsZero() || now.Sub(s.lastFetch) >= every
+}
+
+func (c WeatherConfig) refreshEvery() time.Duration {
+	return time.Duration(c.RefreshMinutes) * time.Minute
+}
+
+func weatherRetryDelay(failures int, refresh time.Duration) time.Duration {
+	d := weatherRetryAfter
+	for i := 1; i < failures && d < refresh; i++ {
+		d *= 2
+	}
+	return min(d, refresh)
+}
+
+func (a *App) markWeatherFailed(now time.Time, src weatherSource, retryAfter time.Duration) {
+	a.weather.mu.Lock()
+	defer a.weather.mu.Unlock()
+	if a.cfg.Load().Weather.source() != src {
+		return
+	}
+	a.weather.lastFetch = now
+	a.weather.failures++
+	a.weather.retryAt = now.Add(retryAfter)
 }
 
 func (s *weatherStore) fetchHint(cfg WeatherConfig, now time.Time) (fetchHint, bool) {
@@ -587,6 +619,8 @@ func (a *App) confirmWeather(now time.Time, src weatherSource, res fetchResult) 
 		return false
 	}
 	a.weather.lastFetch = now
+	a.weather.failures = 0
+	a.weather.retryAt = time.Time{}
 	a.weather.obs.FetchedAt = now
 	if !res.Expires.IsZero() {
 		a.weather.notBefore = res.Expires
