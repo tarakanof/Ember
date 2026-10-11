@@ -631,8 +631,15 @@ func (a *App) confirmWeather(now time.Time, src weatherSource, res fetchResult) 
 
 func (c WeatherConfig) airWanted() bool { return c.AirTileEnabled() || c.AirPopupThreshold > 0 }
 
+func (s *weatherStore) airCurrent(cfg WeatherConfig, now time.Time) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	age := now.Sub(s.air.FetchedAt)
+	return s.haveAir && age >= 0 && age < cfg.refreshEvery()
+}
+
 func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
-	if !cfg.airWanted() {
+	if !cfg.airWanted() || a.weather.airCurrent(cfg, now) {
 		return
 	}
 	obs, err := a.weatherFetcher.fetchAirQuality(ctx, cfg)

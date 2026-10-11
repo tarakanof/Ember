@@ -222,6 +222,8 @@ type metStub struct {
 	expires      time.Time
 	notModified  bool
 	airFail      atomic.Bool
+	airHits      atomic.Int32
+	fail         atomic.Bool
 	onRequest    func()
 }
 
@@ -231,6 +233,10 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 		st.hits.Add(1)
 		if st.onRequest != nil {
 			st.onRequest()
+		}
+		if st.fail.Load() {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
 		}
 		st.mu.Lock()
 		defer st.mu.Unlock()
@@ -246,6 +252,7 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 	}))
 	t.Cleanup(met.Close)
 	air := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		st.airHits.Add(1)
 		if st.airFail.Load() {
 			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
@@ -515,5 +522,21 @@ func TestMetNoPopsTheConditionChangeWithoutAFullFetch(t *testing.T) {
 				t.Errorf("popups %q at 21:01, want SNOW 13° for the 21:00 lightsleet entry", texts)
 			}
 		})
+	}
+}
+
+func TestAirWaitsRefreshMinutesWhileWeatherRetries(t *testing.T) {
+	st := &metStub{}
+	st.fail.Store(true)
+	app := newMetCacheApp(t, st, true)
+	for _, m := range []int{0, 2, 6} {
+		app.pollWeather(context.Background(), metT0.Add(time.Duration(m)*time.Minute))
+	}
+	if w, a := st.hits.Load(), st.airHits.Load(); w != 3 || a != 1 {
+		t.Fatalf("after 3 weather retries in 6 min: weather %d, air %d requests; want 3 and 1 (air succeeded at 0)", w, a)
+	}
+	app.pollWeather(context.Background(), metT0.Add(14*time.Minute))
+	if a := st.airHits.Load(); a != 2 {
+		t.Errorf("air requests at 14 min = %d, want 2: refetched once refresh_minutes old", a)
 	}
 }
