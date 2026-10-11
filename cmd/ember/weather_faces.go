@@ -92,13 +92,17 @@ func rainSpells(steps []precipStep, step time.Duration, now time.Time) (rainNow 
 	}
 	spells = []rainSpell{}
 	horizon := now.Add(rainSpellHorizon)
+	var edge time.Time
+	if n := len(steps); n > 0 {
+		edge = steps[n-1].At.Add(step)
+	}
 	for _, r := range runs {
 		if !r.End.After(now) || !r.Start.Before(horizon) || len(spells) == rainSpellsMax {
 			continue
 		}
 		r.Snow = 2*r.snowy > r.wet
 		spells = append(spells, r.rainSpell)
-		if rainNow > 0 && !r.Start.After(now) {
+		if rainNow > 0 && !r.Start.After(now) && r.End.Before(edge) {
 			until = r.End
 		}
 	}

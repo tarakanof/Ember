@@ -337,7 +337,10 @@ Keys:
   (≥ 0.1 mm/h; Open-Meteo 15-min steps, MET 1-h steps); gaps of ≤ 30 min
   merge; intensity is the peak. `start` may be in the past for an ongoing
   spell; ended spells are dropped when the view is built. `until` is the
-  end of the spell containing now, absent when dry now. `"spells": []`
+  end of the spell containing now, absent when dry now and when that
+  spell runs to the end of the provider's steps (its `end` is then the
+  data's edge, not a forecast stop: wet until at least then).
+  `"spells": []`
   means dry for the 12 h (as far as the provider's steps reach).
 - **`days`**: the next 3 local days after today, fewer when the
   provider's range ends. `t` is local midnight. `cond`/`code` use the

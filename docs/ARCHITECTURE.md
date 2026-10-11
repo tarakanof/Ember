@@ -1366,7 +1366,8 @@ as read-only, and the poller only ever replaces whole observations.
 state, on demand because the moon scan is the costly part: the offset in
 use, the rain spells of the next 12 h relative to now (wet ≥ 0.1 mm/h,
 ≤ 30-min gaps merged, peak intensity, at most 4, ended ones dropped), the
-current step's intensity and the end of the spell containing now, today
+current step's intensity and the end of the spell containing now (none
+when that end is only where the steps run out), today
 (the day containing now, none once the observation's days are over; its
 min/max widened to the current temperature)
 and the next 3 days, the local twilight and the moon's phase, lit fraction,
