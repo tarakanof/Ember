@@ -1280,7 +1280,7 @@ mismatch; that poll fetches only when weather is enabled. A fetch that
 finishes after the source changed is dropped (it doesn't set `lastFetch`
 either), so a slow old-source reply can't land. While the store has no
 observation for its source (after a switch or at start), a failed fetch is
-retried after 2 min (`weatherRetryAfter`) instead of a full `refresh_minutes`,
+retried after 2 min (`weatherRetryBase`) instead of a full `refresh_minutes`,
 and each further consecutive failure doubles the delay (2, 4, 8 min …) up to
 `refresh_minutes` (`weatherRetryDelay`), so a permanent error (a MET 403, an
 outage) settles at the normal cadence rather than ~720 calls a day. A success

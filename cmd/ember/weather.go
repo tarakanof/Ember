@@ -556,7 +556,7 @@ func (a *App) popWeather(ctx context.Context, now time.Time, src weatherSource, 
 	a.weather.mu.Unlock()
 }
 
-const weatherRetryAfter = 2 * time.Minute
+const weatherRetryBase = 2 * time.Minute
 
 func (s *weatherStore) due(cfg WeatherConfig, now time.Time) bool {
 	s.mu.RLock()
@@ -576,7 +576,7 @@ func (c WeatherConfig) refreshEvery() time.Duration {
 }
 
 func weatherRetryDelay(failures int, refresh time.Duration) time.Duration {
-	d := weatherRetryAfter
+	d := weatherRetryBase
 	for i := 1; i < failures && d < refresh; i++ {
 		d *= 2
 	}

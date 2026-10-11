@@ -217,16 +217,16 @@ func TestWeatherRetriesSoonAfterAFailedFirstFetchFromANewProvider(t *testing.T) 
 
 	t1 := t0.Add(time.Minute)
 	app.pollWeather(ctx, t1)
-	app.pollWeather(ctx, t1.Add(weatherRetryAfter-time.Second))
+	app.pollWeather(ctx, t1.Add(weatherRetryBase-time.Second))
 	if n := st.metHits.Load(); n != 1 {
 		t.Fatalf("met-no fetched %d times before the retry delay, want 1", n)
 	}
 
 	st.metFail.Store(false)
-	t2 := t1.Add(weatherRetryAfter)
+	t2 := t1.Add(weatherRetryBase)
 	app.pollWeather(ctx, t2)
 	if n := st.metHits.Load(); n != 2 {
-		t.Fatalf("met-no fetched %d times %v after the failed first fetch, want a retry", n, weatherRetryAfter)
+		t.Fatalf("met-no fetched %d times %v after the failed first fetch, want a retry", n, weatherRetryBase)
 	}
 	if kw := app.knobWeather(t2); kw == nil || kw.Provider != "met-no" {
 		t.Fatalf("knob weather after the retry = %+v", kw)
@@ -235,7 +235,7 @@ func TestWeatherRetriesSoonAfterAFailedFirstFetchFromANewProvider(t *testing.T) 
 	st.metFail.Store(true)
 	t3 := t2.Add(10 * time.Minute)
 	app.pollWeather(ctx, t3)
-	app.pollWeather(ctx, t3.Add(weatherRetryAfter))
+	app.pollWeather(ctx, t3.Add(weatherRetryBase))
 	if n := st.metHits.Load(); n != 3 {
 		t.Errorf("met-no fetched %d times; with an observation to show, a failure should wait the full refresh", n)
 	}
