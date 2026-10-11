@@ -432,3 +432,21 @@ func TestAppWeatherSourcesMatchTheServerLists(t *testing.T) {
 		}
 	}
 }
+
+func TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase(t *testing.T) {
+	const metWorstCode = "lightssleetshowersandthunder_polartwilight"
+	base := knobWeather{Provider: "open-meteo", Cond: "storm", Code: "99"}
+	plain, _ := json.Marshal(base)
+	met, _ := json.Marshal(knobWeather{Provider: "met-no", Cond: "storm", Code: metWorstCode})
+	for _, m := range openMeteoModels {
+		w := base
+		w.Model = knobModel(m)
+		b, _ := json.Marshal(w)
+		if grow := len(b) - len(plain); grow > 24 {
+			t.Errorf("model %q grows the weather block by %d B, want at most 24", m, grow)
+		}
+		if len(b) > len(met) {
+			t.Errorf("open-meteo with %q is %d B, more than the MET worst case's %d B that TestKnobViewWorstCaseFitsHalfTheBuffer measures", m, len(b), len(met))
+		}
+	}
+}
