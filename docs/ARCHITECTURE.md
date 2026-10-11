@@ -1270,10 +1270,11 @@ latest observation lives in an in-memory `weatherStore`, the single source: one
 poller fills it and nothing fetches per device. The store is tagged with the
 provider it serves (#409): `state()` hides an observation tagged with another
 provider, so after a provider change every view shows weather as absent until
-the new provider's first fetch. `StartWeather` also wakes on change
-notifications; when the configured provider no longer matches the tag it
-clears the observation, `lastFetch` and the popup's previous condition, and
-fetches at once. A fetch that finishes after the provider changed is dropped
+the new provider's first fetch. On every poll, `pollWeather` retags the
+store through `switchProvider` when the configured provider differs, clearing
+the observation, `lastFetch` and the popup's previous condition.
+`StartWeather` also wakes on change notifications and polls at once on a
+mismatch; that poll fetches only when weather is enabled. A fetch that finishes after the provider changed is dropped
 (it doesn't set `lastFetch` either), so a slow old-provider reply can't land.
 
 **Weather state** (`cmd/ember/weather_state.go`, #337). Every reader of the
