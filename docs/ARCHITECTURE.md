@@ -1290,7 +1290,9 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
 - **Open-Meteo**, one call of 17 variables: `current=` the seven current
   values, `minutely_15=precipitation,snowfall&forecast_minutely_15=48` (mm
   per 15 min, ×4 to mm/h; snow when `snowfall` > 0; a `null` step is left
-  out), `hourly=temperature_2m`, and
+  out; Open-Meteo stamps a step with its end, the sum covers the preceding
+  15 min, so the step's `At` is the stamp − 15 min, MET's convention, where
+  `next_1_hours` at `t` covers `[t, t+1h)`), `hourly=temperature_2m`, and
   `daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,uv_index_max,wind_gusts_10m_max&forecast_days=4`
   (day `time` is local midnight with `timezone=auto`). About 3 KB.
 - **MET Norway** reads `locationforecast/2.0/complete` (not `compact`): UV

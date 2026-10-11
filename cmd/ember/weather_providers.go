@@ -183,7 +183,8 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 			continue
 		}
 		snow := at(m.Snowfall, i)
-		obs.Precip = append(obs.Precip, precipStep{At: time.Unix(t, 0).UTC(), MMh: *p * 4, Snow: snow != nil && *snow > 0})
+		start := time.Unix(t, 0).UTC().Add(-obs.PrecipStep)
+		obs.Precip = append(obs.Precip, precipStep{At: start, MMh: *p * 4, Snow: snow != nil && *snow > 0})
 		if len(obs.Precip) == precipStepsOpenMeteo {
 			break
 		}

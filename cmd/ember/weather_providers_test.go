@@ -73,11 +73,11 @@ func TestFetchOpenMeteoRequestsAndParsesFaceData(t *testing.T) {
 	if obs.PrecipStep != 15*time.Minute || len(obs.Precip) != 3 {
 		t.Fatalf("precip step %v steps %+v, want 15m and 3 steps (the null one left out)", obs.PrecipStep, obs.Precip)
 	}
-	if p := obs.Precip[1]; p.At.Unix() != 1782036900 || math.Abs(p.MMh-1.2) > 1e-9 || p.Snow {
-		t.Errorf("step 1 = %+v, want 1.2 mm/h rain (0.3 mm per 15 min)", p)
+	if p := obs.Precip[1]; p.At.Unix() != 1782036000 || math.Abs(p.MMh-1.2) > 1e-9 || p.Snow {
+		t.Errorf("step 1 = %+v, want 1.2 mm/h rain (0.3 mm in the 15 min before 1782036900)", p)
 	}
-	if p := obs.Precip[2]; p.At.Unix() != 1782038700 || math.Abs(p.MMh-2) > 1e-9 || !p.Snow {
-		t.Errorf("step 2 = %+v, want 2 mm/h snow", p)
+	if p := obs.Precip[2]; p.At.Unix() != 1782037800 || math.Abs(p.MMh-2) > 1e-9 || !p.Snow {
+		t.Errorf("step 2 = %+v, want 2 mm/h snow starting 15 min before its 1782038700 stamp", p)
 	}
 	if len(obs.Days) != 2 {
 		t.Fatalf("days = %+v, want 2", obs.Days)
