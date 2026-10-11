@@ -1374,7 +1374,7 @@ change-and-staleness dedupe as the usage card:
   `hourSlot`),
   coloured by a cold→warm temperature gradient (`render.TempColor`). On a
   **clear night** the icon becomes the current **moon phase** (`moon_phase`;
-  phase computed locally in `cmd/ember/astro.go`, no API).
+  phase computed locally in `cmd/ember/astro_moon.go`, no API).
 - **`ember-forecast`** (`forecast_tile`, default on) — **full-width hourly
   temperature bars** (no icon/temp — those live on the conditions tile, so the
   two tiles read differently at a glance); the bars sit on the same hour grid as
@@ -1520,7 +1520,24 @@ Weather constraints:
   that passed before startup. The AQI threshold popup is edge-triggered and also
   fires on the very first reading, so a restart mid-episode still alerts.
 - **Astro.** Moon phase and sun times are computed locally (no API or key) at low
-  precision (a minute or two). The "local" label time uses the UTC offset
+  precision (a minute or two). Twilight (#350) generalises `sunTimes` to any
+  altitude (`sunAt`): `localTwilight` gives the local day's crossings of −6°
+  (civil dawn, dusk), −4° (blue hour ends, starts) and +6° (golden hour
+  ends, starts); one the sun never makes is zero. The moon
+  (`astro_moon.go`) is a truncated Meeus ch. 47 position (the 32 largest
+  longitude and 16 latitude terms plus the additive ones, about 0.01°):
+  `moonPhaseAt` gives the cycle position (Moon minus Sun ecliptic
+  longitude, 0 new, 0.5 full) and the lit fraction from the elongation,
+  and replaced the mean-synodic-month phase, which was up to ~15 h off, so
+  the clock's moon icon uses it too. `moonEvents` scans the geocentric
+  altitude on the whole-hour grid and bisects each crossing of +0.125°
+  (parallax less refraction and semi-diameter) to the second, rounded to
+  the minute; the hour grid makes the result independent of `now`, so a
+  view's ETag doesn't move with the clock. `moonUpWindow` is the current
+  interval above the horizon (rise in the past) or the next one, searched
+  ±36 h; an end not found is zero (polar). Checked against Open-Meteo's
+  `daily=moonrise,moonset` (recorded once, test reference only) for four
+  latitudes: within a minute. The "local" label time uses the UTC offset
   Open-Meteo supplies (`TZKnown`/`TZOffsetSeconds`; for MET a live air
   reading's); only without it (MET with air off or stale) does it fall back
   to longitude (15° per hour, no tz database), which can differ from civil time at

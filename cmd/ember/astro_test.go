@@ -6,27 +6,6 @@ import (
 	"time"
 )
 
-func afterDays(t time.Time, days float64) time.Time {
-	return t.Add(time.Duration(days * 24 * float64(time.Hour)))
-}
-
-func TestMoonIlluminationKnownPhases(t *testing.T) {
-	if illum, _ := moonIllumination(knownNewMoon); illum > 0.02 {
-		t.Errorf("new moon illum = %.3f, want ~0", illum)
-	}
-	if illum, _ := moonIllumination(afterDays(knownNewMoon, synodicMonth/2)); illum < 0.98 {
-		t.Errorf("full moon illum = %.3f, want ~1", illum)
-	}
-	illum, waxing := moonIllumination(afterDays(knownNewMoon, synodicMonth/4))
-	if math.Abs(illum-0.5) > 0.05 || !waxing {
-		t.Errorf("first quarter = (%.3f, waxing=%v), want ~0.5 waxing", illum, waxing)
-	}
-	illum, waxing = moonIllumination(afterDays(knownNewMoon, synodicMonth*3/4))
-	if math.Abs(illum-0.5) > 0.05 || waxing {
-		t.Errorf("last quarter = (%.3f, waxing=%v), want ~0.5 waning", illum, waxing)
-	}
-}
-
 func TestSunTimesEquatorEquinox(t *testing.T) {
 	date := time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)
 	sunrise, sunset, ok := sunTimes(0, 0, date)
@@ -73,5 +52,134 @@ func TestSunClockUsesKnownOffsetElseLongitude(t *testing.T) {
 		if got := sunClock(noonUTC, c.obs, c.lon); got != c.want {
 			t.Errorf("sunClock(known=%v, lon %v) = %q, want %s", c.obs.TZKnown, c.lon, got, c.want)
 		}
+	}
+}
+
+type moonReference struct {
+	name       string
+	lat, lon   float64
+	rise, sets []int64
+}
+
+var openMeteoMoon20260901 = []moonReference{
+	{"Berlin", 52.512604, 13.419517,
+		[]int64{1788288663, 1788376319, 1788464546, 1788553659, 1788644003, 1788735324},
+		[]int64{1788255634, 1788347288, 1788438941, 1788530224, 1788620568, 1788709788}},
+	{"Oslo", 59.906296, 10.744095,
+		[]int64{1788287116, 1788373767, 1788460794, 1788548855, 1788639177, 1788731714},
+		[]int64{1788258276, 1788350988, 1788443924, 1788536369, 1788626733, 1788714843}},
+	{"Sydney", -33.848858, 151.19551,
+		[]int64{1788263579, 1788354118, 1788444734, 1788535295, 1788625490, 1788715245},
+		[]int64{1788302040, 1788390817, 1788480046, 1788569845, 1788660164}},
+	{"Quito", -0.035149384, -78.50467,
+		[]int64{1788228338, 1788317801, 1788407527, 1788497483, 1788587639, 1788677807},
+		[]int64{1788272959, 1788362566, 1788452383, 1788542478, 1788632633, 1788722794}},
+}
+
+func TestMoonRiseSetMatchOpenMeteoReference(t *testing.T) {
+	from, to := time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+	for _, ref := range openMeteoMoon20260901 {
+		evs := moonEvents(ref.lat, ref.lon, from, to)
+		check := func(want []int64, rise bool) {
+			for _, w := range want {
+				best := time.Duration(math.MaxInt64)
+				for _, e := range evs {
+					if e.rise == rise {
+						best = min(best, e.at.Sub(time.Unix(w, 0)).Abs())
+					}
+				}
+				if best > 2*time.Minute {
+					t.Errorf("%s: no moon rise=%v within 2 min of %v (closest %v)", ref.name, rise, time.Unix(w, 0).UTC(), best)
+				}
+			}
+		}
+		check(ref.rise, true)
+		check(ref.sets, false)
+	}
+}
+
+func TestMoonPhaseAtEclipses(t *testing.T) {
+	newMoon := time.Date(2026, 8, 12, 17, 46, 0, 0, time.UTC)
+	fullMoon := time.Date(2026, 8, 28, 4, 13, 0, 0, time.UTC)
+	if phase, illum := moonPhaseAt(newMoon); (phase > 0.005 && phase < 0.995) || illum > 0.002 {
+		t.Errorf("solar eclipse: phase %.4f illum %.4f, want new", phase, illum)
+	}
+	if phase, illum := moonPhaseAt(fullMoon); math.Abs(phase-0.5) > 0.005 || illum < 0.998 {
+		t.Errorf("lunar eclipse: phase %.4f illum %.4f, want full", phase, illum)
+	}
+	if illum, waxing := moonIllumination(newMoon.Add(7 * 24 * time.Hour)); !waxing || math.Abs(illum-0.5) > 0.1 {
+		t.Errorf("a week after new: illum %.3f waxing %v, want about half and waxing", illum, waxing)
+	}
+	if _, waxing := moonIllumination(fullMoon.Add(24 * time.Hour)); waxing {
+		t.Error("a day after full reads as waxing")
+	}
+}
+
+func TestMoonUpWindowIsTheCurrentOrNextInterval(t *testing.T) {
+	berlin := openMeteoMoon20260901[0]
+	near := func(got time.Time, want int64) bool { return got.Sub(time.Unix(want, 0)).Abs() <= 2*time.Minute }
+	up := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
+	rise, set := moonUpWindow(berlin.lat, berlin.lon, up)
+	if !near(rise, berlin.rise[0]) || !near(set, berlin.sets[1]) {
+		t.Errorf("moon up: rise %v set %v, want the rise before now and the set after", rise, set)
+	}
+	down := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	rise, set = moonUpWindow(berlin.lat, berlin.lon, down)
+	if !near(rise, berlin.rise[1]) || !near(set, berlin.sets[2]) {
+		t.Errorf("moon down: rise %v set %v, want the next rise and its set", rise, set)
+	}
+	r2, s2 := moonUpWindow(berlin.lat, berlin.lon, down.Add(7*time.Minute+13*time.Second))
+	if !r2.Equal(rise) || !s2.Equal(set) || rise.Second() != 0 {
+		t.Errorf("window moved with the clock: %v-%v then %v-%v", rise, set, r2, s2)
+	}
+}
+
+func TestMoonUpWindowLeavesOutMissingEndsInThePolarRegion(t *testing.T) {
+	const lat, lon = 78.22, 15.65
+	cases := []struct {
+		name               string
+		at                 time.Time
+		wantRise, wantSets bool
+	}{
+		{"up for days", time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC), false, false},
+		{"down for days", time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC), false, false},
+		{"risen, sets after the window", time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC), true, false},
+	}
+	for _, c := range cases {
+		rise, set := moonUpWindow(lat, lon, c.at)
+		if rise.IsZero() == c.wantRise || set.IsZero() == c.wantSets {
+			t.Errorf("%s: rise %v set %v, want rise %v set %v", c.name, rise, set, c.wantRise, c.wantSets)
+		}
+	}
+}
+
+func TestTwilightCrossesItsAltitudes(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
+	obs := weatherObservation{TZKnown: true, TZOffsetSeconds: 7200}
+	tw := localTwilight(lonLat, lonLon, now, obs)
+	rise, set, _ := localSunTimes(lonLat, lonLon, now, obs)
+	order := []time.Time{tw.Dawn, tw.BlueEnd, rise, tw.GoldenEnd, tw.GoldenStart, set, tw.BlueStart, tw.Dusk}
+	for i := 1; i < len(order); i++ {
+		if !order[i].After(order[i-1]) {
+			t.Fatalf("crossing %d (%v) not after %d (%v)", i, order[i], i-1, order[i-1])
+		}
+	}
+	for _, c := range []struct {
+		at  time.Time
+		alt float64
+	}{{tw.Dawn, -6}, {tw.BlueEnd, -4}, {tw.GoldenEnd, 6}, {tw.GoldenStart, 6}, {tw.BlueStart, -4}, {tw.Dusk, -6}} {
+		if got := solarElevation(lonLat, lonLon, c.at); math.Abs(got-c.alt) > 0.3 {
+			t.Errorf("sun at %v is %.2f°, want %v°", c.at, got, c.alt)
+		}
+	}
+}
+
+func TestTwilightLeavesOutCrossingsTheSunNeverMakes(t *testing.T) {
+	tw := localTwilight(69.65, 18.96, time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC), weatherObservation{})
+	if !tw.Dawn.IsZero() || !tw.Dusk.IsZero() || !tw.BlueEnd.IsZero() || !tw.BlueStart.IsZero() {
+		t.Errorf("midnight sun has twilight: %+v", tw)
+	}
+	if tw.GoldenEnd.IsZero() || tw.GoldenStart.IsZero() {
+		t.Errorf("midnight sun dips below 6°, golden crossings missing: %+v", tw)
 	}
 }
