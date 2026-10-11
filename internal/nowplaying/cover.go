@@ -63,8 +63,7 @@ func cover(sq *image.RGBA) *image.RGBA {
 	return out
 }
 
-func accent(sq *image.RGBA) string {
-	p := resample(sq, accentGrid)
+func accent(p plane) string {
 	var mass [accentBins]float64
 	var sum [accentBins][3]float64
 	for i := 0; i < len(p.pix); i += 3 {

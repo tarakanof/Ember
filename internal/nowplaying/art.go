@@ -40,18 +40,13 @@ func CheckImage(data []byte) error {
 	return nil
 }
 
-func Validate(data []byte) error {
-	_, err := decode(data)
-	return err
-}
-
 func Prepare(data []byte) (*Image, error) {
 	src, err := decode(data)
 	if err != nil {
 		return nil, err
 	}
 	img := NewImage(data)
-	img.Accent = accent(square(src))
+	img.Accent = accent(grid(src, accentGrid))
 	return img, nil
 }
 
@@ -103,6 +98,48 @@ func square(src image.Image) *image.RGBA {
 	off := image.Pt(b.Min.X+(b.Dx()-side)/2, b.Min.Y+(b.Dy()-side)/2)
 	draw.Draw(sq, crop, src, off, draw.Over)
 	return sq
+}
+
+func grid(src image.Image, n int) plane {
+	b := src.Bounds()
+	s := min(b.Dx(), b.Dy())
+	off := image.Pt(b.Min.X+(b.Dx()-s)/2, b.Min.Y+(b.Dy()-s)/2)
+	wx := weights(s, n)
+	rows := make([][]tap, s)
+	for i, taps := range wx {
+		for _, w := range taps {
+			rows[w.i] = append(rows[w.i], tap{i, w.w})
+		}
+	}
+	line := image.NewRGBA(image.Rect(0, 0, s, 1))
+	tmp := make([]float32, n*3)
+	out := plane{n: n, pix: make([]float32, n*n*3)}
+	for y, dst := range rows {
+		if len(dst) == 0 {
+			continue
+		}
+		for i := 0; i < len(line.Pix); i += 4 {
+			line.Pix[i], line.Pix[i+1], line.Pix[i+2], line.Pix[i+3] = 0, 0, 0, 255
+		}
+		draw.Draw(line, line.Rect, src, off.Add(image.Pt(0, y)), draw.Over)
+		for x := 0; x < n; x++ {
+			var r, g, b float32
+			for _, w := range wx[x] {
+				p := line.Pix[w.i*4:]
+				r += w.w * float32(p[0])
+				g += w.w * float32(p[1])
+				b += w.w * float32(p[2])
+			}
+			tmp[x*3], tmp[x*3+1], tmp[x*3+2] = r, g, b
+		}
+		for _, d := range dst {
+			o := d.i * n * 3
+			for k, v := range tmp {
+				out.pix[o+k] += d.w * v
+			}
+		}
+	}
+	return out
 }
 
 type plane struct {

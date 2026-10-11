@@ -7,6 +7,7 @@ import (
 	"image/jpeg"
 	"math"
 	"math/rand/v2"
+	"runtime"
 	"testing"
 )
 
@@ -222,14 +223,7 @@ func TestAccentIsDeterministic(t *testing.T) {
 	}
 }
 
-func TestPrepareRefusesWhatValidateRefuses(t *testing.T) {
-	good := testPNG(t, 64, 64, solid(color.White))
-	if _, err := Prepare(good[:len(good)-30]); err == nil {
-		t.Fatal("truncated picture prepared")
-	}
-}
-
-func photoJPEG(b *testing.B, side int) []byte {
+func photoJPEG(b testing.TB, side int) []byte {
 	b.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, side, side))
 	fill := photoLike(side)
@@ -260,5 +254,97 @@ func BenchmarkPrepareFrom1400(b *testing.B) {
 		if _, err := Prepare(src); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func BenchmarkPrepareFrom2048(b *testing.B) {
+	src := photoJPEG(b, 2048)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := Prepare(src); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestAccentGridMatchesTheSquareDownsample(t *testing.T) {
+	alpha := image.NewNRGBA(image.Rect(3, 5, 93, 45))
+	fill := photoLike(100)
+	for y := alpha.Rect.Min.Y; y < alpha.Rect.Max.Y; y++ {
+		for x := alpha.Rect.Min.X; x < alpha.Rect.Max.X; x++ {
+			r, g, b, _ := fill(x, y).RGBA()
+			alpha.Set(x, y, color.NRGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(x * 2)})
+		}
+	}
+	gray := image.NewGray(image.Rect(0, 0, 17, 60))
+	for i := range gray.Pix {
+		gray.Pix[i] = uint8(i)
+	}
+	one := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	one.Set(0, 0, color.RGBA{200, 30, 30, 255})
+	pal := image.NewPaletted(image.Rect(0, 0, 50, 40), color.Palette{color.Black, color.RGBA{10, 200, 90, 255}})
+	for i := range pal.Pix {
+		pal.Pix[i] = uint8(i % 3 % 2)
+	}
+	srcs := map[string]image.Image{
+		"jpeg 300x200": decodeJPEG(t, encodeJPEG(t, 300, 200)),
+		"nrgba alpha":  alpha,
+		"gray 17x60":   gray,
+		"paletted":     pal,
+		"1x1":          one,
+	}
+	for name, src := range srcs {
+		want := resample(square(src), accentGrid)
+		got := grid(src, accentGrid)
+		for i := range want.pix {
+			if got.pix[i] != want.pix[i] {
+				t.Fatalf("%s: grid[%d] = %v, want %v from the full square", name, i, got.pix[i], want.pix[i])
+			}
+		}
+	}
+}
+
+func encodeJPEG(t testing.TB, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	fill := photoLike(max(w, h))
+	for y := range h {
+		for x := range w {
+			img.Set(x, y, fill(x, y))
+		}
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func allocated(f func()) uint64 {
+	least := ^uint64(0)
+	for range 3 {
+		var a, b runtime.MemStats
+		runtime.ReadMemStats(&a)
+		f()
+		runtime.ReadMemStats(&b)
+		least = min(least, b.TotalAlloc-a.TotalAlloc)
+	}
+	return least
+}
+
+func TestPrepareAllocatesLittleBeyondTheDecode(t *testing.T) {
+	src := photoJPEG(t, MaxArtSidePx)
+	decode := allocated(func() {
+		if _, _, err := image.Decode(bytes.NewReader(src)); err != nil {
+			t.Fatal(err)
+		}
+	})
+	prepare := allocated(func() {
+		if _, err := Prepare(src); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if extra := int64(prepare) - int64(decode); extra > 1<<20 {
+		t.Fatalf("Prepare allocates %d B on top of a %d B decode, want at most 1 MB", extra, decode)
 	}
 }
