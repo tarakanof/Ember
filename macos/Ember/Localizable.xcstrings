@@ -487,7 +487,7 @@
     "12 weeks" : {},
     "15 Minutes" : {},
     "2 digits" : {},
-    "2 km over the UK and Ireland, 10 km elsewhere. No UV index; 15-minute rain is the hourly amount split evenly." : {
+    "2 km over the UK and Ireland, 10 km elsewhere. UV index only near the UK and only for the first two days; 15-minute rain is the hourly amount split evenly." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -1222,7 +1222,7 @@
     "From" : {},
     "Full" : {},
     "General" : {},
-    "Germany's models: 2 km over Germany and the Alps, 7 km over Europe, a coarser global run elsewhere. Updated every 3 hours near Germany. No UV index." : {
+    "Germany's models: 2 km over Germany and the Alps, 7 km over Europe, a coarser global run elsewhere. Updated every 3 hours near Germany. No UV index; outside the 2 km area, 15-minute rain is the hourly amount split evenly." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -1653,7 +1653,7 @@
     "Open in Browser" : {},
     "Open the clock's own web page" : {},
     "Open the server's statistics page" : {},
-    "Open-Meteo picks the best local model for your location and blends it with a global one. In much of central Europe that is DWD ICON, which can miss showers other models see. Has every value, UV included." : {
+    "Open-Meteo picks the best local model for your location and blends it with a global one. In much of central Europe that is DWD ICON, which can miss showers other models see. Has every value, UV included. Outside central Europe and the US, 15-minute rain is the hourly amount split evenly." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
