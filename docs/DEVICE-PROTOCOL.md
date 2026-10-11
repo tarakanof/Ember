@@ -300,7 +300,9 @@ from, right after `provider` (`"provider":"open-meteo","model":"ecmwf_ifs"`).
 weather codes to WMO before they reach `code` and `days[].code`, so the knob
 reads them like Open-Meteo's and needs no change; an unknown code leaves
 `code` empty and `cond` `clouds`. A day's `cond`/`code` weighs each code's severity by
-its hours in Tomorrow.io's 06:00–06:00 day (ARCHITECTURE "Tomorrow.io"). The detail keys are filled as for
+its hours in Tomorrow.io's 06:00–06:00 day, past hours left out
+(ARCHITECTURE "Tomorrow.io"). With the provider chosen but its key gone
+there is no observation, so `weather` is `null`. The detail keys are filled as for
 Open-Meteo (15-min rain steps, `pop`, `uv`, gusts), and `observed_at` is
 the time of the first minutely entry (else the latest hourly one at or
 before now). The provider string (11 B) fits cinder's 16-byte field, and

@@ -1327,14 +1327,13 @@ app's ids equal to the server's. A new provider is one id in `weatherProviders`,
 branch, and an entry in `WeatherSources.providers` (with `keyEnv` when it
 needs a server-side key: `providers_available` in `GET/PUT
 /v1/weather/config` then decides whether the app offers it, and a PUT
-switching to it without the key is a 400; a stored choice whose key went
-away is held by `sanitizeStoredWeather`: the server runs on the
-`config.json` provider, `GET /v1/weather/config` answers `provider_held`,
-and the stored blob keeps the choice (`settingSpec.stored` puts it back on
-persist), so it returns with the key. Any successful weather PUT drops the
-hold: the app sends its whole draft, so a save means the user accepted the
-provider shown. The PUT handler takes the hold before the write and puts it
-back if the write fails, so a rejected save keeps it). Values checked on
+switching to it without the key is a 400 (`settingSpec.check`, run on
+PUTs only, never on a reapply). The stored provider is never rewritten at
+startup: a choice whose key went away stays chosen, Ember makes no fetch
+for it, `/v1/weather/state` answers `error` with the reason
+(`weatherUnavailableReason`), the startup log warns, and the app says so
+under the picker; the user can pick another provider, and fetches resume
+on the first start with the key). Values checked on
 2026-10-11 at Belgrade and New York (#427):
 
 | Provider / model | Coverage and resolution | Limits in Ember |
@@ -1456,14 +1455,15 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   liquid-water sums. The day code (`tomorrowDayCode`) covers the same
   06:00–06:00 window as these aggregates: each hourly `weatherCode` in the
   window counts its hour, the daily `weatherCodeMax` counts the hours the
-  hourly timeline doesn't cover, and the code with the highest severity ×
-  hours wins (ties to the more severe). Severity is the index in
-  `tomorrowSeverity`: clear 0, clouds, fog, then drizzle and rain (freezing
-  rain above plain rain of the same strength), snow and ice, storm last.
-  So 10 h of heavy rain beat 1 h of flurries, a clear day stays clear, and
-  a day past the hourly range takes `weatherCodeMax`, which is the
-  numerically highest code, not the worst weather (4200 light rain beats
-  4001 rain). Sun and moon
+  hourly timeline doesn't cover from the current hour on (today's past
+  hours count for nothing), and the code with the highest severity × hours
+  wins (ties to the more severe). Severity is the index in
+  `tomorrowSeverity` plus one: clear 1, clouds, fog, then drizzle and rain
+  (freezing rain above plain rain of the same strength), snow and ice,
+  storm last. So 10 h of heavy rain beat 1 h of flurries, 23 h of clear
+  beat 1 h of fog, and a day past the hourly range takes `weatherCodeMax`,
+  which is the numerically highest code, not the worst weather (4200 light
+  rain beats 4001 rain). Sun and moon
   times in the reply are ignored (Ember's astro). Rate limits: the
   provider's refresh and failure retries never run faster than every
   5 min (`minFetchInterval`), and a 429 waits for `Retry-After` or the next
@@ -1474,11 +1474,20 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   last attempt nor skips a running 429 back-off, and a 429 whose source
   changed mid-flight still sets it. `reserveQuota` checks the floor and the
   back-off and records the attempt under one lock, so two polls can't both
-  pass; a later 429 never shortens a longer deadline. A back-off counts from
-  the response (`Retry-After` plus the request's duration), the next-hour
-  fallback likewise. Both times persist in the settings store
-  (`weather_quota_tomorrow_io`: `attempt_at`, `retry_until`, no credential)
-  and are loaded on the first poll, so a restart can't bypass them.
+  pass; a later 429 never shortens a longer deadline. The attempt time is
+  taken right before the request (after the poll's sun and air work), and a
+  back-off counts from the response (`Retry-After` plus the request's
+  duration), the next-hour fallback likewise. Polls run on a 1-min ticker,
+  so the floor allows 30 s for the tick's jitter (`quotaTickSlack`): at
+  least 4.5 min between calls, at most 13 an hour. Both times persist in the
+  settings store (`weather_quota_tomorrow_io`: `attempt_at`, `retry_until`,
+  no credential) and are loaded before the first Tomorrow.io fetch, so a
+  restart can't bypass them. A loaded `attempt_at` later than now is
+  dropped and `retry_until` is capped at now + 24 h, so a row written while
+  the clock was ahead can't block for longer. If the row can't be read the
+  load fails closed: the floor counts from that first poll and the read is
+  retried on the next one. A failed write is only logged; the in-memory
+  reservation still holds.
   Tomorrow.io errors are fixed text: `weather http <code>` (numeric status,
   no reason phrase, no body), `tomorrow-io: request failed` (transport, with
   the context error when cancelled) or `tomorrow-io: invalid response`

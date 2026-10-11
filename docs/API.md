@@ -95,9 +95,8 @@ long-poll for Music commands) and `PUT /v1/nowplaying/art?source=&player=&kind=a
 `ecmwf_ifs025`, `icon_seamless`, `gfs_seamless`, `ukmo_seamless`; anything
 else is a 400 — ARCHITECTURE "Providers and models"; both answer
 `providers_available`, which lists `tomorrow-io` only while
-`EMBER_TOMORROW_API_KEY` is set, and `provider_held` while a stored
-`tomorrow-io` waits for its key; a PUT switching to it without the key
-is a 400, and any successful PUT drops the hold), `POST /v1/reminders/fire` (optional
+`EMBER_TOMORROW_API_KEY` is set; a PUT switching to it without the key
+is a 400), `POST /v1/reminders/fire` (optional
 `Idempotency-Key` header dedupes retries for 10 min),
 `GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config` (also drives the
 knob view's `quiet`), `GET/PUT /v1/brightness/config` (every `…/config`
@@ -143,7 +142,8 @@ effect/transition/overlay/palette lists; live proxy when the cache is cold),
 snapshot per tool — the POST stays authed), `GET /v1/activity/summary?days=`
 (agent time per tool/source, waiting excluded), `GET /v1/weather/state` (cached
 observation; label but no coordinates, sun times rounded to 5 min; `model`
-names the Open-Meteo model, absent under MET Norway),
+names the Open-Meteo model, absent under MET Norway; `error` gives the
+reason weather is unavailable, e.g. `tomorrow-io` chosen without its key),
 `GET /v1/nowplaying/state`, `GET /v1/nowplaying/art?kind=album|artist|backdrop|cover&size=`
 (square baseline JPEG, ETag; `cover` is the knob's prepared 466 px circle; rate-limited),
 `GET /v1/clock/health` (24h publish counts + clock RSSI/heap/uptime/current

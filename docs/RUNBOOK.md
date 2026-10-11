@@ -955,7 +955,8 @@ then pick Tomorrow.io in Settings › Weather. The startup log says
 
 **Limits.** The free plan allows 500 calls a day (reset 00:00 UTC) and 25 an
 hour. Ember makes one forecast call per refresh and never refreshes or retries
-faster than every 5 minutes under Tomorrow.io (≤ 288 a day), whatever
+faster than every 5 minutes under Tomorrow.io (≤ 288 a day; the 1-min poll
+tick may bring a call up to 30 s early), whatever
 `refresh_minutes` says, also across location edits, provider switches and
 restarts (the last attempt and any 429 deadline are kept in the SQLite
 store, without the key). A 429 backs off to its `Retry-After`, or to the next
@@ -963,15 +964,18 @@ top of the hour when the reply has none (the free plan sends no rate-limit
 headers). Air quality still comes from Open-Meteo and costs no Tomorrow.io
 calls. Other apps using the same key share its quota.
 
-**Key removed.** At the next start a stored `tomorrow-io` choice is held
-(Warn `persisted weather provider ignored`): the server runs on the
-`config.json` provider, the other weather settings stay, and the app shows
-"Tomorrow.io is waiting for its key; using Open-Meteo" (`provider_held` in
-`GET /v1/weather/config`). Restarts without the key keep the hold, and the
-first start with the key brings Tomorrow.io back. Saving any weather setting
-in the meantime accepts the provider shown and drops the hold. A `config.json` that
-names `tomorrow-io` without the key logs a Warn at startup and every fetch
-fails until the key is set.
+**Key removed.** Tomorrow.io stays the chosen provider (stored or in
+`config.json`; nothing is rewritten). Ember makes no Tomorrow.io call,
+the startup log warns `weather unavailable`, `/v1/weather/state` answers
+`"error":"tomorrow-io needs EMBER_TOMORROW_API_KEY on the server"`, and the
+app shows the reason under the provider picker. Set the key and restart to
+resume, or pick another provider.
+
+**Accepted risk: transport log.** Go's HTTP client logs (stdlib `log`,
+outside Ember's logger) any bytes a server sends on an idle keep-alive
+connection after a finished reply. Only Tomorrow.io could put its key
+there, and it already holds the key, so this is accepted; Ember's own
+log lines carry no reply text.
 
 ## Now playing (Plex, Apple Music) — #226
 
