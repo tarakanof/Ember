@@ -3826,7 +3826,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
   embedded `*knobWeatherDetail` left nil otherwise, so every other view
   keeps its bytes). It projects `weatherState.faces()` to integers; the
   shapes and rules are in DEVICE-PROTOCOL.md "Weather detail". Building it
-  costs ~90 µs (the moon scan), paid only for such knobs.
+  costs ~90 µs (the moon scan), paid only for such knobs and only when the
+  `weather` page is in their caps and on (`knobView` decides before
+  building, not after `applyCaps` hides the block).
 - **Knob view long-poll (#235).** `?wait=N` (whole seconds, capped at 25,
   `devices_view_wait.go`) with `If-None-Match` holds the request while the
   view still matches the tag: 200 with the new body as soon as it changes,

@@ -274,6 +274,24 @@ func TestCapsKnobWithWxFacesButWeatherPageOffGetsNoWeather(t *testing.T) {
 	}
 }
 
+func TestCapsKnobWithWeatherHiddenSkipsBuildingTheDetail(t *testing.T) {
+	june := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
+	f := facesViewFixture(t, june, "open-meteo", lonLat, lonLon,
+		facesProviders{openMeteo: openMeteoFacesStub(june, 3600, openMeteoTwoSpells)})
+	allocs := func(features ...string) float64 {
+		plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot"}, Features: features})
+		return testing.AllocsPerRun(20, func() {
+			if _, _, err := f.app.knobView(f.m.ID, june); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	plain, faces := allocs("view_wait", "coredump"), allocs("view_wait", featureWxFaces)
+	if faces > plain {
+		t.Errorf("weather page not in caps: %v allocs with wx_faces, %v without; the hidden detail was built", faces, plain)
+	}
+}
+
 func TestCapsKnobViewDropsWeatherDetailFirst(t *testing.T) {
 	june := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
 	f := facesViewFixture(t, june, "open-meteo", lonLat, lonLon,

@@ -115,13 +115,14 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	mood := a.moodState()
 	m := newKnobMood(mood.Render, mood.Lead)
 	b := a.currentBrightness(now)
+	detail := st.caps.hasFeature(featureWxFaces) && st.caps.hasPage("weather") && st.cfg.pageOn("weather")
 	v := knobView{
 		V:             1,
 		Epoch:         st.epoch,
 		ConfigVersion: st.version,
 		Mood:          block(&m),
 		Pomo:          block(a.knobPomo(now)),
-		Weather:       block(a.knobWeatherFor(now, st.caps.hasFeature(featureWxFaces))),
+		Weather:       block(a.knobWeatherFor(now, detail)),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},
 		Quiet:         a.cfg.Load().quietAt(now),
 		DiagLiveUntil: a.knobLiveUnix(id, st.cfg.Diagnostics, now),
