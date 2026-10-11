@@ -199,6 +199,7 @@ public struct DisplayConfig: Codable, Sendable, Equatable {
 public struct WeatherConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var provider: String
+    public var openMeteoModel: String
     public var latitude: Double
     public var longitude: Double
     public var locationName: String
@@ -222,6 +223,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     public var overlay: Bool
 
     public init(enabled: Bool = false, provider: String = "open-meteo",
+                openMeteoModel: String = WeatherSources.defaultOpenMeteoModel,
                 latitude: Double = 0, longitude: Double = 0, locationName: String = "",
                 units: String = "metric", refreshMinutes: Int = 10, rotateInApps: Bool = true,
                 forecastTile: Bool = true, forecastHours: Int = 24,
@@ -233,6 +235,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
                 airTile: Bool = true, airPopupThreshold: Int = 80, overlay: Bool = true) {
         self.enabled = enabled
         self.provider = provider
+        self.openMeteoModel = openMeteoModel
         self.latitude = latitude
         self.longitude = longitude
         self.locationName = locationName
@@ -258,6 +261,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case enabled, provider, latitude, longitude
+        case openMeteoModel = "open_meteo_model"
         case locationName = "location_name"
         case units
         case refreshMinutes = "refresh_minutes"
@@ -283,6 +287,8 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? "open-meteo"
+        openMeteoModel = try c.decodeIfPresent(String.self, forKey: .openMeteoModel)
+            ?? WeatherSources.defaultOpenMeteoModel
         latitude = try c.decodeIfPresent(Double.self, forKey: .latitude) ?? 0
         longitude = try c.decodeIfPresent(Double.self, forKey: .longitude) ?? 0
         locationName = try c.decodeIfPresent(String.self, forKey: .locationName) ?? ""

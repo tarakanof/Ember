@@ -107,3 +107,23 @@ import Foundation
     #expect(back.iconIds["rain"] == "999")
     #expect(back == c)
 }
+
+@Test func weatherConfigOpenMeteoModelDecodesAndDefaults() throws {
+    let set = #"{"enabled":true,"provider":"open-meteo","open_meteo_model":"ecmwf_ifs"}"#
+    #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(set.utf8)).openMeteoModel == "ecmwf_ifs")
+    let old = #"{"enabled":true,"provider":"open-meteo"}"#
+    #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(old.utf8)).openMeteoModel == "best_match")
+    let s = String(decoding: try JSONEncoder().encode(WeatherConfig()), as: UTF8.self)
+    #expect(s.contains(#""open_meteo_model":"best_match""#))
+}
+
+@Test func weatherSourcesListEachIdOnceWithTheDefaults() {
+    let providers = WeatherSources.providers.map(\.id)
+    let models = WeatherSources.openMeteoModels.map(\.id)
+    #expect(Set(providers).count == providers.count)
+    #expect(Set(models).count == models.count)
+    #expect(providers.first == WeatherConfig().provider)
+    #expect(models.first == WeatherConfig().openMeteoModel)
+    #expect(models == ["best_match", "ecmwf_ifs", "ecmwf_ifs025", "icon_seamless", "gfs_seamless", "ukmo_seamless"])
+    #expect(WeatherSources.openMeteoModel("meteofrance_seamless") == nil)
+}

@@ -54,10 +54,15 @@ struct WeatherSourcePane: View {
         return Section {
             InfoRow("Provider", info: .weatherProvider, requirement: weatherRequirement) { label in
                 Picker(selection: $model.draft.provider) {
-                    Text(verbatim: "Open-Meteo").tag("open-meteo")
-                    Text(verbatim: "MET Norway").tag("met-no")
+                    sourceOptions(WeatherSources.providers, current: model.draft.provider)
                 } label: { label }
             }
+            if model.draft.provider == WeatherSources.openMeteo {
+                Picker("Model", selection: $model.draft.openMeteoModel) {
+                    sourceOptions(WeatherSources.openMeteoModels, current: model.draft.openMeteoModel)
+                }
+            }
+            sourceDetails(model.draft)
             TextField("Name", text: $model.draft.locationName, prompt: Text("Shown in popups"))
             LabeledContent("Coordinates") {
                 HStack(spacing: 4) {
@@ -92,6 +97,27 @@ struct WeatherSourcePane: View {
             if badCoordinates || locateError != nil || model.saveError != nil {
                 locationFooter(model)
             }
+        }
+    }
+
+    @ViewBuilder private func sourceOptions(_ options: [WeatherSourceOption], current: String) -> some View {
+        ForEach(options) { Text(verbatim: $0.name).tag($0.id) }
+        if !options.contains(where: { $0.id == current }) {
+            Text(verbatim: current).tag(current)
+        }
+    }
+
+    @ViewBuilder private func sourceDetails(_ c: WeatherConfig) -> some View {
+        let provider = WeatherSources.provider(c.provider)
+        let model = c.provider == WeatherSources.openMeteo ? WeatherSources.openMeteoModel(c.openMeteoModel) : nil
+        if provider != nil || model != nil {
+            VStack(alignment: .leading, spacing: 4) {
+                if let provider { Text(provider.detail) }
+                if let model { Text(model.detail) }
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
