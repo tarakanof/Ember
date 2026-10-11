@@ -365,16 +365,16 @@ func TestAccentSkipsNearWhitePastels(t *testing.T) {
 func TestAccentHueBinsWrapAroundRed(t *testing.T) {
 	src := testPNG(t, 100, 100, func(x, y int) color.Color {
 		switch {
-		case y < 30:
+		case y < 35:
 			return color.RGBA{230, 0, 12, 255}
-		case y < 60:
+		case y >= 65:
 			return color.RGBA{230, 12, 0, 255}
 		}
 		return color.RGBA{230, 115, 0, 255}
 	})
-	q := hexColor(t, prepared(t, src).Accent)
-	if q[1] > 60 {
-		t.Fatalf("accent %v, want the red split across 0 degrees, not the orange", q)
+	a := prepared(t, src).Accent
+	if q := hexColor(t, a); q[1] > 60 {
+		t.Fatalf("accent %s, want the red split across 0 degrees, not the orange", a)
 	}
 }
 

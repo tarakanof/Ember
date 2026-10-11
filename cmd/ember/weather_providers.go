@@ -48,13 +48,24 @@ type fetchResult struct {
 	Obs          weatherObservation
 	LastModified string
 	Expires      time.Time
+	Date         time.Time
+	Age          time.Duration
 	NotModified  bool
+}
+
+func (r fetchResult) expiresAt(now time.Time, maxFresh time.Duration) time.Time {
+	if r.Expires.IsZero() || r.Date.IsZero() {
+		return r.Expires
+	}
+	return now.Add(min(max(r.Expires.Sub(r.Date)-r.Age, 0), maxFresh))
 }
 
 type httpMeta struct {
 	notModified  bool
 	lastModified string
 	expires      time.Time
+	date         time.Time
+	age          time.Duration
 }
 
 func (wf *weatherFetcher) fetch(ctx context.Context, cfg WeatherConfig, hint fetchHint) (fetchResult, error) {
@@ -85,6 +96,12 @@ func (wf *weatherFetcher) getJSON(ctx context.Context, url, ifModifiedSince stri
 	meta := httpMeta{lastModified: resp.Header.Get("Last-Modified")}
 	if t, err := http.ParseTime(resp.Header.Get("Expires")); err == nil {
 		meta.expires = t
+	}
+	if t, err := http.ParseTime(resp.Header.Get("Date")); err == nil {
+		meta.date = t
+	}
+	if n, err := strconv.ParseInt(resp.Header.Get("Age"), 10, 64); (err == nil || errors.Is(err, strconv.ErrRange)) && n > 0 {
+		meta.age = time.Duration(min(n, 1<<31)) * time.Second
 	}
 	if resp.StatusCode == http.StatusNotModified && ifModifiedSince != "" {
 		meta.notModified = true
@@ -292,7 +309,7 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig, hin
 	if err != nil {
 		return fetchResult{}, err
 	}
-	res := fetchResult{LastModified: meta.lastModified, Expires: meta.expires, NotModified: meta.notModified}
+	res := fetchResult{LastModified: meta.lastModified, Expires: meta.expires, Date: meta.date, Age: meta.age, NotModified: meta.notModified}
 	if res.NotModified {
 		return res, nil
 	}
@@ -312,7 +329,6 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig, hin
 	res.Obs = weatherObservation{
 		Hourly: hourly, HourlyStart: first.Time,
 		TZOffsetSeconds: hint.TZOffsetSeconds, TZKnown: hint.TZKnown,
-		ValidUntil: meta.expires,
 		PrecipStep: time.Hour,
 		Precip:     metPrecip(ts),
 		Days:       metDays(ts, off),

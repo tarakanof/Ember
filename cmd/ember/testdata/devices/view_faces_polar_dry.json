@@ -18,7 +18,7 @@
     "severe": false,
     "night": false,
     "sunrise": 1788226500,
-    "sunset": 1788294000,
+    "sunset": 1788293400,
     "observed_at": 1788264000,
     "utc_offset": 7200,
     "now": {
@@ -70,7 +70,7 @@
     ],
     "twilight": {
       "golden_end": 1788236100,
-      "golden_start": 1788284400
+      "golden_start": 1788284100
     },
     "moon": {
       "phase": 65,

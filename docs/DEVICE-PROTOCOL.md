@@ -48,7 +48,8 @@ and fall under the same rules as the view.
    cinder's parsers skip unknown keys. A sender leaves out a block that does
    not apply rather than sending `null`. Existing exceptions, kept: the view's
    `pomo` and `weather` are `null` when off, and `weather.sunrise`/`sunset`
-   are `null` without a location or in polar day/night.
+   are `null` without a location, in polar day/night, and both on a boundary
+   day with only one crossing (a sunrise but no sunset, or the reverse).
 2. **Removing or retyping a field is breaking.** In the view it needs a new
    view major `v` (today always `1`). The server keeps serving the old major
    to any device that doesn't ask for the new one, for at least two releases.
@@ -357,11 +358,14 @@ Keys:
   (Open-Meteo, MET Nordic); `precip_mm10` the day's sum in tenths of mm
   (a MET period crossing midnight is split by its overlap).
 - **`twilight`**: the local day's crossings, rounded to 5 min like
-  `sunrise`/`sunset`: `dawn` (−6° rising), `blue_end` (−4°), `golden_end`
-  (+6°), `golden_start` (+6° setting), `blue_start` (−4°), `dusk` (−6°).
-  The bands are `dawn`→`blue_end` (blue), `blue_end`→`golden_end`
-  (golden) and mirrored in the evening. A crossing that does not happen
-  (polar summer and winter) is left out; no location, no `twilight`.
+  `sunrise`/`sunset`. The day is the solar day around the local date's solar
+  noon, not midnight to midnight: a `dusk` after local midnight (Reykjavík
+  in late July) belongs to the date before. Crossings: `dawn` (−6° rising),
+  `blue_end` (−4°), `golden_end` (+6°), `golden_start` (+6° setting),
+  `blue_start` (−4°), `dusk` (−6°). The bands are `dawn`→`blue_end` (blue),
+  `blue_end`→`golden_end` (golden) and mirrored in the evening. A crossing
+  that does not happen (polar summer and winter) is left out; no location,
+  no `twilight`.
 - **`moon`**: `phase` 0-99, the position in the cycle (0 new, 25 first
   quarter, 50 full, 75 last quarter; waxing = `phase` < 50); `illum`
   0-100, the lit fraction. `up` is whether the moon is above the horizon

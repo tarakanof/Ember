@@ -220,6 +220,8 @@ type metStub struct {
 	lats          []string
 	lastModified  string
 	expires       time.Time
+	date          time.Time
+	age           string
 	notModified   bool
 	airFail       atomic.Bool
 	airHits       atomic.Int32
@@ -245,6 +247,14 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 		st.lats = append(st.lats, r.URL.Query().Get("lat"))
 		w.Header().Set("Last-Modified", st.lastModified)
 		w.Header().Set("Expires", st.expires.UTC().Format(http.TimeFormat))
+		if st.date.IsZero() {
+			w.Header()["Date"] = nil
+		} else {
+			w.Header().Set("Date", st.date.UTC().Format(http.TimeFormat))
+		}
+		if st.age != "" {
+			w.Header().Set("Age", st.age)
+		}
 		if st.notModified && r.Header.Get("If-Modified-Since") == st.lastModified {
 			w.WriteHeader(http.StatusNotModified)
 			return
@@ -325,6 +335,77 @@ func TestMetNoWaitsForExpiresThenRevalidates(t *testing.T) {
 	app.pollWeather(ctx, t0.Add(50*time.Minute))
 	if st.hits.Load() != 2 {
 		t.Errorf("polled before the 304's Expires: %d requests, want 2", st.hits.Load())
+	}
+}
+
+func TestMetNoMeasuresExpiresFromTheResponseDate(t *testing.T) {
+	for _, skew := range []time.Duration{2 * time.Hour, -time.Hour} {
+		t0 := metT0
+		st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", date: t0.Add(skew), expires: t0.Add(skew + 25*time.Minute), notModified: true}
+		app := newMetCacheApp(t, st, false)
+		ctx := context.Background()
+
+		app.pollWeather(ctx, t0)
+		app.weather.mu.RLock()
+		notBefore, valid := app.weather.notBefore, app.weather.obs.ValidUntil
+		app.weather.mu.RUnlock()
+		want := t0.Add(25 * time.Minute)
+		if !notBefore.Equal(want) || !valid.Equal(want) {
+			t.Errorf("MET clock %v off: notBefore %v ValidUntil %v, want %v (Expires - Date after the poll)", skew, notBefore, valid, want)
+		}
+		app.pollWeather(ctx, t0.Add(10*time.Minute))
+		if st.hits.Load() != 1 {
+			t.Errorf("MET clock %v off: %d requests by 20:10, want 1 (skipped until 20:25)", skew, st.hits.Load())
+		}
+
+		st.mu.Lock()
+		st.date, st.expires = t0.Add(skew+30*time.Minute), t0.Add(skew+70*time.Minute)
+		st.mu.Unlock()
+		t2 := t0.Add(30 * time.Minute)
+		app.pollWeather(ctx, t2)
+		if st.hits.Load() != 2 {
+			t.Fatalf("MET clock %v off: %d requests by 20:30, want 2 (revalidated after 20:25)", skew, st.hits.Load())
+		}
+		if wx := app.weather.state(app.cfg.Load().Weather, t2); !wx.Obs.ValidUntil.Equal(t0.Add(70 * time.Minute)) {
+			t.Errorf("MET clock %v off: after the 304 ValidUntil %v, want %v", skew, wx.Obs.ValidUntil, t0.Add(70*time.Minute))
+		}
+	}
+}
+
+func TestMetNoTakesTheResponseAgeOffItsFreshness(t *testing.T) {
+	cases := []struct {
+		age  string
+		want time.Duration
+	}{{"3000", 10 * time.Minute}, {"5400", 0}, {"junk", 60 * time.Minute}, {"99999999999999999999", 0}}
+	for _, c := range cases {
+		t0 := metT0
+		st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", date: t0, expires: t0.Add(60 * time.Minute), age: c.age}
+		app := newMetCacheApp(t, st, false)
+		app.pollWeather(context.Background(), t0)
+		app.weather.mu.RLock()
+		notBefore, valid := app.weather.notBefore, app.weather.obs.ValidUntil
+		app.weather.mu.RUnlock()
+		if want := t0.Add(c.want); !notBefore.Equal(want) || !valid.Equal(want) {
+			t.Errorf("Age %s: notBefore %v ValidUntil %v, want %v (Expires - Date - Age, floored at now)", c.age, notBefore, valid, want)
+		}
+	}
+}
+
+func TestMetNoCapsFreshnessFromAReplayedDate(t *testing.T) {
+	t0 := metT0
+	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", date: t0.AddDate(0, 0, -30), expires: t0.Add(25 * time.Minute)}
+	app := newMetCacheApp(t, st, false)
+	ctx := context.Background()
+	app.pollWeather(ctx, t0)
+	app.weather.mu.RLock()
+	notBefore, valid := app.weather.notBefore, app.weather.obs.ValidUntil
+	app.weather.mu.RUnlock()
+	if want := t0.Add(time.Hour); !notBefore.Equal(want) || !valid.Equal(want) {
+		t.Errorf("Date 30 days behind Expires: notBefore %v ValidUntil %v, want %v (capped at max(refresh, 1h))", notBefore, valid, want)
+	}
+	app.pollWeather(ctx, t0.Add(61*time.Minute))
+	if st.hits.Load() != 2 {
+		t.Errorf("%d requests an hour later, want 2 (the cap lets the next poll through)", st.hits.Load())
 	}
 }
 

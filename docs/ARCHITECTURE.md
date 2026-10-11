@@ -1346,16 +1346,25 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   hours outside the day, and `next_6_hours` beyond it. Probability and UV
   are maxima of what the entries carry.
 - **MET caching.** The store keeps `Last-Modified` and `Expires`
-  (`lastModified`, `notBefore`; cleared with the observation on a provider or
-  location switch, so a new location neither waits for the old `Expires` nor
-  sends the old `Last-Modified`, which MET would answer with a 304 for the
-  wrong city). A due poll before `Expires` skips the MET call but still moves
-  `lastFetch`, so the next due poll checks again;
-  after `Expires` the request carries `If-Modified-Since`. A **304** keeps the
+  (`lastModified`, `notBefore`; cleared with the observation on a provider
+  or location switch, so a new location neither waits for the old `Expires`
+  nor sends the old `Last-Modified`, which MET would answer with a 304 for
+  the wrong city). `Expires` is read relative to the response's `Date`: the
+  stored instant is the poll time plus `Expires` − `Date` − `Age`, kept
+  between zero and `max(refresh, 1h)` (`maxProviderFreshness`). `Age` is the
+  seconds a cache in between held the response, capped at 2^31 as RFC 9111
+  says, also when it overflows int64. So a MET or Ember clock that is off
+  neither skips MET for hours nor refetches on every poll, a cached copy
+  isn't fresh for longer than MET meant, and a replayed old `Date` can't
+  park polling or keep stale data fresh
+  (`TestMetNoCapsFreshnessFromAReplayedDate`). Without a `Date` the
+  absolute `Expires` is kept. A due poll before `Expires` skips the MET call
+  but still moves `lastFetch`, so the next due poll checks again; after
+  `Expires` the request carries `If-Modified-Since`. A **304** keeps the
   observation, sets its `FetchedAt` to now and its `ValidUntil` and
-  `notBefore` to the new `Expires`, and notifies (the `stale` flag may move).
-  With the 10-min default that is about one call per 40 min instead of every
-  10.
+  `notBefore` to the new `Expires`, and notifies (the `stale` flag may
+  move). With the 10-min default that is about one call per 40 min instead
+  of every 10.
 - **Freshness** is measured from the later of `FetchedAt` and the
   observation's `ValidUntil` (MET's `Expires`), so skipping MET until
   `Expires` never marks the data stale early.
@@ -1561,42 +1570,79 @@ Weather constraints:
   (2 min) with the 1-minute poll catches a sunrise/sunset without firing for one
   that passed before startup. The AQI threshold popup is edge-triggered and also
   fires on the very first reading, so a restart mid-episode still alerts.
-- **Astro.** Moon phase and sun times are computed locally (no API or key) at low
-  precision (a minute or two). Twilight (#350) generalises `sunTimes` to any
-  altitude (`sunAt`): `localTwilight` gives the local day's crossings of −6°
-  (civil dawn, dusk), −4° (blue hour ends, starts) and +6° (golden hour
-  ends, starts); one the sun never makes is zero. The moon
-  (`astro_moon.go`) is a truncated Meeus ch. 47 position (the 32 largest
-  longitude and 16 latitude terms plus the additive ones, about 0.01°):
-  `moonPhaseAt` gives the cycle position (Moon minus Sun ecliptic
-  longitude, 0 new, 0.5 full) and the lit fraction from the elongation,
-  and replaced the mean-synodic-month phase, which was up to ~15 h off, so
-  the clock's moon icon uses it too. `moonEvents` scans the geocentric
-  altitude on the whole-hour grid and bisects each crossing of +0.125°
-  (parallax less refraction and semi-diameter) to the second, rounded to
-  the minute. An hour whose ends are on the same side can still hold two
+- **Astro.** Moon phase and sun times are computed locally (no API or key).
+  The sun is the low-precision sunrise equation, but with the ecliptic
+  longitude of date (the perihelion longitude advances 1.71946° per century;
+  without it the declination ran ~0.17° high in 2026) and, for each
+  crossing, the declination at the crossing (refined from the transit's
+  until it moves under a second, at most `sunRefineSteps`); `solarElevation`
+  uses the declination at `now`. A crossing whose refined half-angle doesn't
+  exist is dropped, not kept at the transit declination's time: the day
+  before the midnight sun (Longyearbyen, 2026-04-18) has a sunrise and no
+  sunset, so `sunTimes` reports `ok` false and `sunEventsAround` takes the
+  sunrise alone. Every crossing left sits within 0.08° of its altitude all
+  year at Longyearbyen and McMurdo
+  (`TestSunCrossingsSitAtTheirAltitudeAllYear`) and within 10 s of where the
+  elevation crosses it there and at Tromsø
+  (`TestSunCrossingsConvergeOnTheElevationCrossing`); with the single
+  refinement some were 0.18° off and Longyearbyen's −6° on 2026-09-08 was
+  7.6 min early. NOAA iterates once too, so matching NOAA doesn't show
+  convergence. Against the NOAA Solar Calculator (`TestTwilightMatchesNOAA`:
+  London, Sydney, Quito, Berlin, Oslo, Tromsø at −6°, −4°, −0.833° and +6°)
+  every crossing is within 20 s; before, Oslo's evening crossings near the
+  equinox were ~2.5 min late and Tromsø's first sunset after the midnight
+  sun 23 min. Twilight (#350) generalises `sunTimes` to any altitude
+  (`sunAt`): `localTwilight` gives the local day's crossings of −6° (civil
+  dawn, dusk), −4° (blue hour ends, starts) and +6° (golden hour ends,
+  starts); one the sun never makes is zero. The local day is the solar day:
+  the crossings around the transit of the local date's solar noon (see "Sun
+  times are the location's local day"), not those between local midnights,
+  so a dusk after local midnight (Reykjavík, late July) is the date
+  before's, like a post-midnight sunset
+  (`TestTwilightIsTheSolarDayOfTheLocalDate`). The moon (`astro_moon.go`) is
+  a truncated Meeus ch. 47 position (the 32 largest longitude terms with
+  their distance terms, 16 latitude terms plus the additive ones; against
+  Meeus example 47.a at 0h TD, evaluated at 0h − ΔT UT, longitude within
+  0.0001°, latitude 0.004°, distance 19 km), taken at TT = UT + ΔT with ΔT a
+  fixed 69 s (IERS, flat since 2017; a few seconds of drift moves a rise or
+  set by well under a second). Without ΔT a rise or set moved 3-6 s up to
+  60° latitude, 40 s at Tromsø and 84 s for Longyearbyen's grazing events:
+  `moonPhaseAt` gives the cycle position (Moon minus Sun ecliptic longitude,
+  0 new, 0.5 full) and the lit fraction from the elongation, and replaced
+  the mean-synodic-month phase, which was up to ~15 h off, so the clock's
+  moon icon uses it too. `moonEvents` scans the geocentric altitude on the
+  whole-hour grid and bisects each crossing of the rise/set altitude 0.7275π
+  − 0.5667° (Meeus ch. 15: parallax π at that instant's distance, less
+  refraction and semi-diameter; +0.09° at apogee to +0.18° at perigee, where
+  a fixed mean +0.125° was up to ~0.05° off) to the second, rounded to the
+  minute. An hour whose ends are on the same side can still hold two
   crossings when the moon turns near the horizon (high latitudes: up
-  12:01–12:33 UT at Longyearbyen on 2026-09-13). Near the horizon (an
-  end within 1° of it; a turn inside one hour moves the altitude at most
-  ~0.5° from the closer end) a golden-section search finds the hour's
-  altitude extremum, and a crossing extremum is bisected on both sides.
-  Against a 1-minute scan of 2026 for Berlin, Oslo, Tromsø and
-  Longyearbyen every event matches; the check costs ~15 % (`moonUpWindow`
-  ~75 → ~88 µs, M4 Pro, mixed latitudes). The hour grid makes the result
-  independent of `now`, so a view's ETag doesn't move with the clock.
-  `moonUpWindow` is the current interval above the horizon (rise in the
-  past) or the next one, searched ±36 h; an end not found is zero
-  (polar). It also returns `up`, whether the moon is above the horizon
-  now: the ends alone can't tell "up for days" from "down for days" (both
-  have neither). Checked against Open-Meteo's
-  `daily=moonrise,moonset` (recorded once, test reference only) for four
-  latitudes: within a minute. The "local" label time uses the UTC offset
-  Open-Meteo supplies (`TZKnown`/`TZOffsetSeconds`; for MET a live air
-  reading's); only without it (MET with air off or stale) does it fall back
-  to longitude (15° per hour, no tz database), which can differ from civil time at
-  DST/zone boundaries. At polar day/night there are no sun times; `Night` then
-  comes from the sun's elevation (see below), and the clock's moon icon,
-  which also needs sun times, stays off (the sun icon).
+  11:59–12:34 UT at Longyearbyen on 2026-09-13). Near the horizon (an end
+  within 1° of it; a turn inside one hour moves the altitude at most ~0.5°
+  from the closer end) a golden-section search finds the hour's altitude
+  extremum, and a crossing extremum is bisected on both sides. Against a
+  1-minute scan of 2026 for Berlin, Oslo, Tromsø and Longyearbyen every
+  event matches; the check costs ~15 % (`moonUpWindow` ~75 → ~88 µs, M4 Pro,
+  mixed latitudes), the per-instant distance another ~30 % (~88 → ~115 µs).
+  The hour grid makes the result independent of `now`, so a view's ETag
+  doesn't move with the clock. `moonUpWindow` is the current interval above
+  the horizon (rise in the past) or the next one, searched ±36 h; an end not
+  found is zero (polar). It also returns `up`, whether the moon is above the
+  horizon now: the ends alone can't tell "up for days" from "down for days"
+  (both have neither). Checked against Open-Meteo's `daily=moonrise,moonset`
+  (recorded once, test reference only) for four latitudes: within 70 s
+  (`TestMoonRiseSetMatchOpenMeteoReference`); and against MET Norway's
+  Sunrise 3.0 `moon` (minute precision, recorded once) for Oslo through
+  September 2026: both sides are rounded to the minute, so each event is on
+  MET's minute or one off and the test only rules out two or more
+  (`TestMoonRiseSetMatchMETNorwayToTheRoundedMinute`; the fixed horizon was
+  up to 2 min off). The "local" label time uses the UTC offset Open-Meteo
+  supplies (`TZKnown`/`TZOffsetSeconds`; for MET a live air reading's); only
+  without it (MET with air off or stale) does it fall back to longitude (15°
+  per hour, no tz database), which can differ from civil time at DST/zone
+  boundaries. At polar day/night there are no sun times; `Night` then comes
+  from the sun's elevation (see below), and the clock's moon icon, which
+  also needs sun times, stays off (the sun icon).
 - **Sun times are the location's local day.** Every caller (dashboard
   `/v1/weather/state`, the knob view, the clock's moon icon, sun popups and
   their once-a-day key) reads them from the weather state, which calls

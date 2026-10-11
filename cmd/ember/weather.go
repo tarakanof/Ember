@@ -497,7 +497,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		return
 	}
 	if res.NotModified {
-		if a.confirmWeather(now, src, res) {
+		if a.confirmWeather(now, src, cfg, res) {
 			a.changes.notify(topicWeather)
 			a.popKeptWeather(ctx, now, src, cfg)
 		} else {
@@ -507,6 +507,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	}
 	obs := res.Obs
 	obs.FetchedAt = now
+	obs.ValidUntil = res.expiresAt(now, cfg.maxProviderFreshness())
 	a.weather.mu.Lock()
 	if a.cfg.Load().Weather.source() != src {
 		a.weather.mu.Unlock()
@@ -518,7 +519,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.weather.failures = 0
 	a.weather.retryAt = time.Time{}
 	a.weather.lastModified = res.LastModified
-	a.weather.notBefore = res.Expires
+	a.weather.notBefore = obs.ValidUntil
 	a.weather.mu.Unlock()
 	a.changes.notify(topicWeather)
 	a.popWeather(ctx, now, src, cfg, obs.current(now))
@@ -579,6 +580,10 @@ func (c WeatherConfig) refreshEvery() time.Duration {
 	return time.Duration(c.RefreshMinutes) * time.Minute
 }
 
+func (c WeatherConfig) maxProviderFreshness() time.Duration {
+	return max(c.refreshEvery(), time.Hour)
+}
+
 func weatherRetryDelay(failures int, refresh time.Duration) time.Duration {
 	d := weatherRetryBase
 	for i := 1; i < failures && d < refresh; i++ {
@@ -617,7 +622,7 @@ func (a *App) markWeatherPolled(now time.Time, src weatherSource) {
 	}
 }
 
-func (a *App) confirmWeather(now time.Time, src weatherSource, res fetchResult) bool {
+func (a *App) confirmWeather(now time.Time, src weatherSource, cfg WeatherConfig, res fetchResult) bool {
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
 	if a.cfg.Load().Weather.source() != src || !a.weather.have {
@@ -627,9 +632,9 @@ func (a *App) confirmWeather(now time.Time, src weatherSource, res fetchResult) 
 	a.weather.failures = 0
 	a.weather.retryAt = time.Time{}
 	a.weather.obs.FetchedAt = now
-	if !res.Expires.IsZero() {
-		a.weather.notBefore = res.Expires
-		a.weather.obs.ValidUntil = res.Expires
+	if exp := res.expiresAt(now, cfg.maxProviderFreshness()); !exp.IsZero() {
+		a.weather.notBefore = exp
+		a.weather.obs.ValidUntil = exp
 	}
 	return true
 }
