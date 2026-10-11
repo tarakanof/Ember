@@ -20,6 +20,8 @@ const (
 	accentBins     = 24
 	accentMinSat   = 0.2
 	accentMinValue = 0.15
+	accentPaleSat  = 0.3
+	accentPaleVal  = 0.95
 	accentMinMass  = 4.0
 	accentContrast = 3.0
 	FallbackAccent = "#F4F4F2"
@@ -66,13 +68,18 @@ func cover(sq *image.RGBA) *image.RGBA {
 func accent(p plane) string {
 	var mass [accentBins]float64
 	var sum [accentBins][3]float64
+	c := float64(p.n) / 2
 	for i := 0; i < len(p.pix); i += 3 {
-		rgb := [3]float64{float64(p.pix[i]) / 255, float64(p.pix[i+1]) / 255, float64(p.pix[i+2]) / 255}
-		h, s, v := hsv(rgb)
-		if s < accentMinSat || v < accentMinValue {
+		x, y := i/3%p.n, i/3/p.n
+		if math.Hypot(float64(x)+0.5-c, float64(y)+0.5-c) > c {
 			continue
 		}
-		bin := int(h*accentBins) % accentBins
+		rgb := [3]float64{float64(p.pix[i]) / 255, float64(p.pix[i+1]) / 255, float64(p.pix[i+2]) / 255}
+		h, s, v := hsv(rgb)
+		if s < accentMinSat || v < accentMinValue || (s < accentPaleSat && v > accentPaleVal) {
+			continue
+		}
+		bin := int(h*accentBins+0.5) % accentBins
 		w := s * v
 		mass[bin] += w
 		for ch := range 3 {

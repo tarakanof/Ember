@@ -348,3 +348,49 @@ func TestPrepareAllocatesLittleBeyondTheDecode(t *testing.T) {
 		t.Fatalf("Prepare allocates %d B on top of a %d B decode, want at most 1 MB", extra, decode)
 	}
 }
+
+func TestAccentSkipsNearWhitePastels(t *testing.T) {
+	src := testPNG(t, 100, 100, func(x, y int) color.Color {
+		if y < 80 {
+			return color.RGBA{255, 200, 215, 255}
+		}
+		return color.RGBA{40, 128, 40, 255}
+	})
+	q := hexColor(t, prepared(t, src).Accent)
+	if q[1] <= q[0] || q[1] <= q[2] {
+		t.Fatalf("accent %v, want the green: a near-white pastel must not vote", q)
+	}
+}
+
+func TestAccentHueBinsWrapAroundRed(t *testing.T) {
+	src := testPNG(t, 100, 100, func(x, y int) color.Color {
+		switch {
+		case y < 30:
+			return color.RGBA{230, 0, 12, 255}
+		case y < 60:
+			return color.RGBA{230, 12, 0, 255}
+		}
+		return color.RGBA{230, 115, 0, 255}
+	})
+	q := hexColor(t, prepared(t, src).Accent)
+	if q[1] > 60 {
+		t.Fatalf("accent %v, want the red split across 0 degrees, not the orange", q)
+	}
+}
+
+func TestAccentIgnoresTheCornersOutsideTheDisc(t *testing.T) {
+	src := testPNG(t, 128, 128, func(x, y int) color.Color {
+		dx, dy := float64(x)+0.5-64, float64(y)+0.5-64
+		switch {
+		case math.Hypot(dx, dy) > 64:
+			return color.RGBA{220, 30, 30, 255}
+		case math.Abs(dx) < 26 && math.Abs(dy) < 26:
+			return color.RGBA{30, 60, 220, 255}
+		}
+		return color.RGBA{128, 128, 128, 255}
+	})
+	q := hexColor(t, prepared(t, src).Accent)
+	if q[2] <= q[0] {
+		t.Fatalf("accent %v, want the blue inside the disc, not the red corners", q)
+	}
+}
