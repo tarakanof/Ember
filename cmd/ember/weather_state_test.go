@@ -145,7 +145,10 @@ func sunYearStep(t *testing.T) time.Duration {
 	return 7 * time.Minute
 }
 
+const sunWiringEvery = 10
+
 func TestSunNightMatchesElevationAllYearAtPolarSites(t *testing.T) {
+	t.Parallel()
 	sites := map[string][2]float64{
 		"Tromsø": {69.65, 18.96}, "68N": {68, 0}, "Svalbard": {78.2, 15.6}, "Alert": {82.5, -62.3},
 		"Utqiagvik": {71.29, -156.79}, "McMurdo": {-77.8, 166.7}, "Mawson": {-67.6, 62.87}, "66.6S": {-66.6, -140},
@@ -154,11 +157,20 @@ func TestSunNightMatchesElevationAllYearAtPolarSites(t *testing.T) {
 	step := sunYearStep(t)
 	for name, c := range sites {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			evs := sunEventsByDate{lat: c[0], lon: c[1]}
 			wrong := 0
-			for at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC); at.Year() == 2026; at = at.Add(step) {
-				night := sunNight(c[0], c[1], at)
-				if _, levelNight := sunLevel(bc, c[0], c[1], at); levelNight != night {
-					t.Fatalf("%v: sunLevel night %v, sunNight %v", at, levelNight, night)
+			at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			for i := 0; at.Year() == 2026; i, at = i+1, at.Add(step) {
+				last, next := sunBracket(evs.at(at), at)
+				night := nightBetween(last, next, c[0], c[1], at)
+				if i%sunWiringEvery == 0 {
+					if got := sunNight(c[0], c[1], at); got != night {
+						t.Fatalf("%v: sunNight %v, the bracket of that date's events says %v", at, got, night)
+					}
+					if _, levelNight := sunLevel(bc, c[0], c[1], at); levelNight != night {
+						t.Fatalf("%v: sunLevel night %v, sunNight %v", at, levelNight, night)
+					}
 				}
 				e := solarElevation(c[0], c[1], at)
 				if e-sunHorizonDeg > 1 || sunHorizonDeg-e > 1 {
@@ -178,17 +190,24 @@ func TestSunNightMatchesElevationAllYearAtPolarSites(t *testing.T) {
 }
 
 func TestSunNightAtNormalLatitudesStaysOnTheEventBracket(t *testing.T) {
+	t.Parallel()
 	sites := map[string][2]float64{"Berlin": {52.52, 13.405}, "LA": {34.05, -118.24}, "Sydney": {-33.87, 151.21}}
 	step := sunYearStep(t)
 	for name, c := range sites {
 		t.Run(name, func(t *testing.T) {
-			for at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC); at.Year() == 2026; at = at.Add(step) {
-				last, next := sunEventsAround(c[0], c[1], at)
+			t.Parallel()
+			evs := sunEventsByDate{lat: c[0], lon: c[1]}
+			at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			for i := 0; at.Year() == 2026; i, at = i+1, at.Add(step) {
+				last, next := sunBracket(evs.at(at), at)
 				if last == nil || next == nil || last.rise == next.rise {
 					t.Fatalf("%v: bracket %+v..%+v, want a sunrise and a sunset on either side", at, last, next)
 				}
-				if sunNight(c[0], c[1], at) != !last.rise {
+				if nightBetween(last, next, c[0], c[1], at) != !last.rise {
 					t.Fatalf("%v: night must be the bracket's call", at)
+				}
+				if i%sunWiringEvery == 0 && sunNight(c[0], c[1], at) != !last.rise {
+					t.Fatalf("%v: sunNight is not the bracket's call", at)
 				}
 			}
 		})

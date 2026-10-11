@@ -78,6 +78,7 @@ func TestSunPopupSkippedWhenDisabledOrBeforeEvent(t *testing.T) {
 }
 
 func TestSunPopupsFireOnceForEveryModelCrossingAllYear(t *testing.T) {
+	t.Parallel()
 	sites := []struct {
 		name, zone string
 		lat, lon   float64
@@ -98,22 +99,18 @@ func TestSunPopupsFireOnceForEveryModelCrossingAllYear(t *testing.T) {
 			}
 			var log sunPopupLog
 			var fired []sunCrossingAt
-			var evs []sunEvent
-			var evsDay time.Time
+			evs := sunEventsByDate{lat: s.lat, lon: s.lon}
 			for now := from; now.Before(to); now = now.Add(time.Minute) {
-				if day := now.Truncate(24 * time.Hour); !day.Equal(evsDay) {
-					evs, evsDay = sunEvents(s.lat, s.lon, now), day
-				}
 				_, off := now.In(loc).Zone()
 				obs := weatherObservation{TZKnown: true, TZOffsetSeconds: off}
-				for _, ev := range log.due(evs, now) {
+				for _, ev := range log.due(evs.at(now), now) {
 					fired = append(fired, sunCrossingAt{ev.at, ev.rise})
 					if got, want := sunClock(ev.at, obs, s.lon), ev.at.In(loc).Format("15:04"); got != want {
 						t.Errorf("%s %v: label %s, local time %s", crossingWord(ev.rise), ev.at, got, want)
 					}
 				}
 			}
-			crossings := scannedSunCrossings(s.lat, s.lon, sunHorizonDeg, from, to)
+			crossings := scannedSunCrossings(s.lat, s.lon, []float64{sunHorizonDeg}, from, to)[0]
 			matches := func(c sunCrossingAt, in []sunCrossingAt) int {
 				n := 0
 				for _, o := range in {

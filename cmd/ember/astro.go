@@ -227,7 +227,10 @@ func sunEvents(lat, lon float64, now time.Time) []sunEvent {
 }
 
 func sunEventsAround(lat, lon float64, now time.Time) (last, next *sunEvent) {
-	evs := sunEvents(lat, lon, now)
+	return sunBracket(sunEvents(lat, lon, now), now)
+}
+
+func sunBracket(evs []sunEvent, now time.Time) (last, next *sunEvent) {
 	for i := range evs {
 		if !evs[i].at.After(now) {
 			last = &evs[i]
