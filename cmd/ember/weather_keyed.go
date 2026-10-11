@@ -80,7 +80,7 @@ func keyedFetchError(ctx context.Context, err error, now time.Time, errRequest, 
 var wmoSeverity = []int{
 	0, 1, 2, 3,
 	45, 48,
-	51, 53, 55, 56, 57, 61, 80, 63, 81, 66, 65, 82, 67,
+	51, 53, 55, 56, 57, 61, 80, 66, 63, 81, 65, 82, 67,
 	71, 85, 77, 73, 75, 86,
 	95, 96, 99,
 }
@@ -108,9 +108,10 @@ func pickDayCode(hours map[int]int) *int {
 }
 
 type providerQuota struct {
-	attemptAt time.Time
-	retryAt   time.Time
-	loaded    bool
+	attemptAt    time.Time
+	retryAt      time.Time
+	savedRetryAt time.Time
+	loaded       bool
 }
 
 func (s *weatherStore) quota(provider string) *providerQuota {
@@ -188,7 +189,9 @@ func (a *App) loadWeatherQuota(cfg WeatherConfig, now time.Time) {
 	if !r.AttemptAt.After(now) {
 		q.attemptAt = later(q.attemptAt, r.AttemptAt)
 	}
-	q.retryAt = later(q.retryAt, earlier(r.RetryUntil, now.Add(weatherRetryAfterMax)))
+	until := earlier(r.RetryUntil, now.Add(weatherRetryAfterMax))
+	q.retryAt = later(q.retryAt, until)
+	q.savedRetryAt = later(q.savedRetryAt, until)
 }
 
 func (a *App) saveWeatherQuota(cfg WeatherConfig) {
@@ -198,7 +201,7 @@ func (a *App) saveWeatherQuota(cfg WeatherConfig) {
 	a.weather.mu.RLock()
 	var r weatherQuotaRecord
 	if q := a.weather.quotas[cfg.Provider]; q != nil {
-		r = weatherQuotaRecord{AttemptAt: q.attemptAt, RetryUntil: q.retryAt}
+		r = weatherQuotaRecord{AttemptAt: q.attemptAt, RetryUntil: q.savedRetryAt}
 	}
 	a.weather.mu.RUnlock()
 	b, err := json.Marshal(r)

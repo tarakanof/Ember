@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"regexp"
 	"slices"
 	"sort"
@@ -523,7 +524,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	res, err := a.weatherFetcher.fetch(ctx, cfg, hint)
 	if err != nil {
 		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "model", cfg.model(), "err", err)
-		a.markWeatherFailedAfter(now, at.Add(time.Since(started)), src, retryAfterOf(err))
+		a.markWeatherFailedAfter(now, at.Add(time.Since(started)), src, retryAfterOf(err), statusOf(err) == http.StatusTooManyRequests)
 		a.saveWeatherQuota(cfg)
 		return
 	}
@@ -637,12 +638,16 @@ func weatherRetryDelay(failures int, refresh time.Duration) time.Duration {
 	return min(d, refresh)
 }
 
-func (a *App) markWeatherFailedAfter(now, received time.Time, src weatherSource, retryAfter time.Duration) {
+func (a *App) markWeatherFailedAfter(now, received time.Time, src weatherSource, retryAfter time.Duration, durable bool) {
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
 	if (WeatherConfig{Provider: src.provider}).minFetchInterval() > 0 && retryAfter > 0 {
 		q := a.weather.quota(src.provider)
-		q.retryAt = later(q.retryAt, received.Add(min(retryAfter, weatherRetryAfterMax)))
+		until := received.Add(min(retryAfter, weatherRetryAfterMax))
+		q.retryAt = later(q.retryAt, until)
+		if durable {
+			q.savedRetryAt = later(q.savedRetryAt, until)
+		}
 	}
 	cfg := a.cfg.Load().Weather
 	if cfg.source() != src {

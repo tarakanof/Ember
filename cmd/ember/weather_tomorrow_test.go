@@ -422,7 +422,7 @@ func TestTomorrow429BacksOffPastTheRefreshInterval(t *testing.T) {
 		min, max   time.Duration
 	}{
 		{"retry-after header", "1800", 30 * time.Minute, 30*time.Minute + time.Second},
-		{"no header waits for the hourly reset", "", time.Second, time.Hour},
+		{"no header waits for the hourly reset", "", time.Nanosecond, time.Hour},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -853,8 +853,8 @@ func TestTomorrowKeepsTheLongestBackoff(t *testing.T) {
 	app := newTomorrowApp(t, st, nil)
 	src := app.cfg.Load().Weather.source()
 	t0 := time.Now()
-	app.markWeatherFailedAfter(t0, t0, src, 30*time.Minute)
-	app.markWeatherFailedAfter(t0, t0, src, time.Minute)
+	app.markWeatherFailedAfter(t0, t0, src, 30*time.Minute, true)
+	app.markWeatherFailedAfter(t0, t0, src, time.Minute, true)
 	until := quotaOf(app, tomorrowIO).retryAt
 	if !until.Equal(t0.Add(30 * time.Minute)) {
 		t.Errorf("deadline = %v after t0, want the 30-min one kept", until.Sub(t0))
@@ -965,4 +965,38 @@ func quotaOf(app *App, provider string) providerQuota {
 		return *q
 	}
 	return providerQuota{}
+}
+
+func TestTomorrowDayCodeOnTheSharedWMOScale(t *testing.T) {
+	utc := func(d, h int) time.Time { return time.Date(2026, 10, d, h, 0, 0, 0, time.UTC) }
+	day := func(hours ...[]string) []string {
+		var out []string
+		for _, h := range hours {
+			out = append(out, h...)
+		}
+		return out
+	}
+	cases := []struct {
+		name  string
+		hours []string
+		want  string
+	}{
+		{"mostly cloudy and cloudy pool as overcast", day(tomorrowHours(utc(11, 10), 1, 1102), tomorrowHours(utc(11, 11), 1, 1001), tomorrowHours(utc(11, 12), 7, 1000)), "3"},
+		{"light freezing rain does not outrank plain rain", day(tomorrowHours(utc(11, 10), 1, 6200), tomorrowHours(utc(11, 11), 1, 4001)), "63"},
+		{"heavy freezing rain outranks heavy rain", day(tomorrowHours(utc(11, 10), 1, 6201), tomorrowHours(utc(11, 11), 1, 4201)), "67"},
+		{"ice pellets pool and rank with snow", day(tomorrowHours(utc(11, 10), 1, 7101), tomorrowHours(utc(11, 11), 1, 7000), tomorrowHours(utc(11, 12), 1, 5000)), "77"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			body := `{"timelines":{"hourly":[` + strings.Join(c.hours, ",") + `],"daily":[{"time":"2026-10-11T04:00:00Z","values":{}}]}}`
+			st := newTomorrowStub(t, []byte(body))
+			obs, err := newTomorrowFetcher(st.srv.URL).fetchTomorrow(t.Context(), belgrade, fetchHint{TZOffsetSeconds: 7200, TZKnown: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(obs.Days) != 1 || obs.Days[0].Code != c.want {
+				t.Errorf("days = %+v, want code %s", obs.Days, c.want)
+			}
+		})
+	}
 }

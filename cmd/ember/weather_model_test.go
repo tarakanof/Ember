@@ -412,7 +412,7 @@ func TestAppWeatherSourcesMatchTheServerLists(t *testing.T) {
 		}
 		return ids
 	}
-	resolve := map[string]string{"openMeteo": "open-meteo", "defaultOpenMeteoModel": defaultOpenMeteoModel, "tomorrowIO": tomorrowIO}
+	resolve := map[string]string{"openMeteo": "open-meteo", "defaultOpenMeteoModel": defaultOpenMeteoModel, "tomorrowIO": tomorrowIO, "weatherAPI": weatherAPI}
 	ids := func(raw []string) []string {
 		out := make([]string, len(raw))
 		for i, r := range raw {

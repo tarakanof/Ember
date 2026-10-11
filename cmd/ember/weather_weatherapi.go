@@ -91,28 +91,29 @@ func (wf *weatherFetcher) fetchWeatherAPI(ctx context.Context, cfg WeatherConfig
 	if body.Current != nil && body.Current.LastUpdatedEpoch <= 0 {
 		body.Current = nil
 	}
-	if body.Current == nil && len(days) == 0 {
-		return weatherObservation{}, errWeatherAPIResponse
-	}
 	var hours []waHour
 	for _, d := range days {
-		hours = append(hours, d.Hour...)
+		for _, h := range d.Hour {
+			if h.TimeEpoch > 0 {
+				hours = append(hours, h)
+			}
+		}
 	}
 	var from time.Time
 	switch {
 	case body.Current != nil:
 		from = time.Unix(body.Current.LastUpdatedEpoch, 0).UTC()
 	case len(hours) > 0:
-		from = time.Unix(hours[0].TimeEpoch, 0).UTC()
+		from = later(hours[0].at(), wf.clock().UTC())
+	default:
+		return weatherObservation{}, errWeatherAPIResponse
 	}
 	obs := weatherObservation{TZOffsetSeconds: hint.TZOffsetSeconds, TZKnown: hint.TZKnown, PrecipStep: weatherAPIPrecipStep}
-	loc := weatherAPILocation(body.Location.TzID)
-	if loc != nil {
+	if loc := weatherAPILocation(body.Location.TzID); loc != nil {
 		_, obs.TZOffsetSeconds = from.In(loc).Zone()
 		obs.TZKnown = true
-	} else {
-		loc = time.FixedZone("", int(localOffset(obs, cfg.Longitude)/time.Second))
 	}
+	off := localOffset(obs, cfg.Longitude)
 	if body.Current != nil {
 		obs.Steps = append(obs.Steps, body.Current.step())
 	}
@@ -145,17 +146,18 @@ func (wf *weatherFetcher) fetchWeatherAPI(ctx context.Context, cfg WeatherConfig
 			obs.Precip = append(obs.Precip, precipStep{At: t.Add(q * weatherAPIPrecipStep), MMh: *h.PrecipMM, Snow: snow})
 		}
 	}
-	obs.Days = waDays(days, loc, from)
-	if len(obs.Steps) > 0 {
-		obs = obs.current(obs.Steps[0].At)
+	if len(obs.Steps) == 0 {
+		return weatherObservation{}, errWeatherAPIResponse
 	}
+	obs.Days = waDays(days, off, from)
+	obs = obs.current(obs.Steps[0].At)
 	return obs, nil
 }
 
 var weatherAPITZPattern = regexp.MustCompile(`^[A-Za-z]+(/[A-Za-z0-9_+\-]+){0,3}$`)
 
 func weatherAPILocation(tz string) *time.Location {
-	if !weatherAPITZPattern.MatchString(tz) {
+	if tz == "Local" || !weatherAPITZPattern.MatchString(tz) {
 		return nil
 	}
 	loc, err := time.LoadLocation(tz)
@@ -187,18 +189,18 @@ func (h waHour) step() currentStep {
 		weatherNow{Cloud: h.Cloud, UV: h.UV, WindKmh: h.WindKph, GustKmh: h.GustKph, WindDir: h.WindDegree})
 }
 
-func waDays(days []waDay, loc *time.Location, from time.Time) []weatherDay {
+func waDays(days []waDay, off time.Duration, from time.Time) []weatherDay {
 	var out []weatherDay
 	for _, d := range days {
 		if len(out) == forecastDays {
 			break
 		}
-		date, err := time.ParseInLocation("2006-01-02", d.Date, loc)
+		date, err := time.Parse("2006-01-02", d.Date)
 		if err != nil {
 			continue
 		}
-		start := date.UTC()
-		end := date.AddDate(0, 0, 1).UTC()
+		start := date.Add(-off)
+		end := start.Add(24 * time.Hour)
 		if !end.After(from) || (len(out) > 0 && !start.After(out[len(out)-1].Start)) {
 			continue
 		}

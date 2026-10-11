@@ -37,6 +37,14 @@ type weatherFetcher struct {
 	weatherAPIKey  string
 	airQualityBase string
 	userAgent      string
+	now            func() time.Time
+}
+
+func (wf *weatherFetcher) clock() time.Time {
+	if wf.now != nil {
+		return wf.now()
+	}
+	return time.Now()
 }
 
 func newWeatherFetcher() *weatherFetcher {
@@ -166,6 +174,14 @@ func parseRetryAfter(v string, now time.Time) time.Duration {
 	}
 	if t, err := http.ParseTime(v); err == nil {
 		return min(max(t.Sub(now), 0), weatherRetryAfterMax)
+	}
+	return 0
+}
+
+func statusOf(err error) int {
+	var he *weatherHTTPError
+	if errors.As(err, &he) {
+		return he.code
 	}
 	return 0
 }

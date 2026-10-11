@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -213,7 +215,7 @@ func TestFetchWeatherAPILeavesMissingValuesOut(t *testing.T) {
 }
 
 func TestFetchWeatherAPIWithoutATimeZoneUsesTheHint(t *testing.T) {
-	for _, tz := range []string{"", "Not/AZone", "../../etc/passwd"} {
+	for _, tz := range []string{"", "Not/AZone", "../../etc/passwd", "Local"} {
 		body := fmt.Sprintf(`{"location":{"tz_id":%q},"current":{"last_updated_epoch":1791706500,"temp_c":7}}`, tz)
 		st := newWAStub(t, []byte(body))
 		obs, err := newWAFetcher(st.srv.URL).fetchWeatherAPI(t.Context(), waBelgrade, fetchHint{TZOffsetSeconds: 3600, TZKnown: true})
@@ -465,17 +467,161 @@ func TestProvidersAvailableFollowEachKey(t *testing.T) {
 	}
 }
 
-func TestFetchWeatherAPIWithoutACurrentTimeUsesTheHours(t *testing.T) {
+func TestFetchWeatherAPIWithoutACurrentTimeStartsAtNow(t *testing.T) {
+	var hours []string
+	for i := range 24 {
+		precip := 0.0
+		if i == 15 {
+			precip = 3
+		}
+		hours = append(hours, fmt.Sprintf(`{"time_epoch":%d,"temp_c":%d,"condition":{"code":1000},"precip_mm":%v}`, 1791669600+i*3600, 10+i, precip))
+	}
 	body := `{"location":{"tz_id":"Europe/Belgrade"},"current":{"temp_c":30},
-"forecast":{"forecastday":[{"date":"2026-10-11","day":{},"hour":[
-{"time_epoch":1791705600,"temp_c":12,"condition":{"code":1000}},{"time_epoch":1791709200,"temp_c":13,"condition":{"code":1183}}]}]}}`
+"forecast":{"forecastday":[{"date":"2026-10-11","day":{},"hour":[` + strings.Join(hours, ",") + `]}]}}`
 	st := newWAStub(t, []byte(body))
-	obs, err := newWAFetcher(st.srv.URL).fetchWeatherAPI(t.Context(), waBelgrade, fetchHint{})
+	wf := newWAFetcher(st.srv.URL)
+	now := time.Date(2026, 10, 11, 12, 20, 0, 0, time.UTC)
+	wf.now = func() time.Time { return now }
+	obs, err := wf.fetchWeatherAPI(t.Context(), waBelgrade, fetchHint{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !obs.ObservedAt.Equal(time.Unix(1791705600, 0)) || obs.TempC != 12 {
-		t.Errorf("observed %v at %v °C, want the first hour (a current block without a time is not used)", obs.ObservedAt, obs.TempC)
+	hour := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	if !obs.ObservedAt.Equal(hour) || obs.TempC != 24 || !obs.HourlyStart.Equal(hour) || !obs.Precip[0].At.Equal(hour) {
+		t.Errorf("observed %v at %v °C, hourly from %v, rain from %v; want the hour holding now (12:00Z), not local midnight (a current block without a time is not used)",
+			obs.ObservedAt, obs.TempC, obs.HourlyStart, obs.Precip[0].At)
+	}
+	if g := obs.Precip[4*1]; !approxEq(g.MMh, 3) {
+		t.Errorf("13:00Z step = %+v, want the 3 mm/h hour inside the 12-h window", g)
+	}
+}
+
+func TestFetchWeatherAPIFailsWithoutAnyCurrentOrHourlyStep(t *testing.T) {
+	for _, body := range []string{
+		`{"forecast":{"forecastday":[{"date":"2026-10-11","hour":[]}]}}`,
+		`{"current":{"temp_c":7},"forecast":{"forecastday":[{"date":"2026-10-11","hour":[{"time_epoch":0,"temp_c":3}]}]}}`,
+		`{"forecast":{"forecastday":[{"date":"2026-10-11","hour":[{"time_epoch":1791669600,"temp_c":3}]}]}}`,
+	} {
+		st := newWAStub(t, []byte(body))
+		wf := newWAFetcher(st.srv.URL)
+		wf.now = func() time.Time { return time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC) }
+		if _, err := wf.fetchWeatherAPI(t.Context(), waBelgrade, fetchHint{}); err == nil || err.Error() != "weatherapi: invalid response" {
+			t.Errorf("%s: err = %v, want invalid response", body, err)
+		}
+	}
+}
+
+func TestWeatherAPIEmptyReplyKeepsTheCachedObservation(t *testing.T) {
+	st := newWAStub(t, waFixture(t))
+	app := newWAApp(t, st)
+	t0 := waT0.Add(time.Minute)
+	app.pollWeather(context.Background(), t0)
+	empty := []byte(`{"forecast":{"forecastday":[{"date":"2026-10-11","hour":[]}]}}`)
+	st.body.Store(&empty)
+	app.pollWeather(context.Background(), t0.Add(10*time.Minute))
+	if st.hits.Load() != 2 {
+		t.Fatalf("hits = %d, want 2", st.hits.Load())
+	}
+	wx := app.weather.state(app.cfg.Load().Weather, t0.Add(10*time.Minute))
+	if !wx.HaveObs || wx.Obs.TempC != 14.2 || !wx.Obs.ObservedAt.Equal(waT0) {
+		t.Errorf("cache after an empty reply = have %v, %v °C at %v; want the earlier observation kept", wx.HaveObs, wx.Obs.TempC, wx.Obs.ObservedAt)
+	}
+}
+
+func waDSTBody(t *testing.T, dates []string, current time.Time) []byte {
+	t.Helper()
+	var days []string
+	for _, d := range dates {
+		days = append(days, fmt.Sprintf(`{"date":%q,"day":{"maxtemp_c":10},"hour":[]}`, d))
+	}
+	return []byte(fmt.Sprintf(`{"location":{"tz_id":"Europe/Belgrade"},"current":{"last_updated_epoch":%d,"temp_c":5},"forecast":{"forecastday":[%s]}}`,
+		current.Unix(), strings.Join(days, ",")))
+}
+
+func TestWeatherAPIDayStartsUseTheObservationsOffsetAcrossDST(t *testing.T) {
+	cases := []struct {
+		name    string
+		dates   []string
+		current time.Time
+		offset  int
+	}{
+		{"spring forward 2027-03-28", []string{"2027-03-27", "2027-03-28", "2027-03-29"}, time.Date(2027, 3, 27, 11, 0, 0, 0, time.UTC), 3600},
+		{"fall back 2026-10-25", []string{"2026-10-24", "2026-10-25", "2026-10-26"}, time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC), 7200},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st := newWAStub(t, waDSTBody(t, c.dates, c.current))
+			obs, err := newWAFetcher(st.srv.URL).fetchWeatherAPI(t.Context(), waBelgrade, fetchHint{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if obs.TZOffsetSeconds != c.offset || len(obs.Days) != 3 {
+				t.Fatalf("offset %d, %d days; want %d and 3", obs.TZOffsetSeconds, len(obs.Days), c.offset)
+			}
+			for i, d := range obs.Days {
+				label := d.Start.Add(time.Duration(c.offset) * time.Second).UTC()
+				if got := label.Format("2006-01-02 15:04"); got != c.dates[i]+" 00:00" {
+					t.Errorf("day %d labelled %s with the knob's single offset, want %s 00:00", i, got, c.dates[i])
+				}
+			}
+		})
+	}
+}
+
+func TestKeyRejectionIsNotPersistedAcrossARestart(t *testing.T) {
+	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			db := t.TempDir() + "/s.db"
+			st := newWAStub(t, waFixture(t))
+			st.status.Store(int32(code))
+			a := newWAApp(t, st)
+			if err := a.ensureStore(db); err != nil {
+				t.Fatal(err)
+			}
+			t0 := time.Now()
+			a.pollWeather(context.Background(), t0)
+			if quotaOf(a, weatherAPI).retryAt.IsZero() {
+				t.Fatalf("a %d set no in-memory hold", code)
+			}
+			if v, _, _ := a.store.GetSetting(weatherQuotaKey(weatherAPI)); !strings.Contains(v, `"retry_until":"0001-01-01T00:00:00Z"`) {
+				t.Errorf("stored row = %s, want no retry deadline for a %d", v, code)
+			}
+			st.status.Store(0)
+			b := newWAApp(t, st)
+			if err := b.ensureStore(db); err != nil {
+				t.Fatal(err)
+			}
+			b.pollWeather(context.Background(), t0.Add(6*time.Minute))
+			if st.hits.Load() != 2 {
+				t.Errorf("%d requests after a restart (the fixed key), want 2: a %d hold must not outlive the process", st.hits.Load(), code)
+			}
+		})
+	}
+}
+
+func TestAppWeatherSourcesPairEachKeyedIDWithItsKey(t *testing.T) {
+	src, err := os.ReadFile("../../macos/Sources/EmberKit/Settings/WeatherSources.swift")
+	if err != nil {
+		t.Fatal(err)
+	}
+	consts := map[string]string{}
+	for _, m := range regexp.MustCompile(`static let (\w+) = "([^"]+)"`).FindAllStringSubmatch(string(src), -1) {
+		consts[m[1]] = m[2]
+	}
+	got := map[string]string{}
+	for _, m := range regexp.MustCompile(`WeatherSourceOption\(id: ("[^"]+"|\w+),[^\n]*keyEnv: "([^"]+)"\)`).FindAllStringSubmatch(string(src), -1) {
+		id := strings.Trim(m[1], `"`)
+		if v, ok := consts[m[1]]; ok {
+			id = v
+		}
+		got[id] = m[2]
+	}
+	want := map[string]string{}
+	for p, k := range keyedProviders {
+		want[p] = k.env
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("app keyed providers %v, server %v", got, want)
 	}
 }
 
