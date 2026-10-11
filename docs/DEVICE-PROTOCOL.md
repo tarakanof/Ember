@@ -48,7 +48,8 @@ and fall under the same rules as the view.
    cinder's parsers skip unknown keys. A sender leaves out a block that does
    not apply rather than sending `null`. Existing exceptions, kept: the view's
    `pomo` and `weather` are `null` when off, and `weather.sunrise`/`sunset`
-   are `null` without a location or in polar day/night.
+   are `null` without a location, in polar day/night, and both on a boundary
+   day with only one crossing (a sunrise but no sunset, or the reverse).
 2. **Removing or retyping a field is breaking.** In the view it needs a new
    view major `v` (today always `1`). The server keeps serving the old major
    to any device that doesn't ask for the new one, for at least two releases.
