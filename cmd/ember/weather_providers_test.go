@@ -542,3 +542,27 @@ func TestAirWaitsRefreshMinutesWhileWeatherRetries(t *testing.T) {
 		t.Errorf("air requests at 14 min = %d, want 2: refetched once refresh_minutes old", a)
 	}
 }
+
+func TestMetDaysKeepAPeriodsExtremaWhenTheGapEndsBeforeItsMidpoint(t *testing.T) {
+	body := `[
+{"time":"2026-06-21T22:00:00Z","data":{"instant":{"details":{"air_temperature":10}},
+ "next_6_hours":{"summary":{"symbol_code":"cloudy"},"details":{"air_temperature_min":3,"air_temperature_max":25}}}},
+{"time":"2026-06-22T00:00:00Z","data":{"instant":{"details":{"air_temperature":11}},
+ "next_6_hours":{"summary":{"symbol_code":"cloudy"},"details":{"air_temperature_min":9,"air_temperature_max":12}}}}
+]`
+	var ts []metEntry
+	if err := json.Unmarshal([]byte(body), &ts); err != nil {
+		t.Fatal(err)
+	}
+	days := metDays(ts, 0)
+	if len(days) != 2 {
+		t.Fatalf("days = %+v, want 2", days)
+	}
+	if a := days[0]; !approx(a.MinC, 3) || !approx(a.MaxC, 25) {
+		t.Errorf("day 0 = min %v max %v, want 3..25: the 22:00 period's min/max on the only day its 2-h gap covers",
+			valueOr(a.MinC, -1), valueOr(a.MaxC, -1))
+	}
+	if b := days[1]; !approx(b.MinC, 9) || !approx(b.MaxC, 12) {
+		t.Errorf("day 1 = min %v max %v, want 9..12: its own period only", valueOr(b.MinC, -1), valueOr(b.MaxC, -1))
+	}
+}

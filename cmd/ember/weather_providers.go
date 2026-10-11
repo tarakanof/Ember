@@ -410,7 +410,7 @@ func metDays(ts []metEntry, off time.Duration) []weatherDay {
 			continue
 		}
 		end := e.Time.Add(span)
-		extremaDay := dayStart(e.Time.Add(period/2 - time.Nanosecond))
+		extremaDay := dayStart(e.Time.Add(min(period/2, span) - time.Nanosecond))
 		for from := e.Time; from.Before(end); {
 			di := dayIndex(from)
 			if di < 0 {
