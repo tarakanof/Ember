@@ -2735,7 +2735,11 @@ paths:
         unknown. For a knob that reported `caps`,
         `v` is min(1, `caps.view[1]`) and a page's block (`mood`, `pomo`,
         `weather`, `nowplaying`) is sent only when the page is in `caps.pages`
-        and on; a legacy knob's view is unchanged.
+        and on; a legacy knob's view is unchanged. With the `wx_faces` caps
+        feature, `weather` also carries `utc_offset`, `now`, `today`, `rain`
+        (`until`, `spells`), `days`, `twilight`, `moon` and `aqi` after
+        `observed_at` (DEVICE-PROTOCOL.md "Weather detail"); a body over
+        `caps.limits.view_bytes` drops them first.
       security: [{deviceToken: []}]
       parameters:
         - name: wait
@@ -2764,6 +2768,12 @@ paths:
                   externalValue: ../cmd/ember/testdata/devices/view_quiet.json
                 view_caps_limited:
                   externalValue: ../cmd/ember/testdata/devices/view_caps_limited.json
+                view_faces:
+                  externalValue: ../cmd/ember/testdata/devices/view_faces.json
+                view_faces_met:
+                  externalValue: ../cmd/ember/testdata/devices/view_faces_met.json
+                view_faces_polar_dry:
+                  externalValue: ../cmd/ember/testdata/devices/view_faces_polar_dry.json
         "304":
           description: Unchanged since If-None-Match.
         "401":

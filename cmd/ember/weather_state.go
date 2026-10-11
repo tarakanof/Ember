@@ -22,6 +22,10 @@ type weatherState struct {
 	HaveSun  bool
 	Sunrise  time.Time
 	Sunset   time.Time
+
+	At           time.Time
+	Lat, Lon     float64
+	HaveLocation bool
 }
 
 func newWeatherState(cfg WeatherConfig, obs weatherObservation, haveObs bool, air airObservation, haveAir bool, now time.Time) weatherState {
@@ -35,8 +39,12 @@ func newWeatherState(cfg WeatherConfig, obs weatherObservation, haveObs bool, ai
 		HaveAir:  haveAir,
 		AirFresh: haveAir && now.Sub(air.FetchedAt) < weatherStaleAfter,
 		LocalDay: localDay(now, obs, cfg.Longitude),
+		At:       now,
+		Lat:      cfg.Latitude,
+		Lon:      cfg.Longitude,
 	}
 	if cfg.Latitude != 0 || cfg.Longitude != 0 {
+		s.HaveLocation = true
 		s.Night = sunNight(cfg.Latitude, cfg.Longitude, now)
 		s.Sunrise, s.Sunset, s.HaveSun = localSunTimes(cfg.Latitude, cfg.Longitude, now, obs)
 	}

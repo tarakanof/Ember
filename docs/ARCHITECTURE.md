@@ -1362,6 +1362,14 @@ fetch and take that fetch's result directly. Presentation stays with each
 reader (`roundedSun` gives the 5-min rounding the dashboard and knob share).
 The state shares the store's `Hourly`/`HourlyAQI` slices: readers treat them
 as read-only, and the poller only ever replaces whole observations.
+`faces()` (`weather_faces.go`, #350) derives the knob-face values from the
+state, on demand because the moon scan is the costly part: the offset in
+use, the rain spells of the next 12 h relative to now (wet ≥ 0.1 mm/h,
+≤ 30-min gaps merged, peak intensity, at most 4, ended ones dropped), the
+current step's intensity and the end of the spell containing now, today
+(the day containing now, its min/max widened to the current temperature)
+and the next 3 days, the local twilight and the moon's phase, lit fraction
+and up window (no location: phase and lit fraction only).
 
 The coordinator reconciles three rotating tiles with the same
 change-and-staleness dedupe as the usage card:
@@ -3807,9 +3815,16 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (the blocks of the `bot`, `pomodoro`, `weather` and `nowplaying` pages)
   are left out unless the page is in `caps.pages` and on in the knob's
   `pages`; a kept `pomo` or `weather` is still `null` when off. A body over
-  `caps.limits.view_bytes` (floor 4096) drops `nowplaying`, then `weather`,
-  then `pomo` until it fits, and logs once per device if it still doesn't. A knob without `caps` gets the body above unchanged, bytes
+  `caps.limits.view_bytes` (floor 4096) drops the weather detail, then
+  `nowplaying`, then `weather`, then `pomo` until it fits, and logs once per device if it still doesn't. A knob without `caps` gets the body above unchanged, bytes
   and ETag (`knobView` skips the filter for it).
+  **Weather detail (#350):** a knob whose caps list `wx_faces` gets
+  `utc_offset`, `now`, `today`, `rain`, `days`, `twilight`, `moon` and
+  `aqi` appended to its `weather` block (`devices_view_weather.go`, an
+  embedded `*knobWeatherDetail` left nil otherwise, so every other view
+  keeps its bytes). It projects `weatherState.faces()` to integers; the
+  shapes and rules are in DEVICE-PROTOCOL.md "Weather detail". Building it
+  costs ~90 µs (the moon scan), paid only for such knobs.
 - **Knob view long-poll (#235).** `?wait=N` (whole seconds, capped at 25,
   `devices_view_wait.go`) with `If-None-Match` holds the request while the
   view still matches the tag: 200 with the new body as soon as it changes,

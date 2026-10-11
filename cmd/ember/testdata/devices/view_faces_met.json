@@ -1,0 +1,97 @@
+{
+  "v": 1,
+  "epoch": 1,
+  "config_version": 1,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 0,
+    "done": 0,
+    "source": ""
+  },
+  "weather": {
+    "provider": "met-no",
+    "cond": "clouds",
+    "code": "cloudy",
+    "temp_c": 14,
+    "stale": false,
+    "severe": false,
+    "night": false,
+    "sunrise": 1782013500,
+    "sunset": 1782073200,
+    "observed_at": 1782043200,
+    "utc_offset": 0,
+    "now": {
+      "cloud": 70,
+      "uv": 3,
+      "wind_kmh": 15,
+      "wind_dir": 200,
+      "rain": 0
+    },
+    "today": {
+      "min_c": 14,
+      "max_c": 17,
+      "uv_max": 3
+    },
+    "rain": {
+      "spells": [
+        [
+          1782050400,
+          1782061200,
+          2,
+          0
+        ],
+        [
+          1782075600,
+          1782079200,
+          1,
+          1
+        ]
+      ]
+    },
+    "days": [
+      {
+        "t": 1782086400,
+        "cond": "storm",
+        "code": "heavyrainandthunder",
+        "min_c": 8,
+        "max_c": 19,
+        "precip_mm10": 13
+      },
+      {
+        "t": 1782172800,
+        "cond": "snow",
+        "code": "snow",
+        "min_c": 8,
+        "max_c": 17,
+        "precip_mm10": 6
+      },
+      {
+        "t": 1782259200,
+        "cond": "storm",
+        "code": "heavyrainandthunder",
+        "min_c": 8,
+        "max_c": 17,
+        "precip_mm10": 6
+      }
+    ],
+    "twilight": {
+      "dawn": 1782010500,
+      "blue_end": 1782011700,
+      "golden_end": 1782016500,
+      "golden_start": 1782069900,
+      "blue_start": 1782075000,
+      "dusk": 1782076200
+    },
+    "moon": {
+      "phase": 24,
+      "illum": 46,
+      "rise": 1782042000,
+      "set": 1782085560
+    }
+  },
+  "brightness": {
+    "level": 255,
+    "night": false
+  }
+}

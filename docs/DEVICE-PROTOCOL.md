@@ -17,7 +17,7 @@ Every route the knob calls, all with its device token (`ekd_…`):
 | Route | What |
 |---|---|
 | `POST /v1/devices/self/checkin` | Health report in, optionally with `caps` ("Capabilities" below); reply carries `config_version`, `caps_ack` when the caps were accepted, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
-| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on) and `diag_live_until` (live mode only). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
+| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on) and `diag_live_until` (live mode only). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
 | `GET /v1/devices/self/config` | `{config_version, config}`, the same pair a stale checkin carries. |
 | `PUT /v1/devices/self/coredump?id=` | The core dump a checkin asked for. |
 | `GET /v1/devices/self/firmware/{version}` | The image the checkin's `ota` offer names. |
@@ -135,8 +135,8 @@ dropped caps, `caps_error`; absent for the clock and on servers before
   (`bot` → `mood`, `pomodoro` → `pomo`, `weather` → `weather`, `nowplaying`
   → `nowplaying`); a left-out block is absent, while a kept `pomo` or
   `weather` is still `null` when its feature is off. A body over
-  `limits.view_bytes` drops `nowplaying`, then `weather`, then `pomo`;
-  `mood` stays. If it is still over, the server serves it and logs once per
+  `limits.view_bytes` drops the weather detail ("Weather detail"), then
+  `nowplaying`, then `weather`, then `pomo`; `mood` stays. If it is still over, the server serves it and logs once per
   device (`knob view over its caps view_bytes`) until it fits again.
 - **Config PUT** (owner): 400 when it turns on a page that is not in
   `caps.pages` (a page that was already on stays valid, and ids that are
@@ -180,6 +180,7 @@ pre-releases the same way):
 | `ota_rollback` | Installs Ember's OTA offers and rolls back a bad image | none yet: offers still need the checkin's `ota.rollback` (the bootloader) |
 | `coredump` | Uploads a core dump on `coredump_wanted`, erases on `coredump_ack` | none yet |
 | `stats_intervals` | Applies `stats_interval_s` and `live_interval_s` from its config | Ember.app shows the interval pickers |
+| `wx_faces` | Parses the weather detail keys ("Weather detail") | The detail keys are added to `weather` only with this token |
 
 Page ids in `caps.pages` need no registry: they are the config's page ids;
 Ember.app lists a knob app only when its page is in `effective_caps.pages`.
@@ -193,6 +194,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | old | new | no `caps_ack`; the knob behaves as today | cinder host test with the pre-caps fixtures; Ember side: a reply without accepted caps has no `caps_ack` (`TestInvalidCapsAreDroppedWithoutAck`) |
 | new | new, `v` outside range | server sends `v` = min(1, `caps.view[1]`); the knob keeps its last view and shows the update state | `TestCapsKnobViewMajorIsTheLowerOfServerAndFirmware`; cinder host test with a `v:99` fixture |
 | new | new, `rotations` listed or not | `effective_caps.rotations` sorted, `[0]` when missing; config PUT 400 for a rotation outside it, a stored one kept; a legacy or downgraded knob is unchecked | `TestCapsRotationsPresentAndMissing`, `TestCapsKnobConfigPutRejectsRotationOutsideCaps`, `TestCapsKnobDowngradedToLegacyFirmwareKeepsAndFreesRotation`, `TestLegacyKnobConfigPutIsNotCheckedForRotation`, `TestKnobRotationRoundTripsAndReachesTheKnob` |
+| new | new, `wx_faces` or not | detail only with the token and the `weather` block; a caps knob without it gets the legacy block; dropped first to fit `view_bytes`; the worst case stays under 8 KB | `TestKnobViewWeatherFacesGolden` (`view_faces*.json`, `devices_view_weather_test.go`), `TestCapsKnobWithoutWxFacesGetsNoWeatherDetail`, `TestCapsKnobWithWxFacesButWeatherPageOffGetsNoWeather`, `TestCapsKnobViewDropsWeatherDetailFirst`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Quiet hours
@@ -254,7 +256,8 @@ knob can show how old the observation itself is, not only how long ago
 Ember last fetched it (`stale`):
 
 - **Format:** an integer of Unix seconds (UTC), like `ends_at` and
-  `sunrise`/`sunset`, the last key of `weather`
+  `sunrise`/`sunset`, the last key of the legacy `weather` block; the
+  `wx_faces` detail keys follow it
   (`"observed_at":1782041400`). The knob gets the age as
   `X-Ember-Now` minus it, with no date parsing.
 - **Source:** the provider's own time for the current values. Open-Meteo:
@@ -267,6 +270,116 @@ Ember last fetched it (`stale`):
 - **Old firmware** skips the unknown key. The body grows by 25 B.
   A new fetch with a new provider time moves the ETag even when the
   shown values did not change.
+
+## Weather detail
+
+With `wx_faces` in its caps (#350, cinder#33/#34), a knob's `weather`
+block gains detail keys after `observed_at`, for the new faces. The
+existing keys are unchanged; the detail rides the block, so it is sent
+only when `weather` is (page in `caps.pages` and on, weather enabled and
+fetched). Legacy knobs and caps knobs without the token get the block
+byte-identical to before (`view_full.json`, `view_caps_limited.json`).
+
+```json
+"weather": {
+  "provider": "open-meteo", "cond": "rain", "code": "61", "temp_c": 15.4,
+  "stale": false, "severe": false, "night": false,
+  "sunrise": 1782013500, "sunset": 1782073200, "observed_at": 1782043200,
+  "utc_offset": 3600,
+  "now": {"cloud": 94, "uv": 3, "wind_kmh": 21, "gust_kmh": 38, "wind_dir": 225, "rain": 1},
+  "today": {"min_c": 9, "max_c": 15, "uv_max": 4, "gust_max_kmh": 41, "pop": 83},
+  "rain": {"until": 1782050400, "spells": [[1782043200, 1782050400, 2, 0], [1782061200, 1782064800, 1, 1]]},
+  "days": [
+    {"t": 1782082800, "cond": "clouds", "code": "3", "min_c": 7, "max_c": 16, "pop": 32, "precip_mm10": 0},
+    {"t": 1782169200, "cond": "rain", "code": "61", "min_c": 11, "max_c": 17, "pop": 19, "precip_mm10": 8},
+    {"t": 1782255600, "cond": "snow", "code": "71", "min_c": -4, "max_c": 3, "pop": 40, "precip_mm10": 13}
+  ],
+  "twilight": {"dawn": 1782010500, "blue_end": 1782011700, "golden_end": 1782016500,
+               "golden_start": 1782069900, "blue_start": 1782075000, "dusk": 1782076200},
+  "moon": {"phase": 24, "illum": 46, "rise": 1782042000, "set": 1782085560},
+  "aqi": 42
+}
+```
+
+General rules:
+
+- Times are Unix seconds (UTC). Every other value is an integer rounded
+  half away from zero; units are metric always (°C, km/h, mm × 10, %,
+  degrees). `temp_c` stays a float.
+- A value the provider lacks is **left out**, never `null` or `0`; an
+  object with nothing in it is left out too (except `rain` and `moon`).
+
+Keys:
+
+- **`utc_offset`**: the location's offset in seconds, for HH:MM labels and
+  weekday names (the knob has no time zone). Open-Meteo's
+  `utc_offset_seconds`; with MET Norway the air-quality call's when air is
+  on; otherwise `lon/15` whole hours (Ember's fallback, wrong across DST).
+- **`now`**: the provider's current values. `cloud` 0-100; `uv`
+  (Open-Meteo cloud-adjusted, MET clear-sky); `wind_kmh`, `gust_kmh`
+  (MET: Nordic only); `wind_dir` 0-359, where the wind comes from;
+  `rain` the intensity of the precipitation step containing now, 0 none,
+  1 light, 2 moderate, 3 heavy (cinder's `wx_intensity_t`), by mm/h:
+  < 0.1, < 2.5, < 7.6, else heavy. `rain` is left out when no step covers
+  now.
+- **`today`**: the local day. `min_c`/`max_c` widened to include `temp_c`,
+  so a gauge marker always sits on the ring (MET only knows the rest of
+  today). `uv_max`, `gust_max_kmh`, `pop` when the provider has them
+  (Open-Meteo; MET `pop` in the Nordic area only, `gust_max_kmh` too, and
+  `uv_max` only in its short range).
+- **`rain`**: always present with the detail. `spells` covers the next
+  12 h: at most 4 `[start, end, intensity 1-3, kind]`, kind 0 rain, 1 snow
+  or sleet (most of the spell's wet steps). A spell is a run of wet steps
+  (≥ 0.1 mm/h; Open-Meteo 15-min steps, MET 1-h steps); gaps of ≤ 30 min
+  merge; intensity is the peak. `start` may be in the past for an ongoing
+  spell; ended spells are dropped when the view is built. `until` is the
+  end of the spell containing now, absent when dry now. `"spells": []`
+  means dry for 12 h.
+- **`days`**: the next 3 local days after today, fewer when the
+  provider's range ends. `t` is local midnight. `cond`/`code` use the
+  current mapping: Open-Meteo's daily `weather_code`, MET's worst symbol
+  of the day (storm > snow > rain > fog > clouds > clear). `pop`
+  (Open-Meteo, MET Nordic); `precip_mm10` the day's sum in tenths of mm.
+- **`twilight`**: the local day's crossings, rounded to 5 min like
+  `sunrise`/`sunset`: `dawn` (−6° rising), `blue_end` (−4°), `golden_end`
+  (+6°), `golden_start` (+6° setting), `blue_start` (−4°), `dusk` (−6°).
+  The bands are `dawn`→`blue_end` (blue), `blue_end`→`golden_end`
+  (golden) and mirrored in the evening. A crossing that does not happen
+  (polar summer and winter) is left out; no location, no `twilight`.
+- **`moon`**: `phase` 0-99, the position in the cycle (0 new, 25 first
+  quarter, 50 full, 75 last quarter; waxing = `phase` < 50); `illum`
+  0-100, the lit fraction. `rise`/`set` give the current or next
+  above-horizon interval within ±36 h, to the minute: `rise` may be in
+  the past, up = `rise` ≤ now < `set`. An end not found is left out
+  (polar); no location, neither.
+- **`aqi`**: the European AQI while the air reading is fresh. Absent
+  otherwise.
+
+The server computes everything that needs the series or astronomy
+(spells, `until`, `today`, twilight, moon, `utc_offset`); the knob owns
+every trigger and threshold of its weather moments (rain starting or
+stopping from `now.rain`/`rain.until`, storm and snow from `cond`, heat,
+wind, frost). No raw hourly arrays: no face draws one, and each value
+costs the knob's cJSON an allocation. A future series would ride a new
+token.
+
+**Size.** The example adds 759 B (compact; the whole `view_faces.json` view is 1,086 B). The worst case (4 spells, 40-char MET
+codes in `days`, negatives) is ~1.2 KB of `weather`, and the worst whole
+view with every block (three 200-character fully escaped now-playing
+strings, 64-character hosts) is 5.5 KB, a third of `view_bytes` 16383
+(`TestKnobViewWorstCaseFitsHalfTheBuffer` keeps it under 8 KB). Bytes are
+not the constraint; the knob's cJSON allocations are: the block goes from
+~24 to ~150 nodes, which is why cinder#33 parses the view on PSRAM
+first.
+
+**Cadence and ETag.** The detail changes on a fetch and at a few
+boundaries (a spell ends, the 15-min rain step changes, the moon rises or
+sets, the phase or lit fraction moves a percent, local midnight). Nothing
+else moves with the clock: moon times come from a whole-hour scan grid,
+so they don't shift with `now`.
+
+**Old firmware** never sends the token, so it never gets the keys; a
+firmware that sends it must skip keys it doesn't know inside the detail.
 
 ## Fixtures
 
@@ -282,10 +395,13 @@ Indented JSON; key order is the wire order.
 | `view_nowplaying_none.json` | `nowplaying` page on, nothing playing (`{"state":"none"}`); idle `pomo` (`remaining_sec`) |
 | `view_quiet.json` | Quiet hours on: `"quiet":true` after `brightness`; Pomodoro and weather off |
 | `view_caps_limited.json` | A knob whose caps list only `bot` and `weather`, every page on and every block live as in `view_full.json`: `pomo` and `nowplaying` left out |
+| `view_faces.json` | A `wx_faces` knob (caps `bot`, `weather`), Open-Meteo through a stub provider: every detail key, two spells (one ongoing moderate rain, one snow), `until`, three days, all six twilight crossings, the moon up with `rise` in the past, `aqi`, `utc_offset` from Open-Meteo |
+| `view_faces_met.json` | The same knob on MET Norway (non-Nordic: no `gust_kmh`, no `pop`), air off (no `aqi`, `utc_offset` the longitude's 0), 1-h spells, dry now (`now.rain` 0, no `until`), days from MET symbols |
+| `view_faces_polar_dry.json` | Longyearbyen on 1 September: `"spells": []`, only the golden-hour crossings (the sun never gets to −4°), the moon up with no `set` within 36 h |
 | `view_single_host_paused.json` | One host: `source` set, `lead`/`hosts` left out; paused `pomo` with `remaining_sec`; `weather` without a location (`sunrise`/`sunset` `null`) and without a provider observation time (`observed_at` absent) |
 | `checkin_req_minimal.json` | The base fields every firmware sends |
 | `checkin_req_full.json` | Every block: `diag` with a crash, `ota` with `last`, `stats`, `wifi`, the display link |
-| `checkin_req_caps.json` | The base fields plus `caps` (every page and feature of 0.9.41, its limits, `rotations` `[0, 180]`) |
+| `checkin_req_caps.json` | The base fields plus `caps` (every page and feature of 0.9.41, its limits, `rotations` `[0, 180]`); not yet `wx_faces` (below) |
 | `checkin_reply_current.json` | Knob up to date: `config_version` only |
 | `checkin_reply_config.json` | Stale knob: `config` included |
 | `checkin_reply_coredump.json` | Live mode plus `coredump_wanted` |
@@ -323,6 +439,13 @@ for key and value for value, except for paths in `NOT_YET_SENT[]` in
    `NOT_YET_SENT`, since the firmware doesn't send it yet and the host test
    fails without the entry.
 3. The firmware PR that starts sending the field removes the entry.
+
+`NOT_YET_SENT` matches object keys only: `body_diff` compares an array
+such as `caps.features` whole (`cJSON_Compare`), so it cannot exempt one
+new feature token. `checkin_req_caps.json` therefore stays at 0.9.41's
+caps until the firmware sends `wx_faces`; the cinder PR that adds the
+token either teaches the host test an element exemption or lands with an
+Ember PR that adds the token to the fixture, synced in the same step.
 
 The host test fails on a listed path the firmware sends, on a listed path no
 fixture has, and on a key the firmware sends that the fixture lacks, so the

@@ -32,6 +32,7 @@ const (
 	featureOTARollback    = "ota_rollback"
 	featureCoredump       = "coredump"
 	featureStatsIntervals = "stats_intervals"
+	featureWxFaces        = "wx_faces"
 )
 
 var capsFeaturePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
@@ -215,6 +216,10 @@ func (c deviceCaps) normalized() *deviceCaps {
 }
 
 func (c *deviceCaps) hasPage(id string) bool { return slices.Contains(c.Pages, id) }
+
+func (c *deviceCaps) hasFeature(token string) bool {
+	return c != nil && slices.Contains(c.Features, token)
+}
 
 func (c *deviceCaps) rotations() []int {
 	if c == nil || len(c.Rotations) == 0 {

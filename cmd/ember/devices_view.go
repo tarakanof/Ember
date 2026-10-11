@@ -70,6 +70,7 @@ type knobWeather struct {
 	Sunrise    *int64  `json:"sunrise"`
 	Sunset     *int64  `json:"sunset"`
 	ObservedAt *int64  `json:"observed_at,omitempty"`
+	*knobWeatherDetail
 }
 
 type knobNowPlaying struct {
@@ -120,7 +121,7 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 		ConfigVersion: st.version,
 		Mood:          block(&m),
 		Pomo:          block(a.knobPomo(now)),
-		Weather:       block(a.knobWeather(now)),
+		Weather:       block(a.knobWeatherFor(now, st.caps.hasFeature(featureWxFaces))),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},
 		Quiet:         a.cfg.Load().quietAt(now),
 		DiagLiveUntil: a.knobLiveUnix(id, st.cfg.Diagnostics, now),
@@ -166,6 +167,11 @@ func (v *knobView) applyCaps(caps *deviceCaps, cfg knobSettings) {
 
 func (v *knobView) fit(body []byte, limit int) ([]byte, error) {
 	drops := []func(){
+		func() {
+			if v.Weather.val != nil {
+				v.Weather.val.knobWeatherDetail = nil
+			}
+		},
 		func() { v.NowPlaying = nil },
 		func() { v.Weather.on = false },
 		func() { v.Pomo.on = false },
@@ -228,7 +234,9 @@ func (a *App) knobPomo(now time.Time) *knobPomo {
 	return p
 }
 
-func (a *App) knobWeather(now time.Time) *knobWeather {
+func (a *App) knobWeather(now time.Time) *knobWeather { return a.knobWeatherFor(now, false) }
+
+func (a *App) knobWeatherFor(now time.Time, detail bool) *knobWeather {
 	cfg := a.cfg.Load().Weather
 	wx := a.weather.state(cfg, now)
 	if !wx.HaveObs || !wx.Enabled {
@@ -251,6 +259,9 @@ func (a *App) knobWeather(now time.Time) *knobWeather {
 	if !wx.Obs.ObservedAt.IsZero() {
 		o := wx.Obs.ObservedAt.Unix()
 		w.ObservedAt = &o
+	}
+	if detail {
+		w.knobWeatherDetail = newKnobWeatherDetail(wx)
 	}
 	return w
 }
