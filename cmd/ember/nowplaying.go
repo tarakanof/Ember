@@ -81,6 +81,9 @@ func (s *nowPlayingService) render(img *nowplaying.Image, kind nowplaying.Kind, 
 }
 
 func artETag(img *nowplaying.Image, kind nowplaying.Kind, size int) string {
+	if kind == nowplaying.Cover {
+		return fmt.Sprintf(`"%s-%s-%d-%s"`, img.Hash, kind, size, nowplaying.CoverRecipe)
+	}
 	return fmt.Sprintf(`"%s-%s-%d"`, img.Hash, kind, size)
 }
 
@@ -119,10 +122,7 @@ func readArt(r io.Reader) (*nowplaying.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := nowplaying.Validate(b); err != nil {
-		return nil, err
-	}
-	return nowplaying.NewImage(b), nil
+	return nowplaying.Prepare(b)
 }
 
 func fetchArt(ctx context.Context, client *http.Client, url string, header http.Header) (*nowplaying.Image, error) {

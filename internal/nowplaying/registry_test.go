@@ -164,6 +164,9 @@ func TestArtVersionFollowsPictures(t *testing.T) {
 	if e2.Picture(Backdrop) != e2.ArtistArt {
 		t.Fatal("backdrop should use the artist picture")
 	}
+	if e2.Picture(Cover) != e2.AlbumArt {
+		t.Fatal("cover should prefer the album picture")
+	}
 	if e1.Picture(Backdrop) != e1.AlbumArt {
 		t.Fatal("backdrop should fall back to the album")
 	}

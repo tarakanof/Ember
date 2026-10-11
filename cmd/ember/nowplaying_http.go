@@ -70,7 +70,7 @@ func (a *App) handleNowPlayingArt(w http.ResponseWriter, r *http.Request) {
 	kind := nowplaying.Kind(q.Get("kind"))
 	sizes, ok := nowplaying.Sizes[kind]
 	if !ok {
-		writeError(w, http.StatusBadRequest, errors.New("kind must be album, artist or backdrop"))
+		writeError(w, http.StatusBadRequest, errors.New("kind must be album, artist, backdrop or cover"))
 		return
 	}
 	size := sizes[0]

@@ -27,6 +27,7 @@ const (
 	Album    Kind = "album"
 	Artist   Kind = "artist"
 	Backdrop Kind = "backdrop"
+	Cover    Kind = "cover"
 )
 
 const (
@@ -112,8 +113,9 @@ func (r Report) track() string {
 }
 
 type Image struct {
-	Data []byte
-	Hash string
+	Data   []byte
+	Hash   string
+	Accent string
 }
 
 func NewImage(data []byte) *Image {
@@ -167,6 +169,11 @@ func (e Entry) Picture(k Kind) *Image {
 			return e.ArtistArt
 		}
 		return e.AlbumArt
+	case Cover:
+		if e.AlbumArt != nil {
+			return e.AlbumArt
+		}
+		return e.ArtistArt
 	}
 	return nil
 }

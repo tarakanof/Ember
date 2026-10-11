@@ -153,7 +153,7 @@ func TestValidateRefusesCorruptBodyBehindValidHeader(t *testing.T) {
 }
 
 func TestSizesListTheKnobDefaultsFirst(t *testing.T) {
-	if Sizes[Album][0] != 240 || Sizes[Artist][0] != 64 || Sizes[Backdrop][0] != 466 {
+	if Sizes[Album][0] != 240 || Sizes[Artist][0] != 64 || Sizes[Backdrop][0] != 466 || Sizes[Cover][0] != 466 {
 		t.Fatalf("defaults = %v", Sizes)
 	}
 }
