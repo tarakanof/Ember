@@ -464,7 +464,8 @@ fields (no format strings to fill in, unlike AWTRIX3's `TFORMAT`/`DFORMAT`),
 and sensor edits apply immediately. The **App** tab's *About* shows the app
 version + the connected server's `/version`.
 
-The **Weather** tab edits `weather` config (provider Open-Meteo/MET Norway,
+The **Weather** tab edits `weather` config (provider Open-Meteo/MET Norway/Tomorrow.io,
+Tomorrow.io greyed out with a hint until the server has its key,
 the Open-Meteo forecast model, `open_meteo_model`, with each source's limits
 under the pickers (table in ARCHITECTURE "Providers and models"), lat/lon, units, the rotating-tile + popup behaviour, severe-alert sound); the
 **Reminders** tab edits the alarm list (timezone, per-item time/text/weekdays/
@@ -935,6 +936,36 @@ enable the widget in Settings → Meetings. Within `tile_lead_minutes` of the ne
 meeting the `ember-meet` tile appears in the rotation. A stale feed (last
 successful fetch ≥ 60 min ago) shows as a `[WARN]` in `/admin/doctor` — non-fatal,
 does not affect other checks.
+
+## Tomorrow.io weather provider — #432
+
+`EMBER_TOMORROW_API_KEY` — the Tomorrow.io API key. Without it the provider
+can't be chosen (the app greys it out with a hint; `PUT /v1/weather/config
+{"provider":"tomorrow-io"}` is a 400). It is a **secret**: sent only as the
+`apikey` query parameter of the forecast call and replaced by `REDACTED` in
+any error or log line; never stored in the JSON config, the SQLite store, or
+any API response. `GET /v1/weather/config` shows only whether it is set
+(`providers_available` lists `tomorrow-io`).
+
+**Getting a key.** Create a free account at tomorrow.io, open the API keys
+page of the developer dashboard (app.tomorrow.io → Development) and copy the
+key. Put it in the container's environment (Unraid template variable), restart,
+then pick Tomorrow.io in Settings › Weather. The startup log says
+`weather provider tomorrow-io available` (without the key).
+
+**Limits.** The free plan allows 500 calls a day (reset 00:00 UTC) and 25 an
+hour. Ember makes one forecast call per refresh and never refreshes or retries
+faster than every 5 minutes under Tomorrow.io (≤ 288 a day), whatever
+`refresh_minutes` says. A 429 backs off to its `Retry-After`, or to the next
+top of the hour when the reply has none (the free plan sends no rate-limit
+headers). Air quality still comes from Open-Meteo and costs no Tomorrow.io
+calls. Other apps using the same key share its quota.
+
+**Key removed.** A stored `tomorrow-io` choice is dropped at the next start
+(Warn `persisted weather provider ignored`) and the server uses the
+`config.json` provider; the other weather settings stay. A `config.json` that
+names `tomorrow-io` without the key logs a Warn at startup and every fetch
+fails until the key is set.
 
 ## Now playing (Plex, Apple Music) — #226
 

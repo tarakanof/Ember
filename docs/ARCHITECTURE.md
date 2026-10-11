@@ -1324,12 +1324,16 @@ The app keeps the user-facing descriptions
 (`EmberKit/Settings/WeatherSources.swift`, shown under the pickers); this
 table mirrors them, and `TestAppWeatherSourcesMatchTheServerLists` keeps the
 app's ids equal to the server's. A new provider is one id in `weatherProviders`, a fetch
-branch, and an entry in `WeatherSources.providers`. Values checked on
+branch, and an entry in `WeatherSources.providers` (with `keyEnv` when it
+needs a server-side key: `providers_available` in `GET/PUT
+/v1/weather/config` then decides whether the app offers it, and a PUT
+switching to it without the key is a 400; a stored choice whose key went
+away is dropped by `sanitizeStoredWeather`). Values checked on
 2026-10-11 at Belgrade and New York (#427):
 
 | Provider / model | Coverage and resolution | Limits in Ember |
 |---|---|---|
-| Open-Meteo | Worldwide, free, no key | Non-commercial use, 10,000 calls a day; 15-min rain; also serves air quality for both providers |
+| Open-Meteo | Worldwide, free, no key | Non-commercial use, 10,000 calls a day; 15-min rain; also serves air quality for every provider |
 | └ `best_match` (default) | Best local model blended with a global one; central Europe is mostly DWD ICON | Can miss showers other models see (#427: rain in Belgrade, 0 mm here); 15-min rain split from hourly outside central Europe and the US |
 | └ `ecmwf_ifs` | ECMWF IFS HRES 9 km, worldwide, 4 runs a day | No UV; 15-min rain is the hourly amount split evenly |
 | └ `ecmwf_ifs025` | ECMWF IFS open data 0.25° (~25 km), 4 runs a day | No UV; coarse, smooths local showers; 15-min rain split from hourly |
@@ -1337,8 +1341,10 @@ branch, and an entry in `WeatherSources.providers`. Values checked on
 | └ `gfs_seamless` | NOAA HRRR 3 km (contiguous US, hourly runs), GFS 13–25 km elsewhere | 15-min rain split from hourly outside the US |
 | └ `ukmo_seamless` | UK Met Office UKV 2 km (UK, Ireland), global 10 km | UV only near the UK and for the first 2 days; 15-min rain split from hourly |
 | MET Norway | Worldwide, free, no key; MEPS 2.5 km in the Nordics, ECMWF elsewhere | Hourly rain steps; chance of rain only in the Nordic area; needs an identifying User-Agent; no air quality |
+| Tomorrow.io | Worldwide, own blend; needs `EMBER_TOMORROW_API_KEY` (free plan) | Free plan: 500 calls a day, 25 an hour, so at most one fetch per 5 min; minutely rain only for the next hour, then hourly split into 15-min steps; days run 06:00–06:00 local; codes translated to WMO; no air quality. Choosable only while the key is set (`providers_available`) |
 
-Left out: `meteofrance_seamless` returns no chance of rain (hourly or daily)
+The Tomorrow.io row comes from its documentation and support pages, not a
+probe (no key; #432). Left out: `meteofrance_seamless` returns no chance of rain (hourly or daily)
 and only 4 days. Every listed model returns `current`, `minutely_15`
 precipitation and the daily `precipitation_probability_max`; a value a model
 lacks (UV for most) is nil and left out of the knob view like any missing value.
@@ -1417,6 +1423,37 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   for the old location is dropped, so the offset is always this
   location's. Otherwise (air off, failing for 30 min, or not yet fetched
   here) the longitude fallback is used.
+- **Tomorrow.io** (#432, `weather_tomorrow.go`) reads
+  `/v4/weather/forecast?location=lat,lon&units=metric&apikey=…` with no
+  `timesteps`, so the plan's default timelines come back (minutely, hourly
+  120 h, daily; ~170 KB raw by the documented schema, gzipped in transit). Units are metric, so wind
+  and gusts are m/s × 3.6. Weather codes are translated to WMO
+  (`tomorrowWMOCodes`: 1000→0, 1100→1, 1101→2, 1102/1001→3, 2000/2100→45,
+  4000→53, 4200→61, 4001→63, 4201→65, 5001/5100→71, 5000→73, 5101→75,
+  6000→56, 6200/6001→66, 6201→67, 7xxx→77, 8000→95; 0 and unknown codes
+  leave `Code` empty and the condition clouds), so condition, severe,
+  overlay and the knob's faces reuse the Open-Meteo mapping and cinder
+  needs no change. `Steps` are the first minutely entry (the current
+  values, its `time` the observation time) then the hourly entries after
+  it, 24 in all, projected like MET's. `Precip` is 15-min steps, at most
+  48: minutely entries averaged per quarter hour (intensity = rain + freezing
+  rain + snow + sleet mm/h; snow when snow + sleet outweigh rain in most of
+  the quarter's minutes), then each hourly entry split into four quarters
+  over `[t, t+1h)` from where the minutely ones end; a step with no
+  intensity at all is left out. `Days` come from the daily timeline:
+  Tomorrow.io's day runs 06:00–06:00 local (`time` is 06:00 local in UTC),
+  so each entry goes to the local date of its `time` (offset from the air
+  call like MET, else the longitude fallback), a day that ended before the
+  current step is skipped (the first entry is often yesterday's period).
+  Min/max, `precipitationProbabilityMax`, `uvIndexMax`, `windGustMax`;
+  precipitation is `rainAccumulationSum` plus the snow, sleet and ice
+  liquid-water sums; the day code is `weatherCodeMax` in WMO. Sun and moon
+  times in the reply are ignored (Ember's astro). Rate limits: the
+  provider's refresh and failure retries never run faster than every
+  5 min (`minFetchInterval`), and a 429 waits for `Retry-After` or the next
+  top of the hour, not capped at the refresh interval (`retryAfterCap`).
+  The key is redacted from `url.Error` URLs and HTTP error bodies before the
+  error leaves the fetcher.
 
 **Weather state** (`cmd/ember/weather_state.go`, #337). Every reader of the
 stored weather goes through one projection, `weatherStore.state(cfg, now)` →

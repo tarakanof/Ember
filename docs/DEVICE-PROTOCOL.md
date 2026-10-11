@@ -294,6 +294,18 @@ from, right after `provider` (`"provider":"open-meteo","model":"ecmwf_ifs"`).
   remains the worst case
   (`TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`).
 
+## Weather provider Tomorrow.io
+
+`weather.provider` can be `"tomorrow-io"` (#432). Ember translates its
+weather codes to WMO before they reach `code` and `days[].code`, so the knob
+reads them like Open-Meteo's and needs no change; an unknown code leaves
+`code` empty and `cond` `clouds`. The detail keys are filled as for
+Open-Meteo (15-min rain steps, `pop`, `uv`, gusts), and `observed_at` is
+the time of the first minutely entry (else the latest hourly one at or
+before now). The provider string (11 B) fits cinder's 16-byte field, and
+with short WMO codes the block stays under the MET worst case
+(`TestKnobViewWorstCaseFitsHalfTheBuffer`). Goldens unchanged.
+
 ## Weather detail
 
 With `wx_faces` in its caps (#350, cinder#33/#34), a knob's `weather`
