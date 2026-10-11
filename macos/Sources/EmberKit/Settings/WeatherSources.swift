@@ -15,7 +15,7 @@ public enum WeatherSources {
     public static let providers: [WeatherSourceOption] = [
         WeatherSourceOption(id: openMeteo, name: "Open-Meteo", detail: "Worldwide, free and without a key for non-commercial use, up to 10,000 calls a day. Rain comes in 15-minute steps. Air quality always comes from Open-Meteo. The model below decides what you get."),
         WeatherSourceOption(id: "met-no", name: "MET Norway", detail: "Worldwide, free and without a key. Finest in the Nordic countries; elsewhere it uses ECMWF's global model. Rain comes in hourly steps, and the chance of rain only in the Nordic area. It has no air quality, so that still comes from Open-Meteo."),
-        WeatherSourceOption(id: tomorrowIO, name: "Tomorrow.io", detail: "Worldwide, with a free API key set on the server. The free plan allows 500 calls a day and 25 an hour, so Ember fetches at most every 5 minutes. Rain comes minute by minute for the next hour, then hourly; its days run from 6 am to 6 am. Air quality still comes from Open-Meteo.", keyEnv: "EMBER_TOMORROW_API_KEY"),
+        WeatherSourceOption(id: tomorrowIO, name: "Tomorrow.io", detail: "Worldwide, with a free API key set on the server. The free plan allows 500 calls a day and 25 an hour, so Ember fetches at most every 5 minutes. Rain comes minute by minute for the next hour where your plan includes it, otherwise hourly; its days run from 6 am to 6 am. Air quality still comes from Open-Meteo.", keyEnv: "EMBER_TOMORROW_API_KEY"),
     ]
 
     public static let openMeteoModels: [WeatherSourceOption] = [

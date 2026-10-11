@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
@@ -112,7 +113,7 @@ func (wf *weatherFetcher) fetchTomorrow(ctx context.Context, cfg WeatherConfig, 
 	if len(steps) > 0 {
 		from = steps[0].At
 	}
-	obs.Days = tomorrowDays(tl.Daily, localOffset(obs, cfg.Longitude), from)
+	obs.Days = tomorrowDays(tl.Daily, tl.Hourly, localOffset(obs, cfg.Longitude), from)
 	if len(steps) > 0 {
 		obs = obs.current(steps[0].At)
 	}
@@ -126,16 +127,24 @@ func (wf *weatherFetcher) tomorrowError(err error, now time.Time) error {
 	}
 	var he *weatherHTTPError
 	if errors.As(err, &he) {
-		he.body = wf.redactTomorrowKey(he.body)
-		if he.code == 429 && he.retryAfter == 0 {
+		he.body = ""
+		if he.code == http.StatusTooManyRequests && he.retryAfter == 0 {
 			he.retryAfter = now.Truncate(time.Hour).Add(time.Hour).Sub(now)
 		}
 	}
 	if msg := err.Error(); strings.Contains(msg, wf.tomorrowKey) || strings.Contains(msg, url.QueryEscape(wf.tomorrowKey)) {
-		return errors.New(wf.redactTomorrowKey(msg))
+		return &redactedError{msg: wf.redactTomorrowKey(msg), err: err}
 	}
 	return err
 }
+
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.err }
 
 func (wf *weatherFetcher) redactTomorrowKey(s string) string {
 	if wf.tomorrowKey == "" {
@@ -251,7 +260,7 @@ func tomorrowPrecip(minutely, hourly []tomorrowEntry) []precipStep {
 	return out
 }
 
-func tomorrowDays(daily []tomorrowDay, off time.Duration, from time.Time) []weatherDay {
+func tomorrowDays(daily []tomorrowDay, hourly []tomorrowEntry, off time.Duration, from time.Time) []weatherDay {
 	var days []weatherDay
 	for _, d := range daily {
 		if len(days) == forecastDays {
@@ -273,8 +282,12 @@ func tomorrowDays(daily []tomorrowDay, off time.Duration, from time.Time) []weat
 				day.PrecipMM = new(*p + valueOr(day.PrecipMM, 0))
 			}
 		}
-		if v.WeatherCodeMax != nil {
-			if wmo, ok := tomorrowWMO(*v.WeatherCodeMax); ok {
+		code := worstTomorrowCode(hourly, start, start.Add(24*time.Hour))
+		if code == nil {
+			code = v.WeatherCodeMax
+		}
+		if code != nil {
+			if wmo, ok := tomorrowWMO(*code); ok {
 				day.Cond, _ = wmoCondition(wmo)
 				day.Code = strconv.Itoa(wmo)
 			}
@@ -292,6 +305,30 @@ var tomorrowWMOCodes = map[int]int{
 	6000: 56, 6200: 66, 6001: 66, 6201: 67,
 	7102: 77, 7000: 77, 7101: 77,
 	8000: 95,
+}
+
+var tomorrowSeverity = []int{
+	1000,
+	1100, 1101, 1102, 1001,
+	2100, 2000,
+	4000, 6000, 4200, 6200, 4001, 6001, 4201, 6201,
+	5001, 7102, 5100, 7000, 5000, 7101, 5101,
+	8000,
+}
+
+func worstTomorrowCode(hourly []tomorrowEntry, from, to time.Time) *int {
+	var worst *int
+	rank := -1
+	for _, e := range hourly {
+		c := e.Values.WeatherCode
+		if c == nil || e.Time.Before(from) || !e.Time.Before(to) {
+			continue
+		}
+		if r := slices.Index(tomorrowSeverity, *c); r > rank {
+			worst, rank = c, r
+		}
+	}
+	return worst
 }
 
 func tomorrowWMO(code int) (int, bool) {

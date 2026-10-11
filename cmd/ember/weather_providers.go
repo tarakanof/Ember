@@ -139,6 +139,9 @@ type weatherHTTPError struct {
 }
 
 func (e *weatherHTTPError) Error() string {
+	if e.body == "" {
+		return "weather http " + e.status
+	}
 	return fmt.Sprintf("weather http %s: %s", e.status, e.body)
 }
 
