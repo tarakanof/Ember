@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
@@ -17,33 +16,11 @@ import (
 const (
 	tomorrowIO          = "tomorrow-io"
 	tomorrowKeyEnv      = "EMBER_TOMORROW_API_KEY"
-	tomorrowMinRefresh  = 5 * time.Minute
 	precipStepsTomorrow = 48
 	tomorrowPrecipStep  = 15 * time.Minute
 )
 
 var errTomorrowNoKey = errors.New("tomorrow-io: " + tomorrowKeyEnv + " is not set on the server")
-
-func (wf *weatherFetcher) providerAvailable(provider string) bool {
-	return provider != tomorrowIO || wf.tomorrowKey != ""
-}
-
-func (a *App) weatherUnavailableReason(cfg WeatherConfig) string {
-	if !a.weatherFetcher.providerAvailable(cfg.Provider) {
-		return cfg.Provider + " needs " + tomorrowKeyEnv + " on the server"
-	}
-	return ""
-}
-
-func (wf *weatherFetcher) providersAvailable() []string {
-	out := make([]string, 0, len(weatherProviders))
-	for _, p := range weatherProviders {
-		if wf.providerAvailable(p) {
-			out = append(out, p)
-		}
-	}
-	return out
-}
 
 type tomorrowValues struct {
 	Temperature           *float64 `json:"temperature"`
@@ -132,22 +109,7 @@ var (
 )
 
 func (wf *weatherFetcher) tomorrowError(ctx context.Context, err error, now time.Time) error {
-	var he *weatherHTTPError
-	if errors.As(err, &he) {
-		ra := he.retryAfter
-		if he.code == http.StatusTooManyRequests && ra == 0 {
-			ra = now.Truncate(time.Hour).Add(time.Hour).Sub(now)
-		}
-		return &weatherHTTPError{code: he.code, status: strconv.Itoa(he.code), retryAfter: ra}
-	}
-	if ctx.Err() != nil {
-		return fmt.Errorf("%w: %w", errTomorrowRequest, ctx.Err())
-	}
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		return errTomorrowRequest
-	}
-	return errTomorrowResponse
+	return keyedFetchError(ctx, err, now, errTomorrowRequest, errTomorrowResponse)
 }
 
 func tomorrowSteps(minutely, hourly []tomorrowEntry) []currentStep {
@@ -327,18 +289,7 @@ func tomorrowDayCode(hourly []tomorrowEntry, start, now time.Time, codeMax *int)
 			hours[*codeMax] += gap
 		}
 	}
-	var best *int
-	bestScore, bestRank := -1, -1
-	for code, h := range hours {
-		rank := slices.Index(tomorrowSeverity, code)
-		if rank < 0 {
-			continue
-		}
-		if score := (rank + 1) * h; score > bestScore || (score == bestScore && rank > bestRank) {
-			best, bestScore, bestRank = new(code), score, rank
-		}
-	}
-	return best
+	return pickDayCode(hours, tomorrowSeverity)
 }
 
 func tomorrowWMO(code int) (int, bool) {

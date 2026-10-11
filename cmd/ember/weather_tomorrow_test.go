@@ -605,7 +605,7 @@ func TestTomorrowQuotaLoadIgnoresAClockThatWasAhead(t *testing.T) {
 				t.Fatal(err)
 			}
 			ahead := time.Now().Add(365 * 24 * time.Hour).Format(time.RFC3339)
-			if err := app.store.PutSetting(weatherQuotaKey, fmt.Sprintf(c.row, ahead)); err != nil {
+			if err := app.store.PutSetting(weatherQuotaKey(tomorrowIO), fmt.Sprintf(c.row, ahead)); err != nil {
 				t.Fatal(err)
 			}
 			t0 := time.Now()
@@ -638,7 +638,7 @@ func TestTomorrowQuotaReadFailureFailsClosedAndRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 	t0 := time.Now()
-	if err := app.store.PutSetting(weatherQuotaKey, fmt.Sprintf(`{"retry_until":%q}`, t0.Add(30*time.Minute).Format(time.RFC3339Nano))); err != nil {
+	if err := app.store.PutSetting(weatherQuotaKey(tomorrowIO), fmt.Sprintf(`{"retry_until":%q}`, t0.Add(30*time.Minute).Format(time.RFC3339Nano))); err != nil {
 		t.Fatal(err)
 	}
 	renameSettings(t, db, "settings", "settings_away")
@@ -664,7 +664,7 @@ func TestTomorrowQuotaWriteFailureKeepsTheReservation(t *testing.T) {
 	if err := app.ensureStore(db); err != nil {
 		t.Fatal(err)
 	}
-	failWrites(t, db, weatherQuotaKey)
+	failWrites(t, db, weatherQuotaKey(tomorrowIO))
 	t0 := time.Now()
 	app.pollWeather(context.Background(), t0)
 	app.pollWeather(context.Background(), t0.Add(2*time.Minute))
@@ -688,9 +688,8 @@ func TestTomorrowQuotaTimesIncludePreFetchWork(t *testing.T) {
 	app.weatherFetcher.airQualityBase = air.URL
 	t0 := time.Now()
 	app.pollWeather(context.Background(), t0)
-	app.weather.mu.RLock()
-	attempt, until := app.weather.quotaAttemptAt, app.weather.quotaRetryAt
-	app.weather.mu.RUnlock()
+	q := quotaOf(app, tomorrowIO)
+	attempt, until := q.attemptAt, q.retryAt
 	if attempt.Sub(t0) < 250*time.Millisecond || until.Sub(t0) < 30*time.Minute+250*time.Millisecond {
 		t.Errorf("attempt +%v, deadline +%v after the poll began, want both past the 300-ms air call", attempt.Sub(t0), until.Sub(t0))
 	}
@@ -814,7 +813,7 @@ func TestTomorrowQuotaSurvivesARestart(t *testing.T) {
 	if st.hits.Load() != 1 {
 		t.Fatalf("%d requests after a restart inside a 30-min Retry-After, want 1", st.hits.Load())
 	}
-	if v, _, _ := b.store.GetSetting(weatherQuotaKey); strings.Contains(v, "SECRET") || !strings.Contains(v, "retry_until") {
+	if v, _, _ := b.store.GetSetting(weatherQuotaKey(tomorrowIO)); strings.Contains(v, "SECRET") || !strings.Contains(v, "retry_until") {
 		t.Errorf("stored quota = %s, want deadlines and no credential", v)
 	}
 	st.status.Store(0)
@@ -843,9 +842,7 @@ func TestTomorrowBackoffCountsFromTheResponse(t *testing.T) {
 	app := newTomorrowApp(t, &tomorrowStub{srv: srv}, nil)
 	t0 := time.Now()
 	app.pollWeather(context.Background(), t0)
-	app.weather.mu.RLock()
-	until := app.weather.quotaRetryAt
-	app.weather.mu.RUnlock()
+	until := quotaOf(app, tomorrowIO).retryAt
 	if d := until.Sub(t0); d < 30*time.Minute+250*time.Millisecond {
 		t.Errorf("retry deadline %v after the request started, want 30 min after the response (≥ 30m0.25s)", d)
 	}
@@ -858,9 +855,7 @@ func TestTomorrowKeepsTheLongestBackoff(t *testing.T) {
 	t0 := time.Now()
 	app.markWeatherFailedAfter(t0, t0, src, 30*time.Minute)
 	app.markWeatherFailedAfter(t0, t0, src, time.Minute)
-	app.weather.mu.RLock()
-	until := app.weather.quotaRetryAt
-	app.weather.mu.RUnlock()
+	until := quotaOf(app, tomorrowIO).retryAt
 	if !until.Equal(t0.Add(30 * time.Minute)) {
 		t.Errorf("deadline = %v after t0, want the 30-min one kept", until.Sub(t0))
 	}
@@ -961,4 +956,13 @@ func TestTomorrowKnobBlockStaysUnderTheMetWorstCase(t *testing.T) {
 	if len(tomorrowIO) >= 16 {
 		t.Errorf("provider %q does not fit cinder's 16-byte provider field", tomorrowIO)
 	}
+}
+
+func quotaOf(app *App, provider string) providerQuota {
+	app.weather.mu.RLock()
+	defer app.weather.mu.RUnlock()
+	if q := app.weather.quotas[provider]; q != nil {
+		return *q
+	}
+	return providerQuota{}
 }
