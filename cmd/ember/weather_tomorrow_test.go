@@ -1022,4 +1022,21 @@ func TestTomorrowQuotaReadFailureWarnsOncePerStreak(t *testing.T) {
 	if st.hits.Load() != 1 {
 		t.Errorf("%d requests once the row is readable again, want 1", st.hits.Load())
 	}
+	if n := strings.Count(logs.String(), "weather quota read recovered"); n != 1 {
+		t.Errorf("%d recovery lines, want 1", n)
+	}
+}
+
+func TestWeatherStateErrorOnlyWhileWeatherIsOn(t *testing.T) {
+	st := newTomorrowStub(t, tomorrowFixture(t))
+	app := newTomorrowApp(t, st, nil)
+	app.weatherFetcher.tomorrowKey = ""
+	now := time.Now()
+	if out := app.buildWeatherState(now); out.Error == "" {
+		t.Fatalf("keyless and on: error empty")
+	}
+	app.updateConfig(func(c *Config) { c.Weather.Enabled = false })
+	if out := app.buildWeatherState(now); out.Error != "" {
+		t.Errorf("weather off: error = %q, want none", out.Error)
+	}
 }

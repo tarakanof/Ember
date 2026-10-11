@@ -39,7 +39,7 @@ func (wf *weatherFetcher) providerAvailable(provider string) bool {
 }
 
 func (a *App) weatherUnavailableReason(cfg WeatherConfig) string {
-	if !a.weatherFetcher.providerAvailable(cfg.Provider) {
+	if cfg.Enabled && !a.weatherFetcher.providerAvailable(cfg.Provider) {
 		return cfg.Provider + " needs " + keyedProviders[cfg.Provider].env + " on the server"
 	}
 	return ""
