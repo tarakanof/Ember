@@ -119,16 +119,16 @@ func TestMoonUpWindowIsTheCurrentOrNextInterval(t *testing.T) {
 	berlin := openMeteoMoon20260901[0]
 	near := func(got time.Time, want int64) bool { return got.Sub(time.Unix(want, 0)).Abs() <= 2*time.Minute }
 	up := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
-	rise, set := moonUpWindow(berlin.lat, berlin.lon, up)
-	if !near(rise, berlin.rise[0]) || !near(set, berlin.sets[1]) {
-		t.Errorf("moon up: rise %v set %v, want the rise before now and the set after", rise, set)
+	rise, set, isUp := moonUpWindow(berlin.lat, berlin.lon, up)
+	if !isUp || !near(rise, berlin.rise[0]) || !near(set, berlin.sets[1]) {
+		t.Errorf("moon up: up %v rise %v set %v, want up, the rise before now and the set after", isUp, rise, set)
 	}
 	down := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
-	rise, set = moonUpWindow(berlin.lat, berlin.lon, down)
-	if !near(rise, berlin.rise[1]) || !near(set, berlin.sets[2]) {
-		t.Errorf("moon down: rise %v set %v, want the next rise and its set", rise, set)
+	rise, set, isUp = moonUpWindow(berlin.lat, berlin.lon, down)
+	if isUp || !near(rise, berlin.rise[1]) || !near(set, berlin.sets[2]) {
+		t.Errorf("moon down: up %v rise %v set %v, want down, the next rise and its set", isUp, rise, set)
 	}
-	r2, s2 := moonUpWindow(berlin.lat, berlin.lon, down.Add(7*time.Minute+13*time.Second))
+	r2, s2, _ := moonUpWindow(berlin.lat, berlin.lon, down.Add(7*time.Minute+13*time.Second))
 	if !r2.Equal(rise) || !s2.Equal(set) || rise.Second() != 0 {
 		t.Errorf("window moved with the clock: %v-%v then %v-%v", rise, set, r2, s2)
 	}
@@ -137,18 +137,18 @@ func TestMoonUpWindowIsTheCurrentOrNextInterval(t *testing.T) {
 func TestMoonUpWindowLeavesOutMissingEndsInThePolarRegion(t *testing.T) {
 	const lat, lon = 78.22, 15.65
 	cases := []struct {
-		name               string
-		at                 time.Time
-		wantRise, wantSets bool
+		name                       string
+		at                         time.Time
+		wantRise, wantSets, wantUp bool
 	}{
-		{"up for days", time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC), false, false},
-		{"down for days", time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC), false, false},
-		{"risen, sets after the window", time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC), true, false},
+		{"up for days", time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC), false, false, true},
+		{"down for days", time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC), false, false, false},
+		{"risen, sets after the window", time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC), true, false, true},
 	}
 	for _, c := range cases {
-		rise, set := moonUpWindow(lat, lon, c.at)
-		if rise.IsZero() == c.wantRise || set.IsZero() == c.wantSets {
-			t.Errorf("%s: rise %v set %v, want rise %v set %v", c.name, rise, set, c.wantRise, c.wantSets)
+		rise, set, up := moonUpWindow(lat, lon, c.at)
+		if rise.IsZero() == c.wantRise || set.IsZero() == c.wantSets || up != c.wantUp {
+			t.Errorf("%s: rise %v set %v up %v, want rise %v set %v up %v", c.name, rise, set, up, c.wantRise, c.wantSets, c.wantUp)
 		}
 	}
 }

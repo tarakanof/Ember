@@ -135,10 +135,10 @@ func moonEvents(lat, lon float64, from, to time.Time) []moonEvent {
 	return evs
 }
 
-func moonUpWindow(lat, lon float64, now time.Time) (rise, set time.Time) {
+func moonUpWindow(lat, lon float64, now time.Time) (rise, set time.Time, up bool) {
 	evs := moonEvents(lat, lon, now.Add(-moonSearch), now.Add(moonSearch))
 	next := sort.Search(len(evs), func(i int) bool { return evs[i].at.After(now) })
-	up := moonAltitude(lat, lon, now) > moonHorizonDeg
+	up = moonAltitude(lat, lon, now) > moonHorizonDeg
 	if next > 0 {
 		up = evs[next-1].rise
 	}
@@ -149,7 +149,7 @@ func moonUpWindow(lat, lon float64, now time.Time) (rise, set time.Time) {
 		if next < len(evs) {
 			set = evs[next].at
 		}
-		return rise, set
+		return rise, set, up
 	}
 	if next < len(evs) {
 		rise = evs[next].at
@@ -157,5 +157,5 @@ func moonUpWindow(lat, lon float64, now time.Time) (rise, set time.Time) {
 	if next+1 < len(evs) {
 		set = evs[next+1].at
 	}
-	return rise, set
+	return rise, set, up
 }

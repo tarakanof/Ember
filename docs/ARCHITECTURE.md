@@ -1535,7 +1535,9 @@ Weather constraints:
   the minute; the hour grid makes the result independent of `now`, so a
   view's ETag doesn't move with the clock. `moonUpWindow` is the current
   interval above the horizon (rise in the past) or the next one, searched
-  ±36 h; an end not found is zero (polar). Checked against Open-Meteo's
+  ±36 h; an end not found is zero (polar). It also returns `up`, whether
+  the moon is above the horizon now: the ends alone can't tell "up for
+  days" from "down for days" (both have neither). Checked against Open-Meteo's
   `daily=moonrise,moonset` (recorded once, test reference only) for four
   latitudes: within a minute. The "local" label time uses the UTC offset
   Open-Meteo supplies (`TZKnown`/`TZOffsetSeconds`; for MET a live air
