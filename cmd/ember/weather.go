@@ -294,6 +294,9 @@ func (s *weatherStore) switchSource(src weatherSource) {
 	if s.source == src {
 		return
 	}
+	if s.source.loc != src.loc {
+		s.air, s.haveAir, s.havePrevAQI = airObservation{}, false, false
+	}
 	s.source = src
 	s.obs = weatherObservation{}
 	s.have = false
@@ -454,7 +457,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		return
 	}
 	a.pollAir(ctx, now, cfg)
-	hint, wait := a.weather.fetchHint(now)
+	hint, wait := a.weather.fetchHint(cfg, now)
 	if wait {
 		a.markWeatherPolled(now, src)
 		return
@@ -507,11 +510,11 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.nudgePomo()
 }
 
-func (s *weatherStore) fetchHint(now time.Time) (fetchHint, bool) {
+func (s *weatherStore) fetchHint(cfg WeatherConfig, now time.Time) (fetchHint, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	h := fetchHint{LastModified: s.lastModified}
-	if s.haveAir && s.air.TZKnown {
+	if cfg.airWanted() && s.haveAir && s.air.TZKnown && now.Sub(s.air.FetchedAt) < weatherStaleAfter {
 		h.TZOffsetSeconds, h.TZKnown = s.air.TZOffsetSeconds, true
 	}
 	return h, s.have && now.Before(s.notBefore)
@@ -540,8 +543,10 @@ func (a *App) confirmWeather(now time.Time, src weatherSource, res fetchResult) 
 	return true
 }
 
+func (c WeatherConfig) airWanted() bool { return c.AirTileEnabled() || c.AirPopupThreshold > 0 }
+
 func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
-	if !cfg.AirTileEnabled() && cfg.AirPopupThreshold <= 0 {
+	if !cfg.airWanted() {
 		return
 	}
 	obs, err := a.weatherFetcher.fetchAirQuality(ctx, cfg)
@@ -551,6 +556,10 @@ func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
 	}
 	obs.FetchedAt = now
 	a.weather.mu.Lock()
+	if a.cfg.Load().Weather.location() != cfg.location() {
+		a.weather.mu.Unlock()
+		return
+	}
 	prev, havePrev := a.weather.prevAQI, a.weather.havePrevAQI
 	a.weather.air = obs
 	a.weather.haveAir = true

@@ -173,6 +173,7 @@ type metStub struct {
 	lastModified string
 	expires      time.Time
 	notModified  bool
+	airFail      atomic.Bool
 }
 
 func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
@@ -193,6 +194,10 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 	}))
 	t.Cleanup(met.Close)
 	air := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if st.airFail.Load() {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
 		_, _ = w.Write([]byte(`{"utc_offset_seconds":10800,"current":{"european_aqi":18}}`))
 	}))
 	t.Cleanup(air.Close)
@@ -298,6 +303,41 @@ func TestMetNoTakesUTCOffsetFromAirCall(t *testing.T) {
 		if airOn != wx.Obs.TZKnown || (airOn && wx.Obs.TZOffsetSeconds != 10800) {
 			t.Errorf("air %v: tz = (%v, %d), want the air call's 10800 only with air on", airOn, wx.Obs.TZKnown, wx.Obs.TZOffsetSeconds)
 		}
+	}
+}
+
+func TestMetNoDropsTheAirOffsetOnceAirIsOffOrStale(t *testing.T) {
+	cases := []struct {
+		name  string
+		after time.Duration
+		spoil func(*App, *metStub)
+	}{
+		{"air turned off", 10 * time.Minute, func(app *App, _ *metStub) {
+			app.updateConfig(func(c *Config) { c.Weather.AirTile = boolPtr(false) })
+		}},
+		{"air failing past staleness", 40 * time.Minute, func(_ *App, st *metStub) { st.airFail.Store(true) }},
+		{"location changed while air fails", 10 * time.Minute, func(app *App, st *metStub) {
+			st.airFail.Store(true)
+			app.updateConfig(func(c *Config) { c.Weather.Latitude, c.Weather.Longitude = 40.7, -74 })
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t0 := time.Now().Truncate(time.Second)
+			st := &metStub{expires: t0.Add(-time.Minute)}
+			app := newMetCacheApp(t, st, true)
+			app.pollWeather(context.Background(), t0)
+			if wx := app.weather.state(app.cfg.Load().Weather, t0); !wx.Obs.TZKnown || wx.Obs.TZOffsetSeconds != 10800 {
+				t.Fatalf("setup: tz = (%v, %d), want the air call's 10800", wx.Obs.TZKnown, wx.Obs.TZOffsetSeconds)
+			}
+			c.spoil(app, st)
+			t1 := t0.Add(c.after)
+			app.pollWeather(context.Background(), t1)
+			wx := app.weather.state(app.cfg.Load().Weather, t1)
+			if st.hits.Load() != 2 || !wx.HaveObs || wx.Obs.TZKnown {
+				t.Errorf("hits %d, have %v, tz = (%v, %d); want a refetch on the longitude fallback", st.hits.Load(), wx.HaveObs, wx.Obs.TZKnown, wx.Obs.TZOffsetSeconds)
+			}
+		})
 	}
 }
 

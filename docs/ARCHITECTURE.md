@@ -1320,11 +1320,15 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
 - **Freshness** is measured from the later of `FetchedAt` and the
   observation's `ValidUntil` (MET's `Expires`), so skipping MET until
   `Expires` never marks the data stale early.
-- **Local day for MET.** MET sends no UTC offset. With air on, the air
-  call (fetched just before) carries `utc_offset_seconds`, and the MET
-  observation takes it as its `TZOffsetSeconds`/`TZKnown`, so day buckets,
-  sun times and labels follow DST. Without air, the longitude fallback
-  stays.
+- **Local day for MET.** MET sends no UTC offset. The air call (fetched
+  just before) carries `utc_offset_seconds`, and the MET observation takes
+  it as its `TZOffsetSeconds`/`TZKnown`, so day buckets, sun times and
+  labels follow DST, but only while air is on (tile or popup threshold)
+  and its reading is fresh (younger than `weatherStaleAfter`). A location
+  change clears the air reading with the observation, and a late air reply
+  for the old location is dropped, so the offset is always this
+  location's. Otherwise (air off, failing for 30 min, or not yet fetched
+  here) the longitude fallback is used.
 
 **Weather state** (`cmd/ember/weather_state.go`, #337). Every reader of the
 stored weather goes through one projection, `weatherStore.state(cfg, now)` →
@@ -1500,8 +1504,9 @@ Weather constraints:
   that passed before startup. The AQI threshold popup is edge-triggered and also
   fires on the very first reading, so a restart mid-episode still alerts.
 - **Astro.** Moon phase and sun times are computed locally (no API or key) at low
-  precision (a minute or two). The "local" label time uses the UTC offset Open-Meteo
-  supplies (`TZKnown`/`TZOffsetSeconds`; for MET the air call's); only without it (MET with air off) does it fall back
+  precision (a minute or two). The "local" label time uses the UTC offset
+  Open-Meteo supplies (`TZKnown`/`TZOffsetSeconds`; for MET a live air
+  reading's); only without it (MET with air off or stale) does it fall back
   to longitude (15° per hour, no tz database), which can differ from civil time at
   DST/zone boundaries. At polar day/night there are no sun times; `Night` then
   comes from the sun's elevation (see below), and the clock's moon icon,
