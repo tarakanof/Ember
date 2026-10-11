@@ -356,3 +356,36 @@ func TestSunsetBeforePolarDayIsLeftOut(t *testing.T) {
 		t.Errorf("Longyearbyen 2026-04-18: rise %v set %v ok %v, want the sunrise and no sunset", rise, set, ok)
 	}
 }
+
+func TestSunCrossingsConvergeOnTheElevationCrossing(t *testing.T) {
+	sites := []struct {
+		name     string
+		lat, lon float64
+	}{{"Longyearbyen", 78.22, 15.65}, {"McMurdo", -77.85, 166.67}, {"Tromsø", 69.65, 18.96}}
+	const step = 5 * time.Second
+	for _, s := range sites {
+		for _, alt := range []float64{sunHorizonDeg, civilTwilightDeg, blueHourEndDeg, goldenHourEndDeg} {
+			above := func(at time.Time) bool { return solarElevation(s.lat, s.lon, at) > alt }
+			for d := range 365 {
+				day := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, d)
+				rise, set, _ := sunAt(s.lat, s.lon, day, alt)
+				for _, e := range []time.Time{rise, set} {
+					if e.IsZero() {
+						continue
+					}
+					best := time.Duration(-1)
+					for at := e.Add(-10 * time.Minute); at.Before(e.Add(10 * time.Minute)); at = at.Add(step) {
+						if above(at) != above(at.Add(step)) {
+							if off := at.Add(step / 2).Sub(e).Abs(); best < 0 || off < best {
+								best = off
+							}
+						}
+					}
+					if best < 0 || best > 10*time.Second {
+						t.Errorf("%s %s: crossing of %.3f° at %v is %v from where the sun crosses it (-1 = none within 10 min)", s.name, day.Format("2006-01-02"), alt, e, best)
+					}
+				}
+			}
+		}
+	}
+}
