@@ -133,9 +133,6 @@ import Foundation
     #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(now.utf8)).providersAvailable == ["open-meteo", "met-no"])
     let old = #"{"provider":"open-meteo"}"#
     #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(old.utf8)).providersAvailable == nil)
-    #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(old.utf8)).providerHeld == nil)
-    let held = #"{"provider":"open-meteo","provider_held":"tomorrow-io"}"#
-    #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(held.utf8)).providerHeld == "tomorrow-io")
 }
 
 @Test func keyedWeatherProviderIsAvailableOnlyWhenTheServerSaysSo() {

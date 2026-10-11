@@ -114,21 +114,20 @@ struct WeatherSourcePane: View {
     }
 
     @ViewBuilder private func keyHints(_ c: WeatherConfig) -> some View {
-        if let held = c.providerHeld, held != c.provider {
-            let heldName = WeatherSources.provider(held)?.name ?? held
-            let currentName = WeatherSources.provider(c.provider)?.name ?? c.provider
+        if c.providersAvailable != nil, let current = WeatherSources.provider(c.provider), let env = current.keyEnv,
+           !WeatherSources.isAvailable(current.id, in: c.providersAvailable) {
             Label {
-                Text("\(heldName) is waiting for its key; using \(currentName).",
-                     comment: "Weather provider note: the saved provider (e.g. Tomorrow.io) lacks its server key, then the provider used meanwhile (e.g. Open-Meteo)")
+                Text("\(current.name) needs \(env) on the server, so there is no weather until it is set. Pick another provider to get weather now.",
+                     comment: "Weather provider note: the chosen provider (e.g. Tomorrow.io), then the environment variable that holds its API key")
             } icon: {
-                Image(systemName: "hourglass")
+                Image(systemName: "exclamationmark.triangle")
             }
             .font(.callout)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.orange)
             .fixedSize(horizontal: false, vertical: true)
         }
         ForEach(WeatherSources.providers.filter {
-            c.providersAvailable != nil && $0.keyEnv != nil
+            c.providersAvailable != nil && $0.keyEnv != nil && $0.id != c.provider
                 && !WeatherSources.isAvailable($0.id, in: c.providersAvailable)
         }) { option in
             Label {

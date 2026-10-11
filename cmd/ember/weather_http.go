@@ -7,15 +7,10 @@ import (
 type weatherConfigDTO struct {
 	WeatherConfig
 	ProvidersAvailable []string `json:"providers_available"`
-	ProviderHeld       string   `json:"provider_held,omitempty"`
 }
 
 func (a *App) weatherDTO(c WeatherConfig) weatherConfigDTO {
-	d := weatherConfigDTO{WeatherConfig: c, ProvidersAvailable: a.weatherFetcher.providersAvailable()}
-	if p := a.weather.heldProvider.Load(); p != nil {
-		d.ProviderHeld = *p
-	}
-	return d
+	return weatherConfigDTO{WeatherConfig: c, ProvidersAvailable: a.weatherFetcher.providersAvailable()}
 }
 
 func (a *App) handleWeatherConfigGet(w http.ResponseWriter, r *http.Request) {
@@ -23,11 +18,7 @@ func (a *App) handleWeatherConfigGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleWeatherConfigPut(w http.ResponseWriter, r *http.Request) {
-	held := a.weather.heldProvider.Swap(nil)
-	c, ok := serveSettingPut(a, w, r, a.settings.weather)
-	if !ok {
-		a.weather.heldProvider.CompareAndSwap(nil, held)
-		return
+	if c, ok := serveSettingPut(a, w, r, a.settings.weather); ok {
+		writeJSON(w, http.StatusOK, a.weatherDTO(c))
 	}
-	writeJSON(w, http.StatusOK, a.weatherDTO(c))
 }

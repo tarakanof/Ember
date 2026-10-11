@@ -124,17 +124,6 @@
     "%@ is next. Push the knob to start it." : {
       "comment" : "Knob Pomodoro preview: the phase waiting to start (\"Break is next…\")."
     },
-    "%@ is waiting for its key; using %@." : {
-      "comment" : "Weather provider note: the saved provider (e.g. Tomorrow.io) lacks its server key, then the provider used meanwhile (e.g. Open-Meteo)",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ is waiting for its key; using %2$@."
-          }
-        }
-      }
-    },
     "%@ left" : {
       "comment" : "VoiceOver, Focus ring: time left in the current phase (\"18:42\")."
     },
@@ -143,6 +132,17 @@
     },
     "%@ lx" : {
       "comment" : "A light level in lux (\"42 lx\")."
+    },
+    "%@ needs %@ on the server, so there is no weather until it is set. Pick another provider to get weather now." : {
+      "comment" : "Weather provider note: the chosen provider (e.g. Tomorrow.io), then the environment variable that holds its API key",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ needs %2$@ on the server, so there is no weather until it is set. Pick another provider to get weather now."
+          }
+        }
+      }
     },
     "%@ now, %@ high" : {
       "comment" : "VoiceOver, weather forecast strip: the current temperature, then the highest over the next hours.",

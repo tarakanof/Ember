@@ -336,6 +336,7 @@ type weatherStateOut struct {
 	Enabled      bool               `json:"enabled"`
 	Provider     string             `json:"provider"`
 	Model        string             `json:"model,omitempty"`
+	Error        string             `json:"error,omitempty"`
 	Units        string             `json:"units"`
 	LocationName *string            `json:"location_name"`
 	Current      *weatherCurrentOut `json:"current"`
@@ -351,6 +352,7 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 		Enabled:      cfg.Enabled,
 		Provider:     cfg.Provider,
 		Model:        cfg.model(),
+		Error:        a.weatherUnavailableReason(cfg),
 		Units:        cfg.Units,
 		LocationName: optString(cfg.LocationName),
 	}

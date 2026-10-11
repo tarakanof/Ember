@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
@@ -318,8 +317,7 @@ type weatherStore struct {
 
 	quotaAttemptAt time.Time
 	quotaRetryAt   time.Time
-	quotaLoad      sync.Once
-	heldProvider   atomic.Pointer[string]
+	quotaLoaded    bool
 
 	air         airObservation
 	haveAir     bool
@@ -496,6 +494,7 @@ func (a *App) StartWeather(ctx context.Context) {
 }
 
 func (a *App) pollWeather(ctx context.Context, now time.Time) {
+	entered := time.Now()
 	cfg := a.cfg.Load().Weather
 	src := cfg.source()
 	a.weather.switchSource(src)
@@ -504,7 +503,10 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	}
 	a.checkSunPopups(ctx, now, cfg)
 	a.pollAir(ctx, now, cfg)
-	a.weather.quotaLoad.Do(a.loadWeatherQuota)
+	if !a.weatherFetcher.providerAvailable(cfg.Provider) {
+		return
+	}
+	a.loadWeatherQuota(cfg, now)
 	if !a.weather.due(cfg, now) {
 		return
 	}
@@ -514,7 +516,8 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		a.popKeptWeather(ctx, now, src, cfg)
 		return
 	}
-	if !a.weather.reserveQuota(cfg, now) {
+	at := now.Add(time.Since(entered))
+	if !a.weather.reserveQuota(cfg, at) {
 		return
 	}
 	a.saveWeatherQuota(cfg)
@@ -522,7 +525,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	res, err := a.weatherFetcher.fetch(ctx, cfg, hint)
 	if err != nil {
 		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "model", cfg.model(), "err", err)
-		a.markWeatherFailedAfter(now, time.Since(started), src, retryAfterOf(err))
+		a.markWeatherFailedAfter(now, at.Add(time.Since(started)), src, retryAfterOf(err))
 		a.saveWeatherQuota(cfg)
 		return
 	}
@@ -599,8 +602,7 @@ func (s *weatherStore) due(cfg WeatherConfig, now time.Time) bool {
 	if now.Before(s.retryAt) {
 		return false
 	}
-	if floor := cfg.minFetchInterval(); floor > 0 && (now.Before(s.quotaRetryAt) ||
-		(!s.quotaAttemptAt.IsZero() && now.Sub(s.quotaAttemptAt) < floor)) {
+	if floor := cfg.minFetchInterval(); floor > 0 && !s.quotaOpen(floor, now) {
 		return false
 	}
 	every := cfg.refreshEvery()
@@ -647,11 +649,17 @@ func (s *weatherStore) reserveQuota(cfg WeatherConfig, now time.Time) bool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if now.Before(s.quotaRetryAt) || (!s.quotaAttemptAt.IsZero() && now.Sub(s.quotaAttemptAt) < floor) {
+	if !s.quotaOpen(floor, now) {
 		return false
 	}
 	s.quotaAttemptAt = now
 	return true
+}
+
+const quotaTickSlack = 30 * time.Second
+
+func (s *weatherStore) quotaOpen(floor time.Duration, now time.Time) bool {
+	return !now.Before(s.quotaRetryAt) && (s.quotaAttemptAt.IsZero() || now.Sub(s.quotaAttemptAt) >= floor-quotaTickSlack)
 }
 
 const weatherQuotaKey = "weather_quota_tomorrow_io"
@@ -661,22 +669,36 @@ type weatherQuotaRecord struct {
 	RetryUntil time.Time `json:"retry_until"`
 }
 
-func (a *App) loadWeatherQuota() {
-	if a.store == nil {
-		return
-	}
-	v, ok, err := a.store.GetSetting(weatherQuotaKey)
-	if err != nil || !ok {
-		return
-	}
-	var r weatherQuotaRecord
-	if json.Unmarshal([]byte(v), &r) != nil {
+func (a *App) loadWeatherQuota(cfg WeatherConfig, now time.Time) {
+	if cfg.minFetchInterval() == 0 {
 		return
 	}
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
-	a.weather.quotaAttemptAt = later(a.weather.quotaAttemptAt, r.AttemptAt)
-	a.weather.quotaRetryAt = later(a.weather.quotaRetryAt, r.RetryUntil)
+	if a.weather.quotaLoaded {
+		return
+	}
+	if a.store == nil {
+		a.weather.quotaLoaded = true
+		return
+	}
+	v, ok, err := a.store.GetSetting(weatherQuotaKey)
+	if err != nil {
+		if a.weather.quotaAttemptAt.IsZero() {
+			a.weather.quotaAttemptAt = now
+		}
+		a.logger.Warn("weather quota read failed, holding fetches for the minimum interval", "err", err)
+		return
+	}
+	a.weather.quotaLoaded = true
+	var r weatherQuotaRecord
+	if !ok || json.Unmarshal([]byte(v), &r) != nil {
+		return
+	}
+	if !r.AttemptAt.After(now) {
+		a.weather.quotaAttemptAt = later(a.weather.quotaAttemptAt, r.AttemptAt)
+	}
+	a.weather.quotaRetryAt = later(a.weather.quotaRetryAt, earlier(r.RetryUntil, now.Add(weatherRetryAfterMax)))
 }
 
 func (a *App) saveWeatherQuota(cfg WeatherConfig) {
@@ -695,11 +717,11 @@ func (a *App) saveWeatherQuota(cfg WeatherConfig) {
 	}
 }
 
-func (a *App) markWeatherFailedAfter(now time.Time, took time.Duration, src weatherSource, retryAfter time.Duration) {
+func (a *App) markWeatherFailedAfter(now, received time.Time, src weatherSource, retryAfter time.Duration) {
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
 	if (WeatherConfig{Provider: src.provider}).minFetchInterval() > 0 && retryAfter > 0 {
-		a.weather.quotaRetryAt = later(a.weather.quotaRetryAt, now.Add(took+min(retryAfter, weatherRetryAfterMax)))
+		a.weather.quotaRetryAt = later(a.weather.quotaRetryAt, received.Add(min(retryAfter, weatherRetryAfterMax)))
 	}
 	cfg := a.cfg.Load().Weather
 	if cfg.source() != src {
@@ -917,9 +939,14 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 	return settingSpec[WeatherConfig]{
 		key:          weatherSettingsKey,
 		presentation: weatherPresentationKeys,
-		decode:       a.sanitizeStoredWeather,
-		stored:       a.weather.withHeldProvider,
+		decode:       a.dropUnknownOpenMeteoModel,
 		view:         func(c Config) WeatherConfig { return c.Weather },
+		check: func(cur, next WeatherConfig) error {
+			if next.Provider != cur.Provider && !a.weatherFetcher.providerAvailable(next.Provider) {
+				return fmt.Errorf("weather.provider %q needs %s set on the server", next.Provider, tomorrowKeyEnv)
+			}
+			return nil
+		},
 		apply: func(c *Config, w WeatherConfig) error {
 			w.fillAbsent()
 			if w.ForecastHours == 0 {
@@ -927,9 +954,6 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 			}
 			if err := validateWeather(w); err != nil {
 				return err
-			}
-			if w.Provider != c.Weather.Provider && !a.weatherFetcher.providerAvailable(w.Provider) {
-				return fmt.Errorf("weather.provider %q needs %s set on the server", w.Provider, tomorrowKeyEnv)
 			}
 			c.Weather = w
 			return nil
@@ -941,35 +965,18 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 	}
 }
 
-func (s *weatherStore) withHeldProvider(w WeatherConfig) WeatherConfig {
-	if p := s.heldProvider.Load(); p != nil {
-		w.Provider = *p
-	}
-	return w
-}
-
-func (a *App) sanitizeStoredWeather(blob string) []byte {
+func (a *App) dropUnknownOpenMeteoModel(blob string) []byte {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(blob), &m); err != nil {
 		return []byte(blob)
 	}
-	dropped := false
 	var model string
-	if raw, ok := m["open_meteo_model"]; ok && (json.Unmarshal(raw, &model) != nil || (model != "" && !slices.Contains(openMeteoModels, model))) {
-		a.logger.Warn("persisted weather model ignored", "model", string(raw), "fallback", cmp.Or(a.cfg.Load().Weather.OpenMeteoModel, defaultOpenMeteoModel))
-		delete(m, "open_meteo_model")
-		dropped = true
-	}
-	var provider string
-	if raw, ok := m["provider"]; ok && json.Unmarshal(raw, &provider) == nil && !a.weatherFetcher.providerAvailable(provider) {
-		a.logger.Warn("persisted weather provider ignored", "provider", provider, "reason", tomorrowKeyEnv+" not set", "fallback", a.cfg.Load().Weather.Provider)
-		a.weather.heldProvider.Store(&provider)
-		delete(m, "provider")
-		dropped = true
-	}
-	if !dropped {
+	raw, ok := m["open_meteo_model"]
+	if !ok || (json.Unmarshal(raw, &model) == nil && (model == "" || slices.Contains(openMeteoModels, model))) {
 		return []byte(blob)
 	}
+	a.logger.Warn("persisted weather model ignored", "model", string(raw), "fallback", cmp.Or(a.cfg.Load().Weather.OpenMeteoModel, defaultOpenMeteoModel))
+	delete(m, "open_meteo_model")
 	out, err := json.Marshal(m)
 	if err != nil {
 		return []byte(blob)

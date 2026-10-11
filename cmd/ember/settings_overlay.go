@@ -17,7 +17,7 @@ type settingSpec[D any] struct {
 	after        func(Config)
 	encode       func(D) string
 	decode       func(string) []byte
-	stored       func(D) D
+	check        func(cur, next D) error
 	presentation []string
 }
 
@@ -105,6 +105,11 @@ func (s *setting[D]) write(patch []byte, also func(before Config, cur *Config), 
 		if err != nil {
 			return err
 		}
+		if s.spec.check != nil && !stored {
+			if err := s.spec.check(s.spec.view(*cur), d); err != nil {
+				return err
+			}
+		}
 		if err := s.spec.apply(cur, d); err != nil {
 			return err
 		}
@@ -162,11 +167,7 @@ func (s *setting[D]) blob(c Config) (string, bool) {
 		blob := s.spec.encode(s.spec.view(c))
 		return blob, blob != ""
 	}
-	v := s.spec.view(c)
-	if s.spec.stored != nil {
-		v = s.spec.stored(v)
-	}
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(s.spec.view(c))
 	if err != nil {
 		s.o.logger.Warn("settings marshal failed", "key", s.spec.key, "err", err)
 		return "", false

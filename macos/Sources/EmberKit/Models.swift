@@ -222,7 +222,6 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     public var airPopupThreshold: Int
     public var overlay: Bool
     public var providersAvailable: [String]?
-    public var providerHeld: String?
 
     public init(enabled: Bool = false, provider: String = "open-meteo",
                 openMeteoModel: String = WeatherSources.defaultOpenMeteoModel,
@@ -235,7 +234,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
                 severeSound: String = "", useNativeIcons: Bool = false,
                 iconIds: [String: String] = [:], tileNativeIcons: Bool = false,
                 airTile: Bool = true, airPopupThreshold: Int = 80, overlay: Bool = true,
-                providersAvailable: [String]? = nil, providerHeld: String? = nil) {
+                providersAvailable: [String]? = nil) {
         self.enabled = enabled
         self.provider = provider
         self.openMeteoModel = openMeteoModel
@@ -261,7 +260,6 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         self.airPopupThreshold = airPopupThreshold
         self.overlay = overlay
         self.providersAvailable = providersAvailable
-        self.providerHeld = providerHeld
     }
 
     enum CodingKeys: String, CodingKey {
@@ -287,7 +285,6 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         case airPopupThreshold = "air_popup_threshold"
         case overlay
         case providersAvailable = "providers_available"
-        case providerHeld = "provider_held"
     }
 
     public init(from decoder: Decoder) throws {
@@ -318,7 +315,6 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         airPopupThreshold = try c.decodeIfPresent(Int.self, forKey: .airPopupThreshold) ?? 80
         overlay = try c.decodeIfPresent(Bool.self, forKey: .overlay) ?? true
         providersAvailable = try c.decodeIfPresent([String].self, forKey: .providersAvailable)
-        providerHeld = try c.decodeIfPresent(String.self, forKey: .providerHeld)
     }
 }
 

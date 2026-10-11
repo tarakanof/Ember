@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -521,67 +522,202 @@ func TestWeatherConfigPutTomorrowNeedsTheKey(t *testing.T) {
 	}
 }
 
-func TestHeldTomorrowChoiceSurvivesAKeylessRestartUntilASave(t *testing.T) {
-	a := newDefaultedAppWithStore(t)
-	if err := a.store.PutSetting(weatherSettingsKey, `{"provider":"tomorrow-io","refresh_minutes":25,"location_name":"Belgrade"}`); err != nil {
+func keylessStoredTomorrowApp(t *testing.T, st *tomorrowStub, db, key string) *App {
+	t.Helper()
+	app := newTomorrowApp(t, st, nil)
+	app.weatherFetcher.tomorrowKey = key
+	app.updateConfig(func(c *Config) { c.Weather.Provider = "open-meteo" })
+	if err := app.ensureStore(db); err != nil {
 		t.Fatal(err)
 	}
-	a.settings.reapply()
-	w := a.cfg.Load().Weather
-	if w.Provider != "open-meteo" || w.RefreshMinutes != 25 || w.LocationName != "Belgrade" {
-		t.Errorf("keyless start = provider %q refresh %d name %q, want the config.json provider and the rest kept", w.Provider, w.RefreshMinutes, w.LocationName)
+	app.settings.reapply()
+	return app
+}
+
+func TestKeylessStartKeepsTheStoredTomorrowChoiceAndSaysWhy(t *testing.T) {
+	db := t.TempDir() + "/s.db"
+	st := newTomorrowStub(t, tomorrowFixture(t))
+	seed := newTomorrowApp(t, st, nil)
+	if err := seed.ensureStore(db); err != nil {
+		t.Fatal(err)
 	}
-	code, m := weatherConfigBody(t, a, http.MethodGet, "")
-	if code != http.StatusOK || string(m["provider_held"]) != `"tomorrow-io"` {
-		t.Fatalf("GET while held = %d provider_held %s", code, m["provider_held"])
-	}
-	blob, _, _ := a.store.GetSetting(weatherSettingsKey)
-	if !strings.Contains(blob, `"provider":"tomorrow-io"`) {
-		t.Fatalf("stored blob after a keyless start = %s, want tomorrow-io kept", blob)
+	stored := `{"enabled":true,"provider":"tomorrow-io","refresh_minutes":25,"latitude":44.8176,"longitude":20.4633}`
+	if err := seed.store.PutSetting(weatherSettingsKey, stored); err != nil {
+		t.Fatal(err)
 	}
 
-	b := newDefaultedAppWithStore(t)
-	b.weatherFetcher.tomorrowKey = testTomorrowKey
-	if err := b.store.PutSetting(weatherSettingsKey, blob); err != nil {
-		t.Fatal(err)
+	a := keylessStoredTomorrowApp(t, st, db, "")
+	if w := a.cfg.Load().Weather; w.Provider != tomorrowIO || w.RefreshMinutes != 25 {
+		t.Fatalf("keyless start = provider %q refresh %d, want the stored tomorrow-io kept", w.Provider, w.RefreshMinutes)
 	}
-	b.settings.reapply()
-	if w := b.cfg.Load().Weather; w.Provider != tomorrowIO || w.RefreshMinutes != 25 {
-		t.Errorf("start with the key back = provider %q refresh %d, want tomorrow-io and 25", w.Provider, w.RefreshMinutes)
+	if blob, _, _ := a.store.GetSetting(weatherSettingsKey); !strings.Contains(blob, `"provider":"tomorrow-io"`) {
+		t.Errorf("stored row rewritten to %s", blob)
 	}
-	if _, m := weatherConfigBody(t, b, http.MethodGet, ""); m["provider_held"] != nil {
-		t.Errorf("provider_held = %s with the key, want absent", m["provider_held"])
+	now := time.Now()
+	a.pollWeather(context.Background(), now)
+	if st.hits.Load() != 0 {
+		t.Fatalf("%d requests without a key, want 0", st.hits.Load())
+	}
+	out := a.buildWeatherState(now)
+	if out.Provider != tomorrowIO || out.Current != nil || !strings.Contains(out.Error, tomorrowKeyEnv) {
+		t.Errorf("state = provider %q current %v error %q, want tomorrow-io, nothing current and a reason naming %s", out.Provider, out.Current, out.Error, tomorrowKeyEnv)
+	}
+	if _, m := weatherConfigBody(t, a, http.MethodGet, ""); strings.Contains(string(m["providers_available"]), tomorrowIO) {
+		t.Errorf("providers_available = %s without a key", m["providers_available"])
+	}
+
+	b := keylessStoredTomorrowApp(t, st, db, testTomorrowKey)
+	b.pollWeather(context.Background(), now)
+	if st.hits.Load() != 1 {
+		t.Fatalf("%d requests once the key is back, want 1", st.hits.Load())
+	}
+	if out := b.buildWeatherState(now); out.Error != "" || out.Current == nil {
+		t.Errorf("state with the key = error %q current %v", out.Error, out.Current)
 	}
 }
 
-func TestAnySaveWhileHeldAcceptsTheShownProvider(t *testing.T) {
-	a := newDefaultedAppWithStore(t)
-	if err := a.store.PutSetting(weatherSettingsKey, `{"provider":"tomorrow-io"}`); err != nil {
-		t.Fatal(err)
+func TestKeylessTomorrowCanBeSwitchedAway(t *testing.T) {
+	st := newTomorrowStub(t, tomorrowFixture(t))
+	app := newTomorrowApp(t, st, nil)
+	app.weatherFetcher.tomorrowKey = ""
+	code, m := weatherConfigBody(t, app, http.MethodPut, `{"provider":"met-no"}`)
+	if code != http.StatusOK || string(m["provider"]) != `"met-no"` {
+		t.Fatalf("PUT met-no from a keyless tomorrow-io = %d %v", code, m)
 	}
-	a.settings.reapply()
-	if code, _ := weatherConfigBody(t, a, http.MethodPut, `{"refresh_minutes":30}`); code != http.StatusOK {
-		t.Fatalf("PUT = %d", code)
-	}
-	if blob, _, _ := a.store.GetSetting(weatherSettingsKey); !strings.Contains(blob, `"provider":"open-meteo"`) || !strings.Contains(blob, `"refresh_minutes":30`) {
-		t.Errorf("stored blob = %s, want the shown open-meteo saved with the edit", blob)
-	}
-	if _, m := weatherConfigBody(t, a, http.MethodGet, ""); m["provider_held"] != nil {
-		t.Errorf("provider_held = %s after a save, want absent", m["provider_held"])
+	if out := app.buildWeatherState(time.Now()); out.Error != "" {
+		t.Errorf("state error = %q under met-no", out.Error)
 	}
 }
 
-func TestFailedSaveWhileHeldKeepsTheHold(t *testing.T) {
-	a := newDefaultedAppWithStore(t)
-	if err := a.store.PutSetting(weatherSettingsKey, `{"provider":"tomorrow-io"}`); err != nil {
+func TestTomorrowQuotaLoadIgnoresAClockThatWasAhead(t *testing.T) {
+	cases := []struct {
+		name, row string
+		pollAfter time.Duration
+	}{
+		{"attempt in the future is dropped", `{"attempt_at":%q}`, 0},
+		{"retry deadline capped at a day", `{"retry_until":%q}`, weatherRetryAfterMax + time.Minute},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st := newTomorrowStub(t, tomorrowFixture(t))
+			app := newTomorrowApp(t, st, nil)
+			if err := app.ensureStore(t.TempDir() + "/s.db"); err != nil {
+				t.Fatal(err)
+			}
+			ahead := time.Now().Add(365 * 24 * time.Hour).Format(time.RFC3339)
+			if err := app.store.PutSetting(weatherQuotaKey, fmt.Sprintf(c.row, ahead)); err != nil {
+				t.Fatal(err)
+			}
+			t0 := time.Now()
+			app.pollWeather(context.Background(), t0)
+			app.pollWeather(context.Background(), t0.Add(c.pollAfter))
+			if st.hits.Load() != 1 {
+				t.Errorf("%d requests, want 1: a row written while the clock was a year ahead must not block", st.hits.Load())
+			}
+		})
+	}
+}
+
+func renameSettings(t *testing.T, dbPath, from, to string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	a.settings.reapply()
-	if code, _ := weatherConfigBody(t, a, http.MethodPut, `{"units":"kelvin"}`); code != http.StatusBadRequest {
-		t.Fatalf("invalid PUT = %d, want 400", code)
+	defer db.Close()
+	if _, err := db.Exec(`ALTER TABLE ` + from + ` RENAME TO ` + to); err != nil {
+		t.Fatal(err)
 	}
-	if _, m := weatherConfigBody(t, a, http.MethodGet, ""); string(m["provider_held"]) != `"tomorrow-io"` {
-		t.Errorf("provider_held = %s after a rejected save, want tomorrow-io", m["provider_held"])
+}
+
+func TestTomorrowQuotaReadFailureFailsClosedAndRetries(t *testing.T) {
+	db := t.TempDir() + "/s.db"
+	st := newTomorrowStub(t, tomorrowFixture(t))
+	app := newTomorrowApp(t, st, nil)
+	if err := app.ensureStore(db); err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now()
+	if err := app.store.PutSetting(weatherQuotaKey, fmt.Sprintf(`{"retry_until":%q}`, t0.Add(30*time.Minute).Format(time.RFC3339Nano))); err != nil {
+		t.Fatal(err)
+	}
+	renameSettings(t, db, "settings", "settings_away")
+	app.pollWeather(context.Background(), t0)
+	if st.hits.Load() != 0 {
+		t.Fatalf("%d requests with the quota row unreadable, want 0 (5-min floor from start)", st.hits.Load())
+	}
+	renameSettings(t, db, "settings_away", "settings")
+	app.pollWeather(context.Background(), t0.Add(6*time.Minute))
+	if st.hits.Load() != 0 {
+		t.Fatalf("%d requests after the row became readable inside its Retry-After, want 0 (the read is retried)", st.hits.Load())
+	}
+	app.pollWeather(context.Background(), t0.Add(31*time.Minute))
+	if st.hits.Load() != 1 {
+		t.Fatalf("%d requests after the Retry-After, want 1", st.hits.Load())
+	}
+}
+
+func TestTomorrowQuotaWriteFailureKeepsTheReservation(t *testing.T) {
+	db := t.TempDir() + "/s.db"
+	st := newTomorrowStub(t, tomorrowFixture(t))
+	app := newTomorrowApp(t, st, nil)
+	if err := app.ensureStore(db); err != nil {
+		t.Fatal(err)
+	}
+	failWrites(t, db, weatherQuotaKey)
+	t0 := time.Now()
+	app.pollWeather(context.Background(), t0)
+	app.pollWeather(context.Background(), t0.Add(2*time.Minute))
+	if st.hits.Load() != 1 {
+		t.Fatalf("%d requests within 5 min while the quota row can't be written, want 1", st.hits.Load())
+	}
+}
+
+func TestTomorrowQuotaTimesIncludePreFetchWork(t *testing.T) {
+	air := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"current":{"european_aqi":10}}`))
+	}))
+	t.Cleanup(air.Close)
+	st := newTomorrowStub(t, tomorrowFixture(t))
+	st.status.Store(http.StatusTooManyRequests)
+	ra := "1800"
+	st.retry.Store(&ra)
+	app := newTomorrowApp(t, st, nil)
+	app.updateConfig(func(c *Config) { c.Weather.AirTile = boolPtr(true) })
+	app.weatherFetcher.airQualityBase = air.URL
+	t0 := time.Now()
+	app.pollWeather(context.Background(), t0)
+	app.weather.mu.RLock()
+	attempt, until := app.weather.quotaAttemptAt, app.weather.quotaRetryAt
+	app.weather.mu.RUnlock()
+	if attempt.Sub(t0) < 250*time.Millisecond || until.Sub(t0) < 30*time.Minute+250*time.Millisecond {
+		t.Errorf("attempt +%v, deadline +%v after the poll began, want both past the 300-ms air call", attempt.Sub(t0), until.Sub(t0))
+	}
+}
+
+func TestTomorrowDayCodeCountsClearHoursAndOnlyFutureGaps(t *testing.T) {
+	utc := func(d, h int) time.Time { return time.Date(2026, 10, d, h, 0, 0, 0, time.UTC) }
+	var hours []string
+	hours = append(hours, tomorrowHours(utc(11, 10), 18, 1000)...)
+	hours = append(hours, tomorrowHours(utc(12, 4), 23, 1000)...)
+	hours = append(hours, tomorrowHours(utc(13, 3), 1, 2000)...)
+	body := `{"timelines":{"hourly":[` + strings.Join(hours, ",") + `],
+"daily":[{"time":"2026-10-11T04:00:00Z","values":{"weatherCodeMax":2100}},
+{"time":"2026-10-12T04:00:00Z","values":{"weatherCodeMax":2000}}]}}`
+	st := newTomorrowStub(t, []byte(body))
+	obs, err := newTomorrowFetcher(st.srv.URL).fetchTomorrow(t.Context(), belgrade, fetchHint{TZOffsetSeconds: 7200, TZKnown: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs.Days) != 2 {
+		t.Fatalf("days = %+v", obs.Days)
+	}
+	if d := obs.Days[0]; d.Code != "0" {
+		t.Errorf("today = %q %q, want clear: the 6 past morning hours don't count for weatherCodeMax fog", d.Cond, d.Code)
+	}
+	if d := obs.Days[1]; d.Code != "0" {
+		t.Errorf("tomorrow = %q %q, want clear: 23 h clear beat 1 h fog", d.Cond, d.Code)
 	}
 }
 
@@ -720,8 +856,8 @@ func TestTomorrowKeepsTheLongestBackoff(t *testing.T) {
 	app := newTomorrowApp(t, st, nil)
 	src := app.cfg.Load().Weather.source()
 	t0 := time.Now()
-	app.markWeatherFailedAfter(t0, 0, src, 30*time.Minute)
-	app.markWeatherFailedAfter(t0, 0, src, time.Minute)
+	app.markWeatherFailedAfter(t0, t0, src, 30*time.Minute)
+	app.markWeatherFailedAfter(t0, t0, src, time.Minute)
 	app.weather.mu.RLock()
 	until := app.weather.quotaRetryAt
 	app.weather.mu.RUnlock()
