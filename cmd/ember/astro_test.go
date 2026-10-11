@@ -98,8 +98,8 @@ func TestMoonRiseSetMatchOpenMeteoReference(t *testing.T) {
 						best = min(best, e.at.Sub(time.Unix(w, 0)).Abs())
 					}
 				}
-				if best > 2*time.Minute {
-					t.Errorf("%s: no moon rise=%v within 2 min of %v (closest %v)", ref.name, rise, time.Unix(w, 0).UTC(), best)
+				if best > 70*time.Second {
+					t.Errorf("%s: no moon rise=%v within 70 s of %v (closest %v)", ref.name, rise, time.Unix(w, 0).UTC(), best)
 				}
 			}
 		}
@@ -120,7 +120,7 @@ var metNoMoonOslo202609 = struct {
 		29833840, 29835373, 29836904, 29838435, 29839967, 29841501, 29843040, 29844585, 29846135},
 }
 
-func TestMoonRiseSetMatchMETNorwayWithinAMinute(t *testing.T) {
+func TestMoonRiseSetMatchMETNorwayToTheRoundedMinute(t *testing.T) {
 	ref := metNoMoonOslo202609
 	evs := moonEvents(ref.lat, ref.lon, time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))
 	check := func(want []int64, rise bool) {
