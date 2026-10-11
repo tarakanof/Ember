@@ -2,13 +2,14 @@ package main
 
 import (
 	"math"
+	"sort"
 	"testing"
 	"time"
 )
 
 func TestSunTimesEquatorEquinox(t *testing.T) {
 	date := time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)
-	sunrise, sunset, ok := sunTimes(0, 0, date)
+	sunrise, sunset, ok := sunTimes(0, 0, date).pair()
 	if !ok {
 		t.Fatal("equator equinox should have sunrise/sunset")
 	}
@@ -27,10 +28,10 @@ func TestSunTimesEquatorEquinox(t *testing.T) {
 }
 
 func TestSunTimesPolar(t *testing.T) {
-	if _, _, ok := sunTimes(80, 0, time.Date(2024, 6, 21, 0, 0, 0, 0, time.UTC)); ok {
+	if _, _, ok := sunTimes(80, 0, time.Date(2024, 6, 21, 0, 0, 0, 0, time.UTC)).pair(); ok {
 		t.Error("polar day should have no sunrise/sunset")
 	}
-	if _, _, ok := sunTimes(80, 0, time.Date(2024, 12, 21, 0, 0, 0, 0, time.UTC)); ok {
+	if _, _, ok := sunTimes(80, 0, time.Date(2024, 12, 21, 0, 0, 0, 0, time.UTC)).pair(); ok {
 		t.Error("polar night should have no sunrise/sunset")
 	}
 }
@@ -242,7 +243,7 @@ func TestTwilightCrossesItsAltitudes(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
 	obs := weatherObservation{TZKnown: true, TZOffsetSeconds: 3600}
 	tw := localTwilight(lonLat, lonLon, now, obs)
-	rise, set, _ := localSunTimes(lonLat, lonLon, now, obs)
+	rise, set, _ := localSunTimes(lonLat, lonLon, now, obs).pair()
 	order := []time.Time{tw.Dawn, tw.BlueEnd, rise, tw.GoldenEnd, tw.GoldenStart, set, tw.BlueStart, tw.Dusk}
 	for i := 1; i < len(order); i++ {
 		if !order[i].After(order[i-1]) {
@@ -288,7 +289,7 @@ func TestTwilightMatchesNOAA(t *testing.T) {
 		obs := weatherObservation{TZKnown: true, TZOffsetSeconds: ref.tz}
 		now := ref.date.Add(12*time.Hour - time.Duration(ref.tz)*time.Second)
 		tw := localTwilight(ref.lat, ref.lon, now, obs)
-		rise, set, _ := localSunTimes(ref.lat, ref.lon, now, obs)
+		rise, set, _ := localSunTimes(ref.lat, ref.lon, now, obs).pair()
 		got := [8]time.Time{tw.Dawn, tw.BlueEnd, rise, tw.GoldenEnd, tw.GoldenStart, set, tw.BlueStart, tw.Dusk}
 		for i, g := range got {
 			if d := g.Sub(time.Unix(ref.at[i], 0)); d.Abs() > 30*time.Second {
@@ -336,7 +337,7 @@ func TestSunCrossingsSitAtTheirAltitudeAllYear(t *testing.T) {
 		for _, alt := range []float64{sunHorizonDeg, civilTwilightDeg, blueHourEndDeg, goldenHourEndDeg} {
 			for d := range 365 {
 				day := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, d)
-				rise, set, _ := sunAt(s.lat, s.lon, day, alt)
+				rise, set, _ := sunAt(s.lat, s.lon, day, alt).pair()
 				for _, e := range []time.Time{rise, set} {
 					if e.IsZero() {
 						continue
@@ -351,41 +352,180 @@ func TestSunCrossingsSitAtTheirAltitudeAllYear(t *testing.T) {
 }
 
 func TestSunsetBeforePolarDayIsLeftOut(t *testing.T) {
-	rise, set, ok := sunTimes(78.22, 15.65, time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC))
-	if ok || rise.IsZero() || !set.IsZero() {
-		t.Errorf("Longyearbyen 2026-04-18: rise %v set %v ok %v, want the sunrise and no sunset", rise, set, ok)
+	c := sunTimes(78.22, 15.65, time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC))
+	if !c.HaveRise || c.Rise.IsZero() || c.HaveSet || !c.Set.IsZero() || c.both() || !c.either() {
+		t.Errorf("Longyearbyen 2026-04-18: %+v, want the sunrise and no sunset", c)
 	}
 }
 
 func TestSunCrossingsConvergeOnTheElevationCrossing(t *testing.T) {
+	t.Parallel()
 	sites := []struct {
 		name     string
 		lat, lon float64
 	}{{"Longyearbyen", 78.22, 15.65}, {"McMurdo", -77.85, 166.67}, {"Tromsø", 69.65, 18.96}}
 	const step = 5 * time.Second
 	for _, s := range sites {
-		for _, alt := range []float64{sunHorizonDeg, civilTwilightDeg, blueHourEndDeg, goldenHourEndDeg} {
-			above := func(at time.Time) bool { return solarElevation(s.lat, s.lon, at) > alt }
-			for d := range 365 {
-				day := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, d)
-				rise, set, _ := sunAt(s.lat, s.lon, day, alt)
-				for _, e := range []time.Time{rise, set} {
-					if e.IsZero() {
-						continue
-					}
-					best := time.Duration(-1)
-					for at := e.Add(-10 * time.Minute); at.Before(e.Add(10 * time.Minute)); at = at.Add(step) {
-						if above(at) != above(at.Add(step)) {
-							if off := at.Add(step / 2).Sub(e).Abs(); best < 0 || off < best {
-								best = off
-							}
+		t.Run(s.name, func(t *testing.T) {
+			t.Parallel()
+			for _, alt := range []float64{sunHorizonDeg, civilTwilightDeg, blueHourEndDeg, goldenHourEndDeg} {
+				above := func(at time.Time) bool { return solarElevation(s.lat, s.lon, at) > alt }
+				for d := range 365 {
+					day := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, d)
+					rise, set, _ := sunAt(s.lat, s.lon, day, alt).pair()
+					for _, e := range []time.Time{rise, set} {
+						if e.IsZero() {
+							continue
 						}
-					}
-					if best < 0 || best > 10*time.Second {
-						t.Errorf("%s %s: crossing of %.3f° at %v is %v from where the sun crosses it (-1 = none within 10 min)", s.name, day.Format("2006-01-02"), alt, e, best)
+						best := time.Duration(-1)
+						prev := above(e.Add(-10 * time.Minute))
+						for at := e.Add(-10 * time.Minute); at.Before(e.Add(10 * time.Minute)); at = at.Add(step) {
+							next := above(at.Add(step))
+							if prev != next {
+								if off := at.Add(step / 2).Sub(e).Abs(); best < 0 || off < best {
+									best = off
+								}
+							}
+							prev = next
+						}
+						if best < 0 || best > 10*time.Second {
+							t.Errorf("%s %s: crossing of %.3f° at %v is %v from where the sun crosses it (-1 = none within 10 min)", s.name, day.Format("2006-01-02"), alt, e, best)
+						}
 					}
 				}
 			}
+		})
+	}
+}
+
+type sunCrossingAt struct {
+	at   time.Time
+	rise bool
+}
+
+func scannedSunCrossings(lat, lon float64, alts []float64, from, to time.Time) [][]sunCrossingAt {
+	out := make([][]sunCrossingAt, len(alts))
+	above := make([]bool, len(alts))
+	e := solarElevation(lat, lon, from)
+	for i, alt := range alts {
+		above[i] = e > alt
+	}
+	for at := from.Add(time.Minute); at.Before(to); at = at.Add(time.Minute) {
+		e := solarElevation(lat, lon, at)
+		for i, alt := range alts {
+			if a := e > alt; a != above[i] {
+				out[i] = append(out[i], sunCrossingAt{at.Add(-30 * time.Second), a})
+				above[i] = a
+			}
+		}
+	}
+	return out
+}
+
+type sunEventsByDate struct {
+	lat, lon float64
+	day      time.Time
+	have     bool
+	evs      []sunEvent
+}
+
+func (c *sunEventsByDate) at(now time.Time) []sunEvent {
+	if day := now.UTC().Truncate(24 * time.Hour); !c.have || !day.Equal(c.day) {
+		c.evs, c.day, c.have = sunEvents(c.lat, c.lon, now), day, true
+	}
+	return c.evs
+}
+
+func reportedSunCrossings(lat, lon, alt float64, from, to time.Time) []sunCrossingAt {
+	var out []sunCrossingAt
+	for day := from.AddDate(0, 0, -1); day.Before(to.AddDate(0, 0, 1)); day = day.AddDate(0, 0, 1) {
+		c := sunAt(lat, lon, day, alt)
+		if c.HaveRise && !c.Rise.Before(from) && c.Rise.Before(to) {
+			out = append(out, sunCrossingAt{c.Rise, true})
+		}
+		if c.HaveSet && !c.Set.Before(from) && c.Set.Before(to) {
+			out = append(out, sunCrossingAt{c.Set, false})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].at.Before(out[j].at) })
+	return out
+}
+
+func TestSunAtFindsEverySignChangeOfTheModelElevationAllYear(t *testing.T) {
+	t.Parallel()
+	sites := []struct {
+		name     string
+		lat, lon float64
+	}{{"Tromsø", 69.65, 18.96}, {"Longyearbyen", 78.22, 15.65}, {"McMurdo", -77.85, 166.67}, {"Utqiaġvik", 71.29, -156.79},
+		{"89.9°N", 89.9, 0}, {"89.95°N", 89.95, 0}, {"89.99°N", 89.99, 0}, {"North Pole", 90, 0},
+		{"Amundsen–Scott", -89.99, 139.27}, {"South Pole", -90, 0}}
+	alts := []float64{sunHorizonDeg, civilTwilightDeg, blueHourEndDeg, goldenHourEndDeg}
+	if testing.Short() {
+		alts = alts[:1]
+	}
+	from, to := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	const slack = time.Minute
+	for _, s := range sites {
+		t.Run(s.name, func(t *testing.T) {
+			t.Parallel()
+			scanned := scannedSunCrossings(s.lat, s.lon, alts, from, to)
+			for ai, alt := range alts {
+				want := scanned[ai]
+				got := reportedSunCrossings(s.lat, s.lon, alt, from, to)
+				match := func(c sunCrossingAt, in []sunCrossingAt) bool {
+					i := sort.Search(len(in), func(i int) bool { return !in[i].at.Before(c.at.Add(-slack)) })
+					for ; i < len(in) && !in[i].at.After(c.at.Add(slack)); i++ {
+						if in[i].rise == c.rise {
+							return true
+						}
+					}
+					return false
+				}
+				for _, c := range want {
+					if !match(c, got) {
+						t.Errorf("%s %.3f°: real %s at %v not reported", s.name, alt, crossingWord(c.rise), c.at)
+					}
+				}
+				for _, c := range got {
+					if !match(c, want) {
+						t.Errorf("%s %.3f°: reported %s at %v never happens", s.name, alt, crossingWord(c.rise), c.at)
+					}
+				}
+				if len(want) != len(got) {
+					t.Errorf("%s %.3f°: %d real crossings, %d reported", s.name, alt, len(want), len(got))
+				}
+			}
+		})
+	}
+}
+
+func crossingWord(rise bool) string {
+	if rise {
+		return "rising"
+	}
+	return "setting"
+}
+
+func (c sunCrossings) pair() (rise, set time.Time, ok bool) { return c.Rise, c.Set, c.both() }
+
+func TestTromsoCrossingsNextToTheMidnightSun(t *testing.T) {
+	cases := []struct {
+		name string
+		day  time.Time
+		rise bool
+		want time.Time
+	}{
+		{"last sunrise before", time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC), true, time.Date(2026, 5, 17, 22, 51, 0, 0, time.UTC)},
+		{"first sunset after", time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC), false, time.Date(2026, 7, 25, 22, 38, 0, 0, time.UTC)},
+	}
+	for _, c := range cases {
+		s := sunTimes(69.65, 18.96, c.day)
+		got, have := s.Set, s.HaveSet
+		if c.rise {
+			got, have = s.Rise, s.HaveRise
+		}
+		if !have || got.Sub(c.want).Abs() > time.Minute {
+			t.Errorf("Tromsø %s: %+v, want the %s near %v", c.name, s, crossingWord(c.rise), c.want)
 		}
 	}
 }

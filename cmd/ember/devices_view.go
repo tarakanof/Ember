@@ -261,8 +261,7 @@ func (a *App) knobWeatherFor(now time.Time, detail bool) *knobWeather {
 		Severe:   wx.Obs.Severe,
 		Night:    wx.Night,
 	}
-	if wx.HaveSun {
-		rise, set := wx.roundedSun()
+	if rise, set, ok := wx.roundedSun(); ok {
 		r, s := rise.Unix(), set.Unix()
 		w.Sunrise, w.Sunset = &r, &s
 	}

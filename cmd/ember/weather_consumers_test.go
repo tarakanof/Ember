@@ -167,7 +167,7 @@ func TestClockMoonFollowsTheSunSchedule(t *testing.T) {
 	tromso := func(c *WeatherConfig) { c.Latitude, c.Longitude = 69.65, 18.96 }
 	cest := weatherObservation{Condition: render.WeatherClear, TempC: 12, TZKnown: true, TZOffsetSeconds: 2 * 3600}
 	day := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	_, sunset, ok := localSunTimes(52.37, 4.9, day, cest)
+	_, sunset, ok := localSunTimes(52.37, 4.9, day, cest).pair()
 	if !ok {
 		t.Fatal("fixture: no Amsterdam sunset")
 	}

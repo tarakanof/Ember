@@ -54,8 +54,11 @@ type fetchResult struct {
 }
 
 func (r fetchResult) expiresAt(now time.Time, maxFresh time.Duration) time.Time {
-	if r.Expires.IsZero() || r.Date.IsZero() {
+	switch {
+	case r.Expires.IsZero():
 		return r.Expires
+	case r.Date.IsZero():
+		return earlier(r.Expires, now.Add(maxFresh))
 	}
 	return now.Add(min(max(r.Expires.Sub(r.Date)-r.Age, 0), maxFresh))
 }

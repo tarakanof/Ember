@@ -292,11 +292,10 @@ type weatherStore struct {
 	lastModified string
 	notBefore    time.Time
 
-	prevCondition  string
-	prevSevere     bool
-	lastPopupAt    time.Time
-	sunriseDoneDay string
-	sunsetDoneDay  string
+	prevCondition string
+	prevSevere    bool
+	lastPopupAt   time.Time
+	sunPopups     sunPopupLog
 
 	air         airObservation
 	haveAir     bool
@@ -732,34 +731,45 @@ func (a *App) evaluateWeatherPopup(ctx context.Context, now time.Time, obs weath
 
 const sunPopupGrace = 2 * time.Minute
 
+type sunPopupLog struct{ rise, set time.Time }
+
+func (l *sunPopupLog) due(evs []sunEvent, now time.Time) []sunEvent {
+	var out []sunEvent
+	for _, ev := range evs {
+		if now.Before(ev.at) || now.Sub(ev.at) >= sunPopupGrace {
+			continue
+		}
+		last := &l.set
+		if ev.rise {
+			last = &l.rise
+		}
+		if ev.at.Equal(*last) {
+			continue
+		}
+		*last = ev.at
+		out = append(out, ev)
+	}
+	return out
+}
+
 func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConfig) {
 	if !cfg.SunPopupsEnabled() {
 		return
 	}
 	wx := a.weather.state(cfg, now)
-	if !wx.HaveSun {
+	if !wx.HaveLocation {
 		return
 	}
-	a.maybeFireSun(ctx, now, wx.Sunrise, true, wx.LocalDay, cfg, wx.Obs)
-	a.maybeFireSun(ctx, now, wx.Sunset, false, wx.LocalDay, cfg, wx.Obs)
+	evs := sunEvents(wx.Lat, wx.Lon, now)
+	a.weather.mu.Lock()
+	due := a.weather.sunPopups.due(evs, now)
+	a.weather.mu.Unlock()
+	for _, ev := range due {
+		a.fireSunPopup(ctx, ev.at, ev.rise, cfg, wx.Obs)
+	}
 }
 
-func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising bool, today string, cfg WeatherConfig, obs weatherObservation) {
-	if now.Before(event) || now.Sub(event) >= sunPopupGrace {
-		return
-	}
-	a.weather.mu.Lock()
-	done := &a.weather.sunsetDoneDay
-	if rising {
-		done = &a.weather.sunriseDoneDay
-	}
-	if *done == today {
-		a.weather.mu.Unlock()
-		return
-	}
-	*done = today
-	a.weather.mu.Unlock()
-
+func (a *App) fireSunPopup(ctx context.Context, event time.Time, rising bool, cfg WeatherConfig, obs weatherObservation) {
 	word := "SUNSET"
 	if rising {
 		word = "SUNRISE"

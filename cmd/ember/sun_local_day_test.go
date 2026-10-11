@@ -143,23 +143,15 @@ func TestSunPopupsFireOnTheLocalDaysEvents(t *testing.T) {
 			for _, ev := range []struct {
 				word string
 				at   time.Time
-				done *string
 			}{
-				{"SUNRISE", sun.Sunrise, &app.weather.sunriseDoneDay},
-				{"SUNSET", sun.Sunset, &app.weather.sunsetDoneDay},
+				{"SUNRISE", sun.Sunrise},
+				{"SUNSET", sun.Sunset},
 			} {
 				pub.mu.Lock()
 				before := len(pub.notify)
 				pub.mu.Unlock()
-				var fireAt time.Time
 				for at := ev.at.Add(-3 * time.Minute); !at.After(ev.at.Add(3 * time.Minute)); at = at.Add(15 * time.Second) {
 					app.checkSunPopups(context.Background(), at, cfg)
-					pub.mu.Lock()
-					n := len(pub.notify)
-					pub.mu.Unlock()
-					if fireAt.IsZero() && n > before {
-						fireAt = at
-					}
 				}
 				pub.mu.Lock()
 				fired := pub.notify[before:]
@@ -181,13 +173,42 @@ func TestSunPopupsFireOnTheLocalDaysEvents(t *testing.T) {
 				if d := labelled.Sub(local); d < -3*time.Minute || d > 3*time.Minute {
 					t.Errorf("popup text = %q, dashboard says %s", txt, local.Format("15:04"))
 				}
-				app.weather.mu.RLock()
-				key := *ev.done
-				app.weather.mu.RUnlock()
-				if want := c.localDate(fireAt); key != want {
-					t.Errorf("%s dedupe key = %q, want local date %q", ev.word, key, want)
-				}
 			}
 		})
+	}
+}
+
+func TestLoneSunriseBeforePolarDay(t *testing.T) {
+	c := sunDayCase{name: "Longyearbyen", lat: 78.22, lon: 15.65, tzKnown: true, tzOff: 2 * 3600,
+		now: time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)}
+	app, pub := c.app(t)
+	cfg := app.cfg.Load().Weather
+	sun := app.weather.state(cfg, c.now).Sun
+	if !sun.HaveRise || sun.HaveSet {
+		t.Fatalf("fixture: %+v, want a sunrise and no sunset", sun)
+	}
+
+	app.checkSunPopups(context.Background(), sun.Rise, cfg)
+	pub.mu.Lock()
+	var texts []string
+	for _, p := range pub.notify {
+		s, _ := p["text"].(string)
+		texts = append(texts, s)
+	}
+	pub.mu.Unlock()
+	if len(texts) != 1 || !strings.HasPrefix(texts[0], "SUNRISE ") {
+		t.Errorf("popups at the lone sunrise %v: %q, want one SUNRISE", sun.Rise, texts)
+	}
+
+	before := sun.Rise.Add(-20 * time.Minute)
+	if weatherTileMoon(cfg, app.weather.state(cfg, before), before) == nil {
+		t.Errorf("no moon 20 min before the lone sunrise %v (sun at %.2f°)", sun.Rise, solarElevation(c.lat, c.lon, before))
+	}
+
+	if kw := app.knobWeather(c.now); kw == nil || kw.Sunrise != nil || kw.Sunset != nil {
+		t.Errorf("knob view %+v, want sunrise and sunset both null on a one-crossing day", kw)
+	}
+	if out := app.buildWeatherState(c.now); out.Sun != nil {
+		t.Errorf("dashboard sun %+v, want null on a one-crossing day", out.Sun)
 	}
 }

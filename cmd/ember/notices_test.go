@@ -105,7 +105,7 @@ func noticeScenarios() []noticeScenario {
 			c.Weather.SunPopups = boolPtr(true)
 			c.Weather.Latitude, c.Weather.Longitude = 10, 10
 		}, run: func(t *testing.T, app *App) {
-			sunrise, _, ok := sunTimes(10, 10, time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC))
+			sunrise, _, ok := sunTimes(10, 10, time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)).pair()
 			if !ok {
 				t.Fatal("no sunrise")
 			}

@@ -389,8 +389,7 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 		}
 		out.Air = ao
 	}
-	if wx.HaveSun {
-		rise, set := wx.roundedSun()
+	if rise, set, ok := wx.roundedSun(); ok {
 		out.Sun = &sunOut{Sunrise: rise.In(loc), Sunset: set.In(loc)}
 	}
 	return out

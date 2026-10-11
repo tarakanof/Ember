@@ -77,7 +77,7 @@ func TestKnobViewBodyIsCompactAndOrdered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rise, set, _ := sunTimes(lonLat, lonLon, now)
+	rise, set, _ := sunTimes(lonLat, lonLon, now).pair()
 	want := fmt.Sprintf(`{"v":1,"epoch":1,"config_version":1,`+
 		`"mood":{"waiting":1,"errors":0,"running":1,"done":0,"source":"M4","tool":"claude"},`+
 		`"pomo":{"phase":"focus","running":true,"paused":false,"ends_at":%d,"planned_sec":1500,"round":0},`+

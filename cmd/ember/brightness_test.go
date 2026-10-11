@@ -115,7 +115,7 @@ var (
 
 func TestSunLevel(t *testing.T) {
 	c := BrightnessConfig{}.resolved()
-	rise, set, ok := sunTimes(lonLat, lonLon, jun21)
+	rise, set, ok := sunTimes(lonLat, lonLon, jun21).pair()
 	if !ok {
 		t.Fatal("no sun times")
 	}

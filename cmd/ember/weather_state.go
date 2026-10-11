@@ -19,9 +19,7 @@ type weatherState struct {
 
 	LocalDay string
 	Night    bool
-	HaveSun  bool
-	Sunrise  time.Time
-	Sunset   time.Time
+	Sun      sunCrossings
 
 	At           time.Time
 	Lat, Lon     float64
@@ -46,7 +44,7 @@ func newWeatherState(cfg WeatherConfig, obs weatherObservation, haveObs bool, ai
 	if cfg.Latitude != 0 || cfg.Longitude != 0 {
 		s.HaveLocation = true
 		s.Night = sunNight(cfg.Latitude, cfg.Longitude, now)
-		s.Sunrise, s.Sunset, s.HaveSun = localSunTimes(cfg.Latitude, cfg.Longitude, now, obs)
+		s.Sun = localSunTimes(cfg.Latitude, cfg.Longitude, now, obs)
 	}
 	return s
 }
@@ -72,12 +70,22 @@ func (s weatherState) live() bool { return s.Enabled && s.Fresh }
 
 func (s weatherState) airLive() bool { return s.Enabled && s.AirFresh }
 
-func (s weatherState) roundedSun() (sunrise, sunset time.Time) {
-	return s.Sunrise.Round(sunRounding), s.Sunset.Round(sunRounding)
+func (s weatherState) roundedSun() (sunrise, sunset time.Time, ok bool) {
+	if !s.Sun.both() {
+		return time.Time{}, time.Time{}, false
+	}
+	return s.Sun.Rise.Round(sunRounding), s.Sun.Set.Round(sunRounding), true
 }
 
 func later(a, b time.Time) time.Time {
 	if b.After(a) {
+		return b
+	}
+	return a
+}
+
+func earlier(a, b time.Time) time.Time {
+	if b.Before(a) {
 		return b
 	}
 	return a

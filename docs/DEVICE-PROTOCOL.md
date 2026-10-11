@@ -49,7 +49,10 @@ and fall under the same rules as the view.
    not apply rather than sending `null`. Existing exceptions, kept: the view's
    `pomo` and `weather` are `null` when off, and `weather.sunrise`/`sunset`
    are `null` without a location, in polar day/night, and both on a boundary
-   day with only one crossing (a sunrise but no sunset, or the reverse).
+   day with only one crossing (a sunrise but no sunset, or the reverse). The
+   last is deliberate (#423): the server knows the lone crossing and uses it
+   for the clock's sun popup and moon, but the pair stays both-null or
+   both-set on the wire.
 2. **Removing or retyping a field is breaking.** In the view it needs a new
    view major `v` (today always `1`). The server keeps serving the old major
    to any device that doesn't ask for the new one, for at least two releases.
