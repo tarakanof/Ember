@@ -25,6 +25,7 @@ type weatherState struct {
 }
 
 func newWeatherState(cfg WeatherConfig, obs weatherObservation, haveObs bool, air airObservation, haveAir bool, now time.Time) weatherState {
+	obs = obs.current(now)
 	s := weatherState{
 		Enabled:  cfg.Enabled,
 		Obs:      obs,

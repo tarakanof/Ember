@@ -1298,8 +1298,15 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
 - **MET Norway** reads `locationforecast/2.0/complete` (not `compact`): UV
   (`ultraviolet_index_clear_sky`, short range, clear sky), gusts and
   probabilities (Nordic only) and the 6-h min/max exist only there. ~90 KB
-  raw, ~7 KB gzipped (the client asks for gzip). `Now` is the first
-  timeseries entry (m/s × 3.6). `Precip` is the leading run of 1-h entries'
+  raw, ~7 KB gzipped (the client asks for gzip). The current values
+  (condition, code, temperature, severe, overlay, `Now` in m/s × 3.6 and
+  `ObservedAt`) come from the timeseries entry at or before now: the
+  observation keeps the first 24 entries as `Steps`, and
+  `newWeatherState` projects the latest one not after `now`
+  (`weatherObservation.current`), so they move on each hour while MET is
+  skipped until `Expires` or answers 304. Open-Meteo has no `Steps`; its
+  `current` block is refetched every poll. `Precip` is the leading run of
+  1-h entries'
   `next_1_hours.precipitation_amount` (snow for a snow or sleet symbol, at
   most 14). `Days` are aggregated per local day: each entry uses
   `next_1_hours` when the next entry is 1 h later, else `next_6_hours`

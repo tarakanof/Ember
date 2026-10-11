@@ -202,6 +202,28 @@ type weatherObservation struct {
 	PrecipStep      time.Duration
 	Precip          []precipStep
 	Days            []weatherDay
+	Steps           []currentStep
+}
+
+type currentStep struct {
+	At        time.Time
+	Condition string
+	Code      string
+	TempC     float64
+	Severe    bool
+	Overlay   string
+	Now       weatherNow
+}
+
+func (o weatherObservation) current(now time.Time) weatherObservation {
+	i := sort.Search(len(o.Steps), func(i int) bool { return o.Steps[i].At.After(now) }) - 1
+	if i < 0 {
+		return o
+	}
+	c := o.Steps[i]
+	o.Condition, o.ConditionCode, o.TempC, o.Severe = c.Condition, c.Code, c.TempC, c.Severe
+	o.Overlay, o.Now, o.ObservedAt = c.Overlay, c.Now, c.At
+	return o
 }
 
 type weatherNow struct {

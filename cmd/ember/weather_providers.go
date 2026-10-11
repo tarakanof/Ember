@@ -263,29 +263,34 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig, hin
 		return fetchResult{}, errors.New("met-no: empty timeseries")
 	}
 	first := ts[0]
-	sym := first.symbol()
-	cond, severe := metSymbolCondition(sym)
 	n := min(len(ts), forecastFetchHours)
 	hourly := make([]float64, n)
+	steps := make([]currentStep, n)
 	for i := 0; i < n; i++ {
 		hourly[i] = ts[i].Data.Instant.Details.AirTemperature
+		steps[i] = ts[i].current()
 	}
-	in := first.Data.Instant.Details
 	off := localOffset(weatherObservation{TZOffsetSeconds: hint.TZOffsetSeconds, TZKnown: hint.TZKnown}, cfg.Longitude)
 	res.Obs = weatherObservation{
-		Condition: cond, ConditionCode: sym,
-		TempC: in.AirTemperature, Severe: severe, ObservedAt: first.Time.UTC(),
 		Hourly: hourly, HourlyStart: first.Time,
-		Overlay:         metSymbolOverlay(sym),
 		TZOffsetSeconds: hint.TZOffsetSeconds, TZKnown: hint.TZKnown,
 		ValidUntil: meta.expires,
-		Now: weatherNow{Cloud: in.Cloud, UV: in.UV, WindKmh: scaled(in.Wind, msToKmh),
-			GustKmh: scaled(in.Gust, msToKmh), WindDir: in.WindFrom},
 		PrecipStep: time.Hour,
 		Precip:     metPrecip(ts),
 		Days:       metDays(ts, off),
-	}
+		Steps:      steps,
+	}.current(first.Time)
 	return res, nil
+}
+
+func (e metEntry) current() currentStep {
+	sym := e.symbol()
+	cond, severe := metSymbolCondition(sym)
+	in := e.Data.Instant.Details
+	return currentStep{At: e.Time.UTC(), Condition: cond, Code: sym, TempC: in.AirTemperature, Severe: severe,
+		Overlay: metSymbolOverlay(sym),
+		Now: weatherNow{Cloud: in.Cloud, UV: in.UV, WindKmh: scaled(in.Wind, msToKmh),
+			GustKmh: scaled(in.Gust, msToKmh), WindDir: in.WindFrom}}
 }
 
 func metInterval(ts []metEntry, i int) time.Duration {

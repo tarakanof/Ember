@@ -38,6 +38,8 @@ const metCompleteBody = `{"properties":{"timeseries":[
 {"time":"2026-06-22T12:00:00Z","data":{"instant":{"details":{"air_temperature":18}}}}
 ]}}`
 
+var metT0 = time.Date(2026, 6, 21, 20, 0, 0, 0, time.UTC)
+
 func approx(p *float64, want float64) bool { return p != nil && math.Abs(*p-want) < 1e-9 }
 
 func TestFetchOpenMeteoRequestsAndParsesFaceData(t *testing.T) {
@@ -225,7 +227,7 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 }
 
 func TestMetNoWaitsForExpiresThenRevalidates(t *testing.T) {
-	t0 := time.Now().Truncate(time.Second)
+	t0 := metT0
 	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: t0.Add(25 * time.Minute)}
 	app := newMetCacheApp(t, st, false)
 	ctx := context.Background()
@@ -270,8 +272,29 @@ func TestMetNoWaitsForExpiresThenRevalidates(t *testing.T) {
 	}
 }
 
+func TestMetNoCurrentValuesFollowTheKeptSeries(t *testing.T) {
+	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: metT0.Add(25 * time.Minute), notModified: true}
+	app := newMetCacheApp(t, st, false)
+	app.pollWeather(context.Background(), metT0)
+	t1 := metT0.Add(61 * time.Minute)
+	app.pollWeather(context.Background(), t1)
+	if st.hits.Load() != 2 || st.ims[1] == "" {
+		t.Fatalf("setup: hits %d If-Modified-Since %q, want a 304 at 21:01", st.hits.Load(), st.ims)
+	}
+	wx := app.weather.state(app.cfg.Load().Weather, t1)
+	o := wx.Obs
+	if !wx.Fresh || o.TempC != 13 || o.Condition != render.WeatherSnow || o.ConditionCode != "lightsleet" ||
+		!o.ObservedAt.Equal(metT0.Add(time.Hour)) || !approx(o.Now.GustKmh, 43.2) || o.Now.Cloud != nil {
+		t.Fatalf("after the 21:01 304: fresh %v %v°C %s/%s observed %v now %+v; want the 21:00 entry (13°C lightsleet, gust 43.2)",
+			wx.Fresh, o.TempC, o.Condition, o.ConditionCode, o.ObservedAt, o.Now)
+	}
+	if o := app.weather.state(app.cfg.Load().Weather, metT0.Add(2*time.Hour+5*time.Minute)).Obs; o.TempC != 12 || o.ConditionCode != "cloudy" {
+		t.Errorf("at 22:05 without a fetch: %v°C %s, want the 22:00 entry", o.TempC, o.ConditionCode)
+	}
+}
+
 func TestMetNoAfterAFailedProviderRoundTripFetchesWithoutValidators(t *testing.T) {
-	t0 := time.Now().Truncate(time.Second)
+	t0 := metT0
 	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: t0.Add(25 * time.Minute), notModified: true}
 	app := newMetCacheApp(t, st, false)
 	om := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -301,7 +324,7 @@ func TestMetNoAfterAFailedProviderRoundTripFetchesWithoutValidators(t *testing.T
 }
 
 func TestMetNo304AfterAProviderSwitchIsDropped(t *testing.T) {
-	t0 := time.Now().Truncate(time.Second)
+	t0 := metT0
 	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: t0.Add(-time.Minute), notModified: true}
 	app := newMetCacheApp(t, st, false)
 	ctx := context.Background()
@@ -326,7 +349,7 @@ func TestMetNo304AfterAProviderSwitchIsDropped(t *testing.T) {
 }
 
 func TestMetNoLocationChangeRefetchesWithoutValidators(t *testing.T) {
-	t0 := time.Now().Truncate(time.Second)
+	t0 := metT0
 	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: t0.Add(25 * time.Minute), notModified: true}
 	app := newMetCacheApp(t, st, false)
 	ctx := context.Background()
@@ -383,7 +406,7 @@ func TestMetNoDropsTheAirOffsetOnceAirIsOffOrStale(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t0 := time.Now().Truncate(time.Second)
+			t0 := metT0
 			st := &metStub{expires: t0.Add(-time.Minute)}
 			app := newMetCacheApp(t, st, true)
 			app.pollWeather(context.Background(), t0)
