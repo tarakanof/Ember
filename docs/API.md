@@ -144,7 +144,7 @@ snapshot per tool — the POST stays authed), `GET /v1/activity/summary?days=`
 (agent time per tool/source, waiting excluded), `GET /v1/weather/state` (cached
 observation; label but no coordinates, sun times rounded to 5 min; `model`
 names the Open-Meteo model, absent under MET Norway; `error` gives the
-reason weather is unavailable, e.g. `tomorrow-io` or `weatherapi` chosen
+reason weather is unavailable while it is on, e.g. `tomorrow-io` or `weatherapi` chosen
 without its key),
 `GET /v1/nowplaying/state`, `GET /v1/nowplaying/art?kind=album|artist|backdrop|cover&size=`
 (square baseline JPEG, ETag; `cover` is the knob's prepared 466 px circle; rate-limited),

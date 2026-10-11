@@ -1541,7 +1541,8 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
     30 s for the tick's jitter (`quotaTickSlack`): at least 4.5 min between
     calls. Ticks alone keep a 5-min cadence (12 an hour, 288 a day), but a
     source change polls at once, so flipping providers can land a call on
-    the 4.5-min floor: at most 14 in a rolling hour and 321 a day, inside
+    the 4.5-min floor: at most 14 in a rolling hour and 320 in a UTC day
+    (only with a source change every 4.5 min all day), inside
     Tomorrow.io's 25 and 500. An unreadable row warns once per failing
     streak (and logs its recovery), not every poll. Both times persist per provider in the
     settings store (`weather_quota_tomorrow_io`, `weather_quota_weatherapi`:

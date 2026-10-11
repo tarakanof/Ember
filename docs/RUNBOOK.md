@@ -957,7 +957,7 @@ then pick Tomorrow.io in Settings › Weather. The startup log says
 hour. Ember makes one forecast call per refresh and never refreshes or retries
 faster than every 5 minutes under Tomorrow.io (≤ 288 a day; the 1-min poll
 tick may bring a call up to 30 s early, and flipping providers back and
-forth can reach 14 in an hour and 321 a day, still inside the plan), whatever
+forth without pause can reach 14 in an hour and 320 a day, still inside the plan), whatever
 `refresh_minutes` says, also across location edits, provider switches and
 restarts (the last attempt and any 429 deadline are kept in the SQLite
 store, without the key). A 429, 401 or 403 backs off to its `Retry-After`,
