@@ -96,7 +96,7 @@ func main() {
 		logger.Info("artist pictures: Deezer lookup on (artist names leave the server; unset EMBER_ARTIST_LOOKUP to stop)")
 	}
 	if cfg.Weather.Enabled {
-		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
+		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "model", cfg.Weather.model(), "location", cfg.Weather.LocationName)
 	}
 	if cfg.Meetings.IsEnabled() && len(app.meetingsURLs) > 0 {
 		logger.Info("meetings enabled", "ics_feeds", len(app.meetingsURLs))

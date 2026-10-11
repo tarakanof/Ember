@@ -1,11 +1,14 @@
 package main
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -17,6 +20,7 @@ import (
 type WeatherConfig struct {
 	Enabled              bool              `json:"enabled"`
 	Provider             string            `json:"provider"`
+	OpenMeteoModel       string            `json:"open_meteo_model"`
 	Latitude             float64           `json:"latitude"`
 	Longitude            float64           `json:"longitude"`
 	LocationName         string            `json:"location_name"`
@@ -66,6 +70,9 @@ func (c WeatherConfig) PopupIntervalMins() int {
 }
 
 func (c *WeatherConfig) fillAbsent() {
+	if c.OpenMeteoModel == "" {
+		c.OpenMeteoModel = defaultOpenMeteoModel
+	}
 	if c.RotateInApps == nil {
 		c.RotateInApps = boolPtr(true)
 	}
@@ -143,10 +150,11 @@ func (c *WeatherConfig) applyDefaults() {
 var weatherIconIDPattern = regexp.MustCompile(`^[0-9]{1,10}$`)
 
 func validateWeather(c WeatherConfig) error {
-	switch c.Provider {
-	case "open-meteo", "met-no":
-	default:
-		return fmt.Errorf("weather.provider %q must be open-meteo or met-no", c.Provider)
+	if !slices.Contains(weatherProviders, c.Provider) {
+		return fmt.Errorf("weather.provider %q must be one of %s", c.Provider, strings.Join(weatherProviders, ", "))
+	}
+	if c.OpenMeteoModel != "" && !slices.Contains(openMeteoModels, c.OpenMeteoModel) {
+		return fmt.Errorf("weather.open_meteo_model %q must be one of %s", c.OpenMeteoModel, strings.Join(openMeteoModels, ", "))
 	}
 	switch c.Units {
 	case "metric", "imperial":
@@ -273,12 +281,22 @@ type weatherLocation struct{ lat, lon float64 }
 
 type weatherSource struct {
 	provider string
+	model    string
 	loc      weatherLocation
 }
 
 func (c WeatherConfig) location() weatherLocation { return weatherLocation{c.Latitude, c.Longitude} }
 
-func (c WeatherConfig) source() weatherSource { return weatherSource{c.Provider, c.location()} }
+func (c WeatherConfig) source() weatherSource {
+	return weatherSource{c.Provider, c.model(), c.location()}
+}
+
+func (c WeatherConfig) model() string {
+	if c.Provider != "open-meteo" {
+		return ""
+	}
+	return cmp.Or(c.OpenMeteoModel, defaultOpenMeteoModel)
+}
 
 type weatherStore struct {
 	mu        sync.RWMutex
@@ -491,7 +509,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	}
 	res, err := a.weatherFetcher.fetch(ctx, cfg, hint)
 	if err != nil {
-		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "err", err)
+		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "model", cfg.model(), "err", err)
 		a.markWeatherFailed(now, src, retryAfterOf(err))
 		return
 	}
@@ -810,6 +828,7 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 	return settingSpec[WeatherConfig]{
 		key:          weatherSettingsKey,
 		presentation: weatherPresentationKeys,
+		decode:       a.dropUnknownOpenMeteoModel,
 		view:         func(c Config) WeatherConfig { return c.Weather },
 		apply: func(c *Config, w WeatherConfig) error {
 			w.fillAbsent()
@@ -827,4 +846,23 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 			a.provisionIconsInBackground()
 		},
 	}
+}
+
+func (a *App) dropUnknownOpenMeteoModel(blob string) []byte {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(blob), &m); err != nil {
+		return []byte(blob)
+	}
+	var model string
+	raw, ok := m["open_meteo_model"]
+	if !ok || (json.Unmarshal(raw, &model) == nil && (model == "" || slices.Contains(openMeteoModels, model))) {
+		return []byte(blob)
+	}
+	a.logger.Warn("persisted weather model ignored", "model", string(raw), "fallback", defaultOpenMeteoModel)
+	delete(m, "open_meteo_model")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return []byte(blob)
+	}
+	return out
 }

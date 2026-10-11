@@ -1,6 +1,7 @@
 {
   "enabled": false,
   "provider": "open-meteo",
+  "open_meteo_model": "best_match",
   "latitude": 0,
   "longitude": 0,
   "location_name": "",
