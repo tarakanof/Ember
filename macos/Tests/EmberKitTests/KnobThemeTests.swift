@@ -318,7 +318,7 @@ private let num = #"(-?[\d.]+f?)"#
 private let hex = #"(0x[0-9A-Fa-f]{6})"#
 private let bv = "main/bot_view.c", bs = "components/bot/bot_shape.c", bb = "components/bot/bot_behavior.c"
 private let nv = "main/nowplaying_view.c", nc = "main/nowplaying_client.c", nh = "components/nowplaying/include/np.h"
-private let pv = "main/pomo_view.c", tf = "main/temp_face.c", ws = "components/weather/weather_scene.c"
+private let pv = "main/pomo_view.c", tf = "main/temp_face.c"
 
 private func allChecks() -> [Check] {
     var c: [Check] = [
@@ -384,77 +384,8 @@ private func allChecks() -> [Check] {
         Check(file: pv, pattern: #"\.r = (\d+), \.hw = (\d+)"#,
               keys: [("pomodoro.ring_radius_px", g(1)), ("pomodoro.ring_width_px", { n(String(2 * (Int($0[2]) ?? 0))) })]),
         one(tf, #"#define GREY_RGB "# + hex, "weather.temp.still_color"),
-        one("components/weather/include/weather_scene.h", #"#define WX_SKY_W (\d+)"#, "weather.sky.width_px"),
-        one("components/weather/include/weather_scene.h", #"#define WX_SKY_H (\d+)"#, "weather.sky.height_px"),
-        one("components/weather/include/weather_scene.h", #"#define WX_RAY_STEPS (\d+)"#, "weather.scene.ray_frames"),
         one("components/weather/include/weather_face.h", #"#define WX_MAX_AGE_S "# + num, "weather.max_age_s"),
-        one(ws, #"#define STILL_RGB "# + hex, "weather.colors.still"),
-        one(ws, #"case WX_STORM: return 1\.0 / (\d+);"#, "weather.scene.fps.rain"),
-        one(ws, #"case WX_SNOW: return 1\.0 / (\d+);"#, "weather.scene.fps.snow"),
-        one(ws, #"default: return 1\.0 / (\d+);"#, "weather.scene.fps.other"),
-        one(ws, #"s->since > "# + num + " \\?", "weather.scene.max_step_s"),
-        one(ws, #"fmod\(s->t \* "# + num + ", WX_RAY_STEPS", "weather.scene.ray_steps_per_s"),
-        Check(file: ws, pattern: #"WX_RAIN\) return l->intensity == WX_INT_LIGHT \? (\d+) : l->intensity == WX_INT_HEAVY \? (\d+) : (\d+);"#,
-              keys: [("weather.scene.drops.rain", arr(1, 3, 2))]),
-        Check(file: ws, pattern: #"WX_STORM\) return l->intensity == WX_INT_HEAVY \? (\d+) : (\d+);"#,
-              keys: [("weather.scene.drops.storm", arr(2, 2, 1))]),
-        Check(file: ws, pattern: #"WX_SNOW\) return l->intensity == WX_INT_LIGHT \? (\d+) : l->intensity == WX_INT_HEAVY \? (\d+) : (\d+);"#,
-              keys: [("weather.scene.drops.snow", arr(1, 3, 2))]),
-        one(ws, #"particles\(&e, s, SNOW_RGB, (\d+)\)"#, "weather.scene.drop_alpha.snow"),
-        Check(file: ws, pattern: #"RAIN_RGB, l->intensity == WX_INT_LIGHT \? (\d+) : l->intensity == WX_INT_HEAVY \? (\d+) : (\d+)\)"#,
-              keys: [("weather.scene.drop_alpha.rain", arr(1, 3, 2))]),
-        one(ws, #"#define DROP_TOP "# + num, "weather.scene.rain.top"),
-        one(ws, #"#define DROP_TOP "# + num, "weather.scene.bolt.y"),
-        Check(file: ws, pattern: #"#define DROP_X0 "# + num + #"\s+#define DROP_X1 "# + num, keys: [("weather.scene.rain.x", arr(1, 2))]),
-        Check(file: ws, pattern: #"#define FLAKE_X0 "# + num + #"\s+#define FLAKE_X1 "# + num, keys: [("weather.scene.snow.x", arr(1, 2))]),
-        Check(file: ws, pattern: #"p->vy = (\d+) \* \("# + num + " \\+ " + num + #" \* frand"#,
-              keys: [("weather.scene.rain.speed", g(1)), ("weather.scene.rain.speed_spread", g(3))]),
-        Check(file: ws, pattern: #"RAIN_SLANT \("# + num + " / " + num + #"\)"#, keys: [("weather.scene.rain.slant", arr(1, 2))]),
-        one(ws, #"DROP_TOP \+ (\d+) \* frand\(s\);"#, "weather.scene.rain.respawn_band"),
-        Check(file: ws, pattern: #"p->amp = (\d+) \+ (\d+) \* frand"#, keys: [("weather.scene.snow.amp", arr(1, 2))]),
-        Check(file: ws, pattern: #"p->freq = "# + num + " \\+ " + num, keys: [("weather.scene.snow.freq", arr(1, 2))]),
-        Check(file: ws, pattern: #"p->vy = (\d+) \+ (\d+) \* frand"#, keys: [("weather.scene.snow.speed", arr(1, 2))]),
-        one(ws, #"frand\(s\) < "# + num + #" \? WX_SPR_FLAKE_L"#, "weather.scene.snow.large_share"),
-        Check(file: ws, pattern: #"SX\[WX_STARS\] = \{([^}]*)\}, SY\[WX_STARS\] = \{([^}]*)\}"#,
-              keys: [("weather.scene.stars.x", list(1)), ("weather.scene.stars.y", list(2))]),
-        one(ws, #"\(int\)\(frand\(s\) \* (\d+)\) - \d+;"#, "weather.scene.stars.jitter"),
-        one(ws, #"int a = (\d+);"#, "weather.scene.stars.alpha"),
-        one(ws, #"a \+= \(int\)\((\d+) \*"#, "weather.scene.stars.twinkle_alpha"),
-        one(ws, #"next_twinkle = s->t \+ "# + num + ";", "weather.scene.stars.first_twinkle_s"),
-        Check(file: ws, pattern: #"next_twinkle = s->t \+ "# + num + " \\+ " + num + #" \* frand"#,
-              keys: [("weather.scene.stars.twinkle_s", arr(1, 2))]),
-        Check(file: ws, pattern: #"schedule_bolt\(s, s->t, (\d+), (\d+)\);\s+s->acc"#, keys: [("weather.scene.bolt.first_s", arr(1, 2))]),
-        Check(file: ws, pattern: #"schedule_bolt\(s, s->t, (\d+), (\d+)\);\s+\}"#, keys: [("weather.scene.bolt.gap_s", arr(1, 2))]),
-        one(ws, #"bolt_off = s->t \+ "# + num + ";", "weather.scene.bolt.on_s"),
-        one(ws, #"if \(frand\(s\) < "# + num + #"\) \{\s+s->bolt_on2"#, "weather.scene.bolt.double_chance"),
-        Check(file: ws, pattern: #"bolt_on2 = s->t \+ "# + num + #";\s+s->bolt_off2 = s->t \+ "# + num + ";",
-              keys: [("weather.scene.bolt.second_s", arr(1, 2))]),
-        Check(file: ws, pattern: #"bolt_x = (\d+) \+ \(int\)\(frand\(s\) \* (\d+)\)"#, keys: [("weather.scene.bolt.x", arr(1, 2))]),
-        Check(file: ws, pattern: #"case WX_CLEAR_DAY:\s+sun\(&e, s, (\d+), (\d+)\)"#, keys: [("weather.scene.layout.clear_sun", arr(1, 2))]),
-        Check(file: ws, pattern: #"emit\(&e, WX_SPR_MOON, 0, (\d+), (\d+), MOON_RGB, 255\);\s+break;"#,
-              keys: [("weather.scene.layout.night_moon", arr(1, 2))]),
-        Check(file: ws, pattern: #"if \(l->night\) emit\(&e, WX_SPR_MOON, 0, (\d+), (\d+)"#, keys: [("weather.scene.layout.partly_moon", arr(1, 2))]),
-        Check(file: ws, pattern: #"else sun\(&e, s, (\d+), (\d+)\)"#, keys: [("weather.scene.layout.partly_sun", arr(1, 2))]),
-        Check(file: ws, pattern: #"static const float A\[4\] = \{([^}]*)\}, P\[4\] = \{([^}]*)\}, PH\[4\] = \{([^}]*)\}"#,
-              keys: [("weather.scene.layout.fog.amp", list(1)), ("weather.scene.layout.fog.period_s", list(2)),
-                     ("weather.scene.layout.fog.phase", list(3))]),
-        Check(file: ws, pattern: #"WX_SPR_FOG, 0, (\d+) \+ drift\(t, A\[i\], P\[i\], PH\[i\]\), (\d+) \+ "# + num + #" \* i"#,
-              keys: [("weather.scene.layout.fog.x", g(1)), ("weather.scene.layout.fog.y", g(2)), ("weather.scene.layout.fog.step", g(3))]),
-        Check(file: ws, pattern: #"i % 2 \? (\d+) : (\d+)\)"#, keys: [("weather.scene.layout.fog.alpha", arr(2, 1))]),
-        one(ws, #"#define CLOUD_TOP_Y (\d+)"#, "weather.scene.layout.precip_cloud.y"),
-        Check(file: ws, pattern: #"cloud\(&e, WX_SPR_CLOUD_L, (\d+) \+ drift\(t, (\d+), (\d+), (\d+)\), CLOUD_TOP_Y, crgb, (\d+)\)"#,
-              keys: [("weather.scene.layout.precip_cloud.x", g(1)), ("weather.scene.layout.precip_cloud.amp", g(2)),
-                     ("weather.scene.layout.precip_cloud.period_s", g(3)), ("weather.scene.layout.precip_cloud.phase", g(4)),
-                     ("weather.scene.layout.precip_cloud.alpha", g(5))]),
     ]
-    func drift(_ sprite: String, _ key: String, after: String) -> Check {
-        Check(file: ws, pattern: after + #"[^;]*?cloud\(&e, WX_SPR_"# + sprite + #", (\d+) \+ drift\(t, (\d+), (\d+), (\d+)\), (\d+), CLOUD_RGB, (\d+)\)"#,
-              keys: [("x", 1), ("amp", 2), ("period_s", 3), ("phase", 4), ("y", 5), ("alpha", 6)].map {
-                  ("weather.scene.layout.\(key).\($0.0)", g($0.1)) })
-    }
-    c.append(drift("CLOUD_L", "partly_cloud", after: #"else sun\(&e, s, \d+, \d+\);\s+"#))
-    c.append(drift("CLOUD_S", "overcast_back", after: #"case WX_OVERCAST:\s+"#))
-    c.append(drift("CLOUD_L", "overcast_front", after: #"case WX_OVERCAST:\s+cloud[^;]*;\s+"#))
     for (key, def) in [("focus", "FOCUS"), ("break", "BREAK"), ("other", "OTHER"), ("idle_track", "IDLE_TRACK"),
                        ("text", "TEXT"), ("text_dim", "TEXT_DIM"), ("note", "NOTE")] {
         c.append(one(pv, "#define COL_\(def) " + hex, "pomodoro.colors.\(key)"))
@@ -485,18 +416,6 @@ private func allChecks() -> [Check] {
         c.append(Check(file: pv, pattern: obj + #" = label_create\(s_root, &lv_font_montserrat_(\d+), (\d+), (-?\d+)\)"#,
                        keys: [("pomodoro.\(key).font_px", g(1)), ("pomodoro.\(key).width_px", g(2)),
                               ("pomodoro.\(key).dy_px", g(3))]))
-    }
-    for (key, def) in [("sun", "SUN"), ("rays", "RAYS"), ("moon", "MOON"), ("star", "STAR"), ("cloud", "CLOUD"),
-                       ("rain_cloud", "RAIN_CLOUD"), ("storm_cloud", "STORM_CLOUD"), ("lit_cloud", "LIT_CLOUD"),
-                       ("snow_cloud", "SNOW_CLOUD"), ("rain", "RAIN"), ("snow", "SNOW"), ("bolt", "BOLT"),
-                       ("fog", "FOG"), ("rime", "RIME")] {
-        c.append(one(ws, "#define \(def)_RGB " + hex, "weather.colors.\(key)"))
-    }
-    for (key, spr) in [("rain", "RAIN"), ("flake_s", "FLAKE_S"), ("flake_l", "FLAKE_L"), ("cloud_l", "CLOUD_L"),
-                       ("cloud_s", "CLOUD_S"), ("bolt", "BOLT"), ("moon", "MOON"), ("star", "STAR"), ("sun", "SUN"),
-                       ("rays", "RAYS"), ("fog", "FOG")] {
-        c.append(Check(file: ws, pattern: #"\[WX_SPR_"# + spr + #"\] = \{(\d+), (\d+), [\w\d]+\}"#,
-                       keys: [("weather.scene.sprites.\(key)", arr(1, 2))]))
     }
     for (key, eye, angle) in [("dash", "DASH", #"L\((-?\d+), (-?\d+)\) \* lean"#), ("angry", "ANGRY", #"L\((-?\d+), (-?\d+)\) \* deg"#),
                               ("round", "ROUND", #"(\d+)() \* lean"#)] {
@@ -530,9 +449,16 @@ func themeMatchesCinderSource() throws {
         }
     }
     let codeOnly: Set<String> = ["version", "screen.diameter_px", "font.family", "font.file", "bot.body_color"]
-    let goneFromFirmware: Set<String> = ["weather.temp.color", "weather.temp.font_px", "weather.sky.y_px"]
-    #expect(goneFromFirmware.isSubset(of: Set(flat.keys)) && goneFromFirmware.isDisjoint(with: covered),
-            "keys the firmware no longer has are still in the theme and unchecked")
+    let goneKeys: Set<String> = ["weather.temp.color", "weather.temp.font_px"]
+    let gonePrefixes = ["weather.sky.", "weather.scene.", "weather.colors."]
+    let goneFromFirmware = goneKeys.union(flat.keys.filter { k in gonePrefixes.contains { k.hasPrefix($0) } })
+    let missing = goneKeys.subtracting(flat.keys)
+    #expect(missing.isEmpty, "goneFromFirmware keys left the theme, drop them from the exemption: \(missing.sorted())")
+    for prefix in gonePrefixes {
+        #expect(flat.keys.contains { $0.hasPrefix(prefix) }, "no theme key starts with goneFromFirmware prefix \(prefix), drop it")
+    }
+    let rechecked = goneFromFirmware.intersection(covered)
+    #expect(rechecked.isEmpty, "goneFromFirmware keys have a firmware check again, drop them from the exemption: \(rechecked.sorted())")
     let uncovered = Set(flat.keys).subtracting(covered).subtracting(codeOnly).subtracting(goneFromFirmware)
         .filter { !$0.hasPrefix("font.metrics") }
     #expect(uncovered.isEmpty, "theme keys with no firmware check: \(uncovered.sorted())")
