@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -174,12 +175,16 @@ type metStub struct {
 	expires      time.Time
 	notModified  bool
 	airFail      atomic.Bool
+	onRequest    func()
 }
 
 func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 	t.Helper()
 	met := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		st.hits.Add(1)
+		if st.onRequest != nil {
+			st.onRequest()
+		}
 		st.mu.Lock()
 		defer st.mu.Unlock()
 		st.ims = append(st.ims, r.Header.Get("If-Modified-Since"))
@@ -262,6 +267,61 @@ func TestMetNoWaitsForExpiresThenRevalidates(t *testing.T) {
 	app.pollWeather(ctx, t0.Add(50*time.Minute))
 	if st.hits.Load() != 2 {
 		t.Errorf("polled before the 304's Expires: %d requests, want 2", st.hits.Load())
+	}
+}
+
+func TestMetNoAfterAFailedProviderRoundTripFetchesWithoutValidators(t *testing.T) {
+	t0 := time.Now().Truncate(time.Second)
+	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: t0.Add(25 * time.Minute), notModified: true}
+	app := newMetCacheApp(t, st, false)
+	om := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(om.Close)
+	app.weatherFetcher.openMeteoBase = om.URL
+	ctx := context.Background()
+	setProvider := func(p string) { app.updateConfig(func(c *Config) { c.Weather.Provider = p }) }
+
+	app.pollWeather(ctx, t0)
+	setProvider("open-meteo")
+	app.pollWeather(ctx, t0.Add(time.Minute))
+	setProvider("met-no")
+	t2 := t0.Add(2 * time.Minute)
+	app.pollWeather(ctx, t2)
+
+	st.mu.Lock()
+	ims := slices.Clone(st.ims)
+	st.mu.Unlock()
+	if len(ims) != 2 || ims[1] != "" {
+		t.Fatalf("met-no requests carried If-Modified-Since %q, want the second without one", ims)
+	}
+	if wx := app.weather.state(app.cfg.Load().Weather, t2); !wx.HaveObs || wx.Obs.Condition != render.WeatherRain {
+		t.Fatalf("after met-no -> open-meteo -> met-no: have %v obs %+v, want MET's observation", wx.HaveObs, wx.Obs)
+	}
+}
+
+func TestMetNo304AfterAProviderSwitchIsDropped(t *testing.T) {
+	t0 := time.Now().Truncate(time.Second)
+	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: t0.Add(-time.Minute), notModified: true}
+	app := newMetCacheApp(t, st, false)
+	ctx := context.Background()
+	app.pollWeather(ctx, t0)
+
+	st.onRequest = func() { app.updateConfig(func(c *Config) { c.Weather.Provider = "open-meteo" }) }
+	seq, _ := app.changes.subscribe()
+	app.pollWeather(ctx, t0.Add(10*time.Minute))
+
+	if st.hits.Load() != 2 || st.ims[1] == "" {
+		t.Fatalf("setup: hits %d If-Modified-Since %q, want a revalidation", st.hits.Load(), st.ims)
+	}
+	app.weather.mu.RLock()
+	last, fetched := app.weather.lastFetch, app.weather.obs.FetchedAt
+	app.weather.mu.RUnlock()
+	if !last.Equal(t0) || !fetched.Equal(t0) {
+		t.Errorf("a 304 for met-no landing after the switch renewed the store: lastFetch %v FetchedAt %v, want %v", last, fetched, t0)
+	}
+	if app.changes.since(seq)&topicWeather != 0 {
+		t.Error("a 304 for the old provider notified")
 	}
 }
 
