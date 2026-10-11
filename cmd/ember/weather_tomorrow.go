@@ -96,7 +96,7 @@ func (wf *weatherFetcher) fetchTomorrow(ctx context.Context, cfg WeatherConfig, 
 	if len(steps) > 0 {
 		from = steps[0].At
 	}
-	obs.Days = tomorrowDays(tl.Daily, tl.Hourly, localOffset(obs, cfg.Longitude), from)
+	obs.Days = tomorrowDays(tl.Daily, tl.Hourly, dayClock{loc: loadZone(hint.TZName), off: localOffset(obs, cfg.Longitude)}, from)
 	if len(steps) > 0 {
 		obs = obs.current(steps[0].At)
 	}
@@ -218,22 +218,22 @@ func tomorrowPrecip(minutely, hourly []tomorrowEntry) []precipStep {
 	return out
 }
 
-func tomorrowDays(daily []tomorrowDay, hourly []tomorrowEntry, off time.Duration, from time.Time) []weatherDay {
+func tomorrowDays(daily []tomorrowDay, hourly []tomorrowEntry, clock dayClock, from time.Time) []weatherDay {
 	var days []weatherDay
 	for _, d := range daily {
 		if len(days) == forecastDays {
 			break
 		}
-		y, m, dd := d.Time.UTC().Add(off).Date()
-		start := time.Date(y, m, dd, 0, 0, 0, 0, time.UTC).Add(-off)
-		if !from.IsZero() && !start.Add(24*time.Hour).After(from) {
+		start := clock.startOf(d.Time)
+		end := clock.after(start)
+		if !from.IsZero() && !end.After(from) {
 			continue
 		}
 		if len(days) > 0 && !start.After(days[len(days)-1].Start) {
 			continue
 		}
 		v := d.Values
-		day := weatherDay{Start: start, MinC: v.TemperatureMin, MaxC: v.TemperatureMax, Pop: v.PrecipitationProbabilityMax,
+		day := weatherDay{Start: start, End: end, MinC: v.TemperatureMin, MaxC: v.TemperatureMax, Pop: v.PrecipitationProbabilityMax,
 			UVMax: v.UVIndexMax, GustMaxKmh: scaled(v.WindGustMax, msToKmh)}
 		for _, p := range []*float64{v.RainAccumulationSum, v.SnowAccumulationLweSum, v.SleetAccumulationLweSum, v.IceAccumulationLweSum} {
 			if p != nil {

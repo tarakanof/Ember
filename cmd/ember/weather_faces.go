@@ -112,11 +112,7 @@ func rainSpells(steps []precipStep, step time.Duration, now time.Time) (rainNow 
 func faceDays(obs weatherObservation, now time.Time) (*weatherDay, []weatherDay) {
 	today := -1
 	for i, d := range obs.Days {
-		end := d.Start.Add(24 * time.Hour)
-		if i+1 < len(obs.Days) {
-			end = obs.Days[i+1].Start
-		}
-		if !d.Start.After(now) && now.Before(end) {
+		if !d.Start.After(now) && now.Before(dayEnd(d)) {
 			today = i
 		}
 	}

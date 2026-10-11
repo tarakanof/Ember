@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -109,11 +108,12 @@ func (wf *weatherFetcher) fetchWeatherAPI(ctx context.Context, cfg WeatherConfig
 		return weatherObservation{}, errWeatherAPIResponse
 	}
 	obs := weatherObservation{TZOffsetSeconds: hint.TZOffsetSeconds, TZKnown: hint.TZKnown, PrecipStep: weatherAPIPrecipStep}
-	if loc := weatherAPILocation(body.Location.TzID); loc != nil {
+	loc := loadZone(body.Location.TzID)
+	if loc != nil {
 		_, obs.TZOffsetSeconds = from.In(loc).Zone()
 		obs.TZKnown = true
 	}
-	off := localOffset(obs, cfg.Longitude)
+	clock := dayClock{loc: loc, off: localOffset(obs, cfg.Longitude)}
 	if body.Current != nil {
 		obs.Steps = append(obs.Steps, body.Current.step())
 	}
@@ -149,22 +149,9 @@ func (wf *weatherFetcher) fetchWeatherAPI(ctx context.Context, cfg WeatherConfig
 	if len(obs.Steps) == 0 {
 		return weatherObservation{}, errWeatherAPIResponse
 	}
-	obs.Days = waDays(days, off, from)
+	obs.Days = waDays(days, clock, from)
 	obs = obs.current(obs.Steps[0].At)
 	return obs, nil
-}
-
-var weatherAPITZPattern = regexp.MustCompile(`^[A-Za-z]+(/[A-Za-z0-9_+\-]+){0,3}$`)
-
-func weatherAPILocation(tz string) *time.Location {
-	if tz == "Local" || !weatherAPITZPattern.MatchString(tz) {
-		return nil
-	}
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		return nil
-	}
-	return loc
 }
 
 func (h waHour) at() time.Time { return time.Unix(h.TimeEpoch, 0).UTC() }
@@ -189,7 +176,7 @@ func (h waHour) step() currentStep {
 		weatherNow{Cloud: h.Cloud, UV: h.UV, WindKmh: h.WindKph, GustKmh: h.GustKph, WindDir: h.WindDegree})
 }
 
-func waDays(days []waDay, off time.Duration, from time.Time) []weatherDay {
+func waDays(days []waDay, clock dayClock, from time.Time) []weatherDay {
 	var out []weatherDay
 	for _, d := range days {
 		if len(out) == forecastDays {
@@ -199,13 +186,13 @@ func waDays(days []waDay, off time.Duration, from time.Time) []weatherDay {
 		if err != nil {
 			continue
 		}
-		start := date.Add(-off)
-		end := start.Add(24 * time.Hour)
+		start := clock.midnight(date.Date())
+		end := clock.after(start)
 		if !end.After(from) || (len(out) > 0 && !start.After(out[len(out)-1].Start)) {
 			continue
 		}
 		v := d.Day
-		day := weatherDay{Start: start, MinC: v.MintempC, MaxC: v.MaxtempC, PrecipMM: v.TotalprecipMM,
+		day := weatherDay{Start: start, End: end, MinC: v.MintempC, MaxC: v.MaxtempC, PrecipMM: v.TotalprecipMM,
 			Pop: maxOpt(v.DailyChanceOfRain, v.DailyChanceOfSnow), UVMax: v.UV}
 		counts := map[int]int{}
 		for _, h := range d.Hour {
