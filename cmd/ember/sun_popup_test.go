@@ -19,7 +19,7 @@ func TestSunPopupFiresOncePerDay(t *testing.T) {
 	wcfg := app.cfg.Load().Weather
 
 	date := time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)
-	sunrise, _, ok := sunTimes(10, 10, date)
+	sunrise, _, ok := sunTimes(10, 10, date).pair()
 	if !ok {
 		t.Fatal("expected sunrise")
 	}
@@ -44,7 +44,7 @@ func TestSunPopupFiresOncePerDay(t *testing.T) {
 
 func TestSunPopupSkippedWhenDisabledOrBeforeEvent(t *testing.T) {
 	date := time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)
-	sunrise, _, _ := sunTimes(10, 10, date)
+	sunrise, _, _ := sunTimes(10, 10, date).pair()
 
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()

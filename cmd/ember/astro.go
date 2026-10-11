@@ -9,8 +9,11 @@ import (
 const deg2rad = math.Pi / 180
 
 const (
-	sunHorizonDeg  = -0.833
-	sunRefineSteps = 5
+	sunHorizonDeg        = -0.833
+	sunCrossingTolerance = 0.5 / 86400
+	sunCrossingMaxSteps  = 60
+	sunExtremeWindow     = 0.05
+	sunExtremeMargin     = 1e-3
 )
 
 func sunAnomalyLongitude(days float64) (mRad, lRad float64) {
@@ -26,61 +29,106 @@ func sunDeclination(jd float64) (sinDecl, decl float64) {
 	return sinDecl, math.Asin(sinDecl)
 }
 
-func solarTransit(n, lon float64) (jTransit, sinDecl, decl float64) {
+func solarTransit(n, lon float64) float64 {
 	jStar := n - lon/360.0
 	mRad, lRad := sunAnomalyLongitude(jStar)
-	jTransit = 2451545.0 + jStar + 0.0053*math.Sin(mRad) - 0.0069*math.Sin(2*lRad)
-	sinDecl = math.Sin(lRad) * math.Sin(23.4397*deg2rad)
-	return jTransit, sinDecl, math.Asin(sinDecl)
+	return 2451545.0 + jStar + 0.0053*math.Sin(mRad) - 0.0069*math.Sin(2*lRad)
 }
 
-func sunTimes(lat, lon float64, date time.Time) (sunrise, sunset time.Time, ok bool) {
+type sunCrossings struct {
+	Rise, Set         time.Time
+	HaveRise, HaveSet bool
+}
+
+func (c sunCrossings) both() bool { return c.HaveRise && c.HaveSet }
+
+func (c sunCrossings) either() bool { return c.HaveRise || c.HaveSet }
+
+func sunTimes(lat, lon float64, date time.Time) sunCrossings {
 	return sunAt(lat, lon, date, sunHorizonDeg)
 }
 
-func sunAt(lat, lon float64, date time.Time, altDeg float64) (rising, setting time.Time, ok bool) {
+func sunAt(lat, lon float64, date time.Time, altDeg float64) sunCrossings {
 	jd := julianDate(date)
-	n := math.Round(jd - 2451545.0 + 0.0008)
-	jTransit, sinDecl, decl := solarTransit(n, lon)
-	halfDay := func(sinDecl, decl float64) (float64, bool) {
-		cosOmega := (math.Sin(altDeg*deg2rad) - math.Sin(lat*deg2rad)*sinDecl) /
-			(math.Cos(lat*deg2rad) * math.Cos(decl))
-		if cosOmega > 1 || cosOmega < -1 {
-			return 0, false
+	jTransit := solarTransit(math.Round(jd-2451545.0+0.0008), lon)
+	sinLat, cosLat := math.Sincos(lat * deg2rad)
+	sinAlt := math.Sin(altDeg * deg2rad)
+	f := func(j float64) float64 { return sunHeight(sinLat, cosLat, lon, j) - sinAlt }
+	dawnSide := sunExtreme(f, jTransit-0.5, -1)
+	noon := sunExtreme(f, jTransit, 1)
+	duskSide := sunExtreme(f, jTransit+0.5, -1)
+	var c sunCrossings
+	c.Rise, c.HaveRise = sunCrossing(f, dawnSide, noon, true)
+	c.Set, c.HaveSet = sunCrossing(f, noon, duskSide, false)
+	return c
+}
+
+type sunPoint struct{ j, f float64 }
+
+func sunExtreme(f func(float64) float64, j, sign float64) sunPoint {
+	p := sunPoint{j, f(j)}
+	if math.Abs(p.f) > sunExtremeMargin {
+		return p
+	}
+	const invPhi = 0.6180339887498949
+	from, to := j-sunExtremeWindow, j+sunExtremeWindow
+	x1, x2 := to-invPhi*(to-from), from+invPhi*(to-from)
+	f1, f2 := sign*f(x1), sign*f(x2)
+	for to-from > sunCrossingTolerance {
+		if f1 > f2 {
+			to, x2, f2 = x2, x1, f1
+			x1 = to - invPhi*(to-from)
+			f1 = sign * f(x1)
+		} else {
+			from, x1, f1 = x1, x2, f2
+			x2 = from + invPhi*(to-from)
+			f2 = sign * f(x2)
 		}
-		return math.Acos(cosOmega) / deg2rad / 360, true
 	}
-	omega, ok := halfDay(sinDecl, decl)
-	if !ok {
-		return time.Time{}, time.Time{}, false
+	m := (from + to) / 2
+	return sunPoint{m, f(m)}
+}
+
+func sunCrossing(f func(float64) float64, a, b sunPoint, rising bool) (time.Time, bool) {
+	if (a.f > 0) == rising || (b.f > 0) != rising {
+		return time.Time{}, false
 	}
-	at := func(sign float64) time.Time {
-		j := jTransit + sign*omega
-		for range sunRefineSteps {
-			o, ok := halfDay(sunDeclination(j))
-			if !ok {
-				return time.Time{}
-			}
-			next := jTransit + sign*o
-			if math.Abs(next-j) < 1.0/86400 {
-				return julianToTime(next)
-			}
-			j = next
+	side := 0
+	for range sunCrossingMaxSteps {
+		if b.j-a.j < sunCrossingTolerance {
+			break
 		}
-		return julianToTime(j)
+		m := sunPoint{j: (a.j*b.f - b.j*a.f) / (b.f - a.f)}
+		if m.f = f(m.j); m.f == 0 {
+			return julianToTime(m.j), true
+		}
+		if (m.f > 0) == (b.f > 0) {
+			b = m
+			if side == -1 {
+				a.f /= 2
+			}
+			side = -1
+		} else {
+			a = m
+			if side == 1 {
+				b.f /= 2
+			}
+			side = 1
+		}
 	}
-	rising, setting = at(-1), at(1)
-	return rising, setting, !rising.IsZero() && !setting.IsZero()
+	return julianToTime((a.j + b.j) / 2), true
 }
 
 func solarElevation(lat, lon float64, now time.Time) float64 {
-	jd := float64(now.Unix())/86400 + 2440587.5
-	n := math.Round(jd - 2451545.0 + lon/360.0)
-	jTransit, _, _ := solarTransit(n, lon)
+	sinLat, cosLat := math.Sincos(lat * deg2rad)
+	return math.Asin(sunHeight(sinLat, cosLat, lon, float64(now.Unix())/86400+2440587.5)) / deg2rad
+}
+
+func sunHeight(sinLat, cosLat, lon, jd float64) float64 {
+	n := math.Floor(jd - 2451545.0 + lon/360.0)
+	t0, t1 := solarTransit(n, lon), solarTransit(n+1, lon)
 	sinDecl, decl := sunDeclination(jd)
-	hourAngle := (jd - jTransit) * 2 * math.Pi
-	sinAlt := math.Sin(lat*deg2rad)*sinDecl + math.Cos(lat*deg2rad)*math.Cos(decl)*math.Cos(hourAngle)
-	return math.Asin(sinAlt) / deg2rad
+	return sinLat*sinDecl + cosLat*math.Cos(decl)*math.Cos((jd-t0)/(t1-t0)*2*math.Pi)
 }
 
 func julianDate(date time.Time) float64 {
@@ -122,7 +170,7 @@ func localSolarDate(now time.Time, obs weatherObservation, lon float64) time.Tim
 	return localNoon(now, obs, lon).Add(time.Duration(lon / 15 * float64(time.Hour)))
 }
 
-func localSunTimes(lat, lon float64, now time.Time, obs weatherObservation) (sunrise, sunset time.Time, ok bool) {
+func localSunTimes(lat, lon float64, now time.Time, obs weatherObservation) sunCrossings {
 	return sunTimes(lat, lon, localSolarDate(now, obs, lon))
 }
 
@@ -138,11 +186,11 @@ type twilight struct {
 
 func localTwilight(lat, lon float64, now time.Time, obs weatherObservation) twilight {
 	date := localSolarDate(now, obs, lon)
-	var tw twilight
-	tw.Dawn, tw.Dusk, _ = sunAt(lat, lon, date, civilTwilightDeg)
-	tw.BlueEnd, tw.BlueStart, _ = sunAt(lat, lon, date, blueHourEndDeg)
-	tw.GoldenEnd, tw.GoldenStart, _ = sunAt(lat, lon, date, goldenHourEndDeg)
-	return tw
+	civil := sunAt(lat, lon, date, civilTwilightDeg)
+	blue := sunAt(lat, lon, date, blueHourEndDeg)
+	golden := sunAt(lat, lon, date, goldenHourEndDeg)
+	return twilight{Dawn: civil.Rise, BlueEnd: blue.Rise, GoldenEnd: golden.Rise,
+		GoldenStart: golden.Set, BlueStart: blue.Set, Dusk: civil.Set}
 }
 
 type sunEvent struct {
@@ -153,12 +201,12 @@ type sunEvent struct {
 func sunEventsAround(lat, lon float64, now time.Time) (last, next *sunEvent) {
 	var evs []sunEvent
 	for d := -1; d <= 1; d++ {
-		rise, set, _ := sunTimes(lat, lon, now.AddDate(0, 0, d))
-		if !rise.IsZero() {
-			evs = append(evs, sunEvent{rise, true})
+		c := sunTimes(lat, lon, now.AddDate(0, 0, d))
+		if c.HaveRise {
+			evs = append(evs, sunEvent{c.Rise, true})
 		}
-		if !set.IsZero() {
-			evs = append(evs, sunEvent{set, false})
+		if c.HaveSet {
+			evs = append(evs, sunEvent{c.Set, false})
 		}
 	}
 	sort.Slice(evs, func(i, j int) bool { return evs[i].at.Before(evs[j].at) })

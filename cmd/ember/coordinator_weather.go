@@ -64,7 +64,7 @@ var airTile = tile{
 }
 
 func weatherTileMoon(cfg WeatherConfig, wx weatherState, now time.Time) *render.MoonView {
-	if !cfg.MoonPhaseEnabled() || wx.Obs.Condition != render.WeatherClear || !wx.HaveSun || !wx.Night {
+	if !cfg.MoonPhaseEnabled() || wx.Obs.Condition != render.WeatherClear || !wx.Sun.both() || !wx.Night {
 		return nil
 	}
 	illum, waxing := moonIllumination(now)
