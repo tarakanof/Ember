@@ -201,7 +201,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `v` outside range | server sends `v` = min(1, `caps.view[1]`); the knob keeps its last view and shows the update state | `TestCapsKnobViewMajorIsTheLowerOfServerAndFirmware`; cinder host test with a `v:99` fixture |
 | new | new, `rotations` listed or not | `effective_caps.rotations` sorted, `[0]` when missing; config PUT 400 for a rotation outside it, a stored one kept; a legacy or downgraded knob is unchecked | `TestCapsRotationsPresentAndMissing`, `TestCapsKnobConfigPutRejectsRotationOutsideCaps`, `TestCapsKnobDowngradedToLegacyFirmwareKeepsAndFreesRotation`, `TestLegacyKnobConfigPutIsNotCheckedForRotation`, `TestKnobRotationRoundTripsAndReachesTheKnob` |
 | new | new, `wx_faces` or not | detail only with the token and the `weather` block; a caps knob without it gets the legacy block; dropped first to fit `view_bytes`; the worst case stays under 8 KB | `TestKnobViewWeatherFacesGolden` (`view_faces*.json`, `devices_view_weather_test.go`), `TestCapsKnobWithoutWxFacesGetsNoWeatherDetail`, `TestCapsKnobWithWxFacesButWeatherPageOffGetsNoWeather`, `TestCapsKnobViewDropsWeatherDetailFirst`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
-| new | new, `wx_faces` | every `days` entry carries `end` right after `t` (#434): `t` + 24 h, the next entry's `t`, midnight under `utc_offset`; old firmware skips it; `t` is midnight under `utc_offset` for every provider, also across DST (#439) | `TestKnobDaysCarryTheirEndAcrossDST`, `TestOpenMeteoDaysUseTheSingleOffsetAcrossDST`, `TestMetNoDaysUseTheSingleOffsetAcrossDST`, `TestTomorrowDaysUseTheSingleOffsetAcrossDST`, `TestWeatherAPIDayStartsUseTheObservationsOffsetAcrossDST`, `TestKnobViewWeatherFacesGolden`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
+| new | new, `wx_faces` | every `days` entry carries `end` right after `t` (#434): the day's next true local midnight in the location's zone (23 h or 25 h after `t` on a DST day), so a view held across a DST change ends each row at the real midnight; `t` is the day's true local midnight for every provider (#439); without a known zone `end` = `t` + 24 h; old firmware skips the key, and cinder derives row ends from the next `t` (`knob_view.c`) and weekdays with a +12 h rounding (`wx_days.c`) until it reads `end` | `TestStaleKnobViewKeepsTrueDayBoundariesAcrossDST`, `TestOpenMeteoDaysAreTrueLocalMidnightsAcrossDST`, `TestMetNoDaysAreTrueLocalMidnightsAcrossDST`, `TestTomorrowDaysAreTrueLocalMidnightsAcrossDST`, `TestWeatherAPIDaysAreTrueLocalMidnightsAcrossDST`, `TestOpenMeteoDaysWithoutAZoneEndADayLater`, `TestKnobViewWeatherFacesGolden`, `TestKnobViewWorstCaseFitsHalfTheBuffer`; cinder: the follow-up that reads `end` |
 | new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
 | new | new, `np_cover` or not | `accent` and `cover_version` only with the token, only when there is a picture, and the only change to `nowplaying`; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
@@ -316,9 +316,7 @@ with short WMO codes the block stays under the MET worst case
 `weather.provider` can be `"weatherapi"` (#437). As with Tomorrow.io, its
 condition codes reach `code` and `days[].code` as WMO, so the knob needs no
 change. It has no minutely data: `rain` spells start and end on the hour.
-The free plan's 3 forecast days leave `days` with 2 entries. Each day's
-`t` is its midnight under the block's `utc_offset`, as for every provider,
-so labels stay one per day across a DST change. A day's
+The free plan's 3 forecast days leave `days` with 2 entries. A day's
 `cond`/`code` weighs each code's severity by its hours from now on. The
 provider string (10 B) fits cinder's 16-byte field; goldens unchanged.
 
@@ -398,12 +396,17 @@ Keys:
   now + 12 h or later is not listed. `"spells": []`
   means dry for the 12 h (as far as the provider's steps reach).
 - **`days`**: the next 3 local days after today, fewer when the
-  provider's range ends. `t` is the day's local midnight under the
-  block's single `utc_offset`, for every provider: across a DST change it
-  is an hour off the true midnight, so the knob, which knows only
-  `utc_offset`, still labels each day with its own date (#439). `end` is
-  that day's end on the same clock, `t` + 24 h (the next entry's `t`),
-  so the last day's end is known too (#434). `cond`/`code` use the
+  provider's range ends. `t` is the day's true local midnight in the
+  location's time zone, for every provider; `end` is the next one, so a
+  DST day is 23 h or 25 h long, and the last day's end is known without
+  a fourth entry (#434). The zone comes from the provider (Open-Meteo
+  `timezone`, WeatherAPI.com `tz_id`) or, for MET Norway and Tomorrow.io,
+  from the air-quality reading while it is on and fresh; with no zone
+  known, days use `utc_offset` and `end` = `t` + 24 h. Labels need no
+  zone either way: across a DST change `t` is within an hour of
+  midnight under `utc_offset`, and cinder rounds by +12 h before taking
+  the weekday (#439's premise, a wrong weekday, never happened on the
+  knob). `cond`/`code` use the
   current mapping: Open-Meteo's daily `weather_code`, MET's worst symbol
   of the periods overlapping the day (storm > snow > rain > fog > clouds
   > clear; `next_1_hours` in its hourly range, `next_6_hours` beyond). `pop`
