@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -384,5 +386,49 @@ func TestWeatherModelSwitchBackDuringFetchDropsTheOtherModelsResult(t *testing.T
 	}
 	if got := st.seen(); len(got) != 3 || got[0] != "" || got[1] != "ecmwf_ifs" || got[2] != "" {
 		t.Errorf("models fetched = %q, want [\"\" ecmwf_ifs \"\"]", got)
+	}
+}
+
+func TestAppWeatherSourcesMatchTheServerLists(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "macos", "Sources", "EmberKit", "Settings", "WeatherSources.swift"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := func(name string) []string {
+		t.Helper()
+		start := strings.Index(string(src), "static let "+name+": [WeatherSourceOption] = [")
+		if start < 0 {
+			t.Fatalf("WeatherSources.swift has no %s list", name)
+		}
+		body := string(src[start:])
+		body = body[:strings.Index(body, "\n    ]")]
+		var ids []string
+		for _, m := range regexp.MustCompile(`WeatherSourceOption\(id: ("[^"]+"|\w+),`).FindAllStringSubmatch(body, -1) {
+			ids = append(ids, m[1])
+		}
+		return ids
+	}
+	resolve := map[string]string{"openMeteo": "open-meteo", "defaultOpenMeteoModel": defaultOpenMeteoModel}
+	ids := func(raw []string) []string {
+		out := make([]string, len(raw))
+		for i, r := range raw {
+			if v, ok := resolve[r]; ok {
+				out[i] = v
+			} else {
+				out[i] = strings.Trim(r, `"`)
+			}
+		}
+		return out
+	}
+	if got := ids(block("providers")); !slices.Equal(got, weatherProviders) {
+		t.Errorf("app providers = %q, server = %q", got, weatherProviders)
+	}
+	if got := ids(block("openMeteoModels")); !slices.Equal(got, openMeteoModels) {
+		t.Errorf("app Open-Meteo models = %q, server = %q", got, openMeteoModels)
+	}
+	for name, want := range map[string]string{"openMeteo": "open-meteo", "defaultOpenMeteoModel": defaultOpenMeteoModel} {
+		if !strings.Contains(string(src), "static let "+name+` = "`+want+`"`) {
+			t.Errorf("WeatherSources.%s is not %q", name, want)
+		}
 	}
 }
