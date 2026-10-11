@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"time"
 )
 
@@ -67,6 +68,11 @@ func sanitizeConfigBaseline(cfg *Config, logger *slog.Logger) {
 		logger.Warn("config.json awtrix.http_base_url invalid, falling back to default",
 			"value", cfg.AWTRIX.HTTPBaseURL, "err", err, "default", defaultDeviceBaseURL)
 		cfg.AWTRIX.HTTPBaseURL = defaultDeviceBaseURL
+	}
+	if m := cfg.Weather.OpenMeteoModel; !slices.Contains(openMeteoModels, m) {
+		logger.Warn("config.json weather.open_meteo_model invalid, falling back to default",
+			"value", m, "default", defaultOpenMeteoModel)
+		cfg.Weather.OpenMeteoModel = defaultOpenMeteoModel
 	}
 	for k, v := range cfg.Weather.IconIDs {
 		if !weatherIconIDPattern.MatchString(v) {

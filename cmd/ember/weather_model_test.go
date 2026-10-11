@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -79,7 +83,7 @@ func TestWeatherConfigPutRejectsUnknownOpenMeteoModel(t *testing.T) {
 	}
 }
 
-func TestWeatherConfigFileRejectsUnknownOpenMeteoModel(t *testing.T) {
+func TestValidateWeatherRejectsUnknownOpenMeteoModel(t *testing.T) {
 	c := defaultConfig()
 	c.applyDefaults()
 	c.Weather.OpenMeteoModel = "nope"
@@ -257,5 +261,70 @@ func TestWeatherReadoutsNameTheOpenMeteoModel(t *testing.T) {
 	app.updateConfig(func(c *Config) { c.Weather.Provider = "met-no" })
 	if out := app.buildWeatherState(now); out.Model != "" {
 		t.Errorf("met-no weather state model = %q, want none", out.Model)
+	}
+}
+
+func TestLoadConfigFallsBackFromAnUnknownOpenMeteoModel(t *testing.T) {
+	for _, bad := range []string{"nope", "ecmwf_ifs,gfs_seamless"} {
+		t.Run(bad, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "c.json")
+			body := `{"awtrix":{"http_base_url":"http://x"},"weather":{"enabled":true,"open_meteo_model":"` + bad + `"}}`
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var logs bytes.Buffer
+			cfg, err := loadConfig(path, slog.New(slog.NewTextHandler(&logs, nil)))
+			if err != nil {
+				t.Fatalf("loadConfig: %v", err)
+			}
+			if cfg.Weather.OpenMeteoModel != "best_match" {
+				t.Errorf("model = %q, want best_match", cfg.Weather.OpenMeteoModel)
+			}
+			if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "weather.open_meteo_model invalid") {
+				t.Errorf("no warning for the unknown model: %q", logs.String())
+			}
+		})
+	}
+}
+
+func TestLoadConfigKeepsAKnownOpenMeteoModel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.json")
+	body := `{"awtrix":{"http_base_url":"http://x"},"weather":{"open_meteo_model":"ecmwf_ifs"}}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path, testLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Weather.OpenMeteoModel != "ecmwf_ifs" {
+		t.Errorf("model = %q, want ecmwf_ifs", cfg.Weather.OpenMeteoModel)
+	}
+}
+
+func TestAdminReloadFallsBackFromAnUnknownOpenMeteoModel(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://x"},"weather":{"open_meteo_model":"ecmwf_ifs"}}`)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	if got := app.cfg.Load().Weather.OpenMeteoModel; got != "ecmwf_ifs" {
+		t.Fatalf("model before reload = %q", got)
+	}
+	for _, bad := range []string{"nope", "ecmwf_ifs,gfs_seamless"} {
+		if err := os.WriteFile(path, []byte(`{"awtrix":{"http_base_url":"http://x"},"weather":{"open_meteo_model":"`+bad+`"}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		req, _ := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+		req.Header.Set("Authorization", "Bearer tok")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("reload with %q = %d, want 200", bad, resp.StatusCode)
+		}
+		if got := app.cfg.Load().Weather.OpenMeteoModel; got != "best_match" {
+			t.Errorf("model after reload with %q = %q, want best_match", bad, got)
+		}
 	}
 }
