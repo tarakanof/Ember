@@ -221,6 +221,7 @@ type metStub struct {
 	lastModified  string
 	expires       time.Time
 	date          time.Time
+	age           string
 	notModified   bool
 	airFail       atomic.Bool
 	airHits       atomic.Int32
@@ -250,6 +251,9 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 			w.Header()["Date"] = nil
 		} else {
 			w.Header().Set("Date", st.date.UTC().Format(http.TimeFormat))
+		}
+		if st.age != "" {
+			w.Header().Set("Age", st.age)
 		}
 		if st.notModified && r.Header.Get("If-Modified-Since") == st.lastModified {
 			w.WriteHeader(http.StatusNotModified)
@@ -364,6 +368,25 @@ func TestMetNoMeasuresExpiresFromTheResponseDate(t *testing.T) {
 		}
 		if wx := app.weather.state(app.cfg.Load().Weather, t2); !wx.Obs.ValidUntil.Equal(t0.Add(70 * time.Minute)) {
 			t.Errorf("MET clock %v off: after the 304 ValidUntil %v, want %v", skew, wx.Obs.ValidUntil, t0.Add(70*time.Minute))
+		}
+	}
+}
+
+func TestMetNoTakesTheResponseAgeOffItsFreshness(t *testing.T) {
+	cases := []struct {
+		age  string
+		want time.Duration
+	}{{"3000", 10 * time.Minute}, {"5400", 0}, {"junk", 60 * time.Minute}}
+	for _, c := range cases {
+		t0 := metT0
+		st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", date: t0, expires: t0.Add(60 * time.Minute), age: c.age}
+		app := newMetCacheApp(t, st, false)
+		app.pollWeather(context.Background(), t0)
+		app.weather.mu.RLock()
+		notBefore, valid := app.weather.notBefore, app.weather.obs.ValidUntil
+		app.weather.mu.RUnlock()
+		if want := t0.Add(c.want); !notBefore.Equal(want) || !valid.Equal(want) {
+			t.Errorf("Age %s: notBefore %v ValidUntil %v, want %v (Expires - Date - Age, floored at now)", c.age, notBefore, valid, want)
 		}
 	}
 }
