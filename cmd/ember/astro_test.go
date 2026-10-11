@@ -531,9 +531,10 @@ func TestTromsoCrossingsNextToTheMidnightSun(t *testing.T) {
 }
 
 func TestSunEventsUTCDatesAcrossDST(t *testing.T) {
+	t.Parallel()
 	berlin, err := time.LoadLocation("Europe/Berlin")
 	if err != nil {
-		t.Skip("tzdata unavailable")
+		t.Fatal(err)
 	}
 	const lat, lon = 52.52, 13.405
 	now := time.Date(2026, 10, 26, 0, 30, 0, 0, time.UTC).In(berlin)
