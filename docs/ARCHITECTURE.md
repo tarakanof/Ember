@@ -1260,25 +1260,29 @@ offer, and the knob's `pomo` block (`knobPomo`) is `null` when off and sends
 ### Weather — `cmd/ember/weather.go`, `weather_providers.go`
 
 A standalone widget that shows current conditions. The server fetches them
-**itself** (not via a producer) from a free, key-less provider — **Open-Meteo**
-by default, **MET Norway** selectable — on a `refresh_minutes` cadence. Provider
-codes (WMO for Open-Meteo, `symbol_code` for MET) map to six render buckets
-(`clear/clouds/fog/rain/snow/storm`) + a `severe` flag (`internal/render`
-`weather.go`). The fetch also pulls the next ~24 **hourly temperatures** and (Open-Meteo
-only) the location's **UTC offset** (`&timezone=auto` → `utc_offset_seconds`). The
-latest observation lives in an in-memory `weatherStore`, the single source: one
-poller fills it and nothing fetches per device. The store is tagged with the
-source it serves, provider and location (`weatherSource`; #409 for the
-provider, #350 added the location): `state()` hides an observation tagged
-with another source, so after a provider or location change every view
-shows weather as absent until the new source's first fetch. On every poll,
-`pollWeather` retags the store through `switchSource` when the configured
-source differs, clearing the observation, `lastFetch`, the MET validators
-and the popup's previous condition. `StartWeather` also wakes on change
-notifications and polls at once on a mismatch; that poll fetches only when
-weather is enabled. A fetch that finishes after the source changed is
-dropped (it doesn't set `lastFetch` either), so a slow old-source reply
-can't land.
+**itself** (not via a producer) from a free, key-less provider —
+**Open-Meteo** by default, **MET Norway** selectable — on a `refresh_minutes`
+cadence. Provider codes (WMO for Open-Meteo, `symbol_code` for MET) map to six
+render buckets (`clear/clouds/fog/rain/snow/storm`) + a `severe` flag
+(`internal/render` `weather.go`). The fetch also pulls the next ~24 **hourly
+temperatures** and (Open-Meteo only) the location's **UTC offset**
+(`&timezone=auto` → `utc_offset_seconds`). The latest observation lives in an
+in-memory `weatherStore`, the single source: one poller fills it and nothing
+fetches per device. The store is tagged with the source it serves, provider
+and location (`weatherSource`; #409 for the provider, #350 added the
+location): `state()` hides an observation tagged with another source, so after
+a provider or location change every view shows weather as absent until the new
+source's first fetch. On every poll, `pollWeather` retags the store through
+`switchSource` when the configured source differs, clearing the observation,
+`lastFetch`, the MET validators and the popup's previous condition.
+`StartWeather` also wakes on change notifications and polls at once on a
+mismatch; that poll fetches only when weather is enabled. A fetch that
+finishes after the source changed is dropped (it doesn't set `lastFetch`
+either), so a slow old-source reply can't land. While the store has no
+observation for its source (after a switch or at start), a failed fetch is
+retried after 2 min (`weatherRetryAfter`, capped at `refresh_minutes`) instead
+of a full `refresh_minutes`; with an observation on screen a failure keeps the
+normal cadence.
 
 **Face data** (#350, `weather_providers.go`). Each fetch also fills the
 observation's knob-face fields, nothing persisted: `Now` (cloud %, UV,
@@ -1301,40 +1305,37 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   raw, ~7 KB gzipped (the client asks for gzip). The current values
   (condition, code, temperature, severe, overlay, `Now` in m/s × 3.6 and
   `ObservedAt`) come from the timeseries entry at or before now: the
-  observation keeps the first 24 entries as `Steps`, and
-  `newWeatherState` projects the latest one not after `now`
-  (`weatherObservation.current`), so they move on each hour while MET is
-  skipped until `Expires` or answers 304. Open-Meteo has no `Steps`; its
-  `current` block is refetched every poll. `Precip` is the leading run of
-  1-h entries'
+  observation keeps the first 24 entries as `Steps`, and `newWeatherState`
+  projects the latest one not after `now` (`weatherObservation.current`), so
+  they move on each hour while MET is skipped until `Expires` or answers
+  304. Open-Meteo has no `Steps`; its `current` block is refetched every
+  poll. `Precip` is the leading run of 1-h entries'
   `next_1_hours.precipitation_amount` (snow for a snow or sleet symbol, at
-  most 14). `Days` are aggregated per local day: an entry's instant
-  values go to the day of its time; its period is `next_1_hours` when the
-  next entry is 1 h later, else `next_6_hours` over the gap (at most 6 h).
-  A period that crosses local midnight (a 6-h period at UTC+2, a 1-h one
-  at a half-hour offset) counts for every day it overlaps: its
-  precipitation is split by the overlap (amount × overlap / period
-  length, so a 2-h gap isn't counted 6 h), and its probability and its
-  symbol go to each such day. Its 6-h min/max go only to the day that
-  holds most of the period (the earlier one on a 3 h + 3 h split), so at
-  UTC+2 the 20:00–02:00 evening max isn't also the next day's. The condition is the
-  worst symbol of the day's periods (storm > snow > rain > fog > clouds >
-  clear) and `Code` that symbol: `next_1_hours` in the hourly range,
-  where a 6-h window would reach hours outside the day, and
-  `next_6_hours` beyond it. Probability and UV are maxima of what the
-  entries carry.
+  most 14). `Days` are aggregated per local day: an entry's instant values
+  go to the day of its time; its period is `next_1_hours` when the next
+  entry is 1 h later, else `next_6_hours` over the gap (at most 6 h). A
+  period that crosses local midnight (a 6-h period at UTC+2, a 1-h one at a
+  half-hour offset) counts for every day it overlaps: its precipitation is
+  split by the overlap (amount × overlap / period length, so a 2-h gap isn't
+  counted 6 h), and its probability and its symbol go to each such day. Its
+  6-h min/max go only to the day that holds most of the period (the earlier
+  one on a 3-h + 3-h split), so at UTC+2 the 20:00–02:00 evening max isn't
+  also the next day's. The condition is the worst symbol of the day's
+  periods (storm > snow > rain > fog > clouds > clear) and `Code` that
+  symbol: `next_1_hours` in the hourly range, where a 6-h window would reach
+  hours outside the day, and `next_6_hours` beyond it. Probability and UV
+  are maxima of what the entries carry.
 - **MET caching.** The store keeps `Last-Modified` and `Expires`
-  (`lastModified`, `notBefore`; cleared with the observation on a provider
-  or location switch, so a new location neither waits for the old
-  `Expires` nor sends the old `Last-Modified`, which MET would answer with
-  a 304 for the wrong city). A due poll
-  before `Expires` skips the MET call but still moves `lastFetch`, so air
-  keeps its cadence and the next due poll checks again; after `Expires` the
-  request carries `If-Modified-Since`. A **304** keeps the observation,
-  sets its `FetchedAt` to now and its `ValidUntil` and `notBefore` to the
-  new `Expires`, and notifies (the `stale` flag may move).
-  With the 10-min default that is about one call per 40 min instead of
-  every 10.
+  (`lastModified`, `notBefore`; cleared with the observation on a provider or
+  location switch, so a new location neither waits for the old `Expires` nor
+  sends the old `Last-Modified`, which MET would answer with a 304 for the
+  wrong city). A due poll before `Expires` skips the MET call but still moves
+  `lastFetch`, so air keeps its cadence and the next due poll checks again;
+  after `Expires` the request carries `If-Modified-Since`. A **304** keeps the
+  observation, sets its `FetchedAt` to now and its `ValidUntil` and
+  `notBefore` to the new `Expires`, and notifies (the `stale` flag may move).
+  With the 10-min default that is about one call per 40 min instead of every
+  10.
 - **Freshness** is measured from the later of `FetchedAt` and the
   observation's `ValidUntil` (MET's `Expires`), so skipping MET until
   `Expires` never marks the data stale early.
@@ -1356,27 +1357,27 @@ false when missing), `enabled`, the location's `LocalDay`, `Night` and the
 local day's `Sunrise`/`Sunset` (`HaveSun`, false without coordinates). It
 knows nothing about devices; the freshness rule and the sun math live only
 here. Its readers: the clock tiles (`live` = enabled and fresh; views and the
-moon read the state), the sun popups (times and once-a-day key), the knob
-view (`knobWeather`), the dashboard's `/v1/weather/state` and the weather
-preview (which swaps in sample observations when the store has none). The
-condition, interval, severe and AQI popups are not readers: they fire on a
+moon read the state), the sun popups (times and once-a-day key), the knob view
+(`knobWeather`), the dashboard's `/v1/weather/state` and the weather preview
+(which reads the store under the saved source, so a draft location keeps the
+live observation, and swaps in sample observations when the store has none).
+The condition, interval, severe and AQI popups are not readers: they fire on a
 due poll and take the observation directly, a full fetch's result or, while
 MET is skipped until `Expires` or answers 304, the kept series' entry for now
 (`weatherObservation.current`), so they trail the hourly-advancing display by
-at most `refresh_minutes`. Presentation stays with each
-reader (`roundedSun` gives the 5-min rounding the dashboard and knob share).
-The state shares the store's `Hourly`/`HourlyAQI` slices: readers treat them
-as read-only, and the poller only ever replaces whole observations.
-`faces()` (`weather_faces.go`, #350) derives the knob-face values from the
-state, on demand because the moon scan is the costly part: the offset in
-use, the rain spells of the next 12 h relative to now (wet ≥ 0.1 mm/h,
-≤ 30-min gaps merged, peak intensity, at most 4, ended ones dropped), the
-current step's intensity and the end of the spell containing now (none
-when that end is only where the steps run out), today
+at most `refresh_minutes`. Presentation stays with each reader (`roundedSun`
+gives the 5-min rounding the dashboard and knob share). The state shares the
+store's `Hourly`/`HourlyAQI` slices: readers treat them as read-only, and the
+poller only ever replaces whole observations. `faces()` (`weather_faces.go`,
+#350) derives the knob-face values from the state, on demand because the moon
+scan is the costly part: the offset in use, the rain spells of the next 12 h
+relative to now (wet ≥ 0.1 mm/h, ≤ 30-min gaps merged, peak intensity, at most
+4, ended ones dropped), the current step's intensity and the end of the spell
+containing now (none when that end is only where the steps run out), today
 (the day containing now, none once the observation's days are over; its
-min/max widened to the current temperature)
-and the next 3 days, the local twilight and the moon's phase, lit fraction,
-up flag and up window (no location: phase and lit fraction only).
+min/max widened to the current temperature) and the next 3 days, the local
+twilight and the moon's phase, lit fraction, up flag and up window (no
+location: phase and lit fraction only).
 
 The coordinator reconciles three rotating tiles with the same
 change-and-staleness dedupe as the usage card:
