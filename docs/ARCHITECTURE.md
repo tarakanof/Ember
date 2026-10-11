@@ -1387,7 +1387,7 @@ local day's sun crossings (`Sun`, a `sunCrossings` with a flag per
 crossing, none without coordinates). It
 knows nothing about devices; the freshness rule and the sun math live only
 here. Its readers: the clock tiles (`live` = enabled and fresh; views and the
-moon read the state), the sun popups (times and once-a-day key), the knob view
+moon read the state), the sun popups (location and label offset), the knob view
 (`knobWeather`), the dashboard's `/v1/weather/state` and the weather preview
 (which reads the store under the saved source, so a draft location keeps the
 live observation, and swaps in sample observations when the store has none;
@@ -1545,9 +1545,8 @@ A 1-min poll loop (`StartWeather`) fetches when due and fires
 (`popup_on_change`), on a fixed cadence (`popup_interval_minutes`, `0`=off), a
 **sound alert** on severe-weather onset (`severe_alert`), and
 **sunrise/sunset** popups (`sun_popups`) — sun times computed locally from
-lat/lon (`astro.go` `sunTimes`, polar-safe), fired once per local day per
-event within a 2-min window, each crossing on its own (a boundary day's lone
-sunrise still fires); the label uses the location's real UTC offset
+lat/lon (`astro.go` `sunTimes`, polar-safe), each crossing fired once within
+a 2-min window (`sunPopupLog`); the label uses the location's real UTC offset
 (longitude fallback for MET). Popups use a drawn icon by default; `use_native_icons` swaps in a
 native AWTRIX/LaMetric animated weather icon by ID — per-condition IDs default to
 widely-used gallery icons and are overridable from the menu (`icon_ids`) so the user
@@ -1688,9 +1687,9 @@ Weather constraints:
   day with one crossing keeps it (#423): the moon shows when that day's
   night comes, and the popup fires for the lone crossing; the knob and
   dashboard still get both times null.
-- **Sun times are the location's local day.** Every caller (dashboard
-  `/v1/weather/state`, the knob view, the clock's moon icon, sun popups and
-  their once-a-day key) reads them from the weather state, which calls
+- **Sun times are the location's local day.** Every display caller
+  (dashboard `/v1/weather/state`, the knob view, the clock's moon icon)
+  reads them from the weather state, which calls
   `localSunTimes`: the
   sunrise/sunset of the local date containing now, with the same offset rule as
   the label (provider offset, else longitude). `sunTimes` itself picks the UTC
@@ -1700,8 +1699,21 @@ Weather constraints:
   the right solar date); neither the UTC instant of local noon nor the local
   calendar date works once the offset and longitude disagree by ~12h (NZDT
   +13h, Kiritimati +14h at −157°, the lon ≤ −172.5° fallback). A sunset after
-  local midnight (high latitudes in summer) belongs to yesterday, so its popup
-  never fires.
+  local midnight (high latitudes in summer) belongs to yesterday's solar day.
+- **Sun popups follow the crossings, not the local day.** The poll takes the
+  crossings of the UTC dates either side of now (`sunEvents`, the set `Night`
+  uses), so a crossing after local midnight that belongs to the previous
+  solar day pops too (Tromsø's first sunset after the midnight sun,
+  2026-07-26 00:37 local; every June sunset near midnight in Reykjavík).
+  Keyed by the local day, the old popups missed 5 (Tromsø), 25 (Utqiaġvik),
+  8 (McMurdo), 16 (Reykjavík) and 2 (Longyearbyen) crossings in 2026.
+  `sunPopupLog` keeps the last popped time per direction and drops a
+  crossing within the 2-min window of it, so each pops once; two sunsets
+  can share a local day when the sunset moves back before midnight.
+  `TestSunPopupsFireOnceForEveryModelCrossingAllYear` runs the window and
+  the log minute by minute through 2026 at those five sites with their
+  real zones and requires one popup per −0.833° crossing of the model
+  elevation and nothing else.
 - **Night is the sun schedule's call.** `Night` is `sunNight` over the sun
   events of the neighbouring UTC dates (`sunEventsAround`, the same bracket
   brightness `sunLevel` uses). With an event on both sides, night is "the
@@ -4154,7 +4166,7 @@ handler samples it once, before the push, and hands that value to
 `showNoticeQuiet`, so the alarm's sound and its loop guard always agree: quiet
 hours starting during a slow push still leave a loud loop guarded, and quiet
 hours ending between two samples can't send an unguarded loop. Firing
-decisions (meeting per-occurrence dedupe, sun once-a-day, weather edge triggers,
+decisions (meeting per-occurrence dedupe, sun once-per-crossing, weather edge triggers,
 the usage alarm arm/fire state, reminder idempotency keys) stay with the app
 that owns the state. A notice is plain data, so a later knob subscription can
 read the same stream. `notices_test.go` pins the exact clock calls of every

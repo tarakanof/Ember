@@ -211,7 +211,7 @@ type sunEvent struct {
 	rise bool
 }
 
-func sunEventsAround(lat, lon float64, now time.Time) (last, next *sunEvent) {
+func sunEvents(lat, lon float64, now time.Time) []sunEvent {
 	var evs []sunEvent
 	for d := -1; d <= 1; d++ {
 		c := sunTimes(lat, lon, now.AddDate(0, 0, d))
@@ -223,6 +223,11 @@ func sunEventsAround(lat, lon float64, now time.Time) (last, next *sunEvent) {
 		}
 	}
 	sort.Slice(evs, func(i, j int) bool { return evs[i].at.Before(evs[j].at) })
+	return evs
+}
+
+func sunEventsAround(lat, lon float64, now time.Time) (last, next *sunEvent) {
+	evs := sunEvents(lat, lon, now)
 	for i := range evs {
 		if !evs[i].at.After(now) {
 			last = &evs[i]
