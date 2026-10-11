@@ -135,8 +135,8 @@ effect/transition/overlay/palette lists; live proxy when the cache is cold),
 snapshot per tool — the POST stays authed), `GET /v1/activity/summary?days=`
 (agent time per tool/source, waiting excluded), `GET /v1/weather/state` (cached
 observation; label but no coordinates, sun times rounded to 5 min),
-`GET /v1/nowplaying/state`, `GET /v1/nowplaying/art?kind=album|artist|backdrop&size=`
-(square baseline JPEG, ETag; rate-limited),
+`GET /v1/nowplaying/state`, `GET /v1/nowplaying/art?kind=album|artist|backdrop|cover&size=`
+(square baseline JPEG, ETag; `cover` is the knob's prepared 466 px circle; rate-limited),
 `GET /v1/clock/health` (24h publish counts + clock RSSI/heap/uptime/current
 app, device probe cached 30s, latest NG release looked up on GitHub in the
 background every 6h — `EMBER_FIRMWARE_CHECK=0` disables it). Dashboard

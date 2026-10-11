@@ -343,14 +343,14 @@ func TestControlPlexWithoutPlexConfigIs503(t *testing.T) {
 
 func TestKnobViewCarriesVolume(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
-	if np := app.knobNowPlaying(time.Now()); np.Volume != nil {
+	if np := app.knobNowPlaying(time.Now(), false); np.Volume != nil {
 		t.Fatal("volume with nothing playing")
 	}
 	rep := nowplaying.Report{Source: "music", Player: "M4", State: nowplaying.Playing, Title: "x", TrackID: "1", Volume: new(35)}
 	if _, err := app.nowPlaying.reg.Report(rep, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := json.Marshal(app.knobNowPlaying(time.Now()))
+	b, _ := json.Marshal(app.knobNowPlaying(time.Now(), false))
 	if !strings.Contains(string(b), `"volume":35`) {
 		t.Fatalf("block = %s", b)
 	}

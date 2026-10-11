@@ -930,7 +930,7 @@ does not affect other checks.
 What the knob's now-playing page (cinder #14) shows. Sources: the Plex poller
 on the server and Ember.app's Apple Music pusher (Settings › Sources › Music,
 per Mac, off by default). Reads: `GET /v1/nowplaying/state`,
-`GET /v1/nowplaying/art?kind=album|artist|backdrop&size=` (fixed sizes: album 240/120, artist 64/120, backdrop 466; ARCHITECTURE
+`GET /v1/nowplaying/art?kind=album|artist|backdrop|cover&size=` (fixed sizes: album 240/120, artist 64/120, backdrop 466, cover 466; ARCHITECTURE
 "Now playing").
 
 | Env | Meaning |

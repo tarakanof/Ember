@@ -22,7 +22,7 @@ const (
 	backdropRatio = 40
 )
 
-var Sizes = map[Kind][]int{Album: {240, 120}, Artist: {64, 120}, Backdrop: {466}}
+var Sizes = map[Kind][]int{Album: {240, 120}, Artist: {64, 120}, Backdrop: {466}, Cover: {coverSize}}
 
 var ErrBadImage = errors.New("artwork must be a JPEG or PNG of at most 2 MB and 2048x2048 px")
 
@@ -40,17 +40,17 @@ func CheckImage(data []byte) error {
 	return nil
 }
 
-func Validate(data []byte) error {
-	if err := CheckImage(data); err != nil {
-		return err
+func Prepare(data []byte) (*Image, error) {
+	src, err := decode(data)
+	if err != nil {
+		return nil, err
 	}
-	if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
-		return fmt.Errorf("%w: %v", ErrBadImage, err)
-	}
-	return nil
+	img := NewImage(data)
+	img.Accent = accent(grid(src, accentGrid))
+	return img, nil
 }
 
-func Render(data []byte, kind Kind, size int) ([]byte, error) {
+func decode(data []byte) (image.Image, error) {
 	if err := CheckImage(data); err != nil {
 		return nil, err
 	}
@@ -58,6 +58,38 @@ func Render(data []byte, kind Kind, size int) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadImage, err)
 	}
+	return src, nil
+}
+
+func Render(data []byte, kind Kind, size int) ([]byte, error) {
+	if kind == Cover && size != coverSize {
+		return nil, fmt.Errorf("cover is %d px, not %d", coverSize, size)
+	}
+	src, err := decode(data)
+	if err != nil {
+		return nil, err
+	}
+	sq := square(src)
+	var out *image.RGBA
+	switch kind {
+	case Cover:
+		out = cover(sq)
+	case Backdrop:
+		px := resample(sq, size)
+		px.blur(max(1, size/backdropRatio), backdropPass)
+		px.scale(backdropDim)
+		out = px.rgba()
+	default:
+		out = resample(sq, size).rgba()
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, out, &jpeg.Options{Quality: jpegQuality}); err != nil {
+		return nil, fmt.Errorf("encode artwork: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func square(src image.Image) *image.RGBA {
 	b := src.Bounds()
 	side := min(b.Dx(), b.Dy())
 	crop := image.Rect(0, 0, side, side)
@@ -65,16 +97,49 @@ func Render(data []byte, kind Kind, size int) ([]byte, error) {
 	draw.Draw(sq, crop, image.NewUniform(color.Black), image.Point{}, draw.Src)
 	off := image.Pt(b.Min.X+(b.Dx()-side)/2, b.Min.Y+(b.Dy()-side)/2)
 	draw.Draw(sq, crop, src, off, draw.Over)
-	px := resample(sq, size)
-	if kind == Backdrop {
-		px.blur(max(1, size/backdropRatio), backdropPass)
-		px.scale(backdropDim)
+	return sq
+}
+
+func grid(src image.Image, n int) plane {
+	b := src.Bounds()
+	s := min(b.Dx(), b.Dy())
+	off := image.Pt(b.Min.X+(b.Dx()-s)/2, b.Min.Y+(b.Dy()-s)/2)
+	wx := weights(s, n)
+	rows := make([][]tap, s)
+	for i, taps := range wx {
+		for _, w := range taps {
+			rows[w.i] = append(rows[w.i], tap{i, w.w})
+		}
 	}
-	var out bytes.Buffer
-	if err := jpeg.Encode(&out, px.rgba(), &jpeg.Options{Quality: jpegQuality}); err != nil {
-		return nil, fmt.Errorf("encode artwork: %w", err)
+	line := image.NewRGBA(image.Rect(0, 0, s, 1))
+	tmp := make([]float32, n*3)
+	out := plane{n: n, pix: make([]float32, n*n*3)}
+	for y, dst := range rows {
+		if len(dst) == 0 {
+			continue
+		}
+		for i := 0; i < len(line.Pix); i += 4 {
+			line.Pix[i], line.Pix[i+1], line.Pix[i+2], line.Pix[i+3] = 0, 0, 0, 255
+		}
+		draw.Draw(line, line.Rect, src, off.Add(image.Pt(0, y)), draw.Over)
+		for x := 0; x < n; x++ {
+			var r, g, b float32
+			for _, w := range wx[x] {
+				p := line.Pix[w.i*4:]
+				r += w.w * float32(p[0])
+				g += w.w * float32(p[1])
+				b += w.w * float32(p[2])
+			}
+			tmp[x*3], tmp[x*3+1], tmp[x*3+2] = r, g, b
+		}
+		for _, d := range dst {
+			o := d.i * n * 3
+			for k, v := range tmp {
+				out.pix[o+k] += d.w * v
+			}
+		}
 	}
-	return out.Bytes(), nil
+	return out
 }
 
 type plane struct {

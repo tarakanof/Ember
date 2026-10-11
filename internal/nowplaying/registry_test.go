@@ -164,6 +164,9 @@ func TestArtVersionFollowsPictures(t *testing.T) {
 	if e2.Picture(Backdrop) != e2.ArtistArt {
 		t.Fatal("backdrop should use the artist picture")
 	}
+	if e2.Picture(Cover) != e2.AlbumArt {
+		t.Fatal("cover should prefer the album picture")
+	}
 	if e1.Picture(Backdrop) != e1.AlbumArt {
 		t.Fatal("backdrop should fall back to the album")
 	}
@@ -291,5 +294,15 @@ func TestVolumeIsValidatedAndAChange(t *testing.T) {
 	mustReport(t, r, rep, t0.Add(3*time.Second))
 	if e, _ := r.Get("music", "mbp"); changes != 2 || e.Volume == nil || *e.Volume != 45 {
 		t.Fatalf("no volume: %d changes, entry %v", changes, e.Volume)
+	}
+}
+
+func TestCoverVersionChangesWithTheRecipe(t *testing.T) {
+	if coverVersion("", CoverRecipe) != "" {
+		t.Fatal("cover version without pictures")
+	}
+	a, b := coverVersion("fb43cf74b67a", "r1"), coverVersion("fb43cf74b67a", "r2")
+	if a == b || !strings.HasPrefix(a, "fb43cf74b67a") {
+		t.Fatalf("cover versions %q and %q: a recipe bump must change the URL and keep the art version", a, b)
 	}
 }
