@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +18,8 @@ type providerStubs struct {
 	omReq   chan struct{}
 	metReq  chan struct{}
 	onOM    func()
+	metFail atomic.Bool
+	metWait atomic.Pointer[string]
 }
 
 func signalStub(ch chan struct{}) {
@@ -39,6 +43,15 @@ func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 	t.Cleanup(om.Close)
 	met := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		st.metHits.Add(1)
+		if st.metFail.Load() {
+			code := http.StatusServiceUnavailable
+			if v := st.metWait.Load(); v != nil {
+				w.Header().Set("Retry-After", *v)
+				code = http.StatusTooManyRequests
+			}
+			http.Error(w, "down", code)
+			return
+		}
 		_, _ = w.Write([]byte(`{"properties":{"timeseries":[{"time":"2026-09-26T07:00:00Z","data":{"instant":{"details":{"air_temperature":4}},"next_1_hours":{"summary":{"symbol_code":"snow"}}}}]}}`))
 		signalStub(st.metReq)
 	}))
@@ -191,5 +204,129 @@ func TestStartWeatherRefetchesOnProviderChange(t *testing.T) {
 	}
 	if st.omHits.Load() != 1 || st.metHits.Load() != 1 {
 		t.Errorf("fetches open-meteo=%d met-no=%d, want 1 each", st.omHits.Load(), st.metHits.Load())
+	}
+}
+
+func TestWeatherRetriesSoonAfterAFailedFirstFetchFromANewProvider(t *testing.T) {
+	app, st := newProviderSwitchApp(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)
+	app.pollWeather(ctx, t0)
+	putWeatherProvider(t, app, "met-no")
+	st.metFail.Store(true)
+
+	t1 := t0.Add(time.Minute)
+	app.pollWeather(ctx, t1)
+	app.pollWeather(ctx, t1.Add(weatherRetryBase-time.Second))
+	if n := st.metHits.Load(); n != 1 {
+		t.Fatalf("met-no fetched %d times before the retry delay, want 1", n)
+	}
+
+	st.metFail.Store(false)
+	t2 := t1.Add(weatherRetryBase)
+	app.pollWeather(ctx, t2)
+	if n := st.metHits.Load(); n != 2 {
+		t.Fatalf("met-no fetched %d times %v after the failed first fetch, want a retry", n, weatherRetryBase)
+	}
+	if kw := app.knobWeather(t2); kw == nil || kw.Provider != "met-no" {
+		t.Fatalf("knob weather after the retry = %+v", kw)
+	}
+
+	st.metFail.Store(true)
+	t3 := t2.Add(10 * time.Minute)
+	app.pollWeather(ctx, t3)
+	app.pollWeather(ctx, t3.Add(weatherRetryBase))
+	if n := st.metHits.Load(); n != 3 {
+		t.Errorf("met-no fetched %d times; with an observation to show, a failure should wait the full refresh", n)
+	}
+}
+
+func metHitMinutes(app *App, st *providerStubs, from time.Time, minutes int) []int {
+	var at []int
+	for m := 0; m <= minutes; m++ {
+		n := st.metHits.Load()
+		app.pollWeather(context.Background(), from.Add(time.Duration(m)*time.Minute))
+		if st.metHits.Load() != n {
+			at = append(at, m)
+		}
+	}
+	return at
+}
+
+func TestWeatherDoublesTheRetryDelayWhileNothingIsShown(t *testing.T) {
+	app, st := newProviderSwitchApp(t)
+	t0 := time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)
+	app.pollWeather(context.Background(), t0)
+	putWeatherProvider(t, app, "met-no")
+	st.metFail.Store(true)
+
+	t1 := t0.Add(time.Minute)
+	if got, want := metHitMinutes(app, st, t1, 45), []int{0, 2, 6, 14, 24, 34, 44}; !slices.Equal(got, want) {
+		t.Errorf("met-no fetched at minutes %v, want %v: 2, 4, 8 min, then refresh_minutes (10)", got, want)
+	}
+
+	t2 := t1.Add(50 * time.Minute)
+	putWeatherProvider(t, app, "open-meteo")
+	app.pollWeather(context.Background(), t2)
+	putWeatherProvider(t, app, "met-no")
+	if got, want := metHitMinutes(app, st, t2.Add(time.Minute), 7), []int{0, 2, 6}; !slices.Equal(got, want) {
+		t.Errorf("after a provider switch met-no fetched at minutes %v, want %v: the delay starts over at 2 min", got, want)
+	}
+}
+
+func TestWeatherHonoursRetryAfterOnAFailedFetch(t *testing.T) {
+	app, st := newProviderSwitchApp(t)
+	t0 := time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)
+	app.pollWeather(context.Background(), t0)
+	putWeatherProvider(t, app, "met-no")
+	st.metFail.Store(true)
+	app.updateConfig(func(cfg *Config) { cfg.Weather.RefreshMinutes = 20 })
+	st.metWait.Store(new(strconv.Itoa(15 * 60)))
+
+	if got, want := metHitMinutes(app, st, t0.Add(time.Minute), 20), []int{0, 15}; !slices.Equal(got, want) {
+		t.Errorf("met-no fetched at minutes %v, want %v: nothing before the 429's Retry-After of 15 min", got, want)
+	}
+}
+
+func TestWeatherCapsRetryAfterAtRefreshMinutes(t *testing.T) {
+	for _, v := range []string{"31536000", "99999999999", "Thu, 01 Jan 2099 00:00:00 GMT"} {
+		t.Run(v, func(t *testing.T) {
+			app, st := newProviderSwitchApp(t)
+			t0 := time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)
+			app.pollWeather(context.Background(), t0)
+			putWeatherProvider(t, app, "met-no")
+			st.metFail.Store(true)
+			st.metWait.Store(&v)
+
+			if got, want := metHitMinutes(app, st, t0.Add(time.Minute), 25), []int{0, 10, 20}; !slices.Equal(got, want) {
+				t.Errorf("met-no fetched at minutes %v, want %v: Retry-After %q held to refresh_minutes (10)", got, want, v)
+			}
+		})
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	now := time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)
+	cases := []struct {
+		in   string
+		want time.Duration
+	}{
+		{"", 0},
+		{"120", 2 * time.Minute},
+		{"-5", 0},
+		{"-99999999999999999999", 0},
+		{"soon", 0},
+		{"1.5", 0},
+		{"31536000", weatherRetryAfterMax},
+		{"9300000000", weatherRetryAfterMax},
+		{"99999999999999999999", weatherRetryAfterMax},
+		{"Thu, 01 Jan 2099 00:00:00 GMT", weatherRetryAfterMax},
+		{now.Add(10 * time.Minute).Format(http.TimeFormat), 10 * time.Minute},
+		{now.Add(-time.Minute).Format(http.TimeFormat), 0},
+	}
+	for _, c := range cases {
+		if got := parseRetryAfter(c.in, now); got != c.want {
+			t.Errorf("parseRetryAfter(%q) = %v, want %v", c.in, got, c.want)
+		}
 	}
 }

@@ -80,6 +80,7 @@ func weatherParityApp(t *testing.T, mut func(*WeatherConfig), obs weatherObserva
 	app.weather.mu.Lock()
 	app.weather.obs = obs
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.air = airObservation{AQI: 57, HourlyAQI: []float64{57, 61, 70, 30}, FetchedAt: obs.FetchedAt}
 	app.weather.haveAir = true
 	app.weather.mu.Unlock()

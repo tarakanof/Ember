@@ -224,13 +224,43 @@ func TestWeatherStoreStateSnapshotsTheStore(t *testing.T) {
 	if got := s.state(WeatherConfig{Enabled: true}, now); got.HaveObs || got.HaveAir || got.live() || got.airLive() {
 		t.Fatalf("empty store state = %+v, want nothing live", got)
 	}
+	cfg := WeatherConfig{Enabled: true, Provider: "open-meteo"}
 	s.mu.Lock()
+	s.source = cfg.source()
 	s.obs, s.have = weatherObservation{Condition: "rain", FetchedAt: now, Hourly: []float64{1, 2}}, true
 	s.air, s.haveAir = airObservation{AQI: 42, FetchedAt: now, HourlyAQI: []float64{42, 40}}, true
 	s.mu.Unlock()
-	got := s.state(WeatherConfig{Enabled: true}, now)
+	got := s.state(cfg, now)
 	if !got.live() || !got.airLive() || got.Obs.Condition != "rain" || got.Air.AQI != 42 ||
 		len(got.Obs.Hourly) != 2 || len(got.Air.HourlyAQI) != 2 {
 		t.Errorf("state = %+v, want the stored observations live", got)
+	}
+}
+
+func TestWeatherStoreStateHidesAnUntaggedObservation(t *testing.T) {
+	now := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC)
+	s := newWeatherStore()
+	s.obs, s.have = weatherObservation{Condition: "rain", FetchedAt: now}, true
+	if got := s.state(WeatherConfig{Enabled: true, Provider: "open-meteo"}, now); got.HaveObs {
+		t.Errorf("untagged store served %+v, want no observation until the poller tags it", got.Obs)
+	}
+}
+
+func TestWeatherStoreStateHidesAirFromAnotherLocation(t *testing.T) {
+	now := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC)
+	oslo := WeatherConfig{Enabled: true, Provider: "open-meteo", Latitude: 59.9, Longitude: 10.7}
+	s := newWeatherStore()
+	s.switchSource(oslo.source())
+	s.air, s.haveAir = airObservation{AQI: 120, FetchedAt: now}, true
+
+	paris := oslo
+	paris.Latitude, paris.Longitude = 48.9, 2.3
+	if got := s.state(paris, now); got.HaveAir {
+		t.Errorf("state for Paris served Oslo's air %+v before the poller retagged the store", got.Air)
+	}
+	metOslo := oslo
+	metOslo.Provider = "met-no"
+	if got := s.state(metOslo, now); !got.HaveAir || got.Air.AQI != 120 {
+		t.Errorf("state after a provider-only change = air %v %+v, want Oslo's air kept", got.HaveAir, got.Air)
 	}
 }

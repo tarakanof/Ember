@@ -68,6 +68,7 @@ func TestKnobViewBodyIsCompactAndOrdered(t *testing.T) {
 	})
 	f.app.weather.obs = weatherObservation{Condition: "rain", ConditionCode: "61", TempC: 12.5, FetchedAt: now.Add(-5 * time.Minute)}
 	f.app.weather.have = true
+	f.app.weather.source = f.app.cfg.Load().Weather.source()
 	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "waiting"})
 	f.app.Upsert(StatusRequest{Source: "M4", Tool: "codex", Session: "s2", State: "running"})
 	f.eng.Start(pomodoro.PhaseFocus)
@@ -120,6 +121,7 @@ func TestKnobViewNullsDisabledSections(t *testing.T) {
 	f.app.updateConfig(func(c *Config) { c.Pomodoro.Enabled = false; c.Weather.Enabled = false })
 	f.app.weather.obs = weatherObservation{Condition: "rain", FetchedAt: f.clk.Now()}
 	f.app.weather.have = true
+	f.app.weather.source = f.app.cfg.Load().Weather.source()
 	body, _, _ := f.app.knobView(f.m.ID, f.clk.Now())
 	for _, want := range []string{`"pomo":null`, `"weather":null`, `"mood":{"waiting":0,"errors":0,"running":0,"done":0,"source":""}`} {
 		if !strings.Contains(string(body), want) {
@@ -197,6 +199,7 @@ func TestKnobViewWeatherNightWestOfGreenwich(t *testing.T) {
 		c.Weather.Latitude, c.Weather.Longitude = sfLat, sfLon
 	})
 	f.app.weather.have = true
+	f.app.weather.source = f.app.cfg.Load().Weather.source()
 	cases := []struct {
 		name      string
 		now       time.Time
@@ -226,6 +229,7 @@ func TestKnobViewWeatherObservedAt(t *testing.T) {
 	f := newViewFixture(t)
 	f.app.updateConfig(func(c *Config) { c.Weather.Enabled = true })
 	f.app.weather.have = true
+	f.app.weather.source = f.app.cfg.Load().Weather.source()
 	weatherOf := func(t *testing.T) (map[string]json.RawMessage, string) {
 		t.Helper()
 		resp, b := f.get(t, "")

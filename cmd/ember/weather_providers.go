@@ -92,9 +92,47 @@ func (wf *weatherFetcher) getJSON(ctx context.Context, url, ifModifiedSince stri
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return httpMeta{}, fmt.Errorf("weather http %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return httpMeta{}, &weatherHTTPError{status: resp.Status, body: strings.TrimSpace(string(body)),
+			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 	return meta, json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out)
+}
+
+type weatherHTTPError struct {
+	status     string
+	body       string
+	retryAfter time.Duration
+}
+
+func (e *weatherHTTPError) Error() string {
+	return fmt.Sprintf("weather http %s: %s", e.status, e.body)
+}
+
+const weatherRetryAfterMax = 24 * time.Hour
+
+func parseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.ParseInt(v, 10, 64); err == nil || errors.Is(err, strconv.ErrRange) {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(min(secs, int64(weatherRetryAfterMax/time.Second))) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		return min(max(t.Sub(now), 0), weatherRetryAfterMax)
+	}
+	return 0
+}
+
+func retryAfterOf(err error) time.Duration {
+	var he *weatherHTTPError
+	if errors.As(err, &he) {
+		return he.retryAfter
+	}
+	return 0
 }
 
 func at[T any](s []*T, i int) *T {
@@ -340,9 +378,12 @@ func minOpt(cur, v *float64) *float64 {
 
 func metDays(ts []metEntry, off time.Duration) []weatherDay {
 	var days []weatherDay
-	dayIndex := func(t time.Time) int {
+	dayStart := func(t time.Time) time.Time {
 		y, m, d := t.UTC().Add(off).Date()
-		start := time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Add(-off)
+		return time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Add(-off)
+	}
+	dayIndex := func(t time.Time) int {
+		start := dayStart(t)
 		for i := range days {
 			if days[i].Start.Equal(start) {
 				return i
@@ -374,6 +415,7 @@ func metDays(ts []metEntry, off time.Duration) []weatherDay {
 			continue
 		}
 		end := e.Time.Add(span)
+		extremaDay := dayStart(e.Time.Add(min(period/2, span) - time.Nanosecond))
 		for from := e.Time; from.Before(end); {
 			di := dayIndex(from)
 			if di < 0 {
@@ -384,7 +426,7 @@ func metDays(ts []metEntry, off time.Duration) []weatherDay {
 			if end.Before(to) {
 				to = end
 			}
-			metPeriodInto(day, p, period == 6*time.Hour, to.Sub(from).Hours()/period.Hours())
+			metPeriodInto(day, p, period == 6*time.Hour && day.Start.Equal(extremaDay), to.Sub(from).Hours()/period.Hours())
 			from = to
 		}
 	}

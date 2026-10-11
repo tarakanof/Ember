@@ -154,18 +154,30 @@ func TestMetDaysSplitAPeriodAcrossLocalMidnight(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &ts); err != nil {
 		t.Fatal(err)
 	}
-	days := metDays(ts, 2*time.Hour)
-	if len(days) != 2 {
-		t.Fatalf("days = %+v, want 2", days)
+	cases := []struct {
+		name             string
+		off              time.Duration
+		precip0, precip1 float64
+	}{
+		{"UTC+2, 20:00-02:00 is 4 h + 2 h", 2 * time.Hour, 8, 1},
+		{"UTC+3, 21:00-03:00 is 3 h + 3 h", 3 * time.Hour, 7.5, 1.5},
 	}
-	a, b := days[0], days[1]
-	if !approx(a.PrecipMM, 8) || !approx(a.MinC, 5) || !approx(a.MaxC, 20) || !approx(a.Pop, 80) || a.Cond != render.WeatherRain {
-		t.Errorf("day 0 = precip %v min %v max %v pop %v %s; want 6 + 4/6 of 3 = 8 mm, 5..20, 80 %%, rain",
-			valueOr(a.PrecipMM, -1), valueOr(a.MinC, -1), valueOr(a.MaxC, -1), valueOr(a.Pop, -1), a.Cond)
-	}
-	if !approx(b.PrecipMM, 1) || !approx(b.MinC, 5) || !approx(b.MaxC, 12) || !approx(b.Pop, 80) || b.Cond != render.WeatherRain {
-		t.Errorf("day 1 = precip %v min %v max %v pop %v %s; want the 20:00-02:00 period's last 2 h (1 mm), its 5..12, 80 %%, rain",
-			valueOr(b.PrecipMM, -1), valueOr(b.MinC, -1), valueOr(b.MaxC, -1), valueOr(b.Pop, -1), b.Cond)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			days := metDays(ts, c.off)
+			if len(days) != 2 {
+				t.Fatalf("days = %+v, want 2", days)
+			}
+			a, b := days[0], days[1]
+			if !approx(a.PrecipMM, c.precip0) || !approx(a.MinC, 5) || !approx(a.MaxC, 20) || !approx(a.Pop, 80) || a.Cond != render.WeatherRain {
+				t.Errorf("day 0 = precip %v min %v max %v pop %v %s; want %v mm, 5..20 (the crossing period's 5..12 included), 80 %%, rain",
+					valueOr(a.PrecipMM, -1), valueOr(a.MinC, -1), valueOr(a.MaxC, -1), valueOr(a.Pop, -1), a.Cond, c.precip0)
+			}
+			if !approx(b.PrecipMM, c.precip1) || !approx(b.MinC, 8) || !approx(b.MaxC, 10) || !approx(b.Pop, 80) || b.Cond != render.WeatherRain {
+				t.Errorf("day 1 = precip %v min %v max %v pop %v %s; want %v mm, 8..10 (its own period and instants, not the evening's 5..12), 80 %%, rain",
+					valueOr(b.PrecipMM, -1), valueOr(b.MinC, -1), valueOr(b.MaxC, -1), valueOr(b.Pop, -1), b.Cond, c.precip1)
+			}
+		})
 	}
 }
 
@@ -202,15 +214,18 @@ func TestFetchAirQualityReadsUTCOffset(t *testing.T) {
 }
 
 type metStub struct {
-	mu           sync.Mutex
-	hits         atomic.Int32
-	ims          []string
-	lats         []string
-	lastModified string
-	expires      time.Time
-	notModified  bool
-	airFail      atomic.Bool
-	onRequest    func()
+	mu            sync.Mutex
+	hits          atomic.Int32
+	ims           []string
+	lats          []string
+	lastModified  string
+	expires       time.Time
+	notModified   bool
+	airFail       atomic.Bool
+	airHits       atomic.Int32
+	airRetryAfter string
+	fail          atomic.Bool
+	onRequest     func()
 }
 
 func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
@@ -219,6 +234,10 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 		st.hits.Add(1)
 		if st.onRequest != nil {
 			st.onRequest()
+		}
+		if st.fail.Load() {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
 		}
 		st.mu.Lock()
 		defer st.mu.Unlock()
@@ -234,7 +253,11 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 	}))
 	t.Cleanup(met.Close)
 	air := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		st.airHits.Add(1)
 		if st.airFail.Load() {
+			if st.airRetryAfter != "" {
+				w.Header().Set("Retry-After", st.airRetryAfter)
+			}
 			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
 		}
@@ -467,5 +490,173 @@ func TestWeatherStaysFreshUntilProviderExpiry(t *testing.T) {
 	obs.ValidUntil = now.Add(-5 * time.Minute)
 	if !newWeatherState(cfg, obs, true, airObservation{}, false, now).Fresh {
 		t.Fatal("observation the provider called valid 5 min ago is stale")
+	}
+}
+
+func TestMetNoPopsTheConditionChangeOnceForTheEntryNow(t *testing.T) {
+	cases := []struct {
+		name        string
+		expires     time.Duration
+		notModified bool
+		hits        int32
+	}{
+		{"skipped until Expires", 3 * time.Hour, false, 1},
+		{"answered 304", 25 * time.Minute, true, 3},
+		{"full 200 whose series starts an hour back", -time.Minute, false, 3},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: metT0.Add(c.expires), notModified: c.notModified}
+			app := newMetCacheApp(t, st, false)
+			pub := app.publisher.(*recordingPublisher)
+			app.updateConfig(func(cfg *Config) { cfg.Weather.PopupOnChange = boolPtr(true) })
+			for _, m := range []int{0, 61, 71} {
+				app.pollWeather(context.Background(), metT0.Add(time.Duration(m)*time.Minute))
+			}
+			if n := st.hits.Load(); n != c.hits {
+				t.Fatalf("setup: %d MET requests, want %d", n, c.hits)
+			}
+			pub.mu.Lock()
+			defer pub.mu.Unlock()
+			var texts []string
+			for _, p := range pub.notify {
+				if s, _ := p["text"].(string); s != "" {
+					texts = append(texts, s)
+				}
+			}
+			if want := []string{"SNOW 13°"}; !slices.Equal(texts, want) {
+				t.Errorf("popups %q over polls at 20:00, 21:01 and 21:11, want %q: the 21:00 lightsleet entry, once", texts, want)
+			}
+		})
+	}
+}
+
+func TestAirWaitsRefreshMinutesWhileWeatherRetries(t *testing.T) {
+	st := &metStub{}
+	st.fail.Store(true)
+	app := newMetCacheApp(t, st, true)
+	for _, m := range []int{0, 2, 6} {
+		app.pollWeather(context.Background(), metT0.Add(time.Duration(m)*time.Minute))
+	}
+	if w, a := st.hits.Load(), st.airHits.Load(); w != 3 || a != 1 {
+		t.Fatalf("after 3 weather retries in 6 min: weather %d, air %d requests; want 3 and 1 (air succeeded at 0)", w, a)
+	}
+	app.pollWeather(context.Background(), metT0.Add(14*time.Minute))
+	if a := st.airHits.Load(); a != 2 {
+		t.Errorf("air requests at 14 min = %d, want 2: refetched once refresh_minutes old", a)
+	}
+}
+
+func TestAirFetchesOnTheNextPollOnceTheTileIsEnabled(t *testing.T) {
+	st := &metStub{}
+	app := newMetCacheApp(t, st, false)
+	app.pollWeather(context.Background(), metT0)
+	if a := st.airHits.Load(); a != 0 {
+		t.Fatalf("air requests with the tile off = %d, want 0", a)
+	}
+	st.airFail.Store(true)
+	app.updateConfig(func(cfg *Config) { cfg.Weather.AirTile = boolPtr(true) })
+	at := airPollMinutes(app, st, 1, 8)
+	if want := []int{1, 3, 7}; !slices.Equal(at, want) {
+		t.Errorf("air fetched at minutes %v, want %v: on the first poll after enabling, then backing off while it fails", at, want)
+	}
+	if w := st.hits.Load(); w != 1 {
+		t.Errorf("weather requests = %d, want 1: enabling air doesn't make weather due", w)
+	}
+}
+
+func airPollMinutes(app *App, st *metStub, from, to int) []int {
+	var at []int
+	for m := from; m <= to; m++ {
+		n := st.airHits.Load()
+		app.pollWeather(context.Background(), metT0.Add(time.Duration(m)*time.Minute))
+		if st.airHits.Load() != n {
+			at = append(at, m)
+		}
+	}
+	return at
+}
+
+func TestAirBacksOffWhilePermanentlyFailing(t *testing.T) {
+	st := &metStub{}
+	st.airFail.Store(true)
+	app := newMetCacheApp(t, st, true)
+	at := airPollMinutes(app, st, 0, 59)
+	if want := []int{0, 2, 6, 14, 24, 34, 44, 54}; !slices.Equal(at, want) {
+		t.Fatalf("air fetched at minutes %v over an hour of failures, want %v: 2, 4, 8 min, then refresh_minutes", at, want)
+	}
+	st.airFail.Store(false)
+	app.pollWeather(context.Background(), metT0.Add(64*time.Minute))
+	st.airFail.Store(true)
+	if at := airPollMinutes(app, st, 65, 80); !slices.Equal(at, []int{74, 76, 80}) {
+		t.Errorf("air fetched at minutes %v after a success at 64, want [74 76 80]: the success resets the backoff", at)
+	}
+}
+
+func TestAirHonoursRetryAfterCappedAtRefreshMinutes(t *testing.T) {
+	cases := []struct {
+		name       string
+		retryAfter string
+		want       []int
+	}{
+		{"5 min, a floor under the backoff", "300", []int{0, 5, 10, 18, 28}},
+		{"an hour, capped at refresh_minutes", "3600", []int{0, 10, 20}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st := &metStub{airRetryAfter: c.retryAfter}
+			st.airFail.Store(true)
+			app := newMetCacheApp(t, st, true)
+			if at := airPollMinutes(app, st, 0, 29); !slices.Equal(at, c.want) {
+				t.Errorf("air fetched at minutes %v with Retry-After %s, want %v", at, c.retryAfter, c.want)
+			}
+		})
+	}
+}
+
+func TestAirLocationSwitchClearsTheFailureGate(t *testing.T) {
+	st := &metStub{}
+	st.airFail.Store(true)
+	app := newMetCacheApp(t, st, true)
+	if at := airPollMinutes(app, st, 0, 6); !slices.Equal(at, []int{0, 2, 6}) {
+		t.Fatalf("setup: air fetched at minutes %v, want [0 2 6]", at)
+	}
+	app.updateConfig(func(c *Config) { c.Weather.Latitude, c.Weather.Longitude = 40.7, -74 })
+	if at := airPollMinutes(app, st, 7, 10); !slices.Equal(at, []int{7, 9}) {
+		t.Errorf("air fetched at minutes %v after a location switch at 7, want [7 9]: the new location starts with no failures", at)
+	}
+}
+
+func TestAirRetriesEveryMinuteAtRefreshMinutesOne(t *testing.T) {
+	st := &metStub{}
+	st.airFail.Store(true)
+	app := newMetCacheApp(t, st, true)
+	app.updateConfig(func(c *Config) { c.Weather.RefreshMinutes = 1 })
+	if at := airPollMinutes(app, st, 0, 4); !slices.Equal(at, []int{0, 1, 2, 3, 4}) {
+		t.Errorf("air fetched at minutes %v with refresh_minutes 1, want every minute: a failure never waits longer than a success", at)
+	}
+}
+
+func TestMetDaysKeepAPeriodsExtremaWhenTheGapEndsBeforeItsMidpoint(t *testing.T) {
+	body := `[
+{"time":"2026-06-21T22:00:00Z","data":{"instant":{"details":{"air_temperature":10}},
+ "next_6_hours":{"summary":{"symbol_code":"cloudy"},"details":{"air_temperature_min":3,"air_temperature_max":25}}}},
+{"time":"2026-06-22T00:00:00Z","data":{"instant":{"details":{"air_temperature":11}},
+ "next_6_hours":{"summary":{"symbol_code":"cloudy"},"details":{"air_temperature_min":9,"air_temperature_max":12}}}}
+]`
+	var ts []metEntry
+	if err := json.Unmarshal([]byte(body), &ts); err != nil {
+		t.Fatal(err)
+	}
+	days := metDays(ts, 0)
+	if len(days) != 2 {
+		t.Fatalf("days = %+v, want 2", days)
+	}
+	if a := days[0]; !approx(a.MinC, 3) || !approx(a.MaxC, 25) {
+		t.Errorf("day 0 = min %v max %v, want 3..25: the 22:00 period's min/max on the only day its 2-h gap covers",
+			valueOr(a.MinC, -1), valueOr(a.MaxC, -1))
+	}
+	if b := days[1]; !approx(b.MinC, 9) || !approx(b.MaxC, 12) {
+		t.Errorf("day 1 = min %v max %v, want 9..12: its own period only", valueOr(b.MinC, -1), valueOr(b.MaxC, -1))
 	}
 }

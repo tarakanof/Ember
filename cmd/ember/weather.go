@@ -286,6 +286,8 @@ type weatherStore struct {
 	obs       weatherObservation
 	have      bool
 	lastFetch time.Time
+	failures  int
+	retryAt   time.Time
 
 	lastModified string
 	notBefore    time.Time
@@ -298,6 +300,9 @@ type weatherStore struct {
 
 	air         airObservation
 	haveAir     bool
+	airTriedAt  time.Time
+	airFailures int
+	airRetryAt  time.Time
 	prevAQI     float64
 	havePrevAQI bool
 }
@@ -318,11 +323,14 @@ func (s *weatherStore) switchSource(src weatherSource) {
 	}
 	if s.source.loc != src.loc {
 		s.air, s.haveAir, s.havePrevAQI = airObservation{}, false, false
+		s.airTriedAt, s.airFailures, s.airRetryAt = time.Time{}, 0, time.Time{}
 	}
 	s.source = src
 	s.obs = weatherObservation{}
 	s.have = false
 	s.lastFetch = time.Time{}
+	s.failures = 0
+	s.retryAt = time.Time{}
 	s.lastModified = ""
 	s.notBefore = time.Time{}
 	s.prevCondition = ""
@@ -472,27 +480,26 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		return
 	}
 	a.checkSunPopups(ctx, now, cfg)
-	a.weather.mu.RLock()
-	due := a.weather.lastFetch.IsZero() || now.Sub(a.weather.lastFetch) >= time.Duration(cfg.RefreshMinutes)*time.Minute
-	a.weather.mu.RUnlock()
-	if !due {
+	a.pollAir(ctx, now, cfg)
+	if !a.weather.due(cfg, now) {
 		return
 	}
-	a.pollAir(ctx, now, cfg)
 	hint, wait := a.weather.fetchHint(cfg, now)
 	if wait {
 		a.markWeatherPolled(now, src)
+		a.popKeptWeather(ctx, now, src, cfg)
 		return
 	}
 	res, err := a.weatherFetcher.fetch(ctx, cfg, hint)
 	if err != nil {
 		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "err", err)
-		a.markWeatherPolled(now, src)
+		a.markWeatherFailed(now, src, retryAfterOf(err))
 		return
 	}
 	if res.NotModified {
 		if a.confirmWeather(now, src, res) {
 			a.changes.notify(topicWeather)
+			a.popKeptWeather(ctx, now, src, cfg)
 		} else {
 			a.markWeatherPolled(now, src)
 		}
@@ -508,8 +515,31 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.weather.obs = obs
 	a.weather.have = true
 	a.weather.lastFetch = now
+	a.weather.failures = 0
+	a.weather.retryAt = time.Time{}
 	a.weather.lastModified = res.LastModified
 	a.weather.notBefore = res.Expires
+	a.weather.mu.Unlock()
+	a.changes.notify(topicWeather)
+	a.popWeather(ctx, now, src, cfg, obs.current(now))
+	a.nudgePomo()
+}
+
+func (a *App) popKeptWeather(ctx context.Context, now time.Time, src weatherSource, cfg WeatherConfig) {
+	a.weather.mu.RLock()
+	obs, have := a.weather.obs.current(now), a.weather.have && a.weather.source == src
+	a.weather.mu.RUnlock()
+	if have {
+		a.popWeather(ctx, now, src, cfg, obs)
+	}
+}
+
+func (a *App) popWeather(ctx context.Context, now time.Time, src weatherSource, cfg WeatherConfig, obs weatherObservation) {
+	a.weather.mu.Lock()
+	if a.cfg.Load().Weather.source() != src {
+		a.weather.mu.Unlock()
+		return
+	}
 	prevCond := a.weather.prevCondition
 	prevSevere := a.weather.prevSevere
 	lastPopup := a.weather.lastPopupAt
@@ -518,7 +548,6 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		a.weather.lastPopupAt = now
 	}
 	a.weather.mu.Unlock()
-	a.changes.notify(topicWeather)
 
 	popped := a.evaluateWeatherPopup(ctx, now, obs, prevCond, prevSevere, lastPopup, cfg)
 
@@ -529,7 +558,45 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		a.weather.lastPopupAt = now
 	}
 	a.weather.mu.Unlock()
-	a.nudgePomo()
+}
+
+const weatherRetryBase = 2 * time.Minute
+
+func (s *weatherStore) due(cfg WeatherConfig, now time.Time) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if now.Before(s.retryAt) {
+		return false
+	}
+	every := cfg.refreshEvery()
+	if !s.have {
+		every = weatherRetryDelay(s.failures, every)
+	}
+	return s.lastFetch.IsZero() || now.Sub(s.lastFetch) >= every
+}
+
+func (c WeatherConfig) refreshEvery() time.Duration {
+	return time.Duration(c.RefreshMinutes) * time.Minute
+}
+
+func weatherRetryDelay(failures int, refresh time.Duration) time.Duration {
+	d := weatherRetryBase
+	for i := 1; i < failures && d < refresh; i++ {
+		d *= 2
+	}
+	return min(d, refresh)
+}
+
+func (a *App) markWeatherFailed(now time.Time, src weatherSource, retryAfter time.Duration) {
+	a.weather.mu.Lock()
+	defer a.weather.mu.Unlock()
+	cfg := a.cfg.Load().Weather
+	if cfg.source() != src {
+		return
+	}
+	a.weather.lastFetch = now
+	a.weather.failures++
+	a.weather.retryAt = now.Add(min(retryAfter, cfg.refreshEvery()))
 }
 
 func (s *weatherStore) fetchHint(cfg WeatherConfig, now time.Time) (fetchHint, bool) {
@@ -557,6 +624,8 @@ func (a *App) confirmWeather(now time.Time, src weatherSource, res fetchResult) 
 		return false
 	}
 	a.weather.lastFetch = now
+	a.weather.failures = 0
+	a.weather.retryAt = time.Time{}
 	a.weather.obs.FetchedAt = now
 	if !res.Expires.IsZero() {
 		a.weather.notBefore = res.Expires
@@ -567,13 +636,43 @@ func (a *App) confirmWeather(now time.Time, src weatherSource, res fetchResult) 
 
 func (c WeatherConfig) airWanted() bool { return c.AirTileEnabled() || c.AirPopupThreshold > 0 }
 
+func (s *weatherStore) airDue(cfg WeatherConfig, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	age := now.Sub(s.air.FetchedAt)
+	if s.haveAir && age >= 0 && age < cfg.refreshEvery() {
+		return false
+	}
+	if now.Before(s.airRetryAt) {
+		return false
+	}
+	wait := weatherRetryDelay(s.airFailures, cfg.refreshEvery())
+	if tried := now.Sub(s.airTriedAt); !s.airTriedAt.IsZero() && tried >= 0 && tried < wait {
+		return false
+	}
+	s.airTriedAt = now
+	return true
+}
+
+func (a *App) markAirFailed(now time.Time, loc weatherLocation, retryAfter time.Duration) {
+	a.weather.mu.Lock()
+	defer a.weather.mu.Unlock()
+	cfg := a.cfg.Load().Weather
+	if cfg.location() != loc {
+		return
+	}
+	a.weather.airFailures++
+	a.weather.airRetryAt = now.Add(min(retryAfter, cfg.refreshEvery()))
+}
+
 func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
-	if !cfg.airWanted() {
+	if !cfg.airWanted() || !a.weather.airDue(cfg, now) {
 		return
 	}
 	obs, err := a.weatherFetcher.fetchAirQuality(ctx, cfg)
 	if err != nil {
 		a.logger.Warn("air-quality fetch failed", "err", err)
+		a.markAirFailed(now, cfg.location(), retryAfterOf(err))
 		return
 	}
 	obs.FetchedAt = now
@@ -585,6 +684,8 @@ func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
 	prev, havePrev := a.weather.prevAQI, a.weather.havePrevAQI
 	a.weather.air = obs
 	a.weather.haveAir = true
+	a.weather.airFailures = 0
+	a.weather.airRetryAt = time.Time{}
 	a.weather.prevAQI = obs.AQI
 	a.weather.havePrevAQI = true
 	a.weather.mu.Unlock()

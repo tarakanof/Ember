@@ -86,6 +86,7 @@ func (c sunDayCase) app(t *testing.T) (*App, *recordingPublisher) {
 		app.weather.obs.TZOffsetSeconds = 0
 	}
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	return app, pub
 }
 

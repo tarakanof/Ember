@@ -20,6 +20,7 @@ func TestReconcileWeatherTilePushesAndClears(t *testing.T) {
 	app.weather.mu.Lock()
 	app.weather.obs = weatherObservation{Condition: render.WeatherRain, TempC: 12, FetchedAt: now}
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.mu.Unlock()
 	c.reconcileTiles(now)
 	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-weather" {
@@ -64,6 +65,7 @@ func TestWeatherTileCarriesOverlay(t *testing.T) {
 			app.weather.obs = weatherObservation{Condition: render.WeatherStorm, TempC: 18,
 				Overlay: render.OverlayThunder, FetchedAt: now}
 			app.weather.have = true
+			app.weather.source = app.cfg.Load().Weather.source()
 			app.weather.mu.Unlock()
 
 			app.coord.reconcileTiles(now)
@@ -97,6 +99,7 @@ func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 		Hourly: []float64{18, 19, 20, 21, 22},
 	}
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.mu.Unlock()
 	c.reconcileTiles(now)
 	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-forecast" {
@@ -211,6 +214,7 @@ func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 	app.weather.mu.Lock()
 	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: now, Hourly: []float64{1, 2, 3}}
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.mu.Unlock()
 	app.coord.reconcileTiles(now)
 	if got := len(pub.CustomNamesSnapshot()); got != 0 {
@@ -227,6 +231,7 @@ func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 	app2.weather.mu.Lock()
 	app2.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: now}
 	app2.weather.have = true
+	app2.weather.source = app2.cfg.Load().Weather.source()
 	app2.weather.mu.Unlock()
 	app2.coord.reconcileTiles(now)
 	if got := len(pub2.CustomNamesSnapshot()); got != 0 {
@@ -271,6 +276,7 @@ func TestReconcileWeatherTileDisabledOrNoRotate(t *testing.T) {
 	app.weather.mu.Lock()
 	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: time.Now()}
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.mu.Unlock()
 	app.coord.reconcileTiles(time.Now())
 	if got := len(pub.CustomNamesSnapshot()); got != 0 {
@@ -290,6 +296,7 @@ func TestReconcileTilesNativeIcons(t *testing.T) {
 	app.weather.obs = weatherObservation{Condition: render.WeatherRain, TempC: 12,
 		Hourly: []float64{10, 11, 12}, FetchedAt: now}
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.mu.Unlock()
 
 	app.coord.reconcileTiles(now)

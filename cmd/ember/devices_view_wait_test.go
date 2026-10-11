@@ -322,6 +322,7 @@ func TestKnobViewWaitRecheckCatchesSilentChanges(t *testing.T) {
 		f.app.weather.mu.Lock()
 		f.app.weather.obs = weatherObservation{Condition: "rain", FetchedAt: time.Now()}
 		f.app.weather.have = true
+		f.app.weather.source = f.app.cfg.Load().Weather.source()
 		f.app.weather.mu.Unlock()
 	})
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"cond":"rain"`) {
