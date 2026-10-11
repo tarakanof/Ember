@@ -1280,9 +1280,16 @@ mismatch; that poll fetches only when weather is enabled. A fetch that
 finishes after the source changed is dropped (it doesn't set `lastFetch`
 either), so a slow old-source reply can't land. While the store has no
 observation for its source (after a switch or at start), a failed fetch is
-retried after 2 min (`weatherRetryAfter`, capped at `refresh_minutes`) instead
-of a full `refresh_minutes`; with an observation on screen a failure keeps the
-normal cadence.
+retried after 2 min (`weatherRetryAfter`) instead of a full `refresh_minutes`,
+and each further consecutive failure doubles the delay (2, 4, 8 min …) up to
+`refresh_minutes` (`weatherRetryDelay`), so a permanent error (a MET 403, an
+outage) settles at the normal cadence rather than ~720 calls a day. A success
+or a source switch resets the count. A provider's `Retry-After` (seconds or
+HTTP date, carried on `weatherHTTPError`) is a floor on the next attempt
+whether or not an observation is shown. With an observation on screen a
+failure keeps the normal cadence. The air-quality call rides the weather poll
+but is skipped while the stored reading is younger than `refresh_minutes`
+(`airCurrent`), so retries don't refetch a reading that just succeeded.
 
 **Face data** (#350, `weather_providers.go`). Each fetch also fills the
 observation's knob-face fields, nothing persisted: `Now` (cloud %, UV,
@@ -1319,7 +1326,8 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   split by the overlap (amount × overlap / period length, so a 2-h gap isn't
   counted 6 h), and its probability and its symbol go to each such day. Its
   6-h min/max go only to the day that holds most of the period (the earlier
-  one on a 3-h + 3-h split), so at UTC+2 the 20:00–02:00 evening max isn't
+  one on a 3-h + 3-h split; the last day the gap reaches when the next entry
+  comes before the period's midpoint), so at UTC+2 the 20:00–02:00 evening max isn't
   also the next day's. The condition is the worst symbol of the day's
   periods (storm > snow > rain > fog > clouds > clear) and `Code` that
   symbol: `next_1_hours` in the hourly range, where a 6-h window would reach
@@ -1360,11 +1368,17 @@ here. Its readers: the clock tiles (`live` = enabled and fresh; views and the
 moon read the state), the sun popups (times and once-a-day key), the knob view
 (`knobWeather`), the dashboard's `/v1/weather/state` and the weather preview
 (which reads the store under the saved source, so a draft location keeps the
-live observation, and swaps in sample observations when the store has none).
+live observation, and swaps in sample observations when the store has none;
+with a draft location it therefore shows the saved city's conditions and
+forecast with the draft city's sun times, night and local day, computed with
+the saved city's UTC offset). Air is served only for the store's location, so
+between a location save and the poller's retag no view shows the old
+location's air.
 The condition, interval, severe and AQI popups are not readers: they fire on a
-due poll and take the observation directly, a full fetch's result or, while
-MET is skipped until `Expires` or answers 304, the kept series' entry for now
-(`weatherObservation.current`), so they trail the hourly-advancing display by
+due poll and take the series' entry for now (`weatherObservation.current`),
+whether the poll brought a full fetch, was skipped until MET's `Expires` or
+got a 304; a 200 whose series starts before now can't rewind the condition
+and replay a popup or chime, so they trail the hourly-advancing display by
 at most `refresh_minutes`. Presentation stays with each reader (`roundedSun`
 gives the 5-min rounding the dashboard and knob share). The state shares the
 store's `Hourly`/`HourlyAQI` slices: readers treat them as read-only, and the
