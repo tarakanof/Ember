@@ -164,7 +164,7 @@ func TestMetDaysSplitAPeriodAcrossLocalMidnight(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			days := metDays(ts, c.off)
+			days := metDays(ts, dayClock{off: c.off})
 			if len(days) != 2 {
 				t.Fatalf("days = %+v, want 2", days)
 			}
@@ -750,7 +750,7 @@ func TestMetDaysKeepAPeriodsExtremaWhenTheGapEndsBeforeItsMidpoint(t *testing.T)
 	if err := json.Unmarshal([]byte(body), &ts); err != nil {
 		t.Fatal(err)
 	}
-	days := metDays(ts, 0)
+	days := metDays(ts, dayClock{})
 	if len(days) != 2 {
 		t.Fatalf("days = %+v, want 2", days)
 	}

@@ -201,6 +201,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `v` outside range | server sends `v` = min(1, `caps.view[1]`); the knob keeps its last view and shows the update state | `TestCapsKnobViewMajorIsTheLowerOfServerAndFirmware`; cinder host test with a `v:99` fixture |
 | new | new, `rotations` listed or not | `effective_caps.rotations` sorted, `[0]` when missing; config PUT 400 for a rotation outside it, a stored one kept; a legacy or downgraded knob is unchecked | `TestCapsRotationsPresentAndMissing`, `TestCapsKnobConfigPutRejectsRotationOutsideCaps`, `TestCapsKnobDowngradedToLegacyFirmwareKeepsAndFreesRotation`, `TestLegacyKnobConfigPutIsNotCheckedForRotation`, `TestKnobRotationRoundTripsAndReachesTheKnob` |
 | new | new, `wx_faces` or not | detail only with the token and the `weather` block; a caps knob without it gets the legacy block; dropped first to fit `view_bytes`; the worst case stays under 8 KB | `TestKnobViewWeatherFacesGolden` (`view_faces*.json`, `devices_view_weather_test.go`), `TestCapsKnobWithoutWxFacesGetsNoWeatherDetail`, `TestCapsKnobWithWxFacesButWeatherPageOffGetsNoWeather`, `TestCapsKnobViewDropsWeatherDetailFirst`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
+| new | new, `wx_faces` | every `days` entry carries `end` right after `t` (#434): the day's next true local midnight in the location's zone (23 h or 25 h after `t` on a DST day), so a view held across a DST change ends each row at the real midnight; `t` is the day's true local midnight for every provider (#439); without a known zone `end` = `t` + 24 h; old firmware skips the key, and cinder derives row ends from the next `t` (`knob_view.c`) and weekdays with a +12 h rounding (`wx_days.c`) until it reads `end` | `TestStaleKnobViewKeepsTrueDayBoundariesAcrossDST`, `TestOpenMeteoDaysAreTrueLocalMidnightsAcrossDST`, `TestMetNoDaysAreTrueLocalMidnightsAcrossDST`, `TestTomorrowDaysAreTrueLocalMidnightsAcrossDST`, `TestWeatherAPIDaysAreTrueLocalMidnightsAcrossDST`, `TestOpenMeteoDaysWithoutAZoneEndADayLater`, `TestKnobViewWeatherFacesGolden`, `TestKnobViewWorstCaseFitsHalfTheBuffer`; cinder: the follow-up that reads `end` |
 | new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
 | new | new, `np_cover` or not | `accent` and `cover_version` only with the token, only when there is a picture, and the only change to `nowplaying`; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
@@ -315,9 +316,7 @@ with short WMO codes the block stays under the MET worst case
 `weather.provider` can be `"weatherapi"` (#437). As with Tomorrow.io, its
 condition codes reach `code` and `days[].code` as WMO, so the knob needs no
 change. It has no minutely data: `rain` spells start and end on the hour.
-The free plan's 3 forecast days leave `days` with 2 entries. Each day's
-`t` is its midnight under the block's `utc_offset`, as for MET and
-Tomorrow.io, so labels stay one per day across a DST change. A day's
+The free plan's 3 forecast days leave `days` with 2 entries. A day's
 `cond`/`code` weighs each code's severity by its hours from now on. The
 provider string (10 B) fits cinder's 16-byte field; goldens unchanged.
 
@@ -340,9 +339,9 @@ byte-identical to before (`view_full.json`, `view_caps_limited.json`).
   "today": {"min_c": 9, "max_c": 15, "uv_max": 4, "gust_max_kmh": 41, "pop": 83},
   "rain": {"until": 1782049500, "spells": [[1782042300, 1782049500, 2, 0], [1782060300, 1782063900, 1, 1]]},
   "days": [
-    {"t": 1782082800, "cond": "clouds", "code": "3", "min_c": 7, "max_c": 16, "pop": 32, "precip_mm10": 0},
-    {"t": 1782169200, "cond": "rain", "code": "61", "min_c": 11, "max_c": 17, "pop": 19, "precip_mm10": 8},
-    {"t": 1782255600, "cond": "snow", "code": "71", "min_c": -4, "max_c": 3, "pop": 40, "precip_mm10": 13}
+    {"t": 1782082800, "end": 1782169200, "cond": "clouds", "code": "3", "min_c": 7, "max_c": 16, "pop": 32, "precip_mm10": 0},
+    {"t": 1782169200, "end": 1782255600, "cond": "rain", "code": "61", "min_c": 11, "max_c": 17, "pop": 19, "precip_mm10": 8},
+    {"t": 1782255600, "end": 1782342000, "cond": "snow", "code": "71", "min_c": -4, "max_c": 3, "pop": 40, "precip_mm10": 13}
   ],
   "twilight": {"dawn": 1782010500, "blue_end": 1782011700, "golden_end": 1782016500,
                "golden_start": 1782069900, "blue_start": 1782075000, "dusk": 1782076200},
@@ -397,7 +396,19 @@ Keys:
   now + 12 h or later is not listed. `"spells": []`
   means dry for the 12 h (as far as the provider's steps reach).
 - **`days`**: the next 3 local days after today, fewer when the
-  provider's range ends. `t` is local midnight. `cond`/`code` use the
+  provider's range ends. `t` is the day's true local midnight in the
+  location's time zone (its first instant where DST starts at midnight,
+  e.g. 01:00 in Santiago on 2026-09-06), for every provider, Open-Meteo
+  included even though it sends midnights under one offset; `end` is the
+  next one, so a DST day is 23 h or 25 h long, and the last day's end is known without
+  a fourth entry (#434). The zone comes from the provider (Open-Meteo
+  `timezone`, WeatherAPI.com `tz_id`) or, for MET Norway and Tomorrow.io,
+  from the air-quality reading while it is on and fresh; with no zone
+  known, days use `utc_offset` and `end` = `t` + 24 h. Labels need no
+  zone either way: across a DST change `t` is within an hour of
+  midnight under `utc_offset`, and cinder rounds by +12 h before taking
+  the weekday (#439's premise, a wrong weekday, never happened on the
+  knob). `cond`/`code` use the
   current mapping: Open-Meteo's daily `weather_code`, MET's worst symbol
   of the periods overlapping the day (storm > snow > rain > fog > clouds
   > clear; `next_1_hours` in its hourly range, `next_6_hours` beyond). `pop`
@@ -433,12 +444,12 @@ wind, frost). No raw hourly arrays: no face draws one, and each value
 costs the knob's cJSON an allocation. A future series would ride a new
 token.
 
-**Size.** The example adds 769 B (compact; the whole `view_faces.json`
-view is 1,096 B). The worst case (4 spells, 40-char MET codes in `days`,
+**Size.** The example adds 820 B (compact; the whole `view_faces.json`
+view is 1,147 B; `end` costs 17 B a day). The worst case (4 spells, 40-char MET codes in `days`,
 `until`, every twilight crossing, the moon's `rise`, `set` and `up`,
 negative temperatures and offset) is ~1.2 KB of `weather`, and the worst
 whole view with every block (three 200-character fully escaped
-now-playing strings, 64-character hosts) is 5.6 KB, a third of
+now-playing strings, 64-character hosts) is 5.7 KB, a third of
 `view_bytes` 16383 (`TestKnobViewWorstCaseFitsHalfTheBuffer` keeps it
 under 8 KB). Bytes are not the constraint; the knob's cJSON allocations
 are: the block goes from ~24 to ~150 nodes, which is why cinder#33

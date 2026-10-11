@@ -538,36 +538,6 @@ func waDSTBody(t *testing.T, dates []string, current time.Time) []byte {
 		current.Unix(), strings.Join(days, ",")))
 }
 
-func TestWeatherAPIDayStartsUseTheObservationsOffsetAcrossDST(t *testing.T) {
-	cases := []struct {
-		name    string
-		dates   []string
-		current time.Time
-		offset  int
-	}{
-		{"spring forward 2027-03-28", []string{"2027-03-27", "2027-03-28", "2027-03-29"}, time.Date(2027, 3, 27, 11, 0, 0, 0, time.UTC), 3600},
-		{"fall back 2026-10-25", []string{"2026-10-24", "2026-10-25", "2026-10-26"}, time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC), 7200},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			st := newWAStub(t, waDSTBody(t, c.dates, c.current))
-			obs, err := newWAFetcher(st.srv.URL).fetchWeatherAPI(t.Context(), waBelgrade, fetchHint{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if obs.TZOffsetSeconds != c.offset || len(obs.Days) != 3 {
-				t.Fatalf("offset %d, %d days; want %d and 3", obs.TZOffsetSeconds, len(obs.Days), c.offset)
-			}
-			for i, d := range obs.Days {
-				label := d.Start.Add(time.Duration(c.offset) * time.Second).UTC()
-				if got := label.Format("2006-01-02 15:04"); got != c.dates[i]+" 00:00" {
-					t.Errorf("day %d labelled %s with the knob's single offset, want %s 00:00", i, got, c.dates[i])
-				}
-			}
-		})
-	}
-}
-
 func TestKeyRejectionIsNotPersistedAcrossARestart(t *testing.T) {
 	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden} {
 		t.Run(http.StatusText(code), func(t *testing.T) {

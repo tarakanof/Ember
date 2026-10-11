@@ -1361,6 +1361,22 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
 `Precip` (the next 12 h of precipitation steps, mm/h plus a snow flag, every
 `PrecipStep`), `Days` (today plus the next 3 local days: condition, min/max
 °C, precipitation mm, probability, UV max, gust max; nil fields unknown).
+A day is `[Start, End)` between two true local midnights (`dayClock`,
+`weather_days.go`; #434, #440): the zone is the provider's (Open-Meteo
+`timezone`, WeatherAPI.com `tz_id`) or, for MET Norway and Tomorrow.io,
+the air reading's `timezone` passed in the fetch hint, loaded from the
+embedded tzdata (`loadZone` accepts only plain zone paths, never
+`Local`). With no zone, days fall back to midnights under the single
+offset and `End` = `Start` + 24 h. A DST day is 23 h or 25 h, MET's
+periods are split at the true midnight (the splitter always moves
+forward), and `faceDays` picks today by `[Start, End)`, so a cached
+observation selects the right day across a change. Where DST starts at
+midnight (America/Santiago 2026-09-06, America/Havana 2027-03-14) the
+date has no 00:00: `midnight` takes the transition, the date's first
+instant (01:00), so the day before ends there and the gap day lasts 23 h;
+`TestDayClockOverEveryZoneForTwoYears` checks every embedded zone for two
+years (no empty day, days abut, MET's splitter returns). The knob gets
+`t` = `Start` and `end` = `End`.
 
 - **Open-Meteo**, one call of 17 variables: `current=` the seven current
   values, `minutely_15=precipitation,snowfall&forecast_minutely_15=48` (mm
@@ -1369,7 +1385,12 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   15 min, so the step's `At` is the stamp − 15 min, MET's convention, where
   `next_1_hours` at `t` covers `[t, t+1h)`), `hourly=temperature_2m`, and
   `daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,uv_index_max,wind_gusts_10m_max&forecast_days=4`
-  (day `time` is local midnight with `timezone=auto`). About 3 KB.
+  (day `time` is the date's midnight under the single request-time
+  `utc_offset_seconds`, not its true midnight: in Belgrade 10-26 arrives
+  as 10-25 23:00+01. Ember takes the date from `time` +
+  `utc_offset_seconds` and builds `[Start, End)` from that date in the
+  reply's `timezone`).
+  About 3 KB.
 - **MET Norway** reads `locationforecast/2.0/complete` (not `compact`): UV
   (`ultraviolet_index_clear_sky`, short range, clear sky), gusts and
   probabilities (Nordic only) and the 6-h min/max exist only there. ~90 KB
@@ -1422,8 +1443,8 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   `Expires` never marks the data stale early.
 - **Local day for MET.** MET sends no UTC offset. The air call (fetched
   just before) carries `utc_offset_seconds`, and the MET observation takes
-  it as its `TZOffsetSeconds`/`TZKnown`, so day buckets, sun times and
-  labels follow DST, but only while air is on (tile or popup threshold)
+  it as its `TZOffsetSeconds`/`TZKnown` (and its `timezone` for the day
+  boundaries), so day buckets, sun times and labels follow DST, but only while air is on (tile or popup threshold)
   and its reading is fresh (younger than `weatherStaleAfter`). A location
   change clears the air reading with the observation, and a late air reply
   for the old location is dropped, so the offset is always this
@@ -1448,8 +1469,8 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   over `[t, t+1h)` from where the minutely ones end; a step with no
   intensity at all is left out. `Days` come from the daily timeline:
   Tomorrow.io's day runs 06:00–06:00 local (`time` is 06:00 local in UTC),
-  so each entry goes to the local date of its `time` (offset from the air
-  call like MET, else the longitude fallback), a day that ended before the
+  so each entry goes to the local date of its `time` (zone and offset from
+  the air call like MET, else the longitude fallback), a day that ended before the
   current step is skipped (the first entry is often yesterday's period).
   Min/max, `precipitationProbabilityMax`, `uvIndexMax`, `windGustMax`;
   precipitation is `rainAccumulationSum` plus the snow, sleet and ice
@@ -1490,11 +1511,8 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   the hour = mm/h) over `[t, t+1h)` (the docs don't say which hour the
   amount covers; this is MET's convention), split into four 15-min steps
   from the hour holding now, at most 48 (12 h); snow when `snow_cm` > 0 or
-  the code is a snow code. `Days` are the dates of `forecastday`, each
-  starting at its midnight under the observation's single offset, the
-  `utc_offset` the knob gets, as MET's and Tomorrow.io's days do; so a
-  forecast across a DST change (Belgrade 2027-03-28, 2026-10-25) keeps one
-  day per label rather than its true local midnight. `mintemp_c`/`maxtemp_c`,
+  the code is a snow code. `Days` are the dates of `forecastday`, between
+  true local midnights in the `tz_id` zone. `mintemp_c`/`maxtemp_c`,
   `totalprecip_mm`, pop = max(`daily_chance_of_rain`,
   `daily_chance_of_snow`), UV max = max of `day.uv` and the hours' `uv`,
   gust max = max of the hours' `gust_kph` (there is no daily gust). The

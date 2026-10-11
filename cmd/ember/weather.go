@@ -251,6 +251,7 @@ type precipStep struct {
 
 type weatherDay struct {
 	Start      time.Time
+	End        time.Time
 	Cond       string
 	Code       string
 	MinC       *float64
@@ -276,6 +277,7 @@ type airObservation struct {
 	FetchedAt       time.Time
 	TZOffsetSeconds int
 	TZKnown         bool
+	TZName          string
 }
 
 type weatherLocation struct{ lat, lon float64 }
@@ -663,7 +665,7 @@ func (s *weatherStore) fetchHint(cfg WeatherConfig, now time.Time) (fetchHint, b
 	defer s.mu.RUnlock()
 	h := fetchHint{LastModified: s.lastModified}
 	if cfg.airWanted() && s.haveAir && s.air.TZKnown && now.Sub(s.air.FetchedAt) < weatherStaleAfter {
-		h.TZOffsetSeconds, h.TZKnown = s.air.TZOffsetSeconds, true
+		h.TZOffsetSeconds, h.TZKnown, h.TZName = s.air.TZOffsetSeconds, true, s.air.TZName
 	}
 	return h, s.have && now.Before(s.notBefore)
 }

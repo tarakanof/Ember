@@ -52,6 +52,7 @@
     "days": [
       {
         "t": 1782086400,
+        "end": 1782172800,
         "cond": "storm",
         "code": "heavyrainandthunder",
         "min_c": 8,
@@ -60,6 +61,7 @@
       },
       {
         "t": 1782172800,
+        "end": 1782259200,
         "cond": "snow",
         "code": "snow",
         "min_c": 8,
@@ -68,6 +70,7 @@
       },
       {
         "t": 1782259200,
+        "end": 1782345600,
         "cond": "storm",
         "code": "heavyrainandthunder",
         "min_c": 8,

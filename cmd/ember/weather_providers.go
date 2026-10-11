@@ -63,6 +63,7 @@ type fetchHint struct {
 	LastModified    string
 	TZOffsetSeconds int
 	TZKnown         bool
+	TZName          string
 }
 
 type fetchResult struct {
@@ -220,7 +221,8 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 		url += "&models=" + m
 	}
 	var body struct {
-		UTCOffsetSeconds int `json:"utc_offset_seconds"`
+		Timezone         string `json:"timezone"`
+		UTCOffsetSeconds int    `json:"utc_offset_seconds"`
 		Current          struct {
 			Time        int64    `json:"time"`
 			Temperature float64  `json:"temperature_2m"`
@@ -290,11 +292,13 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 		}
 	}
 	d := body.Daily
+	clock := dayClock{loc: loadZone(body.Timezone), off: time.Duration(body.UTCOffsetSeconds) * time.Second}
 	for i, t := range d.Time {
 		if i == forecastDays {
 			break
 		}
-		day := weatherDay{Start: time.Unix(t, 0).UTC(), MinC: at(d.MinC, i), MaxC: at(d.MaxC, i),
+		start := clock.midnight(time.Unix(t, 0).UTC().Add(clock.off).Date())
+		day := weatherDay{Start: start, End: clock.after(start), MinC: at(d.MinC, i), MaxC: at(d.MaxC, i),
 			PrecipMM: at(d.PrecipMM, i), Pop: at(d.Pop, i), UVMax: at(d.UVMax, i), GustMaxKmh: at(d.GustMax, i)}
 		if code := at(d.WeatherCode, i); code != nil {
 			day.Cond, _ = wmoCondition(*code)
@@ -376,7 +380,7 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig, hin
 		TZOffsetSeconds: hint.TZOffsetSeconds, TZKnown: hint.TZKnown,
 		PrecipStep: time.Hour,
 		Precip:     metPrecip(ts),
-		Days:       metDays(ts, off),
+		Days:       metDays(ts, dayClock{loc: loadZone(hint.TZName), off: off}),
 		Steps:      steps,
 	}.current(first.Time)
 	return res, nil
@@ -437,12 +441,9 @@ func minOpt(cur, v *float64) *float64 {
 	return new(*v)
 }
 
-func metDays(ts []metEntry, off time.Duration) []weatherDay {
+func metDays(ts []metEntry, clock dayClock) []weatherDay {
 	var days []weatherDay
-	dayStart := func(t time.Time) time.Time {
-		y, m, d := t.UTC().Add(off).Date()
-		return time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Add(-off)
-	}
+	dayStart := clock.startOf
 	dayIndex := func(t time.Time) int {
 		start := dayStart(t)
 		for i := range days {
@@ -453,7 +454,7 @@ func metDays(ts []metEntry, off time.Duration) []weatherDay {
 		if len(days) == forecastDays || (len(days) > 0 && start.Before(days[len(days)-1].Start)) {
 			return -1
 		}
-		days = append(days, weatherDay{Start: start})
+		days = append(days, weatherDay{Start: start, End: clock.after(start)})
 		return len(days) - 1
 	}
 	for i, e := range ts {
@@ -483,9 +484,12 @@ func metDays(ts []metEntry, off time.Duration) []weatherDay {
 				break
 			}
 			day := &days[di]
-			to := day.Start.Add(24 * time.Hour)
+			to := day.End
 			if end.Before(to) {
 				to = end
+			}
+			if !to.After(from) {
+				break
 			}
 			metPeriodInto(day, p, period == 6*time.Hour && day.Start.Equal(extremaDay), to.Sub(from).Hours()/period.Hours())
 			from = to
@@ -522,7 +526,8 @@ func (wf *weatherFetcher) fetchAirQuality(ctx context.Context, cfg WeatherConfig
 	url := fmt.Sprintf("%s/v1/air-quality?latitude=%.4f&longitude=%.4f&current=european_aqi,pm2_5,pm10&hourly=european_aqi&forecast_hours=%d&timezone=auto&timeformat=unixtime",
 		strings.TrimRight(wf.airQualityBase, "/"), cfg.Latitude, cfg.Longitude, airFetchHours)
 	var body struct {
-		UTCOffsetSeconds *int `json:"utc_offset_seconds"`
+		Timezone         string `json:"timezone"`
+		UTCOffsetSeconds *int   `json:"utc_offset_seconds"`
 		Current          struct {
 			AQI  float64 `json:"european_aqi"`
 			PM25 float64 `json:"pm2_5"`
@@ -548,5 +553,6 @@ func (wf *weatherFetcher) fetchAirQuality(ctx context.Context, cfg WeatherConfig
 	if body.UTCOffsetSeconds != nil {
 		obs.TZOffsetSeconds, obs.TZKnown = *body.UTCOffsetSeconds, true
 	}
+	obs.TZName = body.Timezone
 	return obs, nil
 }
