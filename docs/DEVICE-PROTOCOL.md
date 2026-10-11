@@ -136,8 +136,9 @@ dropped caps, `caps_error`; absent for the clock and on servers before
   → `nowplaying`); a left-out block is absent, while a kept `pomo` or
   `weather` is still `null` when its feature is off. A body over
   `limits.view_bytes` drops the weather detail ("Weather detail"), then
-  `nowplaying`, then `weather`, then `pomo`; `mood` stays. If it is still over, the server serves it and logs once per
-  device (`knob view over its caps view_bytes`) until it fits again.
+  `nowplaying`, then `weather`, then `pomo`; `mood` stays. If it is still
+  over, the server serves it and logs once per device (`knob view over
+  its caps view_bytes`) until it fits again.
 - **Config PUT** (owner): 400 when it turns on a page that is not in
   `caps.pages` (a page that was already on stays valid, and ids that are
   off, unknown ones included, are kept as before for the NVS round trip),
@@ -288,7 +289,7 @@ byte-identical to before (`view_full.json`, `view_caps_limited.json`).
   "utc_offset": 3600,
   "now": {"cloud": 94, "uv": 3, "wind_kmh": 21, "gust_kmh": 38, "wind_dir": 225, "rain": 1},
   "today": {"min_c": 9, "max_c": 15, "uv_max": 4, "gust_max_kmh": 41, "pop": 83},
-  "rain": {"until": 1782050400, "spells": [[1782043200, 1782050400, 2, 0], [1782061200, 1782064800, 1, 1]]},
+  "rain": {"until": 1782049500, "spells": [[1782042300, 1782049500, 2, 0], [1782060300, 1782063900, 1, 1]]},
   "days": [
     {"t": 1782082800, "cond": "clouds", "code": "3", "min_c": 7, "max_c": 16, "pop": 32, "precip_mm10": 0},
     {"t": 1782169200, "cond": "rain", "code": "61", "min_c": 11, "max_c": 17, "pop": 19, "precip_mm10": 8},
@@ -313,8 +314,9 @@ Keys:
 
 - **`utc_offset`**: the location's offset in seconds, for HH:MM labels and
   weekday names (the knob has no time zone). Open-Meteo's
-  `utc_offset_seconds`; with MET Norway the air-quality call's when air is
-  on; otherwise `lon/15` whole hours (Ember's fallback, wrong across DST).
+  `utc_offset_seconds`; with MET Norway the air-quality call's while air
+  is on and its reading fresh; otherwise `lon/15` whole hours (Ember's
+  fallback, wrong across DST).
 - **`now`**: the provider's current values. `cloud` 0-100; `uv`
   (Open-Meteo cloud-adjusted, MET clear-sky); `wind_kmh`, `gust_kmh`
   (MET: Nordic only); `wind_dir` 0-359, where the wind comes from;
@@ -323,11 +325,11 @@ Keys:
   < 0.1, < 2.5, < 7.6, else heavy. `rain` is left out when no step covers
   now.
 - **`today`**: the local day containing now (left out, with `days`, when
-  the observation has no such day, e.g. days old). `min_c`/`max_c` widened to include `temp_c`,
-  so a gauge marker always sits on the ring (MET only knows the rest of
-  today). `uv_max`, `gust_max_kmh`, `pop` when the provider has them
-  (Open-Meteo; MET `pop` in the Nordic area only, `gust_max_kmh` too, and
-  `uv_max` only in its short range).
+  the observation has no such day, e.g. days old). `min_c`/`max_c`
+  widened to include `temp_c`, so a gauge marker always sits on the ring
+  (MET only knows the rest of today). `uv_max`, `gust_max_kmh`, `pop`
+  when the provider has them (Open-Meteo; MET `pop` in the Nordic area
+  only, `gust_max_kmh` too, and `uv_max` only in its short range).
 - **`rain`**: present when a precipitation step covers now; left out
   when none does (the provider sent no steps, or the last fetch is old
   enough that every step is past), so the knob never reads missing data
@@ -348,8 +350,10 @@ Keys:
 - **`days`**: the next 3 local days after today, fewer when the
   provider's range ends. `t` is local midnight. `cond`/`code` use the
   current mapping: Open-Meteo's daily `weather_code`, MET's worst symbol
-  of the day (storm > snow > rain > fog > clouds > clear). `pop`
-  (Open-Meteo, MET Nordic); `precip_mm10` the day's sum in tenths of mm.
+  of the periods overlapping the day (storm > snow > rain > fog > clouds
+  > clear; `next_1_hours` in its hourly range, `next_6_hours` beyond). `pop`
+  (Open-Meteo, MET Nordic); `precip_mm10` the day's sum in tenths of mm
+  (a MET period crossing midnight is split by its overlap).
 - **`twilight`**: the local day's crossings, rounded to 5 min like
   `sunrise`/`sunset`: `dawn` (−6° rising), `blue_end` (−4°), `golden_end`
   (+6°), `golden_start` (+6° setting), `blue_start` (−4°), `dusk` (−6°).
@@ -377,16 +381,16 @@ wind, frost). No raw hourly arrays: no face draws one, and each value
 costs the knob's cJSON an allocation. A future series would ride a new
 token.
 
-**Size.** The example adds 759 B (compact; the whole `view_faces.json` view is 1,086 B). The worst case (4 spells, 40-char MET
-codes in `days`, `until`, every twilight crossing, the moon's `rise`,
-`set` and `up`, negative temperatures and offset) is ~1.2 KB of
-`weather`, and the worst whole
-view with every block (three 200-character fully escaped now-playing
-strings, 64-character hosts) is 5.5 KB, a third of `view_bytes` 16383
-(`TestKnobViewWorstCaseFitsHalfTheBuffer` keeps it under 8 KB). Bytes are
-not the constraint; the knob's cJSON allocations are: the block goes from
-~24 to ~150 nodes, which is why cinder#33 parses the view on PSRAM
-first.
+**Size.** The example adds 769 B (compact; the whole `view_faces.json`
+view is 1,096 B). The worst case (4 spells, 40-char MET codes in `days`,
+`until`, every twilight crossing, the moon's `rise`, `set` and `up`,
+negative temperatures and offset) is ~1.2 KB of `weather`, and the worst
+whole view with every block (three 200-character fully escaped
+now-playing strings, 64-character hosts) is 5.6 KB, a third of
+`view_bytes` 16383 (`TestKnobViewWorstCaseFitsHalfTheBuffer` keeps it
+under 8 KB). Bytes are not the constraint; the knob's cJSON allocations
+are: the block goes from ~24 to ~150 nodes, which is why cinder#33
+parses the view on PSRAM first.
 
 **Cadence and ETag.** The detail changes on a fetch and at a few
 boundaries (a spell ends, the 15-min rain step changes, the moon rises or

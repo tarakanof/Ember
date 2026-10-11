@@ -3818,8 +3818,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
   are left out unless the page is in `caps.pages` and on in the knob's
   `pages`; a kept `pomo` or `weather` is still `null` when off. A body over
   `caps.limits.view_bytes` (floor 4096) drops the weather detail, then
-  `nowplaying`, then `weather`, then `pomo` until it fits, and logs once per device if it still doesn't. A knob without `caps` gets the body above unchanged, bytes
-  and ETag (`knobView` skips the filter for it).
+  `nowplaying`, then `weather`, then `pomo` until it fits, and logs once
+  per device if it still doesn't. A knob without `caps` gets the body
+  above unchanged, bytes and ETag (`knobView` skips the filter for it).
   **Weather detail (#350):** a knob whose caps list `wx_faces` gets
   `utc_offset`, `now`, `today`, `rain`, `days`, `twilight`, `moon` and
   `aqi` appended to its `weather` block (`devices_view_weather.go`, an
