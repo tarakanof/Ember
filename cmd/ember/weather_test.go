@@ -638,3 +638,41 @@ func putWeather(a *App, c WeatherConfig) error {
 	_, err = a.settings.weather.put(b)
 	return err
 }
+
+func TestPollAirDropsAReplyForTheOldLocation(t *testing.T) {
+	pub := &recordingPublisher{}
+	var app *App
+	weatherSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"current":{"temperature_2m":20,"weather_code":0}}`))
+	}))
+	defer weatherSrv.Close()
+	airSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		app.updateConfig(func(c *Config) { c.Weather.Latitude, c.Weather.Longitude = 48.9, 2.3 })
+		w.Write([]byte(`{"utc_offset_seconds":3600,"current":{"european_aqi":120},"hourly":{"european_aqi":[120]}}`))
+	}))
+	defer airSrv.Close()
+
+	cfg := defaultConfig()
+	cfg.Weather.applyDefaults()
+	cfg.Weather.Enabled = true
+	cfg.Weather.Latitude, cfg.Weather.Longitude = 59.9, 10.7
+	cfg.Weather.PopupIntervalMinutes = intPtr(0)
+	cfg.Weather.AirPopupThreshold = 80
+	app = NewApp(cfg, pub, testLogger())
+	app.weatherFetcher = newWeatherFetcher()
+	app.weatherFetcher.openMeteoBase = weatherSrv.URL
+	app.weatherFetcher.airQualityBase = airSrv.URL
+
+	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
+	app.pollWeather(context.Background(), now)
+	if wx := app.weather.state(app.cfg.Load().Weather, now); wx.HaveAir {
+		t.Errorf("air reply for the old location stored after the move: %+v", wx.Air)
+	}
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	for _, p := range pub.notify {
+		if s, _ := p["text"].(string); strings.HasPrefix(s, "AIR ") {
+			t.Errorf("air popup %q fired for the old location", s)
+		}
+	}
+}
