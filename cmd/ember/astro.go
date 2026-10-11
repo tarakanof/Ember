@@ -8,21 +8,6 @@ import (
 
 const deg2rad = math.Pi / 180
 
-const synodicMonth = 29.530588853
-
-var knownNewMoon = time.Date(2000, 1, 6, 18, 14, 0, 0, time.UTC)
-
-func moonIllumination(t time.Time) (illum float64, waxing bool) {
-	days := t.UTC().Sub(knownNewMoon).Hours() / 24.0
-	phase := math.Mod(days, synodicMonth)
-	if phase < 0 {
-		phase += synodicMonth
-	}
-	frac := phase / synodicMonth
-	illum = (1 - math.Cos(2*math.Pi*frac)) / 2
-	return illum, frac < 0.5
-}
-
 const sunHorizonDeg = -0.833
 
 func solarTransit(n, lon float64) (jTransit, sinDecl, decl float64) {
@@ -39,11 +24,15 @@ func solarTransit(n, lon float64) (jTransit, sinDecl, decl float64) {
 }
 
 func sunTimes(lat, lon float64, date time.Time) (sunrise, sunset time.Time, ok bool) {
+	return sunAt(lat, lon, date, sunHorizonDeg)
+}
+
+func sunAt(lat, lon float64, date time.Time, altDeg float64) (rising, setting time.Time, ok bool) {
 	jd := julianDate(date)
 	n := math.Round(jd - 2451545.0 + 0.0008)
 	jTransit, sinDecl, decl := solarTransit(n, lon)
 
-	cosOmega := (math.Sin(sunHorizonDeg*deg2rad) - math.Sin(lat*deg2rad)*sinDecl) /
+	cosOmega := (math.Sin(altDeg*deg2rad) - math.Sin(lat*deg2rad)*sinDecl) /
 		(math.Cos(lat*deg2rad) * math.Cos(decl))
 	if cosOmega > 1 || cosOmega < -1 {
 		return time.Time{}, time.Time{}, false
@@ -99,9 +88,31 @@ func localNoon(now time.Time, obs weatherObservation, lon float64) time.Time {
 	return time.Date(y, m, d, 12, 0, 0, 0, time.UTC).Add(-off)
 }
 
+func localSolarDate(now time.Time, obs weatherObservation, lon float64) time.Time {
+	return localNoon(now, obs, lon).Add(time.Duration(lon / 15 * float64(time.Hour)))
+}
+
 func localSunTimes(lat, lon float64, now time.Time, obs weatherObservation) (sunrise, sunset time.Time, ok bool) {
-	solarDate := localNoon(now, obs, lon).Add(time.Duration(lon / 15 * float64(time.Hour)))
-	return sunTimes(lat, lon, solarDate)
+	return sunTimes(lat, lon, localSolarDate(now, obs, lon))
+}
+
+const (
+	civilTwilightDeg = -6
+	blueHourEndDeg   = -4
+	goldenHourEndDeg = 6
+)
+
+type twilight struct {
+	Dawn, BlueEnd, GoldenEnd, GoldenStart, BlueStart, Dusk time.Time
+}
+
+func localTwilight(lat, lon float64, now time.Time, obs weatherObservation) twilight {
+	date := localSolarDate(now, obs, lon)
+	var tw twilight
+	tw.Dawn, tw.Dusk, _ = sunAt(lat, lon, date, civilTwilightDeg)
+	tw.BlueEnd, tw.BlueStart, _ = sunAt(lat, lon, date, blueHourEndDeg)
+	tw.GoldenEnd, tw.GoldenStart, _ = sunAt(lat, lon, date, goldenHourEndDeg)
+	return tw
 }
 
 type sunEvent struct {
