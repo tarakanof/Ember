@@ -245,6 +245,20 @@ func TestKnobViewMoonUpTellsPolarUpFromDown(t *testing.T) {
 	}
 }
 
+func TestKnobViewDropsAQIOnceTheAirTileIsOff(t *testing.T) {
+	june := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
+	f := facesViewFixture(t, june, "open-meteo", lonLat, lonLon,
+		facesProviders{openMeteo: openMeteoFacesStub(june, 3600, openMeteoTwoSpells), airOffset: 3600, aqi: 42.4})
+	postCapsCheckin(t, f, "0.10.0", knobCapsFaces)
+	if w := decodeFaces(t, goldenView(t, f)).Weather; w.AQI == nil {
+		t.Fatal("setup: no aqi with the air tile on")
+	}
+	f.app.updateConfig(func(c *Config) { c.Weather.AirTile = boolPtr(false) })
+	if w := decodeFaces(t, goldenView(t, f)).Weather; w.AQI != nil {
+		t.Errorf("aqi = %d with the air tile off, want it left out", *w.AQI)
+	}
+}
+
 func TestCapsKnobWithoutWxFacesGetsNoWeatherDetail(t *testing.T) {
 	june := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
 	f := facesViewFixture(t, june, "open-meteo", lonLat, lonLon,

@@ -365,8 +365,9 @@ Keys:
   the minute, found within ±36 h of now. An end not found is left out
   (polar). No location: phase and lit fraction only, no `up`, `rise` or
   `set`.
-- **`aqi`**: the European AQI while the air reading is fresh. Absent
-  otherwise.
+- **`aqi`**: the European AQI while the air tile is on and its reading
+  is fresh (and for this location: a location change clears the
+  reading). Absent otherwise.
 
 The server computes everything that needs the series or astronomy
 (spells, `until`, `today`, twilight, moon, `utc_offset`); the knob owns

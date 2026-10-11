@@ -79,7 +79,7 @@ func unixOpt(t time.Time) *int64 {
 	return new(t.Unix())
 }
 
-func newKnobWeatherDetail(wx weatherState) *knobWeatherDetail {
+func newKnobWeatherDetail(wx weatherState, cfg WeatherConfig) *knobWeatherDetail {
 	f := wx.faces()
 	n := wx.Obs.Now
 	d := &knobWeatherDetail{UTCOffset: int64(f.UTCOffset / time.Second)}
@@ -126,7 +126,7 @@ func newKnobWeatherDetail(wx weatherState) *knobWeatherDetail {
 	if f.HaveAstro {
 		d.Moon.Up = new(f.MoonUp)
 	}
-	if wx.airLive() {
+	if cfg.AirTileEnabled() && wx.airLive() {
 		d.AQI = new(int(math.Round(wx.Air.AQI)))
 	}
 	return d

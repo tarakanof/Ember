@@ -262,7 +262,7 @@ func (a *App) knobWeatherFor(now time.Time, detail bool) *knobWeather {
 		w.ObservedAt = &o
 	}
 	if detail {
-		w.knobWeatherDetail = newKnobWeatherDetail(wx)
+		w.knobWeatherDetail = newKnobWeatherDetail(wx, cfg)
 	}
 	return w
 }
