@@ -28,6 +28,7 @@ func observeWeatherSurfaces(t *testing.T, mut func(*WeatherConfig), obs *weather
 	app.weather.mu.Lock()
 	if obs != nil {
 		app.weather.obs, app.weather.have = *obs, true
+		app.weather.source = app.cfg.Load().Weather.source()
 	}
 	if air != nil {
 		app.weather.air, app.weather.haveAir = *air, true

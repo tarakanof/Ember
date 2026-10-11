@@ -170,6 +170,7 @@ func goldenApp(t *testing.T) *App {
 		Hourly: []float64{11.5, 12, 12.5}, HourlyStart: time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC),
 	}
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.air = airObservation{
 		AQI: 42, PM25: 8, PM10: 15, FetchedAt: fetched,
 		HourlyAQI: []float64{42, 40}, HourlyStart: time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC),
@@ -353,6 +354,7 @@ func TestWeatherStateHourlyNeedsAStampedStart(t *testing.T) {
 	app.weather.mu.Lock()
 	app.weather.obs = weatherObservation{Condition: "clear", FetchedAt: goldenNow, Hourly: []float64{1, 2}}
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.mu.Unlock()
 
 	out := app.buildWeatherState(goldenNow)

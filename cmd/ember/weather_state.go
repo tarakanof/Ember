@@ -52,13 +52,17 @@ func newWeatherState(cfg WeatherConfig, obs weatherObservation, haveObs bool, ai
 }
 
 func (s *weatherStore) state(cfg WeatherConfig, now time.Time) weatherState {
-	s.mu.RLock()
-	obs, haveObs, air, haveAir := s.obs, s.have, s.air, s.haveAir
-	if s.source != (weatherSource{}) && s.source != cfg.source() {
-		obs, haveObs = weatherObservation{}, false
-	}
-	s.mu.RUnlock()
+	obs, haveObs, air, haveAir := s.snapshot(cfg.source())
 	return newWeatherState(cfg, obs, haveObs, air, haveAir, now)
+}
+
+func (s *weatherStore) snapshot(src weatherSource) (obs weatherObservation, haveObs bool, air airObservation, haveAir bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.source == src {
+		obs, haveObs = s.obs, s.have
+	}
+	return obs, haveObs, s.air, s.haveAir
 }
 
 func (s weatherState) live() bool { return s.Enabled && s.Fresh }

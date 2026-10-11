@@ -434,6 +434,7 @@ func TestCoord_RepublishRepushesStandaloneTiles(t *testing.T) {
 	app.weather.mu.Lock()
 	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 21, FetchedAt: now}
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.mu.Unlock()
 
 	c.reconcileTiles(now)

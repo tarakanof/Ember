@@ -84,6 +84,7 @@ func fullViewScenario(t *testing.T, f *viewFixture) {
 	})
 	f.app.weather.obs = weatherObservation{Condition: "rain", ConditionCode: "61", TempC: 12.5, ObservedAt: now.Add(-20 * time.Minute).Truncate(15 * time.Minute), FetchedAt: now.Add(-5 * time.Minute)}
 	f.app.weather.have = true
+	f.app.weather.source = f.app.cfg.Load().Weather.source()
 	teal := "#00c8c8"
 	f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s1", State: "waiting", SourceColor: &teal})
 	f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s2", State: "waiting", SourceColor: &teal})
@@ -140,6 +141,7 @@ func TestDeviceViewGolden(t *testing.T) {
 		})
 		f.app.weather.obs = weatherObservation{Condition: "clear", ConditionCode: "0", TempC: -3, FetchedAt: f.clk.Now().Add(-2 * time.Hour)}
 		f.app.weather.have = true
+		f.app.weather.source = f.app.cfg.Load().Weather.source()
 		f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s1", State: "running"})
 		f.app.Upsert(StatusRequest{Source: "studio", Tool: "codex", Session: "s2", State: "done"})
 		f.eng.Start(pomodoro.PhaseFocus)

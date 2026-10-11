@@ -91,6 +91,7 @@ func TestWeatherPreview_LiveObservationWins(t *testing.T) {
 	app.weather.obs = weatherObservation{Condition: render.WeatherSnow, TempC: -3,
 		Hourly: []float64{-3, -2}, FetchedAt: time.Now()}
 	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.mu.Unlock()
 
 	live := decodeWeatherPreview(t, srv.URL+"/v1/weather/preview")

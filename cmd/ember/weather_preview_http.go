@@ -16,7 +16,8 @@ func (a *App) handleWeatherPreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) weatherPreview(q url.Values, now time.Time) render.Preview {
-	cfg := a.cfg.Load().Weather
+	saved := a.cfg.Load().Weather
+	cfg := saved
 	cfg.RotateInApps = boolPtr(queryBoolDefault(q.Get("rotate_in_apps"), cfg.RotateInAppsEnabled()))
 	cfg.ForecastTile = boolPtr(queryBoolDefault(q.Get("forecast_tile"), cfg.ForecastTileEnabled()))
 	cfg.AirTile = boolPtr(queryBoolDefault(q.Get("air_tile"), cfg.AirTileEnabled()))
@@ -31,7 +32,8 @@ func (a *App) weatherPreview(q url.Values, now time.Time) render.Preview {
 		cfg.Latitude, cfg.Longitude = lat, lon
 	}
 
-	wx := a.weather.state(cfg, now)
+	obs, haveObs, air, haveAir := a.weather.snapshot(saved.source())
+	wx := newWeatherState(cfg, obs, haveObs, air, haveAir, now)
 	if !wx.HaveObs {
 		wx.Obs = sampleWeatherObservation(now)
 	}

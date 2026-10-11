@@ -381,6 +381,7 @@ func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 	}
 	f.app.weather.switchSource(f.app.cfg.Load().Weather.source())
 	f.app.weather.obs, f.app.weather.have = obs, true
+	f.app.weather.source = f.app.cfg.Load().Weather.source()
 	f.app.weather.air, f.app.weather.haveAir = airObservation{AQI: 500, FetchedAt: now}, true
 	putKnobConfig(t, f.srv, f.m.ID, `{"diagnostics":"full","pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
 	resp, b := devReq(t, f.srv, "POST", "/v1/devices/"+f.m.ID+"/stats/live", testToken, `{"seconds":300}`)

@@ -55,6 +55,7 @@ func TestServerFinishedPayloadsPassNGSchema(t *testing.T) {
 
 	app.weather.mu.Lock()
 	app.weather.obs, app.weather.have = obs, true
+	app.weather.source = app.cfg.Load().Weather.source()
 	app.weather.mu.Unlock()
 	app.coord.reconcileTiles(time.Now())
 	pub.mu.Lock()
