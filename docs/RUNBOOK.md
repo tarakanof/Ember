@@ -961,7 +961,8 @@ tick may bring a call up to 30 s early), whatever
 restarts (the last attempt and any 429 deadline are kept in the SQLite
 store, without the key). A 429, 401 or 403 backs off to its `Retry-After`,
 or to the next top of the hour when the reply has none (the free plan sends
-no rate-limit headers). Air quality still comes from Open-Meteo and costs no Tomorrow.io
+no rate-limit headers). Only the 429 deadline survives a restart: after
+fixing a rejected key, restart and Ember tries it at once. Air quality still comes from Open-Meteo and costs no Tomorrow.io
 calls. Other apps using the same key share its quota.
 
 **Key removed.** Tomorrow.io stays the chosen provider (stored or in
@@ -993,7 +994,8 @@ then pick WeatherAPI.com in Settings › Weather. The startup log says
 so the knob's `days` shows 2 days ahead. Ember fetches at most every 5
 minutes (≤ 8,640 a month) with the same quota rules as Tomorrow.io, in its
 own settings row (`weather_quota_weatherapi`). A 401 (bad key), 403 (key
-disabled, monthly quota used up) or 429 waits for the next top of the hour.
+disabled, monthly quota used up) or 429 waits for the next top of the hour;
+only the 429 wait survives a restart.
 There is no minute-by-minute rain: each hour's `precip_mm` is spread evenly
 over its four quarter hours, so a spell starts and ends on the hour.
 

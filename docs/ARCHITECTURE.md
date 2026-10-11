@@ -1466,11 +1466,14 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
 - **WeatherAPI.com** (#437, `weather_weatherapi.go`) reads
   `/v1/forecast.json?key=…&q=lat,lon&days=3&aqi=no&alerts=no` (the free
   plan's 3 days; ~50 KB raw by the documented schema). `location.tz_id`
-  gives the real UTC offset (loaded from the embedded tzdata; a name that
-  isn't a plain zone path or doesn't load falls back to the air call's
-  offset, then longitude). `current` is the observation
-  (`last_updated_epoch`; a `current` without it is ignored and the first
-  hour stands in), then the hourly entries after it, 24 `Steps` in all.
+  gives the real UTC offset at the observation (loaded from the embedded
+  tzdata; `Local`, a name that isn't a plain zone path or one that doesn't
+  load falls back to the air call's offset, then longitude). `current` is
+  the observation (`last_updated_epoch`; a `current` without it is ignored
+  and the hour holding now stands in), then the hourly entries after it,
+  24 `Steps` in all. A reply that yields no step at all (no timed
+  `current`, no hour from now on) is `weatherapi: invalid response`, so it
+  never replaces the cached observation.
   Units: `wind_kph`/`gust_kph` are km/h already, `wind_degree` is where the
   wind comes from. Condition codes are translated to WMO
   (`weatherAPIWMOCodes`: 1000→0, 1003→2, 1006/1009→3; mist, haze, smoke
@@ -1487,8 +1490,11 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   the hour = mm/h) over `[t, t+1h)` (the docs don't say which hour the
   amount covers; this is MET's convention), split into four 15-min steps
   from the hour holding now, at most 48 (12 h); snow when `snow_cm` > 0 or
-  the code is a snow code. `Days` are the local dates of `forecastday`
-  (midnight in the `tz_id` zone): `mintemp_c`/`maxtemp_c`,
+  the code is a snow code. `Days` are the dates of `forecastday`, each
+  starting at its midnight under the observation's single offset, the
+  `utc_offset` the knob gets, as MET's and Tomorrow.io's days do; so a
+  forecast across a DST change (Belgrade 2027-03-28, 2026-10-25) keeps one
+  day per label rather than its true local midnight. `mintemp_c`/`maxtemp_c`,
   `totalprecip_mm`, pop = max(`daily_chance_of_rain`,
   `daily_chance_of_snow`), UV max = max of `day.uv` and the hours' `uv`,
   gust max = max of the hours' `gust_kph` (there is no daily gust). The
@@ -1503,16 +1509,26 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   - **Day code** (`pickDayCode`): hours are counted per WMO code, and the
     code with the highest severity × hours wins (ties to the more severe).
     Severity is the index in `wmoSeverity` plus one: clear 1, clouds, fog,
-    drizzle, rain (showers and freezing rain above plain rain of the same
-    strength), snow, storm last. So 10 h of heavy rain beat 1 h of
+    drizzle and freezing drizzle, then rain by strength with showers just
+    above plain rain and freezing rain just above them (light freezing rain
+    66 ranks between light and moderate rain, heavy freezing rain 67 above
+    heavy rain), snow, storm last. So 10 h of heavy rain beat 1 h of
     flurries, 23 h of clear beat 1 h of fog, and 1 h of thunder still
-    outweighs a few cloudy hours.
+    outweighs a few cloudy hours. Providers' codes are pooled after the
+    WMO translation, so codes sharing a WMO code count together
+    (Tomorrow.io 1102 + 1001 as overcast 3, 2000 + 2100 as fog 45, all ice
+    pellets as 77, ranked between light snow showers and moderate snow).
+    One scale for every provider was chosen over Tomorrow.io's own order:
+    the knob only ever sees the WMO code, so the ranking should be its.
   - **Quota** (one `providerQuota` per provider, since each key has its
     own): refresh and failure retries never run faster than every 5 min
     (`minFetchInterval`). A 429, 401 or 403 waits for `Retry-After` or the
     next top of the hour (a bad key or a used-up monthly quota isn't
     retried every 5 min), not capped at the refresh interval
-    (`retryAfterCap`). The state survives `switchSource`, so editing the
+    (`retryAfterCap`). Only a 429's deadline is persisted
+    (`savedRetryAt`); a 401/403 hold lives in memory, because the key only
+    changes with a restart, which must be able to try the fixed key at
+    once. The state survives `switchSource`, so editing the
     location or switching providers and back neither fetches sooner than
     5 min after the last attempt nor skips a running back-off, and a
     failure whose source changed mid-flight still sets it. `reserveQuota`
