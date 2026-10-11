@@ -12,8 +12,9 @@ const (
 	sunHorizonDeg        = -0.833
 	sunCrossingTolerance = 0.5 / 86400
 	sunCrossingMaxSteps  = 60
-	sunExtremeWindow     = 0.05
+	sunExtremeQuarter    = 0.25
 	sunExtremeMargin     = 1e-3
+	sunPolarCosLat       = 0.002
 )
 
 func sunAnomalyLongitude(days float64) (mRad, lRad float64) {
@@ -49,29 +50,40 @@ func sunTimes(lat, lon float64, date time.Time) sunCrossings {
 }
 
 func sunAt(lat, lon float64, date time.Time, altDeg float64) sunCrossings {
-	jd := julianDate(date)
-	jTransit := solarTransit(math.Round(jd-2451545.0+0.0008), lon)
+	n := math.Round(julianDate(date) - 2451545.0 + 0.0008)
+	prev, transit, next := solarTransit(n-1, lon), solarTransit(n, lon), solarTransit(n+1, lon)
 	sinLat, cosLat := math.Sincos(lat * deg2rad)
 	sinAlt := math.Sin(altDeg * deg2rad)
 	f := func(j float64) float64 { return sunHeight(sinLat, cosLat, lon, j) - sinAlt }
-	dawnSide := sunExtreme(f, jTransit-0.5, -1)
-	noon := sunExtreme(f, jTransit, 1)
-	duskSide := sunExtreme(f, jTransit+0.5, -1)
+	polar := cosLat < sunPolarCosLat
+	dawnSide := sunExtreme(f, prev+sunExtremeQuarter, transit-sunExtremeQuarter, -1, polar)
+	noon := sunExtreme(f, transit-sunExtremeQuarter, transit+sunExtremeQuarter, 1, polar)
+	duskSide := sunExtreme(f, transit+sunExtremeQuarter, next-sunExtremeQuarter, -1, polar)
 	var c sunCrossings
-	c.Rise, c.HaveRise = sunCrossing(f, dawnSide, noon, true)
-	c.Set, c.HaveSet = sunCrossing(f, noon, duskSide, false)
+	c.add(sunCrossing(f, dawnSide, noon))
+	c.add(sunCrossing(f, noon, duskSide))
 	return c
+}
+
+func (c *sunCrossings) add(at time.Time, rise, ok bool) {
+	switch {
+	case !ok:
+	case rise:
+		c.Rise, c.HaveRise = at, true
+	default:
+		c.Set, c.HaveSet = at, true
+	}
 }
 
 type sunPoint struct{ j, f float64 }
 
-func sunExtreme(f func(float64) float64, j, sign float64) sunPoint {
-	p := sunPoint{j, f(j)}
-	if math.Abs(p.f) > sunExtremeMargin {
+func sunExtreme(f func(float64) float64, from, to, sign float64, always bool) sunPoint {
+	p := sunPoint{(from + to) / 2, 0}
+	p.f = f(p.j)
+	if !always && math.Abs(p.f) > sunExtremeMargin {
 		return p
 	}
 	const invPhi = 0.6180339887498949
-	from, to := j-sunExtremeWindow, j+sunExtremeWindow
 	x1, x2 := to-invPhi*(to-from), from+invPhi*(to-from)
 	f1, f2 := sign*f(x1), sign*f(x2)
 	for to-from > sunCrossingTolerance {
@@ -89,9 +101,10 @@ func sunExtreme(f func(float64) float64, j, sign float64) sunPoint {
 	return sunPoint{m, f(m)}
 }
 
-func sunCrossing(f func(float64) float64, a, b sunPoint, rising bool) (time.Time, bool) {
-	if (a.f > 0) == rising || (b.f > 0) != rising {
-		return time.Time{}, false
+func sunCrossing(f func(float64) float64, a, b sunPoint) (at time.Time, rise, ok bool) {
+	rise = b.f > 0
+	if (a.f > 0) == rise {
+		return time.Time{}, false, false
 	}
 	side := 0
 	for range sunCrossingMaxSteps {
@@ -100,7 +113,7 @@ func sunCrossing(f func(float64) float64, a, b sunPoint, rising bool) (time.Time
 		}
 		m := sunPoint{j: (a.j*b.f - b.j*a.f) / (b.f - a.f)}
 		if m.f = f(m.j); m.f == 0 {
-			return julianToTime(m.j), true
+			return julianToTime(m.j), rise, true
 		}
 		if (m.f > 0) == (b.f > 0) {
 			b = m
@@ -116,7 +129,7 @@ func sunCrossing(f func(float64) float64, a, b sunPoint, rising bool) (time.Time
 			side = 1
 		}
 	}
-	return julianToTime((a.j + b.j) / 2), true
+	return julianToTime((a.j + b.j) / 2), rise, true
 }
 
 func solarElevation(lat, lon float64, now time.Time) float64 {

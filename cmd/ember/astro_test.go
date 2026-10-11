@@ -423,11 +423,13 @@ func reportedSunCrossings(lat, lon, alt float64, from, to time.Time) []sunCrossi
 	return out
 }
 
-func TestSunAtReportsEveryRealCrossingAllYear(t *testing.T) {
+func TestSunAtFindsEverySignChangeOfTheModelElevationAllYear(t *testing.T) {
 	sites := []struct {
 		name     string
 		lat, lon float64
-	}{{"Tromsø", 69.65, 18.96}, {"Longyearbyen", 78.22, 15.65}, {"McMurdo", -77.85, 166.67}, {"Utqiaġvik", 71.29, -156.79}}
+	}{{"Tromsø", 69.65, 18.96}, {"Longyearbyen", 78.22, 15.65}, {"McMurdo", -77.85, 166.67}, {"Utqiaġvik", 71.29, -156.79},
+		{"89.9°N", 89.9, 0}, {"89.95°N", 89.95, 0}, {"89.99°N", 89.99, 0}, {"North Pole", 90, 0},
+		{"Amundsen–Scott", -89.99, 139.27}, {"South Pole", -90, 0}}
 	alts := []float64{sunHorizonDeg, civilTwilightDeg, blueHourEndDeg, goldenHourEndDeg}
 	if testing.Short() {
 		alts = alts[:1]

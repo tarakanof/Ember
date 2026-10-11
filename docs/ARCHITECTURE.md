@@ -1582,37 +1582,58 @@ Weather constraints:
   hour angle measured between the transits either side of it (so the
   equation of time moves smoothly and the height has no jump at local
   midnight); `solarElevation` and `sunAt` both use it. `sunAt` (#423)
-  solves for each crossing on its own: the rising one between the day's
-  lowest point before transit and its highest, the setting one between the
-  highest and the lowest point after, each kept only if the height crosses
-  the altitude in that span, then refined (Illinois regula falsi, to half a
-  second). The lowest and highest points sit at the anti-transit and transit
-  unless the height there is within 1e-3 of the altitude's sine; then a
-  golden-section search finds the real extreme (the declination drift moves
-  it a minute or two at Longyearbyen), so a dip under the altitude that
-  lasts two minutes either side of local midnight still gives both
-  crossings (Longyearbyen −6°, 2026-09-07 22:55 and 22:57 UTC). Gating each
-  crossing on its own span, not on the transit declination, keeps real
-  crossings the old gate dropped: Tromsø's last sunrise before the midnight
-  sun (2026-05-17 22:51 UTC) and first sunset after (2026-07-25 22:38 UTC),
-  1–2 a year per site and altitude at Longyearbyen, McMurdo and Utqiaġvik.
+  solves for each crossing on its own, between the day's three extremes:
+  the lowest point between the previous transit and this one, the highest
+  around this transit, the lowest between this transit and the next. A span
+  between two neighbouring extremes holds a crossing if the height changes
+  side of the altitude across it; the direction is the sign at the span's
+  end (rising if above), not which half of the day it is in. Each crossing
+  is refined with Illinois regula falsi to half a second. An extreme sits at
+  the transit or at the midpoint between two transits unless the height
+  there is within 1e-3 of the altitude's sine; then a golden-section search
+  over the quarter day either side finds the real one (the declination drift
+  moves it a minute or two at Longyearbyen), so a dip under the altitude
+  that lasts two minutes either side of local midnight still gives both
+  crossings (Longyearbyen −6°, 2026-09-07 22:55 and 22:57 UTC). The low
+  point between two transits is computed from the same inputs by both days,
+  so day d's setting span ends exactly where day d+1's rising span starts
+  and no crossing is lost or counted twice at the seam. Gating each crossing
+  on its own span, not on the transit declination, keeps real crossings the
+  old gate dropped: Tromsø's last sunrise before the midnight sun
+  (2026-05-17 22:51 UTC) and first sunset after (2026-07-25 22:38 UTC), 1–2
+  a year per site and altitude at Longyearbyen, McMurdo and Utqiaġvik.
+  **The poles.** Within ~0.1° of a pole the daily swing of the height
+  (∝ cos lat) is smaller than the declination's drift around the
+  equinoxes, so the extreme moves hours from the transit (~2.5 h at 89.9°,
+  far outside the old ±0.05 d search), and above ~89.97° the 1e-3 gate
+  itself can skip a search that was needed. Where cos lat < 0.002
+  (|lat| ≳ 89.89°) every extreme is searched; at the pole itself the height
+  only drifts, the search lands on a window edge, and the single seasonal
+  crossing falls in whichever span holds it, with the direction its sign
+  gives (89.99°N's sunset on 2026-09-25 03:03 UTC sat in the half the old
+  code only searched for a sunrise, so it was dropped).
   `sunAt` returns `sunCrossings` with a flag per crossing: the day before
   the midnight sun (Longyearbyen, 2026-04-18) has `HaveRise` and no
-  `HaveSet`. `TestSunAtReportsEveryRealCrossingAllYear` scans 2026 minute
-  by minute at Tromsø, Longyearbyen, McMurdo and Utqiaġvik at −6°, −4°,
-  −0.833° and +6° and requires every sign change of the elevation to be
-  reported within a minute in its direction, and nothing else; a one-off
-  run over 2024–2030 with Alert, Mawson, 66.6°S and Reykjavík added found
-  no miss either. Every crossing sits within 0.08° of its altitude
-  (`TestSunCrossingsSitAtTheirAltitudeAllYear`) and within 10 s of where
-  the elevation crosses it (`TestSunCrossingsConvergeOnTheElevationCrossing`).
-  NOAA iterates once, so matching NOAA doesn't show convergence. Against
-  the NOAA Solar Calculator (`TestTwilightMatchesNOAA`: London, Sydney,
-  Quito, Berlin, Oslo, Tromsø at −6°, −4°, −0.833° and +6°) every crossing
-  is within 20 s; before the per-crossing declination, Oslo's evening
-  crossings near the equinox were ~2.5 min late and Tromsø's first sunset
-  after the midnight sun 23 min. A `sunAt` call costs ~3.6 µs (the
-  fixed-point version cost 0.7 µs). Twilight (#350) generalises `sunTimes` to any altitude
+  `HaveSet`. `TestSunAtFindsEverySignChangeOfTheModelElevationAllYear`
+  checks root-finding completeness, not astronomy: its oracle is the same
+  model's `solarElevation` scanned minute by minute through 2026 (Tromsø,
+  Longyearbyen, McMurdo, Utqiaġvik, 89.9°N, 89.95°N, 89.99°N, both poles
+  and Amundsen–Scott at −89.99°; at −6°, −4°, −0.833° and +6°), and every
+  sign change must be reported within a minute in its direction, and
+  nothing else. A one-off run over 2024–2030 with 24 sites (equator, the
+  date line, the polar circles, Reykjavík, Alert, Mawson, 89.5°–90° both
+  hemispheres) at −18°, −12°, −6°, −4°, −0.833° and +6° found no miss.
+  Accuracy is the NOAA test's job. Every crossing sits within 0.08° of its
+  altitude (`TestSunCrossingsSitAtTheirAltitudeAllYear`) and within 10 s of
+  where the elevation crosses it
+  (`TestSunCrossingsConvergeOnTheElevationCrossing`). NOAA iterates once,
+  so matching NOAA doesn't show convergence. Against the NOAA Solar
+  Calculator (`TestTwilightMatchesNOAA`: London, Sydney, Quito, Berlin,
+  Oslo, Tromsø at −6°, −4°, −0.833° and +6°) every crossing is within
+  20 s; before the per-crossing declination, Oslo's evening crossings near
+  the equinox were ~2.5 min late and Tromsø's first sunset after the
+  midnight sun 23 min. Root-finding costs a few µs per `sunAt` call, more
+  near the poles where every extreme is searched. Twilight (#350) generalises `sunTimes` to any altitude
   (`sunAt`): `localTwilight` gives the local day's crossings of −6° (civil
   dawn, dusk), −4° (blue hour ends, starts) and +6° (golden hour ends,
   starts); one the sun never makes is zero. The local day is the solar day:
