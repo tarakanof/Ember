@@ -301,6 +301,8 @@ type weatherStore struct {
 	air         airObservation
 	haveAir     bool
 	airTriedAt  time.Time
+	airFailures int
+	airRetryAt  time.Time
 	prevAQI     float64
 	havePrevAQI bool
 }
@@ -321,7 +323,7 @@ func (s *weatherStore) switchSource(src weatherSource) {
 	}
 	if s.source.loc != src.loc {
 		s.air, s.haveAir, s.havePrevAQI = airObservation{}, false, false
-		s.airTriedAt = time.Time{}
+		s.airTriedAt, s.airFailures, s.airRetryAt = time.Time{}, 0, time.Time{}
 	}
 	s.source = src
 	s.obs = weatherObservation{}
@@ -641,11 +643,26 @@ func (s *weatherStore) airDue(cfg WeatherConfig, now time.Time) bool {
 	if s.haveAir && age >= 0 && age < cfg.refreshEvery() {
 		return false
 	}
-	if tried := now.Sub(s.airTriedAt); !s.airTriedAt.IsZero() && tried >= 0 && tried < weatherRetryBase {
+	if now.Before(s.airRetryAt) {
+		return false
+	}
+	wait := weatherRetryDelay(s.airFailures, cfg.refreshEvery())
+	if tried := now.Sub(s.airTriedAt); !s.airTriedAt.IsZero() && tried >= 0 && tried < wait {
 		return false
 	}
 	s.airTriedAt = now
 	return true
+}
+
+func (a *App) markAirFailed(now time.Time, loc weatherLocation, retryAfter time.Duration) {
+	a.weather.mu.Lock()
+	defer a.weather.mu.Unlock()
+	cfg := a.cfg.Load().Weather
+	if cfg.location() != loc {
+		return
+	}
+	a.weather.airFailures++
+	a.weather.airRetryAt = now.Add(min(retryAfter, cfg.refreshEvery()))
 }
 
 func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
@@ -655,6 +672,7 @@ func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
 	obs, err := a.weatherFetcher.fetchAirQuality(ctx, cfg)
 	if err != nil {
 		a.logger.Warn("air-quality fetch failed", "err", err)
+		a.markAirFailed(now, cfg.location(), retryAfterOf(err))
 		return
 	}
 	obs.FetchedAt = now
@@ -666,6 +684,8 @@ func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
 	prev, havePrev := a.weather.prevAQI, a.weather.havePrevAQI
 	a.weather.air = obs
 	a.weather.haveAir = true
+	a.weather.airFailures = 0
+	a.weather.airRetryAt = time.Time{}
 	a.weather.prevAQI = obs.AQI
 	a.weather.havePrevAQI = true
 	a.weather.mu.Unlock()

@@ -214,17 +214,18 @@ func TestFetchAirQualityReadsUTCOffset(t *testing.T) {
 }
 
 type metStub struct {
-	mu           sync.Mutex
-	hits         atomic.Int32
-	ims          []string
-	lats         []string
-	lastModified string
-	expires      time.Time
-	notModified  bool
-	airFail      atomic.Bool
-	airHits      atomic.Int32
-	fail         atomic.Bool
-	onRequest    func()
+	mu            sync.Mutex
+	hits          atomic.Int32
+	ims           []string
+	lats          []string
+	lastModified  string
+	expires       time.Time
+	notModified   bool
+	airFail       atomic.Bool
+	airHits       atomic.Int32
+	airRetryAfter string
+	fail          atomic.Bool
+	onRequest     func()
 }
 
 func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
@@ -254,6 +255,9 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 	air := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		st.airHits.Add(1)
 		if st.airFail.Load() {
+			if st.airRetryAfter != "" {
+				w.Header().Set("Retry-After", st.airRetryAfter)
+			}
 			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
 		}
@@ -552,19 +556,84 @@ func TestAirFetchesOnTheNextPollOnceTheTileIsEnabled(t *testing.T) {
 	}
 	st.airFail.Store(true)
 	app.updateConfig(func(cfg *Config) { cfg.Weather.AirTile = boolPtr(true) })
+	at := airPollMinutes(app, st, 1, 8)
+	if want := []int{1, 3, 7}; !slices.Equal(at, want) {
+		t.Errorf("air fetched at minutes %v, want %v: on the first poll after enabling, then backing off while it fails", at, want)
+	}
+	if w := st.hits.Load(); w != 1 {
+		t.Errorf("weather requests = %d, want 1: enabling air doesn't make weather due", w)
+	}
+}
+
+func airPollMinutes(app *App, st *metStub, from, to int) []int {
 	var at []int
-	for m := 1; m <= 6; m++ {
+	for m := from; m <= to; m++ {
 		n := st.airHits.Load()
 		app.pollWeather(context.Background(), metT0.Add(time.Duration(m)*time.Minute))
 		if st.airHits.Load() != n {
 			at = append(at, m)
 		}
 	}
-	if want := []int{1, 3, 5}; !slices.Equal(at, want) {
-		t.Errorf("air fetched at minutes %v, want %v: on the first poll after enabling, then every 2 min while it fails", at, want)
+	return at
+}
+
+func TestAirBacksOffWhilePermanentlyFailing(t *testing.T) {
+	st := &metStub{}
+	st.airFail.Store(true)
+	app := newMetCacheApp(t, st, true)
+	at := airPollMinutes(app, st, 0, 59)
+	if want := []int{0, 2, 6, 14, 24, 34, 44, 54}; !slices.Equal(at, want) {
+		t.Fatalf("air fetched at minutes %v over an hour of failures, want %v: 2, 4, 8 min, then refresh_minutes", at, want)
 	}
-	if w := st.hits.Load(); w != 1 {
-		t.Errorf("weather requests = %d, want 1: enabling air doesn't make weather due", w)
+	st.airFail.Store(false)
+	app.pollWeather(context.Background(), metT0.Add(64*time.Minute))
+	st.airFail.Store(true)
+	if at := airPollMinutes(app, st, 65, 80); !slices.Equal(at, []int{74, 76, 80}) {
+		t.Errorf("air fetched at minutes %v after a success at 64, want [74 76 80]: the success resets the backoff", at)
+	}
+}
+
+func TestAirHonoursRetryAfterCappedAtRefreshMinutes(t *testing.T) {
+	cases := []struct {
+		name       string
+		retryAfter string
+		want       []int
+	}{
+		{"5 min, a floor under the backoff", "300", []int{0, 5, 10, 18, 28}},
+		{"an hour, capped at refresh_minutes", "3600", []int{0, 10, 20}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st := &metStub{airRetryAfter: c.retryAfter}
+			st.airFail.Store(true)
+			app := newMetCacheApp(t, st, true)
+			if at := airPollMinutes(app, st, 0, 29); !slices.Equal(at, c.want) {
+				t.Errorf("air fetched at minutes %v with Retry-After %s, want %v", at, c.retryAfter, c.want)
+			}
+		})
+	}
+}
+
+func TestAirLocationSwitchClearsTheFailureGate(t *testing.T) {
+	st := &metStub{}
+	st.airFail.Store(true)
+	app := newMetCacheApp(t, st, true)
+	if at := airPollMinutes(app, st, 0, 6); !slices.Equal(at, []int{0, 2, 6}) {
+		t.Fatalf("setup: air fetched at minutes %v, want [0 2 6]", at)
+	}
+	app.updateConfig(func(c *Config) { c.Weather.Latitude, c.Weather.Longitude = 40.7, -74 })
+	if at := airPollMinutes(app, st, 7, 10); !slices.Equal(at, []int{7, 9}) {
+		t.Errorf("air fetched at minutes %v after a location switch at 7, want [7 9]: the new location starts with no failures", at)
+	}
+}
+
+func TestAirRetriesEveryMinuteAtRefreshMinutesOne(t *testing.T) {
+	st := &metStub{}
+	st.airFail.Store(true)
+	app := newMetCacheApp(t, st, true)
+	app.updateConfig(func(c *Config) { c.Weather.RefreshMinutes = 1 })
+	if at := airPollMinutes(app, st, 0, 4); !slices.Equal(at, []int{0, 1, 2, 3, 4}) {
+		t.Errorf("air fetched at minutes %v with refresh_minutes 1, want every minute: a failure never waits longer than a success", at)
 	}
 }
 
