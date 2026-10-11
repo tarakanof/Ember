@@ -1353,10 +1353,11 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   stored instant is the poll time plus `Expires` − `Date` − `Age`, kept
   between zero and `max(refresh, 1h)` (`maxProviderFreshness`). `Age` is the
   seconds a cache in between held the response, capped at 2^31 as RFC 9111
-  says. So a MET or Ember clock that is off neither skips MET for hours nor
-  refetches on every poll, a cached copy isn't fresh for longer than MET
-  meant, and a replayed old `Date` can't park polling or keep stale data
-  fresh (`TestMetNoCapsFreshnessFromAReplayedDate`). Without a `Date` the
+  says, also when it overflows int64. So a MET or Ember clock that is off
+  neither skips MET for hours nor refetches on every poll, a cached copy
+  isn't fresh for longer than MET meant, and a replayed old `Date` can't
+  park polling or keep stale data fresh
+  (`TestMetNoCapsFreshnessFromAReplayedDate`). Without a `Date` the
   absolute `Expires` is kept. A due poll before `Expires` skips the MET call
   but still moves `lastFetch`, so the next due poll checks again; after
   `Expires` the request carries `If-Modified-Since`. A **304** keeps the

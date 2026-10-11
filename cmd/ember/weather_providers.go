@@ -100,7 +100,7 @@ func (wf *weatherFetcher) getJSON(ctx context.Context, url, ifModifiedSince stri
 	if t, err := http.ParseTime(resp.Header.Get("Date")); err == nil {
 		meta.date = t
 	}
-	if n, err := strconv.ParseInt(resp.Header.Get("Age"), 10, 64); err == nil && n > 0 {
+	if n, err := strconv.ParseInt(resp.Header.Get("Age"), 10, 64); (err == nil || errors.Is(err, strconv.ErrRange)) && n > 0 {
 		meta.age = time.Duration(min(n, 1<<31)) * time.Second
 	}
 	if resp.StatusCode == http.StatusNotModified && ifModifiedSince != "" {

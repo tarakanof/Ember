@@ -376,7 +376,7 @@ func TestMetNoTakesTheResponseAgeOffItsFreshness(t *testing.T) {
 	cases := []struct {
 		age  string
 		want time.Duration
-	}{{"3000", 10 * time.Minute}, {"5400", 0}, {"junk", 60 * time.Minute}}
+	}{{"3000", 10 * time.Minute}, {"5400", 0}, {"junk", 60 * time.Minute}, {"99999999999999999999", 0}}
 	for _, c := range cases {
 		t0 := metT0
 		st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", date: t0, expires: t0.Add(60 * time.Minute), age: c.age}
