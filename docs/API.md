@@ -95,8 +95,9 @@ long-poll for Music commands) and `PUT /v1/nowplaying/art?source=&player=&kind=a
 `ecmwf_ifs025`, `icon_seamless`, `gfs_seamless`, `ukmo_seamless`; anything
 else is a 400 — ARCHITECTURE "Providers and models"; both answer
 `providers_available`, which lists `tomorrow-io` only while
-`EMBER_TOMORROW_API_KEY` is set, and a PUT switching to it without the key
-is a 400), `POST /v1/reminders/fire` (optional
+`EMBER_TOMORROW_API_KEY` is set, and `provider_held` while a stored
+`tomorrow-io` waits for its key; a PUT switching to it without the key
+is a 400, and any successful PUT drops the hold), `POST /v1/reminders/fire` (optional
 `Idempotency-Key` header dedupes retries for 10 min),
 `GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config` (also drives the
 knob view's `quiet`), `GET/PUT /v1/brightness/config` (every `…/config`

@@ -1577,7 +1577,9 @@ paths:
       description: |
         Also answers `providers_available`, the providers this server can
         fetch from: `tomorrow-io` only while `EMBER_TOMORROW_API_KEY` is set.
-        The key itself is never answered.
+        `provider_held` (absent otherwise) names a stored provider waiting
+        for its key while the server runs on the `config.json` one. The key
+        itself is never answered.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
@@ -1600,7 +1602,8 @@ paths:
         is a 400 (ARCHITECTURE "Providers and models"). `provider` is one
         of `open-meteo`, `met-no`, `tomorrow-io`; switching to
         `tomorrow-io` without `EMBER_TOMORROW_API_KEY` on the server is a
-        400. The reply carries `providers_available` like the GET.
+        400. The reply carries `providers_available` like the GET. Any
+        successful PUT drops `provider_held`.
       summary: Merge weather settings
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]

@@ -1289,7 +1289,7 @@ outage) settles at the normal cadence rather than ~720 calls a day. A success
 or a source switch resets the count. A provider's `Retry-After` (seconds or
 HTTP date, carried on `weatherHTTPError`) is a floor on the next attempt
 whether or not an observation is shown, capped at `refresh_minutes`
-(`markWeatherFailed`): a year, a 2099 date or a second count past
+(`markWeatherFailedAfter`): a year, a 2099 date or a second count past
 `time.Duration` would otherwise freeze weather for days. `parseRetryAfter`
 clamps the seconds to 24 h (`weatherRetryAfterMax`) before converting, and a
 past date, a negative or a non-number gives no floor. With an observation on
@@ -1328,10 +1328,13 @@ branch, and an entry in `WeatherSources.providers` (with `keyEnv` when it
 needs a server-side key: `providers_available` in `GET/PUT
 /v1/weather/config` then decides whether the app offers it, and a PUT
 switching to it without the key is a 400; a stored choice whose key went
-away is set aside by `sanitizeStoredWeather`: the server runs on the
-`config.json` provider, but the stored blob keeps the choice (`settingSpec.stored`
-puts it back on persist) until another provider is picked, so it returns
-with the key). Values checked on
+away is held by `sanitizeStoredWeather`: the server runs on the
+`config.json` provider, `GET /v1/weather/config` answers `provider_held`,
+and the stored blob keeps the choice (`settingSpec.stored` puts it back on
+persist), so it returns with the key. Any successful weather PUT drops the
+hold: the app sends its whole draft, so a save means the user accepted the
+provider shown. The PUT handler takes the hold before the write and puts it
+back if the write fails, so a rejected save keeps it). Values checked on
 2026-10-11 at Belgrade and New York (#427):
 
 | Provider / model | Coverage and resolution | Limits in Ember |
@@ -1450,11 +1453,17 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   current step is skipped (the first entry is often yesterday's period).
   Min/max, `precipitationProbabilityMax`, `uvIndexMax`, `windGustMax`;
   precipitation is `rainAccumulationSum` plus the snow, sleet and ice
-  liquid-water sums. The day code is the worst hourly `weatherCode` within
-  the local day (`tomorrowSeverity`: storm > snow and ice > rain and freezing
-  rain > fog > clouds > clear, heavier first), and `weatherCodeMax` only for
-  a day past the hourly range: `weatherCodeMax` is the numerically highest
-  code, not the worst weather (4200 light rain beats 4001 rain). Sun and moon
+  liquid-water sums. The day code (`tomorrowDayCode`) covers the same
+  06:00–06:00 window as these aggregates: each hourly `weatherCode` in the
+  window counts its hour, the daily `weatherCodeMax` counts the hours the
+  hourly timeline doesn't cover, and the code with the highest severity ×
+  hours wins (ties to the more severe). Severity is the index in
+  `tomorrowSeverity`: clear 0, clouds, fog, then drizzle and rain (freezing
+  rain above plain rain of the same strength), snow and ice, storm last.
+  So 10 h of heavy rain beat 1 h of flurries, a clear day stays clear, and
+  a day past the hourly range takes `weatherCodeMax`, which is the
+  numerically highest code, not the worst weather (4200 light rain beats
+  4001 rain). Sun and moon
   times in the reply are ignored (Ember's astro). Rate limits: the
   provider's refresh and failure retries never run faster than every
   5 min (`minFetchInterval`), and a 429 waits for `Retry-After` or the next
@@ -1463,11 +1472,19 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   `quotaRetryAt` survive `switchSource`, so editing the location or
   switching providers and back neither fetches sooner than 5 min after the
   last attempt nor skips a running 429 back-off, and a 429 whose source
-  changed mid-flight still sets it. The key is redacted from `url.Error`
-  URLs, and Tomorrow.io's HTTP error bodies are dropped (only the status is
-  kept): the body is cut at 256 bytes, and a key straddling the cut could
-  not be matched. A last-resort redaction wraps the error, so a 429's
-  `Retry-After` survives it.
+  changed mid-flight still sets it. `reserveQuota` checks the floor and the
+  back-off and records the attempt under one lock, so two polls can't both
+  pass; a later 429 never shortens a longer deadline. A back-off counts from
+  the response (`Retry-After` plus the request's duration), the next-hour
+  fallback likewise. Both times persist in the settings store
+  (`weather_quota_tomorrow_io`: `attempt_at`, `retry_until`, no credential)
+  and are loaded on the first poll, so a restart can't bypass them.
+  Tomorrow.io errors are fixed text: `weather http <code>` (numeric status,
+  no reason phrase, no body), `tomorrow-io: request failed` (transport, with
+  the context error when cancelled) or `tomorrow-io: invalid response`
+  (decoding). A reply's text never reaches a log, so a key echoed in a body,
+  a reason phrase or a field (a `time.ParseError` quotes its input) can't
+  leak, whole or cut.
 
 **Weather state** (`cmd/ember/weather_state.go`, #337). Every reader of the
 stored weather goes through one projection, `weatherStore.state(cfg, now)` →
