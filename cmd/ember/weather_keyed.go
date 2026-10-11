@@ -20,12 +20,15 @@ type keyedProvider struct {
 
 var keyedProviders = map[string]keyedProvider{
 	tomorrowIO: {env: tomorrowKeyEnv, minInterval: 5 * time.Minute},
+	weatherAPI: {env: weatherAPIKeyEnv, minInterval: 5 * time.Minute},
 }
 
 func (wf *weatherFetcher) key(provider string) string {
 	switch provider {
 	case tomorrowIO:
 		return wf.tomorrowKey
+	case weatherAPI:
+		return wf.weatherAPIKey
 	}
 	return ""
 }
@@ -57,7 +60,7 @@ func keyedFetchError(ctx context.Context, err error, now time.Time, errRequest, 
 	if errors.As(err, &he) {
 		ra := he.retryAfter
 		switch he.code {
-		case http.StatusTooManyRequests:
+		case http.StatusTooManyRequests, http.StatusUnauthorized, http.StatusForbidden:
 			if ra == 0 {
 				ra = now.Truncate(time.Hour).Add(time.Hour).Sub(now)
 			}
@@ -74,11 +77,26 @@ func keyedFetchError(ctx context.Context, err error, now time.Time, errRequest, 
 	return errResponse
 }
 
-func pickDayCode(hours map[int]int, severity []int) *int {
+var wmoSeverity = []int{
+	0, 1, 2, 3,
+	45, 48,
+	51, 53, 55, 56, 57, 61, 80, 63, 81, 66, 65, 82, 67,
+	71, 85, 77, 73, 75, 86,
+	95, 96, 99,
+}
+
+func valueOrInt(v *int, def int) int {
+	if v == nil {
+		return def
+	}
+	return *v
+}
+
+func pickDayCode(hours map[int]int) *int {
 	var best *int
 	bestScore, bestRank := -1, -1
 	for code, h := range hours {
-		rank := slices.Index(severity, code)
+		rank := slices.Index(wmoSeverity, code)
 		if rank < 0 {
 			continue
 		}

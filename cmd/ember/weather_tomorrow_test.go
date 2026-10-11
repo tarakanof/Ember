@@ -487,7 +487,7 @@ func TestWeatherConfigReportsProvidersAvailable(t *testing.T) {
 		}
 		want := []string{"open-meteo", "met-no"}
 		if key != "" {
-			want = weatherProviders
+			want = []string{"open-meteo", "met-no", tomorrowIO}
 		}
 		if !slices.Equal(got, want) {
 			t.Errorf("key set %v: providers_available = %q, want %q", key != "", got, want)

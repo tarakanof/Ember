@@ -142,4 +142,7 @@ import Foundation
     #expect(WeatherSources.isAvailable(WeatherSources.tomorrowIO, in: ["open-meteo", "met-no", "tomorrow-io"]))
     #expect(WeatherSources.isAvailable("met-no", in: nil))
     #expect(WeatherSources.isAvailable("open-meteo", in: []))
+    #expect(WeatherSources.provider("weatherapi")?.keyEnv == "EMBER_WEATHERAPI_KEY")
+    #expect(!WeatherSources.isAvailable("weatherapi", in: ["open-meteo", "met-no", "tomorrow-io"]))
+    #expect(WeatherSources.isAvailable("weatherapi", in: ["weatherapi"]))
 }

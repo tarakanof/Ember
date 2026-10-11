@@ -60,8 +60,11 @@ func main() {
 
 	app := NewApp(cfg, nil, logger)
 	app.weatherFetcher.tomorrowKey = strings.TrimSpace(os.Getenv(tomorrowKeyEnv))
-	if app.weatherFetcher.tomorrowKey != "" {
-		logger.Info("weather provider tomorrow-io available (" + tomorrowKeyEnv + " set)")
+	app.weatherFetcher.weatherAPIKey = strings.TrimSpace(os.Getenv(weatherAPIKeyEnv))
+	for _, p := range weatherProviders {
+		if k, ok := keyedProviders[p]; ok && app.weatherFetcher.key(p) != "" {
+			logger.Info("weather provider available", "provider", p, "key_env", k.env)
+		}
 	}
 	if envEnabled(os.Getenv("EMBER_FIRMWARE_CHECK")) && !clockDisabled() {
 		app.firmware.url = ngReleasesURL
