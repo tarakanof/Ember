@@ -185,9 +185,10 @@ func TestKnobViewWeatherFacesContent(t *testing.T) {
 		t.Errorf("today = %v, want %v (max widened to temp_c 15.4)", w.Today, wantToday)
 	}
 	n := june.Unix()
-	wantSpells := [][4]int64{{n, n + 2*3600, 2, 0}, {n + 5*3600, n + 6*3600, 1, 1}}
-	if w.Rain == nil || w.Rain.Until == nil || *w.Rain.Until != n+2*3600 || !slices.Equal(w.Rain.Spells, wantSpells) {
-		t.Errorf("rain = %+v, want until %d and spells %v", w.Rain, n+2*3600, wantSpells)
+	q := int64(15 * 60)
+	wantSpells := [][4]int64{{n - q, n + 7*q, 2, 0}, {n + 19*q, n + 23*q, 1, 1}}
+	if w.Rain == nil || w.Rain.Until == nil || *w.Rain.Until != n+7*q || !slices.Equal(w.Rain.Spells, wantSpells) {
+		t.Errorf("rain = %+v, want until %d and spells %v (each 15-min sum covers the quarter before its stamp)", w.Rain, n+7*q, wantSpells)
 	}
 	if len(w.Days) != 3 || w.Days[0]["precip_mm10"] != float64(0) || w.Days[2]["min_c"] != float64(-4) || w.Days[2]["cond"] != "snow" {
 		t.Errorf("days = %v, want the 3 days after today, rounded", w.Days)
