@@ -1286,10 +1286,17 @@ and each further consecutive failure doubles the delay (2, 4, 8 min …) up to
 outage) settles at the normal cadence rather than ~720 calls a day. A success
 or a source switch resets the count. A provider's `Retry-After` (seconds or
 HTTP date, carried on `weatherHTTPError`) is a floor on the next attempt
-whether or not an observation is shown. With an observation on screen a
-failure keeps the normal cadence. The air-quality call rides the weather poll
-but is skipped while the stored reading is younger than `refresh_minutes`
-(`airCurrent`), so retries don't refetch a reading that just succeeded.
+whether or not an observation is shown, capped at `refresh_minutes`
+(`markWeatherFailed`): a year, a 2099 date or a second count past
+`time.Duration` would otherwise freeze weather for days. `parseRetryAfter`
+clamps the seconds to 24 h (`weatherRetryAfterMax`) before converting, and a
+past date, a negative or a non-number gives no floor. With an observation on
+screen a failure keeps the normal cadence. The air-quality call runs on every
+minute poll, before the weather `due` check, so turning the air tile on
+fetches within a minute. It is skipped while the stored reading is younger
+than `refresh_minutes`, and at most once per 2 min (`weatherRetryBase`) while
+it fails (`airDue`), so weather retries don't refetch a reading that just
+succeeded. A location switch clears both.
 
 **Face data** (#350, `weather_providers.go`). Each fetch also fills the
 observation's knob-face fields, nothing persisted: `Now` (cloud %, UV,
@@ -1327,8 +1334,8 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   counted 6 h), and its probability and its symbol go to each such day. Its
   6-h min/max go only to the day that holds most of the period (the earlier
   one on a 3-h + 3-h split; the last day the gap reaches when the next entry
-  comes before the period's midpoint), so at UTC+2 the 20:00–02:00 evening max isn't
-  also the next day's. The condition is the worst symbol of the day's
+  comes before the period's midpoint), so at UTC+2 the 20:00–02:00 evening
+  max isn't also the next day's. The condition is the worst symbol of the day's
   periods (storm > snow > rain > fog > clouds > clear) and `Code` that
   symbol: `next_1_hours` in the hourly range, where a 6-h window would reach
   hours outside the day, and `next_6_hours` beyond it. Probability and UV
@@ -1338,7 +1345,7 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   location switch, so a new location neither waits for the old `Expires` nor
   sends the old `Last-Modified`, which MET would answer with a 304 for the
   wrong city). A due poll before `Expires` skips the MET call but still moves
-  `lastFetch`, so air keeps its cadence and the next due poll checks again;
+  `lastFetch`, so the next due poll checks again;
   after `Expires` the request carries `If-Modified-Since`. A **304** keeps the
   observation, sets its `FetchedAt` to now and its `ValidUntil` and
   `notBefore` to the new `Expires`, and notifies (the `stale` flag may move).
