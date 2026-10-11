@@ -62,7 +62,10 @@ func (s *weatherStore) snapshot(src weatherSource) (obs weatherObservation, have
 	if s.source == src {
 		obs, haveObs = s.obs, s.have
 	}
-	return obs, haveObs, s.air, s.haveAir
+	if s.source.loc == src.loc {
+		air, haveAir = s.air, s.haveAir
+	}
+	return obs, haveObs, air, haveAir
 }
 
 func (s weatherState) live() bool { return s.Enabled && s.Fresh }
