@@ -112,6 +112,7 @@ type providerQuota struct {
 	retryAt      time.Time
 	savedRetryAt time.Time
 	loaded       bool
+	readFailing  bool
 }
 
 func (s *weatherStore) quota(provider string) *providerQuota {
@@ -178,10 +179,16 @@ func (a *App) loadWeatherQuota(cfg WeatherConfig, now time.Time) {
 		if q.attemptAt.IsZero() {
 			q.attemptAt = now
 		}
-		a.logger.Warn("weather quota read failed, holding fetches for the minimum interval", "provider", cfg.Provider, "err", err)
+		if !q.readFailing {
+			a.logger.Warn("weather quota read failed, holding fetches for the minimum interval and retrying each poll", "provider", cfg.Provider, "err", err)
+		}
+		q.readFailing = true
 		return
 	}
-	q.loaded = true
+	if q.readFailing {
+		a.logger.Info("weather quota read recovered", "provider", cfg.Provider)
+	}
+	q.loaded, q.readFailing = true, false
 	var r weatherQuotaRecord
 	if !ok || json.Unmarshal([]byte(v), &r) != nil {
 		return

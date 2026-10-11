@@ -1000,3 +1000,26 @@ func TestTomorrowDayCodeOnTheSharedWMOScale(t *testing.T) {
 		})
 	}
 }
+
+func TestTomorrowQuotaReadFailureWarnsOncePerStreak(t *testing.T) {
+	db := t.TempDir() + "/s.db"
+	st := newTomorrowStub(t, tomorrowFixture(t))
+	var logs bytes.Buffer
+	app := newTomorrowApp(t, st, &logs)
+	if err := app.ensureStore(db); err != nil {
+		t.Fatal(err)
+	}
+	renameSettings(t, db, "settings", "settings_away")
+	t0 := time.Now()
+	for i := range 3 {
+		app.pollWeather(context.Background(), t0.Add(time.Duration(i)*time.Minute))
+	}
+	if n := strings.Count(logs.String(), "weather quota read failed"); n != 1 {
+		t.Errorf("%d warnings over 3 failed reads, want 1", n)
+	}
+	renameSettings(t, db, "settings_away", "settings")
+	app.pollWeather(context.Background(), t0.Add(6*time.Minute))
+	if st.hits.Load() != 1 {
+		t.Errorf("%d requests once the row is readable again, want 1", st.hits.Load())
+	}
+}
