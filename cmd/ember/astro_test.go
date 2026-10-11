@@ -529,3 +529,28 @@ func TestTromsoCrossingsNextToTheMidnightSun(t *testing.T) {
 		}
 	}
 }
+
+func TestSunEventsUTCDatesAcrossDST(t *testing.T) {
+	t.Parallel()
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const lat, lon = 52.52, 13.405
+	now := time.Date(2026, 10, 26, 0, 30, 0, 0, time.UTC).In(berlin)
+	var want []sunEvent
+	for _, day := range []int{25, 26, 27} {
+		c := sunTimes(lat, lon, time.Date(2026, 10, day, 0, 0, 0, 0, time.UTC))
+		want = append(want, sunEvent{c.Rise, true}, sunEvent{c.Set, false})
+	}
+	sort.Slice(want, func(i, j int) bool { return want[i].at.Before(want[j].at) })
+	got := sunEvents(lat, lon, now)
+	if len(got) != len(want) {
+		t.Fatalf("got %d events, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if !got[i].at.Equal(want[i].at) || got[i].rise != want[i].rise {
+			t.Errorf("event %d = %v rise=%v, want %v rise=%v", i, got[i].at, got[i].rise, want[i].at, want[i].rise)
+		}
+	}
+}

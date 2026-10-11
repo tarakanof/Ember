@@ -213,6 +213,7 @@ type sunEvent struct {
 
 func sunEvents(lat, lon float64, now time.Time) []sunEvent {
 	var evs []sunEvent
+	now = now.UTC()
 	for d := -1; d <= 1; d++ {
 		c := sunTimes(lat, lon, now.AddDate(0, 0, d))
 		if c.HaveRise {
