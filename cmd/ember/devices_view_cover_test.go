@@ -57,6 +57,12 @@ func viewAccent(t *testing.T, body []byte) (string, bool) {
 
 func TestKnobViewNPCoverGolden(t *testing.T) {
 	f := coverViewFixture(t, false)
+	e, _ := f.app.nowPlaying.reg.Current(f.clk.Now())
+	stable := nowplaying.NewImage([]byte("album"))
+	stable.Accent = e.AlbumArt.Accent
+	if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, stable); err != nil {
+		t.Fatal(err)
+	}
 	postCapsCheckin(t, f, "0.10.0", knobCapsCover)
 	assertDeviceGolden(t, "view_np_cover", goldenView(t, f))
 }
