@@ -1383,7 +1383,8 @@ stored weather goes through one projection, `weatherStore.state(cfg, now)` →
 `weatherState` (`newWeatherState` for drafts and tests): the observation and
 air reading, `Fresh`/`AirFresh` (younger than `weatherStaleAfter`, 30 min;
 false when missing), `enabled`, the location's `LocalDay`, `Night` and the
-local day's `Sunrise`/`Sunset` (`HaveSun`, false without coordinates). It
+local day's sun crossings (`Sun`, a `sunCrossings` with a flag per
+crossing, none without coordinates). It
 knows nothing about devices; the freshness rule and the sun math live only
 here. Its readers: the clock tiles (`live` = enabled and fresh; views and the
 moon read the state), the sun popups (times and once-a-day key), the knob view
@@ -1401,7 +1402,9 @@ whether the poll brought a full fetch, was skipped until MET's `Expires` or
 got a 304; a 200 whose series starts before now can't rewind the condition
 and replay a popup or chime, so they trail the hourly-advancing display by
 at most `refresh_minutes`. Presentation stays with each reader (`roundedSun`
-gives the 5-min rounding the dashboard and knob share). The state shares the
+gives the 5-min rounding the dashboard and knob share, and only when both
+crossings exist: their wire sun stays both-null or both-set, #423, while
+the sun popups and the moon use a lone crossing). The state shares the
 store's `Hourly`/`HourlyAQI` slices: readers treat them as read-only, and the
 poller only ever replaces whole observations. `faces()` (`weather_faces.go`,
 #350) derives the knob-face values from the state, on demand because the moon
@@ -1543,7 +1546,8 @@ A 1-min poll loop (`StartWeather`) fetches when due and fires
 **sound alert** on severe-weather onset (`severe_alert`), and
 **sunrise/sunset** popups (`sun_popups`) — sun times computed locally from
 lat/lon (`astro.go` `sunTimes`, polar-safe), fired once per local day per
-event within a 2-min window; the label uses the location's real UTC offset
+event within a 2-min window, each crossing on its own (a boundary day's lone
+sunrise still fires); the label uses the location's real UTC offset
 (longitude fallback for MET). Popups use a drawn icon by default; `use_native_icons` swaps in a
 native AWTRIX/LaMetric animated weather icon by ID — per-condition IDs default to
 widely-used gallery icons and are overridable from the menu (`icon_ids`) so the user
@@ -1573,25 +1577,42 @@ Weather constraints:
 - **Astro.** Moon phase and sun times are computed locally (no API or key).
   The sun is the low-precision sunrise equation, but with the ecliptic
   longitude of date (the perihelion longitude advances 1.71946° per century;
-  without it the declination ran ~0.17° high in 2026) and, for each
-  crossing, the declination at the crossing (refined from the transit's
-  until it moves under a second, at most `sunRefineSteps`); `solarElevation`
-  uses the declination at `now`. A crossing whose refined half-angle doesn't
-  exist is dropped, not kept at the transit declination's time: the day
-  before the midnight sun (Longyearbyen, 2026-04-18) has a sunrise and no
-  sunset, so `sunTimes` reports `ok` false and `sunEventsAround` takes the
-  sunrise alone. Every crossing left sits within 0.08° of its altitude all
-  year at Longyearbyen and McMurdo
-  (`TestSunCrossingsSitAtTheirAltitudeAllYear`) and within 10 s of where the
-  elevation crosses it there and at Tromsø
-  (`TestSunCrossingsConvergeOnTheElevationCrossing`); with the single
-  refinement some were 0.18° off and Longyearbyen's −6° on 2026-09-08 was
-  7.6 min early. NOAA iterates once too, so matching NOAA doesn't show
-  convergence. Against the NOAA Solar Calculator (`TestTwilightMatchesNOAA`:
-  London, Sydney, Quito, Berlin, Oslo, Tromsø at −6°, −4°, −0.833° and +6°)
-  every crossing is within 20 s; before, Oslo's evening crossings near the
-  equinox were ~2.5 min late and Tromsø's first sunset after the midnight
-  sun 23 min. Twilight (#350) generalises `sunTimes` to any altitude
+  without it the declination ran ~0.17° high in 2026). `sunHeight` is the
+  sun's height at any instant with the declination of that instant and the
+  hour angle measured between the transits either side of it (so the
+  equation of time moves smoothly and the height has no jump at local
+  midnight); `solarElevation` and `sunAt` both use it. `sunAt` (#423)
+  solves for each crossing on its own: the rising one between the day's
+  lowest point before transit and its highest, the setting one between the
+  highest and the lowest point after, each kept only if the height crosses
+  the altitude in that span, then refined (Illinois regula falsi, to half a
+  second). The lowest and highest points sit at the anti-transit and transit
+  unless the height there is within 1e-3 of the altitude's sine; then a
+  golden-section search finds the real extreme (the declination drift moves
+  it a minute or two at Longyearbyen), so a dip under the altitude that
+  lasts two minutes either side of local midnight still gives both
+  crossings (Longyearbyen −6°, 2026-09-07 22:55 and 22:57 UTC). Gating each
+  crossing on its own span, not on the transit declination, keeps real
+  crossings the old gate dropped: Tromsø's last sunrise before the midnight
+  sun (2026-05-17 22:51 UTC) and first sunset after (2026-07-25 22:38 UTC),
+  1–2 a year per site and altitude at Longyearbyen, McMurdo and Utqiaġvik.
+  `sunAt` returns `sunCrossings` with a flag per crossing: the day before
+  the midnight sun (Longyearbyen, 2026-04-18) has `HaveRise` and no
+  `HaveSet`. `TestSunAtReportsEveryRealCrossingAllYear` scans 2026 minute
+  by minute at Tromsø, Longyearbyen, McMurdo and Utqiaġvik at −6°, −4°,
+  −0.833° and +6° and requires every sign change of the elevation to be
+  reported within a minute in its direction, and nothing else; a one-off
+  run over 2024–2030 with Alert, Mawson, 66.6°S and Reykjavík added found
+  no miss either. Every crossing sits within 0.08° of its altitude
+  (`TestSunCrossingsSitAtTheirAltitudeAllYear`) and within 10 s of where
+  the elevation crosses it (`TestSunCrossingsConvergeOnTheElevationCrossing`).
+  NOAA iterates once, so matching NOAA doesn't show convergence. Against
+  the NOAA Solar Calculator (`TestTwilightMatchesNOAA`: London, Sydney,
+  Quito, Berlin, Oslo, Tromsø at −6°, −4°, −0.833° and +6°) every crossing
+  is within 20 s; before the per-crossing declination, Oslo's evening
+  crossings near the equinox were ~2.5 min late and Tromsø's first sunset
+  after the midnight sun 23 min. A `sunAt` call costs ~3.6 µs (the
+  fixed-point version cost 0.7 µs). Twilight (#350) generalises `sunTimes` to any altitude
   (`sunAt`): `localTwilight` gives the local day's crossings of −6° (civil
   dawn, dusk), −4° (blue hour ends, starts) and +6° (golden hour ends,
   starts); one the sun never makes is zero. The local day is the solar day:
@@ -1642,7 +1663,10 @@ Weather constraints:
   per hour, no tz database), which can differ from civil time at DST/zone
   boundaries. At polar day/night there are no sun times; `Night` then comes
   from the sun's elevation (see below), and the clock's moon icon, which
-  also needs sun times, stays off (the sun icon).
+  also needs a sun crossing that day, stays off (the sun icon). A boundary
+  day with one crossing keeps it (#423): the moon shows when that day's
+  night comes, and the popup fires for the lone crossing; the knob and
+  dashboard still get both times null.
 - **Sun times are the location's local day.** Every caller (dashboard
   `/v1/weather/state`, the knob view, the clock's moon icon, sun popups and
   their once-a-day key) reads them from the weather state, which calls
@@ -1662,7 +1686,7 @@ Weather constraints:
   brightness `sunLevel` uses). With an event on both sides, night is "the
   last event was a sunset". When either side is empty (the days next to
   polar day or night, and polar day or night itself) it is the sun's actual
-  elevation at `now` (`solarElevation`, the declination and transit maths of
+  elevation at `now` (`solarElevation`, the same `sunHeight` as
   `sunTimes`) below the same −0.833° horizon. Neither side alone tells the
   answer: next to polar night a lone sunset means night (McMurdo after its
   last sunset), next to polar day it doesn't (Tromsø's last sunset before
