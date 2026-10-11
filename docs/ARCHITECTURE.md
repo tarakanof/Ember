@@ -1568,8 +1568,16 @@ Weather constraints:
   The sun is the low-precision sunrise equation, but with the ecliptic
   longitude of date (the perihelion longitude advances 1.71946° per
   century; without it the declination ran ~0.17° high in 2026) and, for
-  each crossing, the declination at the crossing (one refinement from the
-  transit's); `solarElevation` uses the declination at `now`. Against the
+  each crossing, the declination at the crossing (refined from the
+  transit's until it moves under a second, at most `sunRefineSteps`);
+  `solarElevation` uses the declination at `now`. A crossing whose
+  refined half-angle doesn't exist is dropped, not kept at the transit
+  declination's time: the day before the midnight sun (Longyearbyen,
+  2026-04-18) has a sunrise and no sunset, so `sunTimes` reports `ok`
+  false and `sunEventsAround` takes the sunrise alone. Every crossing
+  left sits within 0.08° of its altitude all year at Longyearbyen and
+  McMurdo (`TestSunCrossingsSitAtTheirAltitudeAllYear`); with the single
+  refinement some were 0.18° off. Against the
   NOAA Solar Calculator (`TestTwilightMatchesNOAA`: London, Sydney, Quito,
   Berlin, Oslo, Tromsø at −6°, −4°, −0.833° and +6°) every crossing is
   within 20 s; before, Oslo's evening crossings near the equinox were

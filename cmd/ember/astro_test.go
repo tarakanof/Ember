@@ -326,3 +326,33 @@ func TestTwilightLeavesOutCrossingsTheSunNeverMakes(t *testing.T) {
 		t.Errorf("midnight sun dips below 6°, golden crossings missing: %+v", tw)
 	}
 }
+
+func TestSunCrossingsSitAtTheirAltitudeAllYear(t *testing.T) {
+	sites := []struct {
+		name     string
+		lat, lon float64
+	}{{"Longyearbyen", 78.22, 15.65}, {"McMurdo", -77.85, 166.67}}
+	for _, s := range sites {
+		for _, alt := range []float64{sunHorizonDeg, civilTwilightDeg, blueHourEndDeg, goldenHourEndDeg} {
+			for d := range 365 {
+				day := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, d)
+				rise, set, _ := sunAt(s.lat, s.lon, day, alt)
+				for _, e := range []time.Time{rise, set} {
+					if e.IsZero() {
+						continue
+					}
+					if got := solarElevation(s.lat, s.lon, e); math.Abs(got-alt) > 0.08 {
+						t.Errorf("%s %s: crossing of %.3f° at %v has the sun at %.3f°", s.name, day.Format("2006-01-02"), alt, e, got)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestSunsetBeforePolarDayIsLeftOut(t *testing.T) {
+	rise, set, ok := sunTimes(78.22, 15.65, time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC))
+	if ok || rise.IsZero() || !set.IsZero() {
+		t.Errorf("Longyearbyen 2026-04-18: rise %v set %v ok %v, want the sunrise and no sunset", rise, set, ok)
+	}
+}

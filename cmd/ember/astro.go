@@ -8,7 +8,10 @@ import (
 
 const deg2rad = math.Pi / 180
 
-const sunHorizonDeg = -0.833
+const (
+	sunHorizonDeg  = -0.833
+	sunRefineSteps = 5
+)
 
 func sunAnomalyLongitude(days float64) (mRad, lRad float64) {
 	m := math.Mod(357.5291+0.98560028*days, 360)
@@ -53,12 +56,21 @@ func sunAt(lat, lon float64, date time.Time, altDeg float64) (rising, setting ti
 	}
 	at := func(sign float64) time.Time {
 		j := jTransit + sign*omega
-		if o, ok := halfDay(sunDeclination(j)); ok {
-			j = jTransit + sign*o
+		for range sunRefineSteps {
+			o, ok := halfDay(sunDeclination(j))
+			if !ok {
+				return time.Time{}
+			}
+			next := jTransit + sign*o
+			if math.Abs(next-j) < 1.0/86400 {
+				return julianToTime(next)
+			}
+			j = next
 		}
 		return julianToTime(j)
 	}
-	return at(-1), at(1), true
+	rising, setting = at(-1), at(1)
+	return rising, setting, !rising.IsZero() && !setting.IsZero()
 }
 
 func solarElevation(lat, lon float64, now time.Time) float64 {
@@ -141,8 +153,12 @@ type sunEvent struct {
 func sunEventsAround(lat, lon float64, now time.Time) (last, next *sunEvent) {
 	var evs []sunEvent
 	for d := -1; d <= 1; d++ {
-		if rise, set, ok := sunTimes(lat, lon, now.AddDate(0, 0, d)); ok {
-			evs = append(evs, sunEvent{rise, true}, sunEvent{set, false})
+		rise, set, _ := sunTimes(lat, lon, now.AddDate(0, 0, d))
+		if !rise.IsZero() {
+			evs = append(evs, sunEvent{rise, true})
+		}
+		if !set.IsZero() {
+			evs = append(evs, sunEvent{set, false})
 		}
 	}
 	sort.Slice(evs, func(i, j int) bool { return evs[i].at.Before(evs[j].at) })
