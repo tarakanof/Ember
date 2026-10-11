@@ -1595,7 +1595,8 @@ Weather constraints:
   like a post-midnight sunset (`TestTwilightIsTheSolarDayOfTheLocalDate`).
   The moon (`astro_moon.go`) is a truncated Meeus ch. 47 position (the 32
   largest longitude terms with their distance terms, 16 latitude terms
-  plus the additive ones, about 0.01°, checked against Meeus example 47.a), taken
+  plus the additive ones; against Meeus example 47.a at 0h TD, evaluated at
+  0h − ΔT UT, longitude within 0.0001°, latitude 0.004°, distance 19 km), taken
   at TT = UT + ΔT with ΔT a fixed 69 s (IERS, flat since 2017; a few
   seconds of drift moves a rise or set by well under a second). Without
   ΔT a rise or set moved 3-6 s up to 60° latitude, 40 s at Tromsø and
