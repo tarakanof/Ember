@@ -81,6 +81,16 @@ func TestMoonRiseSetMatchOpenMeteoReference(t *testing.T) {
 	for _, ref := range openMeteoMoon20260901 {
 		evs := moonEvents(ref.lat, ref.lon, from, to)
 		check := func(want []int64, rise bool) {
+			lo, hi := time.Unix(want[0], 0).Add(-2*time.Minute), time.Unix(want[len(want)-1], 0).Add(2*time.Minute)
+			n := 0
+			for _, e := range evs {
+				if e.rise == rise && !e.at.Before(lo) && !e.at.After(hi) {
+					n++
+				}
+			}
+			if n != len(want) {
+				t.Errorf("%s: %d computed rise=%v events in the reference span, want %d", ref.name, n, rise, len(want))
+			}
 			for _, w := range want {
 				best := time.Duration(math.MaxInt64)
 				for _, e := range evs {
@@ -184,7 +194,7 @@ func TestMoonEventsFindTwoCrossingsInsideOneHour(t *testing.T) {
 
 func TestTwilightCrossesItsAltitudes(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
-	obs := weatherObservation{TZKnown: true, TZOffsetSeconds: 7200}
+	obs := weatherObservation{TZKnown: true, TZOffsetSeconds: 3600}
 	tw := localTwilight(lonLat, lonLon, now, obs)
 	rise, set, _ := localSunTimes(lonLat, lonLon, now, obs)
 	order := []time.Time{tw.Dawn, tw.BlueEnd, rise, tw.GoldenEnd, tw.GoldenStart, set, tw.BlueStart, tw.Dusk}
