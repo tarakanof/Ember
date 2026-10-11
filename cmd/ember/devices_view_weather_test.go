@@ -205,6 +205,25 @@ func TestKnobViewWeatherFacesContent(t *testing.T) {
 	}
 }
 
+func TestKnobViewLeavesOutRainWithoutDataForNow(t *testing.T) {
+	june := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
+	f := facesViewFixture(t, june, "open-meteo", lonLat, lonLon,
+		facesProviders{openMeteo: openMeteoFacesStub(june, 3600, openMeteoTwoSpells)})
+	postCapsCheckin(t, f, "0.10.0", knobCapsFaces)
+	f.clk.now = june.Add(13 * time.Hour)
+	body := goldenView(t, f)
+	w := decodeFaces(t, body).Weather
+	if w.Rain != nil || w.Now["rain"] != 0 {
+		t.Errorf("13 h after the last fetch: rain %+v now.rain %v, want rain left out, not a dry forecast", w.Rain, w.Now["rain"])
+	}
+	if w.Today == nil || len(w.Days) != 2 {
+		t.Errorf("today %v days %v, want 22 June as today and the two after it", w.Today, w.Days)
+	}
+	if !strings.Contains(string(body), `"stale":true`) {
+		t.Errorf("setup: view not stale: %s", body)
+	}
+}
+
 func TestKnobViewMoonUpTellsPolarUpFromDown(t *testing.T) {
 	dry := func(int) (float64, float64) { return 0, 0 }
 	for _, c := range []struct {

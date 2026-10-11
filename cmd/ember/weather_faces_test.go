@@ -109,4 +109,7 @@ func TestFaceDaysWidenTodayToTheCurrentTemperature(t *testing.T) {
 	if today, next = faceDays(weatherObservation{TempC: 5}, now); today != nil || next != nil {
 		t.Errorf("no days: today %+v next %+v, want none", today, next)
 	}
+	if today, next = faceDays(obs, now.AddDate(0, 0, 5)); today != nil || next != nil {
+		t.Errorf("every day over: today %+v next %+v, want none rather than the last stale day", today, next)
+	}
 }

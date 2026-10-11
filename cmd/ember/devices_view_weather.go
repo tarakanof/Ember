@@ -9,7 +9,7 @@ type knobWeatherDetail struct {
 	UTCOffset int64         `json:"utc_offset"`
 	Now       *knobWxNow    `json:"now,omitempty"`
 	Today     *knobWxToday  `json:"today,omitempty"`
-	Rain      knobWxRain    `json:"rain"`
+	Rain      *knobWxRain   `json:"rain,omitempty"`
 	Days      []knobWxDay   `json:"days,omitempty"`
 	Twilight  *knobTwilight `json:"twilight,omitempty"`
 	Moon      knobMoon      `json:"moon"`
@@ -98,13 +98,15 @@ func newKnobWeatherDetail(wx weatherState) *knobWeatherDetail {
 		d.Today = &knobWxToday{MinC: roundedInt(t.MinC, 1), MaxC: roundedInt(t.MaxC, 1), UVMax: roundedInt(t.UVMax, 1),
 			GustMaxKmh: roundedInt(t.GustMaxKmh, 1), Pop: roundedInt(t.Pop, 1)}
 	}
-	d.Rain = knobWxRain{Until: unixOpt(f.RainUntil), Spells: make([][4]int64, 0, len(f.Spells))}
-	for _, s := range f.Spells {
-		kind := int64(0)
-		if s.Snow {
-			kind = 1
+	if f.HaveRainNow {
+		d.Rain = &knobWxRain{Until: unixOpt(f.RainUntil), Spells: make([][4]int64, 0, len(f.Spells))}
+		for _, s := range f.Spells {
+			kind := int64(0)
+			if s.Snow {
+				kind = 1
+			}
+			d.Rain.Spells = append(d.Rain.Spells, [4]int64{s.Start.Unix(), s.End.Unix(), int64(s.Intensity), kind})
 		}
-		d.Rain.Spells = append(d.Rain.Spells, [4]int64{s.Start.Unix(), s.End.Unix(), int64(s.Intensity), kind})
 	}
 	for _, day := range f.Days {
 		d.Days = append(d.Days, knobWxDay{T: day.Start.Unix(), Cond: day.Cond, Code: day.Code,

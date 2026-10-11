@@ -1367,7 +1367,8 @@ state, on demand because the moon scan is the costly part: the offset in
 use, the rain spells of the next 12 h relative to now (wet ≥ 0.1 mm/h,
 ≤ 30-min gaps merged, peak intensity, at most 4, ended ones dropped), the
 current step's intensity and the end of the spell containing now, today
-(the day containing now, its min/max widened to the current temperature)
+(the day containing now, none once the observation's days are over; its
+min/max widened to the current temperature)
 and the next 3 days, the local twilight and the moon's phase, lit fraction,
 up flag and up window (no location: phase and lit fraction only).
 

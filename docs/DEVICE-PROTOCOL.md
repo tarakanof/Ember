@@ -322,19 +322,23 @@ Keys:
   1 light, 2 moderate, 3 heavy (cinder's `wx_intensity_t`), by mm/h:
   < 0.1, < 2.5, < 7.6, else heavy. `rain` is left out when no step covers
   now.
-- **`today`**: the local day. `min_c`/`max_c` widened to include `temp_c`,
+- **`today`**: the local day containing now (left out, with `days`, when
+  the observation has no such day, e.g. days old). `min_c`/`max_c` widened to include `temp_c`,
   so a gauge marker always sits on the ring (MET only knows the rest of
   today). `uv_max`, `gust_max_kmh`, `pop` when the provider has them
   (Open-Meteo; MET `pop` in the Nordic area only, `gust_max_kmh` too, and
   `uv_max` only in its short range).
-- **`rain`**: always present with the detail. `spells` covers the next
+- **`rain`**: present when a precipitation step covers now; left out
+  when none does (the provider sent no steps, or the last fetch is old
+  enough that every step is past), so the knob never reads missing data
+  as dry. `spells` covers the next
   12 h: at most 4 `[start, end, intensity 1-3, kind]`, kind 0 rain, 1 snow
   or sleet (most of the spell's wet steps). A spell is a run of wet steps
   (≥ 0.1 mm/h; Open-Meteo 15-min steps, MET 1-h steps); gaps of ≤ 30 min
   merge; intensity is the peak. `start` may be in the past for an ongoing
   spell; ended spells are dropped when the view is built. `until` is the
   end of the spell containing now, absent when dry now. `"spells": []`
-  means dry for 12 h.
+  means dry for the 12 h (as far as the provider's steps reach).
 - **`days`**: the next 3 local days after today, fewer when the
   provider's range ends. `t` is local midnight. `cond`/`code` use the
   current mapping: Open-Meteo's daily `weather_code`, MET's worst symbol
