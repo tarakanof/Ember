@@ -336,6 +336,12 @@ constants (`themeMatchesCinderSource`): it checks out `tarakanof/cinder@main`
 at it. A failed checkout fails the job. Locally the test reads
 `../cinder` or `CINDER_DIR`. A theme change and its cinder change merge
 together (cinder first), else main's check fails until both are in.
+Three weather keys (`weather.temp.color`, `weather.temp.font_px`,
+`weather.sky.y_px`) are exempt (`goneFromFirmware`): cinder aaddf88 replaced
+the sky-and-label weather page with the Temperature face (temperature colour
+scale, `font_digits_96`), so the firmware no longer has them, while the
+app's weather preview still draws the old page with them (#430). The test
+fails if one of them gets a firmware check again or leaves the theme.
 
 The app bundle now builds + signs the three producer helpers (`ember-claude-producer`,
 `ember-codex-producer`, `ember-t3-producer`) and their LaunchAgent plists

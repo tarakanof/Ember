@@ -318,7 +318,7 @@ private let num = #"(-?[\d.]+f?)"#
 private let hex = #"(0x[0-9A-Fa-f]{6})"#
 private let bv = "main/bot_view.c", bs = "components/bot/bot_shape.c", bb = "components/bot/bot_behavior.c"
 private let nv = "main/nowplaying_view.c", nc = "main/nowplaying_client.c", nh = "components/nowplaying/include/np.h"
-private let pv = "main/pomo_view.c", wv = "main/weather_view.c", ws = "components/weather/weather_scene.c"
+private let pv = "main/pomo_view.c", tf = "main/temp_face.c", ws = "components/weather/weather_scene.c"
 
 private func allChecks() -> [Check] {
     var c: [Check] = [
@@ -383,10 +383,7 @@ private func allChecks() -> [Check] {
         one(pv, #"#define PAUSED_GAIN "# + num, "pomodoro.paused_gain"),
         Check(file: pv, pattern: #"\.r = (\d+), \.hw = (\d+)"#,
               keys: [("pomodoro.ring_radius_px", g(1)), ("pomodoro.ring_width_px", { n(String(2 * (Int($0[2]) ?? 0))) })]),
-        one(wv, #"#define TEMP_RGB "# + hex, "weather.temp.color"),
-        one(wv, #"#define TEMP_STILL_RGB "# + hex, "weather.temp.still_color"),
-        one(wv, #"#define PAGE_Y (\d+)"#, "weather.sky.y_px"),
-        one(wv, #"s_temp, &lv_font_montserrat_(\d+)"#, "weather.temp.font_px"),
+        one(tf, #"#define GREY_RGB "# + hex, "weather.temp.still_color"),
         one("components/weather/include/weather_scene.h", #"#define WX_SKY_W (\d+)"#, "weather.sky.width_px"),
         one("components/weather/include/weather_scene.h", #"#define WX_SKY_H (\d+)"#, "weather.sky.height_px"),
         one("components/weather/include/weather_scene.h", #"#define WX_RAY_STEPS (\d+)"#, "weather.scene.ray_frames"),
@@ -533,7 +530,10 @@ func themeMatchesCinderSource() throws {
         }
     }
     let codeOnly: Set<String> = ["version", "screen.diameter_px", "font.family", "font.file", "bot.body_color"]
-    let uncovered = Set(flat.keys).subtracting(covered).subtracting(codeOnly)
+    let goneFromFirmware: Set<String> = ["weather.temp.color", "weather.temp.font_px", "weather.sky.y_px"]
+    #expect(goneFromFirmware.isSubset(of: Set(flat.keys)) && goneFromFirmware.isDisjoint(with: covered),
+            "keys the firmware no longer has are still in the theme and unchecked")
+    let uncovered = Set(flat.keys).subtracting(covered).subtracting(codeOnly).subtracting(goneFromFirmware)
         .filter { !$0.hasPrefix("font.metrics") }
     #expect(uncovered.isEmpty, "theme keys with no firmware check: \(uncovered.sorted())")
 }
