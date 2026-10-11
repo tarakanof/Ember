@@ -418,7 +418,7 @@ func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 		t.Fatalf("worst case lacks parts: %s", body)
 	}
 	for _, d := range w.Days {
-		if len(d) != 7 || d["min_c"].(float64) >= 0 {
+		if len(d) != 8 || d["min_c"].(float64) >= 0 {
 			t.Fatalf("worst case day lacks keys or negatives: %v", d)
 		}
 	}

@@ -40,6 +40,7 @@ type knobWxRain struct {
 
 type knobWxDay struct {
 	T          int64  `json:"t"`
+	End        int64  `json:"end"`
 	Cond       string `json:"cond,omitempty"`
 	Code       string `json:"code,omitempty"`
 	MinC       *int   `json:"min_c,omitempty"`
@@ -109,7 +110,7 @@ func newKnobWeatherDetail(wx weatherState, cfg WeatherConfig) *knobWeatherDetail
 		}
 	}
 	for _, day := range f.Days {
-		d.Days = append(d.Days, knobWxDay{T: day.Start.Unix(), Cond: day.Cond, Code: day.Code,
+		d.Days = append(d.Days, knobWxDay{T: day.Start.Unix(), End: day.Start.Add(24 * time.Hour).Unix(), Cond: day.Cond, Code: day.Code,
 			MinC: roundedInt(day.MinC, 1), MaxC: roundedInt(day.MaxC, 1), Pop: roundedInt(day.Pop, 1), PrecipMM10: roundedInt(day.PrecipMM, 10)})
 	}
 	if f.HaveAstro {

@@ -290,11 +290,12 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 		}
 	}
 	d := body.Daily
+	off := time.Duration(body.UTCOffsetSeconds) * time.Second
 	for i, t := range d.Time {
 		if i == forecastDays {
 			break
 		}
-		day := weatherDay{Start: time.Unix(t, 0).UTC(), MinC: at(d.MinC, i), MaxC: at(d.MaxC, i),
+		day := weatherDay{Start: dateStartAt(time.Unix(t, 0), off), MinC: at(d.MinC, i), MaxC: at(d.MaxC, i),
 			PrecipMM: at(d.PrecipMM, i), Pop: at(d.Pop, i), UVMax: at(d.UVMax, i), GustMaxKmh: at(d.GustMax, i)}
 		if code := at(d.WeatherCode, i); code != nil {
 			day.Cond, _ = wmoCondition(*code)
@@ -509,6 +510,11 @@ func metPeriodInto(day *weatherDay, p *metPeriod, extrema bool, share float64) {
 			day.Cond, day.Code = cond, sym
 		}
 	}
+}
+
+func dateStartAt(localMidnight time.Time, off time.Duration) time.Time {
+	y, m, d := localMidnight.UTC().Add(off + 12*time.Hour).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Add(-off)
 }
 
 func valueOr(v *float64, def float64) float64 {
