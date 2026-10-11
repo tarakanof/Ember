@@ -108,16 +108,21 @@ func (e *weatherHTTPError) Error() string {
 	return fmt.Sprintf("weather http %s: %s", e.status, e.body)
 }
 
+const weatherRetryAfterMax = 24 * time.Hour
+
 func parseRetryAfter(v string, now time.Time) time.Duration {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return 0
 	}
-	if secs, err := strconv.Atoi(v); err == nil {
-		return max(time.Duration(secs)*time.Second, 0)
+	if secs, err := strconv.ParseInt(v, 10, 64); err == nil || errors.Is(err, strconv.ErrRange) {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(min(secs, int64(weatherRetryAfterMax/time.Second))) * time.Second
 	}
 	if t, err := http.ParseTime(v); err == nil {
-		return max(t.Sub(now), 0)
+		return min(max(t.Sub(now), 0), weatherRetryAfterMax)
 	}
 	return 0
 }

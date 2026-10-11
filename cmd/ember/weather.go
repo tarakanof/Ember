@@ -586,12 +586,13 @@ func weatherRetryDelay(failures int, refresh time.Duration) time.Duration {
 func (a *App) markWeatherFailed(now time.Time, src weatherSource, retryAfter time.Duration) {
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
-	if a.cfg.Load().Weather.source() != src {
+	cfg := a.cfg.Load().Weather
+	if cfg.source() != src {
 		return
 	}
 	a.weather.lastFetch = now
 	a.weather.failures++
-	a.weather.retryAt = now.Add(retryAfter)
+	a.weather.retryAt = now.Add(min(retryAfter, cfg.refreshEvery()))
 }
 
 func (s *weatherStore) fetchHint(cfg WeatherConfig, now time.Time) (fetchHint, bool) {

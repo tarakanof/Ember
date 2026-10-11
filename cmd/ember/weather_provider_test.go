@@ -19,7 +19,7 @@ type providerStubs struct {
 	metReq  chan struct{}
 	onOM    func()
 	metFail atomic.Bool
-	metWait atomic.Int32
+	metWait atomic.Pointer[string]
 }
 
 func signalStub(ch chan struct{}) {
@@ -45,8 +45,8 @@ func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 		st.metHits.Add(1)
 		if st.metFail.Load() {
 			code := http.StatusServiceUnavailable
-			if secs := st.metWait.Load(); secs > 0 {
-				w.Header().Set("Retry-After", strconv.Itoa(int(secs)))
+			if v := st.metWait.Load(); v != nil {
+				w.Header().Set("Retry-After", *v)
 				code = http.StatusTooManyRequests
 			}
 			http.Error(w, "down", code)
@@ -280,10 +280,28 @@ func TestWeatherHonoursRetryAfterOnAFailedFetch(t *testing.T) {
 	app.pollWeather(context.Background(), t0)
 	putWeatherProvider(t, app, "met-no")
 	st.metFail.Store(true)
-	st.metWait.Store(15 * 60)
+	app.updateConfig(func(cfg *Config) { cfg.Weather.RefreshMinutes = 20 })
+	st.metWait.Store(new(strconv.Itoa(15 * 60)))
 
 	if got, want := metHitMinutes(app, st, t0.Add(time.Minute), 20), []int{0, 15}; !slices.Equal(got, want) {
 		t.Errorf("met-no fetched at minutes %v, want %v: nothing before the 429's Retry-After of 15 min", got, want)
+	}
+}
+
+func TestWeatherCapsRetryAfterAtRefreshMinutes(t *testing.T) {
+	for _, v := range []string{"31536000", "99999999999", "Thu, 01 Jan 2099 00:00:00 GMT"} {
+		t.Run(v, func(t *testing.T) {
+			app, st := newProviderSwitchApp(t)
+			t0 := time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)
+			app.pollWeather(context.Background(), t0)
+			putWeatherProvider(t, app, "met-no")
+			st.metFail.Store(true)
+			st.metWait.Store(&v)
+
+			if got, want := metHitMinutes(app, st, t0.Add(time.Minute), 25), []int{0, 10, 20}; !slices.Equal(got, want) {
+				t.Errorf("met-no fetched at minutes %v, want %v: Retry-After %q held to refresh_minutes (10)", got, want, v)
+			}
+		})
 	}
 }
 
@@ -296,7 +314,13 @@ func TestParseRetryAfter(t *testing.T) {
 		{"", 0},
 		{"120", 2 * time.Minute},
 		{"-5", 0},
+		{"-99999999999999999999", 0},
 		{"soon", 0},
+		{"1.5", 0},
+		{"31536000", weatherRetryAfterMax},
+		{"9300000000", weatherRetryAfterMax},
+		{"99999999999999999999", weatherRetryAfterMax},
+		{"Thu, 01 Jan 2099 00:00:00 GMT", weatherRetryAfterMax},
 		{now.Add(10 * time.Minute).Format(http.TimeFormat), 10 * time.Minute},
 		{now.Add(-time.Minute).Format(http.TimeFormat), 0},
 	}
