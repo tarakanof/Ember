@@ -82,3 +82,10 @@ func later(a, b time.Time) time.Time {
 	}
 	return a
 }
+
+func earlier(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
+}

@@ -409,6 +409,26 @@ func TestMetNoCapsFreshnessFromAReplayedDate(t *testing.T) {
 	}
 }
 
+func TestMetNoCapsAnAbsoluteExpiresWithoutDate(t *testing.T) {
+	cases := []struct {
+		name    string
+		expires time.Duration
+		want    time.Duration
+	}{{"30 days ahead", 30 * 24 * time.Hour, time.Hour}, {"25 min ahead", 25 * time.Minute, 25 * time.Minute}}
+	for _, c := range cases {
+		t0 := metT0
+		st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: t0.Add(c.expires)}
+		app := newMetCacheApp(t, st, false)
+		app.pollWeather(context.Background(), t0)
+		app.weather.mu.RLock()
+		notBefore, valid := app.weather.notBefore, app.weather.obs.ValidUntil
+		app.weather.mu.RUnlock()
+		if want := t0.Add(c.want); !notBefore.Equal(want) || !valid.Equal(want) {
+			t.Errorf("no Date, Expires %s: notBefore %v ValidUntil %v, want %v (capped at max(refresh, 1h))", c.name, notBefore, valid, want)
+		}
+	}
+}
+
 func TestMetNoCurrentValuesFollowTheKeptSeries(t *testing.T) {
 	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: metT0.Add(25 * time.Minute), notModified: true}
 	app := newMetCacheApp(t, st, false)
@@ -579,11 +599,12 @@ func TestMetNoPopsTheConditionChangeOnceForTheEntryNow(t *testing.T) {
 		name        string
 		expires     time.Duration
 		notModified bool
+		polls       []int
 		hits        int32
 	}{
-		{"skipped until Expires", 3 * time.Hour, false, 1},
-		{"answered 304", 25 * time.Minute, true, 3},
-		{"full 200 whose series starts an hour back", -time.Minute, false, 3},
+		{"skipped until Expires", 65 * time.Minute, false, []int{5, 61, 64}, 1},
+		{"answered 304", 25 * time.Minute, true, []int{0, 61, 71}, 3},
+		{"full 200 whose series starts an hour back", -time.Minute, false, []int{0, 61, 71}, 3},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -591,7 +612,7 @@ func TestMetNoPopsTheConditionChangeOnceForTheEntryNow(t *testing.T) {
 			app := newMetCacheApp(t, st, false)
 			pub := app.publisher.(*recordingPublisher)
 			app.updateConfig(func(cfg *Config) { cfg.Weather.PopupOnChange = boolPtr(true) })
-			for _, m := range []int{0, 61, 71} {
+			for _, m := range c.polls {
 				app.pollWeather(context.Background(), metT0.Add(time.Duration(m)*time.Minute))
 			}
 			if n := st.hits.Load(); n != c.hits {
@@ -606,7 +627,7 @@ func TestMetNoPopsTheConditionChangeOnceForTheEntryNow(t *testing.T) {
 				}
 			}
 			if want := []string{"SNOW 13°"}; !slices.Equal(texts, want) {
-				t.Errorf("popups %q over polls at 20:00, 21:01 and 21:11, want %q: the 21:00 lightsleet entry, once", texts, want)
+				t.Errorf("popups %q over polls %v min after 20:00, want %q: the 21:00 lightsleet entry, once", texts, c.polls, want)
 			}
 		})
 	}
