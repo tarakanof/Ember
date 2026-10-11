@@ -256,21 +256,79 @@ func TestTomorrowWeatherCodesAllMapToWMO(t *testing.T) {
 	}
 }
 
-func TestFetchTomorrowRedactsKeyFromErrors(t *testing.T) {
+func TestFetchTomorrowErrorsAreFixedText(t *testing.T) {
 	st := newTomorrowStub(t, nil)
 	st.status.Store(http.StatusUnauthorized)
 	wf := newTomorrowFetcher(st.srv.URL)
 	_, err := wf.fetchTomorrow(t.Context(), belgrade, fetchHint{})
-	if err == nil || strings.Contains(err.Error(), "SECRET") || err.Error() != "weather http 401 Unauthorized" {
-		t.Errorf("http error = %v, want the status without Tomorrow.io's body", err)
+	if err == nil || err.Error() != "weather http 401" {
+		t.Errorf("http error = %v, want the numeric status only", err)
 	}
 
 	dead := httptest.NewServer(http.NotFoundHandler())
 	dead.Close()
 	wf.tomorrowBase = dead.URL
 	_, err = wf.fetchTomorrow(t.Context(), belgrade, fetchHint{})
-	if err == nil || strings.Contains(err.Error(), "SECRET") || !strings.Contains(err.Error(), "apikey="+tomorrowRedactedKey) {
-		t.Errorf("transport error = %v, want the URL's key redacted", err)
+	if err == nil || err.Error() != "tomorrow-io: request failed" {
+		t.Errorf("transport error = %v, want fixed text", err)
+	}
+}
+
+func TestFetchTomorrowNeverLeaksKeyFragmentsFromTheReasonPhrase(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, buf, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		_, _ = buf.WriteString("HTTP/1.1 429 " + straddleKey[:9] + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+		_ = buf.Flush()
+	}))
+	t.Cleanup(srv.Close)
+	wf := newTomorrowFetcher(srv.URL)
+	wf.tomorrowKey = straddleKey
+	_, err := wf.fetchTomorrow(t.Context(), belgrade, fetchHint{})
+	assertNoKeyFragment(t, "reason phrase", err)
+	if retryAfterOf(err) <= 0 {
+		t.Errorf("429 with a custom reason lost its back-off: %v", err)
+	}
+}
+
+func assertNoKeyFragment(t *testing.T, where string, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("%s: no error", where)
+	}
+	for i := 0; i+4 <= len(straddleKey); i++ {
+		if frag := straddleKey[i : i+4]; strings.Contains(err.Error(), frag) {
+			t.Fatalf("%s: error %q carries key fragment %q", where, err, frag)
+		}
+	}
+}
+
+func TestFetchTomorrowNeverLeaksKeyFragmentsFromA200Body(t *testing.T) {
+	fields := []string{
+		`{"timelines":{"minutely":[{"time":%q,"values":{}}]}}`,
+		`{"timelines":{"hourly":[{"time":%q,"values":{}}]}}`,
+		`{"timelines":{"hourly":[{"time":"2026-10-11T08:00:00Z","values":{}}],"daily":[{"time":%q,"values":{}}]}}`,
+		`{"timelines":{"hourly":[{"time":"2026-10-11T08:00:00Z","values":{"temperature":%q}}]}}`,
+		`{"timelines":{"hourly":[{"time":"2026-10-11T08:00:00Z","values":{"weatherCode":%q}}]}}`,
+		`{"timelines":{"hourly":[{"time":"2026-10-11T08:00:00Z","values":{"rainIntensity":%q}}]}}`,
+		`{"timelines":{"hourly":[{"time":"2026-10-11T08:00:00Z","values":{}}],"daily":[{"time":"2026-10-11T04:00:00Z","values":{"temperatureMax":%q}}]}}`,
+		`{"timelines":%q}`,
+		`%s`,
+	}
+	for fi, f := range fields {
+		for n := 4; n <= len(straddleKey); n++ {
+			body := []byte(fmt.Sprintf(f, straddleKey[:n]))
+			st := newTomorrowStub(t, body)
+			wf := newTomorrowFetcher(st.srv.URL)
+			wf.tomorrowKey = straddleKey
+			if _, err := wf.fetchTomorrow(t.Context(), belgrade, fetchHint{}); err != nil {
+				assertNoKeyFragment(t, fmt.Sprintf("field %d prefix %d", fi, n), err)
+			}
+		}
 	}
 }
 
@@ -362,7 +420,7 @@ func TestTomorrow429BacksOffPastTheRefreshInterval(t *testing.T) {
 		retryAfter string
 		min, max   time.Duration
 	}{
-		{"retry-after header", "1800", 30 * time.Minute, 30 * time.Minute},
+		{"retry-after header", "1800", 30 * time.Minute, 30*time.Minute + time.Second},
 		{"no header waits for the hourly reset", "", time.Second, time.Hour},
 	}
 	for _, c := range cases {
@@ -463,10 +521,9 @@ func TestWeatherConfigPutTomorrowNeedsTheKey(t *testing.T) {
 	}
 }
 
-func TestStoredTomorrowChoiceSurvivesAStartWithoutTheKey(t *testing.T) {
-	stored := `{"provider":"tomorrow-io","refresh_minutes":25,"location_name":"Belgrade"}`
+func TestHeldTomorrowChoiceSurvivesAKeylessRestartUntilASave(t *testing.T) {
 	a := newDefaultedAppWithStore(t)
-	if err := a.store.PutSetting(weatherSettingsKey, stored); err != nil {
+	if err := a.store.PutSetting(weatherSettingsKey, `{"provider":"tomorrow-io","refresh_minutes":25,"location_name":"Belgrade"}`); err != nil {
 		t.Fatal(err)
 	}
 	a.settings.reapply()
@@ -474,15 +531,13 @@ func TestStoredTomorrowChoiceSurvivesAStartWithoutTheKey(t *testing.T) {
 	if w.Provider != "open-meteo" || w.RefreshMinutes != 25 || w.LocationName != "Belgrade" {
 		t.Errorf("keyless start = provider %q refresh %d name %q, want the config.json provider and the rest kept", w.Provider, w.RefreshMinutes, w.LocationName)
 	}
-	if code, _ := weatherConfigBody(t, a, http.MethodPut, `{"refresh_minutes":30}`); code != http.StatusOK {
-		t.Fatalf("PUT on the fallback = %d", code)
+	code, m := weatherConfigBody(t, a, http.MethodGet, "")
+	if code != http.StatusOK || string(m["provider_held"]) != `"tomorrow-io"` {
+		t.Fatalf("GET while held = %d provider_held %s", code, m["provider_held"])
 	}
-	blob, _, err := a.store.GetSetting(weatherSettingsKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(blob, `"provider":"tomorrow-io"`) || !strings.Contains(blob, `"refresh_minutes":30`) {
-		t.Fatalf("stored blob after a keyless start and an edit = %s, want tomorrow-io kept and the edit saved", blob)
+	blob, _, _ := a.store.GetSetting(weatherSettingsKey)
+	if !strings.Contains(blob, `"provider":"tomorrow-io"`) {
+		t.Fatalf("stored blob after a keyless start = %s, want tomorrow-io kept", blob)
 	}
 
 	b := newDefaultedAppWithStore(t)
@@ -491,22 +546,42 @@ func TestStoredTomorrowChoiceSurvivesAStartWithoutTheKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.settings.reapply()
-	if w := b.cfg.Load().Weather; w.Provider != tomorrowIO || w.RefreshMinutes != 30 {
-		t.Errorf("start with the key back = provider %q refresh %d, want tomorrow-io and 30", w.Provider, w.RefreshMinutes)
+	if w := b.cfg.Load().Weather; w.Provider != tomorrowIO || w.RefreshMinutes != 25 {
+		t.Errorf("start with the key back = provider %q refresh %d, want tomorrow-io and 25", w.Provider, w.RefreshMinutes)
+	}
+	if _, m := weatherConfigBody(t, b, http.MethodGet, ""); m["provider_held"] != nil {
+		t.Errorf("provider_held = %s with the key, want absent", m["provider_held"])
 	}
 }
 
-func TestPickingAnotherProviderDropsTheHeldTomorrowChoice(t *testing.T) {
+func TestAnySaveWhileHeldAcceptsTheShownProvider(t *testing.T) {
 	a := newDefaultedAppWithStore(t)
 	if err := a.store.PutSetting(weatherSettingsKey, `{"provider":"tomorrow-io"}`); err != nil {
 		t.Fatal(err)
 	}
 	a.settings.reapply()
-	if code, _ := weatherConfigBody(t, a, http.MethodPut, `{"provider":"met-no"}`); code != http.StatusOK {
-		t.Fatalf("PUT met-no = %d", code)
+	if code, _ := weatherConfigBody(t, a, http.MethodPut, `{"refresh_minutes":30}`); code != http.StatusOK {
+		t.Fatalf("PUT = %d", code)
 	}
-	if blob, _, _ := a.store.GetSetting(weatherSettingsKey); !strings.Contains(blob, `"provider":"met-no"`) {
-		t.Errorf("stored blob = %s, want the explicit met-no choice", blob)
+	if blob, _, _ := a.store.GetSetting(weatherSettingsKey); !strings.Contains(blob, `"provider":"open-meteo"`) || !strings.Contains(blob, `"refresh_minutes":30`) {
+		t.Errorf("stored blob = %s, want the shown open-meteo saved with the edit", blob)
+	}
+	if _, m := weatherConfigBody(t, a, http.MethodGet, ""); m["provider_held"] != nil {
+		t.Errorf("provider_held = %s after a save, want absent", m["provider_held"])
+	}
+}
+
+func TestFailedSaveWhileHeldKeepsTheHold(t *testing.T) {
+	a := newDefaultedAppWithStore(t)
+	if err := a.store.PutSetting(weatherSettingsKey, `{"provider":"tomorrow-io"}`); err != nil {
+		t.Fatal(err)
+	}
+	a.settings.reapply()
+	if code, _ := weatherConfigBody(t, a, http.MethodPut, `{"units":"kelvin"}`); code != http.StatusBadRequest {
+		t.Fatalf("invalid PUT = %d, want 400", code)
+	}
+	if _, m := weatherConfigBody(t, a, http.MethodGet, ""); string(m["provider_held"]) != `"tomorrow-io"` {
+		t.Errorf("provider_held = %s after a rejected save, want tomorrow-io", m["provider_held"])
 	}
 }
 
@@ -525,51 +600,151 @@ func TestFetchTomorrowNeverLeaksKeyFragmentsFromErrorBodies(t *testing.T) {
 		b := strings.Repeat("x", off) + straddleKey + strings.Repeat("y", 40)
 		body.Store(&b)
 		_, err := wf.fetchTomorrow(t.Context(), belgrade, fetchHint{})
-		if err == nil {
-			t.Fatalf("offset %d: no error", off)
-		}
-		for i := 0; i+4 <= len(straddleKey); i++ {
-			if frag := straddleKey[i : i+4]; strings.Contains(err.Error(), frag) {
-				t.Fatalf("offset %d: error %q carries key fragment %q", off, err, frag)
-			}
-		}
+		assertNoKeyFragment(t, fmt.Sprintf("offset %d", off), err)
 	}
 }
 
-func TestTomorrowLastResortRedactionKeepsRetryAfter(t *testing.T) {
+func TestTomorrowErrorKeepsRetryAfterOfAWrappedError(t *testing.T) {
 	wf := newTomorrowFetcher("http://unused")
 	inner := &weatherHTTPError{code: http.StatusTooManyRequests, status: "429 Too Many Requests", retryAfter: 10 * time.Minute}
-	err := wf.tomorrowError(fmt.Errorf("call with %s: %w", testTomorrowKey, inner), time.Now())
+	err := wf.tomorrowError(t.Context(), fmt.Errorf("call with %s: %w", testTomorrowKey, inner), time.Now())
 	if strings.Contains(err.Error(), "SECRET") {
-		t.Errorf("err = %v, want the key redacted", err)
+		t.Errorf("err = %v, want fixed text", err)
 	}
 	if got := retryAfterOf(err); got != 10*time.Minute {
 		t.Errorf("retryAfter = %v, want the wrapped 10m kept", got)
 	}
 }
 
-func TestTomorrowDayCodeIsTheWorstHourNotTheHighestNumber(t *testing.T) {
-	body := `{"timelines":{"hourly":[
-{"time":"2026-10-11T08:00:00Z","values":{"temperature":10,"weatherCode":4001}},
-{"time":"2026-10-11T09:00:00Z","values":{"temperature":10,"weatherCode":4200}},
-{"time":"2026-10-12T09:00:00Z","values":{"temperature":10,"weatherCode":6000}},
-{"time":"2026-10-12T10:00:00Z","values":{"temperature":10,"weatherCode":5101}}],
+func tomorrowHours(from time.Time, n, code int) []string {
+	out := make([]string, n)
+	for i := range n {
+		out[i] = fmt.Sprintf(`{"time":%q,"values":{"temperature":10,"weatherCode":%d}}`, from.Add(time.Duration(i)*time.Hour).Format(time.RFC3339), code)
+	}
+	return out
+}
+
+func TestTomorrowDayCodeWeighsHoursInTheProvidersDay(t *testing.T) {
+	utc := func(d, h int) time.Time { return time.Date(2026, 10, d, h, 0, 0, 0, time.UTC) }
+	var hours []string
+	hours = append(hours, tomorrowHours(utc(11, 5), 1, 5001)...)
+	hours = append(hours, tomorrowHours(utc(11, 18), 10, 4201)...)
+	hours = append(hours, tomorrowHours(utc(12, 4), 6, 1000)...)
+	hours = append(hours, tomorrowHours(utc(12, 10), 3, 5101)...)
+	hours = append(hours, tomorrowHours(utc(12, 13), 15, 1000)...)
+	body := `{"timelines":{"hourly":[` + strings.Join(hours, ",") + `],
 "daily":[{"time":"2026-10-11T04:00:00Z","values":{"weatherCodeMax":4200}},
-{"time":"2026-10-12T04:00:00Z","values":{"weatherCodeMax":6000}},
+{"time":"2026-10-12T04:00:00Z","values":{"weatherCodeMax":5101}},
 {"time":"2026-10-13T04:00:00Z","values":{"weatherCodeMax":8000}}]}}`
 	st := newTomorrowStub(t, []byte(body))
 	obs, err := newTomorrowFetcher(st.srv.URL).fetchTomorrow(t.Context(), belgrade, fetchHint{TZOffsetSeconds: 7200, TZKnown: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []struct{ cond, code string }{{render.WeatherRain, "63"}, {render.WeatherSnow, "75"}, {render.WeatherStorm, "95"}}
+	want := []struct{ cond, code, why string }{
+		{render.WeatherRain, "65", "10 h of heavy rain (to 05:00 local the next day) outweigh 1 h of flurries and the 13 uncovered hours of weatherCodeMax light rain"},
+		{render.WeatherSnow, "75", "3 h of heavy snow; the rain hours before 06:00 local belong to the day before"},
+		{render.WeatherStorm, "95", "no hourly data: weatherCodeMax"},
+	}
 	if len(obs.Days) != len(want) {
 		t.Fatalf("days = %+v", obs.Days)
 	}
 	for i, w := range want {
 		if d := obs.Days[i]; d.Cond != w.cond || d.Code != w.code {
-			t.Errorf("day %d = %q %q, want %q %q (worst hour; daily weatherCodeMax only beyond the hourly range)", i, d.Cond, d.Code, w.cond, w.code)
+			t.Errorf("day %d = %q %q, want %q %q: %s", i, d.Cond, d.Code, w.cond, w.code, w.why)
 		}
+	}
+}
+
+func TestTomorrowQuotaSurvivesARestart(t *testing.T) {
+	db := t.TempDir() + "/s.db"
+	st := newTomorrowStub(t, tomorrowFixture(t))
+	st.status.Store(http.StatusTooManyRequests)
+	ra := "1800"
+	st.retry.Store(&ra)
+	a := newTomorrowApp(t, st, nil)
+	if err := a.ensureStore(db); err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now()
+	a.pollWeather(context.Background(), t0)
+
+	b := newTomorrowApp(t, st, nil)
+	if err := b.ensureStore(db); err != nil {
+		t.Fatal(err)
+	}
+	b.pollWeather(context.Background(), t0.Add(time.Minute))
+	b.pollWeather(context.Background(), t0.Add(20*time.Minute))
+	if st.hits.Load() != 1 {
+		t.Fatalf("%d requests after a restart inside a 30-min Retry-After, want 1", st.hits.Load())
+	}
+	if v, _, _ := b.store.GetSetting(weatherQuotaKey); strings.Contains(v, "SECRET") || !strings.Contains(v, "retry_until") {
+		t.Errorf("stored quota = %s, want deadlines and no credential", v)
+	}
+	st.status.Store(0)
+	b.pollWeather(context.Background(), t0.Add(31*time.Minute))
+	if st.hits.Load() != 2 {
+		t.Fatalf("%d requests after the Retry-After, want 2", st.hits.Load())
+	}
+
+	c := newTomorrowApp(t, st, nil)
+	if err := c.ensureStore(db); err != nil {
+		t.Fatal(err)
+	}
+	c.pollWeather(context.Background(), t0.Add(33*time.Minute))
+	if st.hits.Load() != 2 {
+		t.Errorf("%d requests 2 min after the last attempt across a restart, want 2 (5-min floor)", st.hits.Load())
+	}
+}
+
+func TestTomorrowBackoffCountsFromTheResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		w.Header().Set("Retry-After", "1800")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+	app := newTomorrowApp(t, &tomorrowStub{srv: srv}, nil)
+	t0 := time.Now()
+	app.pollWeather(context.Background(), t0)
+	app.weather.mu.RLock()
+	until := app.weather.quotaRetryAt
+	app.weather.mu.RUnlock()
+	if d := until.Sub(t0); d < 30*time.Minute+250*time.Millisecond {
+		t.Errorf("retry deadline %v after the request started, want 30 min after the response (≥ 30m0.25s)", d)
+	}
+}
+
+func TestTomorrowKeepsTheLongestBackoff(t *testing.T) {
+	st := newTomorrowStub(t, tomorrowFixture(t))
+	app := newTomorrowApp(t, st, nil)
+	src := app.cfg.Load().Weather.source()
+	t0 := time.Now()
+	app.markWeatherFailedAfter(t0, 0, src, 30*time.Minute)
+	app.markWeatherFailedAfter(t0, 0, src, time.Minute)
+	app.weather.mu.RLock()
+	until := app.weather.quotaRetryAt
+	app.weather.mu.RUnlock()
+	if !until.Equal(t0.Add(30 * time.Minute)) {
+		t.Errorf("deadline = %v after t0, want the 30-min one kept", until.Sub(t0))
+	}
+}
+
+func TestTomorrowReserveIsCheckAndRecordInOne(t *testing.T) {
+	st := newTomorrowStub(t, tomorrowFixture(t))
+	app := newTomorrowApp(t, st, nil)
+	cfg := app.cfg.Load().Weather
+	t0 := time.Now()
+	if !app.weather.reserveQuota(cfg, t0) {
+		t.Fatal("first reservation refused")
+	}
+	if app.weather.reserveQuota(cfg, t0) {
+		t.Error("second reservation at the same instant granted")
+	}
+	other := cfg
+	other.Provider = "open-meteo"
+	if !app.weather.reserveQuota(other, t0) {
+		t.Error("a provider without a quota was refused")
 	}
 }
 

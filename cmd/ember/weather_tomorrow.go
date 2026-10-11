@@ -20,7 +20,6 @@ const (
 	tomorrowMinRefresh  = 5 * time.Minute
 	precipStepsTomorrow = 48
 	tomorrowPrecipStep  = 15 * time.Minute
-	tomorrowRedactedKey = "REDACTED"
 )
 
 var errTomorrowNoKey = errors.New("tomorrow-io: " + tomorrowKeyEnv + " is not set on the server")
@@ -88,7 +87,7 @@ func (wf *weatherFetcher) fetchTomorrow(ctx context.Context, cfg WeatherConfig, 
 		} `json:"timelines"`
 	}
 	if _, err := wf.getJSON(ctx, u, "", &body); err != nil {
-		return weatherObservation{}, wf.tomorrowError(err, time.Now())
+		return weatherObservation{}, wf.tomorrowError(ctx, err, time.Now())
 	}
 	tl := body.Timelines
 	if len(tl.Hourly) == 0 && len(tl.Minutely) == 0 {
@@ -120,38 +119,28 @@ func (wf *weatherFetcher) fetchTomorrow(ctx context.Context, cfg WeatherConfig, 
 	return obs, nil
 }
 
-func (wf *weatherFetcher) tomorrowError(err error, now time.Time) error {
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		ue.URL = wf.redactTomorrowKey(ue.URL)
-	}
+var (
+	errTomorrowRequest  = errors.New("tomorrow-io: request failed")
+	errTomorrowResponse = errors.New("tomorrow-io: invalid response")
+)
+
+func (wf *weatherFetcher) tomorrowError(ctx context.Context, err error, now time.Time) error {
 	var he *weatherHTTPError
 	if errors.As(err, &he) {
-		he.body = ""
-		if he.code == http.StatusTooManyRequests && he.retryAfter == 0 {
-			he.retryAfter = now.Truncate(time.Hour).Add(time.Hour).Sub(now)
+		ra := he.retryAfter
+		if he.code == http.StatusTooManyRequests && ra == 0 {
+			ra = now.Truncate(time.Hour).Add(time.Hour).Sub(now)
 		}
+		return &weatherHTTPError{code: he.code, status: strconv.Itoa(he.code), retryAfter: ra}
 	}
-	if msg := err.Error(); strings.Contains(msg, wf.tomorrowKey) || strings.Contains(msg, url.QueryEscape(wf.tomorrowKey)) {
-		return &redactedError{msg: wf.redactTomorrowKey(msg), err: err}
+	if ctx.Err() != nil {
+		return fmt.Errorf("%w: %w", errTomorrowRequest, ctx.Err())
 	}
-	return err
-}
-
-type redactedError struct {
-	msg string
-	err error
-}
-
-func (e *redactedError) Error() string { return e.msg }
-func (e *redactedError) Unwrap() error { return e.err }
-
-func (wf *weatherFetcher) redactTomorrowKey(s string) string {
-	if wf.tomorrowKey == "" {
-		return s
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return errTomorrowRequest
 	}
-	s = strings.ReplaceAll(s, url.QueryEscape(wf.tomorrowKey), tomorrowRedactedKey)
-	return strings.ReplaceAll(s, wf.tomorrowKey, tomorrowRedactedKey)
+	return errTomorrowResponse
 }
 
 func tomorrowSteps(minutely, hourly []tomorrowEntry) []currentStep {
@@ -282,11 +271,7 @@ func tomorrowDays(daily []tomorrowDay, hourly []tomorrowEntry, off time.Duration
 				day.PrecipMM = new(*p + valueOr(day.PrecipMM, 0))
 			}
 		}
-		code := worstTomorrowCode(hourly, start, start.Add(24*time.Hour))
-		if code == nil {
-			code = v.WeatherCodeMax
-		}
-		if code != nil {
+		if code := tomorrowDayCode(hourly, d.Time.UTC(), v.WeatherCodeMax); code != nil {
 			if wmo, ok := tomorrowWMO(*code); ok {
 				day.Cond, _ = wmoCondition(wmo)
 				day.Code = strconv.Itoa(wmo)
@@ -316,19 +301,31 @@ var tomorrowSeverity = []int{
 	8000,
 }
 
-func worstTomorrowCode(hourly []tomorrowEntry, from, to time.Time) *int {
-	var worst *int
-	rank := -1
+func tomorrowDayCode(hourly []tomorrowEntry, from time.Time, codeMax *int) *int {
+	hours := map[int]int{}
+	covered := 0
 	for _, e := range hourly {
-		c := e.Values.WeatherCode
-		if c == nil || e.Time.Before(from) || !e.Time.Before(to) {
+		if e.Values.WeatherCode == nil || e.Time.Before(from) || !e.Time.Before(from.Add(24*time.Hour)) {
 			continue
 		}
-		if r := slices.Index(tomorrowSeverity, *c); r > rank {
-			worst, rank = c, r
+		hours[*e.Values.WeatherCode]++
+		covered++
+	}
+	if codeMax != nil && covered < 24 {
+		hours[*codeMax] += 24 - covered
+	}
+	var best *int
+	bestScore, bestRank := -1, -1
+	for code, h := range hours {
+		rank := slices.Index(tomorrowSeverity, code)
+		if rank < 0 {
+			continue
+		}
+		if score := rank * h; score > bestScore || (score == bestScore && rank > bestRank) {
+			best, bestScore, bestRank = new(code), score, rank
 		}
 	}
-	return worst
+	return best
 }
 
 func tomorrowWMO(code int) (int, bool) {

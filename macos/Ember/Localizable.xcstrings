@@ -124,6 +124,17 @@
     "%@ is next. Push the knob to start it." : {
       "comment" : "Knob Pomodoro preview: the phase waiting to start (\"Break is next…\")."
     },
+    "%@ is waiting for its key; using %@." : {
+      "comment" : "Weather provider note: the saved provider (e.g. Tomorrow.io) lacks its server key, then the provider used meanwhile (e.g. Open-Meteo)",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ is waiting for its key; using %2$@."
+          }
+        }
+      }
+    },
     "%@ left" : {
       "comment" : "VoiceOver, Focus ring: time left in the current phase (\"18:42\")."
     },

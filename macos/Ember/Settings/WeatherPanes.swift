@@ -114,6 +114,19 @@ struct WeatherSourcePane: View {
     }
 
     @ViewBuilder private func keyHints(_ c: WeatherConfig) -> some View {
+        if let held = c.providerHeld, held != c.provider {
+            let heldName = WeatherSources.provider(held)?.name ?? held
+            let currentName = WeatherSources.provider(c.provider)?.name ?? c.provider
+            Label {
+                Text("\(heldName) is waiting for its key; using \(currentName).",
+                     comment: "Weather provider note: the saved provider (e.g. Tomorrow.io) lacks its server key, then the provider used meanwhile (e.g. Open-Meteo)")
+            } icon: {
+                Image(systemName: "hourglass")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
         ForEach(WeatherSources.providers.filter {
             c.providersAvailable != nil && $0.keyEnv != nil
                 && !WeatherSources.isAvailable($0.id, in: c.providersAvailable)
