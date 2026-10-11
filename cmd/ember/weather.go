@@ -300,6 +300,7 @@ type weatherStore struct {
 
 	air         airObservation
 	haveAir     bool
+	airTriedAt  time.Time
 	prevAQI     float64
 	havePrevAQI bool
 }
@@ -320,6 +321,7 @@ func (s *weatherStore) switchSource(src weatherSource) {
 	}
 	if s.source.loc != src.loc {
 		s.air, s.haveAir, s.havePrevAQI = airObservation{}, false, false
+		s.airTriedAt = time.Time{}
 	}
 	s.source = src
 	s.obs = weatherObservation{}
@@ -476,10 +478,10 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		return
 	}
 	a.checkSunPopups(ctx, now, cfg)
+	a.pollAir(ctx, now, cfg)
 	if !a.weather.due(cfg, now) {
 		return
 	}
-	a.pollAir(ctx, now, cfg)
 	hint, wait := a.weather.fetchHint(cfg, now)
 	if wait {
 		a.markWeatherPolled(now, src)
@@ -632,15 +634,22 @@ func (a *App) confirmWeather(now time.Time, src weatherSource, res fetchResult) 
 
 func (c WeatherConfig) airWanted() bool { return c.AirTileEnabled() || c.AirPopupThreshold > 0 }
 
-func (s *weatherStore) airCurrent(cfg WeatherConfig, now time.Time) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (s *weatherStore) airDue(cfg WeatherConfig, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	age := now.Sub(s.air.FetchedAt)
-	return s.haveAir && age >= 0 && age < cfg.refreshEvery()
+	if s.haveAir && age >= 0 && age < cfg.refreshEvery() {
+		return false
+	}
+	if tried := now.Sub(s.airTriedAt); !s.airTriedAt.IsZero() && tried >= 0 && tried < weatherRetryBase {
+		return false
+	}
+	s.airTriedAt = now
+	return true
 }
 
 func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
-	if !cfg.airWanted() || a.weather.airCurrent(cfg, now) {
+	if !cfg.airWanted() || !a.weather.airDue(cfg, now) {
 		return
 	}
 	obs, err := a.weatherFetcher.fetchAirQuality(ctx, cfg)

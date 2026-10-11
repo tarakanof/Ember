@@ -543,6 +543,31 @@ func TestAirWaitsRefreshMinutesWhileWeatherRetries(t *testing.T) {
 	}
 }
 
+func TestAirFetchesOnTheNextPollOnceTheTileIsEnabled(t *testing.T) {
+	st := &metStub{}
+	app := newMetCacheApp(t, st, false)
+	app.pollWeather(context.Background(), metT0)
+	if a := st.airHits.Load(); a != 0 {
+		t.Fatalf("air requests with the tile off = %d, want 0", a)
+	}
+	st.airFail.Store(true)
+	app.updateConfig(func(cfg *Config) { cfg.Weather.AirTile = boolPtr(true) })
+	var at []int
+	for m := 1; m <= 6; m++ {
+		n := st.airHits.Load()
+		app.pollWeather(context.Background(), metT0.Add(time.Duration(m)*time.Minute))
+		if st.airHits.Load() != n {
+			at = append(at, m)
+		}
+	}
+	if want := []int{1, 3, 5}; !slices.Equal(at, want) {
+		t.Errorf("air fetched at minutes %v, want %v: on the first poll after enabling, then every 2 min while it fails", at, want)
+	}
+	if w := st.hits.Load(); w != 1 {
+		t.Errorf("weather requests = %d, want 1: enabling air doesn't make weather due", w)
+	}
+}
+
 func TestMetDaysKeepAPeriodsExtremaWhenTheGapEndsBeforeItsMidpoint(t *testing.T) {
 	body := `[
 {"time":"2026-06-21T22:00:00Z","data":{"instant":{"details":{"air_temperature":10}},
