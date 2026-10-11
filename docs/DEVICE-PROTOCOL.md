@@ -278,6 +278,17 @@ Ember last fetched it (`stale`):
   A new fetch with a new provider time moves the ETag even when the
   shown values did not change.
 
+## Weather model
+
+`weather.model` (#427) names the Open-Meteo forecast model the values come
+from, right after `provider` (`"provider":"open-meteo","model":"ecmwf_ifs"`).
+
+- **Absent** under MET Norway and for Open-Meteo's default `best_match`,
+  so a default view keeps its bytes and ETag; the goldens don't change.
+- Codes stay WMO whatever the model; the knob needs no change to read them.
+- **Old firmware** skips the unknown key. The body grows by at most 24 B
+  (`TestWeatherReadoutsNameTheOpenMeteoModel`).
+
 ## Weather detail
 
 With `wx_faces` in its caps (#350, cinder#33/#34), a knob's `weather`
