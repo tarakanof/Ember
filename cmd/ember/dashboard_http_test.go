@@ -383,10 +383,11 @@ func TestWeatherFetchersStampHourlyStartAndCode(t *testing.T) {
 	if obs.ConditionCode != "61" || obs.HourlyStart.Unix() != 1790409600 {
 		t.Errorf("open-meteo code/start = %q/%v", obs.ConditionCode, obs.HourlyStart)
 	}
-	obs, err = wf.fetchMetNo(t.Context(), WeatherConfig{Latitude: 1, Longitude: 2})
+	res, err := wf.fetchMetNo(t.Context(), WeatherConfig{Latitude: 1, Longitude: 2}, fetchHint{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	obs = res.Obs
 	if obs.ConditionCode != "rain_showers_day" || !obs.HourlyStart.Equal(time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)) {
 		t.Errorf("met-no code/start = %q/%v", obs.ConditionCode, obs.HourlyStart)
 	}

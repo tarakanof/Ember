@@ -160,7 +160,8 @@ func TestFetchOpenMeteo(t *testing.T) {
 	defer srv.Close()
 	wf := newWeatherFetcher()
 	wf.openMeteoBase = srv.URL
-	obs, err := wf.fetch(context.Background(), WeatherConfig{Provider: "open-meteo", Latitude: 52.1, Longitude: 4.3})
+	res, err := wf.fetch(context.Background(), WeatherConfig{Provider: "open-meteo", Latitude: 52.1, Longitude: 4.3}, fetchHint{})
+	obs := res.Obs
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -190,7 +191,8 @@ func TestFetchWithoutProviderTimeLeavesObservedAtZero(t *testing.T) {
 	wf := newWeatherFetcher()
 	wf.openMeteoBase, wf.metNoBase = srv.URL, srv.URL
 	for _, provider := range []string{"open-meteo", "met-no"} {
-		obs, err := wf.fetch(context.Background(), WeatherConfig{Provider: provider, Latitude: 52.1, Longitude: 4.3})
+		res, err := wf.fetch(context.Background(), WeatherConfig{Provider: provider, Latitude: 52.1, Longitude: 4.3}, fetchHint{})
+		obs := res.Obs
 		if err != nil {
 			t.Fatalf("%s fetch: %v", provider, err)
 		}
@@ -209,7 +211,8 @@ func TestFetchMetNoSendsUserAgent(t *testing.T) {
 	defer srv.Close()
 	wf := newWeatherFetcher()
 	wf.metNoBase = srv.URL
-	obs, err := wf.fetch(context.Background(), WeatherConfig{Provider: "met-no", Latitude: 59.9, Longitude: 10.7})
+	res, err := wf.fetch(context.Background(), WeatherConfig{Provider: "met-no", Latitude: 59.9, Longitude: 10.7}, fetchHint{})
+	obs := res.Obs
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}

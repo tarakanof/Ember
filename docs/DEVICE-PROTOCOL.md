@@ -259,8 +259,9 @@ Ember last fetched it (`stale`):
   `X-Ember-Now` minus it, with no date parsing.
 - **Source:** the provider's own time for the current values. Open-Meteo:
   `current.time`, the time of its current 15-minute step. MET Norway: the
-  first `properties.timeseries[].time`, the hour the instant values are
-  for. Not Ember's fetch time.
+  `properties.timeseries[].time` of the entry whose instant values are
+  shown, the latest one at or before now (it moves on each hour between
+  fetches, with the values). Not Ember's fetch time.
 - **Absent** when the provider sent no time (and in the `weather: null`
   cases). Never `null` or `0`.
 - **Old firmware** skips the unknown key. The body grows by 25 B.
