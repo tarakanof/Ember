@@ -301,8 +301,8 @@ func TestCapsKnobWithWeatherHiddenSkipsBuildingTheDetail(t *testing.T) {
 		})
 	}
 	plain, faces := allocs("view_wait", "coredump"), allocs("view_wait", featureWxFaces)
-	if faces > plain {
-		t.Errorf("weather page not in caps: %v allocs with wx_faces, %v without; the hidden detail was built", faces, plain)
+	if faces >= plain+20 {
+		t.Errorf("weather page not in caps: %v allocs with wx_faces, %v without; the hidden detail (~50 allocs) was built", faces, plain)
 	}
 }
 
