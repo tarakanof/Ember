@@ -401,7 +401,11 @@ func TestAppWeatherSourcesMatchTheServerLists(t *testing.T) {
 			t.Fatalf("WeatherSources.swift has no %s list", name)
 		}
 		body := string(src[start:])
-		body = body[:strings.Index(body, "\n    ]")]
+		end := strings.Index(body, "\n    ]")
+		if end < 0 {
+			t.Fatalf("WeatherSources.swift: no closing \"    ]\" line after the %s list", name)
+		}
+		body = body[:end]
 		var ids []string
 		for _, m := range regexp.MustCompile(`WeatherSourceOption\(id: ("[^"]+"|\w+),`).FindAllStringSubmatch(body, -1) {
 			ids = append(ids, m[1])

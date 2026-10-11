@@ -1316,8 +1316,10 @@ An unknown model (a comma list included) is a 400 on `PUT
 back to `best_match`, like an invalid icon id (`validateConfig` doesn't run
 `validateWeather`). In a stored `weather_json` blob only that key is
 dropped (logged `persisted weather model ignored`), so a model removed in a
-later release doesn't throw away the rest of the weather settings; the
-reapply then stores the blob with `best_match`, so the warning shows once.
+later release doesn't throw away the rest of the weather settings. The
+merge then keeps the current model (the `config.json` one, `best_match`
+by default) and the reapply stores the blob with it, so the warning shows
+once.
 The app keeps the user-facing descriptions
 (`EmberKit/Settings/WeatherSources.swift`, shown under the pickers); this
 table mirrors them, and `TestAppWeatherSourcesMatchTheServerLists` keeps the

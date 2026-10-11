@@ -858,7 +858,7 @@ func (a *App) dropUnknownOpenMeteoModel(blob string) []byte {
 	if !ok || (json.Unmarshal(raw, &model) == nil && (model == "" || slices.Contains(openMeteoModels, model))) {
 		return []byte(blob)
 	}
-	a.logger.Warn("persisted weather model ignored", "model", string(raw), "fallback", defaultOpenMeteoModel)
+	a.logger.Warn("persisted weather model ignored", "model", string(raw), "fallback", cmp.Or(a.cfg.Load().Weather.OpenMeteoModel, defaultOpenMeteoModel))
 	delete(m, "open_meteo_model")
 	out, err := json.Marshal(m)
 	if err != nil {
