@@ -391,6 +391,24 @@ func TestMetNoTakesTheResponseAgeOffItsFreshness(t *testing.T) {
 	}
 }
 
+func TestMetNoCapsFreshnessFromAReplayedDate(t *testing.T) {
+	t0 := metT0
+	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", date: t0.AddDate(0, 0, -30), expires: t0.Add(25 * time.Minute)}
+	app := newMetCacheApp(t, st, false)
+	ctx := context.Background()
+	app.pollWeather(ctx, t0)
+	app.weather.mu.RLock()
+	notBefore, valid := app.weather.notBefore, app.weather.obs.ValidUntil
+	app.weather.mu.RUnlock()
+	if want := t0.Add(time.Hour); !notBefore.Equal(want) || !valid.Equal(want) {
+		t.Errorf("Date 30 days behind Expires: notBefore %v ValidUntil %v, want %v (capped at max(refresh, 1h))", notBefore, valid, want)
+	}
+	app.pollWeather(ctx, t0.Add(61*time.Minute))
+	if st.hits.Load() != 2 {
+		t.Errorf("%d requests an hour later, want 2 (the cap lets the next poll through)", st.hits.Load())
+	}
+}
+
 func TestMetNoCurrentValuesFollowTheKeptSeries(t *testing.T) {
 	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: metT0.Add(25 * time.Minute), notModified: true}
 	app := newMetCacheApp(t, st, false)

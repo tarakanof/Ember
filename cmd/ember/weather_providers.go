@@ -53,11 +53,11 @@ type fetchResult struct {
 	NotModified  bool
 }
 
-func (r fetchResult) expiresAt(now time.Time) time.Time {
+func (r fetchResult) expiresAt(now time.Time, maxFresh time.Duration) time.Time {
 	if r.Expires.IsZero() || r.Date.IsZero() {
 		return r.Expires
 	}
-	return now.Add(max(r.Expires.Sub(r.Date)-r.Age, 0))
+	return now.Add(min(max(r.Expires.Sub(r.Date)-r.Age, 0), maxFresh))
 }
 
 type httpMeta struct {
