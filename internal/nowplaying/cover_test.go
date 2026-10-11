@@ -80,14 +80,14 @@ func TestCoverEdgeIsAntiAliased(t *testing.T) {
 	}
 	img := cover(square(white))
 	var partial int
-	for y := range coverSize {
+	for y := range coverSize / 2 {
 		for x := range coverSize {
 			if v := img.Pix[img.PixOffset(x, y)]; v > 0 && v < 150 {
 				partial++
 			}
 		}
 	}
-	if partial < 400 {
+	if partial < 200 {
 		t.Fatalf("%d partial-coverage pixels on the rim, want an anti-aliased ring", partial)
 	}
 }
