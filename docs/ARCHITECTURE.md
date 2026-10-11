@@ -1294,9 +1294,14 @@ past date, a negative or a non-number gives no floor. With an observation on
 screen a failure keeps the normal cadence. The air-quality call runs on every
 minute poll, before the weather `due` check, so turning the air tile on
 fetches within a minute. It is skipped while the stored reading is younger
-than `refresh_minutes`, and at most once per 2 min (`weatherRetryBase`) while
-it fails (`airDue`), so weather retries don't refetch a reading that just
-succeeded. A location switch clears both.
+than `refresh_minutes`, so weather retries don't refetch a reading that just
+succeeded. While it fails it backs off like weather: `airFailures` counts
+consecutive failures and `airDue` waits `weatherRetryDelay(airFailures,
+refresh)` after the last attempt (2, 4, 8 min … up to `refresh_minutes`, so
+~8 calls in an hour of failures, and every minute at `refresh_minutes: 1`),
+with the error's `Retry-After` as a floor capped at `refresh_minutes`
+(`markAirFailed`). A success resets the count and floor; a location switch
+clears the reading, the count, the floor and the last-attempt time.
 
 **Face data** (#350, `weather_providers.go`). Each fetch also fills the
 observation's knob-face fields, nothing persisted: `Now` (cloud %, UV,
