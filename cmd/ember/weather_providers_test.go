@@ -489,7 +489,7 @@ func TestWeatherStaysFreshUntilProviderExpiry(t *testing.T) {
 	}
 }
 
-func TestMetNoPopsTheConditionChangeWithoutAFullFetch(t *testing.T) {
+func TestMetNoPopsTheConditionChangeOnceForTheEntryNow(t *testing.T) {
 	cases := []struct {
 		name        string
 		expires     time.Duration
@@ -497,7 +497,8 @@ func TestMetNoPopsTheConditionChangeWithoutAFullFetch(t *testing.T) {
 		hits        int32
 	}{
 		{"skipped until Expires", 3 * time.Hour, false, 1},
-		{"answered 304", 25 * time.Minute, true, 2},
+		{"answered 304", 25 * time.Minute, true, 3},
+		{"full 200 whose series starts an hour back", -time.Minute, false, 3},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -505,8 +506,9 @@ func TestMetNoPopsTheConditionChangeWithoutAFullFetch(t *testing.T) {
 			app := newMetCacheApp(t, st, false)
 			pub := app.publisher.(*recordingPublisher)
 			app.updateConfig(func(cfg *Config) { cfg.Weather.PopupOnChange = boolPtr(true) })
-			app.pollWeather(context.Background(), metT0)
-			app.pollWeather(context.Background(), metT0.Add(61*time.Minute))
+			for _, m := range []int{0, 61, 71} {
+				app.pollWeather(context.Background(), metT0.Add(time.Duration(m)*time.Minute))
+			}
 			if n := st.hits.Load(); n != c.hits {
 				t.Fatalf("setup: %d MET requests, want %d", n, c.hits)
 			}
@@ -518,8 +520,8 @@ func TestMetNoPopsTheConditionChangeWithoutAFullFetch(t *testing.T) {
 					texts = append(texts, s)
 				}
 			}
-			if !slices.Contains(texts, "SNOW 13°") {
-				t.Errorf("popups %q at 21:01, want SNOW 13° for the 21:00 lightsleet entry", texts)
+			if want := []string{"SNOW 13°"}; !slices.Equal(texts, want) {
+				t.Errorf("popups %q over polls at 20:00, 21:01 and 21:11, want %q: the 21:00 lightsleet entry, once", texts, want)
 			}
 		})
 	}

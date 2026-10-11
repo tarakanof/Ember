@@ -517,7 +517,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.weather.notBefore = res.Expires
 	a.weather.mu.Unlock()
 	a.changes.notify(topicWeather)
-	a.popWeather(ctx, now, src, cfg, obs)
+	a.popWeather(ctx, now, src, cfg, obs.current(now))
 	a.nudgePomo()
 }
 
