@@ -743,7 +743,7 @@ func (l *sunPopupLog) due(evs []sunEvent, now time.Time) []sunEvent {
 		if ev.rise {
 			last = &l.rise
 		}
-		if ev.at.Sub(*last).Abs() < sunPopupGrace {
+		if ev.at.Equal(*last) {
 			continue
 		}
 		*last = ev.at

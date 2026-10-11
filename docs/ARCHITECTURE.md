@@ -1705,10 +1705,9 @@ Weather constraints:
   uses), so a crossing after local midnight that belongs to the previous
   solar day pops too (Tromsø's first sunset after the midnight sun,
   2026-07-26 00:37 local; every June sunset near midnight in Reykjavík).
-  Keyed by the local day, the old popups missed 5 (Tromsø), 25 (Utqiaġvik),
-  8 (McMurdo), 16 (Reykjavík) and 2 (Longyearbyen) crossings in 2026.
   `sunPopupLog` keeps the last popped time per direction and drops a
-  crossing within the 2-min window of it, so each pops once; two sunsets
+  crossing at exactly that instant (`sunEvents` is deterministic, so a
+  crossing has the same time on every poll), so each pops once; two sunsets
   can share a local day when the sunset moves back before midnight.
   `TestSunPopupsFireOnceForEveryModelCrossingAllYear` runs the window and
   the log minute by minute through 2026 at those five sites with their
