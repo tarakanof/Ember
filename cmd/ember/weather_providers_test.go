@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -133,6 +135,37 @@ func TestFetchMetNoUsesCompleteAndAggregatesDays(t *testing.T) {
 	if b.Start != time.Date(2026, 6, 21, 22, 0, 0, 0, time.UTC) || b.Cond != render.WeatherStorm || b.Code != "heavyrainandthunder" ||
 		!approx(b.MinC, 7) || !approx(b.MaxC, 18) || b.PrecipMM == nil || math.Abs(*b.PrecipMM-4.2) > 1e-9 || !approx(b.Pop, 70) {
 		t.Errorf("day 1 = %+v", b)
+	}
+}
+
+func TestMetDaysSplitAPeriodAcrossLocalMidnight(t *testing.T) {
+	var ts []metEntry
+	six := func(at string, temp float64, sym string, mm, lo, hi, pop float64) string {
+		return fmt.Sprintf(`{"time":"%s","data":{"instant":{"details":{"air_temperature":%v}},
+"next_6_hours":{"summary":{"symbol_code":"%s"},"details":{"precipitation_amount":%v,"air_temperature_min":%v,"air_temperature_max":%v,"probability_of_precipitation":%v}}}}`,
+			at, temp, sym, mm, lo, hi, pop)
+	}
+	body := "[" + strings.Join([]string{
+		six("2026-06-21T12:00:00Z", 18, "rain", 6, 10, 20, 50),
+		six("2026-06-21T18:00:00Z", 15, "rain", 3, 5, 12, 80),
+		six("2026-06-22T00:00:00Z", 9, "cloudy", 0, 8, 9, 10),
+		`{"time":"2026-06-22T06:00:00Z","data":{"instant":{"details":{"air_temperature":10}}}}`,
+	}, ",") + "]"
+	if err := json.Unmarshal([]byte(body), &ts); err != nil {
+		t.Fatal(err)
+	}
+	days := metDays(ts, 2*time.Hour)
+	if len(days) != 2 {
+		t.Fatalf("days = %+v, want 2", days)
+	}
+	a, b := days[0], days[1]
+	if !approx(a.PrecipMM, 8) || !approx(a.MinC, 5) || !approx(a.MaxC, 20) || !approx(a.Pop, 80) || a.Cond != render.WeatherRain {
+		t.Errorf("day 0 = precip %v min %v max %v pop %v %s; want 6 + 4/6 of 3 = 8 mm, 5..20, 80 %%, rain",
+			valueOr(a.PrecipMM, -1), valueOr(a.MinC, -1), valueOr(a.MaxC, -1), valueOr(a.Pop, -1), a.Cond)
+	}
+	if !approx(b.PrecipMM, 1) || !approx(b.MinC, 5) || !approx(b.MaxC, 12) || !approx(b.Pop, 80) || b.Cond != render.WeatherRain {
+		t.Errorf("day 1 = precip %v min %v max %v pop %v %s; want the 20:00-02:00 period's last 2 h (1 mm), its 5..12, 80 %%, rain",
+			valueOr(b.PrecipMM, -1), valueOr(b.MinC, -1), valueOr(b.MaxC, -1), valueOr(b.Pop, -1), b.Cond)
 	}
 }
 

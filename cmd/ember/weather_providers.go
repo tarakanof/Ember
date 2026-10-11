@@ -340,45 +340,72 @@ func minOpt(cur, v *float64) *float64 {
 
 func metDays(ts []metEntry, off time.Duration) []weatherDay {
 	var days []weatherDay
-	for i, e := range ts {
-		y, m, d := e.Time.UTC().Add(off).Date()
+	dayIndex := func(t time.Time) int {
+		y, m, d := t.UTC().Add(off).Date()
 		start := time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Add(-off)
-		if len(days) == 0 || !days[len(days)-1].Start.Equal(start) {
-			if len(days) == forecastDays {
-				break
+		for i := range days {
+			if days[i].Start.Equal(start) {
+				return i
 			}
-			days = append(days, weatherDay{Start: start})
 		}
-		day := &days[len(days)-1]
+		if len(days) == forecastDays || (len(days) > 0 && start.Before(days[len(days)-1].Start)) {
+			return -1
+		}
+		days = append(days, weatherDay{Start: start})
+		return len(days) - 1
+	}
+	for i, e := range ts {
+		di := dayIndex(e.Time)
+		if di < 0 {
+			break
+		}
+		day := &days[di]
 		in := e.Data.Instant.Details
 		day.MinC = minOpt(day.MinC, &in.AirTemperature)
 		day.MaxC = maxOpt(day.MaxC, &in.AirTemperature)
 		day.UVMax = maxOpt(day.UVMax, in.UV)
 		day.GustMaxKmh = maxOpt(day.GustMaxKmh, scaled(in.Gust, msToKmh))
 		step := metInterval(ts, i)
-		p, share := e.Data.Next1Hours, 1.0
+		p, period, span := e.Data.Next1Hours, time.Hour, time.Hour
 		if step > time.Hour {
-			p, share = e.Data.Next6Hours, min(1, step.Hours()/6)
-			if p != nil {
-				day.MinC = minOpt(day.MinC, p.Details.MinC)
-				day.MaxC = maxOpt(day.MaxC, p.Details.MaxC)
-			}
+			p, period, span = e.Data.Next6Hours, 6*time.Hour, min(step, 6*time.Hour)
 		}
 		if p == nil {
 			continue
 		}
-		day.Pop = maxOpt(day.Pop, p.Details.Pop)
-		if p.Details.PrecipMM != nil {
-			day.PrecipMM = new(*p.Details.PrecipMM*share + valueOr(day.PrecipMM, 0))
-		}
-		if sym := p.Summary.SymbolCode; sym != "" {
-			cond, _ := metSymbolCondition(sym)
-			if day.Code == "" || weatherCondRank[cond] > weatherCondRank[day.Cond] {
-				day.Cond, day.Code = cond, sym
+		end := e.Time.Add(span)
+		for from := e.Time; from.Before(end); {
+			di := dayIndex(from)
+			if di < 0 {
+				break
 			}
+			day := &days[di]
+			to := day.Start.Add(24 * time.Hour)
+			if end.Before(to) {
+				to = end
+			}
+			metPeriodInto(day, p, period == 6*time.Hour, to.Sub(from).Hours()/period.Hours())
+			from = to
 		}
 	}
 	return days
+}
+
+func metPeriodInto(day *weatherDay, p *metPeriod, extrema bool, share float64) {
+	if extrema {
+		day.MinC = minOpt(day.MinC, p.Details.MinC)
+		day.MaxC = maxOpt(day.MaxC, p.Details.MaxC)
+	}
+	day.Pop = maxOpt(day.Pop, p.Details.Pop)
+	if p.Details.PrecipMM != nil {
+		day.PrecipMM = new(*p.Details.PrecipMM*share + valueOr(day.PrecipMM, 0))
+	}
+	if sym := p.Summary.SymbolCode; sym != "" {
+		cond, _ := metSymbolCondition(sym)
+		if day.Code == "" || weatherCondRank[cond] > weatherCondRank[day.Cond] {
+			day.Cond, day.Code = cond, sym
+		}
+	}
 }
 
 func valueOr(v *float64, def float64) float64 {

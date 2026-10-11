@@ -1308,12 +1308,19 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   `current` block is refetched every poll. `Precip` is the leading run of
   1-h entries'
   `next_1_hours.precipitation_amount` (snow for a snow or sleet symbol, at
-  most 14). `Days` are aggregated per local day: each entry uses
-  `next_1_hours` when the next entry is 1 h later, else `next_6_hours`
-  (its precipitation scaled by the gap / 6 h so a 2-h gap isn't counted 6 h;
-  its min/max joins the instant temperatures); the condition is the day's
-  worst symbol (storm > snow > rain > fog > clouds > clear) and `Code` that
-  symbol; probability and UV are maxima of what the entries carry.
+  most 14). `Days` are aggregated per local day: an entry's instant
+  values go to the day of its time; its period is `next_1_hours` when the
+  next entry is 1 h later, else `next_6_hours` over the gap (at most 6 h).
+  A period that crosses local midnight (a 6-h period at UTC+2, a 1-h one
+  at a half-hour offset) counts for every day it overlaps: its
+  precipitation is split by the overlap (amount × overlap / period
+  length, so a 2-h gap isn't counted 6 h), and its 6-h min/max, its
+  probability and its symbol go to each such day. The condition is the
+  worst symbol of the day's periods (storm > snow > rain > fog > clouds >
+  clear) and `Code` that symbol: `next_1_hours` in the hourly range,
+  where a 6-h window would reach hours outside the day, and
+  `next_6_hours` beyond it. Probability and UV are maxima of what the
+  entries carry.
 - **MET caching.** The store keeps `Last-Modified` and `Expires`
   (`lastModified`, `notBefore`; cleared with the observation on a provider
   or location switch, so a new location neither waits for the old
