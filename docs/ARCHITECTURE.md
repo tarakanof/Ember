@@ -1349,7 +1349,10 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   (`lastModified`, `notBefore`; cleared with the observation on a provider or
   location switch, so a new location neither waits for the old `Expires` nor
   sends the old `Last-Modified`, which MET would answer with a 304 for the
-  wrong city). A due poll before `Expires` skips the MET call but still moves
+  wrong city). `Expires` is read relative to the response's `Date`: the
+  stored instant is the poll time plus `Expires` − `Date`, so a MET or
+  Ember clock that is off neither skips MET for hours nor refetches on
+  every poll (without a `Date` the absolute `Expires` is kept). A due poll before `Expires` skips the MET call but still moves
   `lastFetch`, so the next due poll checks again;
   after `Expires` the request carries `If-Modified-Since`. A **304** keeps the
   observation, sets its `FetchedAt` to now and its `ValidUntil` and

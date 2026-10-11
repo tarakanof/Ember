@@ -507,6 +507,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	}
 	obs := res.Obs
 	obs.FetchedAt = now
+	obs.ValidUntil = res.expiresAt(now)
 	a.weather.mu.Lock()
 	if a.cfg.Load().Weather.source() != src {
 		a.weather.mu.Unlock()
@@ -518,7 +519,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.weather.failures = 0
 	a.weather.retryAt = time.Time{}
 	a.weather.lastModified = res.LastModified
-	a.weather.notBefore = res.Expires
+	a.weather.notBefore = obs.ValidUntil
 	a.weather.mu.Unlock()
 	a.changes.notify(topicWeather)
 	a.popWeather(ctx, now, src, cfg, obs.current(now))
@@ -627,9 +628,9 @@ func (a *App) confirmWeather(now time.Time, src weatherSource, res fetchResult) 
 	a.weather.failures = 0
 	a.weather.retryAt = time.Time{}
 	a.weather.obs.FetchedAt = now
-	if !res.Expires.IsZero() {
-		a.weather.notBefore = res.Expires
-		a.weather.obs.ValidUntil = res.Expires
+	if exp := res.expiresAt(now); !exp.IsZero() {
+		a.weather.notBefore = exp
+		a.weather.obs.ValidUntil = exp
 	}
 	return true
 }

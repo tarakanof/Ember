@@ -48,13 +48,22 @@ type fetchResult struct {
 	Obs          weatherObservation
 	LastModified string
 	Expires      time.Time
+	Date         time.Time
 	NotModified  bool
+}
+
+func (r fetchResult) expiresAt(now time.Time) time.Time {
+	if r.Expires.IsZero() || r.Date.IsZero() {
+		return r.Expires
+	}
+	return now.Add(r.Expires.Sub(r.Date))
 }
 
 type httpMeta struct {
 	notModified  bool
 	lastModified string
 	expires      time.Time
+	date         time.Time
 }
 
 func (wf *weatherFetcher) fetch(ctx context.Context, cfg WeatherConfig, hint fetchHint) (fetchResult, error) {
@@ -85,6 +94,9 @@ func (wf *weatherFetcher) getJSON(ctx context.Context, url, ifModifiedSince stri
 	meta := httpMeta{lastModified: resp.Header.Get("Last-Modified")}
 	if t, err := http.ParseTime(resp.Header.Get("Expires")); err == nil {
 		meta.expires = t
+	}
+	if t, err := http.ParseTime(resp.Header.Get("Date")); err == nil {
+		meta.date = t
 	}
 	if resp.StatusCode == http.StatusNotModified && ifModifiedSince != "" {
 		meta.notModified = true
@@ -292,7 +304,7 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig, hin
 	if err != nil {
 		return fetchResult{}, err
 	}
-	res := fetchResult{LastModified: meta.lastModified, Expires: meta.expires, NotModified: meta.notModified}
+	res := fetchResult{LastModified: meta.lastModified, Expires: meta.expires, Date: meta.date, NotModified: meta.notModified}
 	if res.NotModified {
 		return res, nil
 	}
@@ -312,7 +324,6 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig, hin
 	res.Obs = weatherObservation{
 		Hourly: hourly, HourlyStart: first.Time,
 		TZOffsetSeconds: hint.TZOffsetSeconds, TZKnown: hint.TZKnown,
-		ValidUntil: meta.expires,
 		PrecipStep: time.Hour,
 		Precip:     metPrecip(ts),
 		Days:       metDays(ts, off),
