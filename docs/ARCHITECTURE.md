@@ -1532,12 +1532,21 @@ Weather constraints:
   the clock's moon icon uses it too. `moonEvents` scans the geocentric
   altitude on the whole-hour grid and bisects each crossing of +0.125°
   (parallax less refraction and semi-diameter) to the second, rounded to
-  the minute; the hour grid makes the result independent of `now`, so a
-  view's ETag doesn't move with the clock. `moonUpWindow` is the current
-  interval above the horizon (rise in the past) or the next one, searched
-  ±36 h; an end not found is zero (polar). It also returns `up`, whether
-  the moon is above the horizon now: the ends alone can't tell "up for
-  days" from "down for days" (both have neither). Checked against Open-Meteo's
+  the minute. An hour whose ends are on the same side can still hold two
+  crossings when the moon turns near the horizon (high latitudes: up
+  12:01–12:33 UT at Longyearbyen on 2026-09-13). Near the horizon (an
+  end within 1° of it; a turn inside one hour moves the altitude at most
+  ~0.5° from the closer end) a golden-section search finds the hour's
+  altitude extremum, and a crossing extremum is bisected on both sides.
+  Against a 1-minute scan of 2026 for Berlin, Oslo, Tromsø and
+  Longyearbyen every event matches; the check costs ~15 % (`moonUpWindow`
+  ~75 → ~88 µs, M4 Pro, mixed latitudes). The hour grid makes the result
+  independent of `now`, so a view's ETag doesn't move with the clock.
+  `moonUpWindow` is the current interval above the horizon (rise in the
+  past) or the next one, searched ±36 h; an end not found is zero
+  (polar). It also returns `up`, whether the moon is above the horizon
+  now: the ends alone can't tell "up for days" from "down for days" (both
+  have neither). Checked against Open-Meteo's
   `daily=moonrise,moonset` (recorded once, test reference only) for four
   latitudes: within a minute. The "local" label time uses the UTC offset
   Open-Meteo supplies (`TZKnown`/`TZOffsetSeconds`; for MET a live air

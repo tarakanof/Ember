@@ -10,6 +10,9 @@ const (
 	moonHorizonDeg = 0.125
 	moonSearch     = 36 * time.Hour
 	moonScanStep   = time.Hour
+
+	moonNearHorizonDeg = 1.0
+	moonTurnPrecision  = 20 * time.Second
 )
 
 type lunarTerm struct {
@@ -112,27 +115,63 @@ type moonEvent struct {
 }
 
 func moonEvents(lat, lon float64, from, to time.Time) []moonEvent {
-	above := func(t time.Time) bool { return moonAltitude(lat, lon, t) > moonHorizonDeg }
+	alt := func(t time.Time) float64 { return moonAltitude(lat, lon, t) - moonHorizonDeg }
+	cross := func(lo, hi time.Time, loUp bool) time.Time {
+		for hi.Sub(lo) > time.Second {
+			mid := lo.Add(hi.Sub(lo) / 2)
+			if (alt(mid) > 0) == loUp {
+				lo = mid
+			} else {
+				hi = mid
+			}
+		}
+		return hi.Round(time.Minute)
+	}
 	var evs []moonEvent
 	prev := from.Truncate(moonScanStep)
-	prevUp := above(prev)
+	prevAlt := alt(prev)
 	for g := prev.Add(moonScanStep); !prev.After(to); g = g.Add(moonScanStep) {
-		up := above(g)
-		if up != prevUp {
-			lo, hi := prev, g
-			for hi.Sub(lo) > time.Second {
-				mid := lo.Add(hi.Sub(lo) / 2)
-				if above(mid) == prevUp {
-					lo = mid
-				} else {
-					hi = mid
-				}
+		a := alt(g)
+		prevUp, up := prevAlt > 0, a > 0
+		switch {
+		case up != prevUp:
+			evs = append(evs, moonEvent{at: cross(prev, g, prevUp), rise: up})
+		case min(math.Abs(prevAlt), math.Abs(a)) < moonNearHorizonDeg:
+			if m := moonTurn(alt, prev, g, up); (alt(m) > 0) != up {
+				evs = append(evs, moonEvent{at: cross(prev, m, up), rise: !up}, moonEvent{at: cross(m, g, !up), rise: up})
 			}
-			evs = append(evs, moonEvent{at: hi.Round(time.Minute), rise: up})
 		}
-		prev, prevUp = g, up
+		prev, prevAlt = g, a
 	}
 	return evs
+}
+
+func moonTurn(alt func(time.Time) float64, lo, hi time.Time, up bool) time.Time {
+	f := func(t time.Time) float64 {
+		if up {
+			return -alt(t)
+		}
+		return alt(t)
+	}
+	const r = 0.6180339887498949
+	span := hi.Sub(lo)
+	a, b := lo.Add(time.Duration(float64(span)*(1-r))), lo.Add(time.Duration(float64(span)*r))
+	fa, fb := f(a), f(b)
+	for hi.Sub(lo) > moonTurnPrecision {
+		if fa < fb {
+			lo, a, fa = a, b, fb
+			b = lo.Add(time.Duration(float64(hi.Sub(lo)) * r))
+			fb = f(b)
+		} else {
+			hi, b, fb = b, a, fa
+			a = hi.Add(-time.Duration(float64(hi.Sub(lo)) * r))
+			fa = f(a)
+		}
+	}
+	if fa > fb {
+		return a
+	}
+	return b
 }
 
 func moonUpWindow(lat, lon float64, now time.Time) (rise, set time.Time, up bool) {

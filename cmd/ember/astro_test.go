@@ -153,6 +153,35 @@ func TestMoonUpWindowLeavesOutMissingEndsInThePolarRegion(t *testing.T) {
 	}
 }
 
+func TestMoonEventsFindTwoCrossingsInsideOneHour(t *testing.T) {
+	near := func(got time.Time, h, m int, day int) bool {
+		return got.Sub(time.Date(2026, 9, day, h, m, 0, 0, time.UTC)).Abs() <= 2*time.Minute
+	}
+	cases := []struct {
+		name     string
+		lat, lon float64
+		day      int
+		first    bool
+		h1, m1   int
+		h2, m2   int
+	}{
+		{"Longyearbyen, up 12:01-12:33", 78.22, 15.65, 13, true, 12, 1, 12, 33},
+		{"Tromsø, down 12:22-12:53", 69.65, 18.96, 29, false, 12, 22, 12, 53},
+	}
+	for _, c := range cases {
+		from := time.Date(2026, 9, c.day, 11, 0, 0, 0, time.UTC)
+		evs := moonEvents(c.lat, c.lon, from, from.Add(2*time.Hour))
+		if len(evs) != 2 || evs[0].rise != c.first || evs[1].rise == c.first ||
+			!near(evs[0].at, c.h1, c.m1, c.day) || !near(evs[1].at, c.h2, c.m2, c.day) {
+			t.Errorf("%s: events %+v, want rise=%v at %02d:%02d and the opposite at %02d:%02d", c.name, evs, c.first, c.h1, c.m1, c.h2, c.m2)
+		}
+	}
+	rise, set, up := moonUpWindow(78.22, 15.65, time.Date(2026, 9, 13, 12, 15, 0, 0, time.UTC))
+	if !up || !near(rise, 12, 1, 13) || !near(set, 12, 33, 13) {
+		t.Errorf("Longyearbyen 12:15: up %v rise %v set %v, want up 12:01-12:33", up, rise, set)
+	}
+}
+
 func TestTwilightCrossesItsAltitudes(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
 	obs := weatherObservation{TZKnown: true, TZOffsetSeconds: 7200}
