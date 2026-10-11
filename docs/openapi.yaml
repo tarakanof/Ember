@@ -2739,7 +2739,9 @@ paths:
         feature, `weather` also carries `utc_offset`, `now`, `today`, `rain`
         (`until`, `spells`), `days`, `twilight`, `moon` and `aqi` after
         `observed_at` (DEVICE-PROTOCOL.md "Weather detail"); a body over
-        `caps.limits.view_bytes` drops them first.
+        `caps.limits.view_bytes` drops them first. With the `np_cover` caps
+        feature, `nowplaying` also carries `accent` (`#RRGGBB`, ≥ 3:1 on
+        black) when there is a picture (DEVICE-PROTOCOL.md "Prepared cover").
       security: [{deviceToken: []}]
       parameters:
         - name: wait
@@ -2801,14 +2803,20 @@ paths:
     get:
       tags: [nowplaying]
       operationId: getNowPlayingArt
-      summary: Square JPEG of the album, artist or backdrop
+      summary: Square JPEG of the album, artist, backdrop or prepared cover
+      description: |
+        `cover` (466 px) is the album picture, else the artist one, cropped
+        into an r 208 circle on black with a rim vignette and a bottom scrim
+        baked in; its ETag carries the recipe version
+        (`"<hash>-cover-466-r1"`). `v` equal to the current `art_version`
+        makes the reply `immutable`.
       security: []
       parameters:
         - name: kind
           in: query
           schema:
             type: string
-            enum: [album, artist, backdrop]
+            enum: [album, artist, backdrop, cover]
         - name: size
           in: query
           schema:

@@ -1707,18 +1707,27 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
   encoder writes SOF0 only, which TJpgDec/`esp_jpeg` on the knob needs; no
   alpha — the knob applies its own circle mask). Sources must be JPEG/PNG,
   ≤2 MB, ≤2048 px a side, checked with `DecodeConfig` and then fully
-  decoded once at ingest (`nowplaying.Validate`), so a corrupt body is a
-  400, not a failure on every render. Renders are serialised (`renderMu`):
+  decoded once at ingest (`nowplaying.Prepare`), so a corrupt body is a
+  400, not a failure on every render. That same decode computes the
+  picture's `accent` (#412: a 24-bin hue histogram of a 32×32 downsample,
+  lightened to 3:1 on black; ~7 ms on top of the decode) and keeps it on
+  the image, next to its hash.
+  `cover` (#412) is the album picture, else the artist, cropped into a
+  466 px circle (r 208) on black with a rim vignette and a bottom scrim
+  baked in (`internal/nowplaying/cover.go`), so the knob decodes and blits
+  one image; its ETag and cache key carry the recipe version
+  (`nowplaying.CoverRecipe`), so retuning it invalidates caches without a
+  new `art_version`. ~29 ms from a 1400 px JPEG, decode included. Renders are serialised (`renderMu`):
   a 2048 px source is ~50 MB of transient decode buffers, which concurrent
   cache misses would multiply; a miss costs ~40 ms, so art routes are
   rate-limited. Served sizes are a fixed set per kind
-  (`nowplaying.Sizes`: album 240/120, artist 64/120, backdrop 466; first =
+  (`nowplaying.Sizes`: album 240/120, artist 64/120, backdrop 466, cover 466; first =
   default), so a client can't force a fresh render per request. 466 isn't
   a multiple of the 16 px MCU; TJpgDec handles the partial MCU, but the
   knob's output buffer and stride must allow for it (cinder#14).
   Renders are serialised (a 1400 px source costs ~44 ms and ~22 MB
   transient) and cached in a RAM LRU of 32 entries / 8 MB keyed by
-  `(hash, kind, size)`. Nothing touches disk (Deezer's terms forbid
+  `(hash, kind, size)`, plus the recipe for `cover`. Nothing touches disk (Deezer's terms forbid
   storing its images).
 - **Plex** (`nowplaying_plex.go`): with `EMBER_PLEX_URL` + `EMBER_PLEX_TOKEN`
   a goroutine polls `/status/sessions` (`Accept: application/json`; 2 s
@@ -3830,6 +3839,10 @@ draws-if-present in `internal/render`, add a menu checkbox.
   costs ~90 µs (the moon scan), paid only for such knobs and only when the
   `weather` page is in their caps and on (`knobView` decides before
   building, not after `applyCaps` hides the block).
+  **Prepared cover (#412):** a knob whose caps list `np_cover` gets
+  `"accent":"#RRGGBB"` as the last key of `nowplaying` when the entry has
+  a picture, and fetches `kind=cover`; DEVICE-PROTOCOL.md "Prepared
+  cover" has the recipe and rules. Every other view keeps its bytes.
 - **Knob view long-poll (#235).** `?wait=N` (whole seconds, capped at 25,
   `devices_view_wait.go`) with `If-None-Match` holds the request while the
   view still matches the tag: 200 with the new body as soon as it changes,

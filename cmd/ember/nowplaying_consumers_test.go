@@ -33,7 +33,7 @@ func TestNowPlayingConsumersShareTheRegistryExpiry(t *testing.T) {
 			if _, err := app.nowPlaying.reg.Report(tc.rep, t0); err != nil {
 				t.Fatal(err)
 			}
-			knob := app.knobNowPlaying(tc.at)
+			knob := app.knobNowPlaying(tc.at, false)
 			state := app.nowPlayingState(tc.at)
 			if knob.State != tc.want || state.State != tc.want {
 				t.Fatalf("knob %q, /v1/nowplaying/state %q, want %q", knob.State, state.State, tc.want)

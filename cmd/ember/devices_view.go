@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
 const knobNowHeader = "X-Ember-Now"
@@ -87,6 +89,7 @@ type knobNowPlaying struct {
 	AlbumArt   bool   `json:"album_art,omitempty"`
 	ArtistArt  bool   `json:"artist_art,omitempty"`
 	Volume     *int   `json:"volume,omitempty"`
+	Accent     string `json:"accent,omitempty"`
 }
 
 const knobNowPlayingPage = "nowplaying"
@@ -128,7 +131,7 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 		DiagLiveUntil: a.knobLiveUnix(id, st.cfg.Diagnostics, now),
 	}
 	if st.cfg.pageOn(knobNowPlayingPage) {
-		v.NowPlaying = a.knobNowPlaying(now)
+		v.NowPlaying = a.knobNowPlaying(now, st.caps.hasFeature(featureNPCover))
 	}
 	if st.caps != nil {
 		v.applyCaps(st.caps, st.cfg)
@@ -190,12 +193,12 @@ func (v *knobView) fit(body []byte, limit int) ([]byte, error) {
 	return body, nil
 }
 
-func (a *App) knobNowPlaying(now time.Time) *knobNowPlaying {
+func (a *App) knobNowPlaying(now time.Time, accent bool) *knobNowPlaying {
 	e, ok := a.nowPlaying.reg.Current(now)
 	if !ok {
 		return &knobNowPlaying{State: nowPlayingNone}
 	}
-	return &knobNowPlaying{
+	np := &knobNowPlaying{
 		State:      string(e.State),
 		Source:     e.Source,
 		Title:      e.Title,
@@ -210,6 +213,10 @@ func (a *App) knobNowPlaying(now time.Time) *knobNowPlaying {
 		ArtistArt:  e.ArtistArt != nil,
 		Volume:     e.Volume,
 	}
+	if img := e.Picture(nowplaying.Cover); accent && img != nil {
+		np.Accent = img.Accent
+	}
+	return np
 }
 
 func (a *App) knobPomo(now time.Time) *knobPomo {

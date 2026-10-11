@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -335,8 +336,8 @@ func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 	f := goldenViewFixture(t)
 	now := f.clk.Now()
 	long := strings.Repeat("W", 64)
-	color := "#00C8C8"
-	f.app.Upsert(StatusRequest{Source: long, Tool: "claude", Session: "s1", State: "waiting", SourceColor: &color})
+	lead := "#00C8C8"
+	f.app.Upsert(StatusRequest{Source: long, Tool: "claude", Session: "s1", State: "waiting", SourceColor: &lead})
 	f.app.Upsert(StatusRequest{Source: long + "2", Tool: "claude", Session: "s2", State: "waiting"})
 	f.app.Upsert(StatusRequest{Source: long + "2", Tool: "claude", Session: "s3", State: "waiting"})
 	f.eng.Start(pomodoro.PhaseFocus)
@@ -347,7 +348,11 @@ func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 	if _, err := f.app.nowPlaying.reg.Report(rep, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.app.nowPlaying.reg.SetArt(npSource, long, rep.TrackID, nowplaying.Album, nowplaying.NewImage([]byte("album"))); err != nil {
+	album, err := nowplaying.Prepare(pngBytes(t, 16, color.RGBA{200, 30, 30, 255}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.app.nowPlaying.reg.SetArt(npSource, long, rep.TrackID, nowplaying.Album, album); err != nil {
 		t.Fatal(err)
 	}
 	f.app.updateConfig(func(c *Config) {
@@ -381,8 +386,11 @@ func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 	resp, b := devReq(t, f.srv, "POST", "/v1/devices/"+f.m.ID+"/stats/live", testToken, `{"seconds":300}`)
 	mustOK(t, "live", resp, b)
 	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather", "nowplaying"},
-		Features: []string{featureWxFaces}, Limits: &deviceCapsLimits{ViewBytes: 16383}})
+		Features: []string{featureNPCover, featureWxFaces}, Limits: &deviceCapsLimits{ViewBytes: 16383}})
 	body := goldenView(t, f)
+	if a, ok := viewAccent(t, body); !ok || len(a) != 7 {
+		t.Fatalf("worst case lacks the accent: %s", body)
+	}
 	w := decodeFaces(t, body).Weather
 	if w.Rain == nil || w.Rain.Until == nil || len(w.Rain.Spells) != rainSpellsMax || len(w.Days) != faceForecastDays || w.AQI == nil ||
 		len(w.Now) != 6 || len(w.Today) != 5 || len(w.Twilight) != 6 || w.UTCOffset == nil || *w.UTCOffset >= 0 ||
