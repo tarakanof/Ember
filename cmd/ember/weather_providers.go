@@ -17,7 +17,7 @@ import (
 
 const defaultOpenMeteoModel = "best_match"
 
-var weatherProviders = []string{"open-meteo", "met-no"}
+var weatherProviders = []string{"open-meteo", "met-no", tomorrowIO}
 
 var openMeteoModels = []string{defaultOpenMeteoModel, "ecmwf_ifs", "ecmwf_ifs025", "icon_seamless", "gfs_seamless", "ukmo_seamless"}
 
@@ -31,6 +31,8 @@ type weatherFetcher struct {
 	client         *http.Client
 	openMeteoBase  string
 	metNoBase      string
+	tomorrowBase   string
+	tomorrowKey    string
 	airQualityBase string
 	userAgent      string
 }
@@ -40,6 +42,7 @@ func newWeatherFetcher() *weatherFetcher {
 		client:         &http.Client{Timeout: 12 * time.Second},
 		openMeteoBase:  "https://api.open-meteo.com",
 		metNoBase:      "https://api.met.no",
+		tomorrowBase:   "https://api.tomorrow.io",
 		airQualityBase: "https://air-quality-api.open-meteo.com",
 		userAgent:      "ember-weather/0.1 (github.com/tarakanof/ember)",
 	}
@@ -82,6 +85,9 @@ func (wf *weatherFetcher) fetch(ctx context.Context, cfg WeatherConfig, hint fet
 	switch cfg.Provider {
 	case "met-no":
 		return wf.fetchMetNo(ctx, cfg, hint)
+	case tomorrowIO:
+		obs, err := wf.fetchTomorrow(ctx, cfg, hint)
+		return fetchResult{Obs: obs}, err
 	default:
 		obs, err := wf.fetchOpenMeteo(ctx, cfg)
 		return fetchResult{Obs: obs}, err
@@ -119,19 +125,23 @@ func (wf *weatherFetcher) getJSON(ctx context.Context, url, ifModifiedSince stri
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return httpMeta{}, &weatherHTTPError{status: resp.Status, body: strings.TrimSpace(string(body)),
+		return httpMeta{}, &weatherHTTPError{code: resp.StatusCode, status: resp.Status, body: strings.TrimSpace(string(body)),
 			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 	return meta, json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out)
 }
 
 type weatherHTTPError struct {
+	code       int
 	status     string
 	body       string
 	retryAfter time.Duration
 }
 
 func (e *weatherHTTPError) Error() string {
+	if e.body == "" {
+		return "weather http " + e.status
+	}
 	return fmt.Sprintf("weather http %s: %s", e.status, e.body)
 }
 

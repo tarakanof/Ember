@@ -4,15 +4,18 @@ public struct WeatherSourceOption: Identifiable, Sendable {
     public let id: String
     public let name: String
     public let detail: LocalizedStringResource
+    public var keyEnv: String? = nil
 }
 
 public enum WeatherSources {
     public static let openMeteo = "open-meteo"
     public static let defaultOpenMeteoModel = "best_match"
+    public static let tomorrowIO = "tomorrow-io"
 
     public static let providers: [WeatherSourceOption] = [
         WeatherSourceOption(id: openMeteo, name: "Open-Meteo", detail: "Worldwide, free and without a key for non-commercial use, up to 10,000 calls a day. Rain comes in 15-minute steps. Air quality always comes from Open-Meteo. The model below decides what you get."),
         WeatherSourceOption(id: "met-no", name: "MET Norway", detail: "Worldwide, free and without a key. Finest in the Nordic countries; elsewhere it uses ECMWF's global model. Rain comes in hourly steps, and the chance of rain only in the Nordic area. It has no air quality, so that still comes from Open-Meteo."),
+        WeatherSourceOption(id: tomorrowIO, name: "Tomorrow.io", detail: "Worldwide, with a free API key set on the server. The free plan allows 500 calls a day and 25 an hour, so Ember fetches at most every 5 minutes. Rain comes minute by minute for the next hour where your plan includes it, otherwise hourly; its days run from 6 am to 6 am. Air quality still comes from Open-Meteo.", keyEnv: "EMBER_TOMORROW_API_KEY"),
     ]
 
     public static let openMeteoModels: [WeatherSourceOption] = [
@@ -26,6 +29,11 @@ public enum WeatherSources {
 
     public static func provider(_ id: String) -> WeatherSourceOption? {
         providers.first { $0.id == id }
+    }
+
+    public static func isAvailable(_ id: String, in available: [String]?) -> Bool {
+        guard provider(id)?.keyEnv != nil else { return true }
+        return available?.contains(id) ?? false
     }
 
     public static func openMeteoModel(_ id: String) -> WeatherSourceOption? {

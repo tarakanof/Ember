@@ -59,6 +59,10 @@ func main() {
 	}
 
 	app := NewApp(cfg, nil, logger)
+	app.weatherFetcher.tomorrowKey = strings.TrimSpace(os.Getenv(tomorrowKeyEnv))
+	if app.weatherFetcher.tomorrowKey != "" {
+		logger.Info("weather provider tomorrow-io available (" + tomorrowKeyEnv + " set)")
+	}
 	if envEnabled(os.Getenv("EMBER_FIRMWARE_CHECK")) && !clockDisabled() {
 		app.firmware.url = ngReleasesURL
 	}
@@ -70,6 +74,9 @@ func main() {
 	app.reapplySettings()
 	releaseRotation()
 	app.migrateClockConfig()
+	if reason := app.weatherUnavailableReason(app.cfg.Load().Weather); reason != "" {
+		logger.Warn("weather unavailable: no fetches until the key is set or another provider is chosen", "reason", reason)
+	}
 	if pomoErr != nil {
 		logger.Warn("pomodoro init failed; feature unavailable and settings will not persist until the data store is writable", "err", pomoErr, "db_path", cfg.Pomodoro.DBPath)
 	} else {

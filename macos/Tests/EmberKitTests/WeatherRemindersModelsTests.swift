@@ -127,3 +127,19 @@ import Foundation
     #expect(models == ["best_match", "ecmwf_ifs", "ecmwf_ifs025", "icon_seamless", "gfs_seamless", "ukmo_seamless"])
     #expect(WeatherSources.openMeteoModel("meteofrance_seamless") == nil)
 }
+
+@Test func weatherConfigDecodesProvidersAvailable() throws {
+    let now = #"{"provider":"open-meteo","providers_available":["open-meteo","met-no"]}"#
+    #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(now.utf8)).providersAvailable == ["open-meteo", "met-no"])
+    let old = #"{"provider":"open-meteo"}"#
+    #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(old.utf8)).providersAvailable == nil)
+}
+
+@Test func keyedWeatherProviderIsAvailableOnlyWhenTheServerSaysSo() {
+    #expect(WeatherSources.provider(WeatherSources.tomorrowIO)?.keyEnv == "EMBER_TOMORROW_API_KEY")
+    #expect(!WeatherSources.isAvailable(WeatherSources.tomorrowIO, in: ["open-meteo", "met-no"]))
+    #expect(!WeatherSources.isAvailable(WeatherSources.tomorrowIO, in: nil))
+    #expect(WeatherSources.isAvailable(WeatherSources.tomorrowIO, in: ["open-meteo", "met-no", "tomorrow-io"]))
+    #expect(WeatherSources.isAvailable("met-no", in: nil))
+    #expect(WeatherSources.isAvailable("open-meteo", in: []))
+}

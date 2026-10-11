@@ -1574,6 +1574,12 @@ paths:
       tags: [settings]
       operationId: getWeatherConfig
       summary: Weather settings (includes the location)
+      description: |
+        Also answers `providers_available`, the providers this server can
+        fetch from: `tomorrow-io` only while `EMBER_TOMORROW_API_KEY` is set.
+        A chosen `provider` may be missing from it (key removed after it was
+        chosen): no fetches then, and `/v1/weather/state` answers `error`.
+        The key itself is never answered.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
@@ -1593,7 +1599,10 @@ paths:
         returns the merged shape. `open_meteo_model` (default `best_match`)
         is one of `best_match`, `ecmwf_ifs`, `ecmwf_ifs025`,
         `icon_seamless`, `gfs_seamless`, `ukmo_seamless`; any other value
-        is a 400 (ARCHITECTURE "Providers and models").
+        is a 400 (ARCHITECTURE "Providers and models"). `provider` is one
+        of `open-meteo`, `met-no`, `tomorrow-io`; switching to
+        `tomorrow-io` without `EMBER_TOMORROW_API_KEY` on the server is a
+        400. The reply carries `providers_available` like the GET.
       summary: Merge weather settings
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]

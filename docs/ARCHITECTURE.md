@@ -1289,7 +1289,7 @@ outage) settles at the normal cadence rather than ~720 calls a day. A success
 or a source switch resets the count. A provider's `Retry-After` (seconds or
 HTTP date, carried on `weatherHTTPError`) is a floor on the next attempt
 whether or not an observation is shown, capped at `refresh_minutes`
-(`markWeatherFailed`): a year, a 2099 date or a second count past
+(`markWeatherFailedAfter`): a year, a 2099 date or a second count past
 `time.Duration` would otherwise freeze weather for days. `parseRetryAfter`
 clamps the seconds to 24 h (`weatherRetryAfterMax`) before converting, and a
 past date, a negative or a non-number gives no floor. With an observation on
@@ -1324,12 +1324,21 @@ The app keeps the user-facing descriptions
 (`EmberKit/Settings/WeatherSources.swift`, shown under the pickers); this
 table mirrors them, and `TestAppWeatherSourcesMatchTheServerLists` keeps the
 app's ids equal to the server's. A new provider is one id in `weatherProviders`, a fetch
-branch, and an entry in `WeatherSources.providers`. Values checked on
+branch, and an entry in `WeatherSources.providers` (with `keyEnv` when it
+needs a server-side key: `providers_available` in `GET/PUT
+/v1/weather/config` then decides whether the app offers it, and a PUT
+switching to it without the key is a 400 (`settingSpec.check`, run on
+PUTs only, never on a reapply). The stored provider is never rewritten at
+startup: a choice whose key went away stays chosen, Ember makes no fetch
+for it, `/v1/weather/state` answers `error` with the reason
+(`weatherUnavailableReason`), the startup log warns, and the app says so
+under the picker; the user can pick another provider, and fetches resume
+on the first start with the key). Values checked on
 2026-10-11 at Belgrade and New York (#427):
 
 | Provider / model | Coverage and resolution | Limits in Ember |
 |---|---|---|
-| Open-Meteo | Worldwide, free, no key | Non-commercial use, 10,000 calls a day; 15-min rain; also serves air quality for both providers |
+| Open-Meteo | Worldwide, free, no key | Non-commercial use, 10,000 calls a day; 15-min rain; also serves air quality for every provider |
 | └ `best_match` (default) | Best local model blended with a global one; central Europe is mostly DWD ICON | Can miss showers other models see (#427: rain in Belgrade, 0 mm here); 15-min rain split from hourly outside central Europe and the US |
 | └ `ecmwf_ifs` | ECMWF IFS HRES 9 km, worldwide, 4 runs a day | No UV; 15-min rain is the hourly amount split evenly |
 | └ `ecmwf_ifs025` | ECMWF IFS open data 0.25° (~25 km), 4 runs a day | No UV; coarse, smooths local showers; 15-min rain split from hourly |
@@ -1337,8 +1346,10 @@ branch, and an entry in `WeatherSources.providers`. Values checked on
 | └ `gfs_seamless` | NOAA HRRR 3 km (contiguous US, hourly runs), GFS 13–25 km elsewhere | 15-min rain split from hourly outside the US |
 | └ `ukmo_seamless` | UK Met Office UKV 2 km (UK, Ireland), global 10 km | UV only near the UK and for the first 2 days; 15-min rain split from hourly |
 | MET Norway | Worldwide, free, no key; MEPS 2.5 km in the Nordics, ECMWF elsewhere | Hourly rain steps; chance of rain only in the Nordic area; needs an identifying User-Agent; no air quality |
+| Tomorrow.io | Worldwide, own blend; needs `EMBER_TOMORROW_API_KEY` (free plan) | Free plan: 500 calls a day, 25 an hour, so at most one fetch per 5 min; minutely rain for the next hour where the plan provides it (the docs call it premium), otherwise hourly, split into 15-min steps; days run 06:00–06:00 local; codes translated to WMO; no air quality. Choosable only while the key is set (`providers_available`) |
 
-Left out: `meteofrance_seamless` returns no chance of rain (hourly or daily)
+The Tomorrow.io row comes from its documentation and support pages, not a
+probe (no key; #432). Left out: `meteofrance_seamless` returns no chance of rain (hourly or daily)
 and only 4 days. Every listed model returns `current`, `minutely_15`
 precipitation and the daily `precipitation_probability_max`; a value a model
 lacks (UV for most) is nil and left out of the knob view like any missing value.
@@ -1417,6 +1428,72 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   for the old location is dropped, so the offset is always this
   location's. Otherwise (air off, failing for 30 min, or not yet fetched
   here) the longitude fallback is used.
+- **Tomorrow.io** (#432, `weather_tomorrow.go`) reads
+  `/v4/weather/forecast?location=lat,lon&units=metric&apikey=…` with no
+  `timesteps`, so the plan's default timelines come back (minutely, hourly
+  120 h, daily; ~170 KB raw by the documented schema, gzipped in transit). Units are metric, so wind
+  and gusts are m/s × 3.6. Weather codes are translated to WMO
+  (`tomorrowWMOCodes`: 1000→0, 1100→1, 1101→2, 1102/1001→3, 2000/2100→45,
+  4000→53, 4200→61, 4001→63, 4201→65, 5001/5100→71, 5000→73, 5101→75,
+  6000→56, 6200/6001→66, 6201→67, 7xxx→77, 8000→95; 0 and unknown codes
+  leave `Code` empty and the condition clouds), so condition, severe,
+  overlay and the knob's faces reuse the Open-Meteo mapping and cinder
+  needs no change. `Steps` are the first minutely entry (the current
+  values, its `time` the observation time) then the hourly entries after
+  it, 24 in all, projected like MET's. `Precip` is 15-min steps, at most
+  48: minutely entries averaged per quarter hour (intensity = rain + freezing
+  rain + snow + sleet mm/h; snow when snow + sleet outweigh rain in most of
+  the quarter's minutes), then each hourly entry split into four quarters
+  over `[t, t+1h)` from where the minutely ones end; a step with no
+  intensity at all is left out. `Days` come from the daily timeline:
+  Tomorrow.io's day runs 06:00–06:00 local (`time` is 06:00 local in UTC),
+  so each entry goes to the local date of its `time` (offset from the air
+  call like MET, else the longitude fallback), a day that ended before the
+  current step is skipped (the first entry is often yesterday's period).
+  Min/max, `precipitationProbabilityMax`, `uvIndexMax`, `windGustMax`;
+  precipitation is `rainAccumulationSum` plus the snow, sleet and ice
+  liquid-water sums. The day code (`tomorrowDayCode`) covers the same
+  06:00–06:00 window as these aggregates: each hourly `weatherCode` in the
+  window counts its hour, the daily `weatherCodeMax` counts the hours the
+  hourly timeline doesn't cover from the current hour on (today's past
+  hours count for nothing), and the code with the highest severity × hours
+  wins (ties to the more severe). Severity is the index in
+  `tomorrowSeverity` plus one: clear 1, clouds, fog, then drizzle and rain
+  (freezing rain above plain rain of the same strength), snow and ice,
+  storm last. So 10 h of heavy rain beat 1 h of flurries, 23 h of clear
+  beat 1 h of fog, and a day past the hourly range takes `weatherCodeMax`,
+  which is the numerically highest code, not the worst weather (4200 light
+  rain beats 4001 rain). Sun and moon
+  times in the reply are ignored (Ember's astro). Rate limits: the
+  provider's refresh and failure retries never run faster than every
+  5 min (`minFetchInterval`), and a 429 waits for `Retry-After` or the next
+  top of the hour, not capped at the refresh interval (`retryAfterCap`).
+  The quota is per key, not per source: the store's `quotaAttemptAt` and
+  `quotaRetryAt` survive `switchSource`, so editing the location or
+  switching providers and back neither fetches sooner than 5 min after the
+  last attempt nor skips a running 429 back-off, and a 429 whose source
+  changed mid-flight still sets it. `reserveQuota` checks the floor and the
+  back-off and records the attempt under one lock, so two polls can't both
+  pass; a later 429 never shortens a longer deadline. The attempt time is
+  taken right before the request (after the poll's sun and air work), and a
+  back-off counts from the response (`Retry-After` plus the request's
+  duration), the next-hour fallback likewise. Polls run on a 1-min ticker,
+  so the floor allows 30 s for the tick's jitter (`quotaTickSlack`): at
+  least 4.5 min between calls, at most 13 an hour. Both times persist in the
+  settings store (`weather_quota_tomorrow_io`: `attempt_at`, `retry_until`,
+  no credential) and are loaded before the first Tomorrow.io fetch, so a
+  restart can't bypass them. A loaded `attempt_at` later than now is
+  dropped and `retry_until` is capped at now + 24 h, so a row written while
+  the clock was ahead can't block for longer. If the row can't be read the
+  load fails closed: the floor counts from that first poll and the read is
+  retried on the next one. A failed write is only logged; the in-memory
+  reservation still holds.
+  Tomorrow.io errors are fixed text: `weather http <code>` (numeric status,
+  no reason phrase, no body), `tomorrow-io: request failed` (transport, with
+  the context error when cancelled) or `tomorrow-io: invalid response`
+  (decoding). A reply's text never reaches a log, so a key echoed in a body,
+  a reason phrase or a field (a `time.ParseError` quotes its input) can't
+  leak, whole or cut.
 
 **Weather state** (`cmd/ember/weather_state.go`, #337). Every reader of the
 stored weather goes through one projection, `weatherStore.state(cfg, now)` →

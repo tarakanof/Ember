@@ -133,6 +133,17 @@
     "%@ lx" : {
       "comment" : "A light level in lux (\"42 lx\")."
     },
+    "%@ needs %@ on the server, so there is no weather until it is set. Pick another provider to get weather now." : {
+      "comment" : "Weather provider note: the chosen provider (e.g. Tomorrow.io), then the environment variable that holds its API key",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ needs %2$@ on the server, so there is no weather until it is set. Pick another provider to get weather now."
+          }
+        }
+      }
+    },
     "%@ now, %@ high" : {
       "comment" : "VoiceOver, weather forecast strip: the current temperature, then the highest over the next hours.",
       "localizations" : {
@@ -2261,7 +2272,7 @@
     "The server didn't answer in time. It may be down or overloaded." : {
       "comment" : "Explains a server that didn't answer in time."
     },
-    "The server fetches conditions from a free provider that needs no key." : {},
+    "The server fetches conditions from a free provider. Open-Meteo and MET Norway need no key." : {},
     "The server is rate-limiting this Mac." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2323,6 +2334,17 @@
     "Tints this Mac's agent icon and name on the clock" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
+    },
+    "To use %@, set %@ on the server and restart it." : {
+      "comment" : "Weather provider hint: a provider name, then the environment variable that holds its API key",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "To use %1$@, set %2$@ on the server and restart it."
+          }
+        }
+      }
     },
     "Today" : {},
     "Today %@" : {
@@ -2600,6 +2622,10 @@
       "extractionState" : "manual"
     },
     "Worldwide, free and without a key. Finest in the Nordic countries; elsewhere it uses ECMWF's global model. Rain comes in hourly steps, and the chance of rain only in the Nordic area. It has no air quality, so that still comes from Open-Meteo." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Worldwide, with a free API key set on the server. The free plan allows 500 calls a day and 25 an hour, so Ember fetches at most every 5 minutes. Rain comes minute by minute for the next hour where your plan includes it, otherwise hourly; its days run from 6 am to 6 am. Air quality still comes from Open-Meteo." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },

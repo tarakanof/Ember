@@ -17,6 +17,7 @@ type settingSpec[D any] struct {
 	after        func(Config)
 	encode       func(D) string
 	decode       func(string) []byte
+	check        func(cur, next D) error
 	presentation []string
 }
 
@@ -103,6 +104,11 @@ func (s *setting[D]) write(patch []byte, also func(before Config, cur *Config), 
 		d, err := mergeSetting(s.spec.view(*cur), patch)
 		if err != nil {
 			return err
+		}
+		if s.spec.check != nil && !stored {
+			if err := s.spec.check(s.spec.view(*cur), d); err != nil {
+				return err
+			}
 		}
 		if err := s.spec.apply(cur, d); err != nil {
 			return err
