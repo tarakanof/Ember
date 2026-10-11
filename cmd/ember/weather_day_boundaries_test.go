@@ -1,9 +1,12 @@
 package main
 
 import (
+	"archive/zip"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -75,7 +78,8 @@ func openMeteoDSTBody(t *testing.T, c dstCase, zone string) string {
 	t.Helper()
 	var times []string
 	for _, d := range c.dates {
-		times = append(times, fmt.Sprint(belgradeMidnight(t, d).Unix()))
+		date, _ := time.Parse("2006-01-02", d)
+		times = append(times, fmt.Sprint(date.Add(-time.Duration(c.offset)*time.Second).Unix()))
 	}
 	tz := ""
 	if zone != "" {
@@ -114,8 +118,9 @@ func TestOpenMeteoDaysWithoutAZoneEndADayLater(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, d := range obs.Days {
-		if !d.Start.Equal(belgradeMidnight(t, c.dates[i])) || !dayEnd(d).Equal(d.Start.Add(24*time.Hour)) {
-			t.Errorf("day %d = [%v, %v), want the provider's start and start + 24 h without a zone", i, d.Start, dayEnd(d))
+		date, _ := time.Parse("2006-01-02", c.dates[i])
+		if start := date.Add(-time.Duration(c.offset) * time.Second); !d.Start.Equal(start) || !dayEnd(d).Equal(start.Add(24*time.Hour)) {
+			t.Errorf("day %d = [%v, %v), want midnight under the single offset and + 24 h without a zone", i, d.Start, dayEnd(d))
 		}
 	}
 }
@@ -237,5 +242,190 @@ func TestAirReadingPassesItsZoneToTheHint(t *testing.T) {
 	cfg := WeatherConfig{AirTile: boolPtr(true)}
 	if h, _ := s.fetchHint(cfg, now); h.TZName != "Europe/Belgrade" || h.TZOffsetSeconds != 7200 {
 		t.Errorf("hint = %+v, want the air reading's zone and offset", h)
+	}
+}
+
+func firstInstant(t *testing.T, loc *time.Location, y int, m time.Month, d int) time.Time {
+	t.Helper()
+	want := time.Date(y, m, d, 12, 0, 0, 0, time.UTC)
+	for at := want.Add(-48 * time.Hour); at.Before(want.Add(48 * time.Hour)); at = at.Add(time.Minute) {
+		ly, lm, ld := at.In(loc).Date()
+		if ly == want.Year() && lm == want.Month() && ld == want.Day() {
+			return at.UTC()
+		}
+	}
+	t.Fatalf("no instant of %v in %s", want.Format("2006-01-02"), loc)
+	return time.Time{}
+}
+
+var midnightGaps = []struct {
+	zone string
+	date time.Time
+}{
+	{"America/Santiago", time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)},
+	{"America/Havana", time.Date(2027, 3, 14, 0, 0, 0, 0, time.UTC)},
+}
+
+func TestDayClockStartsAMidnightlessDayAtItsFirstInstant(t *testing.T) {
+	for _, g := range midnightGaps {
+		t.Run(g.zone, func(t *testing.T) {
+			loc := loadZone(g.zone)
+			if loc == nil {
+				t.Fatal("zone not loaded")
+			}
+			c := dayClock{loc: loc}
+			y, m, d := g.date.Date()
+			start := c.midnight(y, m, d)
+			want := firstInstant(t, loc, y, m, d)
+			if !start.Equal(want) || start.In(loc).Hour() != 1 {
+				t.Errorf("start of %s = %v, want its first instant %v (01:00 local)", g.date.Format("2006-01-02"), start.In(loc), want.In(loc))
+			}
+			prev := c.midnight(y, m, d-1)
+			if end := c.after(prev); !end.Equal(start) {
+				t.Errorf("day before ends %v, want %v", end.In(loc), start.In(loc))
+			}
+			if end := c.after(start); !end.Equal(firstInstant(t, loc, y, m, d+1)) || end.Sub(start) != 23*time.Hour {
+				t.Errorf("gap day = [%v, %v), want 23 h to the next midnight", start.In(loc), end.In(loc))
+			}
+			if s := c.startOf(start.Add(30 * time.Minute)); !s.Equal(start) {
+				t.Errorf("startOf(01:30) = %v, want %v", s.In(loc), start.In(loc))
+			}
+		})
+	}
+}
+
+func metHourly(from time.Time, n int) []metEntry {
+	ts := make([]metEntry, n)
+	for i := range ts {
+		ts[i].Time = from.Add(time.Duration(i) * time.Hour)
+		ts[i].Data.Next1Hours = &metPeriod{}
+		ts[i].Data.Next1Hours.Details.PrecipMM = new(1.0)
+		ts[i].Data.Next1Hours.Summary.SymbolCode = "rain"
+	}
+	return ts
+}
+
+func metDaysWithin(t *testing.T, ts []metEntry, c dayClock, where string) []weatherDay {
+	t.Helper()
+	done := make(chan []weatherDay, 1)
+	go func() { done <- metDays(ts, c) }()
+	select {
+	case days := <-done:
+		return days
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s: metDays did not return", where)
+		return nil
+	}
+}
+
+func TestProvidersSplitAMidnightlessDayAtItsFirstInstant(t *testing.T) {
+	for _, g := range midnightGaps {
+		t.Run(g.zone, func(t *testing.T) {
+			loc := loadZone(g.zone)
+			y, m, d := g.date.Date()
+			want := []time.Time{firstInstant(t, loc, y, m, d-1), firstInstant(t, loc, y, m, d), firstInstant(t, loc, y, m, d+1), firstInstant(t, loc, y, m, d+2)}
+			check := func(name string, days []weatherDay, n int) {
+				t.Helper()
+				if len(days) < n {
+					t.Fatalf("%s: %d days, want %d", name, len(days), n)
+				}
+				for i := range n {
+					if !days[i].Start.Equal(want[i]) || !dayEnd(days[i]).Equal(want[i+1]) {
+						t.Errorf("%s day %d = [%v, %v), want [%v, %v)", name, i, days[i].Start.In(loc), dayEnd(days[i]).In(loc), want[i].In(loc), want[i+1].In(loc))
+					}
+				}
+			}
+			_, off := want[0].In(loc).Zone()
+			clock := dayClock{loc: loc, off: time.Duration(off) * time.Second}
+
+			days := metDaysWithin(t, metHourly(want[0], 72), clock, "MET")
+			check("MET", days, 2)
+			if len(days) > 1 && !approx(days[1].PrecipMM, 23) {
+				t.Errorf("MET gap day precipitation %v, want 23 (its 23 hours)", valueOr(days[1].PrecipMM, -1))
+			}
+
+			var waDaysJSON []string
+			for i := range 3 {
+				waDaysJSON = append(waDaysJSON, fmt.Sprintf(`{"date":%q,"day":{"maxtemp_c":10},"hour":[]}`, g.date.AddDate(0, 0, i-1).Format("2006-01-02")))
+			}
+			st := newWAStub(t, []byte(fmt.Sprintf(`{"location":{"tz_id":%q},"current":{"last_updated_epoch":%d,"temp_c":5},"forecast":{"forecastday":[%s]}}`,
+				g.zone, want[0].Add(10*time.Hour).Unix(), strings.Join(waDaysJSON, ","))))
+			obs, err := newWAFetcher(st.srv.URL).fetchWeatherAPI(t.Context(), waBelgrade, fetchHint{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			check("WeatherAPI.com", obs.Days, 3)
+
+			var daily []string
+			for i := range 3 {
+				daily = append(daily, fmt.Sprintf(`{"time":%q,"values":{"temperatureMax":9}}`, want[i].In(loc).Add(6*time.Hour).UTC().Format(time.RFC3339)))
+			}
+			ts := newTomorrowStub(t, []byte(fmt.Sprintf(`{"timelines":{"hourly":[{"time":%q,"values":{"temperature":5,"weatherCode":1000}}],"daily":[%s]}}`,
+				want[0].Add(10*time.Hour).Format(time.RFC3339), strings.Join(daily, ","))))
+			tobs, err := newTomorrowFetcher(ts.srv.URL).fetchTomorrow(t.Context(), belgrade, fetchHint{TZOffsetSeconds: off, TZKnown: true, TZName: g.zone})
+			if err != nil {
+				t.Fatal(err)
+			}
+			check("Tomorrow.io", tobs.Days, 3)
+
+			var times []string
+			for i := range 4 {
+				times = append(times, fmt.Sprint(g.date.AddDate(0, 0, i-1).Add(-time.Duration(off)*time.Second).Unix()))
+			}
+			wf := newWeatherFetcher()
+			wf.openMeteoBase = stubJSON(t, fmt.Sprintf(`{"timezone":%q,"utc_offset_seconds":%d,"current":{"time":%d,"temperature_2m":5,"weather_code":0},
+"hourly":{"time":[%d],"temperature_2m":[5]},"daily":{"time":[%s],"weather_code":[0,1,2,3]}}`,
+				g.zone, off, want[0].Add(10*time.Hour).Unix(), want[0].Add(10*time.Hour).Unix(), strings.Join(times, ",")))
+			oobs, err := wf.fetchOpenMeteo(t.Context(), WeatherConfig{Latitude: -33.4, Longitude: -70.6})
+			if err != nil {
+				t.Fatal(err)
+			}
+			check("Open-Meteo", oobs.Days, 3)
+		})
+	}
+}
+
+func TestDayClockOverEveryZoneForTwoYears(t *testing.T) {
+	zr, err := zip.OpenReader(filepath.Join(runtime.GOROOT(), "lib", "time", "zoneinfo.zip"))
+	if err != nil {
+		t.Skipf("no zone list: %v", err)
+	}
+	defer zr.Close()
+	from := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	zones := 0
+	for _, f := range zr.File {
+		loc := loadZone(f.Name)
+		if loc == nil {
+			continue
+		}
+		zones++
+		c := dayClock{loc: loc}
+		y, m, d := from.Date()
+		prevEnd := c.midnight(y, m, d)
+		var transitions []time.Time
+		for i := range 731 {
+			start := c.midnight(y, m, d+i)
+			end := c.after(start)
+			if !end.After(start) {
+				t.Fatalf("%s %s: [%v, %v) is empty", f.Name, from.AddDate(0, 0, i).Format("2006-01-02"), start, end)
+			}
+			if !start.Equal(prevEnd) {
+				t.Fatalf("%s %s: starts %v, the day before ended %v", f.Name, from.AddDate(0, 0, i).Format("2006-01-02"), start.In(loc), prevEnd.In(loc))
+			}
+			if !c.startOf(start).Equal(start) || !c.startOf(end.Add(-time.Second)).Equal(start) {
+				t.Fatalf("%s %s: startOf disagrees with [%v, %v)", f.Name, from.AddDate(0, 0, i).Format("2006-01-02"), start.In(loc), end.In(loc))
+			}
+			if l := end.Sub(start); l != 24*time.Hour {
+				transitions = append(transitions, start)
+			}
+			prevEnd = end
+		}
+		for _, tr := range transitions {
+			_, off := tr.In(loc).Zone()
+			metDaysWithin(t, metHourly(c.midnight(tr.In(loc).AddDate(0, 0, -1).Date()), 72), dayClock{loc: loc, off: time.Duration(off) * time.Second}, f.Name+" "+tr.String())
+		}
+	}
+	if zones < 300 {
+		t.Fatalf("checked only %d zones", zones)
 	}
 }

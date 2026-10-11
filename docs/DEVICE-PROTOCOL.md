@@ -397,8 +397,10 @@ Keys:
   means dry for the 12 h (as far as the provider's steps reach).
 - **`days`**: the next 3 local days after today, fewer when the
   provider's range ends. `t` is the day's true local midnight in the
-  location's time zone, for every provider; `end` is the next one, so a
-  DST day is 23 h or 25 h long, and the last day's end is known without
+  location's time zone (its first instant where DST starts at midnight,
+  e.g. 01:00 in Santiago on 2026-09-06), for every provider, Open-Meteo
+  included even though it sends midnights under one offset; `end` is the
+  next one, so a DST day is 23 h or 25 h long, and the last day's end is known without
   a fourth entry (#434). The zone comes from the provider (Open-Meteo
   `timezone`, WeatherAPI.com `tz_id`) or, for MET Norway and Tomorrow.io,
   from the air-quality reading while it is on and fresh; with no zone

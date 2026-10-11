@@ -32,7 +32,12 @@ func (c dayClock) dateOf(t time.Time) (int, time.Month, int) {
 
 func (c dayClock) midnight(y int, m time.Month, d int) time.Time {
 	if c.loc != nil {
-		return time.Date(y, m, d, 0, 0, 0, 0, c.loc).UTC()
+		y, m, d = time.Date(y, m, d, 12, 0, 0, 0, time.UTC).Date()
+		t := time.Date(y, m, d, 0, 0, 0, 0, c.loc)
+		if ty, tm, td := t.Date(); ty != y || tm != m || td != d {
+			_, t = t.ZoneBounds()
+		}
+		return t.UTC()
 	}
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Add(-c.off)
 }

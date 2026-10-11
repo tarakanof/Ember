@@ -1368,9 +1368,15 @@ the air reading's `timezone` passed in the fetch hint, loaded from the
 embedded tzdata (`loadZone` accepts only plain zone paths, never
 `Local`). With no zone, days fall back to midnights under the single
 offset and `End` = `Start` + 24 h. A DST day is 23 h or 25 h, MET's
-periods are split at the true midnight, and `faceDays` picks today by
-`[Start, End)`, so a cached observation selects the right day across a
-change. The knob gets `t` = `Start` and `end` = `End`.
+periods are split at the true midnight (the splitter always moves
+forward), and `faceDays` picks today by `[Start, End)`, so a cached
+observation selects the right day across a change. Where DST starts at
+midnight (America/Santiago 2026-09-06, America/Havana 2027-03-14) the
+date has no 00:00: `midnight` takes the transition, the date's first
+instant (01:00), so the day before ends there and the gap day lasts 23 h;
+`TestDayClockOverEveryZoneForTwoYears` checks every embedded zone for two
+years (no empty day, days abut, MET's splitter returns). The knob gets
+`t` = `Start` and `end` = `End`.
 
 - **Open-Meteo**, one call of 17 variables: `current=` the seven current
   values, `minutely_15=precipitation,snowfall&forecast_minutely_15=48` (mm
@@ -1379,8 +1385,11 @@ change. The knob gets `t` = `Start` and `end` = `End`.
   15 min, so the step's `At` is the stamp − 15 min, MET's convention, where
   `next_1_hours` at `t` covers `[t, t+1h)`), `hourly=temperature_2m`, and
   `daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,uv_index_max,wind_gusts_10m_max&forecast_days=4`
-  (day `time` is each date's true local midnight with `timezone=auto`;
-  the day's `End` is the next true midnight in the reply's `timezone`).
+  (day `time` is the date's midnight under the single request-time
+  `utc_offset_seconds`, not its true midnight: in Belgrade 10-26 arrives
+  as 10-25 23:00+01. Ember takes the date from `time` +
+  `utc_offset_seconds` and builds `[Start, End)` from that date in the
+  reply's `timezone`).
   About 3 KB.
 - **MET Norway** reads `locationforecast/2.0/complete` (not `compact`): UV
   (`ultraviolet_index_clear_sky`, short range, clear sky), gusts and

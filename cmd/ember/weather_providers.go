@@ -297,7 +297,7 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 		if i == forecastDays {
 			break
 		}
-		start := time.Unix(t, 0).UTC()
+		start := clock.midnight(time.Unix(t, 0).UTC().Add(clock.off).Date())
 		day := weatherDay{Start: start, End: clock.after(start), MinC: at(d.MinC, i), MaxC: at(d.MaxC, i),
 			PrecipMM: at(d.PrecipMM, i), Pop: at(d.Pop, i), UVMax: at(d.UVMax, i), GustMaxKmh: at(d.GustMax, i)}
 		if code := at(d.WeatherCode, i); code != nil {
@@ -487,6 +487,9 @@ func metDays(ts []metEntry, clock dayClock) []weatherDay {
 			to := day.End
 			if end.Before(to) {
 				to = end
+			}
+			if !to.After(from) {
+				break
 			}
 			metPeriodInto(day, p, period == 6*time.Hour && day.Start.Equal(extremaDay), to.Sub(from).Hours()/period.Hours())
 			from = to
