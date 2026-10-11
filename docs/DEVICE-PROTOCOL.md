@@ -339,8 +339,11 @@ Keys:
   spell; ended spells are dropped when the view is built. `until` is the
   end of the spell containing now, absent when dry now and when that
   spell runs to the end of the provider's steps (its `end` is then the
-  data's edge, not a forecast stop: wet until at least then).
-  `"spells": []`
+  data's edge, not a forecast stop: wet until at least then). Now can
+  fall in a merged dry gap: the spell is listed with `start` ≤ now <
+  `end`, but `now.rain` is 0 and `until` is absent. That is a pause, not
+  the end; the spell's rain resumes before `end`. A spell starting at
+  now + 12 h or later is not listed. `"spells": []`
   means dry for the 12 h (as far as the provider's steps reach).
 - **`days`**: the next 3 local days after today, fewer when the
   provider's range ends. `t` is local midnight. `cond`/`code` use the
@@ -374,7 +377,9 @@ costs the knob's cJSON an allocation. A future series would ride a new
 token.
 
 **Size.** The example adds 759 B (compact; the whole `view_faces.json` view is 1,086 B). The worst case (4 spells, 40-char MET
-codes in `days`, negatives) is ~1.2 KB of `weather`, and the worst whole
+codes in `days`, `until`, every twilight crossing, the moon's `rise`,
+`set` and `up`, negative temperatures and offset) is ~1.2 KB of
+`weather`, and the worst whole
 view with every block (three 200-character fully escaped now-playing
 strings, 64-character hosts) is 5.5 KB, a third of `view_bytes` 16383
 (`TestKnobViewWorstCaseFitsHalfTheBuffer` keeps it under 8 KB). Bytes are

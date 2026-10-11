@@ -327,11 +327,11 @@ func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 	neg := func(v float64) *float64 { return &v }
 	obs := weatherObservation{Condition: "storm", ConditionCode: code, TempC: -12.5, Severe: true,
 		ObservedAt: now.Add(-time.Hour), FetchedAt: now, TZKnown: true, TZOffsetSeconds: -34200,
-		Now:        weatherNow{Cloud: neg(100), UV: neg(11), WindKmh: neg(-0.4), GustKmh: neg(-0.4), WindDir: neg(359)},
+		Now:        weatherNow{Cloud: neg(100), UV: neg(11), WindKmh: neg(150.4), GustKmh: neg(199.4), WindDir: neg(359)},
 		PrecipStep: time.Hour}
 	for i := range 12 {
 		mm := 0.01
-		if i%2 == 1 {
+		if i%2 == 0 {
 			mm = 20
 		}
 		obs.Precip = append(obs.Precip, precipStep{At: now.Add(time.Duration(i) * time.Hour), MMh: mm, Snow: true})
@@ -352,8 +352,15 @@ func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 		Features: []string{featureWxFaces}, Limits: &deviceCapsLimits{ViewBytes: 16383}})
 	body := goldenView(t, f)
 	w := decodeFaces(t, body).Weather
-	if w.Rain == nil || len(w.Rain.Spells) != rainSpellsMax || len(w.Days) != faceForecastDays || w.AQI == nil || w.Moon == nil {
+	if w.Rain == nil || w.Rain.Until == nil || len(w.Rain.Spells) != rainSpellsMax || len(w.Days) != faceForecastDays || w.AQI == nil ||
+		len(w.Now) != 6 || len(w.Today) != 5 || len(w.Twilight) != 6 || w.UTCOffset == nil || *w.UTCOffset >= 0 ||
+		w.Moon == nil || w.Moon.Up == nil || w.Moon.Rise == nil || w.Moon.Set == nil {
 		t.Fatalf("worst case lacks parts: %s", body)
+	}
+	for _, d := range w.Days {
+		if len(d) != 7 || d["min_c"].(float64) >= 0 {
+			t.Fatalf("worst case day lacks keys or negatives: %v", d)
+		}
 	}
 	for _, k := range []string{"mood", "pomo", "nowplaying", "quiet", "diag_live_until"} {
 		if _, ok := viewKeys(t, body)[k]; !ok {
