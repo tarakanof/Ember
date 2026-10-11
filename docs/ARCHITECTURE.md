@@ -1328,7 +1328,10 @@ branch, and an entry in `WeatherSources.providers` (with `keyEnv` when it
 needs a server-side key: `providers_available` in `GET/PUT
 /v1/weather/config` then decides whether the app offers it, and a PUT
 switching to it without the key is a 400; a stored choice whose key went
-away is dropped by `sanitizeStoredWeather`). Values checked on
+away is set aside by `sanitizeStoredWeather`: the server runs on the
+`config.json` provider, but the stored blob keeps the choice (`settingSpec.stored`
+puts it back on persist) until another provider is picked, so it returns
+with the key). Values checked on
 2026-10-11 at Belgrade and New York (#427):
 
 | Provider / model | Coverage and resolution | Limits in Ember |
@@ -1341,7 +1344,7 @@ away is dropped by `sanitizeStoredWeather`). Values checked on
 | └ `gfs_seamless` | NOAA HRRR 3 km (contiguous US, hourly runs), GFS 13–25 km elsewhere | 15-min rain split from hourly outside the US |
 | └ `ukmo_seamless` | UK Met Office UKV 2 km (UK, Ireland), global 10 km | UV only near the UK and for the first 2 days; 15-min rain split from hourly |
 | MET Norway | Worldwide, free, no key; MEPS 2.5 km in the Nordics, ECMWF elsewhere | Hourly rain steps; chance of rain only in the Nordic area; needs an identifying User-Agent; no air quality |
-| Tomorrow.io | Worldwide, own blend; needs `EMBER_TOMORROW_API_KEY` (free plan) | Free plan: 500 calls a day, 25 an hour, so at most one fetch per 5 min; minutely rain only for the next hour, then hourly split into 15-min steps; days run 06:00–06:00 local; codes translated to WMO; no air quality. Choosable only while the key is set (`providers_available`) |
+| Tomorrow.io | Worldwide, own blend; needs `EMBER_TOMORROW_API_KEY` (free plan) | Free plan: 500 calls a day, 25 an hour, so at most one fetch per 5 min; minutely rain for the next hour where the plan provides it (the docs call it premium), otherwise hourly, split into 15-min steps; days run 06:00–06:00 local; codes translated to WMO; no air quality. Choosable only while the key is set (`providers_available`) |
 
 The Tomorrow.io row comes from its documentation and support pages, not a
 probe (no key; #432). Left out: `meteofrance_seamless` returns no chance of rain (hourly or daily)
@@ -1447,13 +1450,24 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   current step is skipped (the first entry is often yesterday's period).
   Min/max, `precipitationProbabilityMax`, `uvIndexMax`, `windGustMax`;
   precipitation is `rainAccumulationSum` plus the snow, sleet and ice
-  liquid-water sums; the day code is `weatherCodeMax` in WMO. Sun and moon
+  liquid-water sums. The day code is the worst hourly `weatherCode` within
+  the local day (`tomorrowSeverity`: storm > snow and ice > rain and freezing
+  rain > fog > clouds > clear, heavier first), and `weatherCodeMax` only for
+  a day past the hourly range: `weatherCodeMax` is the numerically highest
+  code, not the worst weather (4200 light rain beats 4001 rain). Sun and moon
   times in the reply are ignored (Ember's astro). Rate limits: the
   provider's refresh and failure retries never run faster than every
   5 min (`minFetchInterval`), and a 429 waits for `Retry-After` or the next
   top of the hour, not capped at the refresh interval (`retryAfterCap`).
-  The key is redacted from `url.Error` URLs and HTTP error bodies before the
-  error leaves the fetcher.
+  The quota is per key, not per source: the store's `quotaAttemptAt` and
+  `quotaRetryAt` survive `switchSource`, so editing the location or
+  switching providers and back neither fetches sooner than 5 min after the
+  last attempt nor skips a running 429 back-off, and a 429 whose source
+  changed mid-flight still sets it. The key is redacted from `url.Error`
+  URLs, and Tomorrow.io's HTTP error bodies are dropped (only the status is
+  kept): the body is cut at 256 bytes, and a key straddling the cut could
+  not be matched. A last-resort redaction wraps the error, so a 429's
+  `Retry-After` survives it.
 
 **Weather state** (`cmd/ember/weather_state.go`, #337). Every reader of the
 stored weather goes through one projection, `weatherStore.state(cfg, now)` →

@@ -299,7 +299,9 @@ from, right after `provider` (`"provider":"open-meteo","model":"ecmwf_ifs"`).
 `weather.provider` can be `"tomorrow-io"` (#432). Ember translates its
 weather codes to WMO before they reach `code` and `days[].code`, so the knob
 reads them like Open-Meteo's and needs no change; an unknown code leaves
-`code` empty and `cond` `clouds`. The detail keys are filled as for
+`code` empty and `cond` `clouds`. A day's `cond`/`code` is its worst hour (storm > snow >
+rain > fog > clouds > clear), the daily `weatherCodeMax` only past the
+hourly range. The detail keys are filled as for
 Open-Meteo (15-min rain steps, `pop`, `uv`, gusts), and `observed_at` is
 the time of the first minutely entry (else the latest hourly one at or
 before now). The provider string (11 B) fits cinder's 16-byte field, and
