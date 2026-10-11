@@ -16,6 +16,7 @@ type providerStubs struct {
 	omReq   chan struct{}
 	metReq  chan struct{}
 	onOM    func()
+	metFail atomic.Bool
 }
 
 func signalStub(ch chan struct{}) {
@@ -39,6 +40,10 @@ func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 	t.Cleanup(om.Close)
 	met := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		st.metHits.Add(1)
+		if st.metFail.Load() {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
 		_, _ = w.Write([]byte(`{"properties":{"timeseries":[{"time":"2026-09-26T07:00:00Z","data":{"instant":{"details":{"air_temperature":4}},"next_1_hours":{"summary":{"symbol_code":"snow"}}}}]}}`))
 		signalStub(st.metReq)
 	}))
@@ -191,5 +196,39 @@ func TestStartWeatherRefetchesOnProviderChange(t *testing.T) {
 	}
 	if st.omHits.Load() != 1 || st.metHits.Load() != 1 {
 		t.Errorf("fetches open-meteo=%d met-no=%d, want 1 each", st.omHits.Load(), st.metHits.Load())
+	}
+}
+
+func TestWeatherRetriesSoonAfterAFailedFirstFetchFromANewProvider(t *testing.T) {
+	app, st := newProviderSwitchApp(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)
+	app.pollWeather(ctx, t0)
+	putWeatherProvider(t, app, "met-no")
+	st.metFail.Store(true)
+
+	t1 := t0.Add(time.Minute)
+	app.pollWeather(ctx, t1)
+	app.pollWeather(ctx, t1.Add(weatherRetryAfter-time.Second))
+	if n := st.metHits.Load(); n != 1 {
+		t.Fatalf("met-no fetched %d times before the retry delay, want 1", n)
+	}
+
+	st.metFail.Store(false)
+	t2 := t1.Add(weatherRetryAfter)
+	app.pollWeather(ctx, t2)
+	if n := st.metHits.Load(); n != 2 {
+		t.Fatalf("met-no fetched %d times %v after the failed first fetch, want a retry", n, weatherRetryAfter)
+	}
+	if kw := app.knobWeather(t2); kw == nil || kw.Provider != "met-no" {
+		t.Fatalf("knob weather after the retry = %+v", kw)
+	}
+
+	st.metFail.Store(true)
+	t3 := t2.Add(10 * time.Minute)
+	app.pollWeather(ctx, t3)
+	app.pollWeather(ctx, t3.Add(weatherRetryAfter))
+	if n := st.metHits.Load(); n != 3 {
+		t.Errorf("met-no fetched %d times; with an observation to show, a failure should wait the full refresh", n)
 	}
 }

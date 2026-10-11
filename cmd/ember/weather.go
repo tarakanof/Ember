@@ -472,10 +472,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		return
 	}
 	a.checkSunPopups(ctx, now, cfg)
-	a.weather.mu.RLock()
-	due := a.weather.lastFetch.IsZero() || now.Sub(a.weather.lastFetch) >= time.Duration(cfg.RefreshMinutes)*time.Minute
-	a.weather.mu.RUnlock()
-	if !due {
+	if !a.weather.due(cfg, now) {
 		return
 	}
 	a.pollAir(ctx, now, cfg)
@@ -530,6 +527,18 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	}
 	a.weather.mu.Unlock()
 	a.nudgePomo()
+}
+
+const weatherRetryAfter = 2 * time.Minute
+
+func (s *weatherStore) due(cfg WeatherConfig, now time.Time) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	every := time.Duration(cfg.RefreshMinutes) * time.Minute
+	if !s.have {
+		every = min(every, weatherRetryAfter)
+	}
+	return s.lastFetch.IsZero() || now.Sub(s.lastFetch) >= every
 }
 
 func (s *weatherStore) fetchHint(cfg WeatherConfig, now time.Time) (fetchHint, bool) {
