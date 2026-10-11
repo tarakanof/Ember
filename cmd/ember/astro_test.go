@@ -108,6 +108,52 @@ func TestMoonRiseSetMatchOpenMeteoReference(t *testing.T) {
 	}
 }
 
+var metNoMoonOslo202609 = struct {
+	lat, lon        float64
+	riseMin, setMin []int64
+}{59.9139, 10.7522,
+	[]int64{29804785, 29806229, 29807680, 29809148, 29810654, 29812196, 29813748, 29815296, 29816839, 29818376,
+		29819910, 29821443, 29822976, 29824511, 29826045, 29827575, 29829085, 29830565, 29832023, 29833471,
+		29834914, 29836355, 29837796, 29839236, 29840676, 29842116, 29843558, 29845001, 29846450},
+	[]int64{29804304, 29805849, 29807398, 29808938, 29810445, 29811913, 29813364, 29814808, 29816250, 29817690,
+		29819130, 29820570, 29822011, 29823452, 29824895, 29826341, 29827797, 29829273, 29830780, 29832306,
+		29833840, 29835373, 29836904, 29838435, 29839967, 29841501, 29843040, 29844585, 29846135},
+}
+
+func TestMoonRiseSetMatchMETNorwayWithinAMinute(t *testing.T) {
+	ref := metNoMoonOslo202609
+	evs := moonEvents(ref.lat, ref.lon, time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))
+	check := func(want []int64, rise bool) {
+		for _, m := range want {
+			w := time.Unix(m*60, 0)
+			best := time.Duration(math.MaxInt64)
+			for _, e := range evs {
+				if e.rise == rise {
+					best = min(best, e.at.Sub(w).Abs())
+				}
+			}
+			if best > time.Minute {
+				t.Errorf("Oslo: moon rise=%v at %v per MET Norway, closest computed %v off", rise, w.UTC(), best)
+			}
+		}
+	}
+	check(ref.riseMin, true)
+	check(ref.setMin, false)
+}
+
+func TestMoonPositionMatchesMeeusExample47a(t *testing.T) {
+	lambda, beta, dist := moonEcliptic(time.Date(1992, 4, 11, 23, 59, 1, 0, time.UTC))
+	if math.Abs(lambda-133.162655) > 0.003 || math.Abs(beta+3.229126) > 0.01 || math.Abs(dist-368409.7) > 30 {
+		t.Errorf("moon at 1992-04-12 0h TD (23:59:01 UT the day before): lambda %.6f beta %.6f dist %.1f km, want 133.162655, -3.229126, 368409.7", lambda, beta, dist)
+	}
+	if h := moonHorizon(368409.7); math.Abs(h-0.1550) > 0.0005 {
+		t.Errorf("rise/set altitude at 368409.7 km = %.4f deg, want 0.7275 pi - 0.5667 = 0.1550", h)
+	}
+	if h := moonHorizon(404000); math.Abs(h-0.0914) > 0.0005 {
+		t.Errorf("rise/set altitude at apogee = %.4f deg, want 0.0914", h)
+	}
+}
+
 func TestMoonPhaseAtEclipses(t *testing.T) {
 	newMoon := time.Date(2026, 8, 12, 17, 46, 0, 0, time.UTC)
 	fullMoon := time.Date(2026, 8, 28, 4, 13, 0, 0, time.UTC)
@@ -175,8 +221,8 @@ func TestMoonEventsFindTwoCrossingsInsideOneHour(t *testing.T) {
 		h1, m1   int
 		h2, m2   int
 	}{
-		{"Longyearbyen, up 12:01-12:33", 78.22, 15.65, 13, true, 12, 1, 12, 33},
-		{"Tromsø, down 12:22-12:53", 69.65, 18.96, 29, false, 12, 22, 12, 53},
+		{"Longyearbyen, up 11:59-12:34", 78.22, 15.65, 13, true, 11, 59, 12, 34},
+		{"Tromsø, down 12:17-12:56", 69.65, 18.96, 29, false, 12, 17, 12, 56},
 	}
 	for _, c := range cases {
 		from := time.Date(2026, 9, c.day, 11, 0, 0, 0, time.UTC)
@@ -187,8 +233,8 @@ func TestMoonEventsFindTwoCrossingsInsideOneHour(t *testing.T) {
 		}
 	}
 	rise, set, up := moonUpWindow(78.22, 15.65, time.Date(2026, 9, 13, 12, 15, 0, 0, time.UTC))
-	if !up || !near(rise, 12, 1, 13) || !near(set, 12, 33, 13) {
-		t.Errorf("Longyearbyen 12:15: up %v rise %v set %v, want up 12:01-12:33", up, rise, set)
+	if !up || !near(rise, 11, 59, 13) || !near(set, 12, 34, 13) {
+		t.Errorf("Longyearbyen 12:15: up %v rise %v set %v, want up 11:59-12:34", up, rise, set)
 	}
 }
 

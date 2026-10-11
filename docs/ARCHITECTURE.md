@@ -1573,32 +1573,40 @@ Weather constraints:
   NOAA Solar Calculator (`TestTwilightMatchesNOAA`: London, Sydney, Quito,
   Berlin, Oslo, Tromsø at −6°, −4°, −0.833° and +6°) every crossing is
   within 20 s; before, Oslo's evening crossings near the equinox were
-  ~2.5 min late and Tromsø's first sunset after the midnight sun 23 min. Twilight
-  (#350) generalises `sunTimes` to any altitude (`sunAt`): `localTwilight`
+  ~2.5 min late and Tromsø's first sunset after the midnight sun 23
+  min. Twilight (#350) generalises `sunTimes` to any altitude (`sunAt`): `localTwilight`
   gives the local day's crossings of −6° (civil dawn, dusk), −4° (blue
   hour ends, starts) and +6° (golden hour ends, starts); one the sun
   never makes is zero. The local day is the solar day: the crossings
   around the transit of the local date's solar noon (see "Sun times are
   the location's local day"), not those between local midnights, so a
   dusk after local midnight (Reykjavík, late July) is the date before's,
-  like a post-midnight sunset (`TestTwilightIsTheSolarDayOfTheLocalDate`). The moon
-  (`astro_moon.go`) is a truncated Meeus ch. 47 position (the 32 largest
-  longitude and 16 latitude terms plus the additive ones, about 0.01°):
+  like a post-midnight sunset (`TestTwilightIsTheSolarDayOfTheLocalDate`).
+  The moon (`astro_moon.go`) is a truncated Meeus ch. 47 position (the 32
+  largest longitude terms with their distance terms, 16 latitude terms
+  plus the additive ones, about 0.01°, checked against Meeus example 47.a), taken
+  at TT = UT + ΔT with ΔT a fixed 69 s (IERS, flat since 2017; a few
+  seconds of drift moves a rise or set by well under a second). Without
+  ΔT a rise or set moved 3-6 s up to 60° latitude, 40 s at Tromsø and
+  84 s for Longyearbyen's grazing events:
   `moonPhaseAt` gives the cycle position (Moon minus Sun ecliptic
   longitude, 0 new, 0.5 full) and the lit fraction from the elongation,
   and replaced the mean-synodic-month phase, which was up to ~15 h off, so
   the clock's moon icon uses it too. `moonEvents` scans the geocentric
-  altitude on the whole-hour grid and bisects each crossing of +0.125°
-  (parallax less refraction and semi-diameter) to the second, rounded to
-  the minute. An hour whose ends are on the same side can still hold two
-  crossings when the moon turns near the horizon (high latitudes: up
-  12:01–12:33 UT at Longyearbyen on 2026-09-13). Near the horizon (an
+  altitude on the whole-hour grid and bisects each crossing of the rise/set
+  altitude 0.7275π − 0.5667° (Meeus ch. 15: parallax π at that instant's
+  distance, less refraction and semi-diameter; +0.09° at apogee to +0.18°
+  at perigee, where a fixed mean +0.125° was up to ~0.05° off) to the
+  second, rounded to the minute. An hour whose ends are on the same side
+  can still hold two crossings when the moon turns near the horizon (high
+  latitudes: up 11:59–12:34 UT at Longyearbyen on 2026-09-13). Near the horizon (an
   end within 1° of it; a turn inside one hour moves the altitude at most
   ~0.5° from the closer end) a golden-section search finds the hour's
   altitude extremum, and a crossing extremum is bisected on both sides.
   Against a 1-minute scan of 2026 for Berlin, Oslo, Tromsø and
   Longyearbyen every event matches; the check costs ~15 % (`moonUpWindow`
-  ~75 → ~88 µs, M4 Pro, mixed latitudes). The hour grid makes the result
+  ~75 → ~88 µs, M4 Pro, mixed latitudes), the per-instant distance
+  another ~30 % (~88 → ~115 µs). The hour grid makes the result
   independent of `now`, so a view's ETag doesn't move with the clock.
   `moonUpWindow` is the current interval above the horizon (rise in the
   past) or the next one, searched ±36 h; an end not found is zero
@@ -1606,7 +1614,10 @@ Weather constraints:
   now: the ends alone can't tell "up for days" from "down for days" (both
   have neither). Checked against Open-Meteo's
   `daily=moonrise,moonset` (recorded once, test reference only) for four
-  latitudes: within a minute. The "local" label time uses the UTC offset
+  latitudes: within 70 s; and against MET Norway's Sunrise 3.0 `moon`
+  (minute precision, recorded once) for Oslo through September 2026:
+  every event within a minute (`TestMoonRiseSetMatchMETNorwayWithinAMinute`;
+  the fixed horizon was up to 2 min off, mean 44 s against 31 s now). The "local" label time uses the UTC offset
   Open-Meteo supplies (`TZKnown`/`TZOffsetSeconds`; for MET a live air
   reading's); only without it (MET with air off or stale) does it fall back
   to longitude (15° per hour, no tz database), which can differ from civil time at
