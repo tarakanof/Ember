@@ -1564,11 +1564,24 @@ Weather constraints:
   (2 min) with the 1-minute poll catches a sunrise/sunset without firing for one
   that passed before startup. The AQI threshold popup is edge-triggered and also
   fires on the very first reading, so a restart mid-episode still alerts.
-- **Astro.** Moon phase and sun times are computed locally (no API or key) at low
-  precision (a minute or two). Twilight (#350) generalises `sunTimes` to any
-  altitude (`sunAt`): `localTwilight` gives the local day's crossings of −6°
-  (civil dawn, dusk), −4° (blue hour ends, starts) and +6° (golden hour
-  ends, starts); one the sun never makes is zero. The moon
+- **Astro.** Moon phase and sun times are computed locally (no API or key).
+  The sun is the low-precision sunrise equation, but with the ecliptic
+  longitude of date (the perihelion longitude advances 1.71946° per
+  century; without it the declination ran ~0.17° high in 2026) and, for
+  each crossing, the declination at the crossing (one refinement from the
+  transit's); `solarElevation` uses the declination at `now`. Against the
+  NOAA Solar Calculator (`TestTwilightMatchesNOAA`: London, Sydney, Quito,
+  Berlin, Oslo, Tromsø at −6°, −4°, −0.833° and +6°) every crossing is
+  within 20 s; before, Oslo's evening crossings near the equinox were
+  ~2.5 min late and Tromsø's first sunset after the midnight sun 23 min. Twilight
+  (#350) generalises `sunTimes` to any altitude (`sunAt`): `localTwilight`
+  gives the local day's crossings of −6° (civil dawn, dusk), −4° (blue
+  hour ends, starts) and +6° (golden hour ends, starts); one the sun
+  never makes is zero. The local day is the solar day: the crossings
+  around the transit of the local date's solar noon (see "Sun times are
+  the location's local day"), not those between local midnights, so a
+  dusk after local midnight (Reykjavík, late July) is the date before's,
+  like a post-midnight sunset (`TestTwilightIsTheSolarDayOfTheLocalDate`). The moon
   (`astro_moon.go`) is a truncated Meeus ch. 47 position (the 32 largest
   longitude and 16 latitude terms plus the additive ones, about 0.01°):
   `moonPhaseAt` gives the cycle position (Moon minus Sun ecliptic

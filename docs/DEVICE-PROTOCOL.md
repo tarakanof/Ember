@@ -357,7 +357,9 @@ Keys:
   (Open-Meteo, MET Nordic); `precip_mm10` the day's sum in tenths of mm
   (a MET period crossing midnight is split by its overlap).
 - **`twilight`**: the local day's crossings, rounded to 5 min like
-  `sunrise`/`sunset`: `dawn` (−6° rising), `blue_end` (−4°), `golden_end`
+  `sunrise`/`sunset`. The day is the solar day around the local date's
+  solar noon, not midnight to midnight: a `dusk` after local midnight
+  (Reykjavík in late July) belongs to the date before. Crossings: `dawn` (−6° rising), `blue_end` (−4°), `golden_end`
   (+6°), `golden_start` (+6° setting), `blue_start` (−4°), `dusk` (−6°).
   The bands are `dawn`→`blue_end` (blue), `blue_end`→`golden_end`
   (golden) and mirrored in the evening. A crossing that does not happen

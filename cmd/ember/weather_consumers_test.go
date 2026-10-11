@@ -130,7 +130,7 @@ func TestWeatherConsumersAgreeOnSunAndNight(t *testing.T) {
 		{"night", amsterdam, time.Date(2026, 9, 26, 22, 0, 0, 0, time.UTC), true, true, true},
 		{"before sunrise", amsterdam, time.Date(2026, 9, 26, 4, 0, 0, 0, time.UTC), true, true, true},
 		{"no coordinates", noCoords, time.Date(2026, 9, 26, 22, 0, 0, 0, time.UTC), false, false, false},
-		{"McMurdo after the last sunset", func(c *WeatherConfig) { c.Latitude, c.Longitude = -77.8, 166.7 }, time.Date(2026, 4, 25, 5, 0, 0, 0, time.UTC), true, true, true},
+		{"McMurdo after the last sunset", func(c *WeatherConfig) { c.Latitude, c.Longitude = -77.8, 166.7 }, time.Date(2026, 4, 24, 5, 0, 0, 0, time.UTC), true, true, true},
 		{"68N before the first sunrise", func(c *WeatherConfig) { c.Latitude, c.Longitude = 68, 0 }, time.Date(2026, 1, 4, 5, 0, 0, 0, time.UTC), true, true, true},
 		{"Tromsø next to polar day", func(c *WeatherConfig) { c.Latitude, c.Longitude = 69.65, 18.96 }, time.Date(2026, 5, 19, 10, 41, 0, 0, time.UTC), false, false, false},
 		{"McMurdo in polar night", func(c *WeatherConfig) { c.Latitude, c.Longitude = -77.8, 166.7 }, time.Date(2027, 8, 18, 12, 0, 0, 0, time.UTC), false, true, false},
@@ -179,8 +179,8 @@ func TestClockMoonFollowsTheSunSchedule(t *testing.T) {
 	}{
 		{"a second before sunset", amsterdam, sunset.Add(-time.Second), false},
 		{"exactly at sunset", amsterdam, sunset, true},
-		{"Tromsø 00:20 local, sun still up until 00:36", tromso, time.Date(2026, 7, 26, 22, 20, 0, 0, time.UTC), false},
-		{"Tromsø 00:50 local, after the 00:36 sunset", tromso, time.Date(2026, 7, 26, 22, 50, 0, 0, time.UTC), true},
+		{"Tromsø 00:05 local, sun still up until 00:13", tromso, time.Date(2026, 7, 26, 22, 5, 0, 0, time.UTC), false},
+		{"Tromsø 00:20 local, after the 00:13 sunset", tromso, time.Date(2026, 7, 26, 22, 20, 0, 0, time.UTC), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

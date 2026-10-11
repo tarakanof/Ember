@@ -213,6 +213,64 @@ func TestTwilightCrossesItsAltitudes(t *testing.T) {
 	}
 }
 
+type noaaSunReference struct {
+	name     string
+	lat, lon float64
+	date     time.Time
+	tz       int
+	at       [8]int64
+}
+
+var noaaSun2026 = []noaaSunReference{
+	{"London", 51.5072, -0.1276, time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC), 3600,
+		[8]int64{1782010519, 1782011689, 1782013385, 1782016641, 1782070039, 1782073295, 1782074991, 1782076161}},
+	{"Sydney", -33.8688, 151.2093, time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC), 36000,
+		[8]int64{1781987534, 1781988171, 1781989197, 1781991496, 1782022531, 1782024830, 1782025856, 1782026494}},
+	{"Quito", -0.1807, -78.4678, time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC), -18000,
+		[8]int64{1774004239, 1774004719, 1774005479, 1774007118, 1774047430, 1774049070, 1774049830, 1774050309}},
+	{"Berlin", 52.52, 13.405, time.Date(2026, 12, 21, 0, 0, 0, 0, time.UTC), 3600,
+		[8]int64{1797834793, 1797835732, 1797837294, 1797841179, 1797860954, 1797864838, 1797866400, 1797867339}},
+	{"Oslo", 59.9139, 10.7522, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), 7200,
+		[8]int64{1788233218, 1788234286, 1788235915, 1788239273, 1788283491, 1788286832, 1788288450, 1788289510}},
+	{"Tromsø", 69.6492, 18.9553, time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC), 7200,
+		[8]int64{1787619950, 1787622163, 1787625074, 1787630321, 1787679104, 1787684291, 1787687140, 1787689278}},
+}
+
+func TestTwilightMatchesNOAA(t *testing.T) {
+	names := [8]string{"dawn", "blue end", "sunrise", "golden end", "golden start", "sunset", "blue start", "dusk"}
+	for _, ref := range noaaSun2026 {
+		obs := weatherObservation{TZKnown: true, TZOffsetSeconds: ref.tz}
+		now := ref.date.Add(12*time.Hour - time.Duration(ref.tz)*time.Second)
+		tw := localTwilight(ref.lat, ref.lon, now, obs)
+		rise, set, _ := localSunTimes(ref.lat, ref.lon, now, obs)
+		got := [8]time.Time{tw.Dawn, tw.BlueEnd, rise, tw.GoldenEnd, tw.GoldenStart, set, tw.BlueStart, tw.Dusk}
+		for i, g := range got {
+			if d := g.Sub(time.Unix(ref.at[i], 0)); d.Abs() > 30*time.Second {
+				t.Errorf("%s %s: %v, NOAA %v (%v off)", ref.name, names[i], g.UTC(), time.Unix(ref.at[i], 0).UTC(), d)
+			}
+		}
+	}
+}
+
+func TestTwilightIsTheSolarDayOfTheLocalDate(t *testing.T) {
+	const lat, lon = 64.1466, -21.9426
+	obs := weatherObservation{TZKnown: true}
+	cases := []struct {
+		name       string
+		now        time.Time
+		dawn, dusk int64
+	}{
+		{"23:00, the dusk after midnight is today's", time.Date(2026, 7, 28, 23, 0, 0, 0, time.UTC), 1785206157, 1785284723},
+		{"00:10, before that dusk, is the new day", time.Date(2026, 7, 29, 0, 10, 0, 0, time.UTC), 1785293033, 1785370685},
+	}
+	for _, c := range cases {
+		tw := localTwilight(lat, lon, c.now, obs)
+		if tw.Dawn.Sub(time.Unix(c.dawn, 0)).Abs() > 30*time.Second || tw.Dusk.Sub(time.Unix(c.dusk, 0)).Abs() > 30*time.Second {
+			t.Errorf("Reykjavík %s: dawn %v dusk %v, want NOAA %v and %v", c.name, tw.Dawn, tw.Dusk, time.Unix(c.dawn, 0).UTC(), time.Unix(c.dusk, 0).UTC())
+		}
+	}
+}
+
 func TestTwilightLeavesOutCrossingsTheSunNeverMakes(t *testing.T) {
 	tw := localTwilight(69.65, 18.96, time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC), weatherObservation{})
 	if !tw.Dawn.IsZero() || !tw.Dusk.IsZero() || !tw.BlueEnd.IsZero() || !tw.BlueStart.IsZero() {
