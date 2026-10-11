@@ -340,9 +340,12 @@ func minOpt(cur, v *float64) *float64 {
 
 func metDays(ts []metEntry, off time.Duration) []weatherDay {
 	var days []weatherDay
-	dayIndex := func(t time.Time) int {
+	dayStart := func(t time.Time) time.Time {
 		y, m, d := t.UTC().Add(off).Date()
-		start := time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Add(-off)
+		return time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Add(-off)
+	}
+	dayIndex := func(t time.Time) int {
+		start := dayStart(t)
 		for i := range days {
 			if days[i].Start.Equal(start) {
 				return i
@@ -374,6 +377,7 @@ func metDays(ts []metEntry, off time.Duration) []weatherDay {
 			continue
 		}
 		end := e.Time.Add(span)
+		extremaDay := dayStart(e.Time.Add(period/2 - time.Nanosecond))
 		for from := e.Time; from.Before(end); {
 			di := dayIndex(from)
 			if di < 0 {
@@ -384,7 +388,7 @@ func metDays(ts []metEntry, off time.Duration) []weatherDay {
 			if end.Before(to) {
 				to = end
 			}
-			metPeriodInto(day, p, period == 6*time.Hour, to.Sub(from).Hours()/period.Hours())
+			metPeriodInto(day, p, period == 6*time.Hour && day.Start.Equal(extremaDay), to.Sub(from).Hours()/period.Hours())
 			from = to
 		}
 	}

@@ -154,18 +154,30 @@ func TestMetDaysSplitAPeriodAcrossLocalMidnight(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &ts); err != nil {
 		t.Fatal(err)
 	}
-	days := metDays(ts, 2*time.Hour)
-	if len(days) != 2 {
-		t.Fatalf("days = %+v, want 2", days)
+	cases := []struct {
+		name             string
+		off              time.Duration
+		precip0, precip1 float64
+	}{
+		{"UTC+2, 20:00-02:00 is 4 h + 2 h", 2 * time.Hour, 8, 1},
+		{"UTC+3, 21:00-03:00 is 3 h + 3 h", 3 * time.Hour, 7.5, 1.5},
 	}
-	a, b := days[0], days[1]
-	if !approx(a.PrecipMM, 8) || !approx(a.MinC, 5) || !approx(a.MaxC, 20) || !approx(a.Pop, 80) || a.Cond != render.WeatherRain {
-		t.Errorf("day 0 = precip %v min %v max %v pop %v %s; want 6 + 4/6 of 3 = 8 mm, 5..20, 80 %%, rain",
-			valueOr(a.PrecipMM, -1), valueOr(a.MinC, -1), valueOr(a.MaxC, -1), valueOr(a.Pop, -1), a.Cond)
-	}
-	if !approx(b.PrecipMM, 1) || !approx(b.MinC, 5) || !approx(b.MaxC, 12) || !approx(b.Pop, 80) || b.Cond != render.WeatherRain {
-		t.Errorf("day 1 = precip %v min %v max %v pop %v %s; want the 20:00-02:00 period's last 2 h (1 mm), its 5..12, 80 %%, rain",
-			valueOr(b.PrecipMM, -1), valueOr(b.MinC, -1), valueOr(b.MaxC, -1), valueOr(b.Pop, -1), b.Cond)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			days := metDays(ts, c.off)
+			if len(days) != 2 {
+				t.Fatalf("days = %+v, want 2", days)
+			}
+			a, b := days[0], days[1]
+			if !approx(a.PrecipMM, c.precip0) || !approx(a.MinC, 5) || !approx(a.MaxC, 20) || !approx(a.Pop, 80) || a.Cond != render.WeatherRain {
+				t.Errorf("day 0 = precip %v min %v max %v pop %v %s; want %v mm, 5..20 (the crossing period's 5..12 included), 80 %%, rain",
+					valueOr(a.PrecipMM, -1), valueOr(a.MinC, -1), valueOr(a.MaxC, -1), valueOr(a.Pop, -1), a.Cond, c.precip0)
+			}
+			if !approx(b.PrecipMM, c.precip1) || !approx(b.MinC, 8) || !approx(b.MaxC, 10) || !approx(b.Pop, 80) || b.Cond != render.WeatherRain {
+				t.Errorf("day 1 = precip %v min %v max %v pop %v %s; want %v mm, 8..10 (its own period and instants, not the evening's 5..12), 80 %%, rain",
+					valueOr(b.PrecipMM, -1), valueOr(b.MinC, -1), valueOr(b.MaxC, -1), valueOr(b.Pop, -1), b.Cond, c.precip1)
+			}
+		})
 	}
 }
 

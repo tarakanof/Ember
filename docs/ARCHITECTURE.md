@@ -1314,8 +1314,10 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   A period that crosses local midnight (a 6-h period at UTC+2, a 1-h one
   at a half-hour offset) counts for every day it overlaps: its
   precipitation is split by the overlap (amount × overlap / period
-  length, so a 2-h gap isn't counted 6 h), and its 6-h min/max, its
-  probability and its symbol go to each such day. The condition is the
+  length, so a 2-h gap isn't counted 6 h), and its probability and its
+  symbol go to each such day. Its 6-h min/max go only to the day that
+  holds most of the period (the earlier one on a 3 h + 3 h split), so at
+  UTC+2 the 20:00–02:00 evening max isn't also the next day's. The condition is the
   worst symbol of the day's periods (storm > snow > rain > fog > clouds >
   clear) and `Code` that symbol: `next_1_hours` in the hourly range,
   where a 6-h window would reach hours outside the day, and
