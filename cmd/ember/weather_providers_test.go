@@ -169,6 +169,7 @@ type metStub struct {
 	mu           sync.Mutex
 	hits         atomic.Int32
 	ims          []string
+	lats         []string
 	lastModified string
 	expires      time.Time
 	notModified  bool
@@ -181,6 +182,7 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 		st.mu.Lock()
 		defer st.mu.Unlock()
 		st.ims = append(st.ims, r.Header.Get("If-Modified-Since"))
+		st.lats = append(st.lats, r.URL.Query().Get("lat"))
 		w.Header().Set("Last-Modified", st.lastModified)
 		w.Header().Set("Expires", st.expires.UTC().Format(http.TimeFormat))
 		if st.notModified && r.Header.Get("If-Modified-Since") == st.lastModified {
@@ -255,6 +257,32 @@ func TestMetNoWaitsForExpiresThenRevalidates(t *testing.T) {
 	app.pollWeather(ctx, t0.Add(50*time.Minute))
 	if st.hits.Load() != 2 {
 		t.Errorf("polled before the 304's Expires: %d requests, want 2", st.hits.Load())
+	}
+}
+
+func TestMetNoLocationChangeRefetchesWithoutValidators(t *testing.T) {
+	t0 := time.Now().Truncate(time.Second)
+	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: t0.Add(25 * time.Minute), notModified: true}
+	app := newMetCacheApp(t, st, false)
+	ctx := context.Background()
+	app.pollWeather(ctx, t0)
+	if st.hits.Load() != 1 {
+		t.Fatalf("first poll: %d requests, want 1", st.hits.Load())
+	}
+
+	t1 := t0.Add(11 * time.Minute)
+	app.updateConfig(func(c *Config) { c.Weather.Latitude, c.Weather.Longitude = 52.52, 13.405 })
+	if wx := app.weather.state(app.cfg.Load().Weather, t1); wx.HaveObs {
+		t.Fatalf("Oslo's observation served for Berlin before the refetch: %+v", wx.Obs)
+	}
+	app.pollWeather(ctx, t1)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.hits.Load() != 2 || st.ims[1] != "" || st.lats[1] != "52.5200" {
+		t.Fatalf("after the move: hits %d, If-Modified-Since %q, lat %q; want a full fetch for 52.5200 before Oslo's Expires", st.hits.Load(), st.ims, st.lats)
+	}
+	if wx := app.weather.state(app.cfg.Load().Weather, t1); !wx.HaveObs || !wx.Obs.FetchedAt.Equal(t1) {
+		t.Errorf("Berlin observation = have %v fetched %v, want fetched %v", wx.HaveObs, wx.Obs.FetchedAt, t1)
 	}
 }
 

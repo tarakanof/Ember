@@ -247,9 +247,20 @@ type airObservation struct {
 	TZKnown         bool
 }
 
+type weatherLocation struct{ lat, lon float64 }
+
+type weatherSource struct {
+	provider string
+	loc      weatherLocation
+}
+
+func (c WeatherConfig) location() weatherLocation { return weatherLocation{c.Latitude, c.Longitude} }
+
+func (c WeatherConfig) source() weatherSource { return weatherSource{c.Provider, c.location()} }
+
 type weatherStore struct {
 	mu        sync.RWMutex
-	provider  string
+	source    weatherSource
 	obs       weatherObservation
 	have      bool
 	lastFetch time.Time
@@ -271,19 +282,19 @@ type weatherStore struct {
 
 func newWeatherStore() *weatherStore { return &weatherStore{} }
 
-func (s *weatherStore) servesProvider(provider string) bool {
+func (s *weatherStore) serves(src weatherSource) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.provider == provider
+	return s.source == src
 }
 
-func (s *weatherStore) switchProvider(provider string) {
+func (s *weatherStore) switchSource(src weatherSource) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.provider == provider {
+	if s.source == src {
 		return
 	}
-	s.provider = provider
+	s.source = src
 	s.obs = weatherObservation{}
 	s.have = false
 	s.lastFetch = time.Time{}
@@ -414,7 +425,7 @@ func (a *App) StartWeather(ctx context.Context) {
 	a.pollWeather(ctx, time.Now())
 	for {
 		_, changed := a.changes.subscribe()
-		if !a.weather.servesProvider(a.cfg.Load().Weather.Provider) {
+		if !a.weather.serves(a.cfg.Load().Weather.source()) {
 			a.pollWeather(ctx, time.Now())
 			continue
 		}
@@ -430,7 +441,8 @@ func (a *App) StartWeather(ctx context.Context) {
 
 func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	cfg := a.cfg.Load().Weather
-	a.weather.switchProvider(cfg.Provider)
+	src := cfg.source()
+	a.weather.switchSource(src)
 	if !cfg.Enabled {
 		return
 	}
@@ -444,27 +456,27 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.pollAir(ctx, now, cfg)
 	hint, wait := a.weather.fetchHint(now)
 	if wait {
-		a.markWeatherPolled(now, cfg.Provider)
+		a.markWeatherPolled(now, src)
 		return
 	}
 	res, err := a.weatherFetcher.fetch(ctx, cfg, hint)
 	if err != nil {
 		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "err", err)
-		a.markWeatherPolled(now, cfg.Provider)
+		a.markWeatherPolled(now, src)
 		return
 	}
 	if res.NotModified {
-		if a.confirmWeather(now, cfg.Provider, res) {
+		if a.confirmWeather(now, src, res) {
 			a.changes.notify(topicWeather)
 		} else {
-			a.markWeatherPolled(now, cfg.Provider)
+			a.markWeatherPolled(now, src)
 		}
 		return
 	}
 	obs := res.Obs
 	obs.FetchedAt = now
 	a.weather.mu.Lock()
-	if a.cfg.Load().Weather.Provider != cfg.Provider {
+	if a.cfg.Load().Weather.source() != src {
 		a.weather.mu.Unlock()
 		return
 	}
@@ -505,18 +517,18 @@ func (s *weatherStore) fetchHint(now time.Time) (fetchHint, bool) {
 	return h, s.have && now.Before(s.notBefore)
 }
 
-func (a *App) markWeatherPolled(now time.Time, provider string) {
+func (a *App) markWeatherPolled(now time.Time, src weatherSource) {
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
-	if a.cfg.Load().Weather.Provider == provider {
+	if a.cfg.Load().Weather.source() == src {
 		a.weather.lastFetch = now
 	}
 }
 
-func (a *App) confirmWeather(now time.Time, provider string, res fetchResult) bool {
+func (a *App) confirmWeather(now time.Time, src weatherSource, res fetchResult) bool {
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
-	if a.cfg.Load().Weather.Provider != provider || !a.weather.have {
+	if a.cfg.Load().Weather.source() != src || !a.weather.have {
 		return false
 	}
 	a.weather.lastFetch = now

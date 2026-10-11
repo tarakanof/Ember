@@ -132,7 +132,7 @@ func TestWeatherProviderSwitchBackDuringFetchKeepsResult(t *testing.T) {
 	app.pollWeather(context.Background(), t0)
 
 	app.weather.mu.RLock()
-	provider, have, last := app.weather.provider, app.weather.have, app.weather.lastFetch
+	provider, have, last := app.weather.source.provider, app.weather.have, app.weather.lastFetch
 	app.weather.mu.RUnlock()
 	if provider != "open-meteo" || !have || !last.Equal(t0) {
 		t.Fatalf("store after A->B->A = provider %q have=%v lastFetch=%v, want open-meteo, true, %v", provider, have, last, t0)

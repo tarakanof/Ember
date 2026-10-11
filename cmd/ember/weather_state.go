@@ -45,7 +45,7 @@ func newWeatherState(cfg WeatherConfig, obs weatherObservation, haveObs bool, ai
 func (s *weatherStore) state(cfg WeatherConfig, now time.Time) weatherState {
 	s.mu.RLock()
 	obs, haveObs, air, haveAir := s.obs, s.have, s.air, s.haveAir
-	if s.provider != "" && s.provider != cfg.Provider {
+	if s.source != (weatherSource{}) && s.source != cfg.source() {
 		obs, haveObs = weatherObservation{}, false
 	}
 	s.mu.RUnlock()

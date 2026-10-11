@@ -1268,14 +1268,17 @@ codes (WMO for Open-Meteo, `symbol_code` for MET) map to six render buckets
 only) the location's **UTC offset** (`&timezone=auto` → `utc_offset_seconds`). The
 latest observation lives in an in-memory `weatherStore`, the single source: one
 poller fills it and nothing fetches per device. The store is tagged with the
-provider it serves (#409): `state()` hides an observation tagged with another
-provider, so after a provider change every view shows weather as absent until
-the new provider's first fetch. On every poll, `pollWeather` retags the
-store through `switchProvider` when the configured provider differs, clearing
-the observation, `lastFetch` and the popup's previous condition.
-`StartWeather` also wakes on change notifications and polls at once on a
-mismatch; that poll fetches only when weather is enabled. A fetch that finishes after the provider changed is dropped
-(it doesn't set `lastFetch` either), so a slow old-provider reply can't land.
+source it serves, provider and location (`weatherSource`; #409 for the
+provider, #350 added the location): `state()` hides an observation tagged
+with another source, so after a provider or location change every view
+shows weather as absent until the new source's first fetch. On every poll,
+`pollWeather` retags the store through `switchSource` when the configured
+source differs, clearing the observation, `lastFetch`, the MET validators
+and the popup's previous condition. `StartWeather` also wakes on change
+notifications and polls at once on a mismatch; that poll fetches only when
+weather is enabled. A fetch that finishes after the source changed is
+dropped (it doesn't set `lastFetch` either), so a slow old-source reply
+can't land.
 
 **Face data** (#350, `weather_providers.go`). Each fetch also fills the
 observation's knob-face fields, nothing persisted: `Now` (cloud %, UV,
@@ -1303,7 +1306,10 @@ wind and gust km/h, wind direction; each nil when the provider lacks it),
   worst symbol (storm > snow > rain > fog > clouds > clear) and `Code` that
   symbol; probability and UV are maxima of what the entries carry.
 - **MET caching.** The store keeps `Last-Modified` and `Expires`
-  (`lastModified`, `notBefore`; cleared on a provider switch). A due poll
+  (`lastModified`, `notBefore`; cleared with the observation on a provider
+  or location switch, so a new location neither waits for the old
+  `Expires` nor sends the old `Last-Modified`, which MET would answer with
+  a 304 for the wrong city). A due poll
   before `Expires` skips the MET call but still moves `lastFetch`, so air
   keeps its cadence and the next due poll checks again; after `Expires` the
   request carries `If-Modified-Since`. A **304** keeps the observation,
