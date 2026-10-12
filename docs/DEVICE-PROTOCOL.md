@@ -246,7 +246,7 @@ it (API.md, `openapi.yaml`).
   `chase:half`, `hop`, `pop`, `blink`, `sleepy` (the bot's sleepy look over
   the scene's idle mood, now rather than after `sleepy_after_s`), `asleep`
   (the bot's asleep state, lids closed and a slow breath, over the scene's
-  idle mood, now rather than after the knob's own sleepy time). The list
+  idle mood, now rather than after the bot has been sleepy for a while). The list
   only grows; a knob plays the scene without an act it doesn't know.
 - `offline` (optional, `true` only): render the page's offline state (the
   bot's link glyph, the Pomodoro and now-playing offline notes, the weather
