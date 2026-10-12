@@ -1048,14 +1048,40 @@ func TestClockConfigRotationWithOffAppsUnchangedSkipsClockWrite(t *testing.T) {
 	}
 }
 
-func TestClockConfigRotationMovingAnOffAppWrites(t *testing.T) {
-	a, srv, stub := newClockApp(t)
-	d := registeredClock(t, a, srv)
-	getClockConfig(t, srv, d.ID)
-	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["hum","time","date","ember"],"disabled":["hum"]}}`)
-	mustOK(t, "put", resp, b)
-	if len(stub.puts()) != 1 {
-		t.Fatalf("order writes = %v, want the off app's move written once", stub.puts())
+func stubAppNames(stub *clockStub) []string {
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	names := make([]string, 0, len(stub.apps))
+	for _, a := range stub.apps {
+		names = append(names, a["name"].(string))
+	}
+	return names
+}
+
+func TestClockConfigRotationWritesWhenTheResultingOrderDiffers(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"off app moved", `{"rotation":{"order":["hum","time","date","ember"],"disabled":["hum"]}}`, []string{"hum", "time", "date", "ember"}},
+		{"partial order", `{"rotation":{"order":["date"],"disabled":["hum"]}}`, []string{"date", "time", "hum", "ember"}},
+		{"pushed tile moved", `{"rotation":{"order":["ember","time","date","hum"],"disabled":["hum"]}}`, []string{"ember", "time", "date", "hum"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a, srv, stub := newClockApp(t)
+			d := registeredClock(t, a, srv)
+			getClockConfig(t, srv, d.ID)
+			resp, b := clockConfigReq(t, srv, "PUT", d.ID, c.body)
+			mustOK(t, "put", resp, b)
+			if len(stub.puts()) != 1 {
+				t.Fatalf("order writes = %v, want one", stub.puts())
+			}
+			if got := stubAppNames(stub); !slices.Equal(got, c.want) {
+				t.Fatalf("clock order = %v, want %v", got, c.want)
+			}
+		})
 	}
 }
 
@@ -1064,33 +1090,68 @@ func TestRotationUnchanged(t *testing.T) {
 		{"name":"time","enabled":true,"origin":"builtin"},
 		{"name":"hum","enabled":false,"origin":"builtin"},
 		{"name":"date","enabled":true,"origin":"builtin"},
-		{"name":"ember","enabled":true,"origin":"pushed"},
-		{"name":"mathlib","enabled":true,"origin":"module"}
+		{"name":"ember","enabled":true,"origin":"pushed"}
 	]`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	cases := []struct {
-		name string
-		body deviceAppsPutBody
-		want bool
+		name  string
+		order []string
+		off   []string
+		want  bool
 	}{
-		{"every app in order, off one in its slot", deviceAppsPutBody{Order: []string{"time", "hum", "date", "ember"}, Disabled: []string{"hum"}}, true},
-		{"enabled apps only", deviceAppsPutBody{Order: []string{"time", "date"}, Disabled: []string{"hum"}}, true},
-		{"disabled listed twice", deviceAppsPutBody{Order: []string{"time", "hum", "date"}, Disabled: []string{"hum", "hum"}}, true},
-		{"enabled apps swapped", deviceAppsPutBody{Order: []string{"date", "hum", "time"}, Disabled: []string{"hum"}}, false},
-		{"off app moved", deviceAppsPutBody{Order: []string{"hum", "time", "date"}, Disabled: []string{"hum"}}, false},
-		{"off app turned on", deviceAppsPutBody{Order: []string{"time", "hum", "date"}, Disabled: []string{}}, false},
-		{"another app turned off", deviceAppsPutBody{Order: []string{"time", "hum", "date"}, Disabled: []string{"hum", "date"}}, false},
+		{"every app in its slot", []string{"time", "hum", "date", "ember"}, []string{"hum"}, true},
+		{"disabled listed twice", []string{"time", "hum", "date", "ember"}, []string{"hum", "hum"}, true},
+		{"enabled apps only", []string{"time", "date"}, []string{"hum"}, false},
+		{"partial order", []string{"date"}, []string{"hum"}, false},
+		{"off app left out moves it", []string{"time", "date", "ember"}, []string{"hum"}, false},
+		{"enabled apps swapped", []string{"date", "hum", "time", "ember"}, []string{"hum"}, false},
+		{"off app moved", []string{"hum", "time", "date", "ember"}, []string{"hum"}, false},
+		{"pushed tile moved", []string{"ember", "time", "hum", "date"}, []string{"hum"}, false},
+		{"off app turned on", []string{"time", "hum", "date", "ember"}, []string{}, false},
+		{"another app turned off", []string{"time", "hum", "date", "ember"}, []string{"hum", "date"}, false},
+		{"unknown app reserved a slot", []string{"time", "hum", "future", "date", "ember"}, []string{"hum"}, false},
+		{"unknown app off", []string{"time", "hum", "date", "ember"}, []string{"hum", "ghost"}, false},
+		{"app named twice", []string{"time", "hum", "date", "ember", "time"}, []string{"hum"}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := rotationUnchanged(&c.body, cur); got != c.want {
+			if got := rotationUnchanged(&deviceAppsPutBody{Order: c.order, Disabled: c.off}, cur); got != c.want {
 				t.Fatalf("rotationUnchanged = %v, want %v", got, c.want)
 			}
 		})
 	}
 	if rotationUnchanged(&deviceAppsPutBody{Order: []string{}, Disabled: []string{}}, nil) {
 		t.Fatal("an unknown clock list counted as unchanged")
+	}
+}
+
+func TestRotationUnchangedIgnoresOffModules(t *testing.T) {
+	cur, err := rotationFromApps([]byte(`[
+		{"name":"time","enabled":true,"origin":"builtin"},
+		{"name":"hum","enabled":false,"origin":"builtin"},
+		{"name":"mathlib","enabled":false,"origin":"module"}
+	]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, off := range [][]string{{"hum"}, {"hum", "mathlib"}} {
+		if !rotationUnchanged(&deviceAppsPutBody{Order: []string{"time", "hum"}, Disabled: off}, cur) {
+			t.Errorf("disabled %v on a clock with an off module counted as a change", off)
+		}
+	}
+}
+
+func TestDeviceAppsPutRejectsMissingOrder(t *testing.T) {
+	_, srv, stub := newClockApp(t)
+	for _, body := range []string{`{"disabled":["hum"]}`, `{"order":null,"disabled":["hum"]}`} {
+		resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, body)
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(b), "order is required") {
+			t.Errorf("PUT %s = %d %s, want 400 naming order", body, resp.StatusCode, b)
+		}
+	}
+	if len(stub.puts()) != 0 {
+		t.Fatalf("a rejected order reached the clock: %v", stub.puts())
 	}
 }

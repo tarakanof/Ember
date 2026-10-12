@@ -79,7 +79,7 @@ type clockCalendarApp struct {
 type clockRotation struct {
 	Order    []string `json:"order"`
 	Disabled []string `json:"disabled"`
-	slots    []string
+	listed   []awtrix.AppInfo
 }
 
 func composeClockApps(c Config, hidden []string) clockApps {
@@ -284,32 +284,59 @@ func rotationFromApps(body []byte) (*clockRotation, error) {
 	if err := json.Unmarshal(body, &apps); err != nil {
 		return nil, fmt.Errorf("decode clock apps: %w", err)
 	}
-	r := &clockRotation{Order: []string{}, Disabled: []string{}}
+	r := &clockRotation{Order: []string{}, Disabled: []string{}, listed: apps}
 	for _, app := range apps {
 		switch {
 		case app.Origin == "pushed":
-			continue
 		case app.Enabled:
 			r.Order = append(r.Order, app.Name)
 		default:
 			r.Disabled = append(r.Disabled, app.Name)
 		}
-		r.slots = append(r.slots, app.Name)
 	}
 	return r, nil
 }
 
 func rotationUnchanged(patch *deviceAppsPutBody, cur *clockRotation) bool {
-	if cur == nil || !sameNames(patch.Disabled, cur.Disabled) {
+	if cur == nil {
 		return false
 	}
-	want := slices.DeleteFunc(slices.Clone(patch.Order), func(n string) bool { return !slices.Contains(cur.slots, n) })
-	have := slices.DeleteFunc(slices.Clone(cur.slots), func(n string) bool { return !slices.Contains(patch.Order, n) })
-	return slices.Equal(want, have)
-}
-
-func sameNames(a, b []string) bool {
-	return slices.Equal(slices.Compact(slices.Sorted(slices.Values(a))), slices.Compact(slices.Sorted(slices.Values(b))))
+	known := make(map[string]awtrix.AppInfo, len(cur.listed))
+	current := make([]string, 0, len(cur.listed))
+	for _, app := range cur.listed {
+		known[app.Name] = app
+		current = append(current, app.Name)
+	}
+	named := make(map[string]bool, len(patch.Order))
+	result := make([]string, 0, len(cur.listed))
+	for _, n := range patch.Order {
+		if _, ok := known[n]; !ok || named[n] {
+			return false
+		}
+		named[n] = true
+		result = append(result, n)
+	}
+	for _, n := range current {
+		if !named[n] {
+			result = append(result, n)
+		}
+	}
+	if !slices.Equal(result, current) {
+		return false
+	}
+	off := make(map[string]bool, len(patch.Disabled))
+	for _, n := range patch.Disabled {
+		if _, ok := known[n]; !ok {
+			return false
+		}
+		off[n] = true
+	}
+	for _, app := range cur.listed {
+		if app.Origin != "module" && off[app.Name] == app.Enabled {
+			return false
+		}
+	}
+	return true
 }
 
 type clockRotationOp struct {

@@ -65,10 +65,16 @@ type deviceAppsPutBody struct {
 	Disabled []string `json:"disabled"`
 }
 
-var errAppsDisabledMissing = errors.New(`disabled is required: the full list of switched-off apps, [] for none`)
+var (
+	errAppsOrderMissing    = errors.New(`order is required: the apps in rotation order, [] for none`)
+	errAppsDisabledMissing = errors.New(`disabled is required: the full list of switched-off apps, [] for none`)
+)
 
 func (b *deviceAppsPutBody) validate() error {
-	if b.Disabled == nil {
+	switch {
+	case b.Order == nil:
+		return errAppsOrderMissing
+	case b.Disabled == nil:
 		return errAppsDisabledMissing
 	}
 	return nil

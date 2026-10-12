@@ -123,9 +123,9 @@ matrix, runtime-only), `POST /v1/device/audio/test` (built-in chime, or
 `GET /v1/device/audio/melodies` (NG's melody list; the audio routes answer
 503 `unavailable` when cached capabilities show no buzzer / no output),
 `GET/PUT /v1/device/apps` (ordering + enable/disable,
-`PUT /api/v1/apps/order`; the PUT body is `{"order":[…],"disabled":[…]}`
-and `disabled`, the complete list of switched-off apps, is required: a
-missing or `null` one answers 400 rather than being sent on as `[]`, which
+`PUT /api/v1/apps/order`; the PUT body is `{"order":[…],"disabled":[…]}`,
+both required, and `disabled` is the complete list of switched-off apps: a
+missing or `null` field answers 400 rather than being sent on as `[]`, which
 would switch every off app back on; the same holds for `rotation` in
 `PUT /v1/devices/{id}/config`; these and the clock's
 `GET/PUT /v1/devices/{id}/config` run one at a time and answer 503 when

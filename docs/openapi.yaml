@@ -1875,8 +1875,11 @@ paths:
         the clock the body is merged onto the current config under the
         config lock and stored (clock config, changed slices, hidden tools)
         in one SQLite transaction; a failed store is
-        a 500 and changes nothing in memory or the store. A `rotation` that
-        differs from the clock's list, read just before, is sent to the
+        a 500 and changes nothing in memory or the store. A `rotation`
+        needs both `order` and `disabled` (missing or `null` is a 400). One
+        that would change the clock's list, read just before (the order NG
+        would produce, or any app's on/off state; an unknown or repeated
+        name always counts), is sent to the
         clock first (its error status passes through, 502 when unreachable),
         and clock app order changes run one at a time; if the
         slices then fail, the error says the app order was already written.
@@ -3103,6 +3106,8 @@ paths:
                 order:
                   type: array
                   items: {type: string}
+                  description: Apps in rotation order. Missing or null
+                    answers 400.
                 disabled:
                   type: array
                   items: {type: string}
