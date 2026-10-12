@@ -1876,11 +1876,11 @@ paths:
         config lock and stored (clock config, changed slices, hidden tools)
         in one SQLite transaction; a failed store is
         a 500 and changes nothing in memory or the store. A `rotation`
-        needs both `order` and `disabled` (missing or `null` is a 400). One
-        that would change the clock's list, read just before (the order NG
-        would produce, or any app's on/off state; an unknown or repeated
-        name always counts), is sent to the
-        clock first (its error status passes through, 502 when unreachable),
+        needs both `order` and `disabled` (missing or `null` is a 400). It is
+        sent to the clock first (its error status passes through, 502 when
+        unreachable) unless `order` is exactly the clock's whole list, read
+        just before, every app already holds a slot and no app's on/off
+        state changes (ARCHITECTURE "Rotation"),
         and clock app order changes run one at a time; if the
         slices then fail, the error says the app order was already written.
         For a knob that reported `caps` (DEVICE-PROTOCOL "Capabilities"), a

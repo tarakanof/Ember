@@ -3183,17 +3183,19 @@ migration) the same config is a façade over the overlay slices, as in #230.
   names the enabled apps in order, `disabled` the ones switched off, so a
   GET's `rotation` can be sent back. A PUT carrying `rotation` first reads
   the clock's list; only when that read succeeds and matches the patch is
-  the clock write skipped. "Matches" means the write would change nothing
-  (#449): replaying NG's order rule on the clock's whole list (the named
-  apps first, in `order`, then every other app in its current slot, pushed
-  tiles and off apps included) gives back exactly that list, and every app
-  but a module ends up on or off as it is now (NG doesn't switch modules,
-  and the app never names them). A name the clock doesn't list, which NG
-  keeps as a reserved slot, or a name given twice counts as a change. So
-  the app's every-app list matches an unchanged clock, while a partial
-  `order`, a moved off app or a moved pushed tile writes; a GET's
-  `rotation` sent back writes unless the off apps and pushed tiles already
-  sit after the enabled ones. A failed read, or any difference (a
+  the clock write skipped. "Matches" is deliberately narrow (#449), since
+  NG replaces its saved order on every write and rebuilds the apps it
+  isn't given from its own fallback order, which Ember doesn't replay:
+  `order` must be the clock's whole list, every app in the same sequence
+  (pushed tiles, off apps, absent apps holding a reserved slot and modules
+  included), every listed app must already have a `slot`, no name may
+  repeat, `disabled` may name only listed apps, and every app but a module
+  must stay on or off as it is (NG doesn't switch modules). Anything else,
+  when in doubt, writes. The app's save names every non-module app that is
+  present or holds a slot, so on an unchanged clock without modules or
+  slotless apps it skips; a module on the clock, a partial `order` or a
+  GET's `rotation` sent back (it leaves out pushed tiles) writes.
+  A failed read, or any difference (a
   reorder made on the old route or the clock's web UI), writes: the
   patch's `rotation`
   is forwarded as is (the `PUT /v1/device/apps` body) to the clock after

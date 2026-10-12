@@ -360,18 +360,15 @@ func TestClockConfigPushedAppsDoNotMoveVersion(t *testing.T) {
 	}
 }
 
-func TestClockConfigRotationRoundTripsWithoutClockWrite(t *testing.T) {
+func TestClockConfigRotationResentFromGetIsWritten(t *testing.T) {
 	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	c, _ := getClockConfig(t, srv, d.ID)
-	stub.mu.Lock()
-	stub.orderFail = true
-	stub.mu.Unlock()
 	body, _ := json.Marshal(map[string]any{"apps": map[string]any{"weather": map[string]any{"moon": false}}, "rotation": c.Rotation})
 	resp, b := clockConfigReq(t, srv, "PUT", d.ID, string(body))
 	mustOK(t, "resend rotation", resp, b)
-	if n := len(stub.puts()); n != 0 {
-		t.Fatalf("an unchanged rotation was written to the clock %d times", n)
+	if n := len(stub.puts()); n != 1 {
+		t.Fatalf("a GET's rotation, which leaves the pushed tile out, was written %d times, want 1", n)
 	}
 }
 
@@ -1085,16 +1082,22 @@ func TestClockConfigRotationWritesWhenTheResultingOrderDiffers(t *testing.T) {
 	}
 }
 
-func TestRotationUnchanged(t *testing.T) {
-	cur, err := rotationFromApps([]byte(`[
-		{"name":"time","enabled":true,"origin":"builtin"},
-		{"name":"hum","enabled":false,"origin":"builtin"},
-		{"name":"date","enabled":true,"origin":"builtin"},
-		{"name":"ember","enabled":true,"origin":"pushed"}
-	]`))
+func mustRotation(t *testing.T, apps string) *clockRotation {
+	t.Helper()
+	r, err := rotationFromApps([]byte(apps))
 	if err != nil {
 		t.Fatal(err)
 	}
+	return r
+}
+
+func TestRotationUnchanged(t *testing.T) {
+	cur := mustRotation(t, `[
+		{"name":"time","slot":0,"enabled":true,"origin":"builtin"},
+		{"name":"hum","slot":1,"enabled":false,"origin":"builtin"},
+		{"name":"date","slot":2,"enabled":true,"origin":"builtin"},
+		{"name":"ember","slot":3,"enabled":true,"origin":"pushed"}
+	]`)
 	cases := []struct {
 		name  string
 		order []string
@@ -1105,6 +1108,7 @@ func TestRotationUnchanged(t *testing.T) {
 		{"disabled listed twice", []string{"time", "hum", "date", "ember"}, []string{"hum", "hum"}, true},
 		{"enabled apps only", []string{"time", "date"}, []string{"hum"}, false},
 		{"partial order", []string{"date"}, []string{"hum"}, false},
+		{"trailing app left out", []string{"time", "hum", "date"}, []string{"hum"}, false},
 		{"off app left out moves it", []string{"time", "date", "ember"}, []string{"hum"}, false},
 		{"enabled apps swapped", []string{"date", "hum", "time", "ember"}, []string{"hum"}, false},
 		{"off app moved", []string{"hum", "time", "date", "ember"}, []string{"hum"}, false},
@@ -1127,19 +1131,51 @@ func TestRotationUnchanged(t *testing.T) {
 	}
 }
 
-func TestRotationUnchangedIgnoresOffModules(t *testing.T) {
-	cur, err := rotationFromApps([]byte(`[
-		{"name":"time","enabled":true,"origin":"builtin"},
-		{"name":"hum","enabled":false,"origin":"builtin"},
-		{"name":"mathlib","enabled":false,"origin":"module"}
-	]`))
-	if err != nil {
-		t.Fatal(err)
+func TestRotationUnchangedWritesWhenASlotWouldChange(t *testing.T) {
+	cases := []struct {
+		name  string
+		apps  string
+		order []string
+		want  bool
+	}{
+		{"reservation named", `[{"name":"time","slot":0,"enabled":true,"origin":"builtin"},{"name":"date","slot":1,"enabled":true,"origin":"builtin"},{"name":"future","slot":2,"present":false,"enabled":true,"origin":"builtin"}]`, []string{"time", "date", "future"}, true},
+		{"reservation left out", `[{"name":"time","slot":0,"enabled":true,"origin":"builtin"},{"name":"date","slot":1,"enabled":true,"origin":"builtin"},{"name":"future","slot":2,"present":false,"enabled":true,"origin":"builtin"}]`, []string{"time", "date"}, false},
+		{"named app without a slot", `[{"name":"time","slot":0,"enabled":true,"origin":"builtin"},{"name":"ember","slot":null,"enabled":true,"origin":"pushed"}]`, []string{"time", "ember"}, false},
+		{"fallback-ordered tail left out", `[{"name":"time","slot":0,"enabled":true,"origin":"builtin"},{"name":"date","slot":1,"enabled":true,"origin":"builtin"},{"name":"b","slot":2,"enabled":true,"origin":"pushed"},{"name":"a","slot":3,"enabled":true,"origin":"pushed"}]`, []string{"time", "date"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := rotationUnchanged(&deviceAppsPutBody{Order: c.order, Disabled: []string{}}, mustRotation(t, c.apps)); got != c.want {
+				t.Fatalf("rotationUnchanged = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestRotationUnchangedNeedsModulesNamed(t *testing.T) {
+	cur := mustRotation(t, `[
+		{"name":"time","slot":0,"enabled":true,"origin":"builtin"},
+		{"name":"hum","slot":1,"enabled":false,"origin":"builtin"},
+		{"name":"mathlib","slot":2,"enabled":false,"origin":"module"}
+	]`)
+	if rotationUnchanged(&deviceAppsPutBody{Order: []string{"time", "hum"}, Disabled: []string{"hum"}}, cur) {
+		t.Error("an order leaving the module out counted as unchanged")
 	}
 	for _, off := range [][]string{{"hum"}, {"hum", "mathlib"}} {
-		if !rotationUnchanged(&deviceAppsPutBody{Order: []string{"time", "hum"}, Disabled: off}, cur) {
-			t.Errorf("disabled %v on a clock with an off module counted as a change", off)
+		if !rotationUnchanged(&deviceAppsPutBody{Order: []string{"time", "hum", "mathlib"}, Disabled: off}, cur) {
+			t.Errorf("the full list with disabled %v counted as a change", off)
 		}
+	}
+}
+
+func TestClockConfigRotationLeavingATrailingAppOutWrites(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["time","date","hum"],"disabled":["hum"]}}`)
+	mustOK(t, "put", resp, b)
+	if len(stub.puts()) != 1 {
+		t.Fatalf("order writes = %v, want the dropped slot written once", stub.puts())
 	}
 }
 

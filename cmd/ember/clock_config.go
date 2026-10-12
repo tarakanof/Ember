@@ -79,7 +79,14 @@ type clockCalendarApp struct {
 type clockRotation struct {
 	Order    []string `json:"order"`
 	Disabled []string `json:"disabled"`
-	listed   []awtrix.AppInfo
+	listed   []clockListedApp
+}
+
+type clockListedApp struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Origin  string `json:"origin"`
+	Slot    *int   `json:"slot"`
 }
 
 func composeClockApps(c Config, hidden []string) clockApps {
@@ -280,12 +287,12 @@ func mergeClockConfig(cur clockConfig, patch []byte) (clockConfigPatch, error) {
 }
 
 func rotationFromApps(body []byte) (*clockRotation, error) {
-	var apps []awtrix.AppInfo
-	if err := json.Unmarshal(body, &apps); err != nil {
+	var listed []clockListedApp
+	if err := json.Unmarshal(body, &listed); err != nil {
 		return nil, fmt.Errorf("decode clock apps: %w", err)
 	}
-	r := &clockRotation{Order: []string{}, Disabled: []string{}, listed: apps}
-	for _, app := range apps {
+	r := &clockRotation{Order: []string{}, Disabled: []string{}, listed: listed}
+	for _, app := range listed {
 		switch {
 		case app.Origin == "pushed":
 		case app.Enabled:
@@ -298,35 +305,19 @@ func rotationFromApps(body []byte) (*clockRotation, error) {
 }
 
 func rotationUnchanged(patch *deviceAppsPutBody, cur *clockRotation) bool {
-	if cur == nil {
+	if cur == nil || len(patch.Order) != len(cur.listed) {
 		return false
 	}
-	known := make(map[string]awtrix.AppInfo, len(cur.listed))
-	current := make([]string, 0, len(cur.listed))
-	for _, app := range cur.listed {
-		known[app.Name] = app
-		current = append(current, app.Name)
-	}
-	named := make(map[string]bool, len(patch.Order))
-	result := make([]string, 0, len(cur.listed))
-	for _, n := range patch.Order {
-		if _, ok := known[n]; !ok || named[n] {
+	known := make(map[string]bool, len(cur.listed))
+	for i, app := range cur.listed {
+		if patch.Order[i] != app.Name || app.Slot == nil || known[app.Name] {
 			return false
 		}
-		named[n] = true
-		result = append(result, n)
-	}
-	for _, n := range current {
-		if !named[n] {
-			result = append(result, n)
-		}
-	}
-	if !slices.Equal(result, current) {
-		return false
+		known[app.Name] = true
 	}
 	off := make(map[string]bool, len(patch.Disabled))
 	for _, n := range patch.Disabled {
-		if _, ok := known[n]; !ok {
+		if !known[n] {
 			return false
 		}
 		off[n] = true
