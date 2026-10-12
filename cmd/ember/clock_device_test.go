@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,10 +63,14 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 			b, _ := io.ReadAll(r.Body)
 			s.mu.Lock()
 			s.orderPuts = append(s.orderPuts, string(b))
-			s.applyOrderLocked(b)
+			ok := s.applyOrderLocked(b)
 			s.mu.Unlock()
 			in <- struct{}{}
 			<-hold
+			if !ok {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			_, _ = w.Write([]byte(`{}`))
 			return
 		}
@@ -110,14 +115,22 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"error":"boom"}`))
 			return
 		}
-		s.applyOrderLocked(b)
+		if !s.applyOrderLocked(b) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalidJson"}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{}`))
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
-func (s *clockStub) applyOrderLocked(b []byte) {
+func (s *clockStub) applyOrderLocked(b []byte) bool {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(b, &keys); err != nil || keys["disabled"] == nil {
+		return false
+	}
 	var body struct {
 		Order    []string `json:"order"`
 		Disabled []string `json:"disabled"`
@@ -130,7 +143,6 @@ func (s *clockStub) applyOrderLocked(b []byte) {
 	var next []map[string]any
 	for _, n := range body.Order {
 		if a, ok := byName[n]; ok {
-			a["enabled"] = true
 			next = append(next, a)
 			delete(byName, n)
 		}
@@ -141,13 +153,12 @@ func (s *clockStub) applyOrderLocked(b []byte) {
 		}
 	}
 	for _, a := range next {
-		for _, d := range body.Disabled {
-			if a["name"] == d {
-				a["enabled"] = false
-			}
+		if a["origin"] != "module" {
+			a["enabled"] = !slices.Contains(body.Disabled, a["name"].(string))
 		}
 	}
 	s.apps = next
+	return true
 }
 
 func (s *clockStub) serveApps(w http.ResponseWriter, r *http.Request) bool {
@@ -625,5 +636,26 @@ func TestReapplySettingsBumpsEpochAtMostOnce(t *testing.T) {
 	}
 	if got := listDevices(t, srv)[0].ConfigVersion; got != stored {
 		t.Fatalf("config_version after reapply = %d, want %d", got, stored)
+	}
+}
+
+func TestClockStubFollowsNGAppOrder(t *testing.T) {
+	s := &clockStub{apps: []map[string]any{
+		{"name": "Time", "enabled": true, "origin": "builtin"},
+		{"name": "Date", "enabled": false, "origin": "builtin"},
+		{"name": "mathlib", "origin": "module"},
+	}}
+	if s.applyOrderLocked([]byte(`{"order":["Date","Time"]}`)) {
+		t.Fatal("a body without disabled was accepted; NG answers 400")
+	}
+	if !s.applyOrderLocked([]byte(`{"order":["Date","Time"],"disabled":["Time"]}`)) {
+		t.Fatal("a full body was refused")
+	}
+	got := map[string]any{}
+	for _, a := range s.apps {
+		got[a["name"].(string)] = a["enabled"]
+	}
+	if got["Date"] != true || got["Time"] != false || got["mathlib"] != nil {
+		t.Fatalf("enabled after the write = %v, want Date on, Time off, no enabled on the module", got)
 	}
 }
