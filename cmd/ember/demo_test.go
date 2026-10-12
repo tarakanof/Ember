@@ -105,7 +105,7 @@ func (f *viewFixture) getQuery(t *testing.T, query, etag string) (*http.Response
 }
 
 func TestDemoCatalogHoldsTheIssueScenes(t *testing.T) {
-	want := map[string]int{demoGroupBot: 13, demoGroupMoments: 18, demoGroupFaces: 78, demoGroupPomo: 7, demoGroupNP: 4}
+	want := map[string]int{demoGroupBot: 14, demoGroupMoments: 18, demoGroupFaces: 78, demoGroupPomo: 7, demoGroupNP: 4}
 	got := map[string]int{}
 	var groups []string
 	seen := map[string]bool{}
@@ -128,7 +128,7 @@ func TestDemoCatalogHoldsTheIssueScenes(t *testing.T) {
 	if !slices.Equal(groups, []string{demoGroupBot, demoGroupMoments, demoGroupFaces, demoGroupPomo, demoGroupNP}) {
 		t.Errorf("groups are not contiguous in order: %v", groups)
 	}
-	for _, name := range []string{"bot.sleepy", "bot.chase_half", "bot.offline", "bot.quiet_calm", "moment.afterrain.quiet",
+	for _, name := range []string{"bot.sleepy", "bot.asleep", "bot.chase_half", "bot.offline", "bot.quiet_calm", "moment.afterrain.quiet",
 		"face.air.fog", "face.days.dry", "sun.polar_night", "pomodoro.parked", "pomodoro.done", "nowplaying.nothing"} {
 		if !seen[name] {
 			t.Errorf("scene %q missing", name)
@@ -138,7 +138,7 @@ func TestDemoCatalogHoldsTheIssueScenes(t *testing.T) {
 
 var (
 	demoPagePattern = regexp.MustCompile(`^(bot|pomodoro|nowplaying|weather|weather:(temp|rain|cast|wind|days|sun|air))$`)
-	demoActPattern  = regexp.MustCompile(`^(moment:(glance|night|frost|heat|wind|afterrain|snow|rain|storm):(full|quiet)|chase:(full|half)|hop|pop|blink|sleepy)$`)
+	demoActPattern  = regexp.MustCompile(`^(moment:(glance|night|frost|heat|wind|afterrain|snow|rain|storm):(full|quiet)|chase:(full|half)|hop|pop|blink|sleepy|asleep)$`)
 )
 
 func TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden(t *testing.T) {

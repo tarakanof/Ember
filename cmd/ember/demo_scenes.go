@@ -122,6 +122,7 @@ func demoBotScenes() []demoScene {
 	return []demoScene{
 		bot("idle", "Idle", idle, ""),
 		bot("sleepy", "Sleepy", idle, "sleepy"),
+		bot("asleep", "Asleep", idle, "asleep"),
 		bot("working", "Working", working, ""),
 		bot("waiting", "Waiting", waiting, ""),
 		bot("error", "Error", errored, ""),
