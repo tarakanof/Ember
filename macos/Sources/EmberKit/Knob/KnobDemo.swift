@@ -38,7 +38,7 @@ public struct KnobDemoGroup: Equatable, Sendable, Identifiable {
 
 public struct KnobDemoStatus: Codable, Equatable, Sendable {
     public enum State: String, Codable, Sendable {
-        case idle, pending, playing, unanswered
+        case idle, pending, playing, unanswered, restarted
     }
 
     public var state: State
@@ -66,6 +66,8 @@ public struct KnobDemoStatus: Codable, Equatable, Sendable {
     public static let idle = KnobDemoStatus(state: .idle)
 
     public var isActive: Bool { state == .pending || state == .playing }
+
+    public var isFading: Bool { state == .restarted }
 }
 
 public enum KnobDemoAvailability: Equatable, Sendable {
@@ -84,6 +86,7 @@ public enum KnobDemoLine: Equatable, Sendable {
     case waiting(title: String)
     case playing(title: String, queueLeft: Int)
     case unanswered(title: String)
+    case restarted(title: String)
 }
 
 @MainActor
@@ -105,6 +108,7 @@ public final class KnobDemoModel {
     @ObservationIgnored private var statusEpoch = 0
 
     public static let pollInterval: Duration = .seconds(1)
+    public static let fadePollInterval: Duration = .seconds(5)
     public static let maxRetryInterval: Duration = .seconds(16)
 
     public enum Refresh: Equatable, Sendable {
@@ -135,6 +139,7 @@ public final class KnobDemoModel {
         case .pending: return .waiting(title: title)
         case .playing: return .playing(title: title, queueLeft: status.queueLeft)
         case .unanswered: return .unanswered(title: title)
+        case .restarted: return .restarted(title: title)
         }
     }
 
@@ -216,12 +221,12 @@ public final class KnobDemoModel {
 
     public func follow() async {
         let gen = generation
-        var wait = Self.pollInterval
-        while status.isActive, gen == generation, !Task.isCancelled {
+        var wait = status.isFading ? Self.fadePollInterval : Self.pollInterval
+        while status.isActive || status.isFading, gen == generation, !Task.isCancelled {
             do { try await sleep(wait) } catch { return }
             guard gen == generation, !Task.isCancelled else { return }
             switch await refreshStatus() {
-            case .updated, .superseded: wait = Self.pollInterval
+            case .updated, .superseded: wait = status.isFading ? Self.fadePollInterval : Self.pollInterval
             case .failed: wait = min(wait * 2, Self.maxRetryInterval)
             }
         }

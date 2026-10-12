@@ -427,6 +427,7 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	if a.capsDrops.changed(id, capsErr) && capsErr != "" {
 		a.logger.WarnContext(r.Context(), "device caps dropped", "device_id", id, "err", capsErr)
 	}
+	demoGen := a.demos.generation(id)
 	res, err := a.devices.checkin(id, report, caps, capsErr)
 	if errors.Is(err, errCheckinNotStored) {
 		a.logger.WarnContext(r.Context(), "device checkin not persisted", "device_id", id, "err", err)
@@ -439,6 +440,9 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	if c := res.newCrash; c != nil {
 		a.logger.WarnContext(r.Context(), "knob crash reported", "device_id", id, "reason", c.Reason, "task", c.Task, "pc", c.PC,
 			"boots", report.Diag.Boots, "reset_reason", report.Diag.ResetReason)
+	}
+	if !res.bootedAt.IsZero() {
+		a.noteKnobReboot(r, id, demoGen, res.bootedAt)
 	}
 	now := a.knobStats.now()
 	if diag, _, err := a.devices.diagnostics(id); err == nil {

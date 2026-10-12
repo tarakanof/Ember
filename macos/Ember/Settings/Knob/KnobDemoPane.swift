@@ -120,6 +120,12 @@ struct KnobDemoPane: View {
                      comment: "Demo page status: the knob never started the scene within 10 seconds; the argument is the scene's title (\"Hop\").")
             } icon: { Image(systemName: "exclamationmark.triangle.fill") }
             .foregroundStyle(.orange)
+        case .restarted(let title):
+            Label {
+                Text("Knob restarted during \(title)",
+                     comment: "Demo page status: the knob rebooted while a scene was sent or playing, so the server dropped the demo and its queue; the argument is the scene's title (\"Hop\").")
+            } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+            .foregroundStyle(.orange)
         }
     }
 }

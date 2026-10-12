@@ -190,6 +190,29 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
 }
 
 @MainActor
+@Test func demoFollowKeepsReadingARestartedKnobSlowlyUntilItFades() async {
+    let sleeps = SleepLog()
+    let server = DemoServer(statuses: ["playing", "restarted", "restarted", "idle"])
+    let m = demoModel(server, sleeps: sleeps)
+    await m.loadScenes()
+    await m.play(m.groups[0].scenes[1])
+    await m.follow()
+    #expect(m.status.state == .idle && m.line == .idle)
+    #expect(sleeps.waits == [KnobDemoModel.pollInterval, KnobDemoModel.pollInterval, KnobDemoModel.fadePollInterval, KnobDemoModel.fadePollInterval])
+    #expect(server.statusReads == 4)
+}
+
+@MainActor
+@Test func demoRestartedLineNamesTheScene() async {
+    let server = DemoServer(statuses: ["restarted"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.refreshStatus()
+    #expect(m.status.state == .restarted && !m.status.isActive && m.status.isFading)
+    #expect(m.line == .restarted(title: "Hop"))
+}
+
+@MainActor
 @Test func demoStopSendsDeleteAndGoesIdle() async throws {
     let server = DemoServer(statuses: [])
     let m = demoModel(server)

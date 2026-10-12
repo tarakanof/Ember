@@ -792,7 +792,7 @@ components:
       properties:
         state:
           type: string
-          enum: [idle, pending, playing, unanswered]
+          enum: [idle, pending, playing, unanswered, restarted]
         scene:
           type: string
         id:
@@ -2150,7 +2150,12 @@ paths:
         poll wakes at once. A scene the knob has not reported `playing` 10 s
         after it became available is dropped (`unanswered`, `idle` again 60 s
         later); `done` moves to the next scene under a new id. A held scene
-        is dropped 60 s after the knob first reported it `playing`.
+        is dropped 60 s after the knob first reported it `playing`. A knob
+        that reboots (a checkin with a higher `diag.boots`, or without boots
+        a lower `uptime_s`, for a demo started before that boot; or a view
+        request without a report while its scene is `playing` and its last
+        report is 3 s old) drops the demo and its queue (`restarted`, `idle`
+        again 60 s later).
         DEVICE-PROTOCOL.md "Demo mode".
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
@@ -2939,6 +2944,10 @@ paths:
           description: >-
             `playing` once the scene shows, on every poll while it does; `done`
             when it ends (the server clears it and serves the next queued scene).
+            Required on every request while the knob holds a scene. A request
+            without `demo_id` while the server holds the scene as `playing`
+            and its last report is 3 s old means the knob lost it (a reboot):
+            the demo is dropped.
           schema:
             type: string
             enum: [playing, done]
