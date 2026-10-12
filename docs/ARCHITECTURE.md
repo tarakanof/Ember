@@ -2399,7 +2399,10 @@ apps, replacing the AWTRIX3 settings keys `TIM`/`DAT`/`TEMP`/`HUM`/`BAT` that
 NG has no equivalent for. `disabled` is the complete list of switched-off
 apps: NG switches on every app it doesn't name, so a body naming only the app
 just turned off (or `[]` with a reorder) turns every other off app back on
-(#413). After a
+(#413). NG also refuses a missing or `null` `disabled`, so Ember answers 400
+for one itself, on this route and on the façade's `rotation`, rather than
+forwarding `null` or guessing `[]`, which would switch every off app on
+(#449). After a
 successful order write the PUT reads the list back (2 s budget) to update the
 clock record's version, and both routes run one at a time with the façade;
 see "One operation at a time" and "Rotation cache" under the clock config
@@ -3179,9 +3182,16 @@ migration) the same config is a façade over the overlay slices, as in #230.
 - **Rotation.** `rotation` keeps NG's meaning in both directions: `order`
   names the enabled apps in order, `disabled` the ones switched off, so a
   GET's `rotation` can be sent back. A PUT carrying `rotation` first reads
-  the clock's list; only when that read succeeds and equals the patch is
-  the clock write skipped. A failed read, or any difference (a reorder made
-  on the old route or the clock's web UI), writes: the patch's `rotation`
+  the clock's list; only when that read succeeds and matches the patch is
+  the clock write skipped. "Matches" compares state, not bodies (#449): the
+  same set of off apps, and the patch's `order` reduced to the clock's own
+  apps listing them in the slots the clock has them, off ones included.
+  Names the clock doesn't list as its own (Ember's pushed tiles, unknown
+  apps) and own apps the patch leaves out don't count, so both a GET's
+  `rotation` and the app's every-app list match an unchanged clock, and
+  moving only an off app still writes. A failed read, or any difference (a
+  reorder made on the old route or the clock's web UI), writes: the
+  patch's `rotation`
   is forwarded as is (the `PUT /v1/device/apps` body) to the clock after
   validation and before the slices; a clock error is returned (502 when
   unreachable) and nothing else changes. After a successful write the list

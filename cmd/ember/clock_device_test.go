@@ -128,7 +128,7 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 
 func (s *clockStub) applyOrderLocked(b []byte) bool {
 	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(b, &keys); err != nil || keys["disabled"] == nil {
+	if err := json.Unmarshal(b, &keys); err != nil || keys["disabled"] == nil || string(keys["disabled"]) == "null" {
 		return false
 	}
 	var body struct {
@@ -647,6 +647,9 @@ func TestClockStubFollowsNGAppOrder(t *testing.T) {
 	}}
 	if s.applyOrderLocked([]byte(`{"order":["Date","Time"]}`)) {
 		t.Fatal("a body without disabled was accepted; NG answers 400")
+	}
+	if s.applyOrderLocked([]byte(`{"order":["Date","Time"],"disabled":null}`)) {
+		t.Fatal("a null disabled was accepted; NG answers 400")
 	}
 	if !s.applyOrderLocked([]byte(`{"order":["Date","Time"],"disabled":["Time"]}`)) {
 		t.Fatal("a full body was refused")

@@ -223,8 +223,10 @@ func TestClockConfigRejectsInvalidBodies(t *testing.T) {
 		`{"apps":{"calendar":{"tile_lead_minutes":0}}}`,
 		`{"apps":{"agents":{"hidden_tools":[""]}}}`,
 		`{"apps":{"agents":{"usage_cards":"yes"}}}`,
-		`{"apps":{"focus":{"focus_color":"red"}},"rotation":{"order":["time"]}}`,
+		`{"apps":{"focus":{"focus_color":"red"}},"rotation":{"order":["time"],"disabled":[]}}`,
 		`{"rotation":{"order":["time"],"speed":3}}`,
+		`{"rotation":{"order":["time","date"]}}`,
+		`{"rotation":{"order":["time","date"],"disabled":null}}`,
 	} {
 		resp, b := clockConfigReq(t, srv, "PUT", d.ID, body)
 		if resp.StatusCode != http.StatusBadRequest {
@@ -247,7 +249,7 @@ func TestClockConfigRotationWriteFailureChangesNothing(t *testing.T) {
 	stub.mu.Lock()
 	stub.orderFail = true
 	stub.mu.Unlock()
-	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date"]}}`)
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date"],"disabled":[]}}`)
 	if resp.StatusCode != http.StatusBadGateway {
 		t.Fatalf("PUT = %d, want 502: %s", resp.StatusCode, b)
 	}
@@ -278,7 +280,7 @@ func TestClockConfigPutWithRotationBumpsEpochOnce(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
 	epoch := a.devices.epochValue()
-	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"]}}`)
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"],"disabled":[]}}`)
 	mustOK(t, "put", resp, b)
 	if got := a.devices.epochValue(); got != epoch+1 {
 		t.Fatalf("epoch = %d, want %d", got, epoch+1)
@@ -290,7 +292,7 @@ func TestClockConfigOldAppOrderMovesVersionOnce(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	_, v := getClockConfig(t, srv, d.ID)
 	epoch := a.devices.epochValue()
-	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"],"disabled":[]}`)
 	mustOK(t, "apps order", resp, b)
 	if got := a.devices.epochValue(); got != epoch+1 || listDevices(t, srv)[0].ConfigVersion == v {
 		t.Fatalf("epoch = %d after the write, want %d with a new version", got, epoch+1)
@@ -327,7 +329,7 @@ func TestClockConfigOldAppOrderReadbackFailureKeepsVersionConsistent(t *testing.
 	stub.mu.Lock()
 	stub.appsFail = true
 	stub.mu.Unlock()
-	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"],"disabled":[]}`)
 	mustOK(t, "apps order", resp, b)
 	c, v := getClockConfig(t, srv, d.ID)
 	if c.Rotation != nil {
@@ -380,7 +382,7 @@ func TestClockConfigRotationReadbackFailureReturnsNull(t *testing.T) {
 	stub.mu.Lock()
 	stub.appsFail = true
 	stub.mu.Unlock()
-	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["date","time"]}}`)
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["date","time"],"disabled":[]}}`)
 	mustOK(t, "put", resp, b)
 	var c clockConfig
 	if err := json.Unmarshal(b, &c); err != nil {
@@ -411,7 +413,7 @@ func TestClockConfigPutKeepsConcurrentOldEndpointWrite(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
 	release := holdClockOrder(t, stub)
-	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"calendar":{"tile_lead_minutes":15}},"rotation":{"order":["date","time"]}}`)
+	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"calendar":{"tile_lead_minutes":15}},"rotation":{"order":["date","time"],"disabled":[]}}`)
 	waitEntered(t, stub.orderIn, "facade order write")
 	resp, b := devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"moon_phase":false}`)
 	mustOK(t, "weather put", resp, b)
@@ -434,7 +436,7 @@ func TestClockConfigConcurrentFacadePutsRunOneAtATime(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
 	release := holdClockOrder(t, stub)
-	first := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"calendar":{"tile_lead_minutes":15}},"rotation":{"order":["date","time"]}}`)
+	first := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"calendar":{"tile_lead_minutes":15}},"rotation":{"order":["date","time"],"disabled":[]}}`)
 	waitEntered(t, stub.orderIn, "first facade order write")
 	second := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false},"agents":{"usage_cards":false}}}`)
 	if r, done := waitReply(second, 200*time.Millisecond); done {
@@ -498,7 +500,7 @@ func TestClockConfigPersistFailureChangesNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"agents":{"usage_cards":false,"hidden_tools":["codex"]},"weather":{"moon":false}},"rotation":{"order":["date","time"]}}`)
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"agents":{"usage_cards":false,"hidden_tools":["codex"]},"weather":{"moon":false}},"rotation":{"order":["date","time"],"disabled":[]}}`)
 	if resp.StatusCode != http.StatusInternalServerError || !strings.Contains(string(b), "app order was already written") {
 		t.Fatalf("PUT = %d: %s", resp.StatusCode, b)
 	}
@@ -535,7 +537,7 @@ func TestClockConfigRotationResendAfterOutsideReorderIsWritten(t *testing.T) {
 	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
-	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"],"disabled":[]}`)
 	mustOK(t, "old reorder", resp, b)
 	resp, b = clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["time","date"],"disabled":["hum"]}}`)
 	mustOK(t, "facade put", resp, b)
@@ -648,7 +650,7 @@ func TestClockRotationReadInFlightDelaysOldRouteWrite(t *testing.T) {
 	in, release := stub.holdApps(t, http.StatusOK)
 	get := clockGoReq(srv, "GET", "/v1/device/apps", "")
 	waitEntered(t, in, "apps read")
-	put := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"]}`)
+	put := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"],"disabled":[]}`)
 	if r, done := waitReply(put, 200*time.Millisecond); done {
 		t.Fatalf("old-route PUT finished (%d) while a read of the list was in flight", r.code)
 	}
@@ -666,9 +668,9 @@ func TestClockRotationOldRouteWritesRunOneAtATime(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
 	in, release := stub.holdApps(t, http.StatusInternalServerError)
-	first := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"]}`)
+	first := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"],"disabled":[]}`)
 	waitEntered(t, in, "first old-route read-back")
-	second := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"]}`)
+	second := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"],"disabled":[]}`)
 	if r, done := waitReply(second, 200*time.Millisecond); done {
 		t.Fatalf("second old-route PUT finished (%d) during the first one's read-back", r.code)
 	}
@@ -689,9 +691,9 @@ func TestClockRotationDelayedWriteReplyKeepsNewerList(t *testing.T) {
 	stub.holdAfter = true
 	stub.mu.Unlock()
 	release := holdClockOrder(t, stub)
-	first := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"]}`)
+	first := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"],"disabled":[]}`)
 	waitEntered(t, stub.orderIn, "first order write")
-	second := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"]}`)
+	second := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"],"disabled":[]}`)
 	early, secondDone := waitReply(second, 300*time.Millisecond)
 	stub.mu.Lock()
 	stub.appsFailN = 1
@@ -755,7 +757,7 @@ func TestClockConfigGetWaitsForFacadeCommit(t *testing.T) {
 	}
 	release := sync.OnceFunc(func() { close(hold) })
 	t.Cleanup(release)
-	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"]}}`)
+	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"],"disabled":[]}}`)
 	waitEntered(t, in, "facade commit")
 	get := clockGoReq(srv, "GET", "/v1/devices/"+d.ID+"/config", "")
 	if r, done := waitReply(get, 200*time.Millisecond); done {
@@ -781,9 +783,9 @@ func TestClockConfigOldRouteWaitsForFacadePut(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
 	release := holdClockOrder(t, stub)
-	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"]}}`)
+	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"],"disabled":[]}}`)
 	waitEntered(t, stub.orderIn, "facade order write")
-	old := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"]}`)
+	old := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"],"disabled":[]}`)
 	if r, done := waitReply(old, 200*time.Millisecond); done {
 		t.Fatalf("old-route PUT finished (%d) while a facade PUT waited on the clock", r.code)
 	}
@@ -803,7 +805,7 @@ func TestClockConfigOldAppOrderMalformedReadbackClears(t *testing.T) {
 	stub.mu.Lock()
 	stub.appsBody = `[{"name":`
 	stub.mu.Unlock()
-	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"],"disabled":[]}`)
 	mustOK(t, "apps order", resp, b)
 	if r := a.clockRotation.Load(); r != nil {
 		t.Fatalf("rotation = %+v, want null after a malformed read-back", r)
@@ -822,7 +824,7 @@ func TestClockConfigRotationMalformedReadbackReturnsNull(t *testing.T) {
 	stub.mu.Lock()
 	stub.appsBody = `[{"name":`
 	stub.mu.Unlock()
-	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["date","time"]}}`)
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["date","time"],"disabled":[]}}`)
 	mustOK(t, "put", resp, b)
 	var c clockConfig
 	if err := json.Unmarshal(b, &c); err != nil {
@@ -842,7 +844,7 @@ func TestClockConfigOldAppOrderReadbackHasTwoSecondBudget(t *testing.T) {
 	stub.appsDelay = 10 * time.Second
 	stub.mu.Unlock()
 	start := time.Now()
-	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"],"disabled":[]}`)
 	elapsed := time.Since(start)
 	mustOK(t, "apps order", resp, b)
 	if elapsed < clockRotationReadBudget || elapsed > clockRotationReadBudget+900*time.Millisecond {
@@ -887,7 +889,7 @@ func TestClockResyncCannotHashAHalfCommittedFacadePut(t *testing.T) {
 		a.syncClockConfigVersion()
 	}()
 	time.Sleep(50 * time.Millisecond)
-	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"]}}`)
+	put := clockGoReq(srv, "PUT", "/v1/devices/"+d.ID+"/config", `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"],"disabled":[]}}`)
 	select {
 	case <-in:
 		unlock()
@@ -953,11 +955,11 @@ func TestClockRotationBudgetAnswers503Then502ThenFreesTheLock(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
 	release := holdClockOrder(t, stub)
-	first := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"]}`)
+	first := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"],"disabled":[]}`)
 	waitEntered(t, stub.orderIn, "first order write")
 	a.rotationOp.budget.Store(int64(100 * time.Millisecond))
 	epoch := a.devices.epochValue()
-	busy := waitCode(t, "waiting order", clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"]}`))
+	busy := waitCode(t, "waiting order", clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"],"disabled":[]}`))
 	if busy.code != http.StatusServiceUnavailable || !strings.Contains(string(busy.body), "still running") {
 		t.Fatalf("waiting order = %d %s, want 503", busy.code, busy.body)
 	}
@@ -967,7 +969,7 @@ func TestClockRotationBudgetAnswers503Then502ThenFreesTheLock(t *testing.T) {
 	release()
 	mustReply(t, "first order", first)
 	releaseCut := holdClockOrder(t, stub)
-	cut := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"]}`)
+	cut := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"],"disabled":[]}`)
 	waitEntered(t, stub.orderIn, "cut order write")
 	if r := waitCode(t, "cut order", cut); r.code != http.StatusBadGateway {
 		t.Fatalf("cut-short order = %d %s, want 502", r.code, r.body)
@@ -978,7 +980,7 @@ func TestClockRotationBudgetAnswers503Then502ThenFreesTheLock(t *testing.T) {
 	assertClockRecordInStep(t, a, srv)
 	releaseCut()
 	a.rotationOp.budget.Store(int64(clockRotationOpBudget))
-	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"],"disabled":[]}`)
 	mustOK(t, "order after the timeouts", resp, b)
 }
 
@@ -990,7 +992,7 @@ func TestClockConfigPutOutOfTimeBeforeCommitChangesNoSettings(t *testing.T) {
 	stub.appsSlow = []time.Duration{0, 5 * time.Second}
 	stub.mu.Unlock()
 	a.rotationOp.budget.Store(int64(300 * time.Millisecond))
-	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":`+strconv.FormatBool(!before.Apps.Weather.Moon)+`}},"rotation":{"order":["date","time"]}}`)
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":`+strconv.FormatBool(!before.Apps.Weather.Moon)+`}},"rotation":{"order":["date","time"],"disabled":[]}}`)
 	if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(b), "already written") {
 		t.Fatalf("PUT = %d %s, want 503 naming the written order", resp.StatusCode, b)
 	}
@@ -1005,7 +1007,7 @@ func TestClockRotationExpiredBeforeLockIsRejected(t *testing.T) {
 	d := registeredClock(t, a, srv)
 	a.rotationOp.budget.Store(0)
 	for i := range 20 {
-		resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"]}`)
+		resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"],"disabled":[]}`)
 		if resp.StatusCode != http.StatusServiceUnavailable {
 			t.Fatalf("try %d: PUT = %d %s, want 503 for an already expired request", i, resp.StatusCode, b)
 		}
@@ -1016,5 +1018,79 @@ func TestClockRotationExpiredBeforeLockIsRejected(t *testing.T) {
 	}
 	if n := len(stub.puts()); n != 0 {
 		t.Fatalf("expired requests wrote %d orders", n)
+	}
+}
+
+func TestDeviceAppsPutRejectsMissingDisabled(t *testing.T) {
+	_, srv, stub := newClockApp(t)
+	for _, body := range []string{
+		`{"order":["date","time"]}`,
+		`{"order":["date","time"],"disabled":null}`,
+	} {
+		resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, body)
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(b), "disabled is required") {
+			t.Errorf("PUT %s = %d %s, want 400 naming disabled", body, resp.StatusCode, b)
+		}
+	}
+	if len(stub.puts()) != 0 {
+		t.Fatalf("a rejected order reached the clock: %v", stub.puts())
+	}
+}
+
+func TestClockConfigRotationWithOffAppsUnchangedSkipsClockWrite(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["time","date","hum","ember"],"disabled":["hum"]}}`)
+	mustOK(t, "put", resp, b)
+	if len(stub.puts()) != 0 {
+		t.Fatalf("an unchanged app order with an app off was written: %v", stub.puts())
+	}
+}
+
+func TestClockConfigRotationMovingAnOffAppWrites(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	getClockConfig(t, srv, d.ID)
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["hum","time","date","ember"],"disabled":["hum"]}}`)
+	mustOK(t, "put", resp, b)
+	if len(stub.puts()) != 1 {
+		t.Fatalf("order writes = %v, want the off app's move written once", stub.puts())
+	}
+}
+
+func TestRotationUnchanged(t *testing.T) {
+	cur, err := rotationFromApps([]byte(`[
+		{"name":"time","enabled":true,"origin":"builtin"},
+		{"name":"hum","enabled":false,"origin":"builtin"},
+		{"name":"date","enabled":true,"origin":"builtin"},
+		{"name":"ember","enabled":true,"origin":"pushed"},
+		{"name":"mathlib","enabled":true,"origin":"module"}
+	]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		body deviceAppsPutBody
+		want bool
+	}{
+		{"every app in order, off one in its slot", deviceAppsPutBody{Order: []string{"time", "hum", "date", "ember"}, Disabled: []string{"hum"}}, true},
+		{"enabled apps only", deviceAppsPutBody{Order: []string{"time", "date"}, Disabled: []string{"hum"}}, true},
+		{"disabled listed twice", deviceAppsPutBody{Order: []string{"time", "hum", "date"}, Disabled: []string{"hum", "hum"}}, true},
+		{"enabled apps swapped", deviceAppsPutBody{Order: []string{"date", "hum", "time"}, Disabled: []string{"hum"}}, false},
+		{"off app moved", deviceAppsPutBody{Order: []string{"hum", "time", "date"}, Disabled: []string{"hum"}}, false},
+		{"off app turned on", deviceAppsPutBody{Order: []string{"time", "hum", "date"}, Disabled: []string{}}, false},
+		{"another app turned off", deviceAppsPutBody{Order: []string{"time", "hum", "date"}, Disabled: []string{"hum", "date"}}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := rotationUnchanged(&c.body, cur); got != c.want {
+				t.Fatalf("rotationUnchanged = %v, want %v", got, c.want)
+			}
+		})
+	}
+	if rotationUnchanged(&deviceAppsPutBody{Order: []string{}, Disabled: []string{}}, nil) {
+		t.Fatal("an unknown clock list counted as unchanged")
 	}
 }

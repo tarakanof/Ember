@@ -79,6 +79,7 @@ type clockCalendarApp struct {
 type clockRotation struct {
 	Order    []string `json:"order"`
 	Disabled []string `json:"disabled"`
+	slots    []string
 }
 
 func composeClockApps(c Config, hidden []string) clockApps {
@@ -262,6 +263,11 @@ func mergeClockConfig(cur clockConfig, patch []byte) (clockConfigPatch, error) {
 	if next.Schema != clockConfigSchema {
 		return clockConfigPatch{}, fmt.Errorf("%w: schema must be %d", errSettingBody, clockConfigSchema)
 	}
+	if next.Rotation != nil {
+		if err := next.Rotation.validate(); err != nil {
+			return clockConfigPatch{}, fmt.Errorf("%w: rotation: %w", errSettingBody, err)
+		}
+	}
 	hidden, err := normalizeHiddenTools(next.Apps.Agents.HiddenTools)
 	if err != nil {
 		return clockConfigPatch{}, err
@@ -282,22 +288,28 @@ func rotationFromApps(body []byte) (*clockRotation, error) {
 	for _, app := range apps {
 		switch {
 		case app.Origin == "pushed":
+			continue
 		case app.Enabled:
 			r.Order = append(r.Order, app.Name)
 		default:
 			r.Disabled = append(r.Disabled, app.Name)
 		}
+		r.slots = append(r.slots, app.Name)
 	}
 	return r, nil
 }
 
 func rotationUnchanged(patch *deviceAppsPutBody, cur *clockRotation) bool {
-	if cur == nil || !slices.Equal(patch.Order, cur.Order) {
+	if cur == nil || !sameNames(patch.Disabled, cur.Disabled) {
 		return false
 	}
-	want := slices.Sorted(slices.Values(patch.Disabled))
-	have := slices.Sorted(slices.Values(cur.Disabled))
-	return slices.Equal(slices.Compact(want), slices.Compact(have))
+	want := slices.DeleteFunc(slices.Clone(patch.Order), func(n string) bool { return !slices.Contains(cur.slots, n) })
+	have := slices.DeleteFunc(slices.Clone(cur.slots), func(n string) bool { return !slices.Contains(patch.Order, n) })
+	return slices.Equal(want, have)
+}
+
+func sameNames(a, b []string) bool {
+	return slices.Equal(slices.Compact(slices.Sorted(slices.Values(a))), slices.Compact(slices.Sorted(slices.Values(b))))
 }
 
 type clockRotationOp struct {
