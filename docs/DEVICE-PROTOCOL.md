@@ -244,7 +244,9 @@ it (API.md, `openapi.yaml`).
   `frost`, `heat`, `wind`, `afterrain`, `snow`, `rain`, `storm`; `quiet` is
   the working-mood variant, its view has a working `mood`), `chase:full`,
   `chase:half`, `hop`, `pop`, `blink`, `sleepy` (the bot's sleepy look over
-  the scene's idle mood, now rather than after `sleepy_after_s`). The list
+  the scene's idle mood, now rather than after `sleepy_after_s`), `asleep`
+  (the bot's asleep state, lids closed and a slow breath, over the scene's
+  idle mood, now rather than after 10 min of sleepy). The list
   only grows; a knob plays the scene without an act it doesn't know.
 - `offline` (optional, `true` only): render the page's offline state (the
   bot's link glyph, the Pomodoro and now-playing offline notes, the weather
@@ -313,10 +315,11 @@ silent, the hold cap) reach a waiting poll within 5 s, at its recheck.
 
 **Scenes** (`GET /v1/devices/{id}/demo/scenes`, `{name, group, title}`):
 
-- Bot (`bot.*`): idle, sleepy, working, waiting, error, done; hop, pop,
-  blink, chase full/half (acts over a fitting mood); offline; quiet calm
-  (`"quiet":true` with two waiting). `sleepy` is the idle view with act
-  `sleepy`.
+- Bot (`bot.*`): idle, sleepy, asleep, working, waiting, error, done; hop,
+  pop, blink, chase full/half (acts over a fitting mood); offline; quiet calm
+  (`"quiet":true` with two waiting). `sleepy` and `asleep` are the idle view
+  with the act of the same name; a knob without the `asleep` act shows the
+  idle view.
 - Weather moments (`moment.<kind>.full|quiet`): the nine kinds × full/quiet,
   page `bot`, with weather that fits the kind.
 - Weather faces (`face.<face>.<sky>`): the seven faces × clear day, clear
