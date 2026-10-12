@@ -687,6 +687,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Available when Weather moments is on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Available when weather is on in Sources › Weather." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -706,6 +710,10 @@
     "Behavior" : {},
     "Bell and the reminder's title when it comes due." : {},
     "Best streak" : {},
+    "Between changes, the bot also shows the current weather this often, skipping it when the line would read the same as last time. Never leaves only the moments for changes. Default: 30 min." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Big digits" : {},
     "Binary" : {},
     "Blinking" : {},
@@ -1297,6 +1305,10 @@
       "extractionState" : "manual"
     },
     "How many of the server's pushes reached the clock in the last 24 hours." : {},
+    "How often the bot shows the weather when nothing changes" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "How often the knob asks Ember for updates" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1977,6 +1989,7 @@
     "Show on the knob" : {},
     "Show seconds" : {},
     "Show the host's name" : {},
+    "Show the weather every" : {},
     "Show tile from" : {},
     "Show usage from" : {},
     "Show weekday" : {},
@@ -2119,6 +2132,10 @@
       "extractionState" : "manual"
     },
     "The animated bot, or the glyph of the active tool" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "The bot shows the weather when it changes" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -2542,6 +2559,7 @@
       "extractionState" : "manual"
     },
     "Weather is off on the server, or the server is too old." : {},
+    "Weather moments" : {},
     "Weather popups show animated LaMetric gallery icons instead of the drawn ones. Change the icon for each condition under Native Icon IDs. Default: off." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2572,6 +2590,10 @@
     },
     "When conditions change" : {},
     "When due" : {},
+    "When rain, snow or a storm starts, rain stops, the wind picks up or it turns hot or freezing, the bot page shows the weather above the eyes with a short line under them. Needs knob firmware 0.9.61 or later. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "When the Codex app-server daemon is running, Ember reads TUI sessions from its socket, including waits for approval. Without the daemon this does nothing, and Ember never starts it. Default: on." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

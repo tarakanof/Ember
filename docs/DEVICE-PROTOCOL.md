@@ -102,7 +102,7 @@ Since #341 the knob may say what it can do in every checkin (cinder#27):
   knob stores it, compact JSON (cinder `CFG_SETTINGS_MAX`, 1024). Floors:
   `view_bytes` ≥ 4096 (a full view without `nowplaying` is under 700 B;
   the rest is headroom for long host labels and future fields) and
-  `config_bytes` ≥ the default config's compact size (447 B today; it
+  `config_bytes` ≥ the default config's compact size (493 B today; it
   follows `defaultKnobSettings`), so the knob can always hold a view and
   the config a new record starts with.
 - `rotations` (optional): the display rotations in degrees the firmware can
@@ -257,6 +257,30 @@ knob view. The knob has no speaker, so on the knob quiet is display only:
   doesn't (cinder#45).
 - **Size:** the default config grows by 13 B (447 B) and the largest valid
   one by 15 B (663 B), still under `CFG_SETTINGS_MAX`.
+
+## Bot weather moments
+
+`bot.weather_moments` and `bot.weather_every_min` (#443, cinder#90, firmware
+0.9.61) control the weather moments the bot page plays (a sprite and a line
+of text when the weather changes, plus a periodic one), per knob:
+
+- **Config:** `"bot": {…, "weather_moments": bool, "weather_every_min": int}`.
+  `weather_moments` default `true`; `false` turns every moment off.
+  `weather_every_min` 0-240 minutes between periodic moments, default `30`;
+  `0` means no periodic moment, while the change moments still play. A value
+  outside 0-240, a fraction or a non-number is a 400 on the owner PUT. Both
+  merge field by field like the other bot keys, `null` reads as the default,
+  and a record stored before #443 reads as on and 30 with no config push. Both
+  are always sent, `0` included.
+- **Knob:** cinder's `knob_settings_parse` uses the same defaults for an
+  absent key, keeps the default for a non-boolean `weather_moments` or a
+  non-number `weather_every_min`, and clamps a number to 0-240.
+- **Caps:** none. The firmware reports no token for moments, and older
+  firmware skips both unknown keys, so the server sends them to every knob.
+- **App:** Ember.app shows them in the knob's Bot section when the server
+  sends them; the interval is disabled while moments are off.
+- **Size:** the default config grows by 46 B (493 B) and the largest valid
+  one by 48 B (711 B), still under `CFG_SETTINGS_MAX`.
 
 ## Weather observation time
 
@@ -537,8 +561,8 @@ Indented JSON; key order is the wire order.
 | `checkin_reply_caps.json` | Caps accepted: `config_version` and `caps_ack` |
 | `checkin_reply_rotation.json` | `new_token` from a real rotation, the token replaced by a dummy of the same length |
 | `pomodoro_action.json` | A Pomodoro action reply (pause during a short break) |
-| `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0 |
-| `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5, `display.rotation` 180), plus an unknown page id the knob must keep |
+| `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30 |
+| `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5, `display.rotation` 180, `bot.weather_moments` false and `weather_every_min` 0), plus an unknown page id the knob must keep |
 
 The test also compares what the server stores for `checkin_req_full.json`
 (the checkin record and the stats sample) with every value sent, so a request

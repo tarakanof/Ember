@@ -264,6 +264,22 @@ struct KnobBotSection: View {
                     set: { v in knob.edit { $0.bot.workingRing = v } }),
                     info: .knobWorkingRing, requirement: .loading)
             }
+            if s.bot.weatherMoments != nil {
+                InfoToggle("Weather moments", isOn: Binding(
+                    get: { s.bot.weatherMoments ?? true },
+                    set: { v in knob.edit { $0.bot.weatherMoments = v } }),
+                    info: .knobWeatherMoments, requirement: .loading)
+            }
+            if s.bot.weatherEveryMin != nil {
+                StepperRow(title: "Show the weather every", value: Binding(
+                    get: { s.bot.weatherEveryMin ?? 30 },
+                    set: { m in knob.edit { $0.bot.weatherEveryMin = m } }),
+                    range: KnobSettings.weatherEveryRange, step: 5,
+                    info: .knobWeatherEvery, requirement: .weatherMomentsOn) { m in
+                    m == 0 ? Text("Never") : Text(verbatim: DurationText.minutes(m))
+                }
+                .disabled(s.bot.weatherMoments == false)
+            }
         } header: {
             Text("Bot")
         } footer: {

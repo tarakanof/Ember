@@ -2873,7 +2873,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `bot{sleepy_after_s 0-86400 (0 = never), demo_hold_s 1-600, source_label,
   working_ring}` (the two booleans, cinder#42: the curved host label and the
   glint orbiting the outline while working; absent or null = true, so a
-  record stored before #282 keeps both on with no config push),
+  record stored before #282 keeps both on with no config push;
+  `weather_moments` and `weather_every_min 0-240` (0 = no periodic moment),
+  #443, cinder#90: the bot page's weather moments, absent or null = on and
+  30; see DEVICE-PROTOCOL "Bot weather moments"),
   `display{fast_link, rotation}` (`fast_link`, cinder#23: the knob's panel
   QSPI link at 80 MHz, absent or null = true like the bot flags; the knob
   reboots to apply a change and falls back to 40 MHz by itself after a

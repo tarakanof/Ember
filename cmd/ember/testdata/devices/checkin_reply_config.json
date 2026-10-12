@@ -31,7 +31,9 @@
       "sleepy_after_s": 300,
       "demo_hold_s": 20,
       "source_label": true,
-      "working_ring": true
+      "working_ring": true,
+      "weather_moments": true,
+      "weather_every_min": 30
     },
     "diagnostics": "full",
     "stats_interval_s": 60,

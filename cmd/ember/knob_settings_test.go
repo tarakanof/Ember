@@ -55,6 +55,11 @@ func TestKnobSettingsValidate(t *testing.T) {
 		{"sleepy too long", func(s *knobSettings) { s.Bot.SleepyAfterS = 86401 }, false},
 		{"demo hold zero", func(s *knobSettings) { s.Bot.DemoHoldS = 0 }, false},
 		{"demo hold too long", func(s *knobSettings) { s.Bot.DemoHoldS = 601 }, false},
+		{"weather moments off", func(s *knobSettings) { s.Bot.WeatherMoments = boolPtr(false) }, true},
+		{"weather every 0", func(s *knobSettings) { s.Bot.WeatherEveryMin = new(0) }, true},
+		{"weather every 240", func(s *knobSettings) { s.Bot.WeatherEveryMin = new(240) }, true},
+		{"weather every 241", func(s *knobSettings) { s.Bot.WeatherEveryMin = new(241) }, false},
+		{"weather every negative", func(s *knobSettings) { s.Bot.WeatherEveryMin = new(-1) }, false},
 		{"quiet calm off", func(s *knobSettings) { s.Quiet.Calm = boolPtr(false) }, true},
 		{"quiet dim bounds", func(s *knobSettings) { s.Quiet.DimLevel = new(1) }, true},
 		{"quiet dim full", func(s *knobSettings) { s.Quiet.DimLevel = new(255) }, true},
@@ -90,7 +95,7 @@ func TestKnobSettingsWireShape(t *testing.T) {
 	}
 	want := `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
 		`"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":false}],` +
-		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20,"source_label":true,"working_ring":true},"diagnostics":"off",` +
+		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20,"source_label":true,"working_ring":true,"weather_moments":true,"weather_every_min":30},"diagnostics":"off",` +
 		`"stats_interval_s":60,"live_interval_s":5,"display":{"fast_link":true,"rotation":0},"quiet":{"calm":true,"dim_level":20}}`
 	if string(b) != want {
 		t.Fatalf("wire shape\n got %s\nwant %s", b, want)
@@ -203,6 +208,7 @@ func TestKnobConfigFitsTheFirmwareStore(t *testing.T) {
 	s.PollMS, s.Diagnostics, s.StatsIntervalS, s.LiveIntervalS = 10000, knobDiagBasic, 300, 10
 	s.Bot.SleepyAfterS, s.Bot.DemoHoldS = 86400, 600
 	s.Bot.SourceLabel, s.Bot.WorkingRing = boolPtr(false), boolPtr(false)
+	s.Bot.WeatherMoments, s.Bot.WeatherEveryMin = boolPtr(false), new(240)
 	s.Display.FastLink, s.Quiet.Calm, s.Quiet.DimLevel = boolPtr(false), boolPtr(false), new(255)
 	s.Display.Rotation = 270
 	b, err := json.Marshal(s)
