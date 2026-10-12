@@ -23,6 +23,8 @@ const (
 
 	demoUTCOffset = time.Hour
 	demoCoverPx   = 480
+	// Fixed, not the PNG hash: PNG bytes differ between Go releases (ARCHITECTURE "Knob demo mode").
+	demoArtHash = "de30de30de30de30"
 )
 
 type demoScene struct {
@@ -60,6 +62,7 @@ func newDemoArt() (*demoArt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("prepare demo cover: %w", err)
 	}
+	img.Hash = demoArtHash
 	return &demoArt{entry: nowplaying.Entry{AlbumArt: img}, img: img}, nil
 }
 

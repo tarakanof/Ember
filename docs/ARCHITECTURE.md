@@ -3518,7 +3518,10 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
 - **Cover.** The now-playing scenes use a built-in 480 px orange-to-violet
   gradient, prepared once like uploaded art (`nowplaying.Prepare`). The art
   route serves it whenever `v` equals its `art_version` or `cover_version`,
-  so the knob fetches it exactly like real art.
+  so the knob fetches it exactly like real art. Its `Hash` is a fixed
+  string, not the hash of the PNG: Go releases encode the same pixels to
+  different PNG bytes, which moved the goldens' `art_version` between the
+  local toolchain and CI.
 
 ### Knob firmware updates — `cmd/ember/firmware*.go`, `devices_ota*.go` (#225)
 

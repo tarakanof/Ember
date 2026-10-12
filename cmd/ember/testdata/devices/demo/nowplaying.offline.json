@@ -53,11 +53,11 @@
         "duration_ms": 214000,
         "position_ms": 63000,
         "position_at": 1782043200000,
-        "art_version": "8f0fd3a60c12",
+        "art_version": "e9c51004d250",
         "album_art": true,
         "volume": 45,
         "accent": "#C95A57",
-        "cover_version": "8f0fd3a60c12-r1"
+        "cover_version": "e9c51004d250-r1"
       }
     },
     "offline": true,
