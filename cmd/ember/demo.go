@@ -17,6 +17,7 @@ const (
 	demoHoldCap   = 60 * time.Second
 	demoForget    = 60 * time.Second
 	demoMaxScenes = 256
+	demoReportGap = 3 * time.Second
 
 	demoIdle       = "idle"
 	demoPending    = "pending"
@@ -48,14 +49,16 @@ type demoStatus struct {
 }
 
 type demoRun struct {
-	queue  []string
-	id     string
-	hold   bool
-	state  string
-	served bool
-	since  time.Time
-	played time.Time
-	heard  time.Time
+	queue   []string
+	id      string
+	gen     uint64
+	hold    bool
+	state   string
+	served  bool
+	started time.Time
+	since   time.Time
+	played  time.Time
+	heard   time.Time
 }
 
 type demoCurrent struct {
@@ -68,6 +71,7 @@ type demoCurrent struct {
 type demoRegistry struct {
 	mu    sync.Mutex
 	runs  map[string]*demoRun
+	gen   uint64
 	newID func() string
 }
 
@@ -90,7 +94,8 @@ func (d *demoRegistry) start(device string, scenes []string, hold bool, now time
 	if d.runs == nil {
 		d.runs = map[string]*demoRun{}
 	}
-	run := &demoRun{queue: scenes, id: d.nextIDLocked(), hold: hold, state: demoPending, since: now}
+	d.gen++
+	run := &demoRun{queue: scenes, id: d.nextIDLocked(), gen: d.gen, hold: hold, state: demoPending, started: now, since: now}
 	d.runs[device] = run
 	return run.status()
 }
@@ -155,17 +160,30 @@ func (d *demoRegistry) report(device, id, state string, now time.Time) bool {
 	return false
 }
 
-func (d *demoRegistry) knobRestarted(device string, now time.Time) bool {
+func (d *demoRegistry) generation(device string) uint64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.restartLocked(d.liveLocked(device, now), now)
+	if run := d.runs[device]; run != nil {
+		return run.gen
+	}
+	return 0
+}
+
+func (d *demoRegistry) knobRestarted(device string, gen uint64, bootedAt, now time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	run := d.liveLocked(device, now)
+	if run == nil || run.gen != gen || run.state == demoUnanswered || !run.started.Before(bootedAt) {
+		return false
+	}
+	return d.restartLocked(run, now)
 }
 
 func (d *demoRegistry) unreported(device string, now time.Time) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	run := d.liveLocked(device, now)
-	return run != nil && run.state == demoPlaying && d.restartLocked(run, now)
+	return run != nil && run.state == demoPlaying && now.Sub(run.heard) >= demoReportGap && d.restartLocked(run, now)
 }
 
 func (d *demoRegistry) restartLocked(run *demoRun, now time.Time) bool {
@@ -311,8 +329,8 @@ func (a *App) noteDemoReport(id string, r *http.Request) {
 	}
 }
 
-func (a *App) noteKnobReboot(r *http.Request, id string) {
-	if a.demos.knobRestarted(id, a.viewNow()) {
+func (a *App) noteKnobReboot(r *http.Request, id string, gen uint64, bootedAt time.Time) {
+	if a.demos.knobRestarted(id, gen, bootedAt, a.viewNow()) {
 		a.logger.InfoContext(r.Context(), "knob demo dropped", "device_id", id, "reason", "checkin_reboot")
 		a.changes.notify(topicDemo)
 	}

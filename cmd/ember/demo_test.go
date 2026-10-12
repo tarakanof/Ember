@@ -25,6 +25,7 @@ func demoFixture(t *testing.T) *viewFixture {
 	t.Helper()
 	f := goldenViewFixture(t)
 	f.app.viewClock = f.clk.Now
+	f.app.devices.now = f.clk.Now
 	f.app.viewRecheck = time.Hour
 	plantCaps(t, f, knobCapsDemo.clone())
 	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
@@ -614,7 +615,13 @@ func TestDemoOnTheWorstCaseViewFitsTheBuffer(t *testing.T) {
 
 func demoCheckin(t *testing.T, f *viewFixture, uptime, boots int64) {
 	t.Helper()
-	body := map[string]any{"fw": "0.9.70", "uptime_s": uptime, "caps": knobCapsDemo, "diag": map[string]any{"boots": boots}}
+	body := map[string]any{"fw": "0.9.70", "caps": knobCapsDemo}
+	if uptime > 0 {
+		body["uptime_s"] = uptime
+	}
+	if boots > 0 {
+		body["diag"] = map[string]any{"boots": boots}
+	}
 	b, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
@@ -623,14 +630,19 @@ func demoCheckin(t *testing.T, f *viewFixture, uptime, boots int64) {
 	mustOK(t, "checkin", resp, rb)
 }
 
+func playDemo(t *testing.T, f *viewFixture, body string) {
+	t.Helper()
+	postDemo(t, f, body)
+	goldenView(t, f)
+	f.report(t, "d0000001", "playing")
+}
+
 func TestDemoKnobRebootDropsTheDemoAndItsQueue(t *testing.T) {
 	f := demoFixture(t)
 	demoCheckin(t, f, 800, 40)
-	postDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
-	goldenView(t, f)
-	f.report(t, "d0000001", "playing")
+	playDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
 	f.clk.advance(2 * time.Second)
-	demoCheckin(t, f, 3, 41)
+	demoCheckin(t, f, 1, 41)
 	if st := demoStatusOf(t, f); st != (demoStatus{State: demoRestarted, Scene: "bot.hop", ID: "d0000001"}) {
 		t.Fatalf("status after the reboot = %+v", st)
 	}
@@ -658,9 +670,8 @@ func TestDemoKnobRebootDropsTheDemoAndItsQueue(t *testing.T) {
 func TestDemoKnobRebootIsSeenFromBootsWhenUptimeGrew(t *testing.T) {
 	f := demoFixture(t)
 	demoCheckin(t, f, 2, 40)
-	postDemo(t, f, `{"scene":"bot.hop"}`)
-	goldenView(t, f)
-	f.report(t, "d0000001", "playing")
+	playDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(10 * time.Second)
 	demoCheckin(t, f, 5, 41)
 	if st := demoStatusOf(t, f); st.State != demoRestarted {
 		t.Fatalf("status after a reboot with a higher uptime = %+v", st)
@@ -671,6 +682,7 @@ func TestDemoKnobRebootWhileThePendingSceneWaitsDropsIt(t *testing.T) {
 	f := demoFixture(t)
 	demoCheckin(t, f, 800, 40)
 	postDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
+	f.clk.advance(3 * time.Second)
 	demoCheckin(t, f, 1, 41)
 	if st := demoStatusOf(t, f); st != (demoStatus{State: demoRestarted, Scene: "bot.hop", ID: "d0000001"}) {
 		t.Fatalf("status = %+v", st)
@@ -680,18 +692,101 @@ func TestDemoKnobRebootWhileThePendingSceneWaitsDropsIt(t *testing.T) {
 	}
 }
 
+func TestDemoKnobRebootKeepsAnUnansweredRunUnanswered(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 800, 40)
+	postDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
+	f.clk.advance(11 * time.Second)
+	demoCheckin(t, f, 1, 41)
+	if st := demoStatusOf(t, f); st != (demoStatus{State: demoUnanswered, Scene: "bot.hop", ID: "d0000001", QueueLeft: 1}) {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
 func TestDemoCheckinWithoutARebootKeepsTheDemo(t *testing.T) {
 	f := demoFixture(t)
 	demoCheckin(t, f, 800, 40)
-	postDemo(t, f, `{"scene":"bot.hop"}`)
-	goldenView(t, f)
-	f.report(t, "d0000001", "playing")
+	playDemo(t, f, `{"scene":"bot.hop"}`)
 	demoCheckin(t, f, 830, 40)
 	if st := demoStatusOf(t, f); st.State != demoPlaying {
 		t.Fatalf("status after a plain checkin = %+v", st)
 	}
 	if _, body := f.report(t, "d0000001", "playing"); viewDemo(t, body) == nil {
 		t.Fatalf("the scene is gone: %s", body)
+	}
+}
+
+func TestDemoCheckinWithUnknownOrStaleUptimeKeepsTheDemo(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		prev, next [2]int64
+	}{
+		{"no uptime, same boots", [2]int64{800, 40}, [2]int64{0, 40}},
+		{"no uptime, no diag", [2]int64{800, 40}, [2]int64{0, 0}},
+		{"out of order, same boots", [2]int64{830, 40}, [2]int64{800, 40}},
+		{"out of order across a reboot", [2]int64{30, 41}, [2]int64{800, 40}},
+		{"out of order, no diag", [2]int64{830, 0}, [2]int64{800, 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := demoFixture(t)
+			demoCheckin(t, f, tc.prev[0], tc.prev[1])
+			playDemo(t, f, `{"scene":"bot.hop"}`)
+			f.clk.advance(time.Second)
+			demoCheckin(t, f, tc.next[0], tc.next[1])
+			if st := demoStatusOf(t, f); st.State != demoPlaying {
+				t.Fatalf("status = %+v", st)
+			}
+		})
+	}
+}
+
+func TestDemoStartedAfterTheKnobBootedSurvivesAStaleLastCheckin(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 800, 40)
+	f.clk.advance(10 * time.Minute)
+	playDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(5 * time.Second)
+	demoCheckin(t, f, 30, 43)
+	if st := demoStatusOf(t, f); st.State != demoPlaying {
+		t.Fatalf("a demo started after the boot was dropped by the first checkin: %+v", st)
+	}
+	if _, body := f.report(t, "d0000001", "playing"); viewDemo(t, body) == nil {
+		t.Fatalf("the scene is gone: %s", body)
+	}
+}
+
+func TestDemoSetBetweenBootAndFirstCheckinStaysPending(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 800, 40)
+	f.clk.advance(time.Minute)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(time.Second)
+	demoCheckin(t, f, 4, 41)
+	if st := demoStatusOf(t, f); st != (demoStatus{State: demoPending, Scene: "bot.hop", ID: "d0000001"}) {
+		t.Fatalf("status = %+v", st)
+	}
+	if d := viewDemo(t, goldenView(t, f)); d == nil {
+		t.Fatal("the knob is not served the demo set after it booted")
+	}
+}
+
+func TestDemoRebootSparesARunStartedAfterTheRebootWasRead(t *testing.T) {
+	t0 := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	d := &demoRegistry{}
+	d.start("k", []string{"bot.hop"}, false, t0)
+	gen := d.generation("k")
+	d.start("k", []string{"bot.done"}, false, t0)
+	if d.knobRestarted("k", gen, t0.Add(time.Second), t0.Add(2*time.Second)) {
+		t.Fatal("a reboot read before the newer run started dropped it")
+	}
+	if st := d.status("k", t0.Add(2*time.Second)); st.State != demoPending || st.Scene != "bot.done" {
+		t.Fatalf("status = %+v", st)
+	}
+	if !d.knobRestarted("k", d.generation("k"), t0.Add(time.Second), t0.Add(2*time.Second)) {
+		t.Fatal("the run of the same generation that started before the boot was kept")
+	}
+	if d.knobRestarted("k", 0, t0.Add(time.Second), t0.Add(2*time.Second)) {
+		t.Fatal("restarted twice")
 	}
 }
 
@@ -704,6 +799,7 @@ func TestDemoViewWithoutAReportWhilePlayingMeansTheKnobRestarted(t *testing.T) {
 		}
 	}
 	f.report(t, "d0000001", "playing")
+	f.clk.advance(4 * time.Second)
 	if _, body := f.get(t, ""); viewDemo(t, body) != nil {
 		t.Fatalf("a view without a report while playing was served the scene: %s", body)
 	}
@@ -712,10 +808,31 @@ func TestDemoViewWithoutAReportWhilePlayingMeansTheKnobRestarted(t *testing.T) {
 	}
 }
 
+func TestDemoDelayedUnreportedViewAfterPlayingKeepsTheDemo(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
+	goldenView(t, f)
+	f.report(t, "d0000001", "playing")
+	for _, step := range []time.Duration{0, 2 * time.Second} {
+		f.clk.advance(step)
+		if _, body := f.get(t, ""); viewDemo(t, body) == nil {
+			t.Fatalf("a delayed request sent before playing, arriving %v after the report, ended the demo: %s", step, body)
+		}
+	}
+	if st := demoStatusOf(t, f); st != (demoStatus{State: demoPlaying, Scene: "bot.hop", ID: "d0000001", QueueLeft: 1}) {
+		t.Fatalf("status = %+v", st)
+	}
+	f.report(t, "d0000001", "playing")
+	if _, body := f.get(t, ""); viewDemo(t, body) == nil {
+		t.Fatalf("a delayed request right after a later report ended the demo: %s", body)
+	}
+}
+
 func TestDemoKnobRestartAnswersTheLongPollAtOnce(t *testing.T) {
 	f := demoFixture(t)
 	demoCheckin(t, f, 800, 40)
 	postDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(3 * time.Second)
 	resp, _ := f.get(t, "")
 	etag := resp.Header.Get("ETag")
 	resp, body, after := waitThenAct(t, f, etag, func() { demoCheckin(t, f, 1, 41) })
@@ -725,8 +842,9 @@ func TestDemoKnobRestartAnswersTheLongPollAtOnce(t *testing.T) {
 }
 
 func TestKnobRebootedReadsUptimeAndBoots(t *testing.T) {
-	at := func(up, boots int64) deviceCheckin {
-		c := deviceCheckin{UptimeS: up}
+	t0 := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	at := func(seen time.Duration, up, boots int64) deviceCheckin {
+		c := deviceCheckin{SeenAt: t0.Add(seen), UptimeS: up}
 		if boots >= 0 {
 			c.Diag = &deviceDiag{Boots: boots}
 		}
@@ -737,17 +855,23 @@ func TestKnobRebootedReadsUptimeAndBoots(t *testing.T) {
 		prev, cur deviceCheckin
 		want      bool
 	}{
-		{"uptime grew, same boot", at(100, 7), at(130, 7), false},
-		{"uptime fell, no diag", at(100, -1), at(4, -1), true},
-		{"uptime grew, boots moved", at(2, 7), at(5, 8), true},
-		{"boots unknown", at(2, 0), at(5, 8), false},
-		{"diag dropped", at(2, 7), at(5, -1), false},
+		{"uptime grew, same boot", at(0, 100, 7), at(30*time.Second, 130, 7), false},
+		{"uptime fell, no diag", at(0, 100, -1), at(10*time.Second, 4, -1), true},
+		{"uptime fell, same boots", at(0, 100, 7), at(10*time.Second, 4, 7), false},
+		{"uptime grew, boots moved", at(0, 2, 7), at(10*time.Second, 5, 8), true},
+		{"boots fell: an older checkin", at(0, 30, 8), at(time.Second, 800, 7), false},
+		{"boots unknown", at(0, 2, 0), at(10*time.Second, 5, 8), false},
+		{"diag dropped", at(0, 2, 7), at(10*time.Second, 5, -1), false},
+		{"diag dropped, uptime fell", at(0, 100, 7), at(10*time.Second, 4, -1), false},
+		{"uptime missing, no diag", at(0, 800, -1), at(10*time.Second, 0, -1), false},
+		{"out of order, no diag", at(0, 830, -1), at(time.Second, 800, -1), false},
+		{"previous record days old, no diag", at(0, 800, -1), at(72*time.Hour, 30, -1), true},
 	} {
 		if got := knobRebooted(&tc.prev, tc.cur); got != tc.want {
 			t.Errorf("%s: knobRebooted = %v, want %v", tc.name, got, tc.want)
 		}
 	}
-	if knobRebooted(nil, at(1, 1)) {
+	if knobRebooted(nil, at(0, 1, 1)) {
 		t.Error("a first checkin reads as a reboot")
 	}
 }

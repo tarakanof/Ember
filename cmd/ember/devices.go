@@ -595,7 +595,7 @@ type checkinResult struct {
 	OTA            *otaOffer `json:"ota,omitempty"`
 	CapsAck        bool      `json:"caps_ack,omitempty"`
 	newCrash       *deviceCrash
-	rebooted       bool
+	bootedAt       time.Time
 }
 
 func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCaps, capsErr string) (checkinResult, error) {
@@ -622,7 +622,9 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 		report.Diag.carryFrom(prevDiag)
 	}
 	res.newCrash = newDiagCrash(prevDiag, report.Diag)
-	res.rebooted = knobRebooted(d.LastCheckin, report)
+	if knobRebooted(d.LastCheckin, report) {
+		res.bootedAt = report.bootedAt()
+	}
 	if report.AppliedVersion != d.ConfigVersion {
 		c := d.clone().Config
 		res.Config = &c
@@ -667,10 +669,28 @@ func knobRebooted(prev *deviceCheckin, cur deviceCheckin) bool {
 	if prev == nil {
 		return false
 	}
-	if cur.UptimeS < prev.UptimeS {
-		return true
+	pb, cb := prev.boots(), cur.boots()
+	if pb > 0 && cb > 0 {
+		return cb > pb
 	}
-	return prev.Diag != nil && cur.Diag != nil && prev.Diag.Boots > 0 && cur.Diag.Boots > 0 && cur.Diag.Boots != prev.Diag.Boots
+	if pb > 0 || cb > 0 || prev.UptimeS <= 0 || cur.UptimeS <= 0 || cur.UptimeS >= prev.UptimeS {
+		return false
+	}
+	return time.Duration(cur.UptimeS)*time.Second <= cur.SeenAt.Sub(prev.SeenAt)+rebootUptimeSlack
+}
+
+func (c deviceCheckin) boots() int64 {
+	if c.Diag == nil {
+		return 0
+	}
+	return c.Diag.Boots
+}
+
+func (c deviceCheckin) bootedAt() time.Time {
+	if c.UptimeS <= 0 {
+		return c.SeenAt
+	}
+	return c.SeenAt.Add(-time.Duration(c.UptimeS) * time.Second)
 }
 
 func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
