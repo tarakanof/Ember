@@ -15,35 +15,56 @@ private final class DemoServer: @unchecked Sendable {
     private let lock = NSLock()
     private var _requests: [(method: String, path: String, body: [String: Any]?)] = []
     private var _statuses: [String]
-    private var _gate: DispatchSemaphore?
+    private var _gates: [String: DispatchSemaphore] = [:]
     private var _held = 0
+    private var _failPost = false
+    private var _failScenes = false
 
-    init(statuses: [String]) { _statuses = statuses }
+    init(statuses: [String], failScenes: Bool = false) { _statuses = statuses; _failScenes = failScenes }
+
+    var failPost: Bool {
+        get { lock.withLock { _failPost } }
+        set { lock.withLock { _failPost = newValue } }
+    }
+
+    var failScenes: Bool {
+        get { lock.withLock { _failScenes } }
+        set { lock.withLock { _failScenes = newValue } }
+    }
 
     var requests: [(method: String, path: String, body: [String: Any]?)] { lock.withLock { _requests } }
     var statusReads: Int { requests.filter { $0.method == "GET" && $0.path.hasSuffix("/demo") }.count }
     var held: Int { lock.withLock { _held } }
 
-    func holdNextStatus() -> DispatchSemaphore {
+    func holdNext(_ method: String) -> DispatchSemaphore {
         let gate = DispatchSemaphore(value: 0)
-        lock.withLock { _gate = gate }
+        lock.withLock { _gates[method] = gate }
         return gate
     }
+
+    func holdNextStatus() -> DispatchSemaphore { holdNext("GET") }
 
     func handle(_ req: URLRequest) throws -> (HTTPURLResponse, Data) {
         let path = req.url!.path
         let data = req.httpBody ?? req.httpBodyStreamData()
         let body = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        if req.httpMethod == "GET", path == "/v1/devices/knob-61fc8c/demo",
-           let gate: DispatchSemaphore = lock.withLock({ defer { _gate = nil }; if _gate != nil { _held += 1 }; return _gate }) {
+        let method = req.httpMethod ?? "GET"
+        if path == "/v1/devices/knob-61fc8c/demo",
+           let gate: DispatchSemaphore = lock.withLock({
+               let g = _gates.removeValue(forKey: method)
+               if g != nil { _held += 1 }
+               return g
+           }) {
             gate.wait()
         }
         return lock.withLock {
             _requests.append((req.httpMethod ?? "GET", path, body))
             switch (req.httpMethod, path) {
             case ("GET", "/v1/devices/knob-61fc8c/demo/scenes"):
+                if _failScenes { return (okResponse(req.url!, status: 503), Data()) }
                 return (okResponse(req.url!), Data(demoScenesJSON.utf8))
             case ("POST", "/v1/devices/knob-61fc8c/demo"):
+                if _failPost { return (okResponse(req.url!, status: 409), Data(#"{"error":"busy"}"#.utf8)) }
                 let scenes = (body?["scenes"] as? [String]) ?? [(body?["scene"] as? String) ?? ""]
                 return (okResponse(req.url!), Data(#"{"state":"pending","scene":"\#(scenes[0])","id":"d1","queue_left":\#(scenes.count - 1)}"#.utf8))
             case ("DELETE", "/v1/devices/knob-61fc8c/demo"):
@@ -68,8 +89,8 @@ private final class SleepLog: @unchecked Sendable {
 }
 
 @MainActor
-private func untilHeld(_ server: DemoServer) async {
-    for _ in 0..<500 where server.held == 0 { try? await Task.sleep(for: .milliseconds(5)) }
+private func untilHeld(_ server: DemoServer, _ count: Int = 1) async {
+    for _ in 0..<500 where server.held < count { try? await Task.sleep(for: .milliseconds(5)) }
 }
 
 @MainActor
@@ -195,7 +216,7 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
     let m = KnobDemoModel(service: service, sleep: { _ in })
     m.configure(service: service, device: "knob-61fc8c")
     await m.loadScenes()
-    #expect(m.error == .featureOff && !m.scenesLoaded)
+    #expect(m.catalogError == .featureOff && !m.scenesLoaded)
 }
 
 @Test func demoRouteIsShownOnlyWithDeveloperTools() {
@@ -301,4 +322,55 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
     #expect(server.statusReads == 2 && m.status.state == .idle)
     await m.enter()
     #expect(server.statusReads == 3 && server.requests.filter { $0.path.hasSuffix("/scenes") }.count == 1)
+}
+
+@MainActor
+@Test func demoEnteringKeepsTheCatalogErrorWhenTheStatusReads() async {
+    let server = DemoServer(statuses: ["idle", "idle"], failScenes: true)
+    let m = demoModel(server)
+    await m.enter()
+    #expect(server.statusReads == 1 && m.status.state == .idle && m.error == nil)
+    #expect(m.catalogError != nil && !m.scenesLoaded && m.groups.isEmpty)
+    server.failScenes = false
+    await m.loadScenes()
+    #expect(m.catalogError == nil && m.scenesLoaded && m.groups.count == 5)
+}
+
+@MainActor
+@Test func demoStatusReadDuringAFailedPlayDoesNotHideTheError() async {
+    let server = DemoServer(statuses: ["playing"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    server.failPost = true
+    let postGate = server.holdNext("POST")
+    let play = Task { await m.play(m.groups[0].scenes[1]) }
+    await untilHeld(server)
+    let readGate = server.holdNextStatus()
+    let read = Task { await m.refreshStatus() }
+    await untilHeld(server, 2)
+    postGate.signal()
+    await play.value
+    #expect(m.error != nil)
+    readGate.signal()
+    #expect(await read.value == .superseded)
+    #expect(m.error != nil)
+}
+
+@MainActor
+@Test func demoStatusReadDuringStopCannotLandAStalePlaying() async {
+    let server = DemoServer(statuses: ["playing"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.play(m.groups[0].scenes[1])
+    let deleteGate = server.holdNext("DELETE")
+    let stop = Task { await m.stop() }
+    await untilHeld(server)
+    let readGate = server.holdNextStatus()
+    let read = Task { await m.refreshStatus() }
+    await untilHeld(server, 2)
+    deleteGate.signal()
+    await stop.value
+    readGate.signal()
+    #expect(await read.value == .superseded)
+    #expect(m.status == .idle && m.error == nil)
 }

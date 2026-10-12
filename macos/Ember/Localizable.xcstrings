@@ -2366,6 +2366,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "This server has no demo scenes. Update the Ember server." : {},
     "This server has no knob registry. Update the Ember server." : {},
     "This source is off, so this app shows nothing. Turn it on in the source's settings." : {},
     "Thunderstorm" : {},

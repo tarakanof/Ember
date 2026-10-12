@@ -93,6 +93,7 @@ public final class KnobDemoModel {
     public private(set) var scenesLoaded = false
     public private(set) var status = KnobDemoStatus.idle
     public private(set) var error: FeedError?
+    public private(set) var catalogError: FeedError?
     public private(set) var busy = false
     public private(set) var followID = 0
     public var hold = false
@@ -123,6 +124,7 @@ public final class KnobDemoModel {
         generation += 1
         status = .idle
         error = nil
+        catalogError = nil
         busy = false
     }
 
@@ -151,10 +153,10 @@ public final class KnobDemoModel {
             guard gen == generation else { return }
             groups = KnobDemoGroup.grouping(scenes)
             scenesLoaded = true
-            error = nil
+            catalogError = nil
         } catch {
-            guard gen == generation else { return }
-            self.error = FeedError(error)
+            guard gen == generation, !(error is CancellationError) else { return }
+            catalogError = FeedError(error)
         }
     }
 
@@ -202,10 +204,12 @@ public final class KnobDemoModel {
         do {
             try await service.stopDemo(id: id)
             guard gen == generation, epoch == statusEpoch else { return }
+            statusEpoch &+= 1
             status = .idle
             error = nil
         } catch {
             guard gen == generation, epoch == statusEpoch, !(error is CancellationError) else { return }
+            statusEpoch &+= 1
             self.error = FeedError(error)
         }
     }
@@ -233,11 +237,13 @@ public final class KnobDemoModel {
         do {
             let next = try await service.startDemo(id: id, request)
             guard gen == generation, epoch == statusEpoch else { return }
+            statusEpoch &+= 1
             status = next
             error = nil
             followID &+= 1
         } catch {
             guard gen == generation, epoch == statusEpoch, !(error is CancellationError) else { return }
+            statusEpoch &+= 1
             self.error = FeedError(error)
         }
     }

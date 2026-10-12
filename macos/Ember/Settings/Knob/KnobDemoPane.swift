@@ -63,6 +63,9 @@ struct KnobDemoPane: View {
         } footer: {
             Text("Hold keeps a single scene on the knob until Stop or 60 seconds. Play all ignores it.")
         }
+        LoadStateSection(isLoaded: demo.scenesLoaded, error: demo.catalogError,
+                         offMessage: "This server has no demo scenes. Update the Ember server.",
+                         retry: { await demo.loadScenes() })
         if let error = demo.error {
             Section {
                 Label { Text(error.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
