@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -130,7 +131,6 @@ func (s *clockStub) applyOrderLocked(b []byte) {
 	var next []map[string]any
 	for _, n := range body.Order {
 		if a, ok := byName[n]; ok {
-			a["enabled"] = true
 			next = append(next, a)
 			delete(byName, n)
 		}
@@ -141,11 +141,7 @@ func (s *clockStub) applyOrderLocked(b []byte) {
 		}
 	}
 	for _, a := range next {
-		for _, d := range body.Disabled {
-			if a["name"] == d {
-				a["enabled"] = false
-			}
-		}
+		a["enabled"] = !slices.Contains(body.Disabled, a["name"].(string))
 	}
 	s.apps = next
 }

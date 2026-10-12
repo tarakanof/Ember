@@ -89,9 +89,9 @@ private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(ap
     #expect(NativeAppsPlan.listed(sampleApps).map(\.name) == ["Time", "Date", "Battery"])
 }
 
-@Test func toggleOffNamesOnlyThatAppAsDisabled() {
+@Test func toggleOffSendsEveryDisabledApp() {
     let u = NativeAppsPlan.toggle("Date", enabled: false, in: sampleApps)
-    #expect(u.disabled == ["Date"])
+    #expect(u.disabled == ["Date", "Battery"])
     #expect(u.order == ["Time", "ember", "ember-weather", "clockface"])
     #expect(Set(u.order).isDisjoint(with: u.disabled))
 }
@@ -120,7 +120,7 @@ private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(ap
     let (apps, u) = NativeAppsPlan.move(in: sampleApps, fromOffsets: IndexSet(integer: 1), toOffset: 0)
     #expect(apps.map(\.name) == ["Date", "ember", "Time", "ember-weather", "Battery", "clockface", "mathlib"])
     #expect(u.order == ["Date", "ember", "Time", "ember-weather", "clockface"])
-    #expect(u.disabled.isEmpty)
+    #expect(u.disabled == ["Battery"])
 }
 
 @Test func moveDownwards() {
@@ -138,6 +138,7 @@ private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(ap
 private final class FakeClock: @unchecked Sendable {
     private let lock = NSLock()
     var responses: [String: (Int, String)] = [:]
+    var route: (@Sendable (_ key: String, _ body: [String: Any]) -> (Int, String)?)?
     var gatedRoute: String? {
         get { lock.withLock { _gatedRoute } }
         set { lock.withLock { _gatedRoute = newValue; armedRoute = newValue; gatedArrived = false } }
@@ -192,6 +193,7 @@ private final class FakeClock: @unchecked Sendable {
             waiters.forEach { $0.resume(returning: true) }
             gate.wait()
         }
+        if let routed = route?(key, body) { return (okResponse(req.url!, status: routed.0), Data(routed.1.utf8)) }
         let (status, text) = lock.withLock { responses[key] ?? (method == "GET" ? (404, "") : (200, "")) }
         return (okResponse(req.url!, status: status), Data(text.utf8))
     }
@@ -487,4 +489,89 @@ private func facadeModel(_ fake: FakeClock) async -> (DeviceSettingsModel, Clock
     #expect(m.actionErrors[.apps] == nil)
     #expect(m.nativeApps.first?.enabled == false)
     #expect(!clock.isActive)
+}
+
+private final class NGAppList: @unchecked Sendable {
+    private let lock = NSLock()
+    private let apps: [(name: String, origin: String)]
+    private var order: [String]
+    private var disabled: Set<String>
+
+    init(_ apps: [(String, String)], order: [String], disabled: Set<String>) {
+        self.apps = apps.map { (name: $0.0, origin: $0.1) }
+        self.order = order
+        self.disabled = disabled
+    }
+
+    func setOrder(_ rotation: [String: Any]) {
+        lock.withLock {
+            if let o = rotation["order"] as? [String] { order = o }
+            disabled = Set(rotation["disabled"] as? [String] ?? [])
+        }
+    }
+
+    var json: String {
+        lock.withLock {
+            let rest = apps.map(\.name).filter { !order.contains($0) }
+            let rows = (order + rest).enumerated().compactMap { i, name -> [String: Any]? in
+                guard let app = apps.first(where: { $0.name == name }) else { return nil }
+                let on = !disabled.contains(name)
+                return ["name": name, "enabled": on, "inLoop": on, "present": true, "origin": app.origin,
+                        "slot": i < order.count ? i as Any : NSNull()]
+            }
+            return String(decoding: try! JSONSerialization.data(withJSONObject: rows), as: UTF8.self)
+        }
+    }
+
+    var enabled: [String: Bool] {
+        lock.withLock { Dictionary(uniqueKeysWithValues: apps.map { ($0.name, !disabled.contains($0.name)) }) }
+    }
+}
+
+@MainActor
+private func ngRoundTripModel() async -> (DeviceSettingsModel, ClockConfigModel, NGAppList) {
+    let fake = ngServer()
+    let clockApps = NGAppList([("Time", "builtin"), ("ember", "pushed"), ("Date", "builtin"),
+                               ("Temperature", "builtin"), ("Humidity", "builtin"), ("Battery", "builtin")],
+                              order: ["Time", "ember", "Date", "Temperature"], disabled: ["Humidity", "Battery"])
+    fake.route = { key, body in
+        switch key {
+        case "GET /v1/device/apps":
+            return (200, clockApps.json)
+        case "PUT /v1/devices/clock-a1b2c3/config":
+            if let rotation = body["rotation"] as? [String: Any] { clockApps.setOrder(rotation) }
+            return nil
+        default:
+            return nil
+        }
+    }
+    let (m, clock) = await facadeModel(fake)
+    return (m, clock, clockApps)
+}
+
+@MainActor @Test func facadeAppTogglesSurviveAReload() async throws {
+    let (m, clock, clockApps) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    #expect(m.nativeApps.map(\.enabled) == [true, true, true, false, false])
+
+    await m.setApp("Humidity", enabled: true)
+    await m.load(force: true)
+    #expect(clockApps.enabled["Battery"] == false)
+    #expect(m.nativeApps.first { $0.name == "Humidity" }?.enabled == true)
+    #expect(m.nativeApps.first { $0.name == "Battery" }?.enabled == false)
+
+    await m.setApp("Date", enabled: false)
+    await m.load(force: true)
+    #expect(Dictionary(uniqueKeysWithValues: m.nativeApps.map { ($0.name, $0.enabled) })
+            == ["Time": true, "Date": false, "Temperature": true, "Humidity": true, "Battery": false])
+    #expect(clockApps.enabled["ember"] == true)
+}
+
+@MainActor @Test func facadeAppReorderKeepsDisabledAppsOffAfterAReload() async throws {
+    let (m, clock, _) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.moveApps(fromOffsets: [1], toOffset: 0)
+    await m.load(force: true)
+    #expect(m.nativeApps.map(\.name) == ["Date", "Time", "Temperature", "Humidity", "Battery"])
+    #expect(m.nativeApps.map(\.enabled) == [true, true, true, false, false])
 }

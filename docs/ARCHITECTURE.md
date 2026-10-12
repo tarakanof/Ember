@@ -2396,7 +2396,10 @@ present) as its `capabilities` check.
 **App ordering** (`GET/PUT /v1/device/apps`) proxies `GET /api/v1/apps` /
 `PUT /api/v1/apps/order` — ordering plus enable/disable of the device's own
 apps, replacing the AWTRIX3 settings keys `TIM`/`DAT`/`TEMP`/`HUM`/`BAT` that
-NG has no equivalent for (name only what you want to change). After a
+NG has no equivalent for. `disabled` is the complete list of switched-off
+apps: NG switches on every app it doesn't name, so a body naming only the app
+just turned off (or `[]` with a reorder) turns every other off app back on
+(#413). After a
 successful order write the PUT reads the list back (2 s budget) to update the
 clock record's version, and both routes run one at a time with the façade;
 see "One operation at a time" and "Rotation cache" under the clock config
@@ -3288,7 +3291,8 @@ migration) the same config is a façade over the overlay slices, as in #230.
   an old-endpoint save of usage, Pomodoro, weather or meetings reloads the
   façade. The Rotation page's app toggles and reorders send
   `{"rotation":{"order","disabled"}}` (the same body as `PUT
-  /v1/device/apps`) through the façade; the list itself, which needs
+  /v1/device/apps`) through the façade, `disabled` naming every app that is
+  off after the change (`NativeAppsPlan`), not only the one toggled; the list itself, which needs
   `origin`/`present`, is still read from `/v1/device/apps`. A 503 (lock
   timeout) or 502 (cut-short clock write) shows its own message and
   refetches: the façade `GET` replaces the baseline, and edits made while the
