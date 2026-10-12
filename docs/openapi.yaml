@@ -786,6 +786,21 @@ components:
         running: {fw: 0.9.13, build: 77aa01ff, slot: 0, image: valid, rollback: true}
         available: 0.9.14
         waiting_for: null
+    DemoStatus:
+      type: object
+      required: [state, scene, id, queue_left]
+      properties:
+        state:
+          type: string
+          enum: [idle, pending, playing, unanswered]
+        scene:
+          type: string
+        id:
+          type: string
+          description: The id the view's `demo` block carries and the knob reports.
+        queue_left:
+          type: integer
+          description: Scenes queued after this one.
     CoredumpMeta:
       type: object
       required: [id, size, fw, received_at, reason, task, pc, elf]
@@ -2120,6 +2135,142 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /v1/devices/{id}/demo:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+    post:
+      tags: [devices]
+      operationId: startKnobDemo
+      summary: Play demo scenes on a knob
+      description: >-
+        Developer tool (#457). Sets the knob's demo, in memory only: one scene
+        (`scene`) or a queue (`scenes`, played in order; `hold` is ignored). The
+        newest POST replaces any running demo. The view's `demo` block carries
+        it to a knob whose caps list the `demo` feature, and a waiting view
+        poll wakes at once. A scene the knob has not reported `playing` 10 s
+        after it became available is dropped (`unanswered`, `idle` again 60 s
+        later); `done` moves to the next scene under a new id. A held scene
+        is dropped 60 s after the knob first reported it `playing`.
+        DEVICE-PROTOCOL.md "Demo mode".
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                scene:
+                  type: string
+                scenes:
+                  type: array
+                  minItems: 1
+                  maxItems: 256
+                  items:
+                    type: string
+                hold:
+                  type: boolean
+                  description: Keep the scene up until stopped or 60 s after it starts playing (the knob and the server both cap it). Only with `scene`; ignored with `scenes`, even one.
+            example:
+              scene: moment.storm.full
+              hold: true
+      responses:
+        "200":
+          description: The demo status right after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoStatus"
+        "400":
+          description: Unknown scene, both or neither of `scene` and `scenes` (`scene` with an empty `scenes` counts as both), or more than 256 scenes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The knob's caps do not list the `demo` feature.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      tags: [devices]
+      operationId: getKnobDemo
+      summary: A knob's demo status
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: The status; `idle` with empty `scene` and `id` when no demo is set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [devices]
+      operationId: stopKnobDemo
+      summary: Stop a knob's demo
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/devices/{id}/demo/scenes:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+    get:
+      tags: [devices]
+      operationId: listKnobDemoScenes
+      summary: The demo scene catalog
+      description: Every scene a demo can play, in display order, grouped Bot, Weather moments, Weather faces, Pomodoro, Now playing.
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [name, group, title]
+                  properties:
+                    name:
+                      type: string
+                      example: face.rain.light_rain
+                    group:
+                      type: string
+                      example: Weather faces
+                    title:
+                      type: string
+                      example: RAIN · light rain
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/firmware:
     get:
       tags: [firmware]
@@ -2766,7 +2917,10 @@ paths:
         feature, `nowplaying` also carries `accent` (`#RRGGBB`, ≥ 3:1 on
         black) and `cover_version` (`<art_version>-<recipe>`, the `v` for
         `kind=cover`) when there is a picture (DEVICE-PROTOCOL.md "Prepared
-        cover").
+        cover"). With the `demo` caps feature, `demo` (last key) carries a
+        demo scene set from Ember.app: `{id, page, view?, act?, offline?,
+        hold}`, where `view` is a whole view that replaces the real one while
+        the scene plays (DEVICE-PROTOCOL.md "Demo mode").
       security: [{deviceToken: []}]
       parameters:
         - name: wait
@@ -2775,6 +2929,19 @@ paths:
             type: integer
             minimum: 0
             maximum: 25
+        - name: demo_id
+          in: query
+          description: The `demo.id` the knob is reporting on.
+          schema:
+            type: string
+        - name: demo_state
+          in: query
+          description: >-
+            `playing` once the scene shows, on every poll while it does; `done`
+            when it ends (the server clears it and serves the next queued scene).
+          schema:
+            type: string
+            enum: [playing, done]
       responses:
         "200":
           description: The view. Field-by-field shape in ARCHITECTURE.md "Wire protocol" (Knob view); compatibility rules in DEVICE-PROTOCOL.md.
@@ -2801,6 +2968,8 @@ paths:
                   externalValue: ../cmd/ember/testdata/devices/view_faces_met.json
                 view_faces_polar_dry:
                   externalValue: ../cmd/ember/testdata/devices/view_faces_polar_dry.json
+                demo_storm:
+                  externalValue: ../cmd/ember/testdata/devices/demo/moment.storm.full.json
         "304":
           description: Unchanged since If-None-Match.
         "401":

@@ -77,6 +77,12 @@ live path, so a check-in can't slip in; servers that support it list
 (≤64 MiB, 400 `elf_mismatch`), `GET /v1/firmware/{version}/bin`,
 `GET /v1/firmware/by-build/{build}/elf` (ARCHITECTURE "Knob firmware
 updates"),
+`POST`/`GET`/`DELETE /v1/devices/{id}/demo` and `GET /v1/devices/{id}/demo/scenes`
+(knob demo mode, memory only: `{"scene":"…"}` or `{"scenes":[…]}` plus
+`"hold"` (ignored with `scenes`; capped at 60 s by knob and server), newest wins; unknown scene, both or neither of `scene` and `scenes` (even `"scenes": []`) 400, a knob
+without the `demo` caps feature 409; status `{state: idle|pending|playing|unanswered,
+scene, id, queue_left}`; the catalog `[{name, group, title}]` — DEVICE-PROTOCOL
+"Demo mode"),
 `POST /v1/devices/{id}/stats/live` (knob diagnostics, memory only — see
 ARCHITECTURE "Knob diagnostics"), `GET /v1/devices/{id}/coredumps`
 (stored knob core dumps, newest first) and `GET`/`DELETE
@@ -168,7 +174,7 @@ stored or already stored), `GET /v1/devices/self/firmware/{version}` (only
 the image its checkin's `ota` offers: 409 for any other version, `Range`/`If-Range` (416 past the end),
 `ETag: "<sha256>"`, per-device rate limit), `GET /v1/devices/self/view` (the knob's
 single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
-`X-Ember-View-Wait`; `"quiet":true` while quiet hours are on, and a waiting
+`X-Ember-View-Wait`; `?demo_id=&demo_state=playing|done` report on a demo; `"quiet":true` while quiet hours are on, and a waiting
 poll wakes at the quiet-hours edges — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
 on any knob config change or rotation and on any clock record or clock config change). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
 the Plex poller). Device-only (unauthenticated): `POST /hooks/awtrix/button`

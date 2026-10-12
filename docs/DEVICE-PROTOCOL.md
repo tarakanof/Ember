@@ -17,7 +17,7 @@ Every route the knob calls, all with its device token (`ekd_…`):
 | Route | What |
 |---|---|
 | `POST /v1/devices/self/checkin` | Health report in, optionally with `caps` ("Capabilities" below); reply carries `config_version`, `caps_ack` when the caps were accepted, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
-| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent` and `cover_version`, "Prepared cover") and `diag_live_until` (live mode only). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
+| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent` and `cover_version`, "Prepared cover"), `diag_live_until` (live mode only) and `demo` (with the `demo` feature while a demo is set, "Demo mode"). `?demo_id=&demo_state=` report on the demo. Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
 | `GET /v1/devices/self/config` | `{config_version, config}`, the same pair a stale checkin carries. |
 | `PUT /v1/devices/self/coredump?id=` | The core dump a checkin asked for. |
 | `GET /v1/devices/self/firmware/{version}` | The image the checkin's `ota` offer names. |
@@ -188,6 +188,7 @@ pre-releases the same way):
 | `wx_faces` | Parses the weather detail keys ("Weather detail") | The detail keys are added to `weather` only with this token |
 | `np_cover` | Shows the prepared cover (`kind=cover`) and `accent` ("Prepared cover") | `nowplaying.accent` and `nowplaying.cover_version` only with this token |
 | `wx_moments` | Applies `bot.weather_moments` and `bot.weather_every_min` from its config ("Bot weather moments") | Ember.app shows the Weather moments rows only with this token; the server sends both keys to every knob |
+| `demo` | Plays the view's `demo` block and reports `demo_id`/`demo_state` ("Demo mode") | `demo` is sent only with this token; `POST …/demo` is 409 without it; Ember.app's Demo page needs it |
 
 Page ids in `caps.pages` need no registry: they are the config's page ids;
 Ember.app lists a knob app only when its page is in `effective_caps.pages`.
@@ -206,7 +207,94 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
 | new | new, `np_cover` or not | `accent` and `cover_version` only with the token, only when there is a picture, and the only change to `nowplaying`; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, `wx_moments` or not (cinder 0.9.65 sends it) | `effective_caps.features` lists it as reported; the config carries `bot.weather_moments` and `bot.weather_every_min` either way; Ember.app shows the Weather moments rows only with the token (no semver fallback: a server without `effective_caps` predates the keys) | `TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments` (`knob_weather_moments_test.go`); Ember.app `knobWeatherMomentsRowsNeedTheWxMomentsToken`; cinder host test: `wx_moments` in `FEATURES_AHEAD` |
+| new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`, `TestDemoPlayingReportDoesNotAnswerTheLongPoll`, `TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted`, `TestDemoLatePlayingReportForTheServedSceneRevivesIt`, `TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue`, `TestDemoOnTheWorstCaseViewFitsTheBuffer`; cinder host test: every `demo/*.json` parses |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
+
+## Demo mode
+
+A developer tool (#457): Ember.app's Demo page plays scenes on a knob to
+check its pages and animations. The server builds each scene as a fake
+view and relays it in the view the knob already polls. State is in memory
+only, one demo per knob; the newest `POST /v1/devices/{id}/demo` replaces
+it (API.md, `openapi.yaml`).
+
+**View.** With `demo` in its caps, while a demo is set, the view ends with:
+
+```json
+"demo": {"id": "d0c0ffee", "page": "bot", "view": {…}, "act": "moment:rain:full", "hold": false}
+```
+
+- `id`: opaque, new for every scene (a queue's next scene gets a new one).
+  The knob keys on it. The outer view keeps changing during a demo (real
+  mood, Pomodoro, weather, brightness, quiet), so the same `demo.id` comes
+  back in new bodies; a body whose `id` is the one already playing changes
+  nothing (no restart, no replayed act, no timer reset), a new `id` ends the
+  current scene and starts the new one, and a body without `demo` ends it.
+- `page`: `bot`, `pomodoro`, `nowplaying`, `weather`, or `weather:<face>`
+  with face `temp`, `rain`, `cast`, `wind`, `days`, `sun` or `air`.
+- `view` (optional): a whole view, the same schema as the top-level one
+  without its own `demo`, that replaces the real view while the scene
+  plays. It copies the real `v`, `epoch`, `config_version` and
+  `brightness`; its times are relative to when the scene became available
+  (whole seconds, the same clock as `X-Ember-Now`), so it keeps one ETag
+  while it plays. Weather carries the `wx_faces` detail; now playing carries
+  `art_version`, `accent` and `cover_version` of a built-in gradient that
+  `GET /v1/nowplaying/art` serves for those `v` values like real art.
+- `act` (optional): `moment:<kind>:full|quiet` (kind `glance`, `night`,
+  `frost`, `heat`, `wind`, `afterrain`, `snow`, `rain`, `storm`; `quiet` is
+  the working-mood variant, its view has a working `mood`), `chase:full`,
+  `chase:half`, `hop`, `pop`, `blink`, `sleepy` (the bot's sleepy look over
+  the scene's idle mood, now rather than after `sleepy_after_s`). The list
+  only grows; a knob plays the scene without an act it doesn't know.
+- `offline` (optional, `true` only): render the page's offline state (the
+  bot's link glyph, the Pomodoro and now-playing offline notes, the weather
+  age) over the scene's view.
+- `hold`: keep the scene until the demo is cleared or 60 s pass.
+
+Knob timing: a scene with only a view shows ~8 s; one with an act lasts the
+act's natural length (at least 8 s when it also has a view, at most 60 s);
+`hold` holds. The 60 s cap is a knob rule: the knob ends a held scene 60 s
+after it started and reports `done`. The server enforces it too: it drops a
+held scene 60 s after its first `playing` report, whatever the knob reports.
+
+A weather scene's `view` carries a second `weather` block next to the real
+one, so a body can hold two. The worst case (the largest scene over the
+worst-case real view, `TestDemoOnTheWorstCaseViewFitsTheBuffer`) is about
+7 KB, under half the 16 KB view buffer; firmware budgeting JSON nodes should
+count both blocks.
+
+**Reports.** On each view request while it shows a scene the knob adds
+`?demo_id=<id>&demo_state=playing`, and `demo_state=done` once when the
+scene ends. The server reads them before the long poll: `done` for the
+current id clears it and serves the next queued scene (new id) or nothing,
+so the reply to that request already reflects it; `playing` changes no
+bytes. A report for another id, an unknown state or a knob without a demo
+is ignored. A scene not reported `playing` 10 s after it became available
+is dropped with the rest of its queue (status `unanswered`, which reads
+`idle` again 60 s later). A `playing` or `done` report for that id up to
+5 s past the cutoff still counts when the server had already served the
+scene (the knob took it just before 10 s): `playing` revives the scene and
+the reply carries it again, `done` advances the queue as usual. A playing scene with no report for 60 s is dropped too. Setting or
+stopping a demo wakes a waiting view poll; the lazy drops (unanswered,
+silent, the hold cap) reach a waiting poll within 5 s, at its recheck.
+
+**Scenes** (`GET /v1/devices/{id}/demo/scenes`, `{name, group, title}`):
+
+- Bot (`bot.*`): idle, sleepy, working, waiting, error, done; hop, pop,
+  blink, chase full/half (acts over a fitting mood); offline; quiet calm
+  (`"quiet":true` with two waiting). `sleepy` is the idle view with act
+  `sleepy`.
+- Weather moments (`moment.<kind>.full|quiet`): the nine kinds × full/quiet,
+  page `bot`, with weather that fits the kind.
+- Weather faces (`face.<face>.<sky>`): the seven faces × clear day, clear
+  night, partly cloudy, overcast, fog, light rain, heavy rain, snow, storm,
+  dry; plus `sun.*` on the Sun face: night, dawn, golden morning, day,
+  golden evening, dusk, polar day, polar night.
+- Pomodoro (`pomodoro.*`): focus, break, long break, paused, parked
+  (`running` and `paused` false), 3 done, offline.
+- Now playing (`nowplaying.*`): playing, paused, nothing, offline.
+
+OTA, reset, setup and join screens are not scenes.
 
 ## Quiet hours
 
@@ -574,13 +662,14 @@ Indented JSON; key order is the wire order.
 | `checkin_reply_rotation.json` | `new_token` from a real rotation, the token replaced by a dummy of the same length |
 | `pomodoro_action.json` | A Pomodoro action reply (pause during a short break) |
 | `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30 |
+| `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
 | `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5, `display.rotation` 180, `bot.weather_moments` false and `weather_every_min` 0), plus an unknown page id the knob must keep |
 
 The test also compares what the server stores for `checkin_req_full.json`
 (the checkin record and the stats sample) with every value sent, so a request
 field the server stops reading fails it. `TestDeviceViewHeadersContract` pins
 the view and checkin header names and the 304 behaviour. Regenerate after an
-intended change with `go test ./cmd/ember -run 'Golden|Caps|LegacyFirmware' -update`
+intended change with `go test ./cmd/ember -run 'Golden|Caps|LegacyFirmware|DemoScene' -update`
 and review the diff.
 
 **cinder side** (cinder#24): `firmware/test/host/fixtures/ember/` holds a copy

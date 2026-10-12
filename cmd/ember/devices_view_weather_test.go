@@ -353,6 +353,37 @@ func TestCapsKnobViewDropsWeatherDetailFirst(t *testing.T) {
 
 func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 	f := goldenViewFixture(t)
+	worstCaseView(t, f)
+	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather", "nowplaying"},
+		Features: []string{featureNPCover, featureWxFaces}, Limits: &deviceCapsLimits{ViewBytes: 16383}})
+	body := goldenView(t, f)
+	if a, ok := viewAccent(t, body); !ok || len(a) != 7 {
+		t.Fatalf("worst case lacks the accent: %s", body)
+	}
+	w := decodeFaces(t, body).Weather
+	if w.Rain == nil || w.Rain.Until == nil || len(w.Rain.Spells) != rainSpellsMax || len(w.Days) != faceForecastDays || w.AQI == nil ||
+		len(w.Now) != 6 || len(w.Today) != 5 || len(w.Twilight) != 6 || w.UTCOffset == nil || *w.UTCOffset >= 0 ||
+		w.Moon == nil || w.Moon.Up == nil || w.Moon.Rise == nil || w.Moon.Set == nil {
+		t.Fatalf("worst case lacks parts: %s", body)
+	}
+	for _, d := range w.Days {
+		if len(d) != 8 || d["min_c"].(float64) >= 0 {
+			t.Fatalf("worst case day lacks keys or negatives: %v", d)
+		}
+	}
+	for _, k := range []string{"mood", "pomo", "nowplaying", "quiet", "diag_live_until"} {
+		if _, ok := viewKeys(t, body)[k]; !ok {
+			t.Fatalf("worst case lacks %q: %s", k, body)
+		}
+	}
+	t.Logf("worst-case view: %d B (weather %d B)", len(body), len(viewKeys(t, body)["weather"]))
+	if len(body) >= 8192 {
+		t.Fatalf("worst-case view is %d B, want under half of the knob's 16 KB buffer", len(body))
+	}
+}
+
+func worstCaseView(t *testing.T, f *viewFixture) {
+	t.Helper()
 	now := f.clk.Now()
 	long := strings.Repeat("W", 64)
 	lead := "#00C8C8"
@@ -405,30 +436,4 @@ func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 	putKnobConfig(t, f.srv, f.m.ID, `{"diagnostics":"full","pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
 	resp, b := devReq(t, f.srv, "POST", "/v1/devices/"+f.m.ID+"/stats/live", testToken, `{"seconds":300}`)
 	mustOK(t, "live", resp, b)
-	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather", "nowplaying"},
-		Features: []string{featureNPCover, featureWxFaces}, Limits: &deviceCapsLimits{ViewBytes: 16383}})
-	body := goldenView(t, f)
-	if a, ok := viewAccent(t, body); !ok || len(a) != 7 {
-		t.Fatalf("worst case lacks the accent: %s", body)
-	}
-	w := decodeFaces(t, body).Weather
-	if w.Rain == nil || w.Rain.Until == nil || len(w.Rain.Spells) != rainSpellsMax || len(w.Days) != faceForecastDays || w.AQI == nil ||
-		len(w.Now) != 6 || len(w.Today) != 5 || len(w.Twilight) != 6 || w.UTCOffset == nil || *w.UTCOffset >= 0 ||
-		w.Moon == nil || w.Moon.Up == nil || w.Moon.Rise == nil || w.Moon.Set == nil {
-		t.Fatalf("worst case lacks parts: %s", body)
-	}
-	for _, d := range w.Days {
-		if len(d) != 8 || d["min_c"].(float64) >= 0 {
-			t.Fatalf("worst case day lacks keys or negatives: %v", d)
-		}
-	}
-	for _, k := range []string{"mood", "pomo", "nowplaying", "quiet", "diag_live_until"} {
-		if _, ok := viewKeys(t, body)[k]; !ok {
-			t.Fatalf("worst case lacks %q: %s", k, body)
-		}
-	}
-	t.Logf("worst-case view: %d B (weather %d B)", len(body), len(viewKeys(t, body)["weather"]))
-	if len(body) >= 8192 {
-		t.Fatalf("worst-case view is %d B, want under half of the knob's 16 KB buffer", len(body))
-	}
 }

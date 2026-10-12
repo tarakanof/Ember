@@ -6,10 +6,11 @@ struct SettingsRootView: View {
     @AppStorage(SettingsRoute.storageKey) private var routeName = SettingsRoute.fallback.stored
     @AppStorage(SettingsRoute.expandedKey) private var expandedName = ""
     @AppStorage(SettingsRoute.revealKey) private var reveal = 0
+    @AppStorage(DeveloperTools.storageKey) private var developerTools = false
 
     static let windowWidth: CGFloat = 800
 
-    private var tree: SettingsTree { SettingsTree(devices: devices) }
+    private var tree: SettingsTree { SettingsTree(devices: devices, developerTools: developerTools) }
 
     private var devices: [SettingsDevice] {
         let knob = env.knob
@@ -38,7 +39,10 @@ struct SettingsRootView: View {
             List(selection: selection) {
                 Section("App") { ForEach(tree.app, id: \.self) { row($0, in: tree) } }
                 Section("Sources") { ForEach(tree.sources, id: \.self) { row($0, in: tree) } }
-                Section("Devices") { ForEach(tree.devices) { deviceNode($0, in: tree) } }
+                Section("Devices") {
+                    ForEach(tree.devices) { deviceNode($0, in: tree) }
+                    ForEach(tree.tools, id: \.self) { row($0, in: tree) }
+                }
             }
             .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 250)
         } detail: {
@@ -203,6 +207,7 @@ private struct SettingsDetail: View {
         case .source(.weather):  WeatherSourcePane()
         case .source(.calendar): CalendarSourcePane()
         case .source(.music):    MusicSourcePane()
+        case .demo:              KnobDemoPane()
         case .device(let id, let page):
             switch tree.node(for: route)?.device.kind ?? DeviceKind(deviceID: id) {
             case .clock?: ClockDetail(page: page)

@@ -84,6 +84,22 @@ public struct KnobService: Sendable, Equatable {
                               query: keepProtected ? [URLQueryItem(name: "keep", value: "protected")] : [])
     }
 
+    public func demoScenes(id: String) async throws -> [KnobDemoScene] {
+        try await client.get("/v1/devices/\(Self.escape(id))/demo/scenes")
+    }
+
+    public func demoStatus(id: String) async throws -> KnobDemoStatus {
+        try await client.get("/v1/devices/\(Self.escape(id))/demo")
+    }
+
+    func startDemo(id: String, _ request: KnobDemoRequest) async throws -> KnobDemoStatus {
+        try await client.request("POST", "/v1/devices/\(Self.escape(id))/demo", body: request)
+    }
+
+    public func stopDemo(id: String) async throws {
+        try await client.send("DELETE", "/v1/devices/\(Self.escape(id))/demo")
+    }
+
     public func serverVersion() async throws -> VersionInfo {
         try await client.get("/version")
     }

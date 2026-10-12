@@ -82,10 +82,16 @@ func (a *App) handleNowPlayingArt(w http.ResponseWriter, r *http.Request) {
 		}
 		size = n
 	}
-	e, ok := a.nowPlaying.reg.Current(time.Now())
 	var img *nowplaying.Image
-	if ok {
-		img = e.Picture(kind)
+	var version string
+	art, _ := demoArtOnce()
+	if demo, v, ok := art.picture(kind, q.Get("v")); ok {
+		img, version = demo, v
+	} else if e, ok := a.nowPlaying.reg.Current(time.Now()); ok {
+		img, version = e.Picture(kind), e.ArtVersion()
+		if kind == nowplaying.Cover {
+			version = e.CoverVersion()
+		}
 	}
 	if img == nil {
 		writeError(w, http.StatusNotFound, errors.New("no artwork"))
@@ -94,10 +100,6 @@ func (a *App) handleNowPlayingArt(w http.ResponseWriter, r *http.Request) {
 	etag := artETag(img, kind, size)
 	h := w.Header()
 	h.Set("ETag", etag)
-	version := e.ArtVersion()
-	if kind == nowplaying.Cover {
-		version = e.CoverVersion()
-	}
 	if v := q.Get("v"); v != "" && v == version {
 		h.Set("Cache-Control", "public, max-age=86400, immutable")
 	} else {
