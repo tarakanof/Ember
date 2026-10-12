@@ -406,7 +406,7 @@ func runClockParity(t *testing.T, pat []bool) string {
 		{"display.get", app.handleDeviceDisplayGet, ""},
 		{"display.put", app.handleDeviceDisplayPut, `{"overlay":"rain"}`},
 		{"apps.get", app.handleDeviceAppsGet, ""},
-		{"apps.put", app.handleDeviceAppsPut, `{"order":["Time"]}`},
+		{"apps.put", app.handleDeviceAppsPut, `{"order":["Time"],"disabled":[]}`},
 		{"next", app.handleDeviceNextApp, ""},
 		{"prev", app.handleDevicePrevApp, ""},
 		{"dismiss", app.handleDeviceDismiss, ""},

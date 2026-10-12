@@ -180,6 +180,10 @@ import Foundation
     #expect(KnobSettings.weatherEveryStepped(from: 37, to: 32) == 30)
     #expect(KnobSettings.weatherEveryStepped(from: 240, to: 245) == 240)
     #expect(KnobSettings.weatherEveryStepped(from: 35, to: 0) == 0)
+    #expect(KnobSettings.weatherEveryStepped(from: 33, to: 28) == 30)
+    #expect(KnobSettings.weatherEveryStepped(from: 31, to: 26) == 30)
+    #expect(KnobSettings.weatherEveryStepped(from: 34, to: 29) == 30)
+    #expect(KnobSettings.weatherEveryStepped(from: 35, to: 30) == 30)
 }
 
 private let deviceJSON = #"""

@@ -1875,9 +1875,12 @@ paths:
         the clock the body is merged onto the current config under the
         config lock and stored (clock config, changed slices, hidden tools)
         in one SQLite transaction; a failed store is
-        a 500 and changes nothing in memory or the store. A `rotation` that
-        differs from the clock's list, read just before, is sent to the
-        clock first (its error status passes through, 502 when unreachable),
+        a 500 and changes nothing in memory or the store. A `rotation`
+        needs both `order` and `disabled` (missing or `null` is a 400). It is
+        sent to the clock first (its error status passes through, 502 when
+        unreachable) unless `order` is exactly the clock's whole list, read
+        just before, every app already holds a slot and no app's on/off
+        state changes (ARCHITECTURE "Rotation"),
         and clock app order changes run one at a time; if the
         slices then fail, the error says the app order was already written.
         For a knob that reported `caps` (DEVICE-PROTOCOL "Capabilities"), a
@@ -3091,9 +3094,31 @@ paths:
       summary: Reorder or toggle clock apps
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [order, disabled]
+              properties:
+                order:
+                  type: array
+                  items: {type: string}
+                  description: Apps in rotation order. Missing or null
+                    answers 400.
+                disabled:
+                  type: array
+                  items: {type: string}
+                  description: Every app that is off. Missing or null
+                    answers 400; the clock switches on every app this
+                    list doesn't name.
       responses:
         "200":
           $ref: "#/components/responses/Object"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

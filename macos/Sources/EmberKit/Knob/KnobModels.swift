@@ -429,7 +429,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
 
     public static func weatherEveryStepped(from current: Int, to proposed: Int) -> Int {
         if proposed <= 0 { return 0 }
-        if proposed < weatherEveryFloor { return proposed < current ? 0 : weatherEveryFloor }
+        if proposed < weatherEveryFloor { return proposed < current && current <= weatherEveryFloor ? 0 : weatherEveryFloor }
         return (proposed.clamped(to: weatherEveryRange) / weatherEveryStep) * weatherEveryStep
     }
     public static let statsIntervals = [30, 60, 120, 300]

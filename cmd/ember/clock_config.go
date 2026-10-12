@@ -79,6 +79,14 @@ type clockCalendarApp struct {
 type clockRotation struct {
 	Order    []string `json:"order"`
 	Disabled []string `json:"disabled"`
+	listed   []clockListedApp
+}
+
+type clockListedApp struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Origin  string `json:"origin"`
+	Slot    *int   `json:"slot"`
 }
 
 func composeClockApps(c Config, hidden []string) clockApps {
@@ -262,6 +270,11 @@ func mergeClockConfig(cur clockConfig, patch []byte) (clockConfigPatch, error) {
 	if next.Schema != clockConfigSchema {
 		return clockConfigPatch{}, fmt.Errorf("%w: schema must be %d", errSettingBody, clockConfigSchema)
 	}
+	if next.Rotation != nil {
+		if err := next.Rotation.validate(); err != nil {
+			return clockConfigPatch{}, fmt.Errorf("%w: rotation: %w", errSettingBody, err)
+		}
+	}
 	hidden, err := normalizeHiddenTools(next.Apps.Agents.HiddenTools)
 	if err != nil {
 		return clockConfigPatch{}, err
@@ -274,12 +287,12 @@ func mergeClockConfig(cur clockConfig, patch []byte) (clockConfigPatch, error) {
 }
 
 func rotationFromApps(body []byte) (*clockRotation, error) {
-	var apps []awtrix.AppInfo
-	if err := json.Unmarshal(body, &apps); err != nil {
+	var listed []clockListedApp
+	if err := json.Unmarshal(body, &listed); err != nil {
 		return nil, fmt.Errorf("decode clock apps: %w", err)
 	}
-	r := &clockRotation{Order: []string{}, Disabled: []string{}}
-	for _, app := range apps {
+	r := &clockRotation{Order: []string{}, Disabled: []string{}, listed: listed}
+	for _, app := range listed {
 		switch {
 		case app.Origin == "pushed":
 		case app.Enabled:
@@ -292,12 +305,29 @@ func rotationFromApps(body []byte) (*clockRotation, error) {
 }
 
 func rotationUnchanged(patch *deviceAppsPutBody, cur *clockRotation) bool {
-	if cur == nil || !slices.Equal(patch.Order, cur.Order) {
+	if cur == nil || len(patch.Order) != len(cur.listed) {
 		return false
 	}
-	want := slices.Sorted(slices.Values(patch.Disabled))
-	have := slices.Sorted(slices.Values(cur.Disabled))
-	return slices.Equal(slices.Compact(want), slices.Compact(have))
+	known := make(map[string]bool, len(cur.listed))
+	for i, app := range cur.listed {
+		if patch.Order[i] != app.Name || app.Slot == nil || known[app.Name] {
+			return false
+		}
+		known[app.Name] = true
+	}
+	off := make(map[string]bool, len(patch.Disabled))
+	for _, n := range patch.Disabled {
+		if !known[n] {
+			return false
+		}
+		off[n] = true
+	}
+	for _, app := range cur.listed {
+		if app.Origin != "module" && off[app.Name] == app.Enabled {
+			return false
+		}
+	}
+	return true
 }
 
 type clockRotationOp struct {

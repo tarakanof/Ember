@@ -2399,7 +2399,10 @@ apps, replacing the AWTRIX3 settings keys `TIM`/`DAT`/`TEMP`/`HUM`/`BAT` that
 NG has no equivalent for. `disabled` is the complete list of switched-off
 apps: NG switches on every app it doesn't name, so a body naming only the app
 just turned off (or `[]` with a reorder) turns every other off app back on
-(#413). After a
+(#413). NG also refuses a missing or `null` `disabled`, so Ember answers 400
+for one itself (and for a missing or `null` `order`), on this route and on the façade's `rotation`, rather than
+forwarding `null` or guessing `[]`, which would switch every off app on
+(#449). After a
 successful order write the PUT reads the list back (2 s budget) to update the
 clock record's version, and both routes run one at a time with the façade;
 see "One operation at a time" and "Rotation cache" under the clock config
@@ -3179,9 +3182,22 @@ migration) the same config is a façade over the overlay slices, as in #230.
 - **Rotation.** `rotation` keeps NG's meaning in both directions: `order`
   names the enabled apps in order, `disabled` the ones switched off, so a
   GET's `rotation` can be sent back. A PUT carrying `rotation` first reads
-  the clock's list; only when that read succeeds and equals the patch is
-  the clock write skipped. A failed read, or any difference (a reorder made
-  on the old route or the clock's web UI), writes: the patch's `rotation`
+  the clock's list; only when that read succeeds and matches the patch is
+  the clock write skipped. "Matches" is deliberately narrow (#449), since
+  NG replaces its saved order on every write and rebuilds the apps it
+  isn't given from its own fallback order, which Ember doesn't replay:
+  `order` must be the clock's whole list, every app in the same sequence
+  (pushed tiles, off apps, absent apps holding a reserved slot and modules
+  included), every listed app must already have a `slot`, no name may
+  repeat, `disabled` may name only listed apps, and every app but a module
+  must stay on or off as it is (NG doesn't switch modules). Anything else,
+  when in doubt, writes. The app's save names every non-module app that is
+  present or holds a slot, so on an unchanged clock without modules or
+  slotless apps it skips; a module on the clock, a partial `order` or a
+  GET's `rotation` sent back (it leaves out pushed tiles) writes.
+  A failed read, or any difference (a
+  reorder made on the old route or the clock's web UI), writes: the
+  patch's `rotation`
   is forwarded as is (the `PUT /v1/device/apps` body) to the clock after
   validation and before the slices; a clock error is returned (502 when
   unreachable) and nothing else changes. After a successful write the list

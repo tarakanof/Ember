@@ -43,10 +43,10 @@ type clockStub struct {
 func newClockStub(t *testing.T) *clockStub {
 	t.Helper()
 	s := &clockStub{uid: testClockUID, board: "awtrixng", apps: []map[string]any{
-		{"name": "time", "enabled": true, "inLoop": true, "origin": "builtin"},
-		{"name": "date", "enabled": true, "inLoop": true, "origin": "builtin"},
-		{"name": "hum", "enabled": false, "inLoop": false, "origin": "builtin"},
-		{"name": "ember", "enabled": true, "inLoop": true, "origin": "pushed"},
+		{"name": "time", "slot": 0, "enabled": true, "inLoop": true, "origin": "builtin"},
+		{"name": "date", "slot": 1, "enabled": true, "inLoop": true, "origin": "builtin"},
+		{"name": "hum", "slot": 2, "enabled": false, "inLoop": false, "origin": "builtin"},
+		{"name": "ember", "slot": 3, "enabled": true, "inLoop": true, "origin": "pushed"},
 	}}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
 	t.Cleanup(s.Close)
@@ -128,7 +128,7 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 
 func (s *clockStub) applyOrderLocked(b []byte) bool {
 	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(b, &keys); err != nil || keys["disabled"] == nil {
+	if err := json.Unmarshal(b, &keys); err != nil || keys["disabled"] == nil || string(keys["disabled"]) == "null" {
 		return false
 	}
 	var body struct {
@@ -143,12 +143,14 @@ func (s *clockStub) applyOrderLocked(b []byte) bool {
 	var next []map[string]any
 	for _, n := range body.Order {
 		if a, ok := byName[n]; ok {
+			a["slot"] = len(next)
 			next = append(next, a)
 			delete(byName, n)
 		}
 	}
 	for _, a := range s.apps {
 		if _, ok := byName[a["name"].(string)]; ok {
+			delete(a, "slot")
 			next = append(next, a)
 		}
 	}
@@ -647,6 +649,9 @@ func TestClockStubFollowsNGAppOrder(t *testing.T) {
 	}}
 	if s.applyOrderLocked([]byte(`{"order":["Date","Time"]}`)) {
 		t.Fatal("a body without disabled was accepted; NG answers 400")
+	}
+	if s.applyOrderLocked([]byte(`{"order":["Date","Time"],"disabled":null}`)) {
+		t.Fatal("a null disabled was accepted; NG answers 400")
 	}
 	if !s.applyOrderLocked([]byte(`{"order":["Date","Time"],"disabled":["Time"]}`)) {
 		t.Fatal("a full body was refused")

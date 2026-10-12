@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -64,6 +65,21 @@ type deviceAppsPutBody struct {
 	Disabled []string `json:"disabled"`
 }
 
+var (
+	errAppsOrderMissing    = errors.New(`order is required: the apps in rotation order, [] for none`)
+	errAppsDisabledMissing = errors.New(`disabled is required: the full list of switched-off apps, [] for none`)
+)
+
+func (b *deviceAppsPutBody) validate() error {
+	switch {
+	case b.Order == nil:
+		return errAppsOrderMissing
+	case b.Disabled == nil:
+		return errAppsDisabledMissing
+	}
+	return nil
+}
+
 func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := a.startClockRotationOp(r)
 	defer cancel()
@@ -90,6 +106,10 @@ func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var body deviceAppsPutBody
 	if !a.decodeOrReject(w, r, &body, true) {
+		return
+	}
+	if err := body.validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	release, ok := a.acquireClockRotation(ctx, w, r)

@@ -104,7 +104,7 @@ func TestDeviceDisplayAndAppsPutForwardNGError(t *testing.T) {
 		t.Fatalf("display put code=%d body=%s", dw.Code, dw.Body.String())
 	}
 	aw := httptest.NewRecorder()
-	a.handleDeviceAppsPut(aw, httptest.NewRequest("PUT", "/v1/device/apps", strings.NewReader(`{"disabled":["Time"]}`)))
+	a.handleDeviceAppsPut(aw, httptest.NewRequest("PUT", "/v1/device/apps", strings.NewReader(`{"order":["Time"],"disabled":["Time"]}`)))
 	if aw.Code != http.StatusUnprocessableEntity || decodeProxyError(t, aw)["code"] != "validationFailed" {
 		t.Fatalf("apps put code=%d body=%s", aw.Code, aw.Body.String())
 	}
