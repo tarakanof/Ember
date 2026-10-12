@@ -142,6 +142,7 @@ extension SettingsTree {
         case .device(_, .hardware(let h)): h.title
         case .device(_, .app(let a)): a.title
         case .device(_, .apps): kind(of: route).appsTitle
+        case .demo: "Demo"
         }
     }
 
@@ -152,6 +153,7 @@ extension SettingsTree {
         case .device(_, .hardware(let h)): h.systemImage
         case .device(_, .app(let a)): a.systemImage
         case .device(_, .apps): kind(of: route).appsSystemImage
+        case .demo: "play.rectangle"
         }
     }
 

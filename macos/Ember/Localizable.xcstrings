@@ -572,6 +572,7 @@
     "Activity trail" : {},
     "Add the server's token in Connection settings." : {},
     "Address" : {},
+    "Adds Demo under Devices, to play the knob's pages and animations on demand. This Mac only." : {},
     "Adds network requests and rendering. Uses a little more of the knob's time." : {},
     "Advanced" : {},
     "After %lld min" : {
@@ -1029,7 +1030,10 @@
     "Delete this dump?" : {},
     "Delete…" : {},
     "Delivered" : {},
+    "Demo" : {},
     "Desk knob" : {},
+    "Developer" : {},
+    "Device" : {},
     "Devices" : {},
     "Diagnostics" : {},
     "Diagnostics Settings" : {},
@@ -1273,7 +1277,9 @@
     "Header" : {},
     "Hidden" : {},
     "Hide when idle" : {},
+    "Hold" : {},
     "Hold demo mood for" : {},
+    "Hold keeps a single scene on the knob until Stop or 60 seconds. Play all ignores it." : {},
     "Hold the knob down and turn it to change pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes." : {},
     "Home page" : {},
     "Hooks: none registered" : {},
@@ -1387,6 +1393,9 @@
       "comment" : "Settings › Knob Firmware & updates image row note after Delete Old Builds, when Ember refused to delete it; the argument is its version (\"Kept 0.9.43: it's the newest Release or a newer Test build.\")."
     },
     "Knob" : {},
+    "Knob didn't respond to %@" : {
+      "comment" : "Demo page status: the knob never started the scene within 10 seconds; the argument is the scene's title (\"Hop\")."
+    },
     "Knob name" : {},
     "Knob stats unavailable" : {},
     "LED matrix" : {},
@@ -1507,6 +1516,7 @@
     "Needs a newer server" : {},
     "Needs approval" : {},
     "Needs attention" : {},
+    "Needs knob firmware with demo support. Update the knob in its Firmware page." : {},
     "Needs server %@" : {
       "comment" : "A card needs a newer Ember server; the argument is the minimum version (\"0.28\")."
     },
@@ -1744,10 +1754,27 @@
     "Pixel E" : {},
     "Play" : {},
     "Play Test Chime" : {},
+    "Play all" : {},
     "Play this melody on the clock" : {},
+    "Playback" : {},
+    "Playing %@" : {
+      "comment" : "Demo page status: the knob is playing a scene; the argument is the scene's title (\"Hop\")."
+    },
+    "Playing %@, %lld more" : {
+      "comment" : "Demo page status: the knob is playing a scene of a queue; the arguments are the scene's title (\"Hop\") and how many scenes follow it.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Playing %1$@, %2$lld more"
+          }
+        }
+      }
+    },
     "Playing: %@" : {
       "comment" : "Knob now-playing preview: the playing track (\"Playing: Song - Artist\")."
     },
+    "Plays scenes on the real device. The clock can't play demos yet." : {},
     "Plex is read by the server itself; set it up there (see the Runbook, \"Now playing\")." : {},
     "Plug the knob into this Mac to change its Wi-Fi or erase it." : {},
     "Plug the knob into this Mac with a USB-C cable, then set it up. Ember gives it your Wi-Fi, this server's address and its own token." : {},
@@ -1968,6 +1995,7 @@
     "Set Up Knob…" : {},
     "Set by the EMBER_CLAUDE_AGENTS_POLL environment variable." : {},
     "Set by the EMBER_STATUSLINE_TIMEOUT_MS environment variable." : {},
+    "Set up a knob to play demos on it." : {},
     "Settings" : {},
     "Settings…" : {},
     "Severe weather" : {},
@@ -1983,6 +2011,7 @@
     },
     "Show AM/PM" : {},
     "Show Hardware" : {},
+    "Show developer tools" : {},
     "Show for" : {},
     "Show next meeting" : {},
     "Show on Clock" : {},
@@ -2539,6 +2568,9 @@
     "Waiting for the knob to check in" : {},
     "Waiting for the knob to start" : {},
     "Waiting for the knob's first report" : {},
+    "Waiting for the knob: %@" : {
+      "comment" : "Demo page status: a scene was sent and the knob hasn't started it yet; the argument is the scene's title (\"Hop\")."
+    },
     "Waiting until the knob has been idle for 10 minutes" : {},
     "Waiting: an agent needs you." : {},
     "Waiting: an agent on %@ needs you." : {

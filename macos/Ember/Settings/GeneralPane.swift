@@ -7,6 +7,7 @@ struct GeneralPane: View {
     @State private var login = LoginItemService.status
     @State private var loginError: String?
     @AppStorage("dashboard.openAtLaunch") private var openDashboardAtLaunch = false
+    @AppStorage(DeveloperTools.storageKey) private var developerTools = false
 
     var body: some View {
         @Bindable var env = env
@@ -83,6 +84,14 @@ struct GeneralPane: View {
                         Label(loginError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
                     }
                 }
+            }
+
+            Section {
+                Toggle("Show developer tools", isOn: $developerTools)
+            } header: {
+                Text("Developer")
+            } footer: {
+                Text("Adds Demo under Devices, to play the knob's pages and animations on demand. This Mac only.")
             }
         }
         .formStyle(.grouped)

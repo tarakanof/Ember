@@ -31,6 +31,7 @@ public enum SettingsRoute: Hashable, Sendable {
     case app(AppPane)
     case source(SourceID)
     case device(String, DevicePage)
+    case demo
 
     public static let storageKey = "settings.pane"
     public static let expandedKey = "settings.expanded"
@@ -44,6 +45,7 @@ public enum SettingsRoute: Hashable, Sendable {
         case .device(let id, .hardware(let h)): "device/\(id)/hardware/\(h.rawValue)"
         case .device(let id, .apps): "device/\(id)/apps"
         case .device(let id, .app(let a)): "device/\(id)/app/\(a.rawValue)"
+        case .demo: "tools/demo"
         }
     }
 
@@ -62,6 +64,8 @@ public enum SettingsRoute: Hashable, Sendable {
             return AppPane(rawValue: parts[1]).map(SettingsRoute.app)
         case "source" where parts.count == 2:
             return SourceID(rawValue: parts[1]).map(SettingsRoute.source)
+        case "tools" where parts.count == 2 && parts[1] == "demo":
+            return .demo
         case "device" where parts.count >= 3 && !parts[1].isEmpty:
             let id = parts[1]
             switch (parts[2], parts.count) {

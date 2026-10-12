@@ -39,8 +39,10 @@ public struct SettingsTree: Equatable, Sendable {
     public let app: [SettingsRoute] = AppPane.allCases.map(SettingsRoute.app)
     public let sources: [SettingsRoute] = SourceID.allCases.map(SettingsRoute.source)
     public let devices: [Device]
+    public let tools: [SettingsRoute]
 
-    public init(devices: [SettingsDevice]) {
+    public init(devices: [SettingsDevice], developerTools: Bool = false) {
+        tools = developerTools ? [.demo] : []
         self.devices = devices.map { d in
             guard d.state == .ready else { return Device(device: d, hardware: [], apps: []) }
             return Device(device: d,
@@ -50,6 +52,7 @@ public struct SettingsTree: Equatable, Sendable {
     }
 
     public func resolve(_ route: SettingsRoute) -> SettingsRoute {
+        if route == .demo { return tools.contains(.demo) ? route : .app(.general) }
         guard case .device(let id, let page) = route else { return route }
         let node = devices.first { $0.id == id }
             ?? DeviceKind(deviceID: id).flatMap { kind in devices.first { $0.device.kind == kind } }
