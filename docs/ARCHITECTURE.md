@@ -3516,9 +3516,10 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   then gone), `playing` with no report for 60 s → gone (a knob that
   rebooted mid-scene), a held scene 60 s after its first `playing` → gone
   (the knob caps it too; a knob that keeps re-reporting `playing` would
-  otherwise hold it forever). A late `playing` for a scene the view already
-  served, up to 5 s past the 10 s cutoff, revives it: the knob took it at
-  9.9 s and its report rode the next request.
+  otherwise hold it forever). A late `playing` or `done` for a scene the view
+  already served, up to 5 s past the 10 s cutoff, still counts (`playing`
+  revives it, `done` advances the queue): the knob took it at 9.9 s and its
+  report rode the next request.
 - **Cover.** The now-playing scenes use a built-in 480 px orange-to-violet
   gradient, prepared once like uploaded art (`nowplaying.Prepare`). The art
   route serves it whenever `v` equals its `art_version` or `cover_version`,

@@ -128,7 +128,8 @@ func (d *demoRegistry) report(device, id, state string, now time.Time) bool {
 	if run == nil || run.id != id {
 		return false
 	}
-	if run.state == demoUnanswered && !(state == demoPlaying && run.served && now.Sub(run.since) < demoPickup+demoGrace) {
+	late := (state == demoPlaying || state == demoDone) && run.served && now.Sub(run.since) < demoPickup+demoGrace
+	if run.state == demoUnanswered && !late {
 		return false
 	}
 	switch state {
@@ -219,11 +220,11 @@ func (a *App) handleDemoStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scenes := req.Scenes
-	if (req.Scene == "") == (len(scenes) == 0) {
+	if (req.Scene == "") == (len(scenes) == 0) || (req.Scene != "" && req.Scenes != nil) {
 		writeError(w, http.StatusBadRequest, errDemoBody)
 		return
 	}
-	hold := req.Hold && req.Scenes == nil
+	hold := req.Hold && req.Scene != ""
 	if req.Scene != "" {
 		scenes = []string{req.Scene}
 	}

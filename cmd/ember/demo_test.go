@@ -271,7 +271,8 @@ func TestDemoPostSetsAndNewestReplaces(t *testing.T) {
 func TestDemoPostRejectsBadBodies(t *testing.T) {
 	f := demoFixture(t)
 	for _, body := range []string{`{"scene":"bot.nope"}`, `{"scenes":["bot.idle","x"]}`, `{}`, `{"scenes":[]}`,
-		`{"scene":"bot.idle","scenes":["bot.idle"]}`, `{"scene":"bot.idle","extra":1}`} {
+		`{"scene":"bot.idle","scenes":["bot.idle"]}`, `{"scene":"bot.idle","scenes":[],"hold":true}`,
+		`{"scene":"bot.idle","extra":1}`} {
 		if resp, _ := postDemo(t, f, body); resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("POST %s = %d, want 400", body, resp.StatusCode)
 		}
@@ -520,6 +521,35 @@ func TestDemoLatePlayingReportForTheServedSceneRevivesIt(t *testing.T) {
 	g.report(t, "d0000001", "playing")
 	if st := demoStatusOf(t, g); st.State != demoUnanswered {
 		t.Fatalf("a report after the grace revived it: %+v", st)
+	}
+}
+
+func TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
+	f.clk.advance(demoPickup - 100*time.Millisecond)
+	if d := viewDemo(t, goldenView(t, f)); d == nil {
+		t.Fatal("no demo served")
+	}
+	f.clk.advance(time.Second)
+	if st := demoStatusOf(t, f); st.State != demoUnanswered {
+		t.Fatalf("status before the late report = %+v", st)
+	}
+	_, body := f.report(t, "d0000001", "done")
+	if d := viewDemo(t, body); d == nil || d.ID != "d0000002" {
+		t.Fatalf("the late done's reply = %s", body)
+	}
+	if st := demoStatusOf(t, f); st != (demoStatus{State: demoPending, Scene: "bot.done", ID: "d0000002"}) {
+		t.Fatalf("status = %+v", st)
+	}
+
+	g := demoFixture(t)
+	postDemo(t, g, `{"scenes":["bot.hop","bot.done"]}`)
+	goldenView(t, g)
+	g.clk.advance(demoPickup + demoGrace)
+	g.report(t, "d0000001", "done")
+	if st := demoStatusOf(t, g); st.State != demoUnanswered || st.ID != "d0000001" {
+		t.Fatalf("a done after the grace advanced it: %+v", st)
 	}
 }
 

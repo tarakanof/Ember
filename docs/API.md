@@ -79,7 +79,7 @@ live path, so a check-in can't slip in; servers that support it list
 updates"),
 `POST`/`GET`/`DELETE /v1/devices/{id}/demo` and `GET /v1/devices/{id}/demo/scenes`
 (knob demo mode, memory only: `{"scene":"…"}` or `{"scenes":[…]}` plus
-`"hold"` (ignored with `scenes`; capped at 60 s by knob and server), newest wins; unknown scene 400, a knob
+`"hold"` (ignored with `scenes`; capped at 60 s by knob and server), newest wins; unknown scene, both or neither of `scene` and `scenes` (even `"scenes": []`) 400, a knob
 without the `demo` caps feature 409; status `{state: idle|pending|playing|unanswered,
 scene, id, queue_left}`; the catalog `[{name, group, title}]` — DEVICE-PROTOCOL
 "Demo mode"),
