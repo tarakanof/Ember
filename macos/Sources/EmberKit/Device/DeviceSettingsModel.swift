@@ -203,6 +203,13 @@ public final class DeviceSettingsModel {
         await queueAppsWrite(revert: nil)
     }
 
+    public func moveApp(_ name: String, onto target: String) async {
+        guard name != target,
+              let from = nativeApps.firstIndex(where: { $0.name == name }),
+              let to = nativeApps.firstIndex(where: { $0.name == target }) else { return }
+        await moveApps(fromOffsets: [from], toOffset: to > from ? to + 1 : to)
+    }
+
     private static func setting(_ name: String, enabled: Bool, in apps: [AppInfo]) -> [AppInfo] {
         apps.map { a in var a = a; if a.name == name { a.enabled = enabled }; return a }
     }
