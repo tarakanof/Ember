@@ -121,7 +121,7 @@ func demoBotScenes() []demoScene {
 		view: func(time.Time, *demoArt) knobView { return knobView{Mood: block(&calm), Quiet: true} }}
 	return []demoScene{
 		bot("idle", "Idle", idle, ""),
-		bot("sleepy", "Sleepy", idle, ""),
+		bot("sleepy", "Sleepy", idle, "sleepy"),
 		bot("working", "Working", working, ""),
 		bot("waiting", "Waiting", waiting, ""),
 		bot("error", "Error", errored, ""),

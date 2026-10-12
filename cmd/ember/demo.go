@@ -12,7 +12,10 @@ import (
 
 const (
 	demoPickup    = 10 * time.Second
+	demoGrace     = 5 * time.Second
 	demoSilence   = 60 * time.Second
+	demoHoldCap   = 60 * time.Second
+	demoForget    = 60 * time.Second
 	demoMaxScenes = 256
 
 	demoIdle       = "idle"
@@ -44,12 +47,14 @@ type demoStatus struct {
 }
 
 type demoRun struct {
-	queue []string
-	id    string
-	hold  bool
-	state string
-	since time.Time
-	heard time.Time
+	queue  []string
+	id     string
+	hold   bool
+	state  string
+	served bool
+	since  time.Time
+	played time.Time
+	heard  time.Time
 }
 
 type demoCurrent struct {
@@ -84,9 +89,6 @@ func (d *demoRegistry) start(device string, scenes []string, hold bool, now time
 	if d.runs == nil {
 		d.runs = map[string]*demoRun{}
 	}
-	if len(scenes) > 1 {
-		hold = false
-	}
 	run := &demoRun{queue: scenes, id: d.nextIDLocked(), hold: hold, state: demoPending, since: now}
 	d.runs[device] = run
 	return run.status()
@@ -115,6 +117,7 @@ func (d *demoRegistry) current(device string, now time.Time) (demoCurrent, bool)
 	if run == nil || run.state == demoUnanswered {
 		return demoCurrent{}, false
 	}
+	run.served = true
 	return demoCurrent{scene: run.queue[0], id: run.id, hold: run.hold, since: run.since}, true
 }
 
@@ -122,7 +125,10 @@ func (d *demoRegistry) report(device, id, state string, now time.Time) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	run := d.liveLocked(device, now)
-	if run == nil || run.id != id || run.state == demoUnanswered {
+	if run == nil || run.id != id {
+		return false
+	}
+	if run.state == demoUnanswered && !(state == demoPlaying && run.served && now.Sub(run.since) < demoPickup+demoGrace) {
 		return false
 	}
 	switch state {
@@ -131,7 +137,7 @@ func (d *demoRegistry) report(device, id, state string, now time.Time) bool {
 		if run.state == demoPlaying {
 			return false
 		}
-		run.state = demoPlaying
+		run.state, run.played = demoPlaying, now
 		return true
 	case demoDone:
 		if len(run.queue) <= 1 {
@@ -140,8 +146,8 @@ func (d *demoRegistry) report(device, id, state string, now time.Time) bool {
 		}
 		run.queue = run.queue[1:]
 		run.id = d.nextIDLocked()
-		run.state = demoPending
-		run.since, run.heard = now, time.Time{}
+		run.state, run.served = demoPending, false
+		run.since, run.played, run.heard = now, time.Time{}, time.Time{}
 		return true
 	}
 	return false
@@ -152,10 +158,13 @@ func (d *demoRegistry) liveLocked(device string, now time.Time) *demoRun {
 	if run == nil {
 		return nil
 	}
-	switch {
-	case run.state == demoPending && now.Sub(run.since) >= demoPickup:
+	if run.state == demoPending && now.Sub(run.since) >= demoPickup {
 		run.state = demoUnanswered
-	case run.state == demoPlaying && now.Sub(run.heard) >= demoSilence:
+	}
+	switch {
+	case run.state == demoUnanswered && now.Sub(run.since) >= demoPickup+demoForget,
+		run.state == demoPlaying && now.Sub(run.heard) >= demoSilence,
+		run.state == demoPlaying && run.hold && now.Sub(run.played) >= demoHoldCap:
 		delete(d.runs, device)
 		return nil
 	}
@@ -205,11 +214,16 @@ func (a *App) handleDemoStart(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
+	id, ok := a.demoKnob(w, r)
+	if !ok {
+		return
+	}
 	scenes := req.Scenes
 	if (req.Scene == "") == (len(scenes) == 0) {
 		writeError(w, http.StatusBadRequest, errDemoBody)
 		return
 	}
+	hold := req.Hold && req.Scenes == nil
 	if req.Scene != "" {
 		scenes = []string{req.Scene}
 	}
@@ -223,11 +237,7 @@ func (a *App) handleDemoStart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id, ok := a.demoKnob(w, r)
-	if !ok {
-		return
-	}
-	st := a.demos.start(id, scenes, req.Hold, a.viewNow())
+	st := a.demos.start(id, scenes, hold, a.viewNow())
 	a.changes.notify(topicDemo)
 	writeJSON(w, http.StatusOK, st)
 }

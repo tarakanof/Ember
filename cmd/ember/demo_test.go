@@ -137,7 +137,7 @@ func TestDemoCatalogHoldsTheIssueScenes(t *testing.T) {
 
 var (
 	demoPagePattern = regexp.MustCompile(`^(bot|pomodoro|nowplaying|weather|weather:(temp|rain|cast|wind|days|sun|air))$`)
-	demoActPattern  = regexp.MustCompile(`^(moment:(glance|night|frost|heat|wind|afterrain|snow|rain|storm):(full|quiet)|chase:(full|half)|hop|pop|blink)$`)
+	demoActPattern  = regexp.MustCompile(`^(moment:(glance|night|frost|heat|wind|afterrain|snow|rain|storm):(full|quiet)|chase:(full|half)|hop|pop|blink|sleepy)$`)
 )
 
 func TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden(t *testing.T) {
@@ -356,7 +356,7 @@ func TestDemoReportsPlayAndAdvanceTheQueue(t *testing.T) {
 
 func TestDemoPlayingWithoutReportsIsDropped(t *testing.T) {
 	f := demoFixture(t)
-	postDemo(t, f, `{"scene":"bot.idle","hold":true}`)
+	postDemo(t, f, `{"scene":"bot.idle"}`)
 	f.report(t, "d0000001", "playing")
 	f.clk.advance(demoSilence - time.Second)
 	f.report(t, "d0000001", "playing")
@@ -455,5 +455,129 @@ func TestDemoCoverIsFetchableLikeAlbumArt(t *testing.T) {
 	}
 	if resp, _ := devReq(t, f.srv, "GET", "/v1/nowplaying/art?kind=album&size=240", "", ""); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("unversioned art with nothing playing = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestDemoPostLooksUpTheKnobBeforeTheScenes(t *testing.T) {
+	f := demoFixture(t)
+	resp, b := devReq(t, f.srv, "POST", "/v1/devices/knob-000000/demo", testToken, `{"scene":"bot.nope"}`)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("bad scene on an unknown knob = %d %s, want 404", resp.StatusCode, b)
+	}
+}
+
+func TestDemoHoldIsIgnoredWithScenesEvenOne(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scenes":["bot.idle"],"hold":true}`)
+	if d := viewDemo(t, goldenView(t, f)); d == nil || d.Hold == nil || *d.Hold {
+		t.Fatalf("demo = %+v, want hold false", d)
+	}
+}
+
+func TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scene":"bot.idle","hold":true}`)
+	f.clk.advance(2 * time.Second)
+	f.report(t, "d0000001", "playing")
+	for range 2 {
+		f.clk.advance(25 * time.Second)
+		f.report(t, "d0000001", "playing")
+	}
+	f.clk.advance(demoHoldCap - 50*time.Second - time.Second)
+	if st := demoStatusOf(t, f); st.State != demoPlaying {
+		t.Fatalf("status at 59 s = %+v", st)
+	}
+	f.clk.advance(time.Second)
+	f.report(t, "d0000001", "playing")
+	if st := demoStatusOf(t, f); st.State != demoIdle {
+		t.Fatalf("held scene still up after %v of reports: %+v", demoHoldCap, st)
+	}
+	if d := viewDemo(t, goldenView(t, f)); d != nil {
+		t.Fatalf("view still serves %+v", d)
+	}
+}
+
+func TestDemoLatePlayingReportForTheServedSceneRevivesIt(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(demoPickup - 100*time.Millisecond)
+	if d := viewDemo(t, goldenView(t, f)); d == nil {
+		t.Fatal("no demo served")
+	}
+	f.clk.advance(time.Second)
+	_, body := f.report(t, "d0000001", "playing")
+	if d := viewDemo(t, body); d == nil || d.ID != "d0000001" {
+		t.Fatalf("the late report's reply = %s", body)
+	}
+	if st := demoStatusOf(t, f); st.State != demoPlaying {
+		t.Fatalf("status = %+v", st)
+	}
+
+	g := demoFixture(t)
+	postDemo(t, g, `{"scene":"bot.hop"}`)
+	goldenView(t, g)
+	g.clk.advance(demoPickup + demoGrace)
+	g.report(t, "d0000001", "playing")
+	if st := demoStatusOf(t, g); st.State != demoUnanswered {
+		t.Fatalf("a report after the grace revived it: %+v", st)
+	}
+}
+
+func TestDemoUnansweredFadesToIdle(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scene":"bot.idle"}`)
+	f.clk.advance(demoPickup)
+	if st := demoStatusOf(t, f); st.State != demoUnanswered {
+		t.Fatalf("status = %+v", st)
+	}
+	f.clk.advance(demoForget - time.Second)
+	if st := demoStatusOf(t, f); st.State != demoUnanswered {
+		t.Fatalf("status before it fades = %+v", st)
+	}
+	f.clk.advance(time.Second)
+	if st := demoStatusOf(t, f); st != (demoStatus{State: demoIdle}) {
+		t.Fatalf("status %v after unanswered = %+v", demoForget, st)
+	}
+}
+
+func TestDemoPlayingReportDoesNotAnswerTheLongPoll(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scene":"bot.idle"}`)
+	resp, _ := f.get(t, "")
+	etag := resp.Header.Get("ETag")
+	for _, label := range []string{"first", "repeated"} {
+		start := time.Now()
+		resp, body := f.getQuery(t, "?wait=2&demo_id=d0000001&demo_state=playing", etag)
+		if resp.StatusCode != http.StatusNotModified || time.Since(start) < 1500*time.Millisecond {
+			t.Fatalf("%s playing report: status %d after %v: %s", label, resp.StatusCode, time.Since(start), body)
+		}
+	}
+	if st := demoStatusOf(t, f); st.State != demoPlaying {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestDemoOnTheWorstCaseViewFitsTheBuffer(t *testing.T) {
+	f := goldenViewFixture(t)
+	worstCaseView(t, f)
+	plantCaps(t, f, knobCapsDemo.clone())
+	f.app.demos.newID = func() string { return strings.Repeat("f", 8) }
+	worst, size := "", 0
+	for _, sc := range demoCatalog {
+		f.app.demos.start(f.m.ID, []string{sc.Name}, true, f.clk.Now())
+		body := goldenView(t, f)
+		if viewDemo(t, body) == nil {
+			t.Fatalf("%s: no demo", sc.Name)
+		}
+		if w := decodeFaces(t, body).Weather; w.Moon == nil || w.Rain == nil {
+			t.Fatalf("%s: the real view lost its weather detail to fit", sc.Name)
+		}
+		if len(body) > size {
+			worst, size = sc.Name, len(body)
+		}
+	}
+	t.Logf("worst demo view: %s, %d B", worst, size)
+	if size >= knobCapsDemo.Limits.ViewBytes {
+		t.Fatalf("%s on the worst-case view is %d B, over the knob's %d B view buffer", worst, size, knobCapsDemo.Limits.ViewBytes)
 	}
 }

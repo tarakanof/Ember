@@ -2148,8 +2148,10 @@ paths:
         newest POST replaces any running demo. The view's `demo` block carries
         it to a knob whose caps list the `demo` feature, and a waiting view
         poll wakes at once. A scene the knob has not reported `playing` 10 s
-        after it became available is dropped (`unanswered`); `done` moves to
-        the next scene under a new id. DEVICE-PROTOCOL.md "Demo mode".
+        after it became available is dropped (`unanswered`, `idle` again 60 s
+        later); `done` moves to the next scene under a new id. A held scene
+        is dropped 60 s after the knob first reported it `playing`.
+        DEVICE-PROTOCOL.md "Demo mode".
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       requestBody:
@@ -2170,7 +2172,7 @@ paths:
                     type: string
                 hold:
                   type: boolean
-                  description: Keep the scene up until stopped or 60 s (single scene only).
+                  description: Keep the scene up until stopped or 60 s after it starts playing (the knob and the server both cap it). Only with `scene`; ignored with `scenes`, even one.
             example:
               scene: moment.storm.full
               hold: true

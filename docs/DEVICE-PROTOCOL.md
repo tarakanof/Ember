@@ -207,7 +207,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
 | new | new, `np_cover` or not | `accent` and `cover_version` only with the token, only when there is a picture, and the only change to `nowplaying`; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, `wx_moments` or not (cinder 0.9.65 sends it) | `effective_caps.features` lists it as reported; the config carries `bot.weather_moments` and `bot.weather_every_min` either way; Ember.app shows the Weather moments rows only with the token (no semver fallback: a server without `effective_caps` predates the keys) | `TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments` (`knob_weather_moments_test.go`); Ember.app `knobWeatherMomentsRowsNeedTheWxMomentsToken`; cinder host test: `wx_moments` in `FEATURES_AHEAD` |
-| new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`; cinder host test: every `demo/*.json` parses |
+| new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`, `TestDemoPlayingReportDoesNotAnswerTheLongPoll`, `TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted`, `TestDemoLatePlayingReportForTheServedSceneRevivesIt`, `TestDemoOnTheWorstCaseViewFitsTheBuffer`; cinder host test: every `demo/*.json` parses |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Demo mode
@@ -225,6 +225,11 @@ it (API.md, `openapi.yaml`).
 ```
 
 - `id`: opaque, new for every scene (a queue's next scene gets a new one).
+  The knob keys on it. The outer view keeps changing during a demo (real
+  mood, Pomodoro, weather, brightness, quiet), so the same `demo.id` comes
+  back in new bodies; a body whose `id` is the one already playing changes
+  nothing (no restart, no replayed act, no timer reset), a new `id` ends the
+  current scene and starts the new one, and a body without `demo` ends it.
 - `page`: `bot`, `pomodoro`, `nowplaying`, `weather`, or `weather:<face>`
   with face `temp`, `rain`, `cast`, `wind`, `days`, `sun` or `air`.
 - `view` (optional): a whole view, the same schema as the top-level one
@@ -238,14 +243,25 @@ it (API.md, `openapi.yaml`).
 - `act` (optional): `moment:<kind>:full|quiet` (kind `glance`, `night`,
   `frost`, `heat`, `wind`, `afterrain`, `snow`, `rain`, `storm`; `quiet` is
   the working-mood variant, its view has a working `mood`), `chase:full`,
-  `chase:half`, `hop`, `pop`, `blink`.
+  `chase:half`, `hop`, `pop`, `blink`, `sleepy` (the bot's sleepy look over
+  the scene's idle mood, now rather than after `sleepy_after_s`). The list
+  only grows; a knob plays the scene without an act it doesn't know.
 - `offline` (optional, `true` only): render the page's offline state (the
   bot's link glyph, the Pomodoro and now-playing offline notes, the weather
   age) over the scene's view.
 - `hold`: keep the scene until the demo is cleared or 60 s pass.
 
 Knob timing: a scene with only a view shows ~8 s; one with an act lasts the
-act's natural length (at least 8 s when it also has a view); `hold` holds.
+act's natural length (at least 8 s when it also has a view, at most 60 s);
+`hold` holds. The 60 s cap is a knob rule: the knob ends a held scene 60 s
+after it started and reports `done`. The server enforces it too: it drops a
+held scene 60 s after its first `playing` report, whatever the knob reports.
+
+A weather scene's `view` carries a second `weather` block next to the real
+one, so a body can hold two. The worst case (the largest scene over the
+worst-case real view, `TestDemoOnTheWorstCaseViewFitsTheBuffer`) is about
+7 KB, under half the 16 KB view buffer; firmware budgeting JSON nodes should
+count both blocks.
 
 **Reports.** On each view request while it shows a scene the knob adds
 `?demo_id=<id>&demo_state=playing`, and `demo_state=done` once when the
@@ -254,17 +270,20 @@ current id clears it and serves the next queued scene (new id) or nothing,
 so the reply to that request already reflects it; `playing` changes no
 bytes. A report for another id, an unknown state or a knob without a demo
 is ignored. A scene not reported `playing` 10 s after it became available
-is dropped with the rest of its queue (status `unanswered`); a playing
-scene with no report for 60 s is dropped too. Setting or stopping a demo
-wakes a waiting view poll.
+is dropped with the rest of its queue (status `unanswered`, which reads
+`idle` again 60 s later). A `playing` report for that id up to 5 s past the
+cutoff still counts when the server had already served the scene (the knob
+took it just before 10 s): the scene is revived and the reply carries it
+again. A playing scene with no report for 60 s is dropped too. Setting or
+stopping a demo wakes a waiting view poll; the lazy drops (unanswered,
+silent, the hold cap) reach a waiting poll within 5 s, at its recheck.
 
 **Scenes** (`GET /v1/devices/{id}/demo/scenes`, `{name, group, title}`):
 
 - Bot (`bot.*`): idle, sleepy, working, waiting, error, done; hop, pop,
   blink, chase full/half (acts over a fitting mood); offline; quiet calm
-  (`"quiet":true` with two waiting). `sleepy` has no act in this contract:
-  its view is idle, so the knob shows sleepy only through its own
-  `sleepy_after_s`.
+  (`"quiet":true` with two waiting). `sleepy` is the idle view with act
+  `sleepy`.
 - Weather moments (`moment.<kind>.full|quiet`): the nine kinds × full/quiet,
   page `bot`, with weather that fits the kind.
 - Weather faces (`face.<face>.<sky>`): the seven faces × clear day, clear
