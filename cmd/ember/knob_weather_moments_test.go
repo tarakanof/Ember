@@ -147,7 +147,7 @@ func TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments(t *testing.T
 	}{{"with", withToken, true}, {"without", without, false}} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newViewFixture(t)
-			if out := postCapsCheckin(t, f, "0.10.0", tc.caps); out["caps_ack"] != true {
+			if out := postCapsCheckin(t, f, "0.9.65", tc.caps); out["caps_ack"] != true {
 				t.Fatalf("caps not acked: %v", out)
 			}
 			features, _ := knobEffectiveCaps(t, f)["features"].([]any)
