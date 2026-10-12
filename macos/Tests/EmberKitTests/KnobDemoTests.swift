@@ -190,6 +190,18 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
 }
 
 @MainActor
+@Test func demoFollowStopsOnARestartedKnobAndSaysSo() async {
+    let server = DemoServer(statuses: ["playing", "restarted", "restarted"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.play(m.groups[0].scenes[1])
+    await m.follow()
+    #expect(m.status.state == .restarted && !m.status.isActive)
+    #expect(m.line == .restarted)
+    #expect(server.requests.filter { $0.method == "GET" && $0.path.hasSuffix("/demo") }.count == 2)
+}
+
+@MainActor
 @Test func demoStopSendsDeleteAndGoesIdle() async throws {
     let server = DemoServer(statuses: [])
     let m = demoModel(server)

@@ -38,7 +38,7 @@ public struct KnobDemoGroup: Equatable, Sendable, Identifiable {
 
 public struct KnobDemoStatus: Codable, Equatable, Sendable {
     public enum State: String, Codable, Sendable {
-        case idle, pending, playing, unanswered
+        case idle, pending, playing, unanswered, restarted
     }
 
     public var state: State
@@ -84,6 +84,7 @@ public enum KnobDemoLine: Equatable, Sendable {
     case waiting(title: String)
     case playing(title: String, queueLeft: Int)
     case unanswered(title: String)
+    case restarted
 }
 
 @MainActor
@@ -135,6 +136,7 @@ public final class KnobDemoModel {
         case .pending: return .waiting(title: title)
         case .playing: return .playing(title: title, queueLeft: status.queueLeft)
         case .unanswered: return .unanswered(title: title)
+        case .restarted: return .restarted
         }
     }
 

@@ -595,6 +595,7 @@ type checkinResult struct {
 	OTA            *otaOffer `json:"ota,omitempty"`
 	CapsAck        bool      `json:"caps_ack,omitempty"`
 	newCrash       *deviceCrash
+	rebooted       bool
 }
 
 func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCaps, capsErr string) (checkinResult, error) {
@@ -621,6 +622,7 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 		report.Diag.carryFrom(prevDiag)
 	}
 	res.newCrash = newDiagCrash(prevDiag, report.Diag)
+	res.rebooted = knobRebooted(d.LastCheckin, report)
 	if report.AppliedVersion != d.ConfigVersion {
 		c := d.clone().Config
 		res.Config = &c
@@ -659,6 +661,16 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 		}
 	}
 	return res, nil
+}
+
+func knobRebooted(prev *deviceCheckin, cur deviceCheckin) bool {
+	if prev == nil {
+		return false
+	}
+	if cur.UptimeS < prev.UptimeS {
+		return true
+	}
+	return prev.Diag != nil && cur.Diag != nil && prev.Diag.Boots > 0 && cur.Diag.Boots > 0 && cur.Diag.Boots != prev.Diag.Boots
 }
 
 func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {

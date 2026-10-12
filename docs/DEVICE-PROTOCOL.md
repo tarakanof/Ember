@@ -207,7 +207,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
 | new | new, `np_cover` or not | `accent` and `cover_version` only with the token, only when there is a picture, and the only change to `nowplaying`; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, `wx_moments` or not (cinder 0.9.65 sends it) | `effective_caps.features` lists it as reported; the config carries `bot.weather_moments` and `bot.weather_every_min` either way; Ember.app shows the Weather moments rows only with the token (no semver fallback: a server without `effective_caps` predates the keys) | `TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments` (`knob_weather_moments_test.go`); Ember.app `knobWeatherMomentsRowsNeedTheWxMomentsToken`; cinder host test: `wx_moments` in `FEATURES_AHEAD` |
-| new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`, `TestDemoPlayingReportDoesNotAnswerTheLongPoll`, `TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted`, `TestDemoLatePlayingReportForTheServedSceneRevivesIt`, `TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue`, `TestDemoOnTheWorstCaseViewFitsTheBuffer`; cinder host test: every `demo/*.json` parses |
+| new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`, `TestDemoPlayingReportDoesNotAnswerTheLongPoll`, `TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted`, `TestDemoLatePlayingReportForTheServedSceneRevivesIt`, `TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue`, `TestDemoOnTheWorstCaseViewFitsTheBuffer`, `TestDemoKnobRebootDropsTheDemoAndItsQueue`, `TestDemoViewWithoutAReportWhilePlayingMeansTheKnobRestarted`; cinder host test: every `demo/*.json` parses |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Demo mode
@@ -274,8 +274,20 @@ is dropped with the rest of its queue (status `unanswered`, which reads
 `idle` again 60 s later). A `playing` or `done` report for that id up to
 5 s past the cutoff still counts when the server had already served the
 scene (the knob took it just before 10 s): `playing` revives the scene and
-the reply carries it again, `done` advances the queue as usual. A playing scene with no report for 60 s is dropped too. Setting or
-stopping a demo wakes a waiting view poll; the lazy drops (unanswered,
+the reply carries it again, `done` advances the queue as usual. A playing scene with no report for 60 s is dropped too.
+
+**Knob reboot.** The knob's once-per-id memory is RAM, so a knob that
+crashes in a scene would play it again after the reboot (cinder#109, #460).
+The server drops the demo and its queue when it sees a reboot: a checkin
+whose `uptime_s` is lower than the previous checkin's, or whose
+`diag.boots` differs from the previous one (both known); or a view request
+with no `demo_id` while the scene is `playing` (a knob showing the scene
+reports it on every request; a booting knob polls the view before its
+first checkin). Status `restarted` (scene and id of the dropped scene,
+`queue_left` 0), which reads `idle` again 60 s later; reports for its id
+are ignored. A view request with no report while the scene is still
+`pending` is served the scene as before. Setting or
+stopping a demo, and a reboot drop, wake a waiting view poll; the lazy drops (unanswered,
 silent, the hold cap) reach a waiting poll within 5 s, at its recheck.
 
 **Scenes** (`GET /v1/devices/{id}/demo/scenes`, `{name, group, title}`):

@@ -440,6 +440,9 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		a.logger.WarnContext(r.Context(), "knob crash reported", "device_id", id, "reason", c.Reason, "task", c.Task, "pc", c.PC,
 			"boots", report.Diag.Boots, "reset_reason", report.Diag.ResetReason)
 	}
+	if res.rebooted {
+		a.noteKnobReboot(r, id)
+	}
 	now := a.knobStats.now()
 	if diag, _, err := a.devices.diagnostics(id); err == nil {
 		if stats = stats.forLevel(diag); stats != nil {

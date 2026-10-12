@@ -3520,6 +3520,14 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   already served, up to 5 s past the 10 s cutoff, still counts (`playing`
   revives it, `done` advances the queue): the knob took it at 9.9 s and its
   report rode the next request.
+- **Reboot.** A checkin that reads as a reboot (`knobRebooted`: lower
+  `uptime_s`, or a different `diag.boots`) or a view request with no report
+  while the scene is `playing` turns the run into `restarted` (queue cut to
+  the dropped scene, nothing served, reports ignored, gone 60 s later) and
+  notifies `topicDemo`. Without it a crash in a scene looped: the rebooted
+  knob forgot the id and played the scene again (#460). The view rule is
+  what catches the first post-boot poll, which cinder sends before its
+  first checkin.
 - **Cover.** The now-playing scenes use a built-in 480 px orange-to-violet
   gradient, prepared once like uploaded art (`nowplaying.Prepare`). The art
   route serves it whenever `v` equals its `art_version` or `cover_version`,

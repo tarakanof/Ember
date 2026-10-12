@@ -611,3 +611,143 @@ func TestDemoOnTheWorstCaseViewFitsTheBuffer(t *testing.T) {
 		t.Fatalf("%s on the worst-case view is %d B, over the knob's %d B view buffer", worst, size, knobCapsDemo.Limits.ViewBytes)
 	}
 }
+
+func demoCheckin(t *testing.T, f *viewFixture, uptime, boots int64) {
+	t.Helper()
+	body := map[string]any{"fw": "0.9.70", "uptime_s": uptime, "caps": knobCapsDemo, "diag": map[string]any{"boots": boots}}
+	b, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, rb := devReq(t, f.srv, "POST", "/v1/devices/self/checkin", f.m.Token, string(b))
+	mustOK(t, "checkin", resp, rb)
+}
+
+func TestDemoKnobRebootDropsTheDemoAndItsQueue(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 800, 40)
+	postDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
+	goldenView(t, f)
+	f.report(t, "d0000001", "playing")
+	f.clk.advance(2 * time.Second)
+	demoCheckin(t, f, 3, 41)
+	if st := demoStatusOf(t, f); st != (demoStatus{State: demoRestarted, Scene: "bot.hop", ID: "d0000001"}) {
+		t.Fatalf("status after the reboot = %+v", st)
+	}
+	if d := viewDemo(t, goldenView(t, f)); d != nil {
+		t.Fatalf("the rebooted knob is served %+v again", d)
+	}
+	for _, state := range []string{"playing", "done"} {
+		if _, body := f.report(t, "d0000001", state); viewDemo(t, body) != nil {
+			t.Fatalf("a %s report after the reboot brought the demo back: %s", state, body)
+		}
+	}
+	if st := demoStatusOf(t, f); st.State != demoRestarted {
+		t.Fatalf("a report after the reboot moved the status: %+v", st)
+	}
+	f.clk.advance(demoForget - time.Second)
+	if st := demoStatusOf(t, f); st.State != demoRestarted {
+		t.Fatalf("status before it fades = %+v", st)
+	}
+	f.clk.advance(time.Second)
+	if st := demoStatusOf(t, f); st != (demoStatus{State: demoIdle}) {
+		t.Fatalf("status %v after the reboot = %+v", demoForget, st)
+	}
+}
+
+func TestDemoKnobRebootIsSeenFromBootsWhenUptimeGrew(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 2, 40)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	goldenView(t, f)
+	f.report(t, "d0000001", "playing")
+	demoCheckin(t, f, 5, 41)
+	if st := demoStatusOf(t, f); st.State != demoRestarted {
+		t.Fatalf("status after a reboot with a higher uptime = %+v", st)
+	}
+}
+
+func TestDemoKnobRebootWhileThePendingSceneWaitsDropsIt(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 800, 40)
+	postDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
+	demoCheckin(t, f, 1, 41)
+	if st := demoStatusOf(t, f); st != (demoStatus{State: demoRestarted, Scene: "bot.hop", ID: "d0000001"}) {
+		t.Fatalf("status = %+v", st)
+	}
+	if d := viewDemo(t, goldenView(t, f)); d != nil {
+		t.Fatalf("served %+v", d)
+	}
+}
+
+func TestDemoCheckinWithoutARebootKeepsTheDemo(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 800, 40)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	goldenView(t, f)
+	f.report(t, "d0000001", "playing")
+	demoCheckin(t, f, 830, 40)
+	if st := demoStatusOf(t, f); st.State != demoPlaying {
+		t.Fatalf("status after a plain checkin = %+v", st)
+	}
+	if _, body := f.report(t, "d0000001", "playing"); viewDemo(t, body) == nil {
+		t.Fatalf("the scene is gone: %s", body)
+	}
+}
+
+func TestDemoViewWithoutAReportWhilePlayingMeansTheKnobRestarted(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
+	for _, label := range []string{"first", "repeated"} {
+		if _, body := f.get(t, ""); viewDemo(t, body) == nil {
+			t.Fatalf("%s unreported view before playing: no scene: %s", label, body)
+		}
+	}
+	f.report(t, "d0000001", "playing")
+	if _, body := f.get(t, ""); viewDemo(t, body) != nil {
+		t.Fatalf("a view without a report while playing was served the scene: %s", body)
+	}
+	if st := demoStatusOf(t, f); st != (demoStatus{State: demoRestarted, Scene: "bot.hop", ID: "d0000001"}) {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestDemoKnobRestartAnswersTheLongPollAtOnce(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 800, 40)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	resp, _ := f.get(t, "")
+	etag := resp.Header.Get("ETag")
+	resp, body, after := waitThenAct(t, f, etag, func() { demoCheckin(t, f, 1, 41) })
+	if resp.StatusCode != http.StatusOK || viewDemo(t, body) != nil || after > 5*time.Second {
+		t.Fatalf("status %d after %v: %s", resp.StatusCode, after, body)
+	}
+}
+
+func TestKnobRebootedReadsUptimeAndBoots(t *testing.T) {
+	at := func(up, boots int64) deviceCheckin {
+		c := deviceCheckin{UptimeS: up}
+		if boots >= 0 {
+			c.Diag = &deviceDiag{Boots: boots}
+		}
+		return c
+	}
+	for _, tc := range []struct {
+		name      string
+		prev, cur deviceCheckin
+		want      bool
+	}{
+		{"uptime grew, same boot", at(100, 7), at(130, 7), false},
+		{"uptime fell, no diag", at(100, -1), at(4, -1), true},
+		{"uptime grew, boots moved", at(2, 7), at(5, 8), true},
+		{"boots unknown", at(2, 0), at(5, 8), false},
+		{"diag dropped", at(2, 7), at(5, -1), false},
+	} {
+		if got := knobRebooted(&tc.prev, tc.cur); got != tc.want {
+			t.Errorf("%s: knobRebooted = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if knobRebooted(nil, at(1, 1)) {
+		t.Error("a first checkin reads as a reboot")
+	}
+}

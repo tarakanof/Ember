@@ -22,6 +22,7 @@ const (
 	demoPending    = "pending"
 	demoPlaying    = "playing"
 	demoUnanswered = "unanswered"
+	demoRestarted  = "restarted"
 	demoDone       = "done"
 )
 
@@ -114,7 +115,7 @@ func (d *demoRegistry) current(device string, now time.Time) (demoCurrent, bool)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	run := d.liveLocked(device, now)
-	if run == nil || run.state == demoUnanswered {
+	if run == nil || run.state == demoUnanswered || run.state == demoRestarted {
 		return demoCurrent{}, false
 	}
 	run.served = true
@@ -125,7 +126,7 @@ func (d *demoRegistry) report(device, id, state string, now time.Time) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	run := d.liveLocked(device, now)
-	if run == nil || run.id != id {
+	if run == nil || run.id != id || run.state == demoRestarted {
 		return false
 	}
 	late := (state == demoPlaying || state == demoDone) && run.served && now.Sub(run.since) < demoPickup+demoGrace
@@ -154,6 +155,29 @@ func (d *demoRegistry) report(device, id, state string, now time.Time) bool {
 	return false
 }
 
+func (d *demoRegistry) knobRestarted(device string, now time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.restartLocked(d.liveLocked(device, now), now)
+}
+
+func (d *demoRegistry) unreported(device string, now time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	run := d.liveLocked(device, now)
+	return run != nil && run.state == demoPlaying && d.restartLocked(run, now)
+}
+
+func (d *demoRegistry) restartLocked(run *demoRun, now time.Time) bool {
+	if run == nil || run.state == demoRestarted {
+		return false
+	}
+	run.queue = run.queue[:1]
+	run.state, run.served = demoRestarted, false
+	run.since, run.played, run.heard = now, time.Time{}, time.Time{}
+	return true
+}
+
 func (d *demoRegistry) liveLocked(device string, now time.Time) *demoRun {
 	run := d.runs[device]
 	if run == nil {
@@ -164,6 +188,7 @@ func (d *demoRegistry) liveLocked(device string, now time.Time) *demoRun {
 	}
 	switch {
 	case run.state == demoUnanswered && now.Sub(run.since) >= demoPickup+demoForget,
+		run.state == demoRestarted && now.Sub(run.since) >= demoForget,
 		run.state == demoPlaying && now.Sub(run.heard) >= demoSilence,
 		run.state == demoPlaying && run.hold && now.Sub(run.played) >= demoHoldCap:
 		delete(d.runs, device)
@@ -275,9 +300,20 @@ func (a *App) noteDemoReport(id string, r *http.Request) {
 	q := r.URL.Query()
 	demoID := q.Get("demo_id")
 	if demoID == "" {
+		if a.demos.unreported(id, a.viewNow()) {
+			a.logger.InfoContext(r.Context(), "knob demo dropped", "device_id", id, "reason", "view_without_report")
+			a.changes.notify(topicDemo)
+		}
 		return
 	}
 	if a.demos.report(id, demoID, q.Get("demo_state"), a.viewNow()) {
+		a.changes.notify(topicDemo)
+	}
+}
+
+func (a *App) noteKnobReboot(r *http.Request, id string) {
+	if a.demos.knobRestarted(id, a.viewNow()) {
+		a.logger.InfoContext(r.Context(), "knob demo dropped", "device_id", id, "reason", "checkin_reboot")
 		a.changes.notify(topicDemo)
 	}
 }
