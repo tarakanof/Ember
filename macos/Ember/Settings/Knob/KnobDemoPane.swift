@@ -38,11 +38,7 @@ struct KnobDemoPane: View {
         .formStyle(.grouped)
         .task(id: TaskKey(device: knob.knob?.id, ready: availability == .ready, follow: demo.followID)) {
             guard availability == .ready else { return }
-            if !demo.scenesLoaded {
-                await demo.loadScenes()
-                await demo.refreshStatus()
-            }
-            await demo.follow()
+            await demo.enter()
         }
     }
 

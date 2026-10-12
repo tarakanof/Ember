@@ -101,8 +101,14 @@ public final class KnobDemoModel {
     @ObservationIgnored public private(set) var deviceID: String?
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var statusEpoch = 0
 
     public static let pollInterval: Duration = .seconds(1)
+    public static let maxRetryInterval: Duration = .seconds(16)
+
+    public enum Refresh: Equatable, Sendable {
+        case updated, failed, superseded
+    }
 
     public init(service: KnobService, sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.service = service
@@ -152,16 +158,29 @@ public final class KnobDemoModel {
         }
     }
 
-    public func refreshStatus() async {
-        guard let id = deviceID else { return }
+    public func enter() async {
+        if !scenesLoaded { await loadScenes() }
+        await refreshStatus()
+        await follow()
+    }
+
+    @discardableResult
+    public func refreshStatus() async -> Refresh {
+        guard let id = deviceID else { return .superseded }
         let gen = generation
+        let epoch = statusEpoch
         do {
             let next = try await service.demoStatus(id: id)
-            guard gen == generation else { return }
+            guard gen == generation, epoch == statusEpoch, !Task.isCancelled else { return .superseded }
             status = next
+            error = nil
+            return .updated
         } catch {
-            guard gen == generation else { return }
+            guard gen == generation, epoch == statusEpoch, !Task.isCancelled, !(error is CancellationError) else {
+                return .superseded
+            }
             self.error = FeedError(error)
+            return .failed
         }
     }
 
@@ -176,42 +195,49 @@ public final class KnobDemoModel {
     public func stop() async {
         guard let id = deviceID else { return }
         let gen = generation
+        statusEpoch &+= 1
+        let epoch = statusEpoch
         busy = true
         defer { if gen == generation { busy = false } }
         do {
             try await service.stopDemo(id: id)
-            guard gen == generation else { return }
+            guard gen == generation, epoch == statusEpoch else { return }
             status = .idle
             error = nil
         } catch {
-            guard gen == generation else { return }
+            guard gen == generation, epoch == statusEpoch, !(error is CancellationError) else { return }
             self.error = FeedError(error)
         }
     }
 
     public func follow() async {
         let gen = generation
+        var wait = Self.pollInterval
         while status.isActive, gen == generation, !Task.isCancelled {
-            do { try await sleep(Self.pollInterval) } catch { return }
-            guard gen == generation else { return }
-            await refreshStatus()
-            if error != nil { return }
+            do { try await sleep(wait) } catch { return }
+            guard gen == generation, !Task.isCancelled else { return }
+            switch await refreshStatus() {
+            case .updated, .superseded: wait = Self.pollInterval
+            case .failed: wait = min(wait * 2, Self.maxRetryInterval)
+            }
         }
     }
 
     private func start(_ request: KnobDemoRequest) async {
         guard let id = deviceID else { return }
         let gen = generation
+        statusEpoch &+= 1
+        let epoch = statusEpoch
         busy = true
         defer { if gen == generation { busy = false } }
         do {
             let next = try await service.startDemo(id: id, request)
-            guard gen == generation else { return }
+            guard gen == generation, epoch == statusEpoch else { return }
             status = next
             error = nil
             followID &+= 1
         } catch {
-            guard gen == generation else { return }
+            guard gen == generation, epoch == statusEpoch, !(error is CancellationError) else { return }
             self.error = FeedError(error)
         }
     }

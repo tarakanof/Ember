@@ -15,15 +15,29 @@ private final class DemoServer: @unchecked Sendable {
     private let lock = NSLock()
     private var _requests: [(method: String, path: String, body: [String: Any]?)] = []
     private var _statuses: [String]
+    private var _gate: DispatchSemaphore?
+    private var _held = 0
 
     init(statuses: [String]) { _statuses = statuses }
 
     var requests: [(method: String, path: String, body: [String: Any]?)] { lock.withLock { _requests } }
+    var statusReads: Int { requests.filter { $0.method == "GET" && $0.path.hasSuffix("/demo") }.count }
+    var held: Int { lock.withLock { _held } }
+
+    func holdNextStatus() -> DispatchSemaphore {
+        let gate = DispatchSemaphore(value: 0)
+        lock.withLock { _gate = gate }
+        return gate
+    }
 
     func handle(_ req: URLRequest) throws -> (HTTPURLResponse, Data) {
         let path = req.url!.path
         let data = req.httpBody ?? req.httpBodyStreamData()
         let body = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if req.httpMethod == "GET", path == "/v1/devices/knob-61fc8c/demo",
+           let gate: DispatchSemaphore = lock.withLock({ defer { _gate = nil }; if _gate != nil { _held += 1 }; return _gate }) {
+            gate.wait()
+        }
         return lock.withLock {
             _requests.append((req.httpMethod ?? "GET", path, body))
             switch (req.httpMethod, path) {
@@ -36,6 +50,7 @@ private final class DemoServer: @unchecked Sendable {
                 return (okResponse(req.url!, status: 204), Data())
             case ("GET", "/v1/devices/knob-61fc8c/demo"):
                 let state = _statuses.isEmpty ? "idle" : _statuses.removeFirst()
+                if state == "fail" { return (okResponse(req.url!, status: 503), Data()) }
                 let scene = state == "idle" ? "" : "bot.hop"
                 return (okResponse(req.url!), Data(#"{"state":"\#(state)","scene":"\#(scene)","id":"d1","queue_left":0}"#.utf8))
             default:
@@ -45,10 +60,22 @@ private final class DemoServer: @unchecked Sendable {
     }
 }
 
+private final class SleepLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _waits: [Duration] = []
+    func add(_ d: Duration) { lock.withLock { _waits.append(d) } }
+    var waits: [Duration] { lock.withLock { _waits } }
+}
+
 @MainActor
-private func demoModel(_ server: DemoServer) -> KnobDemoModel {
+private func untilHeld(_ server: DemoServer) async {
+    for _ in 0..<500 where server.held == 0 { try? await Task.sleep(for: .milliseconds(5)) }
+}
+
+@MainActor
+private func demoModel(_ server: DemoServer, sleeps: SleepLog? = nil) -> KnobDemoModel {
     let service = KnobService(client: stubbedClient(token: "t") { try server.handle($0) })
-    let m = KnobDemoModel(service: service, sleep: { _ in })
+    let m = KnobDemoModel(service: service, sleep: { sleeps?.add($0) })
     m.configure(service: service, device: "knob-61fc8c")
     return m
 }
@@ -184,4 +211,94 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
     #expect(SettingsRoute(stored: "tools/demo") == .demo)
     #expect(SettingsRoute(stored: "tools/other") == SettingsRoute.fallback)
     #expect(DeveloperTools.storageKey == "settings.developerTools")
+}
+
+@MainActor
+@Test func demoStatusReadInFlightDuringPlayIsDropped() async {
+    let server = DemoServer(statuses: ["idle"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    let gate = server.holdNextStatus()
+    let read = Task { await m.refreshStatus() }
+    await untilHeld(server)
+    await m.play(m.groups[0].scenes[1])
+    gate.signal()
+    #expect(await read.value == .superseded)
+    #expect(m.status.state == .pending && m.line == .waiting(title: "Hop"))
+}
+
+@MainActor
+@Test func demoStatusReadInFlightDuringStopIsDropped() async {
+    let server = DemoServer(statuses: ["playing"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.play(m.groups[0].scenes[1])
+    let gate = server.holdNextStatus()
+    let read = Task { await m.refreshStatus() }
+    await untilHeld(server)
+    await m.stop()
+    gate.signal()
+    #expect(await read.value == .superseded)
+    #expect(m.status == .idle && m.error == nil)
+}
+
+@MainActor
+@Test func demoCancelledStatusReadIsNotAnError() async {
+    let server = DemoServer(statuses: ["playing"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.play(m.groups[0].scenes[1])
+    let gate = server.holdNextStatus()
+    let read = Task { await m.refreshStatus() }
+    await untilHeld(server)
+    read.cancel()
+    #expect(await read.value == .superseded)
+    gate.signal()
+    #expect(m.error == nil && m.status.state == .pending)
+}
+
+@MainActor
+@Test func demoSuccessfulStatusReadClearsTheError() async {
+    let server = DemoServer(statuses: ["fail", "playing"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    #expect(await m.refreshStatus() == .failed && m.error != nil)
+    #expect(await m.refreshStatus() == .updated && m.error == nil)
+    #expect(m.status.state == .playing)
+}
+
+@MainActor
+@Test func demoFollowRetriesWithBackoffThroughFailures() async {
+    let sleeps = SleepLog()
+    let server = DemoServer(statuses: ["fail", "fail", "playing", "fail", "idle"])
+    let m = demoModel(server, sleeps: sleeps)
+    await m.loadScenes()
+    await m.play(m.groups[0].scenes[1])
+    await m.follow()
+    #expect(m.status.state == .idle && m.error == nil)
+    #expect(sleeps.waits == [.seconds(1), .seconds(2), .seconds(4), .seconds(1), .seconds(2)])
+    #expect(server.statusReads == 5)
+}
+
+@MainActor
+@Test func demoFollowBackoffIsCapped() async {
+    let sleeps = SleepLog()
+    let server = DemoServer(statuses: Array(repeating: "fail", count: 7) + ["idle"])
+    let m = demoModel(server, sleeps: sleeps)
+    await m.loadScenes()
+    await m.play(m.groups[0].scenes[1])
+    await m.follow()
+    #expect(sleeps.waits.max() == KnobDemoModel.maxRetryInterval && m.status.state == .idle)
+}
+
+@MainActor
+@Test func demoEnteringThePaneReadsTheStatusEvenWithScenesLoaded() async {
+    let server = DemoServer(statuses: ["playing", "idle"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    #expect(m.status == .idle)
+    await m.enter()
+    #expect(server.statusReads == 2 && m.status.state == .idle)
+    await m.enter()
+    #expect(server.statusReads == 3 && server.requests.filter { $0.path.hasSuffix("/scenes") }.count == 1)
 }
