@@ -2184,7 +2184,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DemoStatus"
         "400":
-          description: Unknown scene, both or neither of `scene` and `scenes` (`scene` with `"scenes": []` counts as both), or more than 256 scenes.
+          description: Unknown scene, both or neither of `scene` and `scenes` (`scene` with an empty `scenes` counts as both), or more than 256 scenes.
           content:
             application/json:
               schema:
