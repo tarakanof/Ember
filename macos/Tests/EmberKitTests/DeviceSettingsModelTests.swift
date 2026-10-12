@@ -656,3 +656,56 @@ private func names(_ m: DeviceSettingsModel) -> [String: Bool] {
     await m.load(force: true)
     #expect(names(m)["Humidity"] == true)
 }
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aFailedAppWriteDoesNotUndoALaterToggleOfTheSameApp() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
+    let first = Task { await m.setApp("Date", enabled: false) }
+    await fake.gatedRequestArrived()
+    let second = Task { await m.setApp("Date", enabled: true) }
+    await eventually { names(m)["Date"] == true }
+    let third = Task { await m.setApp("Date", enabled: false) }
+    await eventually { names(m)["Date"] == false }
+    clockApps.failNext()
+    fake.gate.signal()
+    await first.value
+    await second.value
+    await third.value
+    #expect(clockApps.enabled["Date"] == false)
+    #expect(names(m)["Date"] == false)
+    #expect(m.actionErrors[.apps] != nil)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aReloadThatAWriteFinishesDuringKeepsTheToggle() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    let base = fake.route
+    let getArrived = ArrivalFlag()
+    let getHold = DispatchSemaphore(value: 0)
+    fake.route = { key, body in
+        guard key == "GET /v1/device/apps" else { return base?(key, body) }
+        let stale = clockApps.json
+        getArrived.set()
+        getHold.wait()
+        return (200, stale)
+    }
+    fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
+    let toggle = Task { await m.setApp("Date", enabled: false) }
+    await fake.gatedRequestArrived()
+    let reload = Task { await m.load(force: true) }
+    await eventually { getArrived.isSet }
+    fake.gate.signal()
+    await toggle.value
+    #expect(clockApps.enabled["Date"] == false)
+    getHold.signal()
+    await reload.value
+    #expect(names(m)["Date"] == false)
+}
+
+private final class ArrivalFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func set() { lock.withLock { value = true } }
+    var isSet: Bool { lock.withLock { value } }
+}

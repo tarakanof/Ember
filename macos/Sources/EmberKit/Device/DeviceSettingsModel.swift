@@ -96,6 +96,7 @@ public final class DeviceSettingsModel {
     @ObservationIgnored private var appsPending = 0
     @ObservationIgnored private var appsFailed = false
     @ObservationIgnored private var appsSent: AppsUpdate?
+    @ObservationIgnored private var appEdits: [String: Int] = [:]
     @ObservationIgnored private weak var live: LiveModel?
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let debounce: Duration
@@ -130,6 +131,7 @@ public final class DeviceSettingsModel {
         melodies = []; audio = .unknown; discovered = nil
         actionErrors = [:]; lastFullLoad = nil; appsSeq += 1
         appsGeneration += 1; appsTail = nil; appsPending = 0; appsFailed = false; appsSent = nil
+        appEdits = [:]
         writes.clear()
         Task { await load(force: true) }
     }
@@ -189,7 +191,9 @@ public final class DeviceSettingsModel {
     public func setApp(_ name: String, enabled: Bool) async {
         let was = apps.first { $0.name == name }?.enabled ?? !enabled
         apps = Self.setting(name, enabled: enabled, in: apps)
-        await queueAppsWrite { Self.setting(name, enabled: was, in: $0) }
+        let edit = appEdits[name, default: 0] + 1
+        appEdits[name] = edit
+        await queueAppsWrite(revert: AppRevert(name: name, enabled: was, edit: edit))
     }
 
     public func moveApps(fromOffsets source: IndexSet, toOffset destination: Int) async {
@@ -203,7 +207,13 @@ public final class DeviceSettingsModel {
         apps.map { a in var a = a; if a.name == name { a.enabled = enabled }; return a }
     }
 
-    private func queueAppsWrite(revert: (([AppInfo]) -> [AppInfo])?) async {
+    private struct AppRevert {
+        let name: String
+        let enabled: Bool
+        let edit: Int
+    }
+
+    private func queueAppsWrite(revert: AppRevert?) async {
         appsSeq += 1
         appsPending += 1
         let gen = appsGeneration
@@ -216,7 +226,7 @@ public final class DeviceSettingsModel {
         await task.value
     }
 
-    private func sendApps(revert: (([AppInfo]) -> [AppInfo])?, generation gen: Int) async {
+    private func sendApps(revert: AppRevert?, generation gen: Int) async {
         guard gen == appsGeneration else { return }
         let update = NativeAppsPlan.update(for: apps)
         let error: FeedError?
@@ -229,7 +239,9 @@ public final class DeviceSettingsModel {
         appsSeq += 1
         appsPending -= 1
         if let error {
-            if let revert { apps = revert(apps) }
+            if let revert, appEdits[revert.name] == revert.edit {
+                apps = Self.setting(revert.name, enabled: revert.enabled, in: apps)
+            }
             actionErrors[.apps] = error
             appsFailed = true
             appsSent = nil

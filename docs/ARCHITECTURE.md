@@ -3139,7 +3139,7 @@ migration) the same config is a façade over the overlay slices, as in #230.
   | `apps.weather.icon_ids` | `icon_ids` (overrides only) | same |
   | `apps.calendar.on` | meetings `enabled` | `/v1/meetings/config` (`meetings_json`) |
   | `apps.calendar.tile_lead_minutes`, `popup_lead_minutes` | same names (0 = popup off) | same |
-  | `rotation.order`, `rotation.disabled` | the clock's own apps: enabled ones in NG order / disabled ones; Ember's pushed tiles (`origin: pushed`) left out | `/v1/device/apps` (on the clock) |
+  | `rotation.order`, `rotation.disabled` | the clock's own apps. Read back: the enabled ones in NG order / the disabled ones, Ember's pushed tiles (`origin: pushed`) left out. Written (by the app): every app in order, switched-off ones included so they keep their slot / every app that is off | `/v1/device/apps` (on the clock) |
 
   The field list is what the coordinator and the weather/meetings popups
   read for the clock today, so the coordinator is unchanged. Left out on
@@ -3298,8 +3298,9 @@ migration) the same config is a façade over the overlay slices, as in #230.
   list itself, which needs `origin`/`present`, is still read from
   `/v1/device/apps`. App-order writes run one at a time, each sending the
   latest list; a reload that overlaps a pending or finishing write keeps the
-  list on screen. A failed write undoes only its own toggle, and once the
-  queue is empty the app list is reread. A 503 (lock
+  list on screen. A failed write undoes only its own toggle, and not even
+  that once the same app was toggled again after it; once the queue is
+  empty the app list is reread. A 503 (lock
   timeout) or 502 (cut-short clock write) shows its own message and
   refetches: the façade `GET` replaces the baseline, and edits made while the
   `PUT` was in flight are rebased onto it and sent again. A 404 marks the
