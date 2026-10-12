@@ -419,6 +419,18 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public static let sleepyRange = 0...86400
     public static let demoHoldRange = 1...600
     public static let weatherEveryRange = 0...240
+    public static let weatherEveryFloor = 30
+    public static let weatherEveryStep = 5
+
+    public static func weatherEveryShown(_ minutes: Int) -> Int {
+        minutes <= 0 ? 0 : max(minutes, weatherEveryFloor).clamped(to: weatherEveryRange)
+    }
+
+    public static func weatherEveryStepped(from current: Int, to proposed: Int) -> Int {
+        if proposed <= 0 { return 0 }
+        if proposed < weatherEveryFloor { return proposed < current ? 0 : weatherEveryFloor }
+        return (proposed.clamped(to: weatherEveryRange) / weatherEveryStep) * weatherEveryStep
+    }
     public static let statsIntervals = [30, 60, 120, 300]
     public static let liveIntervals = [2, 5, 10]
     public static let rotations = [0, 90, 180, 270]

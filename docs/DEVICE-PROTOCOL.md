@@ -267,7 +267,10 @@ of text when the weather changes, plus a periodic one), per knob:
 - **Config:** `"bot": {…, "weather_moments": bool, "weather_every_min": int}`.
   `weather_moments` default `true`; `false` turns every moment off.
   `weather_every_min` 0-240 minutes between periodic moments, default `30`;
-  `0` means no periodic moment, while the change moments still play. A value
+  `0` means no periodic moment, while the change moments still play. A
+  non-zero value below 30 acts as 30: the firmware keeps 30 min between two
+  moments of the same kind (`WXM_SAME_S`), and in steady weather every
+  periodic moment is the same kind. A value
   outside 0-240, a fraction or a non-number is a 400 on the owner PUT. Both
   merge field by field like the other bot keys, `null` reads as the default,
   and a record stored before #443 reads as on and 30 with no config push. Both
@@ -278,7 +281,10 @@ of text when the weather changes, plus a periodic one), per knob:
 - **Caps:** none. The firmware reports no token for moments, and older
   firmware skips both unknown keys, so the server sends them to every knob.
 - **App:** Ember.app shows them in the knob's Bot section when the server
-  sends them; the interval is disabled while moments are off.
+  sends them; the interval is disabled while moments are off. Its stepper
+  offers Never (0) or 30-240 in 5-min steps (down from 30 goes to Never, up
+  from Never to 30), and shows a non-zero value below 30 from the API as 30.
+  The server still accepts 0-240 because the firmware does.
 - **Size:** the default config grows by 46 B (493 B) and the largest valid
   one by 48 B (711 B), still under `CFG_SETTINGS_MAX`.
 

@@ -167,6 +167,21 @@ import Foundation
     #expect(KnobSettings.weatherEveryRange == 0...240)
 }
 
+@Test func knobWeatherEveryOffersNeverOrThirtyToTwoForty() {
+    #expect(KnobSettings.weatherEveryFloor == 30)
+    #expect(KnobSettings.weatherEveryShown(0) == 0)
+    #expect(KnobSettings.weatherEveryShown(5) == 30)
+    #expect(KnobSettings.weatherEveryShown(29) == 30)
+    #expect(KnobSettings.weatherEveryShown(45) == 45)
+    #expect(KnobSettings.weatherEveryStepped(from: 30, to: 25) == 0)
+    #expect(KnobSettings.weatherEveryStepped(from: 0, to: 5) == 30)
+    #expect(KnobSettings.weatherEveryStepped(from: 30, to: 35) == 35)
+    #expect(KnobSettings.weatherEveryStepped(from: 37, to: 42) == 40)
+    #expect(KnobSettings.weatherEveryStepped(from: 37, to: 32) == 30)
+    #expect(KnobSettings.weatherEveryStepped(from: 240, to: 245) == 240)
+    #expect(KnobSettings.weatherEveryStepped(from: 35, to: 0) == 0)
+}
+
 private let deviceJSON = #"""
 {"id":"knob-61fc8c","kind":"cinder-knob","hw_id":"3cdc7561fc8c","name":"Desk knob","created_at":"2026-10-04T10:00:00Z","config_version":3,"rotation_pending":false,"rotated_at":null,"last_checkin":{"seen_at":"2026-10-04T10:05:00Z","fw":"0.5.0","ip":"192.168.0.39","rssi":-58,"heap_internal_free":47104,"heap_internal_largest":31744,"uptime_s":812,"applied_version":2}}
 """#

@@ -95,7 +95,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobWeatherMoments:
             "When rain, snow or a storm starts, rain stops, the wind picks up or it turns hot or freezing, the bot page shows the weather above the eyes with a short line under them. Needs knob firmware 0.9.61 or later. Default: on."
         case .knobWeatherEvery:
-            "Between changes, the bot also shows the current weather this often, skipping it when the line would read the same as last time. Never leaves only the moments for changes. Default: 30 min."
+            "Between changes, the bot also shows the current weather this often, at most every 30 min, and skips it when the line would read the same as last time. Never: only show a moment when the weather changes. Default: 30 min."
         case .knobQuietCalm:
             "During quiet hours the bot skips its attention and excited animations, so a waiting or failed agent doesn't light up the room. The knob has no speaker, so quiet hours only change what it shows. Default: on."
         case .knobQuietDim:
