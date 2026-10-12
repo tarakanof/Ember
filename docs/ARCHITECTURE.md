@@ -3489,6 +3489,37 @@ sends those in every check-in. A
 collapsed group is stored in `settings.collapsed` (UserDefaults, comma-
 separated `SettingsGroup` ids, the same shape as `settings.expanded`).
 
+### Knob demo mode — `cmd/ember/demo*.go` (#457)
+
+A developer tool for checking the knob's pages and animations on the real
+knob without waiting for real activity. Ember.app's Devices › Demo page
+(behind Settings › General › "Show developer tools") picks scenes; the
+server builds each one and relays it through the view the knob already
+polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
+
+- **State** lives in memory only (`demoRegistry` on `App`), one run per
+  knob: the scene queue, the current scene's id, `hold`, `pending` or
+  `playing`. Newest POST wins. Nothing touches the store.
+- **Scenes** are a fixed catalog (`demoCatalog`): name, group, title, the
+  knob page, an optional act, `offline`, and a builder for a whole fake view
+  from presets. Times are relative to the moment the scene became available
+  (whole seconds), not to each request, so the demo view keeps one ETag
+  while it plays and a long poll doesn't spin.
+- **Relay.** `knobView` adds `demo` as the last key for a knob whose caps
+  list `demo`; the fake view copies the real `v`, `epoch`, `config_version`
+  and `brightness`. Setting or stopping a demo and a report that changes
+  state notify `topicDemo`, which wakes waiting view polls.
+- **Reports** ride the view request (`demo_id`, `demo_state`), read before
+  the long poll. `done` for the current id advances the queue under a new
+  id, so the reply already carries the next scene. Expiry is lazy, applied
+  on each read: `pending` 10 s → `unanswered` (kept for the status until the
+  next POST or DELETE), `playing` with no report for 60 s → gone (a knob that
+  rebooted mid-scene).
+- **Cover.** The now-playing scenes use a built-in 480 px orange-to-violet
+  gradient, prepared once like uploaded art (`nowplaying.Prepare`). The art
+  route serves it whenever `v` equals its `art_version` or `cover_version`,
+  so the knob fetches it exactly like real art.
+
 ### Knob firmware updates — `cmd/ember/firmware*.go`, `devices_ota*.go` (#225)
 
 Over-the-air updates for the cinder knob (firmware side: tarakanof/cinder#10;

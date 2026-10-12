@@ -25,6 +25,7 @@ type knobView struct {
 	Quiet         bool                   `json:"quiet,omitempty"`
 	NowPlaying    *knobNowPlaying        `json:"nowplaying,omitempty"`
 	DiagLiveUntil *int64                 `json:"diag_live_until,omitempty"`
+	Demo          *knobDemo              `json:"demo,omitempty"`
 }
 
 type knobMood struct {
@@ -137,6 +138,9 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	}
 	if st.caps != nil {
 		v.applyCaps(st.caps, st.cfg)
+	}
+	if st.caps.hasFeature(featureDemo) {
+		v.Demo = a.knobDemo(id, v, now)
 	}
 	body, err := json.Marshal(v)
 	if err != nil {
@@ -291,6 +295,7 @@ func (a *App) handleDeviceSelfView(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	a.noteDemoReport(id, r)
 	w.Header().Set(knobViewWaitHeader, strconv.Itoa(int(knobViewWaitMax/time.Second)))
 	if a.serveKnobViewWait(w, r, id, wait) {
 		return

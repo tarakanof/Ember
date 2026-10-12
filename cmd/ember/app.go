@@ -68,6 +68,7 @@ type App struct {
 	clients       *clientRegistry
 	changes       *changeBroadcaster
 	viewWaiters   viewWaiters
+	demos         demoRegistry
 	viewRecheck   time.Duration
 	viewClock     func() time.Time
 	knobStats     *knobStatsStore
