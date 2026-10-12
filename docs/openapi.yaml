@@ -3091,9 +3091,29 @@ paths:
       summary: Reorder or toggle clock apps
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [order, disabled]
+              properties:
+                order:
+                  type: array
+                  items: {type: string}
+                disabled:
+                  type: array
+                  items: {type: string}
+                  description: Every app that is off. Missing or null
+                    answers 400; the clock switches on every app this
+                    list doesn't name.
       responses:
         "200":
           $ref: "#/components/responses/Object"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
