@@ -246,7 +246,7 @@ it (API.md, `openapi.yaml`).
   `chase:half`, `hop`, `pop`, `blink`, `sleepy` (the bot's sleepy look over
   the scene's idle mood, now rather than after `sleepy_after_s`), `asleep`
   (the bot's asleep state, lids closed and a slow breath, over the scene's
-  idle mood, now rather than after 10 min of sleepy). The list
+  idle mood, now rather than after the knob's own sleepy time). The list
   only grows; a knob plays the scene without an act it doesn't know.
 - `offline` (optional, `true` only): render the page's offline state (the
   bot's link glyph, the Pomodoro and now-playing offline notes, the weather
@@ -254,7 +254,9 @@ it (API.md, `openapi.yaml`).
 - `hold`: keep the scene until the demo is cleared or 60 s pass.
 
 Knob timing: a scene with only a view shows ~8 s; one with an act lasts the
-act's natural length (at least 8 s when it also has a view, at most 60 s);
+act's natural length (at least 8 s when it also has a view, at most 60 s).
+`sleepy` and `asleep` are states with no natural end, so a knob MUST time
+them like a view-only scene (~8 s);
 `hold` holds. The 60 s cap is a knob rule: the knob ends a held scene 60 s
 after it started and reports `done`. The server enforces it too: it drops a
 held scene 60 s after its first `playing` report, whatever the knob reports.
@@ -319,7 +321,7 @@ silent, the hold cap) reach a waiting poll within 5 s, at its recheck.
   pop, blink, chase full/half (acts over a fitting mood); offline; quiet calm
   (`"quiet":true` with two waiting). `sleepy` and `asleep` are the idle view
   with the act of the same name; a knob without the `asleep` act shows the
-  idle view.
+  idle view for ~8 s.
 - Weather moments (`moment.<kind>.full|quiet`): the nine kinds × full/quiet,
   page `bot`, with weather that fits the kind.
 - Weather faces (`face.<face>.<sky>`): the seven faces × clear day, clear
