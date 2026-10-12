@@ -614,6 +614,21 @@ private func names(_ m: DeviceSettingsModel) -> [String: Bool] {
     #expect(m.nativeApps.map(\.enabled) == [false, true, true, true, false])
 }
 
+@MainActor @Test func anAppDroppedOnAnotherTakesItsPlace() async throws {
+    let (m, clock, _, _) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.moveApp("Time", onto: "Humidity")
+    await m.load(force: true)
+    #expect(m.nativeApps.map(\.name) == ["Date", "Temperature", "Humidity", "Time", "Battery"])
+    await m.moveApp("Battery", onto: "Date")
+    await m.load(force: true)
+    #expect(m.nativeApps.map(\.name) == ["Battery", "Date", "Temperature", "Humidity", "Time"])
+    #expect(m.nativeApps.first { $0.name == "Battery" }?.enabled == false)
+    await m.moveApp("Date", onto: "Date")
+    await m.moveApp("Nope", onto: "Date")
+    #expect(m.nativeApps.map(\.name) == ["Battery", "Date", "Temperature", "Humidity", "Time"])
+}
+
 @MainActor @Test func anAppSwitchedOffKeepsItsSlotAfterAReload() async throws {
     let (m, clock, _, _) = await ngRoundTripModel()
     defer { withExtendedLifetime(clock) {} }

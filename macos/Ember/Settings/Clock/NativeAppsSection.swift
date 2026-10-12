@@ -12,10 +12,23 @@ struct NativeAppsSection: View {
                 Text("The clock hasn't reported its apps yet.").foregroundStyle(.secondary)
             }
             ForEach(Array(apps.enumerated()), id: \.element.id) { index, app in
-                Toggle(isOn: Binding(
-                    get: { app.enabled },
-                    set: { on in Task { await device.setApp(app.name, enabled: on) } })) {
-                    Text(title(app.name))
+                HStack {
+                    Toggle(isOn: Binding(
+                        get: { app.enabled },
+                        set: { on in Task { await device.setApp(app.name, enabled: on) } })) {
+                        Text(title(app.name))
+                    }
+                    Image(systemName: "line.3.horizontal")
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                        .help("Drag to reorder")
+                }
+                .contentShape(Rectangle())
+                .draggable(ClockAppDrag(name: app.name))
+                .dropDestination(for: ClockAppDrag.self) { drops, _ in
+                    guard let drop = drops.first else { return false }
+                    Task { await device.moveApp(drop.name, onto: app.name) }
+                    return true
                 }
                 .contextMenu {
                     Button("Move Up") { Task { await device.moveApps(fromOffsets: [index], toOffset: index - 1) } }
@@ -32,7 +45,6 @@ struct NativeAppsSection: View {
                     }
                 }
             }
-            .onMove { from, to in Task { await device.moveApps(fromOffsets: from, toOffset: to) } }
             Picker("Temperature unit", selection: s.binding(\.useCelsius, true)) {
                 Text("Celsius").tag(true)
                 Text("Fahrenheit").tag(false)
@@ -80,6 +92,13 @@ struct NativeAppsSection: View {
         case "Battery": "Battery"
         default: LocalizedStringKey(name)
         }
+    }
+}
+
+struct ClockAppDrag: Codable, Transferable {
+    let name: String
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .json)
     }
 }
 
