@@ -146,6 +146,42 @@ import Foundation
     #expect(!old.contains("source_label") && !old.contains("working_ring"))
 }
 
+@Test func knobWeatherMomentsDecodeClampAndPatchOnlyWhatChanged() throws {
+    let base = #""brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true}],"home":"bot","poll_ms":2000"#
+    let s = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + #","bot":{"sleepy_after_s":300,"demo_hold_s":20,"weather_moments":true,"weather_every_min":30}}"#).utf8))
+    #expect(s.bot.weatherMoments == true && s.bot.weatherEveryMin == 30)
+    var edited = s
+    edited.bot.weatherEveryMin = 0
+    #expect(edited.patch(from: s) == ["bot": .object(["weather_every_min": .int(0)])])
+    edited.bot.weatherEveryMin = 241
+    #expect(edited.normalized().bot.weatherEveryMin == KnobSettings.weatherEveryRange.upperBound)
+    edited.bot.weatherEveryMin = -1
+    #expect(edited.normalized().bot.weatherEveryMin == 0)
+    edited.bot.weatherMoments = false
+    edited.bot.weatherEveryMin = 30
+    #expect(edited.patch(from: s) == ["bot": .object(["weather_moments": .bool(false)])])
+    let old = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + #","bot":{"sleepy_after_s":300,"demo_hold_s":20}}"#).utf8))
+    #expect(old.bot.weatherMoments == nil && old.bot.weatherEveryMin == nil)
+    let wire = String(decoding: try JSONEncoder().encode(old.normalized()), as: UTF8.self)
+    #expect(!wire.contains("weather_moments") && !wire.contains("weather_every_min"))
+    #expect(KnobSettings.weatherEveryRange == 0...240)
+}
+
+@Test func knobWeatherEveryOffersNeverOrThirtyToTwoForty() {
+    #expect(KnobSettings.weatherEveryFloor == 30)
+    #expect(KnobSettings.weatherEveryShown(0) == 0)
+    #expect(KnobSettings.weatherEveryShown(5) == 30)
+    #expect(KnobSettings.weatherEveryShown(29) == 30)
+    #expect(KnobSettings.weatherEveryShown(45) == 45)
+    #expect(KnobSettings.weatherEveryStepped(from: 30, to: 25) == 0)
+    #expect(KnobSettings.weatherEveryStepped(from: 0, to: 5) == 30)
+    #expect(KnobSettings.weatherEveryStepped(from: 30, to: 35) == 35)
+    #expect(KnobSettings.weatherEveryStepped(from: 37, to: 42) == 40)
+    #expect(KnobSettings.weatherEveryStepped(from: 37, to: 32) == 30)
+    #expect(KnobSettings.weatherEveryStepped(from: 240, to: 245) == 240)
+    #expect(KnobSettings.weatherEveryStepped(from: 35, to: 0) == 0)
+}
+
 private let deviceJSON = #"""
 {"id":"knob-61fc8c","kind":"cinder-knob","hw_id":"3cdc7561fc8c","name":"Desk knob","created_at":"2026-10-04T10:00:00Z","config_version":3,"rotation_pending":false,"rotated_at":null,"last_checkin":{"seen_at":"2026-10-04T10:05:00Z","fw":"0.5.0","ip":"192.168.0.39","rssi":-58,"heap_internal_free":47104,"heap_internal_largest":31744,"uptime_s":812,"applied_version":2}}
 """#

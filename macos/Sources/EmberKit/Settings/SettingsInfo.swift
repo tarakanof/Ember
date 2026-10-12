@@ -3,7 +3,7 @@ import Foundation
 public enum SettingsInfo: String, CaseIterable, Sendable {
     case knobPoll, knobStatsInterval, knobLiveInterval, knobFastLink, knobRotation
     case knobFollowBrightness, knobMinBrightness, knobStartupBrightness
-    case knobSleepy, knobSourceLabel, knobWorkingRing
+    case knobSleepy, knobSourceLabel, knobWorkingRing, knobWeatherMoments, knobWeatherEvery
     case knobQuietCalm, knobQuietDim
     case clockAutoBrightness, clockUppercase
     case clockTimePerApp, clockAutoTransition, clockScrollSpeed, clockBlockNavigation
@@ -30,6 +30,8 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobSleepy: "Idle time before the bot gets sleepy"
         case .knobSourceLabel: "Writes the agent's computer name along the bottom of the face"
         case .knobWorkingRing: "A glint circles the bot's outline while an agent works"
+        case .knobWeatherMoments: "The bot shows the weather when it changes"
+        case .knobWeatherEvery: "How often the bot shows the weather when nothing changes"
         case .knobQuietCalm: "Keeps the bot calm during quiet hours"
         case .knobQuietDim: "The brightest the knob gets during quiet hours"
         case .clockAutoBrightness: "Lets the clock's light sensor set its brightness"
@@ -90,6 +92,10 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "While an agent is working, waiting or in error, the name of its computer curves along the bottom of the bot's face, after the tool's icon. Default: on."
         case .knobWorkingRing:
             "While an agent is working, a glint orbits the bot's outline every 3 s, and after a long stretch the eyes chase it for a few laps. Off keeps the outline still. Default: on."
+        case .knobWeatherMoments:
+            "When rain, snow or a storm starts, rain stops, the wind picks up or it turns hot or freezing, the bot page shows the weather above the eyes with a short line under them. Needs knob firmware 0.9.61 or later. Default: on."
+        case .knobWeatherEvery:
+            "Between changes, the bot also shows the current weather this often, at most every 30 min, and skips it when the line would read the same as last time. Never: only show a moment when the weather changes. Default: 30 min."
         case .knobQuietCalm:
             "During quiet hours the bot skips its attention and excited animations, so a waiting or failed agent doesn't light up the room. The knob has no speaker, so quiet hours only change what it shows. Default: on."
         case .knobQuietDim:
@@ -162,7 +168,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
 
 public enum SettingsInfoRequirement: String, CaseIterable, Sendable {
     case loading, diagnosticsOn, currentConditionsOn, scrolling, weatherOn, meetingsOn, remindersOn
-    case focusSoundOn, severeAlertOn, setByEnvironment
+    case focusSoundOn, severeAlertOn, weatherMomentsOn, setByEnvironment
 
     public var text: LocalizedStringResource {
         switch self {
@@ -175,6 +181,7 @@ public enum SettingsInfoRequirement: String, CaseIterable, Sendable {
         case .remindersOn: "Available when Ring the clock for due reminders is on in Sources › Calendar."
         case .focusSoundOn: "Available when Focus phase ends is on."
         case .severeAlertOn: "Available when Severe weather alert is on in Sources › Weather."
+        case .weatherMomentsOn: "Available when Weather moments is on."
         case .setByEnvironment: "An environment variable sets this, and it wins over the setting here."
         }
     }

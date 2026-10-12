@@ -350,15 +350,21 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         public var demoHoldS: Int
         public var sourceLabel: Bool?
         public var workingRing: Bool?
+        public var weatherMoments: Bool?
+        public var weatherEveryMin: Int?
         enum CodingKeys: String, CodingKey {
             case sleepyAfterS = "sleepy_after_s"
             case demoHoldS = "demo_hold_s"
             case sourceLabel = "source_label"
             case workingRing = "working_ring"
+            case weatherMoments = "weather_moments"
+            case weatherEveryMin = "weather_every_min"
         }
-        public init(sleepyAfterS: Int, demoHoldS: Int, sourceLabel: Bool? = nil, workingRing: Bool? = nil) {
+        public init(sleepyAfterS: Int, demoHoldS: Int, sourceLabel: Bool? = nil, workingRing: Bool? = nil,
+                    weatherMoments: Bool? = nil, weatherEveryMin: Int? = nil) {
             self.sleepyAfterS = sleepyAfterS; self.demoHoldS = demoHoldS
             self.sourceLabel = sourceLabel; self.workingRing = workingRing
+            self.weatherMoments = weatherMoments; self.weatherEveryMin = weatherEveryMin
         }
     }
 
@@ -412,6 +418,19 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public static let pollRange = 1000...10000
     public static let sleepyRange = 0...86400
     public static let demoHoldRange = 1...600
+    public static let weatherEveryRange = 0...240
+    public static let weatherEveryFloor = 30
+    public static let weatherEveryStep = 5
+
+    public static func weatherEveryShown(_ minutes: Int) -> Int {
+        minutes <= 0 ? 0 : max(minutes, weatherEveryFloor).clamped(to: weatherEveryRange)
+    }
+
+    public static func weatherEveryStepped(from current: Int, to proposed: Int) -> Int {
+        if proposed <= 0 { return 0 }
+        if proposed < weatherEveryFloor { return proposed < current ? 0 : weatherEveryFloor }
+        return (proposed.clamped(to: weatherEveryRange) / weatherEveryStep) * weatherEveryStep
+    }
     public static let statsIntervals = [30, 60, 120, 300]
     public static let liveIntervals = [2, 5, 10]
     public static let rotations = [0, 90, 180, 270]
@@ -446,6 +465,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         s.brightness.floor = s.brightness.floor.clamped(to: Self.floorRange)
         if s.brightness.floor > s.brightness.level { s.brightness.level = s.brightness.floor }
         if let dim = s.quiet?.dimLevel { s.quiet?.dimLevel = dim.clamped(to: Self.quietDimRange) }
+        if let every = s.bot.weatherEveryMin { s.bot.weatherEveryMin = every.clamped(to: Self.weatherEveryRange) }
         if !s.pages.contains(where: \.on), !s.pages.isEmpty { s.pages[0].on = true }
         if !s.pages.contains(where: { $0.id == s.home && $0.on }), let first = s.pages.first(where: \.on) {
             s.home = first.id

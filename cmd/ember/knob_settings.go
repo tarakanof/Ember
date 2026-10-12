@@ -114,9 +114,16 @@ type knobBot struct {
 	SleepyAfterS int `json:"sleepy_after_s"`
 	DemoHoldS    int `json:"demo_hold_s"`
 	// Pointers: a record stored before them reads as on.
-	SourceLabel *bool `json:"source_label,omitempty"`
-	WorkingRing *bool `json:"working_ring,omitempty"`
+	SourceLabel     *bool `json:"source_label,omitempty"`
+	WorkingRing     *bool `json:"working_ring,omitempty"`
+	WeatherMoments  *bool `json:"weather_moments,omitempty"`
+	WeatherEveryMin *int  `json:"weather_every_min,omitempty"`
 }
+
+const (
+	knobWeatherEveryMinDefault = 30
+	knobWeatherEveryMinMax     = 240
+)
 
 // Copies the flag pointers so a decoded patch never writes through the stored record.
 func (b knobBot) clone() knobBot {
@@ -127,6 +134,14 @@ func (b knobBot) clone() knobBot {
 	if b.WorkingRing != nil {
 		v := *b.WorkingRing
 		b.WorkingRing = &v
+	}
+	if b.WeatherMoments != nil {
+		v := *b.WeatherMoments
+		b.WeatherMoments = &v
+	}
+	if b.WeatherEveryMin != nil {
+		v := *b.WeatherEveryMin
+		b.WeatherEveryMin = &v
 	}
 	return b
 }
@@ -145,11 +160,12 @@ func defaultKnobSettings() knobSettings {
 		pages = append(pages, knobPage{ID: id, On: !slices.Contains(knobPagesOffByDefault, id)})
 	}
 	return knobSettings{
-		Brightness:  knobBrightness{FollowEmber: true, Level: 153, Floor: 10, Startup: 153},
-		Pages:       pages,
-		Home:        "bot",
-		PollMS:      2000,
-		Bot:         knobBot{SleepyAfterS: 300, DemoHoldS: 20, SourceLabel: boolPtr(true), WorkingRing: boolPtr(true)},
+		Brightness: knobBrightness{FollowEmber: true, Level: 153, Floor: 10, Startup: 153},
+		Pages:      pages,
+		Home:       "bot",
+		PollMS:     2000,
+		Bot: knobBot{SleepyAfterS: 300, DemoHoldS: 20, SourceLabel: boolPtr(true), WorkingRing: boolPtr(true),
+			WeatherMoments: boolPtr(true), WeatherEveryMin: new(knobWeatherEveryMinDefault)},
 		Display:     knobDisplay{FastLink: boolPtr(true)},
 		Quiet:       knobQuiet{Calm: boolPtr(true), DimLevel: new(knobQuietDimDefault)},
 		Diagnostics: knobDiagOff,
@@ -202,6 +218,12 @@ func (b *knobBot) fillDefaults() {
 	if b.WorkingRing == nil {
 		b.WorkingRing = boolPtr(true)
 	}
+	if b.WeatherMoments == nil {
+		b.WeatherMoments = boolPtr(true)
+	}
+	if b.WeatherEveryMin == nil {
+		b.WeatherEveryMin = new(knobWeatherEveryMinDefault)
+	}
 }
 
 func (s knobSettings) validate() error {
@@ -243,6 +265,11 @@ func (s knobSettings) validate() error {
 	}
 	if err := inRange("bot.demo_hold_s", s.Bot.DemoHoldS, 1, 600); err != nil {
 		return err
+	}
+	if s.Bot.WeatherEveryMin != nil {
+		if err := inRange("bot.weather_every_min", *s.Bot.WeatherEveryMin, 0, knobWeatherEveryMinMax); err != nil {
+			return err
+		}
 	}
 	if s.Quiet.DimLevel != nil {
 		if err := inRange("quiet.dim_level", *s.Quiet.DimLevel, 1, 255); err != nil {
