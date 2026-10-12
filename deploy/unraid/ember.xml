@@ -77,4 +77,8 @@ See https://github.com/tarakanof/ember for full documentation.
 
   <Config Name="EMBER_HEALTHCHECK_INSECURE" Target="EMBER_HEALTHCHECK_INSECURE" Default="" Mode="" Description="Optional. Set to '1' if you enabled TLS with a self-signed cert and want the in-image healthcheck to skip TLS verification." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
+  <Config Name="EMBER_TOMORROW_API_KEY" Target="EMBER_TOMORROW_API_KEY" Default="" Mode="" Description="Optional. Tomorrow.io API key (free plan: 500 calls/day, 25/hour). Enables the Tomorrow.io weather provider; Ember calls it only while it is the chosen provider, within the free-plan limits. See RUNBOOK." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
+  <Config Name="EMBER_WEATHERAPI_KEY" Target="EMBER_WEATHERAPI_KEY" Default="" Mode="" Description="Optional. WeatherAPI.com API key (free plan: 100,000 calls/month, 3-day forecast). Enables the WeatherAPI.com weather provider; Ember calls it only while it is the chosen provider, within the free-plan limits. See RUNBOOK." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
 </Container>
