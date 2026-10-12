@@ -243,6 +243,7 @@ struct KnobBotSection: View {
     var body: some View {
         let knob = env.knob
         let s = knob.settings.draft
+        let moments = knob.knob?.supports(feature: KnobCaps.wxMoments) == true
         Section {
             StepperRow(title: "Bot gets sleepy after", value: Binding(
                 get: { s.bot.sleepyAfterS / 60 },
@@ -264,13 +265,13 @@ struct KnobBotSection: View {
                     set: { v in knob.edit { $0.bot.workingRing = v } }),
                     info: .knobWorkingRing, requirement: .loading)
             }
-            if s.bot.weatherMoments != nil {
+            if moments, s.bot.weatherMoments != nil {
                 InfoToggle("Weather moments", isOn: Binding(
                     get: { s.bot.weatherMoments ?? true },
                     set: { v in knob.edit { $0.bot.weatherMoments = v } }),
                     info: .knobWeatherMoments, requirement: .loading)
             }
-            if s.bot.weatherEveryMin != nil {
+            if moments, s.bot.weatherEveryMin != nil {
                 let every = KnobSettings.weatherEveryShown(s.bot.weatherEveryMin ?? KnobSettings.weatherEveryFloor)
                 StepperRow(title: "Show the weather every", value: Binding(
                     get: { every },

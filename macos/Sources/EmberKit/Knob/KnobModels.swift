@@ -161,6 +161,7 @@ public struct KnobCaps: Codable, Equatable, Sendable {
     }
 
     public static let statsIntervals = "stats_intervals"
+    public static let wxMoments = "wx_moments"
     public static let nowPlayingPage = "nowplaying"
 
     static let legacyFeatureFloors: [String: [Int]] = [statsIntervals: [0, 7, 0]]

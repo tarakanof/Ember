@@ -187,6 +187,7 @@ pre-releases the same way):
 | `stats_intervals` | Applies `stats_interval_s` and `live_interval_s` from its config | Ember.app shows the interval pickers |
 | `wx_faces` | Parses the weather detail keys ("Weather detail") | The detail keys are added to `weather` only with this token |
 | `np_cover` | Shows the prepared cover (`kind=cover`) and `accent` ("Prepared cover") | `nowplaying.accent` and `nowplaying.cover_version` only with this token |
+| `wx_moments` | Applies `bot.weather_moments` and `bot.weather_every_min` from its config ("Bot weather moments") | Ember.app shows the Weather moments rows only with this token; the server sends both keys to every knob |
 
 Page ids in `caps.pages` need no registry: they are the config's page ids;
 Ember.app lists a knob app only when its page is in `effective_caps.pages`.
@@ -204,6 +205,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `wx_faces` | every `days` entry carries `end` right after `t` (#434): the day's next true local midnight in the location's zone (23 h or 25 h after `t` on a DST day), so a view held across a DST change ends each row at the real midnight; `t` is the day's true local midnight for every provider (#439); without a known zone `end` = `t` + 24 h; old firmware skips the key, and cinder derives row ends from the next `t` (`knob_view.c`) and weekdays with a +12 h rounding (`wx_days.c`) until it reads `end` | `TestStaleKnobViewKeepsTrueDayBoundariesAcrossDST`, `TestOpenMeteoDaysAreTrueLocalMidnightsAcrossDST`, `TestMetNoDaysAreTrueLocalMidnightsAcrossDST`, `TestTomorrowDaysAreTrueLocalMidnightsAcrossDST`, `TestWeatherAPIDaysAreTrueLocalMidnightsAcrossDST`, `TestOpenMeteoDaysWithoutAZoneEndADayLater`, `TestKnobViewWeatherFacesGolden`, `TestKnobViewWorstCaseFitsHalfTheBuffer`; cinder: the follow-up that reads `end` |
 | new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
 | new | new, `np_cover` or not | `accent` and `cover_version` only with the token, only when there is a picture, and the only change to `nowplaying`; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
+| new | new, `wx_moments` or not (cinder 0.9.65 sends it) | `effective_caps.features` lists it as reported; the config carries `bot.weather_moments` and `bot.weather_every_min` either way; Ember.app shows the Weather moments rows only with the token (no semver fallback: a server without `effective_caps` predates the keys) | `TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments` (`knob_weather_moments_test.go`); Ember.app `knobWeatherMomentsRowsNeedTheWxMomentsToken`; cinder host test: `wx_moments` in `FEATURES_AHEAD` |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Quiet hours
@@ -278,10 +280,14 @@ of text when the weather changes, plus a periodic one), per knob:
 - **Knob:** cinder's `knob_settings_parse` uses the same defaults for an
   absent key, keeps the default for a non-boolean `weather_moments` or a
   non-number `weather_every_min`, and clamps a number to 0-240.
-- **Caps:** none. The firmware reports no token for moments, and older
-  firmware skips both unknown keys, so the server sends them to every knob.
+- **Caps:** `wx_moments` (cinder#100, firmware 0.9.65) says the firmware
+  applies both keys. The server doesn't key on it: older firmware skips both
+  unknown keys, so it sends them to every knob. 0.9.61-0.9.64 apply them
+  without reporting the token.
 - **App:** Ember.app shows them in the knob's Bot section when the server
-  sends them; the interval is disabled while moments are off. Its stepper
+  sends them and `effective_caps.features` lists `wx_moments`, so a knob on
+  0.9.61-0.9.64 hides them until it updates; the interval is disabled while
+  moments are off. Its stepper
   offers Never (0) or 30-240 in 5-min steps (down from 30 goes to Never, up
   from Never to 30), and shows a non-zero value below 30 from the API as 30.
   The server still accepts 0-240 because the firmware does.
@@ -559,7 +565,7 @@ Indented JSON; key order is the wire order.
 | `view_single_host_paused.json` | One host: `source` set, `lead`/`hosts` left out; paused `pomo` with `remaining_sec`; `weather` without a location (`sunrise`/`sunset` `null`) and without a provider observation time (`observed_at` absent) |
 | `checkin_req_minimal.json` | The base fields every firmware sends |
 | `checkin_req_full.json` | Every block: `diag` with a crash, `ota` with `last`, `stats`, `wifi`, the display link |
-| `checkin_req_caps.json` | The base fields plus `caps` (every page and feature of 0.9.41, its limits, `rotations` `[0, 180]`); not yet `wx_faces` (below) |
+| `checkin_req_caps.json` | The base fields plus `caps` (every page and feature of 0.9.41, its limits, `rotations` `[0, 180]`); not yet `wx_faces` or `wx_moments` (below) |
 | `checkin_reply_current.json` | Knob up to date: `config_version` only |
 | `checkin_reply_config.json` | Stale knob: `config` included |
 | `checkin_reply_coredump.json` | Live mode plus `coredump_wanted` |
@@ -598,12 +604,15 @@ for key and value for value, except for paths in `NOT_YET_SENT[]` in
    fails without the entry.
 3. The firmware PR that starts sending the field removes the entry.
 
-`NOT_YET_SENT` matches object keys only: `body_diff` compares an array
-such as `caps.features` whole (`cJSON_Compare`), so it cannot exempt one
-new feature token. `checkin_req_caps.json` therefore stays at 0.9.41's
-caps until the firmware sends `wx_faces`; the cinder PR that adds the
-token either teaches the host test an element exemption or lands with an
-Ember PR that adds the token to the fixture, synced in the same step.
+`NOT_YET_SENT` matches object keys only, so a new feature token in
+`caps.features` takes the element exemption instead: `FEATURES_AHEAD[]` in
+`test_fixtures.c` lists tokens the firmware sends that the fixture lacks
+(`wx_faces` since cinder 0.9.51, `wx_moments` since 0.9.65). The test drops
+each one from the firmware's list before comparing, fails unless a caps
+body carries it exactly once, and fails once the fixture lists it.
+`checkin_req_caps.json` therefore stays at 0.9.41's caps: a new token
+needs its registry row here first, then the cinder PR that sends it adds
+it to `FEATURES_AHEAD`, with no fixture change and no sync.
 
 The host test fails on a listed path the firmware sends, on a listed path no
 fixture has, and on a key the firmware sends that the fixture lacks, so the

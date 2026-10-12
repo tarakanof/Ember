@@ -125,3 +125,12 @@ private func degrees(_ c: [KnobRotationChoice]) -> [Int] { c.map(\.degrees) }
     let without = try JSONDecoder().decode(KnobCaps.self, from: Data(#"{"view":[1,1],"pages":["bot"],"features":[],"source":"legacy"}"#.utf8))
     #expect(without.rotations == nil)
 }
+
+@Test func knobWeatherMomentsRowsNeedTheWxMomentsToken() {
+    let with = knob(fw: "0.9.65", caps: KnobCaps(pages: ["bot"], features: [KnobCaps.wxMoments], source: "reported"))
+    #expect(KnobCaps.wxMoments == "wx_moments")
+    #expect(with.supports(feature: KnobCaps.wxMoments))
+    let without = knob(fw: "0.9.64", caps: KnobCaps(pages: ["bot"], features: ["view_wait", "wx_faces"], source: "reported"))
+    #expect(!without.supports(feature: KnobCaps.wxMoments), "0.9.61-0.9.64 apply moments but don't report the token")
+    #expect(!knob(fw: "0.9.65").supports(feature: KnobCaps.wxMoments), "no semver fallback for a server without effective_caps")
+}
