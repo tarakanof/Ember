@@ -82,7 +82,8 @@ updates"),
 `"hold"` (ignored with `scenes`; capped at 60 s by knob and server), newest wins; unknown scene, both or neither of `scene` and `scenes` (even `"scenes": []`) 400, a knob
 without the `demo` caps feature 409; status `{state: idle|pending|playing|unanswered|restarted,
 scene, id, queue_left}` (`restarted`: the knob rebooted mid-demo, demo and queue
-dropped); the catalog `[{name, group, title}]` — DEVICE-PROTOCOL
+dropped; a view poll with the knob token and no `demo_id` while a scene
+plays reads as that reboot); the catalog `[{name, group, title}]` — DEVICE-PROTOCOL
 "Demo mode"),
 `POST /v1/devices/{id}/stats/live` (knob diagnostics, memory only — see
 ARCHITECTURE "Knob diagnostics"), `GET /v1/devices/{id}/coredumps`
