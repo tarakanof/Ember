@@ -93,7 +93,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobWorkingRing:
             "While an agent is working, a glint orbits the bot's outline every 3 s, and after a long stretch the eyes chase it for a few laps. Off keeps the outline still. Default: on."
         case .knobWeatherMoments:
-            "When rain, snow or a storm starts, rain stops, the wind picks up or it turns hot or freezing, the bot page shows the weather above the eyes with a short line under them. Needs knob firmware 0.9.61 or later. Default: on."
+            "When rain, snow or a storm starts, rain stops, the wind picks up or it turns hot or freezing, the bot page shows the weather above the eyes with a short line under them. Default: on."
         case .knobWeatherEvery:
             "Between changes, the bot also shows the current weather this often, at most every 30 min, and skips it when the line would read the same as last time. Never: only show a moment when the weather changes. Default: 30 min."
         case .knobQuietCalm:

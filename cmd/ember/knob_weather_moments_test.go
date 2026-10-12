@@ -130,3 +130,39 @@ func TestKnobWeatherMomentsSurviveARegistryReload(t *testing.T) {
 		t.Fatalf("a record stored without the keys reloads as %v/%d version %d, want true/30 version %d (no push)", on, every, v, version)
 	}
 }
+
+func TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments(t *testing.T) {
+	withToken := map[string]any{
+		"view": []int{1, 1}, "pages": []string{"bot", "weather"},
+		"features": []string{featureViewWait, featureWxFaces, featureWxMoments},
+	}
+	without := map[string]any{
+		"view": []int{1, 1}, "pages": []string{"bot", "weather"},
+		"features": []string{featureViewWait, featureWxFaces},
+	}
+	for _, tc := range []struct {
+		name string
+		caps map[string]any
+		want bool
+	}{{"with", withToken, true}, {"without", without, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newViewFixture(t)
+			if out := postCapsCheckin(t, f, "0.10.0", tc.caps); out["caps_ack"] != true {
+				t.Fatalf("caps not acked: %v", out)
+			}
+			features, _ := knobEffectiveCaps(t, f)["features"].([]any)
+			has := false
+			for _, x := range features {
+				has = has || x == featureWxMoments
+			}
+			if has != tc.want {
+				t.Fatalf("effective_caps.features = %v, want wx_moments %v", features, tc.want)
+			}
+			resp, b := devReq(t, f.srv, "GET", "/v1/devices/self/config", f.m.Token, "")
+			mustOK(t, "self config", resp, b)
+			if !strings.Contains(string(b), `"weather_moments":true,"weather_every_min":30}`) {
+				t.Fatalf("self config = %s, want the moment keys for every knob", b)
+			}
+		})
+	}
+}
