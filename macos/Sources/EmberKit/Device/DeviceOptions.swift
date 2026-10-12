@@ -69,8 +69,8 @@ public enum NativeAppsPlan {
         return (next, update(for: next))
     }
 
-    private static func update(for apps: [AppInfo]) -> AppsUpdate {
-        AppsUpdate(order: orderOfEnabled(apps), disabled: disabledNames(apps))
+    public static func update(for apps: [AppInfo]) -> AppsUpdate {
+        AppsUpdate(order: order(of: apps), disabled: disabledNames(apps))
     }
 
     private static func disabledNames(_ apps: [AppInfo]) -> [String] {
@@ -78,9 +78,9 @@ public enum NativeAppsPlan {
         return apps.filter { $0.origin != "module" && !$0.enabled && seen.insert($0.name).inserted }.map(\.name)
     }
 
-    private static func orderOfEnabled(_ apps: [AppInfo]) -> [String] {
+    private static func order(of apps: [AppInfo]) -> [String] {
         apps.filter { a in
-            a.origin != "module" && a.enabled && (a.present != false || a.slot != nil)
+            a.origin != "module" && (a.present != false || a.slot != nil)
         }.map(\.name)
     }
 }

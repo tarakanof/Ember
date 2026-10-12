@@ -92,8 +92,7 @@ private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(ap
 @Test func toggleOffSendsEveryDisabledApp() {
     let u = NativeAppsPlan.toggle("Date", enabled: false, in: sampleApps)
     #expect(u.disabled == ["Date", "Battery"])
-    #expect(u.order == ["Time", "ember", "ember-weather", "clockface"])
-    #expect(Set(u.order).isDisjoint(with: u.disabled))
+    #expect(u.order == ["Time", "ember", "Date", "ember-weather", "Battery", "clockface"])
 }
 
 @Test func toggleOnOrdersItWithoutDisablingOthersAgain() {
@@ -113,13 +112,13 @@ private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(ap
 
 @Test func anAwayEmberTileKeepsItsSlot() {
     let u = NativeAppsPlan.toggle("Time", enabled: false, in: sampleApps)
-    #expect(u.order == ["ember", "Date", "ember-weather", "clockface"])
+    #expect(u.order == ["Time", "ember", "Date", "ember-weather", "Battery", "clockface"])
 }
 
 @Test func moveKeepsPushedAppsInPlace() {
     let (apps, u) = NativeAppsPlan.move(in: sampleApps, fromOffsets: IndexSet(integer: 1), toOffset: 0)
     #expect(apps.map(\.name) == ["Date", "ember", "Time", "ember-weather", "Battery", "clockface", "mathlib"])
-    #expect(u.order == ["Date", "ember", "Time", "ember-weather", "clockface"])
+    #expect(u.order == ["Date", "ember", "Time", "ember-weather", "Battery", "clockface"])
     #expect(u.disabled == ["Battery"])
 }
 
@@ -389,6 +388,7 @@ private func ngServer() -> FakeClock {
     #expect(m.writes.status == .saved)
 
     fake.responses["PUT /v1/device/apps"] = (500, #"{"error":"boom"}"#)
+    fake.responses["GET /v1/device/apps"] = (200, #"[{"name":"Time","enabled":false,"inLoop":false,"origin":"builtin","present":true}]"#)
     await m.setApp("Time", enabled: true)
     #expect(m.nativeApps.first?.enabled == false)
     #expect(m.actionErrors[.apps] != nil)
@@ -438,7 +438,7 @@ private func facadeModel(_ fake: FakeClock) async -> (DeviceSettingsModel, Clock
     #expect(put.path == "/v1/devices/clock-a1b2c3/config")
     #expect(Array(put.body.keys) == ["rotation"])
     let rotation = try #require(put.body["rotation"] as? [String: Any])
-    #expect(rotation["order"] as? [String] == [])
+    #expect(rotation["order"] as? [String] == ["Time"])
     #expect(rotation["disabled"] as? [String] == ["Time"])
     #expect(!fake.paths.contains("PUT /v1/device/apps"))
     #expect(m.writes.status == .saved)
@@ -496,6 +496,7 @@ private final class NGAppList: @unchecked Sendable {
     private let apps: [(name: String, origin: String)]
     private var order: [String]
     private var disabled: Set<String>
+    private var failures = 0
 
     init(_ apps: [(String, String)], order: [String], disabled: Set<String>) {
         self.apps = apps.map { (name: $0.0, origin: $0.1) }
@@ -503,10 +504,18 @@ private final class NGAppList: @unchecked Sendable {
         self.disabled = disabled
     }
 
-    func setOrder(_ rotation: [String: Any]) {
+    func failNext() { lock.withLock { failures += 1 } }
+
+    func setOrder(_ rotation: [String: Any]) -> (Int, String) {
         lock.withLock {
+            if failures > 0 {
+                failures -= 1
+                return (503, #"{"error":"another clock app order change is still running"}"#)
+            }
+            guard let off = rotation["disabled"] as? [String] else { return (400, #"{"error":"invalidJson"}"#) }
             if let o = rotation["order"] as? [String] { order = o }
-            disabled = Set(rotation["disabled"] as? [String] ?? [])
+            disabled = Set(off)
+            return (200, "")
         }
     }
 
@@ -529,7 +538,7 @@ private final class NGAppList: @unchecked Sendable {
 }
 
 @MainActor
-private func ngRoundTripModel() async -> (DeviceSettingsModel, ClockConfigModel, NGAppList) {
+private func ngRoundTripModel(facade: Bool = true) async -> (DeviceSettingsModel, ClockConfigModel, NGAppList, FakeClock) {
     let fake = ngServer()
     let clockApps = NGAppList([("Time", "builtin"), ("ember", "pushed"), ("Date", "builtin"),
                                ("Temperature", "builtin"), ("Humidity", "builtin"), ("Battery", "builtin")],
@@ -539,18 +548,27 @@ private func ngRoundTripModel() async -> (DeviceSettingsModel, ClockConfigModel,
         case "GET /v1/device/apps":
             return (200, clockApps.json)
         case "PUT /v1/devices/clock-a1b2c3/config":
-            if let rotation = body["rotation"] as? [String: Any] { clockApps.setOrder(rotation) }
-            return nil
+            guard let rotation = body["rotation"] as? [String: Any] else { return nil }
+            let (status, text) = clockApps.setOrder(rotation)
+            return status == 200 ? nil : (status, text)
+        case "PUT /v1/device/apps":
+            return clockApps.setOrder(body)
         default:
             return nil
         }
     }
     let (m, clock) = await facadeModel(fake)
-    return (m, clock, clockApps)
+    if !facade { clock.configure(client: m.service.client, deviceID: nil) }
+    return (m, clock, clockApps, fake)
+}
+
+@MainActor
+private func names(_ m: DeviceSettingsModel) -> [String: Bool] {
+    Dictionary(uniqueKeysWithValues: m.nativeApps.map { ($0.name, $0.enabled) })
 }
 
 @MainActor @Test func facadeAppTogglesSurviveAReload() async throws {
-    let (m, clock, clockApps) = await ngRoundTripModel()
+    let (m, clock, clockApps, _) = await ngRoundTripModel()
     defer { withExtendedLifetime(clock) {} }
     #expect(m.nativeApps.map(\.enabled) == [true, true, true, false, false])
 
@@ -562,16 +580,79 @@ private func ngRoundTripModel() async -> (DeviceSettingsModel, ClockConfigModel,
 
     await m.setApp("Date", enabled: false)
     await m.load(force: true)
-    #expect(Dictionary(uniqueKeysWithValues: m.nativeApps.map { ($0.name, $0.enabled) })
-            == ["Time": true, "Date": false, "Temperature": true, "Humidity": true, "Battery": false])
+    #expect(names(m) == ["Time": true, "Date": false, "Temperature": true, "Humidity": true, "Battery": false])
     #expect(clockApps.enabled["ember"] == true)
 }
 
+@MainActor @Test func fallbackAppTogglesSurviveAReload() async throws {
+    let (m, clock, _, fake) = await ngRoundTripModel(facade: false)
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Humidity", enabled: true)
+    await m.setApp("Date", enabled: false)
+    await m.moveApps(fromOffsets: [4], toOffset: 0)
+    await m.load(force: true)
+    #expect(fake.log.last { $0.method == "PUT" }?.path == "/v1/device/apps")
+    #expect(m.nativeApps.map(\.name) == ["Battery", "Time", "Date", "Temperature", "Humidity"])
+    #expect(names(m) == ["Time": true, "Date": false, "Temperature": true, "Humidity": true, "Battery": false])
+}
+
 @MainActor @Test func facadeAppReorderKeepsDisabledAppsOffAfterAReload() async throws {
-    let (m, clock, _) = await ngRoundTripModel()
+    let (m, clock, _, _) = await ngRoundTripModel()
     defer { withExtendedLifetime(clock) {} }
     await m.moveApps(fromOffsets: [1], toOffset: 0)
     await m.load(force: true)
     #expect(m.nativeApps.map(\.name) == ["Date", "Time", "Temperature", "Humidity", "Battery"])
     #expect(m.nativeApps.map(\.enabled) == [true, true, true, false, false])
+}
+
+@MainActor @Test func aDisabledAppDraggedToTheTopStaysThereAfterAReload() async throws {
+    let (m, clock, _, _) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.moveApps(fromOffsets: [3], toOffset: 0)
+    await m.load(force: true)
+    #expect(m.nativeApps.map(\.name) == ["Humidity", "Time", "Date", "Temperature", "Battery"])
+    #expect(m.nativeApps.map(\.enabled) == [false, true, true, true, false])
+}
+
+@MainActor @Test func anAppSwitchedOffKeepsItsSlotAfterAReload() async throws {
+    let (m, clock, _, _) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Date", enabled: false)
+    await m.load(force: true)
+    #expect(m.nativeApps.map(\.name) == ["Time", "Date", "Temperature", "Humidity", "Battery"])
+    #expect(m.nativeApps.map(\.enabled) == [true, false, true, false, false])
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func reopeningThePageDuringAPendingAppWriteKeepsTheToggle() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
+    let toggle = Task { await m.setApp("Date", enabled: false) }
+    await fake.gatedRequestArrived()
+    await m.load(force: true)
+    #expect(names(m)["Date"] == false)
+    fake.gate.signal()
+    await toggle.value
+    #expect(names(m)["Date"] == false)
+    #expect(clockApps.enabled["Date"] == false)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aFailedAppWriteDoesNotUndoALaterOne() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
+    let first = Task { await m.setApp("Date", enabled: false) }
+    await fake.gatedRequestArrived()
+    let second = Task { await m.setApp("Humidity", enabled: true) }
+    await eventually { names(m)["Humidity"] == true }
+    clockApps.failNext()
+    fake.gate.signal()
+    await first.value
+    await second.value
+    #expect(clockApps.enabled["Humidity"] == true)
+    #expect(clockApps.enabled["Date"] == true)
+    #expect(names(m) == ["Time": true, "Date": true, "Temperature": true, "Humidity": true, "Battery": false])
+    #expect(m.actionErrors[.apps] != nil)
+    await m.load(force: true)
+    #expect(names(m)["Humidity"] == true)
 }

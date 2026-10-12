@@ -3291,13 +3291,19 @@ migration) the same config is a façade over the overlay slices, as in #230.
   an old-endpoint save of usage, Pomodoro, weather or meetings reloads the
   façade. The Rotation page's app toggles and reorders send
   `{"rotation":{"order","disabled"}}` (the same body as `PUT
-  /v1/device/apps`) through the façade, `disabled` naming every app that is
-  off after the change (`NativeAppsPlan`), not only the one toggled; the list itself, which needs
-  `origin`/`present`, is still read from `/v1/device/apps`. A 503 (lock
+  /v1/device/apps`) through the façade, built by `NativeAppsPlan` from the
+  whole list after the change: `order` names every app, switched-off ones
+  included so they keep their place (NG accepts a name in both lists), and
+  `disabled` every app that is off, not only the one toggled (#413). The
+  list itself, which needs `origin`/`present`, is still read from
+  `/v1/device/apps`. App-order writes run one at a time, each sending the
+  latest list; a reload that overlaps a pending or finishing write keeps the
+  list on screen. A failed write undoes only its own toggle, and once the
+  queue is empty the app list is reread. A 503 (lock
   timeout) or 502 (cut-short clock write) shows its own message and
   refetches: the façade `GET` replaces the baseline, and edits made while the
-  `PUT` was in flight are rebased onto it and sent again; a failed app-order
-  write rereads the app list. A 404 marks the record missing: a settings edit,
+  `PUT` was in flight are rebased onto it and sent again. A 404 marks the
+  record missing: a settings edit,
   including any made while the `PUT` was in flight, is replayed into the old
   model and saved through the old endpoint, an app-order write is retried once on `PUT /v1/device/apps`, and the panes use
   the old endpoints. A missing façade is probed again (only a fresh `GET`

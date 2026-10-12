@@ -91,6 +91,11 @@ public final class DeviceSettingsModel {
     @ObservationIgnored public private(set) var service: DeviceService
     @ObservationIgnored public weak var clockConfig: ClockConfigModel?
     @ObservationIgnored private var appsSeq = 0
+    @ObservationIgnored private var appsGeneration = 0
+    @ObservationIgnored private var appsTail: Task<Void, Never>?
+    @ObservationIgnored private var appsPending = 0
+    @ObservationIgnored private var appsFailed = false
+    @ObservationIgnored private var appsSent: AppsUpdate?
     @ObservationIgnored private weak var live: LiveModel?
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let debounce: Duration
@@ -124,6 +129,7 @@ public final class DeviceSettingsModel {
         capabilities = nil; config = nil; apps = []; buttons = nil; stats = nil
         melodies = []; audio = .unknown; discovered = nil
         actionErrors = [:]; lastFullLoad = nil; appsSeq += 1
+        appsGeneration += 1; appsTail = nil; appsPending = 0; appsFailed = false; appsSent = nil
         writes.clear()
         Task { await load(force: true) }
     }
@@ -155,7 +161,7 @@ public final class DeviceSettingsModel {
         config = (try? await svc.config()) ?? config
         capabilities = (try? await svc.capabilities()) ?? capabilities
         let seq = appsSeq
-        if let a = try? await svc.apps(), seq == appsSeq { apps = a }
+        if let a = try? await svc.apps(), seq == appsSeq, appsPending == 0 { apps = a; appsSent = nil }
         buttons = (try? await svc.buttons()) ?? buttons
         stats = (try? await svc.stats()) ?? stats
         await loadMelodies()
@@ -181,36 +187,74 @@ public final class DeviceSettingsModel {
     }
 
     public func setApp(_ name: String, enabled: Bool) async {
-        let before = apps
-        let update = NativeAppsPlan.toggle(name, enabled: enabled, in: apps)
-        apps = apps.map { a in var a = a; if a.name == name { a.enabled = enabled }; return a }
-        await writeApps(update, rollback: before)
+        let was = apps.first { $0.name == name }?.enabled ?? !enabled
+        apps = Self.setting(name, enabled: enabled, in: apps)
+        await queueAppsWrite { Self.setting(name, enabled: was, in: $0) }
     }
 
     public func moveApps(fromOffsets source: IndexSet, toOffset destination: Int) async {
-        let before = apps
-        let (next, update) = NativeAppsPlan.move(in: apps, fromOffsets: source, toOffset: destination)
+        let (next, _) = NativeAppsPlan.move(in: apps, fromOffsets: source, toOffset: destination)
         guard next != apps else { return }
         apps = next
-        await writeApps(update, rollback: before)
+        await queueAppsWrite(revert: nil)
     }
 
-    private func writeApps(_ update: AppsUpdate, rollback before: [AppInfo]) async {
+    private static func setting(_ name: String, enabled: Bool, in apps: [AppInfo]) -> [AppInfo] {
+        apps.map { a in var a = a; if a.name == name { a.enabled = enabled }; return a }
+    }
+
+    private func queueAppsWrite(revert: (([AppInfo]) -> [AppInfo])?) async {
         appsSeq += 1
+        appsPending += 1
+        let gen = appsGeneration
+        let previous = appsTail
+        let task = Task { [weak self] in
+            await previous?.value
+            await self?.sendApps(revert: revert, generation: gen)
+        }
+        appsTail = task
+        await task.value
+    }
+
+    private func sendApps(revert: (([AppInfo]) -> [AppInfo])?, generation gen: Int) async {
+        guard gen == appsGeneration else { return }
+        let update = NativeAppsPlan.update(for: apps)
+        let error: FeedError?
+        if update == appsSent {
+            error = nil
+        } else {
+            error = await writes.run { try await self.putApps(update) }
+        }
+        guard gen == appsGeneration else { return }
+        appsSeq += 1
+        appsPending -= 1
+        if let error {
+            if let revert { apps = revert(apps) }
+            actionErrors[.apps] = error
+            appsFailed = true
+            appsSent = nil
+        } else {
+            appsSent = update
+            if !appsFailed { actionErrors[.apps] = nil }
+        }
+        guard appsPending == 0, appsFailed else { return }
+        appsFailed = false
+        appsSent = nil
         let seq = appsSeq
+        guard let current = try? await service.apps(), seq == appsSeq, gen == appsGeneration, appsPending == 0 else { return }
+        apps = current
+    }
+
+    private func putApps(_ update: AppsUpdate) async throws {
         guard let clock = clockConfig, clock.isActive else {
-            await write(.apps, rollback: { self.apps = before }) { try await self.service.updateApps(update) }
+            try await service.updateApps(update)
             return
         }
-        await write(.apps, rollback: { self.apps = before }) {
-            do {
-                try await clock.writeRotation(update)
-            } catch where !clock.isActive {
-                try await self.service.updateApps(update)
-            }
+        do {
+            try await clock.writeRotation(update)
+        } catch where !clock.isActive {
+            try await service.updateApps(update)
         }
-        guard actionErrors[.apps] != nil, let current = try? await service.apps(), seq == appsSeq else { return }
-        apps = current
     }
 
     public func setButtonsEnabled(_ on: Bool) async {
