@@ -63,7 +63,7 @@
       "dash": { "width": [0.14, 0.24], "height": [0.38, 0.06], "angle_deg": [27, -6] },
       "angry": { "width": [0.13, 0.22], "height": [0.3, 0.06], "angle_deg": [55, 10] },
       "round": { "width": [0.3, 0.34], "height": [0.44, 0.05], "angle_deg": [10, 10] },
-      "happy": { "width": 0.3, "height": [0.16, 0.03], "lift": 1.5, "stroke": 0.11, "points": 7 }
+      "happy": { "width": 0.3, "height": [0.16, 0.03], "lift": 1.5, "stroke": 0.11, "points": 16 }
     },
     "badge": {
       "at": 0.98,

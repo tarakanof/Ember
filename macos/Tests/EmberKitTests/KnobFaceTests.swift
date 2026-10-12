@@ -20,7 +20,7 @@ import Testing
     #expect(dash.count == 2 && dash.allSatisfy { $0.points.count == 2 })
     #expect(dash[0].points[0].x < dash[1].points[0].x)
     p.eyes = .happy
-    #expect(KnobBotShape.eyes(p, scale: 1.15, geometry: KnobTheme.standard.bot.eyes).allSatisfy { $0.points.count == 7 })
+    #expect(KnobBotShape.eyes(p, scale: 1.15, geometry: KnobTheme.standard.bot.eyes).allSatisfy { $0.points.count == 16 })
 }
 
 @Test func knobTuningSlowsAndFlattensTheHop() {
