@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -69,4 +70,63 @@ func TestKnobWeatherMomentsRejectInvalidValues(t *testing.T) {
 		}
 	}
 	putKnobConfig(t, f.srv, f.m.ID, `{"bot":{"weather_every_min":240}}`)
+}
+
+func knobWeatherMomentsAfterReload(t *testing.T, db, id string) (bool, int, int) {
+	t.Helper()
+	app, srv := newDevicesApp(t, db)
+	defer srv.Close()
+	defer func() { _ = app.store.Close() }()
+	_, version, err := app.devices.versions(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, b := devReq(t, srv, "GET", "/v1/devices/"+id+"/config", testToken, "")
+	mustOK(t, "config get", resp, b)
+	var cfg struct {
+		Bot struct {
+			WeatherMoments  *bool `json:"weather_moments"`
+			WeatherEveryMin *int  `json:"weather_every_min"`
+		} `json:"bot"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil || cfg.Bot.WeatherMoments == nil || cfg.Bot.WeatherEveryMin == nil {
+		t.Fatalf("config after reload = %s (%v)", b, err)
+	}
+	return *cfg.Bot.WeatherMoments, *cfg.Bot.WeatherEveryMin, version
+}
+
+func TestKnobWeatherMomentsSurviveARegistryReload(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	knob := mintKnob(t, srv, http.StatusCreated)
+	putKnobConfig(t, srv, knob.ID, `{"bot":{"weather_moments":false,"weather_every_min":0}}`)
+	_, version, err := app.devices.versions(knob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, _, err := app.store.GetSetting(devicesKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Close()
+	_ = app.store.Close()
+
+	if on, every, v := knobWeatherMomentsAfterReload(t, db, knob.ID); on || every != 0 || v != version {
+		t.Fatalf("explicit off/0 after reload = %v/%d version %d, want false/0 version %d", on, every, v, version)
+	}
+
+	const stored = `,"weather_moments":false,"weather_every_min":0`
+	if !strings.Contains(blob, stored) {
+		t.Fatalf("stored record without %s: %s", stored, blob)
+	}
+	app, srv = newDevicesApp(t, db)
+	if err := app.store.PutSetting(devicesKey, strings.Replace(blob, stored, "", 1)); err != nil {
+		t.Fatal(err)
+	}
+	srv.Close()
+	_ = app.store.Close()
+
+	if on, every, v := knobWeatherMomentsAfterReload(t, db, knob.ID); !on || every != 30 || v != version {
+		t.Fatalf("a record stored without the keys reloads as %v/%d version %d, want true/30 version %d (no push)", on, every, v, version)
+	}
 }
