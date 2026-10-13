@@ -292,30 +292,38 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
     }
 }
 
-private func provisionClosingTheWindowAfterAnUnreachableEvent(status: String? = nil) async throws -> KnobDevice {
+private func provisionClosingTheWindowAfterAnUnreachableEvent(status: String? = nil,
+                                                              calls: Calls = Calls()) async throws -> KnobDevice {
     let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
     var t = fast
     t.reply = .seconds(30); t.ember = .milliseconds(100); t.poll = .milliseconds(300)
-    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unreachable", status: status)]), timeouts: t)
+    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unreachable", status: status)]), calls: calls,
+                        timeouts: t)
     let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
     return try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in }).1
 }
 
 @Test func emberUnreachableAsksForTheIPWhenTheWindowClosesBeforeAStatusReply() async throws {
+    let calls = Calls()
     await #expect(throws: KnobSetupError.emberUnreachable(ip: "192.168.0.39", url: "http://192.168.0.2:3627")) {
-        _ = try await provisionClosingTheWindowAfterAnUnreachableEvent()
+        _ = try await provisionClosingTheWindowAfterAnUnreachableEvent(calls: calls)
     }
+    #expect(calls.forgets == ["knob-61fc8c"])
 }
 
 @Test func finalStatusReplyOfOkCountsAsReachingEmber() async throws {
-    let device = try await provisionClosingTheWindowAfterAnUnreachableEvent(status: "ok")
+    let calls = Calls()
+    let device = try await provisionClosingTheWindowAfterAnUnreachableEvent(status: "ok", calls: calls)
     #expect(device.id == "knob-61fc8c")
+    #expect(calls.forgets.isEmpty)
 }
 
 @Test func finalStatusReplyOfUnauthorizedIsReported() async throws {
+    let calls = Calls()
     await #expect(throws: KnobSetupError.emberUnauthorized) {
-        _ = try await provisionClosingTheWindowAfterAnUnreachableEvent(status: "unauthorized")
+        _ = try await provisionClosingTheWindowAfterAnUnreachableEvent(status: "unauthorized", calls: calls)
     }
+    #expect(calls.forgets == ["knob-61fc8c"])
 }
 
 @Test func serverCheckinCountsAsReachingEmber() async throws {
