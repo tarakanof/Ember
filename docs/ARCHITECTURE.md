@@ -3187,11 +3187,12 @@ migration) the same config is a façade over the overlay slices, as in #230.
   NG replaces its saved order on every write and rebuilds the apps it
   isn't given from its own fallback order, which Ember doesn't replay:
   `order` must be the clock's whole list, every app in the same sequence
-  (pushed tiles, off apps, absent apps holding a reserved slot and modules
+  (pushed tiles, off apps and absent apps holding a reserved slot
   included), every listed app must already have a `slot`, no name may
-  repeat, `disabled` may name only listed apps, and every app but a module
-  must stay on or off as it is (NG doesn't switch modules). Anything else,
-  when in doubt, writes. The app's save names every non-module app that is
+  repeat, `disabled` may name only listed apps, and every app must stay on
+  or off as it is. Anything else, when in doubt, writes. NG lists modules
+  with no `slot` (and no `enabled`), so a clock with a module always
+  writes. The app's save names every non-module app that is
   present or holds a slot, so on an unchanged clock without modules or
   slotless apps it skips; a module on the clock, a partial `order` or a
   GET's `rotation` sent back (it leaves out pushed tiles) writes.

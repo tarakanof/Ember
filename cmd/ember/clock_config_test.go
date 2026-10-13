@@ -1152,19 +1152,27 @@ func TestRotationUnchangedWritesWhenASlotWouldChange(t *testing.T) {
 	}
 }
 
-func TestRotationUnchangedNeedsModulesNamed(t *testing.T) {
+func TestRotationUnchangedModuleAlwaysWrites(t *testing.T) {
 	cur := mustRotation(t, `[
 		{"name":"time","slot":0,"enabled":true,"origin":"builtin"},
 		{"name":"hum","slot":1,"enabled":false,"origin":"builtin"},
-		{"name":"mathlib","slot":2,"enabled":false,"origin":"module"}
+		{"name":"mathlib","origin":"module","import":"mathlib","error":null}
 	]`)
-	if rotationUnchanged(&deviceAppsPutBody{Order: []string{"time", "hum"}, Disabled: []string{"hum"}}, cur) {
-		t.Error("an order leaving the module out counted as unchanged")
+	cases := []struct {
+		name  string
+		order []string
+		off   []string
+	}{
+		{"module left out", []string{"time", "hum"}, []string{"hum"}},
+		{"module named", []string{"time", "hum", "mathlib"}, []string{"hum"}},
+		{"module named and off", []string{"time", "hum", "mathlib"}, []string{"hum", "mathlib"}},
 	}
-	for _, off := range [][]string{{"hum"}, {"hum", "mathlib"}} {
-		if !rotationUnchanged(&deviceAppsPutBody{Order: []string{"time", "hum", "mathlib"}, Disabled: off}, cur) {
-			t.Errorf("the full list with disabled %v counted as a change", off)
-		}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if rotationUnchanged(&deviceAppsPutBody{Order: c.order, Disabled: c.off}, cur) {
+				t.Fatal("a clock with a module counted as unchanged")
+			}
+		})
 	}
 }
 
