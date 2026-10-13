@@ -162,7 +162,10 @@ jobs:
 
       - name: Read the pinned cinder tag
         id: cinder
-        run: echo "ref=$(tr -d '[:space:]' < .github/cinder-ref)" >> "$GITHUB_OUTPUT"
+        run: |
+          ref=$(tr -d '[:space:]' < .github/cinder-ref)
+          [ -n "$ref" ] || { echo "::error::.github/cinder-ref is empty"; exit 1; }
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
       - name: Checkout cinder at the pinned tag (theme parity)
         uses: actions/checkout@v6
