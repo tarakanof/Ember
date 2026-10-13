@@ -147,7 +147,8 @@ of `/api/v1/system.buttonCallback`),
 `GET /v1/device/capabilities` (cached `GET /api/v1/capabilities` — the firmware's
 effect/transition/overlay/palette lists; live proxy when the cache is cold),
 `POST /v1/device/{reboot,notify/dismiss,app/next,app/previous}`. Read (no auth):
-`GET /state`, `GET /healthz`, `GET /v1/display/brightness` (clock lux, else sun schedule), `GET /v1/preview`,
+`GET /state` (each session carries `state_since` and, from producers that
+send it, `project`, #485), `GET /healthz`, `GET /v1/display/brightness` (clock lux, else sun schedule), `GET /v1/preview`,
 `GET /v1/{weather,pomodoro,reminders}/preview`, `GET /v1/meetings/{preview,state}`,
 `GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
 `GET /v1/pomodoro/dashboard` (HTML), and the native-dashboard reads
