@@ -720,6 +720,13 @@ firmware's encoder; that file is the list of which parser covers which
 fixture. A sync is a reviewed commit, so its diff is the contract change. No
 submodule: the pinned copy keeps cinder's CI hermetic.
 
+**The other direction** (#468): Ember's app tests that read cinder source
+(knob theme parity, the now-playing fold) run in CI against the cinder release
+tag in `.github/cinder-ref`, not cinder main. After a cinder release that
+changes those constants, bump the tag in its own Ember commit,
+`test(theme): sync parity to cinder <tag>`, with the theme or pattern change
+it needs (RUNBOOK, CI).
+
 **New checkin request fields.** The rebuilt body must match the fixture key
 for key and value for value, except for paths in `NOT_YET_SENT[]` in
 `test_fixtures.c` (such as `".diag.foo"`). The flow:

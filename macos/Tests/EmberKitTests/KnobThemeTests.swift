@@ -284,6 +284,14 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
     #expect((try? JSONDecoder().decode([RGB].self, from: Data(##"["#0A0B0C"]"##.utf8))) == [RGB(r: 10, g: 11, b: 12)])
 }
 
+@Test func cinderDirFromTheEnvironmentHasEveryFileTheParityTestsRead() {
+    guard let env = ProcessInfo.processInfo.environment["CINDER_DIR"] else { return }
+    let root = URL(fileURLWithPath: env)
+    for file in ["firmware/main/bot_view.c", "firmware/components/bot/tool_marks.c", "firmware/components/nowplaying/np.c", "firmware/test/host/test_np.c"] {
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path), "CINDER_DIR has no \(file)")
+    }
+}
+
 private let cinderDir: URL? = {
     let fm = FileManager.default
     var candidates: [URL] = []
