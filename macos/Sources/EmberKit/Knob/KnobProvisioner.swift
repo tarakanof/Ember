@@ -423,7 +423,14 @@ public struct KnobProvisioner: Sendable {
             }
         }
         if lastState == "unreachable" {
-            if ip == nil, let r = try? await s.call(.status, timeout: timeouts.reply) { ip = r.wifi?.ip }
+            if ip == nil, let r = try? await s.call(.status, timeout: timeouts.reply) {
+                ip = r.wifi?.ip
+                switch r.ember?.state {
+                case "ok": return s
+                case "unauthorized": throw KnobSetupError.emberUnauthorized
+                default: break
+                }
+            }
             try Task.checkCancellation()
             throw KnobSetupError.emberUnreachable(ip: ip, url: url)
         }
