@@ -334,6 +334,45 @@ func TestKnobStatsInvalidatedAreasMergeAsPeriodWeightedRates(t *testing.T) {
 	}
 }
 
+func TestKnobStatsInvalidatedAreasWeighOnlyMeasuredWindows(t *testing.T) {
+	measured := func(ms, areas int) string {
+		return `{"period_ms":` + strconv.Itoa(ms) + `,"inv_areas":` + strconv.Itoa(areas) + `,"inv_px":` + strconv.Itoa(areas*64) + `}`
+	}
+	missing := func(ms int) string { return `{"period_ms":` + strconv.Itoa(ms) + `}` }
+	cases := map[string]struct {
+		rng     string
+		reports []string
+		step    time.Duration
+		want    float64
+	}{
+		"missing middle": {"1h", []string{measured(10000, 1000), missing(30000), measured(10000, 200)}, 10 * time.Second, 60},
+		"missing first":  {"1h", []string{missing(30000), measured(10000, 1000), measured(10000, 200)}, 10 * time.Second, 60},
+		"five-minute bucket of partly measured minutes": {"24h", []string{
+			measured(10000, 1000), missing(50000), measured(30000, 600), missing(30000),
+		}, 30 * time.Second, 40},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newStatsFixture(t)
+			f.setDiagnostics(t, "full")
+			for _, r := range c.reports {
+				f.clk.advance(c.step)
+				f.checkinStats(t, r)
+			}
+			points := f.stats(t, c.rng).Points
+			if len(points) != 1 {
+				t.Fatalf("%s points = %d, want 1 bucket", c.rng, len(points))
+			}
+			if got := num(t, points[0], "invalidated_areas_per_sec"); math.Abs(got-c.want) > 1e-9 {
+				t.Errorf("invalidated_areas_per_sec = %v, want %v over the measured windows only", got, c.want)
+			}
+			if got := num(t, points[0], "invalidated_px_per_sec"); math.Abs(got-64*c.want) > 1e-9 {
+				t.Errorf("invalidated_px_per_sec = %v, want %v", got, 64*c.want)
+			}
+		})
+	}
+}
+
 func TestKnobStats15mUsesMinuteSamplesBeforeLiveWindow(t *testing.T) {
 	f := newStatsFixture(t)
 	f.setDiagnostics(t, "basic")

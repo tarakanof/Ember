@@ -117,6 +117,8 @@ type knobSample struct {
 
 	periodMS    int64
 	resetReason string
+	invAreasMS  int64
+	invPxMS     int64
 }
 
 func refOf[T any](v T) *T { return &v }
@@ -144,7 +146,7 @@ func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
 	out.HeapInternalMinBytes = s.HeapInternalMin
 	out.PSRAMFreeBytes, out.PSRAMMinBytes, out.PSRAMLargestBytes = s.PSRAMFree, s.PSRAMMin, s.PSRAMLargest
 	out.TempC = s.TempC
-	perMin := func(n int64) *float64 { return refOf(float64(n) * 60_000 / float64(out.periodMS)) }
+	rate := func(n int64, unitMS float64) *float64 { return refOf(float64(n) * unitMS / float64(out.periodMS)) }
 	if s.ReqOK != nil || s.ReqFail != nil {
 		var ok, fail int64
 		if s.ReqOK != nil {
@@ -153,17 +155,16 @@ func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
 		if s.ReqFail != nil {
 			fail = *s.ReqFail
 		}
-		out.RequestsPerMin, out.RequestFailuresPerMin = perMin(ok+fail), perMin(fail)
+		out.RequestsPerMin, out.RequestFailuresPerMin = rate(ok+fail, 60_000), rate(fail, 60_000)
 	}
 	out.RequestLatencyAvgMS, out.RequestLatencyMaxMS = s.ReqMSAvg, s.ReqMSMax
 	out.RenderFPS, out.FrameAvgMS, out.FrameMaxMS = s.FPS, s.FrameMSAvg, s.FrameMSMax
-	perSec := func(n *int64) *float64 {
-		if n == nil {
-			return nil
-		}
-		return refOf(float64(*n) * 1000 / float64(out.periodMS))
+	if s.InvAreas != nil {
+		out.InvalidatedAreasPerS, out.invAreasMS = rate(*s.InvAreas, 1000), out.periodMS
 	}
-	out.InvalidatedAreasPerS, out.InvalidatedPxPerS = perSec(s.InvAreas), perSec(s.InvPx)
+	if s.InvPx != nil {
+		out.InvalidatedPxPerS, out.invPxMS = rate(*s.InvPx, 1000), out.periodMS
+	}
 	return out
 }
 
@@ -232,9 +233,19 @@ func (a knobSample) merge(b knobSample) knobSample {
 	out.RenderFPS = mean(a.RenderFPS, b.RenderFPS)
 	out.FrameAvgMS = mean(a.FrameAvgMS, b.FrameAvgMS)
 	out.FrameMaxMS = highest(a.FrameMaxMS, b.FrameMaxMS)
-	out.InvalidatedAreasPerS = mean(a.InvalidatedAreasPerS, b.InvalidatedAreasPerS)
-	out.InvalidatedPxPerS = mean(a.InvalidatedPxPerS, b.InvalidatedPxPerS)
+	out.InvalidatedAreasPerS, out.invAreasMS = measuredMean(a.InvalidatedAreasPerS, a.invAreasMS, b.InvalidatedAreasPerS, b.invAreasMS)
+	out.InvalidatedPxPerS, out.invPxMS = measuredMean(a.InvalidatedPxPerS, a.invPxMS, b.InvalidatedPxPerS, b.invPxMS)
 	return out
+}
+
+func measuredMean(x *float64, wx int64, y *float64, wy int64) (*float64, int64) {
+	switch {
+	case x == nil:
+		return y, wy
+	case y == nil:
+		return x, wx
+	}
+	return refOf((*x*float64(wx) + *y*float64(wy)) / float64(wx+wy)), wx + wy
 }
 
 func (s knobSample) stamp() time.Time { return s.T }
