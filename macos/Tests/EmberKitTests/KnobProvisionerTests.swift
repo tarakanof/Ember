@@ -168,7 +168,7 @@ private func freshKnob(wifi: @escaping (FakeKnob) -> [FakeKnob.Out]) -> FakeKnob
     return k
 }
 
-private func rebootedKnob(ember: String, okAfterSetEmber: Bool = false) -> FakeKnob {
+private func rebootedKnob(ember: String, okAfterSetEmber: Bool = false, status: String? = nil) -> FakeKnob {
     let k = FakeKnob()
     let state = StateBox(ember)
     k.onImprov = { m in
@@ -188,7 +188,7 @@ private func rebootedKnob(ember: String, okAfterSetEmber: Bool = false) -> FakeK
             return [FakeKnob.reply(["id": id, "ok": true])]
         case "status":
             return [FakeKnob.reply(["id": id, "ok": true,
-                                    "wifi": ["state": "connected", "ip": "192.168.0.39"], "ember": ["state": state.value]])]
+                                    "wifi": ["state": "connected", "ip": "192.168.0.39"], "ember": ["state": status ?? state.value]])]
         default:
             return []
         }
@@ -289,6 +289,32 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
     let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
     await #expect(throws: KnobSetupError.emberUnreachable(ip: "192.168.0.39", url: "http://192.168.0.2:3627")) {
         _ = try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    }
+}
+
+private func provisionClosingTheWindowAfterAnUnreachableEvent(status: String? = nil) async throws -> KnobDevice {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
+    var t = fast
+    t.reply = .seconds(30); t.ember = .milliseconds(100); t.poll = .milliseconds(300)
+    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unreachable", status: status)]), timeouts: t)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    return try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in }).1
+}
+
+@Test func emberUnreachableAsksForTheIPWhenTheWindowClosesBeforeAStatusReply() async throws {
+    await #expect(throws: KnobSetupError.emberUnreachable(ip: "192.168.0.39", url: "http://192.168.0.2:3627")) {
+        _ = try await provisionClosingTheWindowAfterAnUnreachableEvent()
+    }
+}
+
+@Test func finalStatusReplyOfOkCountsAsReachingEmber() async throws {
+    let device = try await provisionClosingTheWindowAfterAnUnreachableEvent(status: "ok")
+    #expect(device.id == "knob-61fc8c")
+}
+
+@Test func finalStatusReplyOfUnauthorizedIsReported() async throws {
+    await #expect(throws: KnobSetupError.emberUnauthorized) {
+        _ = try await provisionClosingTheWindowAfterAnUnreachableEvent(status: "unauthorized")
     }
 }
 
