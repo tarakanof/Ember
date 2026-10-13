@@ -33,10 +33,11 @@ type Common struct {
 	ActivityTrailEnabled bool
 	SourceCardEnabled    bool
 	SessionBarEnabled    bool
+	SendProject          bool
 }
 
 func DefaultCommon() Common {
-	return Common{ActivityTrailEnabled: true, SourceCardEnabled: true, SessionBarEnabled: true}
+	return Common{ActivityTrailEnabled: true, SourceCardEnabled: true, SessionBarEnabled: true, SendProject: true}
 }
 
 func (c *Common) Set(k, v string) bool {
@@ -57,6 +58,8 @@ func (c *Common) Set(k, v string) bool {
 		c.SourceCardEnabled = Bool(v, true)
 	case "EMBER_SESSION_BAR":
 		c.SessionBarEnabled = Bool(v, true)
+	case "EMBER_SEND_PROJECT":
+		c.SendProject = Bool(v, true)
 	default:
 		return false
 	}
@@ -86,6 +89,7 @@ func (c Common) LogAttrs() []slog.Attr {
 		slog.Bool("activity_trail_enabled", c.ActivityTrailEnabled),
 		slog.Bool("source_card_enabled", c.SourceCardEnabled),
 		slog.Bool("session_bar_enabled", c.SessionBarEnabled),
+		slog.Bool("send_project", c.SendProject),
 	}
 }
 

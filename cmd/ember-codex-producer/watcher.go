@@ -24,6 +24,7 @@ type sessionState struct {
 	lastModified time.Time
 	post         producer.Repost
 	viaClaude    bool
+	project      string
 }
 
 type fileStamp struct {
@@ -179,7 +180,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 				w.ignored[path] = true
 				continue
 			}
-			ss = &sessionState{path: path, uuid: meta.id, viaClaude: meta.originator == claudeOriginator}
+			ss = &sessionState{path: path, uuid: meta.id, viaClaude: meta.originator == claudeOriginator, project: producer.ProjectFromCwd(meta.cwd)}
 			w.sessions[path] = ss
 		}
 		if info.Size() < ss.offset {
@@ -213,6 +214,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		}
 		if ss.post.Due(fingerprint(ss.derived), now) {
 			req := buildStatusRequest(w.cfg, ss.uuid, ss.derived)
+			req.Project = w.cfg.Project(ss.project)
 			if ss.viaClaude {
 				req.Message = viaClaudeMessage(req.Message)
 			}

@@ -110,6 +110,7 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 		return
 	}
 	sessionID := sanitizeSessionID(in.SessionID, in.CWD)
+	project := producer.ProjectFromCwd(in.CWD)
 	dir, err := stateDir()
 	if err != nil {
 		return
@@ -130,14 +131,14 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 	case "session-start":
 		handleSessionStart(cfg, in, markerP, lockP)
 	case "user-prompt-submit":
-		handleUpsertWith(ctx, cfg, client, sessionID, "running", truncate(in.Prompt, 80), "", markerP, lockP, upsertExtra{newTurn: true})
+		handleUpsertWith(ctx, cfg, client, sessionID, "running", truncate(in.Prompt, 80), "", markerP, lockP, upsertExtra{newTurn: true, project: project})
 	case "pre-tool-use":
 		act := ""
 		if cfg.ActivityDetailEnabled {
 			act = activityString(in.ToolName, in.ToolInput)
 		}
 		handleUpsertWith(ctx, cfg, client, sessionID, "running", in.ToolName, act, markerP, lockP, upsertExtra{
-			preToolUseID: in.ToolUseID, preFP: permissionFingerprint(in.ToolName, in.ToolInput),
+			preToolUseID: in.ToolUseID, preFP: permissionFingerprint(in.ToolName, in.ToolInput), project: project,
 		})
 	case "permission-request":
 		act := ""
@@ -145,7 +146,7 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 			act = activityString(in.ToolName, in.ToolInput)
 		}
 		handleUpsertWith(ctx, cfg, client, sessionID, "waiting", "approve "+in.ToolName, act, markerP, lockP, upsertExtra{
-			pending: permissionFingerprint(in.ToolName, in.ToolInput),
+			pending: permissionFingerprint(in.ToolName, in.ToolInput), project: project,
 		})
 	case "notification":
 		handleNotification(ctx, cfg, client, sessionID, in, markerP, lockP)
@@ -154,9 +155,9 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 			markBackgroundWake(cfg, markerP, lockP)
 			return
 		}
-		handleUpsert(ctx, cfg, client, sessionID, "done", firstLine(in.LastAssistantMessage), "", markerP, lockP)
+		handleUpsertWith(ctx, cfg, client, sessionID, "done", firstLine(in.LastAssistantMessage), "", markerP, lockP, upsertExtra{project: project})
 	case "stop-failure":
-		handleUpsert(ctx, cfg, client, sessionID, "error", stopFailureMessage(in), "", markerP, lockP)
+		handleUpsertWith(ctx, cfg, client, sessionID, "error", stopFailureMessage(in), "", markerP, lockP, upsertExtra{project: project})
 	case "session-end":
 		switch in.EndReason {
 		case "logout", "prompt_input_exit", "other", "clear", "resume":
@@ -186,6 +187,8 @@ type upsertExtra struct {
 	pending             string
 	preToolUseID, preFP string
 	skip                func(prev marker) bool
+	project             string
+	agentInput          bool
 }
 
 func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string, x upsertExtra) {
@@ -193,6 +196,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 	req.Message = truncate(message, 80)
 	req.Activity = truncate(activity, 80)
 	cfg.Gauges.Apply(&req)
+	req.Project = x.project
 	var body []byte
 	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		var ownerPID int
@@ -219,6 +223,9 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 				if cfg.ActivityTrailEnabled && activity != "" {
 					req.Activity = producer.PrependTrail(activity, prev.Activity)
 				}
+				if req.Project == "" {
+					req.Project = prev.Project
+				}
 				ownerPID, ownerStart = prev.OwnerPID, prev.OwnerStart
 				statuslineChanged, statuslineAt = prev.StatuslineChangedMs, prev.StatuslineAt
 				if prev.State == state && prev.StateChangedAt != 0 {
@@ -240,6 +247,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 			track.PendingPermission, track.PendingToolUseID = "", ""
 		}
 		track.AgentsWait, track.AgentsRun = false, false
+		track.AgentInputWait, track.WaitExpired = x.agentInput, false
 		if x.newTurn || state == "done" || state == "error" {
 			track.BackgroundWake = false
 		}
@@ -309,25 +317,32 @@ func hookLockWait(cfg Config) time.Duration {
 
 func handleNotification(ctx context.Context, cfg Config, client *Client, sessionID string, in hookInput, markerP, lockP string) {
 	msg := in.Message
+	project := producer.ProjectFromCwd(in.CWD)
+	upsert := func(state, message string, x upsertExtra) {
+		x.project = project
+		handleUpsertWith(ctx, cfg, client, sessionID, state, message, "", markerP, lockP, x)
+	}
 	switch in.NotificationType {
 	case "permission_prompt":
-		handleUpsertWith(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP, upsertExtra{
+		upsert("waiting", msg, upsertExtra{
 			skip: func(prev marker) bool { return lateResumedPrompt(prev, msg, hookNow()) },
 		})
-	case "agent_needs_input", "elicitation_dialog", "elicitation_url_dialog", "quota_auto_resume_stale":
-		handleUpsert(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP)
+	case "agent_needs_input":
+		upsert("waiting", msg, upsertExtra{agentInput: true})
+	case "elicitation_dialog", "elicitation_url_dialog", "quota_auto_resume_stale":
+		upsert("waiting", msg, upsertExtra{})
 	case "elicitation_complete", "elicitation_response":
-		handleUpsertWith(ctx, cfg, client, sessionID, "running", msg, "", markerP, lockP, upsertExtra{
+		upsert("running", msg, upsertExtra{
 			skip: func(prev marker) bool { return prev.State != "waiting" || prev.PendingPermission != "" },
 		})
 	case "quota_auto_resume_fired":
-		handleUpsert(ctx, cfg, client, sessionID, "running", pickFirstNonEmpty(msg, "resumed"), "", markerP, lockP)
+		upsert("running", pickFirstNonEmpty(msg, "resumed"), upsertExtra{})
 	case "quota_auto_resume_disabled":
-		handleUpsert(ctx, cfg, client, sessionID, "error", pickFirstNonEmpty(msg, "usage limit"), "", markerP, lockP)
+		upsert("error", pickFirstNonEmpty(msg, "usage limit"), upsertExtra{})
 	case "agent_completed":
-		handleUpsert(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP)
+		upsert("done", msg, upsertExtra{})
 	case "idle_prompt":
-		handleUpsertWith(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP, upsertExtra{
+		upsert("done", msg, upsertExtra{
 			skip: func(prev marker) bool { return prev.State == "done" || prev.State == "error" },
 		})
 	}

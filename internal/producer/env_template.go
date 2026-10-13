@@ -20,6 +20,7 @@ EMBER_TOKEN=set-me-to-the-server-bearer-token
 # EMBER_DONE_TTL_SECONDS=30
 # EMBER_SERVER_INSTANCE=   # with several servers: instance or host name to pick
 # EMBER_SOURCE_COLOR=#aa66ff
+# EMBER_SEND_PROJECT=true   # false: never send the project (folder or thread) name
 # EMBER_CONTEXT_PCT_ENABLED=true
 # EMBER_CODEX_POLL_INTERVAL_MS=2000
 # EMBER_CODEX_ACTIVITY_WINDOW_SECONDS=300

@@ -45,6 +45,8 @@ type ToolTrack struct {
 	BackgroundWake bool  `json:"bg_wake,omitempty"`
 	AgentsWait     bool  `json:"agents_wait,omitempty"`
 	AgentsRun      bool  `json:"agents_run,omitempty"`
+	AgentInputWait bool  `json:"agent_input_wait,omitempty"`
+	WaitExpired    bool  `json:"wait_expired,omitempty"`
 }
 
 var shellComms = map[string]bool{

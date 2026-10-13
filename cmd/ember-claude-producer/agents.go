@@ -37,6 +37,7 @@ var minAgentsVersion = [3]int{2, 1, 288}
 
 type agentRow struct {
 	PID        int    `json:"pid"`
+	Kind       string `json:"kind"`
 	SessionID  string `json:"sessionId"`
 	Status     string `json:"status"`
 	WaitingFor string `json:"waitingFor"`
@@ -55,6 +56,19 @@ func parseAgents(out []byte) (map[string]agentRow, error) {
 		m[r.SessionID] = r
 	}
 	return m, nil
+}
+
+func backgroundAgentWaiting(out []byte) bool {
+	var rows []agentRow
+	if json.Unmarshal(bytes.TrimSpace(out), &rows) != nil {
+		return true
+	}
+	for _, r := range rows {
+		if r.Kind == "background" && r.WaitingFor != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func agentsPollEnabled() bool {
@@ -395,7 +409,23 @@ func wantFor(m marker, row agentRow) (correction, bool) {
 	return correction{}, false
 }
 
+func agentInputCleared(m marker, row agentRow, bgWaiting bool) (correction, bool) {
+	if m.State != "waiting" || !m.AgentInputWait || bgWaiting {
+		return correction{}, false
+	}
+	switch row.Status {
+	case "busy":
+		return correction{"running", workingMessage}, true
+	case "idle":
+		return correction{"idle", ""}, true
+	}
+	return correction{}, false
+}
+
 func (w *agentsWatcher) wantForSession(a activeMarker, row agentRow) (correction, bool) {
+	if want, ok := agentInputCleared(a.m, row, w.bgWaiting); ok {
+		return want, true
+	}
 	want, ok := wantFor(a.m, row)
 	var s claudeSession
 	read := false
@@ -436,6 +466,7 @@ type agentsWatcher struct {
 	lastCall     time.Time
 	backoffUntil time.Time
 	pending      map[string]pendingCorrection
+	bgWaiting    bool
 	fileSeen     map[string]time.Time
 	slSeen       map[string]int64
 	failLog      *producer.FailureLogger
@@ -514,6 +545,7 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 	if err == nil {
 		var rows map[string]agentRow
 		if rows, err = parseAgents(out); err == nil {
+			w.bgWaiting = backgroundAgentWaiting(out)
 			w.reconcile(ctx, cfg, client, append(active, wake...), rows, now)
 			return true
 		}
@@ -621,6 +653,8 @@ func applyCorrection(ctx context.Context, cfg Config, client *Client, a activeMa
 		m.Message = truncate(want.message, 80)
 		m.StateChangedAt = hookNow().Unix()
 		m.AgentsWait = want.state == "waiting"
+		m.AgentInputWait = m.AgentInputWait && want.state == "waiting"
+		m.WaitExpired = false
 		if want.state != "waiting" {
 			m.PendingPermission, m.PendingToolUseID = "", ""
 		}

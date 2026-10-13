@@ -28,6 +28,7 @@ type StatusRequest struct {
 	RateResetLabel string  `json:"rate_reset_label,omitempty"`
 	SourceCard     *bool   `json:"source_card,omitempty"`
 	SessionBar     *bool   `json:"session_bar,omitempty"`
+	Project        string  `json:"project,omitempty"`
 	// Never reach POST /v1/status.
 	RateWeekPct        *int   `json:"rate_week_pct,omitempty"`
 	RateWeekResetAt    int64  `json:"rate_week_reset_at,omitempty"`

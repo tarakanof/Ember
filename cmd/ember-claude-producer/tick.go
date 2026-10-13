@@ -15,7 +15,10 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-const heartbeatInterval = 10 * time.Second
+const (
+	heartbeatInterval = 10 * time.Second
+	waitBackstop      = 30 * time.Minute
+)
 
 var tickFailLog = producer.NewFailureLogger(time.Minute)
 
@@ -174,6 +177,10 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 	if err := json.Unmarshal(body, &m); err != nil {
 		return nil
 	}
+	if waitOutlived(m, hookNow()) {
+		expireWait(ctx, client, markerP, lockP)
+		return nil
+	}
 	req := m.StatusRequest
 	var snap *statuslineUsageSnapshot
 	if req.RateWindowPct != nil || req.RateWeekPct != nil {
@@ -198,6 +205,9 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 }
 
 func heartbeatDue(cfg Config, m marker, mtime, now time.Time) bool {
+	if m.WaitExpired {
+		return false
+	}
 	if m.State != "done" && m.State != "error" {
 		return true
 	}
@@ -229,6 +239,40 @@ func postReconciled(ctx context.Context, cfg Config, client *Client, markerP, lo
 		}
 	}
 	return postErr
+}
+
+func waitOutlived(m marker, now time.Time) bool {
+	last := max(m.HookAt, m.StateChangedAt)
+	return m.State == "waiting" && !m.WaitExpired && last > 0 && now.Sub(time.Unix(last, 0)) >= waitBackstop
+}
+
+func expireWait(ctx context.Context, client *Client, markerP, lockP string) {
+	var gone *StatusRequest
+	_ = withLockEx(lockP, func() error {
+		body, err := readMarker(markerP)
+		if err != nil {
+			return nil
+		}
+		var m marker
+		if json.Unmarshal(body, &m) != nil || !waitOutlived(m, hookNow()) {
+			return nil
+		}
+		m.State, m.Message = "idle", ""
+		m.StateChangedAt = hookNow().Unix()
+		m.WaitExpired = true
+		m.AgentsWait, m.AgentInputWait = false, false
+		m.PendingPermission, m.PendingToolUseID = "", ""
+		b, err := json.Marshal(m)
+		if err != nil || writeMarker(markerP, b) != nil {
+			return nil
+		}
+		gone = &m.StatusRequest
+		return nil
+	})
+	if gone != nil {
+		slog.Info("claude wait expired without a fresh signal; session removed until the next hook", "session", gone.Session)
+	}
+	deleteSession(ctx, client, gone)
 }
 
 func snapshotMarker(markerP, lockP string, wait time.Duration) (body []byte, ok bool) {
