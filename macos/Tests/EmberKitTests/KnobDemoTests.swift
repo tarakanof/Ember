@@ -377,7 +377,7 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
     server.failScenes = true
     await m.enter()
     #expect(server.sceneReads == 2)
-    #expect(m.groups == loaded && m.scenesLoaded)
+    #expect(m.groups == loaded && m.scenesLoaded && m.catalogError != nil)
 }
 
 @MainActor

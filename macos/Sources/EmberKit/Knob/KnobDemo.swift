@@ -160,7 +160,7 @@ public final class KnobDemoModel {
             scenesLoaded = true
             catalogError = nil
         } catch {
-            guard gen == generation, !(error is CancellationError) else { return }
+            guard gen == generation, !Task.isCancelled, !(error is CancellationError) else { return }
             catalogError = FeedError(error)
         }
     }
