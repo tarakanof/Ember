@@ -38,6 +38,8 @@ type knobStatsReport struct {
 	FPS             *float64  `json:"fps"`
 	FrameMSAvg      *float64  `json:"frame_ms_avg"`
 	FrameMSMax      *int64    `json:"frame_ms_max"`
+	InvAreas        *int64    `json:"inv_areas"`
+	InvPx           *int64    `json:"inv_px"`
 }
 
 func (s *knobStatsReport) validate() error {
@@ -56,6 +58,7 @@ func (s *knobStatsReport) validate() error {
 		"heap_internal_min": s.HeapInternalMin, "psram_free": s.PSRAMFree, "psram_min": s.PSRAMMin,
 		"psram_largest": s.PSRAMLargest, "req_ok": s.ReqOK, "req_fail": s.ReqFail,
 		"req_ms_max": s.ReqMSMax, "frame_ms_max": s.FrameMSMax,
+		"inv_areas": s.InvAreas, "inv_px": s.InvPx,
 	} {
 		if v != nil && *v < 0 {
 			return fmt.Errorf("%s %d is negative", name, *v)
@@ -85,6 +88,7 @@ func (s *knobStatsReport) forLevel(diag string) *knobStatsReport {
 	c := *s
 	c.ReqOK, c.ReqFail, c.ReqMSAvg, c.ReqMSMax = nil, nil, nil, nil
 	c.FPS, c.FrameMSAvg, c.FrameMSMax = nil, nil, nil
+	c.InvAreas, c.InvPx = nil, nil
 	return &c
 }
 
@@ -107,6 +111,8 @@ type knobSample struct {
 	RenderFPS             *float64  `json:"render_fps"`
 	FrameAvgMS            *float64  `json:"frame_avg_ms"`
 	FrameMaxMS            *int64    `json:"frame_max_ms"`
+	InvalidatedAreasPerS  *float64  `json:"invalidated_areas_per_sec"`
+	InvalidatedPxPerS     *float64  `json:"invalidated_px_per_sec"`
 	BrightnessLevel       *int      `json:"brightness_level"`
 
 	periodMS    int64
@@ -151,6 +157,13 @@ func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
 	}
 	out.RequestLatencyAvgMS, out.RequestLatencyMaxMS = s.ReqMSAvg, s.ReqMSMax
 	out.RenderFPS, out.FrameAvgMS, out.FrameMaxMS = s.FPS, s.FrameMSAvg, s.FrameMSMax
+	perSec := func(n *int64) *float64 {
+		if n == nil {
+			return nil
+		}
+		return refOf(float64(*n) * 1000 / float64(out.periodMS))
+	}
+	out.InvalidatedAreasPerS, out.InvalidatedPxPerS = perSec(s.InvAreas), perSec(s.InvPx)
 	return out
 }
 
@@ -219,6 +232,8 @@ func (a knobSample) merge(b knobSample) knobSample {
 	out.RenderFPS = mean(a.RenderFPS, b.RenderFPS)
 	out.FrameAvgMS = mean(a.FrameAvgMS, b.FrameAvgMS)
 	out.FrameMaxMS = highest(a.FrameMaxMS, b.FrameMaxMS)
+	out.InvalidatedAreasPerS = mean(a.InvalidatedAreasPerS, b.InvalidatedAreasPerS)
+	out.InvalidatedPxPerS = mean(a.InvalidatedPxPerS, b.InvalidatedPxPerS)
 	return out
 }
 

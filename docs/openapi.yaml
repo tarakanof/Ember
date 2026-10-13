@@ -1948,7 +1948,9 @@ paths:
         - $ref: "#/components/parameters/StatsRange"
       responses:
         "200":
-          description: Samples.
+          description: >-
+            Samples (ARCHITECTURE "Knob diagnostics"). Counts arrive as rates, e.g.
+            `requests_per_min`, `invalidated_areas_per_sec`, `invalidated_px_per_sec`; null when not reported.
           content:
             application/json:
               schema:
@@ -2739,6 +2741,10 @@ paths:
                         type: integer
                         minimum: 0
                 stats:
+                  description: >-
+                    Knob diagnostics for the window since the last report, every key optional
+                    (ARCHITECTURE "Knob diagnostics"), e.g. `fps`, `inv_areas`, `inv_px`.
+                    Unknown keys are ignored; an invalid object is dropped, the checkin still answers 200.
                   type: object
                 caps:
                   description: >-

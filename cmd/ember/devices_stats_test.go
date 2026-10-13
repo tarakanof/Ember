@@ -82,7 +82,7 @@ func (f *statsFixture) stats(t *testing.T, rng string) statsResp {
 const basicStats = `{"period_ms":60000,"cpu_pct":[12,40],"heap_internal_min":30000,"psram_free":7000000,"psram_min":6500000,"psram_largest":6000000,"temp_c":41.5,"reset_reason":"poweron"}`
 
 const fullStats = `{"period_ms":60000,"cpu_pct":[12,40],"heap_internal_min":30000,"psram_free":7000000,"psram_min":6500000,"psram_largest":6000000,"temp_c":41.5,"reset_reason":"poweron",` +
-	`"req_ok":28,"req_fail":2,"req_ms_avg":35.5,"req_ms_max":120,"fps":29.5,"frame_ms_avg":12.25,"frame_ms_max":40}`
+	`"req_ok":28,"req_fail":2,"req_ms_avg":35.5,"req_ms_max":120,"fps":29.5,"frame_ms_avg":12.25,"frame_ms_max":40,"inv_areas":5400,"inv_px":3456000}`
 
 func num(t *testing.T, m map[string]any, key string) float64 {
 	t.Helper()
@@ -168,6 +168,7 @@ func TestKnobStatsCheckinStoresSample(t *testing.T) {
 		"temp_c": 41.5, "requests_per_min": 30, "request_failures_per_min": 2,
 		"request_latency_avg_ms": 35.5, "request_latency_max_ms": 120,
 		"render_fps": 29.5, "frame_avg_ms": 12.25, "frame_max_ms": 40,
+		"invalidated_areas_per_sec": 90, "invalidated_px_per_sec": 57600,
 	}
 	for k, want := range checks {
 		if got := num(t, s, k); got != want {
@@ -184,7 +185,7 @@ func TestKnobStatsBasicLeavesFullFieldsNull(t *testing.T) {
 	f.setDiagnostics(t, "basic")
 	f.checkinStats(t, basicStats)
 	s := f.stats(t, "1h").Latest
-	for _, k := range []string{"requests_per_min", "request_failures_per_min", "request_latency_avg_ms", "render_fps", "frame_max_ms"} {
+	for _, k := range []string{"requests_per_min", "request_failures_per_min", "request_latency_avg_ms", "render_fps", "frame_max_ms", "invalidated_areas_per_sec", "invalidated_px_per_sec"} {
 		v, present := s[k]
 		if !present || v != nil {
 			t.Errorf("%s = %v (present %v), want null", k, v, present)
@@ -215,6 +216,8 @@ func TestKnobStatsInvalidStatsAreDroppedButCheckinSucceeds(t *testing.T) {
 		"hot chip":            `{"temp_c":500}`,
 		"bad reset reason":    `{"reset_reason":"Power On!"}`,
 		"negative count":      `{"req_ok":-3}`,
+		"negative inv_areas":  `{"inv_areas":-1}`,
+		"negative inv_px":     `{"inv_px":-1}`,
 		"period out of range": `{"period_ms":-5}`,
 		"not an object":       `[1,2]`,
 	}
@@ -295,6 +298,39 @@ func TestKnobStatsLiveSamplesMergeIntoMinuteBuckets(t *testing.T) {
 	}
 	if got := hour.Points[0]["t"].(string); got != "2026-10-04T12:00:55Z" {
 		t.Errorf("bucket t = %s, want its newest report", got)
+	}
+}
+
+func TestKnobStatsFirmwareWithoutInvalidatedAreasLeavesThemNull(t *testing.T) {
+	f := newStatsFixture(t)
+	f.setDiagnostics(t, "full")
+	f.checkinStats(t, strings.Replace(fullStats, `,"inv_areas":5400,"inv_px":3456000`, "", 1))
+	s := f.stats(t, "15m").Latest
+	if got := num(t, s, "render_fps"); got != 29.5 {
+		t.Fatalf("render_fps = %v, want 29.5", got)
+	}
+	for _, k := range []string{"invalidated_areas_per_sec", "invalidated_px_per_sec"} {
+		if v, present := s[k]; !present || v != nil {
+			t.Errorf("%s = %v (present %v), want null", k, v, present)
+		}
+	}
+}
+
+func TestKnobStatsInvalidatedAreasMergeAsPeriodWeightedRates(t *testing.T) {
+	f := newStatsFixture(t)
+	f.setDiagnostics(t, "full")
+	f.clk.advance(5 * time.Second)
+	f.checkinStats(t, `{"period_ms":10000,"inv_areas":1000,"inv_px":640000}`)
+	f.clk.advance(5 * time.Second)
+	f.checkinStats(t, `{"period_ms":30000,"inv_areas":600,"inv_px":96000}`)
+	f.clk.advance(5 * time.Second)
+	f.checkinStats(t, `{"period_ms":5000}`)
+	b := f.stats(t, "1h").Points[0]
+	if got := num(t, b, "invalidated_areas_per_sec"); got != 40 {
+		t.Errorf("merged invalidated_areas_per_sec = %v, want (1000+600)/40 s = 40", got)
+	}
+	if got := num(t, b, "invalidated_px_per_sec"); got != 18400 {
+		t.Errorf("merged invalidated_px_per_sec = %v, want (640000+96000)/40 s = 18400", got)
 	}
 }
 
@@ -474,7 +510,7 @@ func TestKnobStatsGolden(t *testing.T) {
 	f.clk.advance(55 * time.Second)
 	f.checkinStats(t, fullStats)
 	f.clk.advance(5 * time.Second)
-	f.checkinStats(t, `{"period_ms":5000,"cpu_pct":[20,55.5],"heap_internal_min":29000,"temp_c":42,"reset_reason":"poweron","req_ok":3,"req_fail":0,"req_ms_avg":30,"req_ms_max":64,"fps":30,"frame_ms_avg":11.5,"frame_ms_max":22}`)
+	f.checkinStats(t, `{"period_ms":5000,"cpu_pct":[20,55.5],"heap_internal_min":29000,"temp_c":42,"reset_reason":"poweron","req_ok":3,"req_fail":0,"req_ms_avg":30,"req_ms_max":64,"fps":30,"frame_ms_avg":11.5,"frame_ms_max":22,"inv_areas":500,"inv_px":320000}`)
 	v, err := f.app.buildKnobStats(f.m.ID, "15m", f.clk.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -504,7 +540,7 @@ func TestKnobStatsBasicDropsFullOnlyFields(t *testing.T) {
 	if s == nil || s["temp_c"] == nil || s["cpu_percent"] == nil {
 		t.Fatalf("basic fields missing: %v", s)
 	}
-	for _, k := range []string{"requests_per_min", "request_failures_per_min", "request_latency_avg_ms", "request_latency_max_ms", "render_fps", "frame_avg_ms", "frame_max_ms"} {
+	for _, k := range []string{"requests_per_min", "request_failures_per_min", "request_latency_avg_ms", "request_latency_max_ms", "render_fps", "frame_avg_ms", "frame_max_ms", "invalidated_areas_per_sec", "invalidated_px_per_sec"} {
 		if s[k] != nil {
 			t.Errorf("%s = %v at basic, want null", k, s[k])
 		}

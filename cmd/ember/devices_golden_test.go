@@ -219,7 +219,7 @@ func goldenCheckinRequests(t *testing.T) (minimal, full map[string]any, dump []b
 		"rssi": -58,
 		"stats": map[string]any{
 			"cpu_pct": []float64{12.5, 3.5}, "fps": 29.5, "frame_ms_avg": 12.25, "frame_ms_max": 40,
-			"heap_internal_min": 30000, "period_ms": 30000, "psram_free": 7000000, "psram_largest": 6000000,
+			"heap_internal_min": 30000, "inv_areas": 2700, "inv_px": 1728000, "period_ms": 30000, "psram_free": 7000000, "psram_largest": 6000000,
 			"psram_min": 6500000, "req_fail": 2, "req_ms_avg": 35.5, "req_ms_max": 120, "req_ok": 28,
 			"reset_reason": "poweron", "temp_c": 41.5,
 		},
@@ -315,6 +315,7 @@ func TestDeviceCheckinGolden(t *testing.T) {
 		TempC: new(41.5), RequestsPerMin: new(60.0), RequestFailuresPerMin: new(4.0),
 		RequestLatencyAvgMS: new(35.5), RequestLatencyMaxMS: new(int64(120)),
 		RenderFPS: new(29.5), FrameAvgMS: new(12.25), FrameMaxMS: new(int64(40)),
+		InvalidatedAreasPerS: new(90.0), InvalidatedPxPerS: new(57600.0),
 		periodMS: 30000, resetReason: "poweron",
 	}
 	if !reflect.DeepEqual(*latest, wantStats) {

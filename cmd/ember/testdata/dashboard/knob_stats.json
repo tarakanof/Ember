@@ -30,6 +30,8 @@
     "render_fps": 30,
     "frame_avg_ms": 11.5,
     "frame_max_ms": 22,
+    "invalidated_areas_per_sec": 100,
+    "invalidated_px_per_sec": 64000,
     "brightness_level": 255
   },
   "points": [
@@ -55,6 +57,8 @@
       "render_fps": 29.5,
       "frame_avg_ms": 12.25,
       "frame_max_ms": 40,
+      "invalidated_areas_per_sec": 90,
+      "invalidated_px_per_sec": 57600,
       "brightness_level": 255
     },
     {
@@ -79,6 +83,8 @@
       "render_fps": 30,
       "frame_avg_ms": 11.5,
       "frame_max_ms": 22,
+      "invalidated_areas_per_sec": 100,
+      "invalidated_px_per_sec": 64000,
       "brightness_level": 255
     }
   ]

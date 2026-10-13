@@ -3376,10 +3376,12 @@ show data the owner turned off.
 | `fps` | number, frames/s | full | Rendered frames per second over the window. |
 | `frame_ms_avg` | number, ms | full | Mean time to render a frame. |
 | `frame_ms_max` | int, ms | full | Slowest frame in the window. |
+| `inv_areas` | int, count | full | LVGL invalidated areas over the window, summed over every refresh that ended in it (counted at `REFR_START`, before the join; cinder `refr_stats`, cinder#118). |
+| `inv_px` | int, px | full | Pixels in those areas over the window, the same basis. |
 
 Counts and averages are **per window, reset after each report** (not
 since boot). Example (full):
-`"stats":{"period_ms":60000,"cpu_pct":[12,40],"heap_internal_min":30000,"psram_free":7000000,"psram_min":6500000,"psram_largest":6000000,"temp_c":41.5,"reset_reason":"poweron","req_ok":28,"req_fail":2,"req_ms_avg":35.5,"req_ms_max":120,"fps":29.5,"frame_ms_avg":12.25,"frame_ms_max":40}`.
+`"stats":{"period_ms":60000,"cpu_pct":[12,40],"heap_internal_min":30000,"psram_free":7000000,"psram_min":6500000,"psram_largest":6000000,"temp_c":41.5,"reset_reason":"poweron","req_ok":28,"req_fail":2,"req_ms_avg":35.5,"req_ms_max":120,"fps":29.5,"frame_ms_avg":12.25,"frame_ms_max":40,"inv_areas":2700,"inv_px":1728000}`.
 A `stats` value that isn't an object or has a field out of range (negative
 bytes or counts, CPU outside 0..100, more than 8 cores, temperature outside
 -40..150, a malformed `reset_reason`) is dropped whole and logged
@@ -3430,7 +3432,8 @@ and a minute ring (at most 1440 buckets; buckets older than 24 h leave it) where
 samples of one wall-clock minute fold into one bucket: gauges take the
 newest value, `*_min` the lowest, `*_max` the highest, averages and rates the
 `period_ms`-weighted mean; a bucket's `t` is its newest report. Counts become
-rates on arrival (`(req_ok+req_fail)·60000/period_ms`). Both rings grow as
+rates on arrival (`(req_ok+req_fail)·60000/period_ms` per minute,
+`inv_areas·1000/period_ms` per second, like `fps`). Both rings grow as
 samples arrive (never past their cap) and give their buffer back when it
 falls under a quarter full, so a device costs what it reports: about 380 KB
 for a day at 30-60 s, 245 KB at 120 s, 125 KB at 300 s, plus 20/37/87 KB at
@@ -3452,7 +3455,9 @@ buckets folded into 5-minute buckets (≤ 288 points). A point:
 `heap_internal_min_bytes`, `heap_internal_largest_bytes`, `psram_free_bytes`,
 `psram_min_bytes`, `psram_largest_bytes`, `temp_c`, `requests_per_min`,
 `request_failures_per_min`, `request_latency_avg_ms`, `request_latency_max_ms`,
-`render_fps`, `frame_avg_ms`, `frame_max_ms`, `brightness_level` (Ember's
+`render_fps`, `frame_avg_ms`, `frame_max_ms`, `invalidated_areas_per_sec`,
+`invalidated_px_per_sec` (null from firmware that doesn't send `inv_areas`/`inv_px`),
+`brightness_level` (Ember's
 0–255 brightness at the checkin). Goldens: `knob_stats.json`,
 `knob_stats_empty.json` in `cmd/ember/testdata/dashboard` (EmberKit decodes
 them too).
