@@ -373,6 +373,50 @@ func TestKnobStatsInvalidatedAreasWeighOnlyMeasuredWindows(t *testing.T) {
 	}
 }
 
+func TestKnobStatsRenderAndRequestFieldsWeighOnlyMeasuredWindows(t *testing.T) {
+	measured := func(ms, v int) string {
+		n := strconv.Itoa(v * ms / 1000)
+		return `{"period_ms":` + strconv.Itoa(ms) + `,"fps":` + strconv.Itoa(v) + `,"frame_ms_avg":` + strconv.Itoa(v) +
+			`,"req_ok":` + n + `,"req_fail":` + n + `,"req_ms_avg":` + strconv.Itoa(v) + `}`
+	}
+	missing := func(ms int) string { return `{"period_ms":` + strconv.Itoa(ms) + `}` }
+	want := map[string]float64{
+		"render_fps": 1, "frame_avg_ms": 1, "request_latency_avg_ms": 1,
+		"requests_per_min": 120, "request_failures_per_min": 60,
+	}
+	cases := map[string]struct {
+		rng     string
+		reports []string
+		step    time.Duration
+		want    float64
+	}{
+		"missing middle": {"1h", []string{measured(10000, 100), missing(30000), measured(10000, 20)}, 10 * time.Second, 60},
+		"missing first":  {"1h", []string{missing(30000), measured(10000, 100), measured(10000, 20)}, 10 * time.Second, 60},
+		"five-minute bucket of partly measured minutes": {"24h", []string{
+			measured(10000, 100), missing(50000), measured(30000, 20), missing(30000),
+		}, 30 * time.Second, 40},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newStatsFixture(t)
+			f.setDiagnostics(t, "full")
+			for _, r := range c.reports {
+				f.clk.advance(c.step)
+				f.checkinStats(t, r)
+			}
+			points := f.stats(t, c.rng).Points
+			if len(points) != 1 {
+				t.Fatalf("%s points = %d, want 1 bucket", c.rng, len(points))
+			}
+			for key, scale := range want {
+				if got := num(t, points[0], key); math.Abs(got-scale*c.want) > 1e-9 {
+					t.Errorf("%s = %v, want %v over the measured windows only", key, got, scale*c.want)
+				}
+			}
+		})
+	}
+}
+
 func TestKnobStats15mUsesMinuteSamplesBeforeLiveWindow(t *testing.T) {
 	f := newStatsFixture(t)
 	f.setDiagnostics(t, "basic")

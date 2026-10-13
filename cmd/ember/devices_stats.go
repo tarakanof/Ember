@@ -117,6 +117,10 @@ type knobSample struct {
 
 	periodMS    int64
 	resetReason string
+	reqMS       int64
+	reqLatMS    int64
+	fpsMS       int64
+	frameAvgMS  int64
 	invAreasMS  int64
 	invPxMS     int64
 }
@@ -155,10 +159,19 @@ func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
 		if s.ReqFail != nil {
 			fail = *s.ReqFail
 		}
-		out.RequestsPerMin, out.RequestFailuresPerMin = rate(ok+fail, 60_000), rate(fail, 60_000)
+		out.RequestsPerMin, out.RequestFailuresPerMin, out.reqMS = rate(ok+fail, 60_000), rate(fail, 60_000), out.periodMS
 	}
 	out.RequestLatencyAvgMS, out.RequestLatencyMaxMS = s.ReqMSAvg, s.ReqMSMax
 	out.RenderFPS, out.FrameAvgMS, out.FrameMaxMS = s.FPS, s.FrameMSAvg, s.FrameMSMax
+	if s.ReqMSAvg != nil {
+		out.reqLatMS = out.periodMS
+	}
+	if s.FPS != nil {
+		out.fpsMS = out.periodMS
+	}
+	if s.FrameMSAvg != nil {
+		out.frameAvgMS = out.periodMS
+	}
 	if s.InvAreas != nil {
 		out.InvalidatedAreasPerS, out.invAreasMS = rate(*s.InvAreas, 1000), out.periodMS
 	}
@@ -174,15 +187,6 @@ func (a knobSample) merge(b knobSample) knobSample {
 	out.periodMS = a.periodMS + b.periodMS
 	if b.resetReason == "" {
 		out.resetReason = a.resetReason
-	}
-	mean := func(x, y *float64) *float64 {
-		switch {
-		case x == nil:
-			return y
-		case y == nil:
-			return x
-		}
-		return refOf((*x*wa + *y*wb) / (wa + wb))
 	}
 	lowest := func(x, y *int64) *int64 {
 		if x == nil || (y != nil && *y < *x) {
@@ -226,12 +230,12 @@ func (a knobSample) merge(b knobSample) knobSample {
 	out.PSRAMLargestBytes = latest(a.PSRAMLargestBytes, b.PSRAMLargestBytes)
 	out.HeapInternalMinBytes = lowest(a.HeapInternalMinBytes, b.HeapInternalMinBytes)
 	out.PSRAMMinBytes = lowest(a.PSRAMMinBytes, b.PSRAMMinBytes)
-	out.RequestsPerMin = mean(a.RequestsPerMin, b.RequestsPerMin)
-	out.RequestFailuresPerMin = mean(a.RequestFailuresPerMin, b.RequestFailuresPerMin)
-	out.RequestLatencyAvgMS = mean(a.RequestLatencyAvgMS, b.RequestLatencyAvgMS)
+	out.RequestsPerMin, out.reqMS = measuredMean(a.RequestsPerMin, a.reqMS, b.RequestsPerMin, b.reqMS)
+	out.RequestFailuresPerMin, _ = measuredMean(a.RequestFailuresPerMin, a.reqMS, b.RequestFailuresPerMin, b.reqMS)
+	out.RequestLatencyAvgMS, out.reqLatMS = measuredMean(a.RequestLatencyAvgMS, a.reqLatMS, b.RequestLatencyAvgMS, b.reqLatMS)
 	out.RequestLatencyMaxMS = highest(a.RequestLatencyMaxMS, b.RequestLatencyMaxMS)
-	out.RenderFPS = mean(a.RenderFPS, b.RenderFPS)
-	out.FrameAvgMS = mean(a.FrameAvgMS, b.FrameAvgMS)
+	out.RenderFPS, out.fpsMS = measuredMean(a.RenderFPS, a.fpsMS, b.RenderFPS, b.fpsMS)
+	out.FrameAvgMS, out.frameAvgMS = measuredMean(a.FrameAvgMS, a.frameAvgMS, b.FrameAvgMS, b.frameAvgMS)
 	out.FrameMaxMS = highest(a.FrameMaxMS, b.FrameMaxMS)
 	out.InvalidatedAreasPerS, out.invAreasMS = measuredMean(a.InvalidatedAreasPerS, a.invAreasMS, b.InvalidatedAreasPerS, b.invAreasMS)
 	out.InvalidatedPxPerS, out.invPxMS = measuredMean(a.InvalidatedPxPerS, a.invPxMS, b.InvalidatedPxPerS, b.invPxMS)
