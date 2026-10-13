@@ -40,10 +40,10 @@
     "hop": {
       "duration_s": 1.0,
       "squash": 0.75,
-      "interval_median_s": 4.5,
-      "interval_sigma": 0.35,
-      "interval_min_s": 2.5,
-      "interval_max_s": 9
+      "interval_median_s": 2.8,
+      "interval_sigma": 0.25,
+      "interval_min_s": 2,
+      "interval_max_s": 4.5
     },
     "eyes": {
       "rest_x": 0.67,
