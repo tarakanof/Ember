@@ -3376,10 +3376,17 @@ show data the owner turned off.
 | `fps` | number, frames/s | full | Rendered frames per second over the window. |
 | `frame_ms_avg` | number, ms | full | Mean time to render a frame. |
 | `frame_ms_max` | int, ms | full | Slowest frame in the window. |
+| `inv_areas` | int, count | full | Areas LVGL drew over the window, summed over every refresh that ended in it (cinder `refr_stats`, cinder#118): read at `LV_EVENT_RENDER_START`, after `lv_obj_update_layout` and `lv_refr_join_area`, so a moved object's new position counts and joined areas count once, as their bounding box. Past 32 areas (`LV_INV_BUF_SIZE`) LVGL collapses the list to one full-screen area (472×466 px), so at the busiest frames areas fall while px peak. |
+| `inv_px` | int, px | full | Pixels in those areas over the window, the same basis. |
+
+`inv_areas` and `inv_px` cover exactly the `period_ms` window: totals since
+the previous checkin report, kept in their own accumulator, never the 30 s
+serial stats log's take (sharing it would leave a 60 s report holding at most
+the last 30 s, and the rate half the truth).
 
 Counts and averages are **per window, reset after each report** (not
 since boot). Example (full):
-`"stats":{"period_ms":60000,"cpu_pct":[12,40],"heap_internal_min":30000,"psram_free":7000000,"psram_min":6500000,"psram_largest":6000000,"temp_c":41.5,"reset_reason":"poweron","req_ok":28,"req_fail":2,"req_ms_avg":35.5,"req_ms_max":120,"fps":29.5,"frame_ms_avg":12.25,"frame_ms_max":40}`.
+`"stats":{"period_ms":60000,"cpu_pct":[12,40],"heap_internal_min":30000,"psram_free":7000000,"psram_min":6500000,"psram_largest":6000000,"temp_c":41.5,"reset_reason":"poweron","req_ok":28,"req_fail":2,"req_ms_avg":35.5,"req_ms_max":120,"fps":29.5,"frame_ms_avg":12.25,"frame_ms_max":40,"inv_areas":2700,"inv_px":1728000}`.
 A `stats` value that isn't an object or has a field out of range (negative
 bytes or counts, CPU outside 0..100, more than 8 cores, temperature outside
 -40..150, a malformed `reset_reason`) is dropped whole and logged
@@ -3429,12 +3436,17 @@ the 2 s view poll already limits. Table in the #249 PR.
 and a minute ring (at most 1440 buckets; buckets older than 24 h leave it) where
 samples of one wall-clock minute fold into one bucket: gauges take the
 newest value, `*_min` the lowest, `*_max` the highest, averages and rates the
-`period_ms`-weighted mean; a bucket's `t` is its newest report. Counts become
-rates on arrival (`(req_ok+req_fail)·60000/period_ms`). Both rings grow as
+`period_ms`-weighted mean (the `invalidated_*` rates weigh only the reports
+that carried them, so a report without them doesn't dilute the mean); a
+bucket's `t` is its newest report. Counts become
+rates on arrival (`(req_ok+req_fail)·60000/period_ms` per minute,
+`inv_areas·1000/period_ms` per second, like `fps`). Both rings grow as
 samples arrive (never past their cap) and give their buffer back when it
-falls under a quarter full, so a device costs what it reports: about 380 KB
-for a day at 30-60 s, 245 KB at 120 s, 125 KB at 300 s, plus 20/37/87 KB at
-10/5/2 s while a live session is in the window (released as it ages out). Deleting the device drops its series.
+falls under a quarter full, so a device costs what it reports: about 450 KB
+for a day at 30-60 s, 280 KB at 120 s, 140 KB at 300 s, plus 23/43/100 KB at
+10/5/2 s while a live session is in the window (estimated: the measured
+380/245/125 and 20/37/87 KB plus 48 B a sample for the two `invalidated_*`
+rates since cinder#118, 32 B of struct and 16 B of values) (released as it ages out). Deleting the device drops its series.
 
 **`GET /v1/devices/{id}/stats?range=15m|1h|24h`** (owner token; default
 `1h`, anything else 400, unknown id 404). Answer (dashboard wire
@@ -3452,7 +3464,9 @@ buckets folded into 5-minute buckets (≤ 288 points). A point:
 `heap_internal_min_bytes`, `heap_internal_largest_bytes`, `psram_free_bytes`,
 `psram_min_bytes`, `psram_largest_bytes`, `temp_c`, `requests_per_min`,
 `request_failures_per_min`, `request_latency_avg_ms`, `request_latency_max_ms`,
-`render_fps`, `frame_avg_ms`, `frame_max_ms`, `brightness_level` (Ember's
+`render_fps`, `frame_avg_ms`, `frame_max_ms`, `invalidated_areas_per_sec`,
+`invalidated_px_per_sec` (null from firmware that doesn't send `inv_areas`/`inv_px`),
+`brightness_level` (Ember's
 0–255 brightness at the checkin). Goldens: `knob_stats.json`,
 `knob_stats_empty.json` in `cmd/ember/testdata/dashboard` (EmberKit decodes
 them too).

@@ -47,6 +47,8 @@
     "frame_ms_avg": 12.25,
     "frame_ms_max": 40,
     "heap_internal_min": 30000,
+    "inv_areas": 2700,
+    "inv_px": 1728000,
     "period_ms": 30000,
     "psram_free": 7000000,
     "psram_largest": 6000000,
