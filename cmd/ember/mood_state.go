@@ -29,10 +29,11 @@ func (s moodState) snapshot() Snapshot {
 }
 
 type moodLead struct {
-	Lead  string
-	Hosts int
-	Color string
-	Tool  string
+	Lead    string
+	Hosts   int
+	Color   string
+	Tool    string
+	Project string
 }
 
 func leadOf(v sessions.View) moodLead {
@@ -53,6 +54,9 @@ func leadOf(v sessions.View) moodLead {
 		}
 	}
 	l.Hosts = len(count)
+	if win.State == "waiting" {
+		return waitingLead(*win, l.Hosts)
+	}
 	if l.Lead == "" {
 		return l
 	}
@@ -69,6 +73,17 @@ func leadOf(v sessions.View) moodLead {
 		} else if s.Tool != l.Tool {
 			l.Tool = ""
 		}
+	}
+	return l
+}
+
+func waitingLead(win Session, hosts int) moodLead {
+	l := moodLead{Lead: strings.ToUpper(win.Source), Hosts: hosts, Tool: win.Tool, Project: win.Project}
+	if l.Lead == "" {
+		l.Hosts = 0
+	}
+	if win.SourceColor != nil && isHexColor(*win.SourceColor) {
+		l.Color = strings.ToUpper(*win.SourceColor)
 	}
 	return l
 }

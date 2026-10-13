@@ -107,6 +107,7 @@ type App struct {
 	iconMu    sync.Mutex
 	clockJobs *clockJobGroup
 	iconHold  atomic.Int32
+	waitIcons atomic.Bool
 
 	republish republishGate
 	browseFn  func(context.Context, time.Duration) ([]discovery.Candidate, error)
@@ -180,6 +181,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.coord.onPublishResult = a.recordPublish
 	a.hiddenApps = map[string]bool{}
 	a.coord.hiddenApps = a.hiddenAppsSet
+	a.coord.waitIcons = a.waitIcons.Load
 	a.coord.usage = a.usage
 	a.coord.weather = a.weather
 	a.coord.meetings = a.meetings

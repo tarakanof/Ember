@@ -69,8 +69,13 @@ func (r *Registry) Upsert(s render.Session) (View, string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.reapLocked()
-	prior := r.sessions[s.Key()].State
+	old, had := r.sessions[s.Key()]
+	prior := old.State
 	s.UpdatedAt = now
+	s.StateSince = now
+	if had && old.State == s.State && !old.StateSince.IsZero() {
+		s.StateSince = old.StateSince
+	}
 	r.sessions[s.Key()] = s
 	return r.viewLocked(now), prior
 }

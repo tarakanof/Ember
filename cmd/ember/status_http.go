@@ -30,6 +30,7 @@ type StatusRequest struct {
 	RateResetLabel string  `json:"rate_reset_label,omitempty"`
 	SourceCard     *bool   `json:"source_card,omitempty"`
 	SessionBar     *bool   `json:"session_bar,omitempty"`
+	Project        string  `json:"project,omitempty"`
 }
 
 func (r StatusRequest) normalized() Session {
@@ -72,6 +73,7 @@ func (r StatusRequest) normalized() Session {
 		RateResetLabel: r.RateResetLabel,
 		SourceCard:     r.SourceCard,
 		SessionBar:     r.SessionBar,
+		Project:        normalizedProject(r.Project),
 	}
 }
 
@@ -114,6 +116,16 @@ func (r StatusRequest) validate() error {
 		return fmt.Errorf("rate_reset_at must be a non-negative unix timestamp, got %d", r.RateResetAt)
 	}
 	return nil
+}
+
+const projectMaxRunes = 32
+
+func normalizedProject(p string) string {
+	p = strings.Join(strings.Fields(p), " ")
+	if r := []rune(p); len(r) > projectMaxRunes {
+		p = string(r[:projectMaxRunes])
+	}
+	return p
 }
 
 func validState(state string) bool {

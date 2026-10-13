@@ -344,6 +344,7 @@ func TestStoredWeatherBlobWithUnknownModelIsRewrittenOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.settings.reapply()
+	a.clockJobs.Wait()
 	blob, _, err := a.store.GetSetting(weatherSettingsKey)
 	if err != nil {
 		t.Fatal(err)
@@ -355,6 +356,7 @@ func TestStoredWeatherBlobWithUnknownModelIsRewrittenOnce(t *testing.T) {
 		t.Fatalf("warnings after first reapply = %d, want 1", n)
 	}
 	a.settings.reapply()
+	a.clockJobs.Wait()
 	if n := strings.Count(logs.String(), "persisted weather model ignored"); n != 1 {
 		t.Errorf("warnings after second reapply = %d, want still 1", n)
 	}

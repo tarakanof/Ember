@@ -294,7 +294,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 }
 
-var twoIconUploads = []string{"POST /api/v1/files?dir=%2FICONS", "POST /api/v1/files?dir=%2FICONS"}
+var clockIconUploads = slices.Repeat([]string{"POST /api/v1/files?dir=%2FICONS"}, 5)
 
 func TestDeviceWatch_ProvisionsMovedClock(t *testing.T) {
 	stale := &iconClockStub{}
@@ -324,8 +324,8 @@ func TestDeviceWatch_ProvisionsMovedClock(t *testing.T) {
 	if got := a.cfg.Load().effectiveClockURL(); got != movedSrv.URL {
 		t.Fatalf("effective clock URL %s, want %s", got, movedSrv.URL)
 	}
-	if got := moved.requests("POST /api/v1/files"); !slices.Equal(got, twoIconUploads) {
-		t.Fatalf("moved clock uploads %v, want the 2 pomodoro icons", got)
+	if got := moved.requests("POST /api/v1/files"); !slices.Equal(got, clockIconUploads) {
+		t.Fatalf("moved clock uploads %v, want the 2 pomodoro and 3 wait icons", got)
 	}
 	want := berry.BootPingSource(a.expectedBootCallback())
 	if got := moved.puts(); len(got) != 1 || got[0] != want {
@@ -377,8 +377,8 @@ func TestInitDeviceDiscovery_ProvisionsReachableClockOnce(t *testing.T) {
 	if got := clock.requests("GET /api/v1/files"); len(got) != 1 {
 		t.Fatalf("icon list requests %v, want exactly one boot run", got)
 	}
-	if got := clock.requests("POST /api/v1/files"); !slices.Equal(got, twoIconUploads) {
-		t.Fatalf("uploads %v, want the 2 pomodoro icons", got)
+	if got := clock.requests("POST /api/v1/files"); !slices.Equal(got, clockIconUploads) {
+		t.Fatalf("uploads %v, want the 2 pomodoro and 3 wait icons", got)
 	}
 	if got := clock.puts(); len(got) != 1 {
 		t.Fatalf("boot ping installs %d, want exactly one boot run", len(got))
@@ -475,9 +475,9 @@ func TestBootSequence_ProvisionsIconsOnlyAfterRediscover(t *testing.T) {
 	if got := stale.requests("GET /api/v1/files"); len(got) != 0 {
 		t.Fatalf("stale clock URL got icon requests before rediscover: %v", got)
 	}
-	want := []string{"POST /api/v1/files?dir=%2FICONS", "POST /api/v1/files?dir=%2FICONS"}
+	want := clockIconUploads
 	if got := moved.requests("POST /api/v1/files"); !slices.Equal(got, want) {
-		t.Fatalf("rediscovered clock uploads %v, want the 2 pomodoro icons; stale saw %v", got, stale.requests(""))
+		t.Fatalf("rediscovered clock uploads %v, want the 2 pomodoro and 3 wait icons; stale saw %v", got, stale.requests(""))
 	}
 }
 
@@ -494,8 +494,8 @@ func TestDeviceConfigPut_ProvisionsNewClock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := moved.requests("POST /api/v1/files"); !slices.Equal(got, twoIconUploads) {
-		t.Fatalf("new clock uploads %v, want the 2 pomodoro icons", got)
+	if got := moved.requests("POST /api/v1/files"); !slices.Equal(got, clockIconUploads) {
+		t.Fatalf("new clock uploads %v, want the 2 pomodoro and 3 wait icons", got)
 	}
 	want := berry.BootPingSource(a.expectedBootCallback())
 	if got := moved.puts(); len(got) != 1 || got[0] != want {
@@ -556,8 +556,8 @@ func TestDeviceConfigPut_SwapDuringPutStillProvisions(t *testing.T) {
 	if got := a.cfg.Load().effectiveClockURL(); got != pinnedSrv.URL {
 		t.Fatalf("effective clock URL %s, want the pinned %s", got, pinnedSrv.URL)
 	}
-	if got := pinned.requests("POST /api/v1/files"); !slices.Equal(got, twoIconUploads) {
-		t.Fatalf("pinned clock uploads %v, want the 2 pomodoro icons after the PUT moved the clock back from %s", got, swappedSrv.URL)
+	if got := pinned.requests("POST /api/v1/files"); !slices.Equal(got, clockIconUploads) {
+		t.Fatalf("pinned clock uploads %v, want the 2 pomodoro and 3 wait icons after the PUT moved the clock back from %s", got, swappedSrv.URL)
 	}
 }
 

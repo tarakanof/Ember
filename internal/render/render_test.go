@@ -1466,3 +1466,29 @@ func TestRenderForCoordUsesUsageView(t *testing.T) {
 		t.Fatal("usage view should change the rendered card")
 	}
 }
+
+func TestPickWinningKeepsTheNewestWaiterAcrossHeartbeats(t *testing.T) {
+	epoch := time.Unix(1_000_000, 0)
+	older := Session{Source: "m4", Tool: "claude", Session: "a", State: "waiting",
+		StateSince: epoch, UpdatedAt: epoch.Add(30 * time.Second)}
+	newer := Session{Source: "m4", Tool: "claude", Session: "b", State: "waiting",
+		StateSince: epoch.Add(10 * time.Second), UpdatedAt: epoch.Add(20 * time.Second)}
+	win, _, _ := PickWinning([]Session{older, newer})
+	if win == nil || win.Session != "b" {
+		t.Fatalf("winner = %+v, want the session that started waiting last, not the last heartbeat", win)
+	}
+}
+
+func TestSortedActiveKeysPutsTheNewestWaiterFirst(t *testing.T) {
+	epoch := time.Unix(1_000_000, 0)
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "claude", Session: "1", State: "waiting", StateSince: epoch},
+		{Source: "b", Tool: "claude", Session: "2", State: "waiting", StateSince: epoch.Add(time.Minute)},
+		{Source: "a", Tool: "claude", Session: "3", State: "running", StateSince: epoch.Add(time.Hour)},
+	}}
+	got := SortedActiveKeys(snap)
+	want := []string{"b/claude/2", "a/claude/1", "a/claude/3"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("keys = %v, want %v", got, want)
+	}
+}

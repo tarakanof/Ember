@@ -70,6 +70,7 @@ func (a *App) clockJobFailed(ctx context.Context, msg string, args ...any) {
 }
 
 func (a *App) clockMoved(reason string) {
+	a.waitIcons.Store(false)
 	a.RepublishAll(reason)
 	a.provisionClockInBackground()
 }
@@ -84,12 +85,13 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 	for id := range pomodoroIconIDs(cfg.Pomodoro) {
 		need[id] = true
 	}
-	if len(need) == 0 {
-		return
-	}
 
 	if clockDisabled() {
 		return
+	}
+	wait, err := render.WaitIcons()
+	if err != nil {
+		a.logger.Error("wait icons: encode failed", "err", err)
 	}
 	a.iconMu.Lock()
 	defer a.iconMu.Unlock()
@@ -120,13 +122,30 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 			a.clockJobFailed(ctx, "icon provision: gallery fetch failed", "id", id, "err", err)
 			continue
 		}
-		name := id + "." + ext
-		if err := a.publisher.PutIcon(ctx, name, data); err != nil {
-			a.clockJobFailed(ctx, "icon provision: device upload failed", "name", name, "err", err)
-			continue
-		}
-		a.logger.Info("icon provisioned to device", "name", name)
+		a.putIcon(ctx, id+"."+ext, data)
 	}
+
+	armed := len(wait) > 0
+	for name, data := range wait {
+		if ctx.Err() != nil {
+			return
+		}
+		if !present[name] && !a.putIcon(ctx, name+".gif", data) {
+			armed = false
+		}
+	}
+	if armed {
+		a.waitIcons.Store(true)
+	}
+}
+
+func (a *App) putIcon(ctx context.Context, name string, data []byte) bool {
+	if err := a.publisher.PutIcon(ctx, name, data); err != nil {
+		a.clockJobFailed(ctx, "icon provision: device upload failed", "name", name, "err", err)
+		return false
+	}
+	a.logger.Info("icon provisioned to device", "name", name)
+	return true
 }
 
 func weatherIconIDs(cfg WeatherConfig) map[string]bool {

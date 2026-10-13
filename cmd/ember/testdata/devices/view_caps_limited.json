@@ -11,7 +11,8 @@
     "lead": "STUDIO",
     "hosts": 2,
     "lead_color": "#00C8C8",
-    "tool": "claude"
+    "tool": "claude",
+    "lead_project": "example-site"
   },
   "weather": {
     "provider": "open-meteo",

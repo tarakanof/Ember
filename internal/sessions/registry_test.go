@@ -255,3 +255,27 @@ func TestNilOnReap(t *testing.T) {
 		t.Fatal("want the session reaped")
 	}
 }
+
+func TestStateSinceSurvivesASameStateRepost(t *testing.T) {
+	h := newHarness()
+	h.Upsert(sess("m4", "waiting"))
+	entered := h.clk.t
+	h.clk.Advance(10 * time.Second)
+	v, _ := h.Upsert(sess("m4", "waiting"))
+	if got := v.Sessions[0].StateSince; !got.Equal(entered) {
+		t.Fatalf("state_since = %v after a heartbeat, want %v", got, entered)
+	}
+	if got := v.Sessions[0].UpdatedAt; !got.Equal(h.clk.t) {
+		t.Fatalf("updated_at = %v, want the repost time %v", got, h.clk.t)
+	}
+}
+
+func TestStateSinceMovesOnAStateChange(t *testing.T) {
+	h := newHarness()
+	h.Upsert(sess("m4", "running"))
+	h.clk.Advance(10 * time.Second)
+	v, _ := h.Upsert(sess("m4", "waiting"))
+	if got := v.Sessions[0].StateSince; !got.Equal(h.clk.t) {
+		t.Fatalf("state_since = %v, want the transition time %v", got, h.clk.t)
+	}
+}

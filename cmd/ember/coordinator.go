@@ -61,6 +61,8 @@ type coordinator struct {
 
 	hiddenApps func() map[string]bool
 
+	waitIcons func() bool
+
 	indicators [3]indicatorState
 
 	hold holdState

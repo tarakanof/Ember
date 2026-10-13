@@ -29,20 +29,21 @@ type knobView struct {
 }
 
 type knobMood struct {
-	Waiting   int    `json:"waiting"`
-	Errors    int    `json:"errors"`
-	Running   int    `json:"running"`
-	Done      int    `json:"done"`
-	Source    string `json:"source"`
-	Lead      string `json:"lead,omitempty"`
-	Hosts     int    `json:"hosts,omitempty"`
-	LeadColor string `json:"lead_color,omitempty"`
-	Tool      string `json:"tool,omitempty"`
+	Waiting     int    `json:"waiting"`
+	Errors      int    `json:"errors"`
+	Running     int    `json:"running"`
+	Done        int    `json:"done"`
+	Source      string `json:"source"`
+	Lead        string `json:"lead,omitempty"`
+	Hosts       int    `json:"hosts,omitempty"`
+	LeadColor   string `json:"lead_color,omitempty"`
+	Tool        string `json:"tool,omitempty"`
+	LeadProject string `json:"lead_project,omitempty"`
 }
 
 func newKnobMood(r Render, l moodLead) knobMood {
 	m := knobMood{Waiting: r.Waiting, Errors: r.Errors, Running: r.Running, Done: r.Done, Source: r.Source,
-		LeadColor: l.Color, Tool: l.Tool}
+		LeadColor: l.Color, Tool: l.Tool, LeadProject: l.Project}
 	if !strings.EqualFold(l.Lead, r.Source) {
 		m.Lead = l.Lead
 	}

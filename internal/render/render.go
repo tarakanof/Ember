@@ -43,7 +43,9 @@ type Session struct {
 	// nil keeps the element on: absent must never regress the display.
 	SourceCard *bool     `json:"source_card,omitempty"`
 	SessionBar *bool     `json:"session_bar,omitempty"`
+	Project    string    `json:"project,omitempty"`
 	UpdatedAt  time.Time `json:"updated_at"`
+	StateSince time.Time `json:"state_since,omitzero"`
 }
 
 func (s Session) Key() string {
@@ -369,6 +371,7 @@ const (
 	cardUsage7d
 	cardUsageModelA
 	cardUsageModelB
+	cardProject
 )
 
 func isUsageCard(card int) bool {
@@ -414,6 +417,9 @@ func SourceCardText(source string) string {
 
 func AvailableCards(s Session, u *UsageView) []int {
 	var cards []int
+	if s.State == "waiting" && s.Project != "" {
+		cards = append(cards, cardProject)
+	}
 	if sourceCardEnabled(s) && s.Source != "" {
 		cards = append(cards, cardSource)
 	}
@@ -499,7 +505,7 @@ func PickWinning(sessions []Session) (win *Session, color RGB, total int) {
 			continue
 		}
 		best := StatePriority(win.State)
-		if prio < best || (prio == best && s.UpdatedAt.After(win.UpdatedAt)) {
+		if prio < best || (prio == best && Newer(*s, *win)) {
 			win = s
 		}
 	}
@@ -507,6 +513,13 @@ func PickWinning(sessions []Session) (win *Session, color RGB, total int) {
 		return nil, RGB{}, total
 	}
 	return win, colorForState(win.State), total
+}
+
+func Newer(a, b Session) bool {
+	if !a.StateSince.IsZero() && !b.StateSince.IsZero() && !a.StateSince.Equal(b.StateSince) {
+		return a.StateSince.After(b.StateSince)
+	}
+	return a.UpdatedAt.After(b.UpdatedAt)
 }
 
 func sessionKey(s Session) string {
@@ -541,48 +554,44 @@ func StatePriority(state string) int {
 
 func SortedActiveKeys(snap Snapshot) []string {
 	type entry struct {
-		key  string
-		prio int
-		src  string
-		tool string
-		sess string
+		key   string
+		prio  int
+		since time.Time
+		src   string
+		tool  string
+		sess  string
 	}
 	out := make([]entry, 0, len(snap.Sessions))
 	for _, s := range snap.Sessions {
 		if s.State == "idle" {
 			continue
 		}
-		out = append(out, entry{
+		e := entry{
 			key:  sessionKey(s),
 			prio: StatePriority(s.State),
 			src:  s.Source,
 			tool: s.Tool,
 			sess: s.Session,
-		})
+		}
+		if s.State == "waiting" {
+			e.since = s.StateSince
+		}
+		out = append(out, e)
 	}
 	slices.SortFunc(out, func(a, b entry) int {
 		if a.prio != b.prio {
 			return a.prio - b.prio
 		}
-		if a.src != b.src {
-			if a.src < b.src {
-				return -1
-			}
-			return 1
+		if c := b.since.Compare(a.since); c != 0 {
+			return c
 		}
-		if a.tool != b.tool {
-			if a.tool < b.tool {
-				return -1
-			}
-			return 1
+		if c := strings.Compare(a.src, b.src); c != 0 {
+			return c
 		}
-		if a.sess < b.sess {
-			return -1
+		if c := strings.Compare(a.tool, b.tool); c != 0 {
+			return c
 		}
-		if a.sess > b.sess {
-			return 1
-		}
-		return 0
+		return strings.Compare(a.sess, b.sess)
 	})
 	keys := make([]string, len(out))
 	for i, e := range out {
@@ -689,6 +698,10 @@ func AttentionHeld(snap Snapshot, pointer string, locked bool) bool {
 }
 
 func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifetimeSeconds int, usage map[string]*UsageView) map[string]any {
+	return RenderForCoordWith(snap, pointer, card, locked, lifetimeSeconds, usage, CoordOpts{})
+}
+
+func RenderForCoordWith(snap Snapshot, pointer string, card int, locked bool, lifetimeSeconds int, usage map[string]*UsageView, opts CoordOpts) map[string]any {
 	keys := SortedActiveKeys(snap)
 	if len(keys) == 0 {
 		return nil
@@ -696,6 +709,10 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	session := chooseSession(snap, keys, pointer)
 	if session == nil {
 		return nil
+	}
+	name := DisplayName(*session, HostCount(snap.Sessions))
+	if locked && session.State == "waiting" && name != "" {
+		return waitingLockPayload(*session, snap.Sessions, name, lifetimeSeconds, opts.WaitIcons)
 	}
 	if locked && (session.State == "waiting" || session.State == "error") {
 		label, hex := attentionLabelAndColor(session.State)
@@ -715,6 +732,9 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 			ci = 0
 		}
 		selected = cards[ci]
+	}
+	if selected == cardProject {
+		return waitingCardPayload(*session, snap.Sessions, name, lifetimeSeconds)
 	}
 	if selected == cardTool {
 		return detailPayload(*session, snap.Sessions, session.Activity, stateHex(session.State), false, lifetimeSeconds, false)
