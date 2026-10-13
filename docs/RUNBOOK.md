@@ -331,11 +331,15 @@ Launch-at-login is in-app (App tab → `SMAppService`), not a LaunchAgent. The a
 reads `producer.env` for connection config and needs a server on a build that
 includes `GET /v1/preview` (added 2026-05; older servers 401 that route).
 The `macos` job also checks `knob-theme.json` against cinder's firmware
-constants (`themeMatchesCinderSource`): it checks out `tarakanof/cinder@main`
+constants (`themeMatchesCinderSource`, and `KnobNowPlayingFoldTests`): it
+checks out `tarakanof/cinder` at the release tag in `.github/cinder-ref`
 (sparse, `firmware/`; the repo is public, so no token) and points `CINDER_DIR`
-at it. A failed checkout fails the job. Locally the test reads
-`../cinder` or `CINDER_DIR`. A theme change and its cinder change merge
-together (cinder first), else main's check fails until both are in.
+at it. A failed checkout fails the job. The pin keeps a cinder merge from
+failing unrelated Ember PRs (#468). To adopt a new firmware, bump the tag in
+its own commit, `test(theme): sync parity to cinder <tag>`, together with any
+theme or pattern change it needs, after that cinder release is out. Locally
+the tests read `../cinder` or `CINDER_DIR`, whatever it has checked out, so
+they can differ from CI when that checkout isn't at the pinned tag.
 The test checks only code the knob runs. Keys the firmware no longer has
 are exempt (`goneFromFirmware`): `weather.temp.color` and
 `weather.temp.font_px`, gone since cinder aaddf88 replaced the

@@ -36,6 +36,7 @@ jobs:
               - 'cmd/ember/testdata/**'
               - 'cmd/ember-claude-producer/testdata/**'
               - '.github/workflows/ci.yml'
+              - '.github/cinder-ref'
 
   go:
     name: Go (fmt, vet, test -race)
@@ -159,11 +160,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Checkout cinder main (theme parity)
+      - name: Read the pinned cinder tag
+        id: cinder
+        run: echo "ref=$(tr -d '[:space:]' < .github/cinder-ref)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout cinder at the pinned tag (theme parity)
         uses: actions/checkout@v6
         with:
           repository: tarakanof/cinder
-          ref: main
+          ref: ${{ steps.cinder.outputs.ref }}
           path: cinder
           persist-credentials: false
           sparse-checkout: firmware
