@@ -323,7 +323,7 @@ func rotationUnchanged(patch *deviceAppsPutBody, cur *clockRotation) bool {
 		off[n] = true
 	}
 	for _, app := range cur.listed {
-		if app.Origin != "module" && off[app.Name] == app.Enabled {
+		if off[app.Name] == app.Enabled {
 			return false
 		}
 	}
