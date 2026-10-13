@@ -160,13 +160,13 @@ public final class KnobDemoModel {
             scenesLoaded = true
             catalogError = nil
         } catch {
-            guard gen == generation, !(error is CancellationError) else { return }
+            guard gen == generation, !Task.isCancelled, !(error is CancellationError) else { return }
             catalogError = FeedError(error)
         }
     }
 
     public func enter() async {
-        if !scenesLoaded { await loadScenes() }
+        await loadScenes()
         await refreshStatus()
         await follow()
     }

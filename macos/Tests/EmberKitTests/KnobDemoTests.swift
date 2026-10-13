@@ -19,6 +19,7 @@ private final class DemoServer: @unchecked Sendable {
     private var _held = 0
     private var _failPost = false
     private var _failScenes = false
+    private var _scenesJSON = demoScenesJSON
 
     init(statuses: [String], failScenes: Bool = false) { _statuses = statuses; _failScenes = failScenes }
 
@@ -32,8 +33,14 @@ private final class DemoServer: @unchecked Sendable {
         set { lock.withLock { _failScenes = newValue } }
     }
 
+    var scenesJSON: String {
+        get { lock.withLock { _scenesJSON } }
+        set { lock.withLock { _scenesJSON = newValue } }
+    }
+
     var requests: [(method: String, path: String, body: [String: Any]?)] { lock.withLock { _requests } }
     var statusReads: Int { requests.filter { $0.method == "GET" && $0.path.hasSuffix("/demo") }.count }
+    var sceneReads: Int { requests.filter { $0.path.hasSuffix("/scenes") }.count }
     var held: Int { lock.withLock { _held } }
 
     func holdNext(_ method: String) -> DispatchSemaphore {
@@ -62,7 +69,7 @@ private final class DemoServer: @unchecked Sendable {
             switch (req.httpMethod, path) {
             case ("GET", "/v1/devices/knob-61fc8c/demo/scenes"):
                 if _failScenes { return (okResponse(req.url!, status: 503), Data()) }
-                return (okResponse(req.url!), Data(demoScenesJSON.utf8))
+                return (okResponse(req.url!), Data(_scenesJSON.utf8))
             case ("POST", "/v1/devices/knob-61fc8c/demo"):
                 if _failPost { return (okResponse(req.url!, status: 409), Data(#"{"error":"busy"}"#.utf8)) }
                 let scenes = (body?["scenes"] as? [String]) ?? [(body?["scene"] as? String) ?? ""]
@@ -344,7 +351,33 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
     await m.enter()
     #expect(server.statusReads == 2 && m.status.state == .idle)
     await m.enter()
-    #expect(server.statusReads == 3 && server.requests.filter { $0.path.hasSuffix("/scenes") }.count == 1)
+    #expect(server.statusReads == 3)
+}
+
+@MainActor
+@Test func demoEnteringAgainPicksUpANewScene() async {
+    let server = DemoServer(statuses: [])
+    let m = demoModel(server)
+    await m.enter()
+    #expect(m.groups.flatMap(\.scenes).count == 6)
+    server.scenesJSON = String(demoScenesJSON.dropLast()) + #",{"name":"bot.asleep","group":"Bot","title":"Asleep"}]"#
+    await m.enter()
+    #expect(server.sceneReads == 2)
+    #expect(m.groups.first?.scenes.map(\.name) == ["bot.idle", "bot.hop", "bot.asleep"])
+    #expect(m.title(of: "bot.asleep") == "Asleep")
+}
+
+@MainActor
+@Test func demoFailedReloadKeepsThePreviousScenes() async {
+    let server = DemoServer(statuses: [])
+    let m = demoModel(server)
+    await m.enter()
+    let loaded = m.groups
+    #expect(loaded.count == 5)
+    server.failScenes = true
+    await m.enter()
+    #expect(server.sceneReads == 2)
+    #expect(m.groups == loaded && m.scenesLoaded && m.catalogError != nil)
 }
 
 @MainActor
