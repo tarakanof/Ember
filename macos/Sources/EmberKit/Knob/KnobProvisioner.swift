@@ -422,7 +422,11 @@ public struct KnobProvisioner: Sendable {
                 try? await Task.sleep(for: timeouts.poll)
             }
         }
-        if lastState == "unreachable" { throw KnobSetupError.emberUnreachable(ip: ip, url: url) }
+        if lastState == "unreachable" {
+            if ip == nil, let r = try? await s.call(.status, timeout: timeouts.reply) { ip = r.wifi?.ip }
+            try Task.checkCancellation()
+            throw KnobSetupError.emberUnreachable(ip: ip, url: url)
+        }
         throw KnobSetupError.timedOut(.reachingEmber)
     }
 }

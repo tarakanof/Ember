@@ -292,6 +292,17 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
     }
 }
 
+@Test func emberUnreachableAsksForTheIPWhenTheWindowClosesBeforeAStatusReply() async throws {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
+    var t = fast
+    t.reply = .seconds(30); t.ember = .milliseconds(100); t.poll = .milliseconds(300)
+    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unreachable")]), timeouts: t)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    await #expect(throws: KnobSetupError.emberUnreachable(ip: "192.168.0.39", url: "http://192.168.0.2:3627")) {
+        _ = try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    }
+}
+
 @Test func serverCheckinCountsAsReachingEmber() async throws {
     let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioned))] }
     let p = provisioner(FakeOpener(knob), checkedIn: true)
