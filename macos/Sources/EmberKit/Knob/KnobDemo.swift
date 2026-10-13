@@ -166,7 +166,7 @@ public final class KnobDemoModel {
     }
 
     public func enter() async {
-        if !scenesLoaded { await loadScenes() }
+        await loadScenes()
         await refreshStatus()
         await follow()
     }
