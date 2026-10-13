@@ -316,7 +316,8 @@ func TestDeviceCheckinGolden(t *testing.T) {
 		RequestLatencyAvgMS: new(35.5), RequestLatencyMaxMS: new(int64(120)),
 		RenderFPS: new(29.5), FrameAvgMS: new(12.25), FrameMaxMS: new(int64(40)),
 		InvalidatedAreasPerS: new(90.0), InvalidatedPxPerS: new(57600.0),
-		periodMS: 30000, resetReason: "poweron", invAreasMS: 30000, invPxMS: 30000,
+		periodMS: 30000, resetReason: "poweron", reqMS: 30000, reqLatMS: 30000, fpsMS: 30000, frameAvgMS: 30000,
+		invAreasMS: 30000, invPxMS: 30000,
 	}
 	if !reflect.DeepEqual(*latest, wantStats) {
 		t.Errorf("stored stats\n got %+v\nwant %+v", *latest, wantStats)
