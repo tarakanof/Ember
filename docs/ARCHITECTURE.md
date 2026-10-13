@@ -3377,12 +3377,14 @@ show data the owner turned off.
 | `frame_ms_avg` | number, ms | full | Mean time to render a frame. |
 | `frame_ms_max` | int, ms | full | Slowest frame in the window. |
 | `inv_areas` | int, count | full | Areas LVGL drew over the window, summed over every refresh that ended in it (cinder `refr_stats`, cinder#118): read at `LV_EVENT_RENDER_START`, after `lv_obj_update_layout` and `lv_refr_join_area`, so a moved object's new position counts and joined areas count once, as their bounding box. Past 32 areas (`LV_INV_BUF_SIZE`) LVGL collapses the list to one full-screen area (472×466 px), so at the busiest frames areas fall while px peak. |
-| `inv_px` | int, px | full | Pixels in those areas over the window, the same basis. |
+| `inv_px` | int, px | full | Pixels in those areas over the window, the same basis. Areas that overlap without being joined each count their own pixels, so the overlap counts twice. |
 
-`inv_areas` and `inv_px` cover exactly the `period_ms` window: totals since
-the previous checkin report, kept in their own accumulator, never the 30 s
-serial stats log's take (sharing it would leave a 60 s report holding at most
-the last 30 s, and the rate half the truth).
+`inv_areas` and `inv_px` must cover exactly the `period_ms` window: totals
+since the previous checkin report, kept in an accumulator of their own, never
+the 30 s serial stats log's take (sharing it would leave a 60 s report
+holding at most the last 30 s, and the rate half the truth). cinder keeps
+such an accumulator since 0.9.72 (the `refr_stats` window, reset with each
+report, cinder#133).
 
 Counts and averages are **per window, reset after each report** (not
 since boot). Example (full):
@@ -3436,17 +3438,21 @@ the 2 s view poll already limits. Table in the #249 PR.
 and a minute ring (at most 1440 buckets; buckets older than 24 h leave it) where
 samples of one wall-clock minute fold into one bucket: gauges take the
 newest value, `*_min` the lowest, `*_max` the highest, averages and rates the
-`period_ms`-weighted mean (the `invalidated_*` rates weigh only the reports
-that carried them, so a report without them doesn't dilute the mean); a
-bucket's `t` is its newest report. Counts become
+`period_ms`-weighted mean; a bucket's `t` is its newest report. The
+request, render and `invalidated_*` averages and rates weigh only the reports
+that carried them (each keeps its own measured duration, #473/#475), so a
+report without them, such as one sent at basic diagnostics, doesn't dilute
+the mean. Counts become
 rates on arrival (`(req_ok+req_fail)·60000/period_ms` per minute,
 `inv_areas·1000/period_ms` per second, like `fps`). Both rings grow as
 samples arrive (never past their cap) and give their buffer back when it
-falls under a quarter full, so a device costs what it reports: about 450 KB
-for a day at 30-60 s, 280 KB at 120 s, 140 KB at 300 s, plus 23/43/100 KB at
-10/5/2 s while a live session is in the window (estimated: the measured
-380/245/125 and 20/37/87 KB plus 48 B a sample for the two `invalidated_*`
-rates since cinder#118, 32 B of struct and 16 B of values) (released as it ages out). Deleting the device drops its series.
+falls under a quarter full, so a device costs what it reports: about 500 KB
+for a day at 30-60 s, 300 KB at 120 s, 150 KB at 300 s, plus 25/47/110 KB at
+10/5/2 s while a live session is in the window; the live share is released
+as it ages out. These are estimates: the measured 380/245/125 and 20/37/87 KB
+plus 80 B a sample (48 B for the two `invalidated_*` rates since cinder#118,
+32 B of struct and 16 B of values, and 32 B for the four measured durations
+of #475). Deleting the device drops its series.
 
 **`GET /v1/devices/{id}/stats?range=15m|1h|24h`** (owner token; default
 `1h`, anything else 400, unknown id 404). Answer (dashboard wire
