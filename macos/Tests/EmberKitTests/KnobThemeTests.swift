@@ -338,7 +338,7 @@ private func allChecks() -> [Check] {
         one(bv, #"#define GLINT_MIX "# + num, "bot.glint.white_mix"),
         one(bv, #"#define GLINT_PERIOD_S "# + num, "bot.glint.period_s"),
         one(bv, #"#define GLINT_FPS (\d+)"#, "bot.glint.fps"),
-        one(bv, #"dim \? "# + num, "bot.rim_dim_gain"),
+        one(bb, #"m == BOT_IDLE \|\| m == BOT_SLEEPY \? "# + num, "bot.rim_dim_gain"),
         one(bv, hex + #", 1\.0f\);"#, "bot.eye_color"),
         one(bv, #"const font = &lv_font_montserrat_(\d+)"#, "bot.host.font_px"),
         one(bv, #"cos\(M_PI / 4\) \* "# + num, "bot.badge.at"),
@@ -368,7 +368,7 @@ private func allChecks() -> [Check] {
               keys: [("bot.eyes.sep_round", g(1)), ("bot.eyes.sep", g(2))]),
         one(bs, #"BOT_EYES_DASH \? "# + num + #" \* side"#, "bot.eyes.rise"),
         one(bs, #"if \(half < "# + num, "bot.eyes.min_half"),
-        Check(file: bs, pattern: #"double w = "# + num + #" \* ffx, h = L\("# + num + ", " + num + #"\) \* ffy"#,
+        Check(file: bs, pattern: #"double w = "# + num + #" \* ffx, h = L\("# + num + ", " + num + #"\) \* fh"#,
               keys: [("bot.eyes.happy.width", g(1)), ("bot.eyes.happy.height", arr(2, 3))]),
         one(bs, #"qy = ey \+ h \* "# + num, "bot.eyes.happy.lift"),
         Check(file: bs, pattern: #"case BOT_EYES_HAPPY:[^}]*?s->n = BOT_STROKE_MAX;"#, keys: []),
@@ -421,7 +421,7 @@ private func allChecks() -> [Check] {
     for (key, eye, angle) in [("dash", "DASH", #"L\((-?\d+), (-?\d+)\) \* lean"#), ("angry", "ANGRY", #"L\((-?\d+), (-?\d+)\) \* deg"#),
                               ("round", "ROUND", #"(\d+)() \* lean"#)] {
         c.append(Check(file: bs, pattern: "case BOT_EYES_\(eye):[^;]*?capsule\\(s, ex, ey, L\\(" + num + ", " + num
-                         + #"\) \* ffx, L\("# + num + ", " + num + #"\) \* ffy, "# + angle,
+                         + #"\) \* ffx, L\("# + num + ", " + num + #"\) \* fh, "# + angle,
                        keys: [("bot.eyes.\(key).width", arr(1, 2)), ("bot.eyes.\(key).height", arr(3, 4)),
                               ("bot.eyes.\(key).angle_deg", { c in "[" + n(c[5]) + "," + n(c[6].isEmpty ? c[5] : c[6]) + "]" })]))
     }
