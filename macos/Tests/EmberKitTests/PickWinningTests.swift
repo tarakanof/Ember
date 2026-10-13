@@ -24,3 +24,23 @@ private func sess(_ tool: String, _ state: String, _ ago: TimeInterval) -> Sessi
     #expect(pickWinning([]) == nil)
     #expect(pickWinning([sess("a", "idle", 1)]) == nil)
 }
+
+@Test func pickWinningPrefersTheSessionThatEnteredItsStateLast() throws {
+    let json = #"{"source":"m4","tool":"claude","session":"%@","state":"waiting","updated_at":"%@","state_since":"%@"}"#
+    func decode(_ id: String, updated: String, since: String) throws -> Session {
+        let body = String(format: json, id, updated, since)
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return try d.decode(Session.self, from: Data(body.utf8))
+    }
+    let older = try decode("a", updated: "2026-10-14T10:00:50Z", since: "2026-10-14T09:00:00Z")
+    let newer = try decode("b", updated: "2026-10-14T10:00:40Z", since: "2026-10-14T09:30:00Z")
+    #expect(pickWinning([older, newer])?.session == "b")
+}
+
+@Test func pickWinningFallsBackToUpdatedAtWithoutStateSince() {
+    var a = sess("a", "waiting", 10)
+    let b = sess("b", "waiting", 20)
+    a.stateSince = Date(timeIntervalSince1970: 1_000_500)
+    #expect(pickWinning([a, b])?.tool == "b")
+}

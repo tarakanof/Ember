@@ -401,9 +401,11 @@ public struct Session: Codable, Sendable, Equatable {
     public var rateResetAt: Int64
     public var rateReset: Bool
     public var updatedAt: Date
+    public var project: String?
+    public var stateSince: Date?
 
     enum CodingKeys: String, CodingKey {
-        case source, tool, session, state, message
+        case source, tool, session, state, message, project
         case tokensToday = "tokens_today"
         case contextPct = "context_pct"
         case sourceColor = "source_color"
@@ -414,6 +416,7 @@ public struct Session: Codable, Sendable, Equatable {
         case rateResetAt = "rate_reset_at"
         case rateReset = "rate_reset"
         case updatedAt = "updated_at"
+        case stateSince = "state_since"
     }
 
     public init(from decoder: Decoder) throws {
@@ -433,6 +436,8 @@ public struct Session: Codable, Sendable, Equatable {
         rateResetAt = try c.decodeIfPresent(Int64.self, forKey: .rateResetAt) ?? 0
         rateReset = try c.decodeIfPresent(Bool.self, forKey: .rateReset) ?? false
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
+        project = try c.decodeIfPresent(String.self, forKey: .project).flatMap { $0.isEmpty ? nil : $0 }
+        stateSince = try c.decodeIfPresent(Date.self, forKey: .stateSince)
     }
 }
 

@@ -17,6 +17,25 @@ public struct SessionPresentation: Sendable, Equatable {
             : "\(tool) on \(session.source) — \(state)"
     }
 
+    public var headerTitle: LocalizedStringResource {
+        guard let project = session.project else { return title }
+        let state = String(localized: stateName)
+        return session.source.isEmpty
+            ? "\(project) — \(state)"
+            : LocalizedStringResource("\(project) — \(state) · \(session.source)",
+                                      comment: "Menu header: the lead session's project, its state, then the Mac it runs on (\"learn-language — Waiting · m4\").")
+    }
+
+    public func displayName(multiHost: Bool) -> String? {
+        guard let project = session.project else { return nil }
+        return multiHost && !session.source.isEmpty ? "\(session.source) · \(project)" : project
+    }
+
+    public func rowTitle(multiHost: Bool) -> LocalizedStringResource {
+        guard let name = displayName(multiHost: multiHost) else { return title }
+        return "\(name) — \(String(localized: stateName))"
+    }
+
     public var subtitle: String? { subtitle(maxLength: 80) }
 
     public func subtitle(maxLength: Int) -> String? {

@@ -357,3 +357,60 @@ private func stats(done: Int, minutes: Int, goal: Int) -> PomoStats {
     #expect(apps.map(\.title.text) == ["Claude", "Weather"])
     #expect(apps.map(\.enabled) == [true, false])
 }
+
+private func project(_ tool: String, source: String, state: String, id: String, project: String?,
+                     updated: TimeInterval = 0) throws -> Session {
+    var s = try session(tool: tool, source: source, state: state, id: id, updated: updated)
+    s.project = project
+    return s
+}
+
+@Test func sessionDecodesProjectAndStateSince() throws {
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let s = try d.decode(Session.self, from: Data(#"{"tool":"claude","state":"waiting","project":"learn-language","state_since":"2026-10-14T09:00:00Z"}"#.utf8))
+    #expect(s.project == "learn-language")
+    #expect(s.stateSince == ISO8601DateFormatter().date(from: "2026-10-14T09:00:00Z"))
+    let old = try session(#"{"tool":"claude","state":"waiting"}"#)
+    #expect(old.project == nil)
+    #expect(old.stateSince == nil)
+}
+
+@Test func headerNamesTheWaitingProjectAndItsHost() throws {
+    let s = try project("claude", source: "m4", state: "waiting", id: "a", project: "learn-language")
+    let h = MenuRows.header(connection: .online(since: now), hasEverLoaded: true, winning: s, locale: en, timeZone: utc)
+    #expect(h.title.text == "learn-language — Waiting · m4")
+    #expect(MenuRows.accessibilityValue(connection: .online(since: now), winning: s).text == "learn-language — Waiting · m4")
+}
+
+@Test func headerWithoutAProjectKeepsTheToolAndHost() throws {
+    let s = try project("claude", source: "m4", state: "waiting", id: "a", project: nil)
+    let h = MenuRows.header(connection: .online(since: now), hasEverLoaded: true, winning: s, locale: en, timeZone: utc)
+    #expect(h.title.text == "Claude on m4 — Waiting")
+}
+
+@Test func otherSessionsShowTheProjectWithoutAHostWhenOneHostReports() throws {
+    let winner = try project("claude", source: "m4", state: "waiting", id: "a", project: "learn-language")
+    let other = try project("codex", source: "m4", state: "running", id: "b", project: "ember", updated: -5)
+    let bare = try project("claude", source: "m4", state: "running", id: "c", project: nil, updated: -9)
+    let rows = MenuRows.otherSessions([winner, other, bare], winning: winner, locale: en).rows.map(\.text.text.ns)
+    #expect(rows == ["ember — Running", "Claude on m4 — Running"])
+}
+
+@Test func otherSessionsPrefixTheHostWhenSeveralHostsReport() throws {
+    let winner = try project("claude", source: "m4", state: "waiting", id: "a", project: "learn-language")
+    let other = try project("codex", source: "m5", state: "running", id: "b", project: "ember", updated: -5)
+    let idle = try project("claude", source: "m6", state: "idle", id: "c", project: "x", updated: -9)
+    let rows = MenuRows.otherSessions([winner, other, idle], winning: winner, locale: en).rows.map(\.text.text.ns)
+    #expect(rows.first == "m5 · ember — Running")
+}
+
+@Test func displayNameCountsOnlyActiveHosts() throws {
+    let a = try project("claude", source: "m4", state: "running", id: "a", project: "ember")
+    let idle = try project("claude", source: "m5", state: "idle", id: "b", project: "x")
+    #expect(MenuRows.multiHost([a, idle]) == false)
+    #expect(SessionPresentation(a).displayName(multiHost: false) == "ember")
+    #expect(SessionPresentation(a).displayName(multiHost: true) == "m4 · ember")
+    let none = try project("claude", source: "m4", state: "running", id: "c", project: nil)
+    #expect(SessionPresentation(none).displayName(multiHost: true) == nil)
+}

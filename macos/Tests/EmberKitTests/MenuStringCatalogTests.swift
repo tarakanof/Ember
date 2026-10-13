@@ -16,6 +16,14 @@ private func menuStrings() throws -> [LocalizedStringResource] {
         out.append(MenuRows.accessibilityValue(connection: c, winning: nil))
     }
 
+    var named = s
+    named.state = "waiting"
+    named.project = "p"
+    out.append(MenuRows.header(connection: .online(since: now), hasEverLoaded: true, winning: named).title)
+    named.source = "m4"
+    out.append(MenuRows.header(connection: .online(since: now), hasEverLoaded: true, winning: named).title)
+    out += MenuRows.otherSessions([s, named], winning: s).rows.map(\.text)
+
     var other = s
     other.session = "b"
     var noContext = s
