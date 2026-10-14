@@ -2217,6 +2217,63 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     since iTunes.
 - **Not built yet:** iTunes album fallback, Plex websocket.
 
+### Knob controls — `cmd/ember/controls*.go`, `macos/Sources/EmberKit/Controls`, `macos/Ember/Services/*Controls*` (#515)
+
+The knob as a Mac controller (cinder#144, option C: Ember relay). Phase C1
+is the Mac side; the knob page (`controls`, C2) does not exist yet.
+
+- **Trust boundary.** The server and the wire carry only gestures. A knob
+  posts `POST /v1/controls/action` `{"gesture","steps"}`; the server queues
+  `{id, gesture, steps, age_ms}` for the **target Mac**; Ember.app on that
+  Mac maps the gesture to an action from its own local settings
+  (`UserDefaults` `knobControls.mapping`) and runs it. AppleScript text and
+  Shortcut names never leave the Mac, so a compromised server, a leaked
+  token or a forged queue item can at most fire an action the user set up
+  on that Mac.
+- **Target.** The settings slice `controls_json` holds only `target`, the
+  Mac's name: the now-playing `player` name (`EMBER_SOURCE`, else the
+  computer name, ≤64 characters, `ThisMac.name`). PUT is master token only.
+  `GET /v1/controls/config` adds `macs`, the Macs seen polling (memory only,
+  at most 64; `listening` = a poll waiting or one in the last 30 s).
+- **Queue** (`controlQueue`, modelled on the now-playing `commandQueue`):
+  per Mac, at most 8, consecutive `turn`s merged (steps summed, clamped to
+  ±100), turns dropped after 2 s and presses after 5 s so a late action
+  never fires, at-most-once delivery. A push for a Mac that is not
+  listening is 503 and releases the `Idempotency-Key` (same store rules as
+  now-playing control: 2 min, 128 per caller); per-caller limit burst 20,
+  10/s. Routes: `/v1/controls/commands` and `/v1/controls/config` sit
+  behind the owner auth (`requireAuth`, a knob token is 401); the action
+  route takes the master or a knob device token, never a client token.
+- **App, fail closed.** `KnobControlsService` reads the target every 30 s
+  (and when the Settings picker saves) and runs the `ControlsListener`
+  long-poll only while the target is this Mac and a token is set; no
+  target, a failed read, another Mac or no token stops it. The listener
+  re-checks the target before each batch. `ControlCommand` decoding is
+  strict: an unknown gesture, a missing `id`, bad `steps` or any field
+  outside `id, gesture, steps, age_ms` fails the whole answer, which runs
+  nothing and is logged. `ControlDispatcher` maps gesture + local mapping
+  onto the `ControlsExecutor` protocol (tests use a recording fake); a
+  slot set to nothing, or a kind that doesn't fit the gesture (volume on a
+  press), runs nothing.
+- **Executor** (`MacControlsExecutor`): volume and mute through CoreAudio
+  on the default output (`VirtualMainVolume`, `kAudioDevicePropertyMute`;
+  a volume step up unmutes; no TCC). Media keys are `NSEvent` systemDefined
+  subtype 8 with `NX_KEYTYPE_PLAY/NEXT/PREVIOUS` (16/17/18), key down then
+  up, posted as CGEvents. Scroll is `CGEvent(scrollWheelEvent2Source:)` in
+  lines; a clockwise turn (positive steps) scrolls down or right, so the
+  wheel value is negated. Shortcuts run as `/usr/bin/shortcuts run <name>`
+  and AppleScript as `/usr/bin/osascript -` with the script on stdin, both
+  launched without waiting so a slow script never holds the queue.
+  Posting events (media keys, scroll) needs Accessibility: the executor
+  only checks `CGPreflightPostEventAccess` and skips (logged once); the
+  prompt (`CGRequestPostEventAccess`) is the Settings › Knob › Pages ›
+  Controls button, shown only when this Mac is the target and a mapped
+  action needs it.
+- **Latency** (C1, loopback scratch server, n = 120 each): POST →
+  executor call p50 0.5 ms / p95 0.8 ms from a keep-alive client, p50
+  8.6 ms / p95 11.5 ms with a fresh `curl` per action (process start
+  included). The LAN hop to the Unraid server is not measured.
+
 ### Runtime settings overlay (`settings_overlay.go`)
 
 Every menu-editable config slice — pomodoro (`settings_json`), weather

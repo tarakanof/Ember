@@ -3121,12 +3121,13 @@ paths:
       operationId: postControlsAction
       summary: Relay a knob gesture to the configured Mac
       description: |
-        The device sends a gesture, never an action: the server resolves it
-        against `/v1/controls/config` and queues the action for the target
-        Mac. 202 `queued`, 200 `duplicate` (same `Idempotency-Key` within
-        2 min) or `unassigned` (the gesture's action is `none`), 429 per
-        caller (burst 20, 10/s), 503 when no target is set or the target
-        Mac is not listening.
+        The device names a gesture, never an action: the server queues
+        `{gesture, steps}` for the target Mac, whose Ember.app maps it to
+        an action kept only in that Mac's settings. 202 `queued`, 200
+        `duplicate` (same `Idempotency-Key` within 2 min), 401 for client
+        tokens and unknown or deleted device tokens, 429 per caller
+        (burst 20, 10/s), 503 when no target is set or the target Mac is
+        not listening.
       security: [{ownerToken: []}, {deviceToken: []}]
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -3158,7 +3159,6 @@ paths:
                 type: object
                 properties:
                   status: {type: string, enum: [queued]}
-                  kind: {type: string}
                   target: {type: string}
               examples:
                 queued:
@@ -3171,7 +3171,7 @@ paths:
     get:
       tags: [controls, settings]
       operationId: getControlsConfig
-      summary: The target Mac, the action per gesture and the Macs seen polling
+      summary: The target Mac and the Macs seen polling
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
@@ -3184,8 +3184,8 @@ paths:
     put:
       tags: [controls, settings]
       operationId: putControlsConfig
-      summary: Set the target Mac and the action per gesture (merge)
-      description: Master token only; every client token, `admin` included, gets 403 (the config can hold AppleScript).
+      summary: Set the target Mac (merge)
+      description: Master token only; every client token, `admin` included, gets 403.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:

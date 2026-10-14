@@ -23,6 +23,7 @@ Every route the knob calls, all with its device token (`ekd_…`):
 | `GET /v1/devices/self/firmware/{version}` | The image the checkin's `ota` offer names. |
 | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` | Pomodoro actions; the reply is the timer status (`pomodoro_action.json`). |
 | `POST /v1/nowplaying/control` | Player control, optional `Idempotency-Key`. |
+| `POST /v1/controls/action` | A gesture for the Mac-controller page (#515, cinder#144; firmware page not built yet): `{"gesture":"push|double_push|long_push|turn","steps":±1..20}`, `steps` only for `turn`. Optional `Idempotency-Key`. The knob names a gesture, never an action; actions live on the target Mac. Reply `controls_action.json` (202); 200 `{"status":"duplicate"}`; 503 when no Mac is set or it isn't listening (don't retry); 429 `Retry-After`. |
 | `GET /v1/nowplaying/art?kind=&size=&v=` | Art for the view's `art_version`: `kind` `album`/`artist`/`backdrop`/`cover`, `size` the square edge in px from a fixed list per kind (album 240 or 120, artist 64 or 120, backdrop 466, cover 466; default the first, anything else 400; `cover` is the prepared circle, "Prepared cover"), `v` the `art_version` (public, no token). `v` equal to the current `art_version` (for `cover`, the `cover_version`) gives `public, max-age=86400, immutable` for every kind, `artist` included; any other `v`, or none, gives `no-cache`. |
 
 The knob learns of a config change or a rotation when the view's `epoch` or
@@ -68,7 +69,7 @@ and fall under the same rules as the view.
    fallback for a server that sends none, for two releases.
 4. **Actions are idempotent or take `Idempotency-Key`.** A knob never replays
    a press made while offline. Today `pause`, `resume` and `stop` are
-   idempotent and `nowplaying/control` dedupes on its key; `start` restarts
+   idempotent and `nowplaying/control` and `controls/action` dedupe on their key; `start` restarts
    the phase and `skip` advances again, so a knob must not retry those
    blindly. A new action route follows the rule.
 5. **Goldens are the contract.** Any change to the view, checkin or config
@@ -776,6 +777,7 @@ Indented JSON; key order is the wire order.
 | `checkin_reply_caps.json` | Caps accepted: `config_version` and `caps_ack` |
 | `checkin_reply_rotation.json` | `new_token` from a real rotation, the token replaced by a dummy of the same length |
 | `pomodoro_action.json` | A Pomodoro action reply (pause during a short break) |
+| `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |
 | `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30 |
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
 | `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5, `display.rotation` 180, `bot.weather_moments` false and `weather_every_min` 0), plus an unknown page id the knob must keep |
