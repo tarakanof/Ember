@@ -998,6 +998,16 @@ func TestStaleCheckinWithoutBootsAfterABootIsNotStored(t *testing.T) {
 	}
 }
 
+func TestCheckinOnTheSameBootWithGrownUptimeIsStored(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 5, 40)
+	f.clk.advance(time.Second)
+	demoCheckin(t, f, 3000, 40)
+	if got := f.app.devices.list()[0].LastCheckin.UptimeS; got != 3000 {
+		t.Fatalf("stored uptime = %d, want 3000: on the same boot a grown uptime can only be the newer checkin", got)
+	}
+}
+
 func TestDemoRebootSparesARunStartedAfterTheRebootWasRead(t *testing.T) {
 	t0 := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
 	d := &demoRegistry{}
