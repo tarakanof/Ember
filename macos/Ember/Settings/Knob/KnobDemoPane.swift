@@ -66,7 +66,7 @@ struct KnobDemoPane: View {
         LoadStateSection(isLoaded: demo.scenesLoaded, error: demo.catalogError,
                          offMessage: "This server has no demo scenes. Update the Ember server.",
                          retry: { await demo.loadScenes() })
-        if let error = demo.error {
+        if let error = demo.statusError {
             Section {
                 Label { Text(error.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                     .foregroundStyle(.red)

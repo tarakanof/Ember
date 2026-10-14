@@ -281,6 +281,26 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
     #expect(m.catalogError == .featureOff && !m.scenesLoaded)
 }
 
+@MainActor
+@Test func aServerWithoutTheDemoRoutesShowsOneMessage() async {
+    let service = KnobService(client: stubbedClient(token: "t") { req in (okResponse(req.url!, status: 404), Data()) })
+    let m = KnobDemoModel(service: service, sleep: { _ in })
+    m.configure(service: service, device: "knob-61fc8c")
+    await m.enter()
+    #expect(m.catalogError == .featureOff)
+    #expect(m.error == .featureOff)
+    #expect(m.statusError == nil)
+}
+
+@MainActor
+@Test func aStatusErrorShowsWhenTheCatalogLoaded() async {
+    let server = DemoServer(statuses: ["fail"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.refreshStatus()
+    #expect(m.catalogError == nil && m.statusError != nil)
+}
+
 @Test func demoRouteIsShownOnlyWithDeveloperTools() {
     let knob = SettingsDevice(id: "knob-61fc8c", kind: .knob, name: "Desk knob", state: .ready)
     let hidden = SettingsTree(devices: [knob])

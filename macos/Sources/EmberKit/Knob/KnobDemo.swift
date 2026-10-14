@@ -134,6 +134,10 @@ public final class KnobDemoModel {
         busy = false
     }
 
+    public var statusError: FeedError? {
+        error == .featureOff && catalogError == .featureOff ? nil : error
+    }
+
     public var line: KnobDemoLine {
         let title = title(of: status.scene)
         switch status.state {
