@@ -55,7 +55,7 @@ struct ClockSoundsPane: View {
             } header: {
                 Text("This Mac")
             } footer: {
-                Text("Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start.")
+                Text("Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start. Set the hours in Sounds & Alerts.")
             }
             .disabled(!watcher.prefs.enabled)
         }
