@@ -437,7 +437,7 @@ private func allChecks() -> [Check] {
         Check(file: bs, pattern: #"case BOT_EYES_HAPPY:[^}]*?s->n = BOT_STROKE_MAX;"#, keys: []),
         one("components/bot/include/bot_shape.h", #"#define BOT_STROKE_MAX (\d+)"#, "bot.eyes.happy.points"),
         one(bs, #"s->width = "# + num + #" \* fmin"#, "bot.eyes.happy.stroke"),
-        Check(file: bb, pattern: #"if \(ph == 1\) \{[\s\S]*?next_hop_at = t \+ lognormal\(b, "# + num + ", " + num + ", " + num + ", " + num,
+        Check(file: bb, pattern: #"if \(ph == 1\) \{(?:(?!\} else)[\s\S])*?next_hop_at = t \+ lognormal\(b, "# + num + ", " + num + ", " + num + ", " + num,
               keys: [("bot.hop.interval_median_s", g(1)), ("bot.hop.interval_sigma", g(2)),
                      ("bot.hop.interval_min_s", g(3)), ("bot.hop.interval_max_s", g(4))]),
         one("components/bot/include/bot_behavior.h", #"#define BOT_HOP_DURATION_S "# + num, "bot.hop.duration_s"),
