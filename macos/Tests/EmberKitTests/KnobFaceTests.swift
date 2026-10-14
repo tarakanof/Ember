@@ -485,6 +485,18 @@ private struct Bitmap {
     #expect(img.rows(120..<Int(box.minY), 0..<466, near: purple, 40).isEmpty, "nothing above the canvas")
 }
 
+@MainActor @Test func knobLabelFollowsTheRimMoodNotOnlyTheLabelMood() throws {
+    let purple = RGB(r: 0xB4, g: 0x8C, b: 0xFF)
+    let done = KnobMood(mood: .done, host: "ember", hostColor: purple)
+    let box = KnobFaceRender.labelCanvas(center: CGPoint(x: 233, y: 233), theme: .standard)
+    func labelRows(rim: BotMood) throws -> [Int] {
+        let img = Bitmap(try #require(render(KnobFaceView(.bot(pose: KnobBotDriver.restingPose(rim), mood: done)))))
+        return img.rows(Int(box.minY)..<Int(box.maxY), 0..<466, near: purple, 40)
+    }
+    #expect(!(try labelRows(rim: .waiting)).isEmpty, "label drawn over a label mood")
+    #expect((try labelRows(rim: .idle)).isEmpty, "no label over an idle rim")
+}
+
 @MainActor @Test func knobMarkRisesOverTheHostLineAndHidesOnError() throws {
     let th = KnobTheme.standard, purple = RGB(r: 0xB4, g: 0x8C, b: 0xFF)
     func markRows(_ mood: KnobMood) throws -> [Int] {

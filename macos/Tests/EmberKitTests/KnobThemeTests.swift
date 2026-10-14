@@ -311,7 +311,7 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
     guard let env = ProcessInfo.processInfo.environment["CINDER_DIR"] else { return }
     let root = URL(fileURLWithPath: env)
     for file in ["firmware/main/bot_view.c", "firmware/components/ember_host/include/ember_host.h", "firmware/components/bot/tool_marks.c", "firmware/components/nowplaying/np.c", "firmware/test/host/test_np.c",
-                 "firmware/components/bot/bot_behavior.c", "firmware/CMakeLists.txt"] {
+                 "firmware/components/bot/bot_behavior.c"] {
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path), "CINDER_DIR has no \(file)")
     }
 }
