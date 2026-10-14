@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -68,11 +67,19 @@ func (c *Client) WithAutoServer(a *AutoServer) *Client {
 }
 
 func (c *Client) Post(ctx context.Context, req StatusRequest) error {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return err
+	req = optionalFields.strip(req, time.Now())
+	for {
+		body, err := json.Marshal(req)
+		if err != nil {
+			return err
+		}
+		err = c.send(ctx, http.MethodPost, "/v1/status", body)
+		field, ok := unknownField(err)
+		if !ok || !optionalFields.drop(field, time.Now()) {
+			return err
+		}
+		req = optionalFields.strip(req, time.Now())
 	}
-	return c.send(ctx, http.MethodPost, "/v1/status", body)
 }
 
 func (c *Client) Delete(ctx context.Context, req DeleteRequest) error {
@@ -134,5 +141,14 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte) err
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
-	return fmt.Errorf("server returned %s", resp.Status)
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	return &ServerError{Status: resp.Status, Code: resp.StatusCode, Body: string(msg)}
 }
+
+type ServerError struct {
+	Status string
+	Code   int
+	Body   string
+}
+
+func (e *ServerError) Error() string { return "server returned " + e.Status }
