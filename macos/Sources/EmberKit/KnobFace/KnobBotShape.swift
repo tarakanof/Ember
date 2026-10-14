@@ -5,6 +5,8 @@ public struct KnobBotShape: Sendable {
     public struct Stroke: Sendable, Equatable {
         public var points: [CGPoint]
         public var width: Double
+        public var lid = 0.0
+        public var keep = 0.0
     }
 
     let ringPoints: Int
@@ -91,22 +93,22 @@ public struct KnobBotShape: Sendable {
         if d > limit { cx *= limit / d; cy *= limit / d }
         let fx = (1 - e.foreshorten * cx * cx).squareRoot(), fy = (1 - e.foreshorten * cy * cy).squareRoot()
         let lean = min(max((abs(cx) - e.straight) / (e.restX * e.leanAt - e.straight), 0), 1)
+        let sg: Double = cx < 0 ? -1 : 1
         let sep = (p.eyes == .round ? e.sepRound : e.sep) * fx * (1 + (scale - 1) * 0.5)
         let deg = Double.pi / 180
 
-        return [(-1.0, p.lidLeft), (1.0, p.lidRight)].map { side, lid in
-            func lerp(_ v: [Double]) -> Double { v[0] + (v[1] - v[0]) * lid }
-            let rise = p.eyes == .dash ? e.rise * side * lean : 0
-            let ex = cx + side * sep / 2, ey = cy + rise, ffx = fx * scale, ffy = fy * scale
+        func stroke(_ side: Double, _ lid: Double, _ lc: Double, droop: Double) -> Stroke {
+            let rise = p.eyes == .dash ? e.rise * side * lean * sg : 0
+            let ex = cx + side * sep / 2, ey = cy + rise + p.eyeDY - droop, ffx = fx * scale, ffy = fy * scale
             func capsule(_ c: KnobTheme.Bot.Eyes.Capsule, _ angle: Double) -> Stroke {
-                Self.capsule(ex, ey, lerp(c.width) * ffx, lerp(c.height) * ffy, angle, minHalf: e.minHalf)
+                Self.capsule(ex, ey, c.width * (1 + c.widen * lc) * ffx, c.height * ffy, angle, minHalf: e.minHalf)
             }
             switch p.eyes {
-            case .dash: return capsule(e.dash, lerp(e.dash.angleDeg) * lean * deg)
-            case .angry: return capsule(e.angry, lerp(e.angry.angleDeg) * deg * -side)
-            case .round: return capsule(e.round, lerp(e.round.angleDeg) * lean * deg)
+            case .dash: return capsule(e.dash, e.dash.angleDeg * lean * sg * deg)
+            case .angry: return capsule(e.angry, e.angry.angleDeg * deg * -side)
+            case .round: return capsule(e.round, e.round.angleDeg * lean * sg * deg)
             case .happy:
-                let w = e.happy.width * ffx, h = lerp(e.happy.height) * ffy
+                let w = e.happy.width * ffx, h = (e.happy.height[0] + (e.happy.height[1] - e.happy.height[0]) * lid) * ffy
                 let x0 = ex - w / 2, y0 = ey - h / 2, qx = ex, qy = ey + h * e.happy.lift, x1 = ex + w / 2
                 let n = max(e.happy.points, 2)
                 let pts = (0..<n).map { i -> CGPoint in
@@ -117,6 +119,22 @@ public struct KnobBotShape: Sendable {
                 return Stroke(points: pts, width: e.happy.stroke * min(ffx, ffy))
             }
         }
+
+        return [(-1.0, p.lidLeft, p.blinkLeft), (1.0, p.lidRight, p.blinkRight)].map { side, lid, blink in
+            let hide = p.hide ? min(max(blink / e.blinkHide, 0), 1) : 0
+            let lc = max(min(max(lid, 0), 1), hide)
+            let happy = p.eyes == .happy
+            var s = stroke(side, lid, lc, droop: happy ? 0 : e.lidDroop * lc)
+            s.lid = happy ? (hide >= 1 ? 1 : 0) : lc
+            s.keep = happy ? 0 : e.lidKeep * (1 - hide)
+            return s
+        }
+    }
+
+    public static func lidLineY(_ ys: [Double], width: Double, lid: Double, keep: Double) -> Double? {
+        guard lid > 0, let lo = ys.min(), let hi = ys.max() else { return nil }
+        let top = lo - width / 2 - 1, bottom = hi + width / 2 + 1
+        return top + (bottom - keep * width - top) * min(lid, 1)
     }
 
     static func capsule(_ cx: Double, _ cy: Double, _ w: Double, _ h: Double, _ angle: Double,

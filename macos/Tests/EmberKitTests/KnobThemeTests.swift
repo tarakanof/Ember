@@ -28,7 +28,7 @@ private let pinned: [String: String] = [
     "bot.eye_color": "#F4F4F2",
     "bot.eye_scale": "1.15",
     "bot.hop_scale": "0.45",
-    "bot.rim_px": "6",
+    "bot.rim_px": "9",
     "bot.rim_dim_gain": "0.55",
     "bot.rim_steps": "5",
     "bot.ring_points": "192",
@@ -56,15 +56,21 @@ private let pinned: [String: String] = [
     "bot.eyes.sep_round": "0.5",
     "bot.eyes.rise": "0.04",
     "bot.eyes.min_half": "0.002",
-    "bot.eyes.dash.width": "[0.14,0.24]",
-    "bot.eyes.dash.height": "[0.38,0.06]",
-    "bot.eyes.dash.angle_deg": "[27,-6]",
-    "bot.eyes.angry.width": "[0.13,0.22]",
-    "bot.eyes.angry.height": "[0.3,0.06]",
-    "bot.eyes.angry.angle_deg": "[55,10]",
-    "bot.eyes.round.width": "[0.3,0.34]",
-    "bot.eyes.round.height": "[0.44,0.05]",
-    "bot.eyes.round.angle_deg": "[10,10]",
+    "bot.eyes.lid_keep": "0.3",
+    "bot.eyes.lid_droop": "0.015",
+    "bot.eyes.blink_hide": "0.9",
+    "bot.eyes.dash.width": "0.14",
+    "bot.eyes.dash.widen": "0.35",
+    "bot.eyes.dash.height": "0.38",
+    "bot.eyes.dash.angle_deg": "27",
+    "bot.eyes.angry.width": "0.13",
+    "bot.eyes.angry.widen": "0.35",
+    "bot.eyes.angry.height": "0.3",
+    "bot.eyes.angry.angle_deg": "55",
+    "bot.eyes.round.width": "0.3",
+    "bot.eyes.round.widen": "0.15",
+    "bot.eyes.round.height": "0.44",
+    "bot.eyes.round.angle_deg": "10",
     "bot.eyes.happy.width": "0.3",
     "bot.eyes.happy.height": "[0.16,0.03]",
     "bot.eyes.happy.lift": "1.5",
@@ -86,6 +92,17 @@ private let pinned: [String: String] = [
     "bot.glint.white_mix": "0.85",
     "bot.glint.period_s": "3",
     "bot.glint.fps": "15",
+    "bot.error.gaze_viewer_below": "0.45",
+    "bot.error.gaze_down_below": "0.7",
+    "bot.error.shake_at_s": "0.3",
+    "bot.error.shake_s": "0.4",
+    "bot.error.shake_cycles": "3",
+    "bot.error.shake_amp": "0.0307",
+    "bot.error.huff_s": "0.5",
+    "bot.error.huff_dip": "0.03",
+    "bot.error.huff_lid": "0.45",
+    "bot.error.huff_median_s": "25",
+    "bot.error.huff_sigma": "0.35",
     "pomodoro.ring_radius_px": "222",
     "pomodoro.ring_width_px": "12",
     "pomodoro.track_gain": "0.18",
@@ -325,6 +342,7 @@ private func one(_ file: String, _ pattern: String, _ key: String) -> Check { Ch
 private let num = #"(-?[\d.]+f?)"#
 private let hex = #"(0x[0-9A-Fa-f]{6})"#
 private let bv = "main/bot_view.c", bs = "components/bot/bot_shape.c", bb = "components/bot/bot_behavior.c"
+private let bbh = "components/bot/include/bot_behavior.h", bsh = "components/bot/include/bot_shape.h"
 private let nv = "main/nowplaying_view.c", nc = "main/nowplaying_client.c", nh = "components/nowplaying/include/np.h"
 private let pv = "main/pomo_view.c", tf = "main/temp_face.c"
 
@@ -374,7 +392,44 @@ private func allChecks() -> [Check] {
         one(bs, #"REST_X \* "# + num + " - straight", "bot.eyes.lean_at"),
         Check(file: bs, pattern: #"BOT_EYES_ROUND \? "# + num + " : " + num,
               keys: [("bot.eyes.sep_round", g(1)), ("bot.eyes.sep", g(2))]),
-        one(bs, #"BOT_EYES_DASH \? "# + num + #" \* side"#, "bot.eyes.rise"),
+        one(bs, #"BOT_EYES_DASH \? "# + num + #" \* side \* lean \* sg"#, "bot.eyes.rise"),
+        Check(file: bs, pattern: #"double sg = cx < 0 \? -1 : 1;"#, keys: []),
+        one(bsh, #"#define BOT_LID_KEEP "# + num, "bot.eyes.lid_keep"),
+        one(bsh, #"#define BOT_LID_DROOP "# + num, "bot.eyes.lid_droop"),
+        one(bbh, #"#define BOT_BLINK_HIDE "# + num, "bot.eyes.blink_hide"),
+        Check(file: bs, pattern: #"droop = p->eyes == BOT_EYES_HAPPY \? 0 : BOT_LID_DROOP \* lc;"#, keys: []),
+        Check(file: bs, pattern: #"s->lid = p->eyes == BOT_EYES_HAPPY \? \(hide >= 1 \? 1 : 0\) : lc;\s+"#
+                + #"s->keep = p->eyes == BOT_EYES_HAPPY \? 0 : BOT_LID_KEEP \* \(1 - hide\);"#, keys: []),
+        Check(file: bs, pattern: #"top -= width / 2 \+ 1;\s+bot \+= width / 2 \+ 1;\s+"#
+                + #"return top \+ \(bot - keep \* width - top\) \* \(lid > 1 \? 1 : lid\);"#, keys: []),
+        Check(file: bb, pattern: #"case BOT_ERROR: \{\s+if \(r < "# + num
+                + #"\) \{ \*x = VIEWER_X \+ jitter\(b, 0\.08\); \*y = VIEWER_Y \+ jitter\(b, 0\.08\); \*fix = lognormal\(b, 1\.7, 0\.3, 1\.2, 2\.5\); return; \}\s+if \(r < "#
+                + num + #"\) \{ \*x = jitter\(b, 0\.15\); \*y = -0\.5 \+ jitter\(b, 0\.1\);[^\n]*\s+"#
+                + #"double side = [^\n]*\s+\*x = side \* rng_range\(b, 0\.7, 0\.9\); \*y = jitter\(b, 0\.3\); \*fix = rng_range\(b, 0\.4, 0\.9\);"#,
+              keys: [("bot.error.gaze_viewer_below", g(1)), ("bot.error.gaze_down_below", g(2))]),
+        Check(file: bb, pattern: #"#define LID_SHUT BOT_BLINK_HIDE"#, keys: []),
+        Check(file: bb, pattern: #"double u = t - b->blink_start, shut = 0\.075 \* b->blink_speed \+ fmax\(b->blink_lag, 0\);"#, keys: []),
+        Check(file: bb, pattern: #"if \(b->swap_eyes_on_close && u <= \(b->blink_heavy \? [^:]+ : shut\)\) b->blink_swap = true;\s+"#
+                + #"if \(b->swap_eyes_on_close && b->blink_swap && fmin\(bl, br\) >= LID_SHUT && now\) swap_eyes\(b, t\);"#, keys: []),
+        Check(file: bb, pattern: #"\} else if \(\(beat_due \|\| b->swap_eyes_on_close\) && !b->asleep\) \{\s+reclose\(b, t\);"#, keys: []),
+        Check(file: bb, pattern: #"static void reclose\(bot_t \*b, double t\)\s*\{[^}]*b->blink_lag = 0;[^}]*"#
+                + #"if \(b->blink_speed < 1\.6\) b->blink_speed = 1\.6;"#, keys: []),
+        Check(file: bb, pattern: #"b->shake_at = t \+ BOT_SHAKE_AT_S;\s+b->next_huff_at = b->shake_at \+ huff_gap\(b\);"#, keys: []),
+        Check(file: bb, pattern: #"if \(fx && !b->acting\) b->huff_at = t;\s+b->next_huff_at = t \+ huff_gap\(b\);"#, keys: []),
+        Check(file: bb, pattern: #"if \(\(!fx && t < b->shake_at\) \|\| b->tracking\) b->shake_at = -INFINITY;"#, keys: []),
+        Check(file: bb, pattern: #"if \(t < b->shake_at\) b->shake_at = -INFINITY;\s+b->next_huff_at = INFINITY;"#, keys: []),
+        one(bbh, #"#define BOT_SHAKE_AT_S "# + num, "bot.error.shake_at_s"),
+        one(bbh, #"#define BOT_SHAKE_S "# + num, "bot.error.shake_s"),
+        one(bbh, #"#define BOT_SHAKE_CYCLES "# + num, "bot.error.shake_cycles"),
+        one(bbh, #"#define BOT_SHAKE_AMP "# + num, "bot.error.shake_amp"),
+        one(bbh, #"#define BOT_HUFF_S "# + num, "bot.error.huff_s"),
+        one(bbh, #"#define BOT_HUFF_DIP "# + num, "bot.error.huff_dip"),
+        one(bbh, #"#define BOT_HUFF_LID "# + num, "bot.error.huff_lid"),
+        one(bbh, #"#define BOT_HUFF_MEDIAN_S "# + num, "bot.error.huff_median_s"),
+        one(bb, #"lognormal\(b, BOT_HUFF_MEDIAN_S, "# + num + #", BOT_HUFF_MEDIAN_S / 2, BOT_HUFF_MEDIAN_S \* 2\)"#,
+            "bot.error.huff_sigma"),
+        Check(file: bb, pattern: #"p\.offset_x \+= BOT_SHAKE_AMP \* sin\(2 \* M_PI \* BOT_SHAKE_CYCLES \* su\) \* \(1 - su\);"#
+                + #"\s+if \(huffing\) \{\s+double k = sin\(M_PI \* hu\);\s+p\.eye_dy = -BOT_HUFF_DIP \* k;"#, keys: []),
         one(bs, #"if \(half < "# + num, "bot.eyes.min_half"),
         Check(file: bs, pattern: #"double w = "# + num + #" \* ffx, h = L\("# + num + ", " + num + #"\) \* fh"#,
               keys: [("bot.eyes.happy.width", g(1)), ("bot.eyes.happy.height", arr(2, 3))]),
@@ -426,12 +481,12 @@ private func allChecks() -> [Check] {
                        keys: [("pomodoro.\(key).font_px", g(1)), ("pomodoro.\(key).width_px", g(2)),
                               ("pomodoro.\(key).dy_px", g(3))]))
     }
-    for (key, eye, angle) in [("dash", "DASH", #"L\((-?\d+), (-?\d+)\) \* lean"#), ("angry", "ANGRY", #"L\((-?\d+), (-?\d+)\) \* deg"#),
-                              ("round", "ROUND", #"(\d+)() \* lean"#)] {
-        c.append(Check(file: bs, pattern: "case BOT_EYES_\(eye):[^;]*?capsule\\(s, ex, ey, L\\(" + num + ", " + num
-                         + #"\) \* ffx, L\("# + num + ", " + num + #"\) \* fh, "# + angle,
-                       keys: [("bot.eyes.\(key).width", arr(1, 2)), ("bot.eyes.\(key).height", arr(3, 4)),
-                              ("bot.eyes.\(key).angle_deg", { c in "[" + n(c[5]) + "," + n(c[6].isEmpty ? c[5] : c[6]) + "]" })]))
+    for (key, eye, angle) in [("dash", "DASH", #"(\d+) \* lean \* sg \* deg"#), ("angry", "ANGRY", #"(\d+) \* deg \* -side"#),
+                              ("round", "ROUND", #"(\d+) \* lean \* sg \* deg"#)] {
+        c.append(Check(file: bs, pattern: "case BOT_EYES_\(eye):[^;]*?capsule\\(s, ex, ey, " + num + #" \* \(1 \+ "# + num
+                         + #" \* lc\) \* ffx, "# + num + #" \* fh, "# + angle,
+                       keys: [("bot.eyes.\(key).width", g(1)), ("bot.eyes.\(key).widen", g(2)),
+                              ("bot.eyes.\(key).height", g(3)), ("bot.eyes.\(key).angle_deg", g(4))]))
     }
     return c
 }
