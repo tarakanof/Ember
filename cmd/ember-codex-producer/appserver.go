@@ -60,6 +60,7 @@ type appServer struct {
 	backoffMax  time.Duration
 	retryEvery  time.Duration
 	callTimeout time.Duration
+	bootTimeout time.Duration
 	liveEvery   time.Duration
 	liveTimeout time.Duration
 	failLog     *producer.FailureLogger
@@ -90,6 +91,7 @@ func newAppServer(cfg Config) *appServer {
 		backoffMax:  30 * time.Second,
 		retryEvery:  time.Second,
 		callTimeout: 30 * time.Second,
+		bootTimeout: 30 * time.Second,
 		liveEvery:   time.Minute,
 		liveTimeout: 10 * time.Second,
 		failLog:     producer.NewFailureLogger(10 * time.Minute),
@@ -169,17 +171,38 @@ func (as *appServer) session(ctx context.Context) error {
 		}
 	}()
 
+	bctx, bcancel := context.WithTimeout(sctx, as.bootTimeout)
+	loaded, err := as.bootstrap(bctx, c)
+	bcancel()
+	if err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
+	}
+	as.mu.Lock()
+	for id := range as.lastReleased {
+		if !loaded[id] {
+			as.deletes = append(as.deletes, id)
+			as.gone[id] = as.now()
+		}
+	}
+	as.lastReleased = nil
+	as.mu.Unlock()
+	err = as.worker(sctx, c)
+	slog.Info("codex app-server disconnected", "socket", as.sock, "err", err)
+	return err
+}
+
+func (as *appServer) bootstrap(ctx context.Context, c *rpcConn) (map[string]bool, error) {
 	var init struct {
 		UserAgent string `json:"userAgent"`
 	}
-	if err := as.call(sctx, c, "initialize", map[string]any{
+	if err := as.callFor(ctx, c, as.liveTimeout, "initialize", map[string]any{
 		"clientInfo":   map[string]any{"name": appServerClientName, "title": "Ember (passive observer)", "version": version},
 		"capabilities": map[string]any{"optOutNotificationMethods": appServerOptOut},
 	}, &init); err != nil {
-		return err
+		return nil, err
 	}
 	if err := c.notify("initialized"); err != nil {
-		return err
+		return nil, err
 	}
 	as.mu.Lock()
 	as.connected, as.userAgent = true, init.UserAgent
@@ -197,8 +220,8 @@ func (as *appServer) session(ctx context.Context) error {
 			Data       []string `json:"data"`
 			NextCursor *string  `json:"nextCursor"`
 		}
-		if err := as.call(sctx, c, "thread/loaded/list", params, &ll); err != nil {
-			return err
+		if err := as.callFor(ctx, c, as.liveTimeout, "thread/loaded/list", params, &ll); err != nil {
+			return nil, err
 		}
 		as.mu.Lock()
 		for _, id := range ll.Data {
@@ -213,22 +236,15 @@ func (as *appServer) session(ctx context.Context) error {
 		}
 		cursor = *ll.NextCursor
 	}
-	as.mu.Lock()
-	for id := range as.lastReleased {
-		if !loaded[id] {
-			as.deletes = append(as.deletes, id)
-			as.gone[id] = as.now()
-		}
-	}
-	as.lastReleased = nil
-	as.mu.Unlock()
-	err = as.worker(sctx, c)
-	slog.Info("codex app-server disconnected", "socket", as.sock, "err", err)
-	return err
+	return loaded, nil
 }
 
 func (as *appServer) call(ctx context.Context, c *rpcConn, method string, params, out any) error {
-	cctx, cancel := context.WithTimeout(ctx, as.callTimeout)
+	return as.callFor(ctx, c, as.callTimeout, method, params, out)
+}
+
+func (as *appServer) callFor(ctx context.Context, c *rpcConn, d time.Duration, method string, params, out any) error {
+	cctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 	return c.call(cctx, method, params, out)
 }
@@ -282,10 +298,7 @@ func (as *appServer) worker(ctx context.Context, c *rpcConn) error {
 		default:
 		}
 		if check {
-			lctx, cancel := context.WithTimeout(ctx, as.liveTimeout)
-			err := c.call(lctx, "thread/loaded/list", map[string]any{"limit": 1}, nil)
-			cancel()
-			if err != nil {
+			if err := as.callFor(ctx, c, as.liveTimeout, "thread/loaded/list", map[string]any{"limit": 1}, nil); err != nil {
 				return fmt.Errorf("daemon not answering: %w", err)
 			}
 		}

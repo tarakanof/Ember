@@ -637,7 +637,10 @@ markers still get reaped.
   after a daemon restart or update. Frame writes have a 10 s deadline. After
   a minute with no inbound message, a `thread/loaded/list {limit:1}` must be
   answered within 10 s, so a hung daemon that keeps the socket open still
-  triggers a reconnect. A message over 16 MiB is drained and skipped and the
+  triggers a reconnect. The handshake is bounded the same way: `initialize`
+  and each bootstrap `thread/loaded/list` page must be answered within 10 s,
+  and the whole handshake within 30 s, so a daemon that hangs before the
+  worker starts is dropped as fast. A message over 16 MiB is drained and skipped and the
   connection stays up. It **never starts the daemon**. It
   initializes as `codex_app_server_daemon`: the first client name outside
   the server's non-originating list becomes the daemon-wide originator, which
