@@ -171,6 +171,7 @@ private func freshKnob(wifi: @escaping (FakeKnob) -> [FakeKnob.Out]) -> FakeKnob
 private func rebootedKnob(ember: String, okAfterSetEmber: Bool = false, status: String? = nil) -> FakeKnob {
     let k = FakeKnob()
     let state = StateBox(ember)
+    let statusCalls = CallCount()
     k.onImprov = { m in
         if case .rpc(ImprovCodec.Command.currentState.rawValue, _) = m {
             return [.bytes(Array("I (40) wifi: connected\n".utf8)),
@@ -187,13 +188,20 @@ private func rebootedKnob(ember: String, okAfterSetEmber: Bool = false, status: 
             if okAfterSetEmber { state.value = "ok" }
             return [FakeKnob.reply(["id": id, "ok": true])]
         case "status":
+            let final = statusCalls.next() > 1 ? status : nil
             return [FakeKnob.reply(["id": id, "ok": true,
-                                    "wifi": ["state": "connected", "ip": "192.168.0.39"], "ember": ["state": status ?? state.value]])]
+                                    "wifi": ["state": "connected", "ip": "192.168.0.39"], "ember": ["state": final ?? state.value]])]
         default:
             return []
         }
     }
     return k
+}
+
+private final class CallCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    func next() -> Int { lock.withLock { n += 1; return n } }
 }
 
 final class StateBox: @unchecked Sendable {
