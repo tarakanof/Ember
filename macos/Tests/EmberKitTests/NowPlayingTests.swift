@@ -482,10 +482,14 @@ private func recoveryAttempts(
 }
 
 @MainActor
-@Test func listenerClassifiesClockTimeoutsAndUnsentRequests() async {
+@Test func listenerRetriesTheRecoveryPushAfterAClockTimeout() async {
     #expect(await recoveryAttempts(after: APIError.clockTimedOut(nil)) == 2)
-    #expect(await recoveryAttempts(after: RequestNotSent(underlying: .transport("down"))) == 2)
-    #expect(await recoveryAttempts(after: RequestNotSent(underlying: .http(status: 400, body: ""))) == 1)
+}
+
+@MainActor
+@Test func retryClassifierUnwrapsUnsentRequests() {
+    #expect(MusicCommandListener.retry(after: RequestNotSent(underlying: .transport("down"))) == .zero)
+    #expect(MusicCommandListener.retry(after: RequestNotSent(underlying: .http(status: 400, body: ""))) == nil)
 }
 
 @MainActor
@@ -506,4 +510,11 @@ private func recoveryAttempts(
     let down: Result<[NowPlayingCommand], Error> = .failure(APIError.transport("down"))
     #expect(await recoveryAttempts(after: APIError.rateLimited(retryAfter: .seconds(3600)),
                                    rounds: [down, .success([]), down, .success([]), .success([])]) == 1)
+}
+
+@MainActor
+@Test func listenerDoesNotDelayADuePushWhenAPollFailsAfterAnExpiredHold() async {
+    let down: Result<[NowPlayingCommand], Error> = .failure(APIError.transport("down"))
+    #expect(await recoveryAttempts(after: APIError.rateLimited(retryAfter: .zero),
+                                   rounds: [down, .success([]), down, .success([])]) == 2)
 }
