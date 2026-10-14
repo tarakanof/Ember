@@ -360,6 +360,9 @@ func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 	if a, ok := viewAccent(t, body); !ok || len(a) != 7 {
 		t.Fatalf("worst case lacks the accent: %s", body)
 	}
+	if l, ok := viewCoverLight(t, body); !ok || l != true {
+		t.Fatalf("worst case lacks cover_light: %s", body)
+	}
 	w := decodeFaces(t, body).Weather
 	if w.Rain == nil || w.Rain.Until == nil || len(w.Rain.Spells) != rainSpellsMax || len(w.Days) != faceForecastDays || w.AQI == nil ||
 		len(w.Now) != 6 || len(w.Today) != 5 || len(w.Twilight) != 6 || w.UTCOffset == nil || *w.UTCOffset >= 0 ||
@@ -402,6 +405,7 @@ func worstCaseView(t *testing.T, f *viewFixture) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	album.CoverLight = true
 	if err := f.app.nowPlaying.reg.SetArt(npSource, long, rep.TrackID, nowplaying.Album, album); err != nil {
 		t.Fatal(err)
 	}

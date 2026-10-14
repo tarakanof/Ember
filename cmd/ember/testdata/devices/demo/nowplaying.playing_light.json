@@ -1,0 +1,66 @@
+{
+  "v": 1,
+  "epoch": 2,
+  "config_version": 2,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 0,
+    "done": 0,
+    "source": ""
+  },
+  "pomo": {
+    "phase": "idle",
+    "running": false,
+    "paused": false,
+    "remaining_sec": 0,
+    "planned_sec": 0,
+    "round": 0
+  },
+  "weather": null,
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "nowplaying": {
+    "state": "none"
+  },
+  "demo": {
+    "id": "d0c0ffee",
+    "page": "nowplaying",
+    "view": {
+      "v": 1,
+      "epoch": 2,
+      "config_version": 2,
+      "mood": {
+        "waiting": 0,
+        "errors": 0,
+        "running": 0,
+        "done": 0,
+        "source": ""
+      },
+      "brightness": {
+        "level": 255,
+        "night": false
+      },
+      "nowplaying": {
+        "state": "playing",
+        "source": "demo",
+        "title": "Ember Demo Track",
+        "artist": "The Gradients",
+        "album": "Test Pattern",
+        "track_id": "demo",
+        "duration_ms": 214000,
+        "position_ms": 63000,
+        "position_at": 1782043200000,
+        "art_version": "88e1824e11c9",
+        "album_art": true,
+        "volume": 45,
+        "accent": "#F4F4F2",
+        "cover_version": "88e1824e11c9-r1",
+        "cover_light": true
+      }
+    },
+    "hold": false
+  }
+}

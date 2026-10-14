@@ -108,7 +108,7 @@ func (f *viewFixture) getQuery(t *testing.T, query, etag string) (*http.Response
 }
 
 func TestDemoCatalogHoldsTheIssueScenes(t *testing.T) {
-	want := map[string]int{demoGroupBot: 14, demoGroupMoments: 18, demoGroupFaces: 78, demoGroupPomo: 7, demoGroupNP: 4}
+	want := map[string]int{demoGroupBot: 14, demoGroupMoments: 18, demoGroupFaces: 78, demoGroupPomo: 7, demoGroupNP: 5}
 	got := map[string]int{}
 	var groups []string
 	seen := map[string]bool{}
@@ -132,7 +132,7 @@ func TestDemoCatalogHoldsTheIssueScenes(t *testing.T) {
 		t.Errorf("groups are not contiguous in order: %v", groups)
 	}
 	for _, name := range []string{"bot.sleepy", "bot.asleep", "bot.chase_half", "bot.offline", "bot.quiet_calm", "moment.afterrain.quiet",
-		"face.air.fog", "face.days.dry", "sun.polar_night", "pomodoro.parked", "pomodoro.done", "nowplaying.nothing"} {
+		"face.air.fog", "face.days.dry", "sun.polar_night", "pomodoro.parked", "pomodoro.done", "nowplaying.nothing", "nowplaying.playing_light"} {
 		if !seen[name] {
 			t.Errorf("scene %q missing", name)
 		}
@@ -439,24 +439,31 @@ func TestDemoScenesCatalogRoute(t *testing.T) {
 
 func TestDemoCoverIsFetchableLikeAlbumArt(t *testing.T) {
 	f := demoFixture(t)
-	postDemo(t, f, `{"scene":"nowplaying.playing"}`)
-	d := viewDemo(t, goldenView(t, f))
-	var np knobNowPlaying
-	if err := json.Unmarshal(d.View["nowplaying"], &np); err != nil {
-		t.Fatal(err)
-	}
-	if np.ArtVersion == "" || np.CoverVersion == "" || !np.AlbumArt || np.Accent == "" {
-		t.Fatalf("nowplaying = %+v", np)
-	}
-	for _, q := range []string{"kind=cover&size=466&v=" + np.CoverVersion, "kind=album&size=240&v=" + np.ArtVersion,
-		"kind=backdrop&size=466&v=" + np.ArtVersion} {
-		resp, b := devReq(t, f.srv, "GET", "/v1/nowplaying/art?"+q, "", "")
-		if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/jpeg" || len(b) == 0 {
-			t.Errorf("%s = %d %s", q, resp.StatusCode, resp.Header.Get("Content-Type"))
+	versions := map[string]bool{}
+	for scene, light := range map[string]bool{"nowplaying.playing": false, "nowplaying.playing_light": true} {
+		postDemo(t, f, `{"scene":"`+scene+`"}`)
+		d := viewDemo(t, goldenView(t, f))
+		var np knobNowPlaying
+		if err := json.Unmarshal(d.View["nowplaying"], &np); err != nil {
+			t.Fatal(err)
 		}
-		if !strings.Contains(resp.Header.Get("Cache-Control"), "immutable") {
-			t.Errorf("%s Cache-Control = %q", q, resp.Header.Get("Cache-Control"))
+		if np.ArtVersion == "" || np.CoverVersion == "" || !np.AlbumArt || np.Accent == "" || np.CoverLight != light {
+			t.Fatalf("%s: nowplaying = %+v", scene, np)
 		}
+		versions[np.CoverVersion] = true
+		for _, q := range []string{"kind=cover&size=466&v=" + np.CoverVersion, "kind=album&size=240&v=" + np.ArtVersion,
+			"kind=backdrop&size=466&v=" + np.ArtVersion} {
+			resp, b := devReq(t, f.srv, "GET", "/v1/nowplaying/art?"+q, "", "")
+			if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/jpeg" || len(b) == 0 {
+				t.Errorf("%s: %s = %d %s", scene, q, resp.StatusCode, resp.Header.Get("Content-Type"))
+			}
+			if !strings.Contains(resp.Header.Get("Cache-Control"), "immutable") {
+				t.Errorf("%s: %s Cache-Control = %q", scene, q, resp.Header.Get("Cache-Control"))
+			}
+		}
+	}
+	if len(versions) != 2 {
+		t.Errorf("the light demo cover shares a version with the dark one: %v", versions)
 	}
 	if resp, _ := devReq(t, f.srv, "GET", "/v1/nowplaying/art?kind=album&size=240", "", ""); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("unversioned art with nothing playing = %d, want 404", resp.StatusCode)

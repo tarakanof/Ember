@@ -402,3 +402,32 @@ func TestEnvOptIn(t *testing.T) {
 		}
 	}
 }
+
+func TestNowPlayingArtistArtIsImmutableOnlyAtTheArtVersion(t *testing.T) {
+	f := goldenViewFixture(t)
+	f.clk.now = time.Now()
+	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Song", Artist: "Band", TrackID: "1"}
+	if _, err := f.app.nowPlaying.reg.Report(rep, f.clk.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if !f.app.nowPlaying.reg.SetArtistArt("plex", "Plexamp", "Band", nowplaying.NewImage(pngBytes(t, 32, color.White))) {
+		t.Fatal("artist art not set")
+	}
+	e, _ := f.app.nowPlaying.reg.Current(f.clk.Now())
+	v := e.ArtVersion()
+	if v == "" {
+		t.Fatal("no art_version with an artist picture")
+	}
+	for _, size := range []string{"64", "120"} {
+		resp, _ := npDo(t, f.srv, "GET", "/v1/nowplaying/art?kind=artist&size="+size+"&v="+v, "", nil, nil)
+		if cc := resp.Header.Get("Cache-Control"); resp.StatusCode != http.StatusOK || cc != "public, max-age=86400, immutable" {
+			t.Fatalf("artist %s at v=art_version: %d Cache-Control %q, want 200 immutable", size, resp.StatusCode, cc)
+		}
+	}
+	for _, q := range []string{"", "&v=stale", "&v=" + e.CoverVersion()} {
+		resp, _ := npDo(t, f.srv, "GET", "/v1/nowplaying/art?kind=artist"+q, "", nil, nil)
+		if cc := resp.Header.Get("Cache-Control"); cc != "no-cache" {
+			t.Fatalf("artist with %q: Cache-Control %q, want no-cache", q, cc)
+		}
+	}
+}

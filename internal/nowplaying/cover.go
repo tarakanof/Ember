@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"sync"
 )
 
 const (
@@ -25,36 +26,50 @@ const (
 	accentMinMass  = 4.0
 	accentContrast = 3.0
 	FallbackAccent = "#F4F4F2"
+	bandTop        = 280
+	bandBottom     = 392
+	bandLeft       = 63
+	bandRight      = 403
+
+	coverLightLuminance = 0.22
+)
+
+var (
+	srgbLinear = func() (t [256]float64) {
+		for v := range t {
+			c := float64(v) / 255
+			if c <= 0.04045 {
+				t[v] = c / 12.92
+			} else {
+				t[v] = math.Pow((c+0.055)/1.055, 2.4)
+			}
+		}
+		return t
+	}()
+	bandGain = sync.OnceValue(func() []float32 {
+		g := make([]float32, 0, (bandBottom-bandTop)*(bandRight-bandLeft))
+		for y := bandTop; y < bandBottom; y++ {
+			for x := bandLeft; x < bandRight; x++ {
+				g = append(g, float32(coverGain(x, y)))
+			}
+		}
+		return g
+	})
 )
 
 func cover(sq *image.RGBA) *image.RGBA {
 	disc := resample(sq, coverDisc)
 	out := image.NewRGBA(image.Rect(0, 0, coverSize, coverSize))
 	off := (coverSize - coverDisc) / 2
-	c := float64(coverSize) / 2
-	bottom := c + coverRadius
-	scrimTop := bottom - scrimShare*2*coverRadius
 	for y := range coverSize {
-		yc := float64(y) + 0.5
-		scrim := 1.0
-		if yc > scrimTop {
-			t := min((yc-scrimTop)/(bottom-scrimTop), 1)
-			scrim = 1 - t*(1-scrimFloor)
-		}
 		py := min(max(y-off, 0), coverDisc-1)
 		for x := range coverSize {
 			i := out.PixOffset(x, y)
 			out.Pix[i+3] = 255
-			d := math.Hypot(float64(x)+0.5-c, yc-c)
-			edge := min(max(coverRadius-d+0.5, 0), 1)
-			if edge == 0 {
+			k := float32(coverGain(x, y))
+			if k == 0 {
 				continue
 			}
-			vignette := 1.0
-			if d > vignetteInner {
-				vignette = 1 - min((d-vignetteInner)/(coverRadius-vignetteInner), 1)*(1-vignetteFloor)
-			}
-			k := float32(edge * vignette * scrim)
 			px := min(max(x-off, 0), coverDisc-1)
 			o := (py*coverDisc + px) * 3
 			for ch := range 3 {
@@ -63,6 +78,53 @@ func cover(sq *image.RGBA) *image.RGBA {
 		}
 	}
 	return out
+}
+
+func coverGain(x, y int) float64 {
+	c := float64(coverSize) / 2
+	bottom := c + coverRadius
+	scrimTop := bottom - scrimShare*2*coverRadius
+	yc := float64(y) + 0.5
+	d := math.Hypot(float64(x)+0.5-c, yc-c)
+	edge := min(max(coverRadius-d+0.5, 0), 1)
+	if edge == 0 {
+		return 0
+	}
+	scrim := 1.0
+	if yc > scrimTop {
+		t := min((yc-scrimTop)/(bottom-scrimTop), 1)
+		scrim = 1 - t*(1-scrimFloor)
+	}
+	vignette := 1.0
+	if d > vignetteInner {
+		vignette = 1 - min((d-vignetteInner)/(coverRadius-vignetteInner), 1)*(1-vignetteFloor)
+	}
+	return edge * vignette * scrim
+}
+
+func coverBandLuminance(src image.Image) float64 {
+	off := (coverSize - coverDisc) / 2
+	disc := gridRows(src, coverDisc, bandTop-off, bandBottom-off)
+	gain := bandGain()
+	var sum float64
+	i := 0
+	for y := bandTop; y < bandBottom; y++ {
+		row := (y - bandTop) * coverDisc
+		for x := bandLeft; x < bandRight; x++ {
+			k := gain[i]
+			i++
+			if k == 0 {
+				continue
+			}
+			o := (row + min(max(x-off, 0), coverDisc-1)) * 3
+			var q [3]uint8
+			for ch := range 3 {
+				q[ch] = uint8(min(max(disc.pix[o+ch]*k+0.5, 0), 255))
+			}
+			sum += luminance(q)
+		}
+	}
+	return sum / float64(len(gain))
 }
 
 func accent(p plane) string {
@@ -157,15 +219,11 @@ func quantize(c [3]float64) [3]uint8 {
 }
 
 func contrastOnBlack(q [3]uint8) float64 {
-	lin := func(v uint8) float64 {
-		c := float64(v) / 255
-		if c <= 0.04045 {
-			return c / 12.92
-		}
-		return math.Pow((c+0.055)/1.055, 2.4)
-	}
-	y := 0.2126*lin(q[0]) + 0.7152*lin(q[1]) + 0.0722*lin(q[2])
-	return (y + 0.05) / 0.05
+	return (luminance(q) + 0.05) / 0.05
+}
+
+func luminance(q [3]uint8) float64 {
+	return 0.2126*srgbLinear[q[0]] + 0.7152*srgbLinear[q[1]] + 0.0722*srgbLinear[q[2]]
 }
 
 func hsl(c [3]float64) (h, s, l float64) {

@@ -117,9 +117,10 @@ func (r Report) track() string {
 }
 
 type Image struct {
-	Data   []byte
-	Hash   string
-	Accent string
+	Data       []byte
+	Hash       string
+	Accent     string
+	CoverLight bool
 }
 
 func NewImage(data []byte) *Image {

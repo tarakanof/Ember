@@ -17,13 +17,13 @@ Every route the knob calls, all with its device token (`ekd_…`):
 | Route | What |
 |---|---|
 | `POST /v1/devices/self/checkin` | Health report in, optionally with `caps` ("Capabilities" below); reply carries `config_version`, `caps_ack` when the caps were accepted, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
-| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent` and `cover_version`, "Prepared cover"), `diag_live_until` (live mode only) and `demo` (with the `demo` feature while a demo is set, "Demo mode"). `?demo_id=&demo_state=` report on the demo. Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
+| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `diag_live_until` (live mode only) and `demo` (with the `demo` feature while a demo is set, "Demo mode"). `?demo_id=&demo_state=` report on the demo. Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
 | `GET /v1/devices/self/config` | `{config_version, config}`, the same pair a stale checkin carries. |
 | `PUT /v1/devices/self/coredump?id=` | The core dump a checkin asked for. |
 | `GET /v1/devices/self/firmware/{version}` | The image the checkin's `ota` offer names. |
 | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` | Pomodoro actions; the reply is the timer status (`pomodoro_action.json`). |
 | `POST /v1/nowplaying/control` | Player control, optional `Idempotency-Key`. |
-| `GET /v1/nowplaying/art?kind=&size=&v=` | Art for the view's `art_version`: `kind` `album`/`artist`/`backdrop`/`cover`, `size` the square edge in px from a fixed list per kind (album 240 or 120, artist 64 or 120, backdrop 466, cover 466; default the first, anything else 400; `cover` is the prepared circle, "Prepared cover"), `v` the `art_version` (public, no token). |
+| `GET /v1/nowplaying/art?kind=&size=&v=` | Art for the view's `art_version`: `kind` `album`/`artist`/`backdrop`/`cover`, `size` the square edge in px from a fixed list per kind (album 240 or 120, artist 64 or 120, backdrop 466, cover 466; default the first, anything else 400; `cover` is the prepared circle, "Prepared cover"), `v` the `art_version` (public, no token). `v` equal to the current `art_version` (for `cover`, the `cover_version`) gives `public, max-age=86400, immutable` for every kind, `artist` included; any other `v`, or none, gives `no-cache`. |
 
 The knob learns of a config change or a rotation when the view's `epoch` or
 `config_version` moves, then checks in. The epoch is shared by every device
@@ -199,7 +199,7 @@ pre-releases the same way):
 | `coredump` | Uploads a core dump on `coredump_wanted`, erases on `coredump_ack` | none yet |
 | `stats_intervals` | Applies `stats_interval_s` and `live_interval_s` from its config | Ember.app shows the interval pickers |
 | `wx_faces` | Parses the weather detail keys ("Weather detail") | The detail keys are added to `weather` only with this token |
-| `np_cover` | Shows the prepared cover (`kind=cover`) and `accent` ("Prepared cover") | `nowplaying.accent` and `nowplaying.cover_version` only with this token |
+| `np_cover` | Shows the prepared cover (`kind=cover`) and `accent` ("Prepared cover") | `nowplaying.accent`, `nowplaying.cover_version` and `nowplaying.cover_light` only with this token |
 | `wx_moments` | Applies `bot.weather_moments` and `bot.weather_every_min` from its config ("Bot weather moments") | Ember.app shows the Weather moments rows only with this token; the server sends both keys to every knob |
 | `demo` | Plays the view's `demo` block and reports `demo_id`/`demo_state` ("Demo mode") | `demo` is sent only with this token; `POST …/demo` is 409 without it; Ember.app's Demo page needs it |
 
@@ -218,7 +218,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `wx_faces` or not | detail only with the token and the `weather` block; a caps knob without it gets the legacy block; dropped first to fit `view_bytes`; the worst case stays under 8 KB | `TestKnobViewWeatherFacesGolden` (`view_faces*.json`, `devices_view_weather_test.go`), `TestCapsKnobWithoutWxFacesGetsNoWeatherDetail`, `TestCapsKnobWithWxFacesButWeatherPageOffGetsNoWeather`, `TestCapsKnobViewDropsWeatherDetailFirst`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, `wx_faces` | every `days` entry carries `end` right after `t` (#434): the day's next true local midnight in the location's zone (23 h or 25 h after `t` on a DST day), so a view held across a DST change ends each row at the real midnight; `t` is the day's true local midnight for every provider (#439); without a known zone `end` = `t` + 24 h; old firmware skips the key; cinder before 0.9.60 derives row ends from the next `t` (`knob_view.c`) and weekdays with a +12 h rounding (`wx_days.c`), and reads `end` from 0.9.60 (cinder#92) | `TestStaleKnobViewKeepsTrueDayBoundariesAcrossDST`, `TestOpenMeteoDaysAreTrueLocalMidnightsAcrossDST`, `TestMetNoDaysAreTrueLocalMidnightsAcrossDST`, `TestTomorrowDaysAreTrueLocalMidnightsAcrossDST`, `TestWeatherAPIDaysAreTrueLocalMidnightsAcrossDST`, `TestOpenMeteoDaysWithoutAZoneEndADayLater`, `TestDayClockStartsAMidnightlessDayAtItsFirstInstant`, `TestProvidersSplitAMidnightlessDayAtItsFirstInstant`, `TestDayClockOverEveryZoneForTwoYears`, `TestKnobViewWeatherFacesGolden`, `TestKnobViewWorstCaseFitsHalfTheBuffer`; cinder reads `end` since 0.9.60 (cinder#92) |
 | new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
-| new | new, `np_cover` or not | `accent` and `cover_version` only with the token, only when there is a picture, and the only change to `nowplaying`; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
+| new | new, `np_cover` or not | `accent`, `cover_version` and `cover_light` only with the token, only when there is a picture, and the only change to `nowplaying` (old firmware and caps knobs without the token get it byte-identical); `cover_light` only with the other two, only `true`, last; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>`; `kind=artist` immutable only at `v=<art_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewNPCoverLightGolden` (`view_np_cover_light.json`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewSendsCoverLightOnlyWithNPCover`, `TestKnobViewETagChangesWithCoverLightAlone`, `TestCoverBandLuminanceOfKnownCovers`, `TestNowPlayingArtistArtIsImmutableOnlyAtTheArtVersion`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, `wx_moments` or not (cinder 0.9.65 sends it) | `effective_caps.features` lists it as reported; the config carries `bot.weather_moments` and `bot.weather_every_min` either way; Ember.app shows the Weather moments rows only with the token (no semver fallback: a server without `effective_caps` predates the keys) | `TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments` (`knob_weather_moments_test.go`); Ember.app `knobWeatherMomentsRowsNeedTheWxMomentsToken`; cinder host test: `wx_moments` in `FEATURES_AHEAD` |
 | new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`, `TestDemoPlayingReportDoesNotAnswerTheLongPoll`, `TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted`, `TestDemoLatePlayingReportForTheServedSceneRevivesIt`, `TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue`, `TestDemoOnTheWorstCaseViewFitsTheBuffer`, `TestDemoKnobRebootDropsTheDemoAndItsQueue`, `TestDemoViewWithoutAReportWhilePlayingMeansTheKnobRestarted`, `TestDemoDelayedUnreportedViewAfterPlayingKeepsTheDemo`, `TestDemoCheckinWithUnknownOrStaleUptimeKeepsTheDemo`, `TestDemoStartedAfterTheKnobBootedSurvivesAStaleLastCheckin`, `TestDemoSetBetweenBootAndFirstCheckinStaysPending`; cinder host test: every `demo/*.json` parses |
 | new | any, `stats.inv_areas`/`inv_px` sent or not (cinder#118) | the firmware must send totals for exactly the `period_ms` window (since the previous report, its own accumulator, not the 30 s serial log's take), counted at `LV_EVENT_RENDER_START` as in ARCHITECTURE "Knob diagnostics"; window totals become `invalidated_areas_per_sec`/`invalidated_px_per_sec` in the stats points (full diagnostics only); firmware without them gets nulls; an older server ignores the keys. No caps token: the stats keys are optional on both sides (ARCHITECTURE "Knob diagnostics") | `TestKnobStatsCheckinStoresSample`, `TestKnobStatsFirmwareWithoutInvalidatedAreasLeavesThemNull`, `TestKnobStatsInvalidatedAreasMergeAsPeriodWeightedRates`, `TestKnobStatsInvalidatedAreasWeighOnlyMeasuredWindows`, `TestKnobStatsBasicDropsFullOnlyFields`, `TestDeviceCheckinGolden` (`devices_stats_test.go`, `devices_golden_test.go`); cinder sends them since 0.9.72 (cinder#133), its `NOT_YET_SENT` list is empty |
@@ -252,8 +252,10 @@ it (API.md, `openapi.yaml`).
   `brightness`; its times are relative to when the scene became available
   (whole seconds, the same clock as `X-Ember-Now`), so it keeps one ETag
   while it plays. Weather carries the `wx_faces` detail; now playing carries
-  `art_version`, `accent` and `cover_version` of a built-in gradient that
-  `GET /v1/nowplaying/art` serves for those `v` values like real art.
+  `art_version`, `accent` and `cover_version` of one of two built-in covers
+  (an orange-to-violet gradient; for `nowplaying.playing_light`, cream line
+  art that also gets `cover_light`), which `GET /v1/nowplaying/art` serves
+  for those `v` values like real art.
 - `act` (optional): `moment:<kind>:full|quiet` (kind `glance`, `night`,
   `frost`, `heat`, `wind`, `afterrain`, `snow`, `rain`, `storm`; `quiet` is
   the working-mood variant, its view has a working `mood`), `chase:full`,
@@ -365,7 +367,8 @@ at its recheck.
   golden evening, dusk, polar day, polar night.
 - Pomodoro (`pomodoro.*`): focus, break, long break, paused, parked
   (`running` and `paused` false), 3 done, offline.
-- Now playing (`nowplaying.*`): playing, paused, nothing, offline.
+- Now playing (`nowplaying.*`): playing, light cover (`playing_light`: a
+  cream line-art cover with `cover_light`), paused, nothing, offline.
 
 OTA, reset, setup and join screens are not scenes.
 
@@ -667,8 +670,9 @@ With `np_cover` in its caps (#412, cinder#35), a knob draws the
 now-playing page from one prepared picture instead of the backdrop plus
 the album circle.
 
-- **`accent`** and **`cover_version`** are the last two keys of
-  `nowplaying` (`"accent":"#6C22E6","cover_version":"fb43cf74b67a-r1"`).
+- **`accent`** and **`cover_version`** follow every other key of
+  `nowplaying` (`"accent":"#6C22E6","cover_version":"fb43cf74b67a-r1"`);
+  only `cover_light`, when sent, comes after them.
   `accent` is `#RRGGBB` upper-case, like `mood.lead_color`;
   `cover_version` is `<art_version>-<recipe>`. Both are absent without the
   token and when the entry has no picture. Old firmware and caps knobs
@@ -684,6 +688,43 @@ the album circle.
   non-text). Under ~4 px of saturated weight it falls back to `#F4F4F2`.
   It is computed once when the picture arrives and stays fixed for the
   `art_version`.
+- **`cover_light`** (cinder#168): `"cover_light":true` follows
+  `cover_version` when the prepared cover's text band is light, so the
+  knob can put a stronger scrim or dark text behind the title, artist and
+  time. The key is left out otherwise, never `false`, and only ever sent
+  with `accent` and `cover_version`. Old firmware ignores it.
+  - **Band:** rows [280, 392) and columns [63, 403) of the 466 px
+    `kind=cover` image (y 280–391, x 63–402), where the knob draws the
+    text.
+  - **Measure:** the mean, over every pixel of the band, of the WCAG
+    relative luminance of the prepared pixel: each sRGB channel after the
+    circle mask, vignette and scrim below, rounded to 8 bits as the render
+    does, linearised, then weighted 0.2126/0.7152/0.0722. Pixels are
+    linearised before they are averaged, so fine black-on-white line art
+    counts as the light it is. The server computes it once when the
+    picture arrives, from the band's 112 rows of the 416 px disc only
+    (~2.5 ms for a 1400 px JPEG on an M4, on top of the ~27 ms
+    `Prepare`). Pure white gives 0.576, `#C8C8C8` 0.335, yellow
+    `#FADC3C` 0.415, black 0.
+  - **Light:** mean ≥ **0.22**. The knob's artist line is `#BDBDBD`
+    (relative luminance 0.509), drawn over the light scrim the knob uses
+    without the hint: black at 40 % (opacity 102). LVGL blends the
+    gamma-encoded values, so the scrim scales each sRGB channel by 0.6.
+    Through the full sRGB curve (the 0.055 offset included) that leaves
+    0.34 of a band's luminance, measured over the band for greys near the
+    bar; on the knob's RGB565 (channels truncated to 5/6/5 bits, then
+    `c × 153 >> 8`, text truncated too, L 0.513) it leaves ~0.31. The line
+    keeps 4.5:1 (WCAG AA text) while (0.509 + 0.05) / (0.34 × L + 0.05)
+    ≥ 4.5, so up to L ≈ 0.218 in 8-bit (≈ 0.24 in RGB565); the bar takes
+    the stricter, rounded: 0.22 (4.48:1 in 8-bit, 4.76:1 in RGB565). At
+    3:1 the same sums give ~0.41 (8-bit) to ~0.44 (RGB565), which leaves
+    out `#C8C8C8` (0.335) and yellow `#FADC3C` (0.415), both hard to read
+    on the device: a mean hides the bright patches right under the
+    glyphs, so the bar is the text one. Greys bracket it: `#A4A4A4` 0.217
+    (no key), `#A6A6A6` 0.223 (`cover_light`).
+  - It changes only with the picture, so it never changes without
+    `cover_version` (and the view ETag) changing too; the ETag hashes the
+    body, so `cover_light` alone moves it as well.
 - **`GET /v1/nowplaying/art?kind=cover&size=466&v=<cover_version>`**: a
   466 px baseline JPEG (q 80). The album picture, else the artist one,
   else 404 (the knob shows its vinyl). The recipe:
@@ -722,7 +763,8 @@ Indented JSON; key order is the wire order.
 | `view_faces.json` | A `wx_faces` knob (caps `bot`, `weather`), Open-Meteo through a stub provider: every detail key, two spells (one ongoing moderate rain, one snow), `until`, three days, all six twilight crossings, the moon up with `rise` in the past, `aqi`, `utc_offset` from Open-Meteo |
 | `view_faces_met.json` | The same knob on MET Norway (non-Nordic: no `gust_kmh`, no `pop`), air off (no `aqi`, `utc_offset` the longitude's 0), 1-h spells, dry now (`now.rain` 0, no `until`), days from MET symbols |
 | `view_faces_polar_dry.json` | Longyearbyen on 1 September: `"spells": []`, only the golden-hour crossings (the sun never gets to −4°), the moon up with no `set` within 36 h |
-| `view_np_cover.json` | An `np_cover` knob (caps `bot`, `nowplaying`): playing with an album picture, `accent` lightened from a dark violet to 3:1 on black, `cover_version` |
+| `view_np_cover.json` | An `np_cover` knob (caps `bot`, `nowplaying`): playing with an album picture, `accent` lightened from a dark violet to 3:1 on black, `cover_version`, no `cover_light` (a dark cover) |
+| `view_np_cover_light.json` | The same knob with a light cover: `accent` the `#F4F4F2` fallback, `cover_version`, then `"cover_light": true` as the last key |
 | `view_single_host_paused.json` | One host: `source` set, `lead`/`hosts` left out; paused `pomo` with `remaining_sec`; `weather` without a location (`sunrise`/`sunset` `null`) and without a provider observation time (`observed_at` absent) |
 | `checkin_req_minimal.json` | The base fields every firmware sends |
 | `checkin_req_full.json` | Every block: `diag` with a crash, `ota` with `last`, `stats` (with `inv_areas`/`inv_px`), `wifi`, the display link |

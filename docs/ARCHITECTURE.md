@@ -4390,10 +4390,13 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `weather` page is in their caps and on (`knobView` decides before
   building, not after `applyCaps` hides the block).
   **Prepared cover (#412):** a knob whose caps list `np_cover` gets
-  `"accent":"#RRGGBB"` and `cover_version` as the last keys of
+  `"accent":"#RRGGBB"` and `cover_version` after every other key of
   `nowplaying` when the entry has a picture, and fetches `kind=cover` at
   `v=<cover_version>`; DEVICE-PROTOCOL.md "Prepared cover" has the recipe
-  and rules. Every other view keeps its bytes.
+  and rules. `"cover_light":true` follows when the cover's text band
+  (y 280–391, x 63–402) has mean relative luminance ≥ 0.22, measured per
+  prepared pixel at prepare time (`nowplaying.Image.CoverLight`,
+  cinder#168; the threshold's derivation is in DEVICE-PROTOCOL). Every other view keeps its bytes.
 - **Knob view long-poll (#235).** `?wait=N` (whole seconds, capped at 25,
   `devices_view_wait.go`) with `If-None-Match` holds the request while the
   view still matches the tag: 200 with the new body as soon as it changes,
