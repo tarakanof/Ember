@@ -717,9 +717,10 @@ the album circle.
     keeps 4.5:1 (WCAG AA text) while (0.509 + 0.05) / (0.34 × L + 0.05)
     ≥ 4.5, so up to L ≈ 0.218 in 8-bit (≈ 0.24 in RGB565); the bar takes
     the stricter, rounded: 0.22 (4.48:1 in 8-bit, 4.76:1 in RGB565). At
-    3:1 the same sums give ~0.41 (8-bit) to ~0.44 (RGB565), which leaves
-    out `#C8C8C8` (0.335) and yellow `#FADC3C` (0.415), both hard to read
-    on the device: a mean hides the bright patches right under the
+    3:1 the same sums give ~0.40–0.42 (8-bit) to ~0.44 (RGB565), which
+    leaves out `#C8C8C8` (0.335, 3.47:1 in 8-bit), hard to read on the
+    device; yellow `#FADC3C` (0.415) sits right on that bar, at 3.00:1
+    in 8-bit. A mean also hides the bright patches right under the
     glyphs, so the bar is the text one. Greys bracket it: `#A4A4A4` 0.217
     (no key), `#A6A6A6` 0.223 (`cover_light`).
   - It changes only with the picture, so it never changes without

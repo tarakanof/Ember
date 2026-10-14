@@ -488,6 +488,29 @@ func TestCoverBandIsExactlyTheTextRectangle(t *testing.T) {
 	}
 }
 
+func TestCoverBandCoversTheWholeTextRectangle(t *testing.T) {
+	src, err := decode(testPNG(t, 416, 416, func(x, y int) color.Color {
+		if y >= 255 && y < 367 && x >= 38 && x < 378 {
+			return color.White
+		}
+		return color.Black
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sum float64
+	for y := 280; y < 392; y++ {
+		for x := 63; x < 403; x++ {
+			v := uint8(min(max(255*float32(coverGain(x, y))+0.5, 0), 255))
+			sum += luminance([3]uint8{v, v, v})
+		}
+	}
+	want := sum / (112 * 340)
+	if got := coverBandLuminance(src); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("band luminance %v over a cover white exactly in disc rows [255, 367) x columns [38, 378), want %v: the band is not [280, 392) x [63, 403) of the 466 px cover", got, want)
+	}
+}
+
 func TestCoverLightMarksLightCovers(t *testing.T) {
 	for name, src := range map[string][]byte{
 		"white":        testPNG(t, 300, 300, solid(color.White)),
