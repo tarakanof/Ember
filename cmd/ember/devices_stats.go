@@ -117,8 +117,9 @@ type knobSample struct {
 
 	periodMS    int64
 	resetReason string
+	cpuMS       int64
 	reqMS       int64
-	reqLatMS    int64
+	reqLatN     int64
 	fpsMS       int64
 	frameAvgMS  int64
 	invAreasMS  int64
@@ -145,7 +146,7 @@ func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
 		out.UptimeSec = refOf(c.UptimeS)
 	}
 	if len(s.CPUPct) > 0 {
-		out.CPUPercent = append([]float64(nil), s.CPUPct...)
+		out.CPUPercent, out.cpuMS = append([]float64(nil), s.CPUPct...), out.periodMS
 	}
 	out.HeapInternalMinBytes = s.HeapInternalMin
 	out.PSRAMFreeBytes, out.PSRAMMinBytes, out.PSRAMLargestBytes = s.PSRAMFree, s.PSRAMMin, s.PSRAMLargest
@@ -160,12 +161,12 @@ func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
 			fail = *s.ReqFail
 		}
 		out.RequestsPerMin, out.RequestFailuresPerMin, out.reqMS = rate(ok+fail, 60_000), rate(fail, 60_000), out.periodMS
+		if s.ReqMSAvg != nil {
+			out.reqLatN = ok + fail
+		}
 	}
 	out.RequestLatencyAvgMS, out.RequestLatencyMaxMS = s.ReqMSAvg, s.ReqMSMax
 	out.RenderFPS, out.FrameAvgMS, out.FrameMaxMS = s.FPS, s.FrameMSAvg, s.FrameMSMax
-	if s.ReqMSAvg != nil {
-		out.reqLatMS = out.periodMS
-	}
 	if s.FPS != nil {
 		out.fpsMS = out.periodMS
 	}
@@ -182,7 +183,7 @@ func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
 }
 
 func (a knobSample) merge(b knobSample) knobSample {
-	wa, wb := float64(a.periodMS), float64(b.periodMS)
+	wa, wb := float64(a.cpuMS), float64(b.cpuMS)
 	out := b
 	out.periodMS = a.periodMS + b.periodMS
 	if b.resetReason == "" {
@@ -211,8 +212,9 @@ func (a knobSample) merge(b knobSample) knobSample {
 		for i := range b.CPUPercent {
 			out.CPUPercent[i] = (a.CPUPercent[i]*wa + b.CPUPercent[i]*wb) / (wa + wb)
 		}
+		out.cpuMS = a.cpuMS + b.cpuMS
 	} else if len(b.CPUPercent) == 0 {
-		out.CPUPercent = a.CPUPercent
+		out.CPUPercent, out.cpuMS = a.CPUPercent, a.cpuMS
 	}
 	if b.RSSIDBm == nil {
 		out.RSSIDBm = a.RSSIDBm
@@ -232,7 +234,7 @@ func (a knobSample) merge(b knobSample) knobSample {
 	out.PSRAMMinBytes = lowest(a.PSRAMMinBytes, b.PSRAMMinBytes)
 	out.RequestsPerMin, out.reqMS = measuredMean(a.RequestsPerMin, a.reqMS, b.RequestsPerMin, b.reqMS)
 	out.RequestFailuresPerMin, _ = measuredMean(a.RequestFailuresPerMin, a.reqMS, b.RequestFailuresPerMin, b.reqMS)
-	out.RequestLatencyAvgMS, out.reqLatMS = measuredMean(a.RequestLatencyAvgMS, a.reqLatMS, b.RequestLatencyAvgMS, b.reqLatMS)
+	out.RequestLatencyAvgMS, out.reqLatN = measuredMean(a.RequestLatencyAvgMS, a.reqLatN, b.RequestLatencyAvgMS, b.reqLatN)
 	out.RequestLatencyMaxMS = highest(a.RequestLatencyMaxMS, b.RequestLatencyMaxMS)
 	out.RenderFPS, out.fpsMS = measuredMean(a.RenderFPS, a.fpsMS, b.RenderFPS, b.fpsMS)
 	out.FrameAvgMS, out.frameAvgMS = measuredMean(a.FrameAvgMS, a.frameAvgMS, b.FrameAvgMS, b.frameAvgMS)
@@ -248,6 +250,8 @@ func measuredMean(x *float64, wx int64, y *float64, wy int64) (*float64, int64) 
 		return y, wy
 	case y == nil:
 		return x, wx
+	case wx+wy == 0:
+		return y, 0
 	}
 	return refOf((*x*float64(wx) + *y*float64(wy)) / float64(wx+wy)), wx + wy
 }

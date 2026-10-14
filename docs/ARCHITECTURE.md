@@ -3415,7 +3415,7 @@ show data the owner turned off.
 | `reset_reason` | string `^[a-z][a-z0-9_]{0,15}$` | basic | Why the chip last restarted: `poweron`, `ext`, `sw`, `panic`, `int_wdt`, `task_wdt`, `wdt`, `deepsleep`, `brownout`, `sdio`, `usb`, `jtag`, `efuse`, `pwr_glitch`, `cpu_lockup`, `unknown` (ESP-IDF `esp_reset_reason`, lower-cased without the `ESP_RST_` prefix), or `lvgl_stall` (cinder's LVGL stall watchdog restarted it). |
 | `req_ok` | int, count | full | HTTP requests to Ember that got an answer (any 2xx/304) during the window. |
 | `req_fail` | int, count | full | Requests that failed (transport error, timeout, non-2xx/304) during the window. |
-| `req_ms_avg` | number, ms | full | Mean request duration over the window. |
+| `req_ms_avg` | number, ms | full | Mean request duration over the window (merged per request, by `req_ok + req_fail`). |
 | `req_ms_max` | int, ms | full | Slowest request in the window. |
 | `fps` | number, frames/s | full | Rendered frames per second over the window. |
 | `frame_ms_avg` | number, ms | full | Mean time to render a frame. |
@@ -3482,11 +3482,14 @@ the 2 s view poll already limits. Table in the #249 PR.
 and a minute ring (at most 1440 buckets; buckets older than 24 h leave it) where
 samples of one wall-clock minute fold into one bucket: gauges take the
 newest value, `*_min` the lowest, `*_max` the highest, averages and rates the
-`period_ms`-weighted mean; a bucket's `t` is its newest report. The
-request, render and `invalidated_*` averages and rates weigh only the reports
-that carried them (each keeps its own measured duration, #473/#475), so a
-report without them, such as one sent at basic diagnostics, doesn't dilute
-the mean. Counts become
+mean weighted by `period_ms`; a bucket's `t` is its newest report. Each
+average and rate weighs only the reports that carried it (each field keeps
+its own measured duration, #473/#475/#482: `cpu_percent`, the request
+rates, `render_fps`, `frame_avg_ms` and the `invalidated_*` rates), so a
+report without it, such as one sent at basic diagnostics, doesn't dilute
+the mean; a field sent as `0` counts. `request_latency_avg_ms` is the mean
+per request: it weighs each report by its `req_ok + req_fail`, so a report
+with no counted requests adds nothing. Counts become
 rates on arrival (`(req_ok+req_fail)·60000/period_ms` per minute,
 `inv_areas·1000/period_ms` per second, like `fps`). Both rings grow as
 samples arrive (never past their cap) and give their buffer back when it
@@ -3494,9 +3497,9 @@ falls under a quarter full, so a device costs what it reports: about 500 KB
 for a day at 30-60 s, 300 KB at 120 s, 150 KB at 300 s, plus 25/47/110 KB at
 10/5/2 s while a live session is in the window; the live share is released
 as it ages out. These are estimates: the measured 380/245/125 and 20/37/87 KB
-plus 80 B a sample (48 B for the two `invalidated_*` rates since cinder#118,
-32 B of struct and 16 B of values, and 32 B for the four measured durations
-of #475). Deleting the device drops its series.
+plus 88 B a sample (48 B for the two `invalidated_*` rates since cinder#118,
+32 B of struct and 16 B of values, and 40 B for the five weights of
+#475/#482). Deleting the device drops its series.
 
 **`GET /v1/devices/{id}/stats?range=15m|1h|24h`** (owner token; default
 `1h`, anything else 400, unknown id 404). Answer (dashboard wire

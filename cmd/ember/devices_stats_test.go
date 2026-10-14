@@ -1,7 +1,9 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -381,7 +383,7 @@ func TestKnobStatsRenderAndRequestFieldsWeighOnlyMeasuredWindows(t *testing.T) {
 	}
 	missing := func(ms int) string { return `{"period_ms":` + strconv.Itoa(ms) + `}` }
 	want := map[string]float64{
-		"render_fps": 1, "frame_avg_ms": 1, "request_latency_avg_ms": 1,
+		"render_fps": 1, "frame_avg_ms": 1,
 		"requests_per_min": 120, "request_failures_per_min": 60,
 	}
 	cases := map[string]struct {
@@ -412,6 +414,117 @@ func TestKnobStatsRenderAndRequestFieldsWeighOnlyMeasuredWindows(t *testing.T) {
 				if got := num(t, points[0], key); math.Abs(got-scale*c.want) > 1e-9 {
 					t.Errorf("%s = %v, want %v over the measured windows only", key, got, scale*c.want)
 				}
+			}
+		})
+	}
+}
+
+type weighReport struct {
+	periodMS        int
+	sentPeriod      string
+	v, reqs         int
+	missing, zeroed string
+}
+
+func (r weighReport) json() string {
+	parts := []string{}
+	if r.sentPeriod != "omit" {
+		parts = append(parts, `"period_ms":`+cmp.Or(r.sentPeriod, strconv.Itoa(r.periodMS)))
+	}
+	for _, k := range []string{"cpu", "fps", "frame", "latency", "requests", "inv"} {
+		if k == r.missing {
+			continue
+		}
+		v, reqs, areas := r.v, r.reqs, r.v*r.periodMS/1000
+		if k == r.zeroed {
+			v, reqs, areas = 0, 0, 0
+		}
+		parts = append(parts, map[string]string{
+			"cpu":      fmt.Sprintf(`"cpu_pct":[%d]`, v),
+			"fps":      fmt.Sprintf(`"fps":%d`, v),
+			"frame":    fmt.Sprintf(`"frame_ms_avg":%d`, v),
+			"latency":  fmt.Sprintf(`"req_ms_avg":%d`, v),
+			"requests": fmt.Sprintf(`"req_ok":%d,"req_fail":%d`, reqs, reqs),
+			"inv":      fmt.Sprintf(`"inv_areas":%d,"inv_px":%d`, areas, 64*areas),
+		}[k])
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+func TestKnobStatsEachFieldWeighsOnlyItsOwnReports(t *testing.T) {
+	r1 := weighReport{periodMS: 10000, v: 100, reqs: 10}
+	r3 := weighReport{periodMS: 20000, v: 50, reqs: 5}
+	mid := func(missing, zeroed string) weighReport {
+		return weighReport{periodMS: 30000, v: 20, reqs: 60, missing: missing, zeroed: zeroed}
+	}
+	full := map[string]float64{
+		"cpu": 130.0 / 3, "render_fps": 130.0 / 3, "frame_avg_ms": 130.0 / 3, "request_latency_avg_ms": 4900.0 / 150,
+		"requests_per_min": 150, "request_failures_per_min": 75, "invalidated_areas_per_sec": 130.0 / 3,
+	}
+	with := func(over map[string]float64) map[string]float64 {
+		out := map[string]float64{}
+		for k, v := range full {
+			out[k] = v
+		}
+		for k, v := range over {
+			out[k] = v
+		}
+		return out
+	}
+	cases := map[string]struct {
+		reports []weighReport
+		want    map[string]float64
+	}{
+		"all fields":      {[]weighReport{r1, mid("", ""), r3}, full},
+		"cpu missing":     {[]weighReport{r1, mid("cpu", ""), r3}, with(map[string]float64{"cpu": 200.0 / 3})},
+		"cpu zero":        {[]weighReport{r1, mid("", "cpu"), r3}, with(map[string]float64{"cpu": 100.0 / 3})},
+		"fps missing":     {[]weighReport{r1, mid("fps", ""), r3}, with(map[string]float64{"render_fps": 200.0 / 3})},
+		"fps zero":        {[]weighReport{r1, mid("", "fps"), r3}, with(map[string]float64{"render_fps": 100.0 / 3})},
+		"frame missing":   {[]weighReport{r1, mid("frame", ""), r3}, with(map[string]float64{"frame_avg_ms": 200.0 / 3})},
+		"frame zero":      {[]weighReport{r1, mid("", "frame"), r3}, with(map[string]float64{"frame_avg_ms": 100.0 / 3})},
+		"latency missing": {[]weighReport{r1, mid("latency", ""), r3}, with(map[string]float64{"request_latency_avg_ms": 250.0 / 3})},
+		"latency zero":    {[]weighReport{r1, mid("", "latency"), r3}, with(map[string]float64{"request_latency_avg_ms": 2500.0 / 150})},
+		"request counts missing": {[]weighReport{r1, mid("requests", ""), r3}, with(map[string]float64{
+			"requests_per_min": 60, "request_failures_per_min": 30, "request_latency_avg_ms": 250.0 / 3})},
+		"request counts zero": {[]weighReport{r1, mid("", "requests"), r3}, with(map[string]float64{
+			"requests_per_min": 30, "request_failures_per_min": 15, "request_latency_avg_ms": 250.0 / 3})},
+		"invalidated missing": {[]weighReport{r1, mid("inv", ""), r3}, with(map[string]float64{"invalidated_areas_per_sec": 200.0 / 3})},
+		"invalidated zero":    {[]weighReport{r1, mid("", "inv"), r3}, with(map[string]float64{"invalidated_areas_per_sec": 100.0 / 3})},
+		"period omitted or zero": {[]weighReport{
+			{periodMS: 60000, sentPeriod: "omit", v: 100, reqs: 10},
+			{periodMS: 60000, sentPeriod: "0", v: 20, reqs: 60},
+			{periodMS: 60000, sentPeriod: "omit", v: 50, reqs: 5},
+		}, map[string]float64{
+			"cpu": 170.0 / 3, "render_fps": 170.0 / 3, "frame_avg_ms": 170.0 / 3, "request_latency_avg_ms": 4900.0 / 150,
+			"requests_per_min": 50, "request_failures_per_min": 25, "invalidated_areas_per_sec": 170.0 / 3,
+		}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newStatsFixture(t)
+			f.setDiagnostics(t, "full")
+			for _, r := range c.reports {
+				f.clk.advance(10 * time.Second)
+				f.checkinStats(t, r.json())
+			}
+			points := f.stats(t, "1h").Points
+			if len(points) != 1 {
+				t.Fatalf("1h points = %d, want 1 bucket", len(points))
+			}
+			p := points[0]
+			for key, want := range c.want {
+				var got float64
+				if key == "cpu" {
+					got = p["cpu_percent"].([]any)[0].(float64)
+				} else {
+					got = num(t, p, key)
+				}
+				if math.Abs(got-want) > 1e-9 {
+					t.Errorf("%s = %v, want %v", key, got, want)
+				}
+			}
+			if got, want := num(t, p, "invalidated_px_per_sec"), 64*c.want["invalidated_areas_per_sec"]; math.Abs(got-want) > 1e-6 {
+				t.Errorf("invalidated_px_per_sec = %v, want %v", got, want)
 			}
 		})
 	}
