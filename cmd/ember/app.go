@@ -99,6 +99,7 @@ type App struct {
 	meetingsURLs []string
 
 	nowPlaying *nowPlayingService
+	controls   *controlsService
 
 	meetings        *meetingsStore
 	meetingsFetcher *icsFetcher
@@ -146,6 +147,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.meetings = newMeetingsStore()
 	a.meetingsFetcher = newICSFetcher()
 	a.nowPlaying = newNowPlayingService()
+	a.controls = newControlsService()
 	a.nowPlaying.reg.OnChange = func() { a.changes.notify(topicNowPlaying) }
 	a.iconFetch = fetchLaMetricIcon
 	a.clockJobs = newClockJobGroup()

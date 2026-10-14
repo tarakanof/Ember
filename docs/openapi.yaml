@@ -63,6 +63,8 @@ tags:
     description: Proxy to the TC001 clock's awtrix-ng API. Internal.
   - name: nowplaying
     description: Now-playing reports, art and playback commands.
+  - name: controls
+    description: Knob gestures relayed to actions on one Mac (cinder#144).
   - name: operator
     description: Health and version.
 
@@ -3112,6 +3114,103 @@ paths:
           $ref: "#/components/responses/Object"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /v1/controls/action:
+    post:
+      tags: [controls, device-self]
+      operationId: postControlsAction
+      summary: Relay a knob gesture to the configured Mac
+      description: |
+        The device sends a gesture, never an action: the server resolves it
+        against `/v1/controls/config` and queues the action for the target
+        Mac. 202 `queued`, 200 `duplicate` (same `Idempotency-Key` within
+        2 min) or `unassigned` (the gesture's action is `none`), 429 per
+        caller (burst 20, 10/s), 503 when no target is set or the target
+        Mac is not listening.
+      security: [{ownerToken: []}, {deviceToken: []}]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [gesture]
+              additionalProperties: false
+              properties:
+                gesture:
+                  type: string
+                  enum: [push, double_push, long_push, turn]
+                steps:
+                  type: integer
+                  minimum: -20
+                  maximum: 20
+                  description: Detents, signed; `turn` only (not 0), absent for presses.
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "202":
+          description: Queued for the target Mac.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string, enum: [queued]}
+                  kind: {type: string}
+                  target: {type: string}
+              examples:
+                queued:
+                  externalValue: ../cmd/ember/testdata/devices/controls_action.json
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/controls/config:
+    get:
+      tags: [controls, settings]
+      operationId: getControlsConfig
+      summary: The target Mac, the action per gesture and the Macs seen polling
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [controls, settings]
+      operationId: putControlsConfig
+      summary: Set the target Mac and the action per gesture (merge)
+      description: Master token only; every client token, `admin` included, gets 403 (the config can hold AppleScript).
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/controls/commands:
+    get:
+      tags: [controls]
+      operationId: getControlsCommands
+      summary: Ember.app's long-poll for knob control commands (`?mac=&wait=≤25`)
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /v1/device/discover:
     get:

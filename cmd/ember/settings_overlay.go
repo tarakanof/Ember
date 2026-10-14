@@ -46,6 +46,7 @@ type appSettings struct {
 	quiet      *setting[quietConfigDTO]
 	brightness *setting[BrightnessConfig]
 	clock      *setting[clockConfigDTO]
+	controls   *setting[ControlsConfig]
 }
 
 func newAppSettings(a *App) appSettings {
@@ -72,6 +73,7 @@ func newAppSettings(a *App) appSettings {
 		quiet:           register(o, quietSettingSpec()),
 		brightness:      register(o, brightnessSettingSpec()),
 		clock:           register(o, clockSettingSpec()),
+		controls:        register(o, controlsSettingSpec()),
 	}
 }
 
