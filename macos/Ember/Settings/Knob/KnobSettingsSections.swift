@@ -43,9 +43,9 @@ struct KnobDisplaySection: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if follow {
-                    Text("The knob dims and brightens with the clock. It never goes below the minimum, except during quiet hours, set in Sounds & Alerts.")
+                    Text("The knob dims and brightens with the clock. It never goes below the minimum, except during quiet hours. Set the hours in Sounds & Alerts.")
                 } else {
-                    Text("The knob stays at this brightness. It never goes below the minimum, except during quiet hours, set in Sounds & Alerts.")
+                    Text("The knob stays at this brightness. It never goes below the minimum, except during quiet hours. Set the hours in Sounds & Alerts.")
                 }
                 SaveErrorFooter(error: knob.settings.saveError)
             }

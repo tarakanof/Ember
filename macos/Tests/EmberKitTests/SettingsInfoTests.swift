@@ -24,6 +24,13 @@ func settingsInfoDetailIsOneToThreeSentences(_ info: SettingsInfo) {
     #expect(d != info.summary.key)
 }
 
+@Test(arguments: SettingsInfo.allCases)
+func settingsInfoQuietHoursTextsNameSoundsAndAlerts(_ info: SettingsInfo) {
+    for text in [info.summary.key, info.detail.key] where text.localizedCaseInsensitiveContains("quiet hours") {
+        #expect(text.contains("Sounds & Alerts"), "\(info): mentions quiet hours without saying where to set them")
+    }
+}
+
 @Test func settingsInfoSummariesAreDistinct() {
     let summaries = SettingsInfo.allCases.map(\.summary.key)
     #expect(Set(summaries).count == summaries.count)
