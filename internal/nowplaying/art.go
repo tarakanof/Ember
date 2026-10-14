@@ -46,7 +46,9 @@ func Prepare(data []byte) (*Image, error) {
 		return nil, err
 	}
 	img := NewImage(data)
-	img.Accent = accent(grid(src, accentGrid))
+	g := grid(src, accentGrid)
+	img.Accent = accent(g)
+	img.CoverLight = coverLight(g)
 	return img, nil
 }
 

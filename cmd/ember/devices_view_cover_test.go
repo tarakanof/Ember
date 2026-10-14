@@ -67,6 +67,78 @@ func TestKnobViewNPCoverGolden(t *testing.T) {
 	assertDeviceGolden(t, "view_np_cover", goldenView(t, f))
 }
 
+func viewCoverLight(t *testing.T, body []byte) (any, bool) {
+	t.Helper()
+	var v struct {
+		NowPlaying map[string]any `json:"nowplaying"`
+	}
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatal(err)
+	}
+	l, ok := v.NowPlaying["cover_light"]
+	return l, ok
+}
+
+func setCoverArt(t *testing.T, f *viewFixture, c color.Color) {
+	t.Helper()
+	img, err := nowplaying.Prepare(pngBytes(t, 64, c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, img); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestKnobViewNPCoverLightGolden(t *testing.T) {
+	f := coverViewFixture(t, false)
+	stable := nowplaying.NewImage([]byte("light album"))
+	stable.Accent = nowplaying.FallbackAccent
+	stable.CoverLight = true
+	if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, stable); err != nil {
+		t.Fatal(err)
+	}
+	postCapsCheckin(t, f, "0.10.0", knobCapsCover)
+	assertDeviceGolden(t, "view_np_cover_light", goldenView(t, f))
+}
+
+func TestKnobViewSendsCoverLightOnlyWithNPCover(t *testing.T) {
+	f := coverViewFixture(t, false)
+	setCoverArt(t, f, color.White)
+	if l, ok := viewCoverLight(t, goldenView(t, f)); ok {
+		t.Fatalf("legacy knob got cover_light %v", l)
+	}
+	postCapsCheckin(t, f, "0.10.0", map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "nowplaying"}, "features": []string{"view_wait"}})
+	if l, ok := viewCoverLight(t, goldenView(t, f)); ok {
+		t.Fatalf("caps knob without np_cover got cover_light %v", l)
+	}
+	postCapsCheckin(t, f, "0.10.0", knobCapsCover)
+	light, lightTag, err := f.app.knobView(f.m.ID, f.clk.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l, ok := viewCoverLight(t, light); !ok || l != true {
+		t.Fatalf("white cover: cover_light = %v, want true: %s", l, light)
+	}
+	if _, ok := viewAccent(t, light); !ok || !strings.Contains(string(light), `"cover_version"`) {
+		t.Fatalf("cover_light without accent and cover_version: %s", light)
+	}
+	setCoverArt(t, f, color.RGBA{0x20, 0x18, 0x40, 255})
+	dark, darkTag, err := f.app.knobView(f.m.ID, f.clk.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l, ok := viewCoverLight(t, dark); ok {
+		t.Fatalf("dark cover: cover_light = %v, want the key left out: %s", l, dark)
+	}
+	if darkTag == lightTag {
+		t.Fatal("view ETag did not change with cover_light")
+	}
+	if string(viewKeys(t, light)["nowplaying"]) == string(viewKeys(t, dark)["nowplaying"]) {
+		t.Fatal("nowplaying did not change with the cover")
+	}
+}
+
 func TestKnobViewSendsAccentOnlyWithNPCover(t *testing.T) {
 	f := coverViewFixture(t, false)
 	legacy := goldenView(t, f)

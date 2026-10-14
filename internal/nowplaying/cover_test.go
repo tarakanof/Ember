@@ -394,3 +394,73 @@ func TestAccentIgnoresTheCornersOutsideTheDisc(t *testing.T) {
 		t.Fatalf("accent %v, want the blue inside the disc, not the red corners", q)
 	}
 }
+
+func inkOnWhite(x, y int) color.Color {
+	dx, dy := float64(x)+0.5-256, float64(y)+0.5-256
+	if r := math.Hypot(dx, dy); x%48 < 2 || y%64 < 2 || math.Abs(r-150) < 3 || math.Abs(r-60) < 2 {
+		return color.Black
+	}
+	return color.White
+}
+
+func bandLuminance(t *testing.T, data []byte) float64 {
+	t.Helper()
+	out, err := Render(data, Cover, coverSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := decodeJPEG(t, out)
+	var sum float64
+	var n int
+	for y := bandTop; y < bandBottom; y++ {
+		for x := bandLeft; x < bandRight; x++ {
+			r, g, b := level(img, x, y)
+			sum += luminance([3]uint8{uint8(r), uint8(g), uint8(b)})
+			n++
+		}
+	}
+	return sum / float64(n)
+}
+
+func TestCoverLightMarksALightTextBand(t *testing.T) {
+	for name, src := range map[string][]byte{
+		"white":        testPNG(t, 300, 300, solid(color.White)),
+		"ink on white": testPNG(t, 512, 512, inkOnWhite),
+	} {
+		if !prepared(t, src).CoverLight {
+			t.Errorf("%s: cover_light false, band luminance %.3f", name, bandLuminance(t, src))
+		}
+	}
+}
+
+func TestCoverLightLeavesDarkBandsOut(t *testing.T) {
+	lightOutside := testPNG(t, 400, 400, func(_, y int) color.Color {
+		if y >= 230 && y < 370 {
+			return color.RGBA{20, 20, 24, 255}
+		}
+		return color.White
+	})
+	for name, src := range map[string][]byte{
+		"dark":               testPNG(t, 300, 300, solid(color.RGBA{30, 25, 60, 255})),
+		"photo":              testPNG(t, 300, 300, photoLike(300)),
+		"light outside band": lightOutside,
+	} {
+		if prepared(t, src).CoverLight {
+			t.Errorf("%s: cover_light true, band luminance %.3f", name, bandLuminance(t, src))
+		}
+	}
+}
+
+func TestCoverLightAgreesWithTheRenderedBand(t *testing.T) {
+	for name, src := range map[string][]byte{
+		"white":        testPNG(t, 300, 300, solid(color.White)),
+		"ink on white": testPNG(t, 512, 512, inkOnWhite),
+		"grey":         testPNG(t, 200, 200, solid(color.RGBA{90, 90, 90, 255})),
+		"photo":        testPNG(t, 300, 300, photoLike(300)),
+	} {
+		got, want := prepared(t, src).CoverLight, bandLuminance(t, src) >= lightLuminance
+		if got != want {
+			t.Errorf("%s: cover_light %v, rendered band luminance %.3f", name, got, bandLuminance(t, src))
+		}
+	}
+}

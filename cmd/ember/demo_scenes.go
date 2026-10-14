@@ -406,6 +406,7 @@ func demoNPScenes() []demoScene {
 					v.NowPlaying.AlbumArt = true
 					v.NowPlaying.Accent = art.img.Accent
 					v.NowPlaying.CoverVersion = art.entry.CoverVersion()
+					v.NowPlaying.CoverLight = art.img.CoverLight
 				}
 				return v
 			}}

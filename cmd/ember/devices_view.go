@@ -94,6 +94,7 @@ type knobNowPlaying struct {
 	Volume       *int   `json:"volume,omitempty"`
 	Accent       string `json:"accent,omitempty"`
 	CoverVersion string `json:"cover_version,omitempty"`
+	CoverLight   bool   `json:"cover_light,omitempty"`
 }
 
 const knobNowPlayingPage = "nowplaying"
@@ -232,6 +233,7 @@ func (a *App) knobNowPlaying(now time.Time, accent bool) *knobNowPlaying {
 	if img := e.Picture(nowplaying.Cover); accent && img != nil {
 		np.Accent = img.Accent
 		np.CoverVersion = e.CoverVersion()
+		np.CoverLight = img.CoverLight && np.Accent != "" && np.CoverVersion != ""
 	}
 	return np
 }
