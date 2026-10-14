@@ -86,9 +86,9 @@ func (w *watcher) deleteRequest(id string) producer.DeleteRequest {
 func (w *watcher) buildStatusRequest(th thread, state, message string) producer.StatusRequest {
 	req := w.cfg.StatusRequest(toolName, th.ID, state)
 	req.Message = message
-	req.Project = w.cfg.Project(producer.ProjectFromTitle(th.Title))
 	if w.cfg.ActivityTrailEnabled {
 		req.Activity = producer.Truncate(th.Title, maxActivityRunes)
+		req.Project = w.cfg.Project(producer.ProjectFromTitle(th.Title))
 	}
 	return req
 }
