@@ -3612,9 +3612,11 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   handler read before the checkin, so a demo set after the knob came back,
   or set while the checkin was in flight, survives. An `unanswered` run
   stays `unanswered`. A checkin that `knobCheckinStale` reads as an older
-  one arriving late (within `staleCheckinWindow`, 1 min) is answered but
-  not stored, so the next comparison and the device list keep the newer
-  record and its crash isn't reported again.
+  one arriving late (within `staleCheckinWindow`, 1 min; an uptime lower
+  than the stored one, or grown more than the time since plus 10 s, on the
+  same or unknown boot) is answered but not stored: the next comparison and
+  the device list keep the newer record and caps, its crash isn't reported
+  again, and it adds no stats sample and no OTA step.
 - **App.** `KnobDemoModel.follow` reads the status every second while the
   run is `pending` or `playing`, and every 5 s while an `unanswered` or
   `restarted` warning shows, until the server reports `idle` (60 s later),

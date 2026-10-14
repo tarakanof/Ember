@@ -320,9 +320,11 @@ The server drops the demo and its queue when it sees a reboot, two ways:
   checkin without `uptime_s` drops nothing, since the boot time is unknown;
   the view rule below still catches a playing scene. The previous checkin
   is the stored one, which may predate a server restart. An older checkin
-  arriving late (within a minute of the stored one: the same boot with a
-  lower `uptime_s`, or a lower `boots` whose uptime doesn't fit a reboot)
-  is answered as usual but doesn't replace the stored one.
+  arriving late (within a minute of the stored one: the same boot, or no
+  `boots`, with an `uptime_s` lower than the stored one or higher than it
+  plus the time since and 10 s; or a lower `boots` whose uptime doesn't fit
+  a reboot) is answered but doesn't replace the stored checkin or caps,
+  isn't recorded as a stats sample and doesn't step an OTA.
 - A view request with no `demo_id` while the scene is `playing` and the
   last `playing` report came 3 s or more before it (a booting knob polls
   the view before its first checkin). A request sent before the knob

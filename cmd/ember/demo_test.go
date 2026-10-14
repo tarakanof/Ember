@@ -849,6 +849,37 @@ func TestStaleCheckinKeepsTheNewerLastCheckin(t *testing.T) {
 	}
 }
 
+func TestStaleCheckinDoesNotRollBackCaps(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 30, 41)
+	f.clk.advance(2 * time.Second)
+	old := knobCapsDemo.clone()
+	old.Features = []string{featureNPCover}
+	b, err := json.Marshal(map[string]any{"fw": "0.9.60", "uptime_s": 800, "diag": map[string]any{"boots": 40}, "caps": old})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, rb := devReq(t, f.srv, "POST", "/v1/devices/self/checkin", f.m.Token, string(b))
+	mustOK(t, "stale checkin", resp, rb)
+	st, err := f.app.devices.viewState(f.m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.caps.hasFeature(featureDemo) {
+		t.Fatalf("a checkin from before the reboot replaced the newer caps: %+v", st.caps)
+	}
+}
+
+func TestStaleCheckinWithoutBootsAfterABootIsNotStored(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 5, 0)
+	f.clk.advance(time.Second)
+	demoCheckin(t, f, 3000, 0)
+	if got := f.app.devices.list()[0].LastCheckin.UptimeS; got != 5 {
+		t.Fatalf("stored uptime = %d, want 5: a pre-boot checkin arriving late replaced the post-boot one", got)
+	}
+}
+
 func TestDemoRebootSparesARunStartedAfterTheRebootWasRead(t *testing.T) {
 	t0 := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
 	d := &demoRegistry{}

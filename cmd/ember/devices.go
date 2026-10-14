@@ -596,6 +596,7 @@ type checkinResult struct {
 	CapsAck        bool      `json:"caps_ack,omitempty"`
 	newCrash       *deviceCrash
 	bootedAt       time.Time
+	stale          bool
 }
 
 func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCaps, capsErr string) (checkinResult, error) {
@@ -613,12 +614,13 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 	}
 	report.SeenAt = r.now().UTC()
 	res := checkinResult{ConfigVersion: d.ConfigVersion, CapsAck: caps != nil}
-	capsChanged := !d.Caps.equal(caps) || d.CapsError != capsErr
+	stale := knobCheckinStale(d.LastCheckin, report)
+	res.stale = stale
+	capsChanged := !stale && (!d.Caps.equal(caps) || d.CapsError != capsErr)
 	var prevDiag *deviceDiag
 	if d.LastCheckin != nil {
 		prevDiag = d.LastCheckin.Diag
 	}
-	stale := knobCheckinStale(d.LastCheckin, report)
 	if report.Diag != nil {
 		report.Diag.carryFrom(prevDiag)
 	}
@@ -694,7 +696,11 @@ func knobCheckinStale(prev *deviceCheckin, cur deviceCheckin) bool {
 	if pb, cb := prev.boots(), cur.boots(); pb > 0 && cb > 0 && cb != pb {
 		return cb < pb && known
 	}
-	return known && cur.UptimeS < prev.UptimeS
+	if !known {
+		return false
+	}
+	grown := time.Duration(cur.UptimeS-prev.UptimeS) * time.Second
+	return grown < 0 || grown > cur.SeenAt.Sub(prev.SeenAt)+rebootUptimeSlack
 }
 
 func (c deviceCheckin) boots() int64 {

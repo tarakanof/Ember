@@ -530,6 +530,29 @@ func TestKnobStatsEachFieldWeighsOnlyItsOwnReports(t *testing.T) {
 	}
 }
 
+func TestKnobStatsIgnoreAStaleCheckin(t *testing.T) {
+	f := newStatsFixture(t)
+	f.setDiagnostics(t, "full")
+	send := func(uptime int, cpu int) {
+		t.Helper()
+		body := `{"fw":"0.9.70","uptime_s":` + strconv.Itoa(uptime) + `,"diag":{"boots":40},"stats":{"period_ms":10000,"cpu_pct":[` + strconv.Itoa(cpu) + `]}}`
+		resp, b := devReq(t, f.srv, "POST", "/v1/devices/self/checkin", f.m.Token, body)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
+		}
+	}
+	send(900, 10)
+	f.clk.advance(time.Second)
+	send(880, 90)
+	latest := f.stats(t, "15m").Latest
+	if got := num(t, latest, "uptime_sec"); got != 900 {
+		t.Errorf("latest uptime_sec = %v, want 900 from the newer report", got)
+	}
+	if got := latest["cpu_percent"].([]any)[0].(float64); got != 10 {
+		t.Errorf("latest cpu = %v, want 10: a stale checkin was recorded as the newest sample", got)
+	}
+}
+
 func TestKnobStats15mUsesMinuteSamplesBeforeLiveWindow(t *testing.T) {
 	f := newStatsFixture(t)
 	f.setDiagnostics(t, "basic")
