@@ -306,3 +306,31 @@ func TestCoverVersionChangesWithTheRecipe(t *testing.T) {
 		t.Fatalf("cover versions %q and %q: a recipe bump must change the URL and keep the art version", a, b)
 	}
 }
+
+func TestUntitledReportWithoutTrackIDCountsAsStopped(t *testing.T) {
+	for _, st := range []State{Playing, Paused} {
+		t.Run(string(st), func(t *testing.T) {
+			r := NewRegistry()
+			mustReport(t, r, song("music", "mbp", Playing, "one", 0), t0)
+			empty := Report{Source: "music", Player: "mbp", State: st, Artist: "A"}
+			if !mustReport(t, r, empty, t0.Add(time.Second)) {
+				t.Error("clearing the entry reported no change")
+			}
+			if e, ok := r.Get("music", "mbp"); ok {
+				t.Fatalf("entry %+v kept, want it dropped like a stop", e.Report)
+			}
+			if mustReport(t, r, empty, t0.Add(2*time.Second)) {
+				t.Error("a second empty report changed an empty registry")
+			}
+		})
+	}
+}
+
+func TestUntitledReportWithTrackIDStays(t *testing.T) {
+	r := NewRegistry()
+	rep := Report{Source: "plex", Player: "amp", State: Playing, TrackID: "42"}
+	mustReport(t, r, rep, t0)
+	if _, ok := r.Get("plex", "amp"); !ok {
+		t.Fatal("a report with a track id but no title was dropped")
+	}
+}

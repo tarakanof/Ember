@@ -105,6 +105,10 @@ func (r Report) equal(o Report) bool {
 	return rv == nil || *rv == *ov
 }
 
+func (r Report) stopped() bool {
+	return r.State == Stopped || (r.Title == "" && r.TrackID == "")
+}
+
 func (r Report) track() string {
 	if r.TrackID != "" {
 		return "id:" + r.TrackID
@@ -229,7 +233,7 @@ func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 	k := key{rep.Source, rep.Player}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if rep.State == Stopped {
+	if rep.stopped() {
 		_, had := r.entries[k]
 		delete(r.entries, k)
 		if had {
