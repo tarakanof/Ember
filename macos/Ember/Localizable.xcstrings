@@ -42,6 +42,12 @@
     "%@ (not supported by this firmware)" : {
       "comment" : "Settings › Knob › Display: a saved rotation the knob's firmware can't apply (\"180° (not supported by this firmware)\")."
     },
+    "%@ (offline)" : {
+      "comment" : "Settings › Knob › Controls: a Mac that has stopped polling the server (\"m5 (offline)\")."
+    },
+    "%@ (this Mac)" : {
+      "comment" : "Settings › Knob › Controls: the Mac running this app in the target list (\"m4 (this Mac)\")."
+    },
     "%@ 5h %@" : {
       "comment" : "Menu usage row: tool name, then percent of its 5-hour window used (\"Claude 5h 47%\").",
       "extractionState" : "manual"
@@ -451,6 +457,9 @@
     "%lld h" : {
       "comment" : "A number of hours, abbreviated (\"12 h\")."
     },
+    "%lld lines per step" : {
+      "comment" : "Settings › Knob › Controls: lines scrolled per knob detent (\"3 lines per step\")."
+    },
     "%lld min" : {
       "comment" : "A number of minutes, abbreviated (\"25 min\")."
     },
@@ -497,6 +506,9 @@
     },
     "%lld to go today" : {
       "comment" : "Focus card: focus sessions still needed to meet today's goal."
+    },
+    "%lld%% per step" : {
+      "comment" : "Settings › Knob › Controls: volume change per knob detent (\"2% per step\")."
     },
     "1 Hour" : {},
     "12 weeks" : {},
@@ -608,6 +620,7 @@
     "Album" : {},
     "Album and artist" : {},
     "Allow Access…" : {},
+    "Allow…" : {},
     "Also shows Codex runs that Claude Code's Codex plugin starts" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -632,6 +645,7 @@
     "App Rotation" : {},
     "Apple Music" : {},
     "Apple Reminders" : {},
+    "AppleScript" : {},
     "Applied (version %lld)" : {
       "comment" : "Settings › Knob: the knob runs the latest settings; the argument is the settings version number."
     },
@@ -880,6 +894,7 @@
     "Context glass" : {},
     "Context glass fills with the session's context use; turning it off also stops reporting it." : {},
     "Continuous" : {},
+    "Controls" : {},
     "Coordinates" : {},
     "Core %lld" : {
       "comment" : "Knob Hardware CPU chart: a processor core (\"Core 1\")."
@@ -1042,6 +1057,7 @@
     "Diagnostics" : {},
     "Diagnostics Settings" : {},
     "Diagnostics are off" : {},
+    "Direction" : {},
     "Disabled row" : {},
     "Discover Clocks…" : {},
     "Discovered Servers" : {},
@@ -1062,6 +1078,7 @@
       "extractionState" : "manual"
     },
     "Done: an agent finished." : {},
+    "Double press" : {},
     "Download Crash Dump…" : {},
     "Download ELF…" : {},
     "Downloading" : {},
@@ -1396,11 +1413,13 @@
     "Kept %@: it's the newest Release or a newer Test build." : {
       "comment" : "Settings › Knob Firmware & updates image row note after Delete Old Builds, when Ember refused to delete it; the argument is its version (\"Kept 0.9.43: it's the newest Release or a newer Test build.\")."
     },
+    "Key" : {},
     "Knob" : {},
     "Knob didn't respond to %@" : {
       "comment" : "Demo page status: the knob never started the scene within 10 seconds; the argument is the scene's title (\"Hop\")."
     },
     "Knob name" : {},
+    "Knob presses and turns run these actions on one Mac. Shortcuts and scripts run as you, without asking." : {},
     "Knob restarted during %@" : {
       "comment" : "Demo page status: the knob rebooted while a scene was sent or playing, so the server dropped the demo and its queue; the argument is the scene's title (\"Hop\")."
     },
@@ -1424,6 +1443,7 @@
     "Latitude runs from −90 to 90 and longitude from −180 to 180." : {},
     "Launch at login" : {},
     "Leading zero" : {},
+    "Left and right" : {},
     "Lets the clock's light sensor set its brightness" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1451,6 +1471,7 @@
       "extractionState" : "manual"
     },
     "Long break" : {},
+    "Long press" : {},
     "Long-press the knob to try a mood; it holds for the time set here." : {},
     "Longitude" : {},
     "Low" : {},
@@ -1470,6 +1491,8 @@
       "extractionState" : "manual"
     },
     "Measured now" : {},
+    "Media key" : {},
+    "Media keys and scrolling need Accessibility access for Ember." : {},
     "Meeting" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1512,6 +1535,7 @@
       "extractionState" : "manual"
     },
     "Music" : {},
+    "Mute" : {},
     "Mute sounds at night" : {},
     "Mutes every chime and alarm from the server during these hours, in the server's time zone. Popups still show." : {},
     "Name" : {},
@@ -1536,6 +1560,7 @@
     "New token waiting for the knob" : {},
     "Next App" : {},
     "Next Due" : {},
+    "Next Track" : {},
     "Next meeting" : {},
     "Next: %@ %@" : {
       "comment" : "Menu next-event row: event title, then weekday and time (\"Next: Retro Mon 09:00\").",
@@ -1615,6 +1640,7 @@
     "Not updated recently" : {},
     "Notched calendar, bar above" : {},
     "Notched calendar, bar below" : {},
+    "Nothing" : {},
     "Nothing in the next 36 hours" : {},
     "Nothing playing." : {},
     "Nothing yet" : {},
@@ -1763,6 +1789,7 @@
     "Play Test Chime" : {},
     "Play all" : {},
     "Play this melody on the clock" : {},
+    "Play/Pause" : {},
     "Playback" : {},
     "Playing %@" : {
       "comment" : "Demo page status: the knob is playing a scene; the argument is the scene's title (\"Hop\")."
@@ -1807,9 +1834,11 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Press" : {},
     "Preview" : {},
     "Preview unavailable: the server didn't answer." : {},
     "Previous App" : {},
+    "Previous Track" : {},
     "Privacy: the track's title, artist, album, position and artwork go to your Ember server, and anyone on your network can read what's playing from it (no token needed). Artist pictures come from Deezer only if the server has EMBER_ARTIST_LOOKUP=1; then the artist's name leaves your network." : {},
     "Processor" : {},
     "Processor load" : {},
@@ -1926,6 +1955,9 @@
     },
     "Rounds before long break" : {},
     "Row" : {},
+    "Run AppleScript" : {},
+    "Run Shortcut" : {},
+    "Run on" : {},
     "Running" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1961,6 +1993,7 @@
       "extractionState" : "manual"
     },
     "Scan Again" : {},
+    "Scroll" : {},
     "Scroll speed" : {},
     "Scrolling" : {},
     "Scrolling applies to text that doesn't fit the panel. A running Pomodoro may briefly override button navigation." : {},
@@ -2013,6 +2046,7 @@
       "extractionState" : "manual"
     },
     "Short break" : {},
+    "Shortcut name" : {},
     "Show %@" : {
       "comment" : "Button that opens a Settings pane, e.g. Show Weather"
     },
@@ -2444,6 +2478,7 @@
     "Transition" : {},
     "Transition length" : {},
     "Try Again" : {},
+    "Turn" : {},
     "Turn Display Off" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
@@ -2485,6 +2520,7 @@
     "Unreachable" : {},
     "Until" : {},
     "Untitled" : {},
+    "Up and down" : {},
     "Upcoming" : {},
     "Update Available: %@" : {
       "comment" : "Settings › Clock: button to a newer firmware version; the argument is the version (\"1.2.0\")."
@@ -2554,6 +2590,7 @@
     },
     "VS Code" : {},
     "Very weak" : {},
+    "Volume" : {},
     "Waiting" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

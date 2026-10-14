@@ -256,7 +256,7 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
 @MainActor @Test func settingsModelsAggregateTheirStatus() async {
     let client = stubbedClient { req in (okResponse(req.url!, status: 404), Data()) }
     let s = SettingsModels(client: client, envStore: EnvFileStore(path: URL(fileURLWithPath: "/nonexistent/producer.env")))
-    #expect(s.all.count == 9)
+    #expect(s.all.count == 10)
     #expect(s.aggregateStatus == .idle)
     await s.pomodoro.load()
     #expect(s.pomodoro.loadError == .featureOff)
@@ -374,7 +374,7 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
     await s.loadAll()
     #expect(Set(seen.paths) == [
         "GET /v1/pomodoro/config", "GET /v1/weather/config", "GET /v1/meetings/config",
-        "GET /v1/usage/config", "GET /v1/quiet/config", "GET /v1/display/config",
+        "GET /v1/usage/config", "GET /v1/quiet/config", "GET /v1/display/config", "GET /v1/controls/config",
     ])
     s.pomodoro.draft.focusMinutes = 30
     await s.pomodoro.saveNow()

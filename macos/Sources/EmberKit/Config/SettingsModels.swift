@@ -33,12 +33,13 @@ public final class SettingsModels {
     public private(set) var usage: ServerConfigModel<UsageConfig>
     public private(set) var quiet: ServerConfigModel<QuietConfig>
     public private(set) var display: ServerConfigModel<DisplayConfig>
+    public private(set) var controls: ServerConfigModel<ControlsConfig>
     public let agentsEnv: EnvConfigModel<DisplaySettings>
     public let connectionEnv: EnvConfigModel<ConnectionSettings>
     public let producerTuning: EnvConfigModel<ProducerTuning>
 
     public var all: [any SaveStatusReporting] {
-        [pomodoro, weather, meetings, usage, quiet, display, agentsEnv, connectionEnv, producerTuning]
+        [pomodoro, weather, meetings, usage, quiet, display, controls, agentsEnv, connectionEnv, producerTuning]
     }
 
     public var aggregateStatus: AggregateSaveStatus {
@@ -50,7 +51,7 @@ public final class SettingsModels {
 
     public init(client: APIClient, envStore: EnvFileStore) {
         server = ServerIdentity(client)
-        (pomodoro, weather, meetings, usage, quiet, display) = Self.serverModels(client)
+        (pomodoro, weather, meetings, usage, quiet, display, controls) = Self.serverModels(client)
         agentsEnv = EnvConfigModel(
             env: envStore, initial: DisplaySettings(reading: EnvFile(parsing: "")),
             read: { DisplaySettings(reading: $0) },
@@ -83,10 +84,10 @@ public final class SettingsModels {
         let next = ServerIdentity(client)
         guard next != server else { return false }
         server = next
-        for m in [pomodoro, weather, meetings, usage, quiet, display] as [any PendingSaveCancelling] {
+        for m in [pomodoro, weather, meetings, usage, quiet, display, controls] as [any PendingSaveCancelling] {
             m.cancelPendingSave()
         }
-        (pomodoro, weather, meetings, usage, quiet, display) = Self.serverModels(client)
+        (pomodoro, weather, meetings, usage, quiet, display, controls) = Self.serverModels(client)
         watchClockSources()
         Task { await self.loadServerModels() }
         return true
@@ -99,7 +100,8 @@ public final class SettingsModels {
         async let d: Void = usage.load()
         async let e: Void = quiet.load()
         async let f: Void = display.load()
-        _ = await (a, b, c, d, e, f)
+        async let g: Void = controls.load()
+        _ = await (a, b, c, d, e, f, g)
     }
 
     public func clockMark() -> ClockLegacyMark {
@@ -139,7 +141,8 @@ public final class SettingsModels {
     private static func serverModels(_ client: APIClient) -> (
         ServerConfigModel<PomoConfig>, ServerConfigModel<WeatherConfig>,
         ServerConfigModel<MeetingsConfig>, ServerConfigModel<UsageConfig>,
-        ServerConfigModel<QuietConfig>, ServerConfigModel<DisplayConfig>
+        ServerConfigModel<QuietConfig>, ServerConfigModel<DisplayConfig>,
+        ServerConfigModel<ControlsConfig>
     ) {
         (
             remote(client, "/v1/pomodoro/config", initial: defaultPomoConfig),
@@ -147,7 +150,8 @@ public final class SettingsModels {
             remote(client, "/v1/meetings/config", initial: MeetingsConfig()),
             remote(client, "/v1/usage/config", initial: UsageConfig()),
             remote(client, "/v1/quiet/config", initial: QuietConfig()),
-            remote(client, "/v1/display/config", initial: DisplayConfig())
+            remote(client, "/v1/display/config", initial: DisplayConfig()),
+            remote(client, "/v1/controls/config", initial: ControlsConfig())
         )
     }
 
