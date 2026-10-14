@@ -190,7 +190,7 @@ public struct ControlCommand: Decodable, Equatable, Sendable {
         guard let g = ControlGesture(rawValue: raw) else { throw ControlCommandRejected(reason: "unknown gesture") }
         gesture = g
         steps = try c.decodeIfPresent(Int.self, forKey: .steps) ?? 0
-        guard g == .turn ? (steps != 0 && abs(steps) <= Self.maxSteps) : steps == 0 else {
+        guard g == .turn ? (steps != 0 && (-Self.maxSteps...Self.maxSteps).contains(steps)) : steps == 0 else {
             throw ControlCommandRejected(reason: "bad steps")
         }
         ageMs = max(0, try c.decodeIfPresent(Int.self, forKey: .ageMs) ?? 0)

@@ -67,6 +67,7 @@ private func decodeCommands(_ json: String) throws -> [ControlCommand] {
     #"{"commands":[{"id":"k1","gesture":"push","steps":2}]}"#,
     #"{"commands":[{"id":"k1","gesture":"turn"}]}"#,
     #"{"commands":[{"id":"k1","gesture":"turn","steps":101}]}"#,
+    #"{"commands":[{"id":"k1","gesture":"turn","steps":-9223372036854775808}]}"#,
     #"{"commands":[{"gesture":"push"}]}"#,
     #"{"commands":[{"id":"k1","gesture":"push"},{"id":"k2","gesture":"push","extra":1}]}"#,
     #"{"nothing":[]}"#,
@@ -230,4 +231,92 @@ func controlCommandsRejectUnknownGesturesAndExtraFields(_ json: String) {
     let obj = try JSONSerialization.jsonObject(with: try devicesGolden("controls_action")) as? [String: Any]
     #expect(obj?["status"] as? String == "queued")
     #expect(obj?.keys.sorted() == ["status", "target"])
+}
+
+private actor SuspendingExecutor: ControlsExecutor {
+    var calls = 0
+    private var started: CheckedContinuation<Void, Never>?
+    private var release: CheckedContinuation<Void, Never>?
+
+    func waitStarted() async {
+        if calls > 0 { return }
+        await withCheckedContinuation { started = $0 }
+    }
+    func resume() { release?.resume(); release = nil }
+
+    func toggleMute() async -> Bool {
+        calls += 1
+        started?.resume(); started = nil
+        if calls == 1 { await withCheckedContinuation { release = $0 } }
+        return true
+    }
+    func changeVolume(by points: Int) async -> Bool { await toggleMute() }
+    func press(_ key: MediaKey) async -> Bool { await toggleMute() }
+    func scroll(_ axis: ScrollAxis, lines: Int) async -> Bool { await toggleMute() }
+    func runShortcut(_ name: String) async -> Bool { await toggleMute() }
+    func runAppleScript(_ source: String) async -> Bool { await toggleMute() }
+    func canPostEvents() async -> Bool { true }
+}
+
+private let muteOnPush = ControlsMapping(push: ControlAction(kind: .mute))
+
+@MainActor
+@Test func controlsListenerStopsBetweenActionsWhenTheTargetMoves() async {
+    let ex = SuspendingExecutor()
+    var target = true
+    let listener = ControlsListener(executor: ex, mapping: { muteOnPush }, isTarget: { target })
+    let run = Task { await listener.execute([ControlCommand(id: "1", gesture: .push), ControlCommand(id: "2", gesture: .push)]) }
+    await ex.waitStarted()
+    target = false
+    await ex.resume()
+    #expect(await run.value == [.ran, .notTarget])
+    #expect(await ex.calls == 1)
+}
+
+@MainActor
+@Test func controlsListenerStopsBetweenActionsWhenStopped() async {
+    let ex = SuspendingExecutor()
+    let listener = ControlsListener(executor: ex, mapping: { muteOnPush }, isTarget: { true },
+                                    sleep: { _ in try Task.checkCancellation() })
+    let source = FakeControls([.success([ControlCommand(id: "1", gesture: .push), ControlCommand(id: "2", gesture: .push)])])
+    listener.start(source: source, mac: "M4")
+    await ex.waitStarted()
+    listener.stop()
+    await ex.resume()
+    for _ in 0..<50 where await ex.calls < 2 { try? await Task.sleep(for: .milliseconds(4)) }
+    #expect(await ex.calls == 1)
+}
+
+@Test func scriptRunnerRunsOneProcessAtATime() async throws {
+    let runner = ScriptProcessRunner(timeout: .seconds(30))
+    #expect(runner.run("/bin/sleep", ["2"], what: "test") == .launched)
+    #expect(runner.run("/bin/sleep", ["2"], what: "test") == .busy)
+    #expect(runner.isBusy)
+}
+
+@Test func scriptRunnerKillsAProcessPastItsTimeout() async throws {
+    let runner = ScriptProcessRunner(timeout: .milliseconds(200))
+    let started = ContinuousClock.now
+    #expect(runner.run("/bin/sleep", ["30"], what: "test") == .launched)
+    for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(!runner.isBusy)
+    #expect(ContinuousClock.now - started < .seconds(3))
+    #expect(runner.run("/usr/bin/true", [], what: "test") == .launched)
+}
+
+@Test func scriptRunnerSurvivesAProcessThatExitsBeforeReadingStdin() async throws {
+    let runner = ScriptProcessRunner()
+    let big = Data(repeating: 0x41, count: 4 << 20)
+    for _ in 0..<3 {
+        #expect(runner.run("/usr/bin/true", [], stdin: big, what: "test") == .launched)
+        for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+    }
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(!runner.isBusy)
+}
+
+@Test func scriptRunnerReportsAToolThatCannotStart() {
+    let runner = ScriptProcessRunner()
+    #expect(runner.run("/nonexistent/tool", [], what: "test") == .failed)
+    #expect(!runner.isBusy)
 }

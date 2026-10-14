@@ -3,10 +3,9 @@ import AudioToolbox
 import CoreAudio
 import CoreGraphics
 import EmberKit
-import OSLog
 
 struct MacControlsExecutor: ControlsExecutor {
-    private static let log = Logger(subsystem: "com.ember.Ember", category: "controls")
+    private static let scripts = ScriptProcessRunner()
     private static let systemDefinedAuxKeys: Int16 = 8
     private static let keyDown = 0xA
     private static let keyUp = 0xB
@@ -52,40 +51,16 @@ struct MacControlsExecutor: ControlsExecutor {
     }
 
     func runShortcut(_ name: String) async -> Bool {
-        Self.launch("/usr/bin/shortcuts", ["run", name], stdin: nil, what: "shortcut")
+        Self.scripts.run("/usr/bin/shortcuts", ["run", name], what: "shortcut") == .launched
     }
 
     func runAppleScript(_ source: String) async -> Bool {
-        Self.launch("/usr/bin/osascript", ["-"], stdin: Data(source.utf8), what: "applescript")
+        Self.scripts.run("/usr/bin/osascript", ["-"], stdin: Data(source.utf8), what: "applescript") == .launched
     }
 
     func canPostEvents() async -> Bool { CGPreflightPostEventAccess() }
 
     static func requestEventAccess() -> Bool { CGRequestPostEventAccess() }
-
-    private static func launch(_ tool: String, _ args: [String], stdin: Data?, what: String) -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: tool)
-        p.arguments = args
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        let pipe = stdin.map { _ in Pipe() }
-        if let pipe { p.standardInput = pipe }
-        p.terminationHandler = { proc in
-            if proc.terminationStatus != 0 {
-                log.notice("knob \(what, privacy: .public) exited \(proc.terminationStatus)")
-            }
-        }
-        do { try p.run() } catch {
-            log.error("knob \(what, privacy: .public) did not start: \(error.localizedDescription, privacy: .public)")
-            return false
-        }
-        if let pipe, let stdin {
-            pipe.fileHandleForWriting.write(stdin)
-            try? pipe.fileHandleForWriting.close()
-        }
-        return true
-    }
 
     private static func address(_ selector: AudioObjectPropertySelector,
                                 scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeOutput) -> AudioObjectPropertyAddress {

@@ -16,7 +16,7 @@ public protocol ControlsExecutor: Sendable {
 }
 
 public enum ControlOutcome: Equatable, Sendable {
-    case ran, failed, stale, needsAccessibility, unassigned, notTarget
+    case ran, failed, stale, needsAccessibility, unassigned, notTarget, cancelled
 }
 
 public enum ControlDispatcher {
@@ -135,12 +135,17 @@ public final class ControlsListener {
 
     @discardableResult
     func execute(_ commands: [ControlCommand], received: ContinuousClock.Instant = .now) async -> [ControlOutcome] {
-        guard isTarget() else {
-            if !commands.isEmpty { Self.log.notice("knob controls ignored: this Mac is not the target") }
-            return commands.map { _ in .notTarget }
-        }
         var outcomes: [ControlOutcome] = []
         for c in commands {
+            if Task.isCancelled {
+                outcomes.append(.cancelled)
+                continue
+            }
+            guard isTarget() else {
+                Self.log.notice("knob control ignored: this Mac is not the target (\(c.gesture.rawValue, privacy: .public))")
+                outcomes.append(.notTarget)
+                continue
+            }
             let age = Duration.milliseconds(c.ageMs) + (ContinuousClock.now - received)
             let outcome = await ControlDispatcher.perform(c, mapping: mapping(), on: executor, age: age)
             outcomes.append(outcome)
@@ -156,7 +161,7 @@ public final class ControlsListener {
                 Self.log.error("knob control failed (\(c.gesture.rawValue, privacy: .public))")
             case .ran:
                 if mapping()[c.gesture].kind.needsEventAccess { loggedNoAccess = false }
-            case .unassigned, .notTarget:
+            case .unassigned, .notTarget, .cancelled:
                 break
             }
         }
