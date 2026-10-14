@@ -108,9 +108,11 @@ func TestLeadOfWaitingBeatsANewerDone(t *testing.T) {
 func TestLeadOfDoneWithoutAProject(t *testing.T) {
 	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	v := sessions.View{Now: t0, Sessions: []render.Session{
-		{Source: "m4", Tool: "claude", Session: "a", State: "done", StateSince: t0, UpdatedAt: t0},
+		{Source: "m4", Tool: "claude", Session: "a", State: "done", StateSince: t0.Add(-2 * time.Minute), UpdatedAt: t0},
+		{Source: "m4", Tool: "claude", Session: "b", State: "done", StateSince: t0.Add(-time.Minute), UpdatedAt: t0},
+		{Source: "m5", Tool: "codex", Session: "c", State: "done", StateSince: t0, UpdatedAt: t0},
 	}}
-	want := moodLead{Lead: "M4", Hosts: 1, Tool: "claude"}
+	want := moodLead{Lead: "M5", Hosts: 2, Tool: "codex"}
 	if got := leadOf(v); got != want {
 		t.Fatalf("lead = %+v, want %+v", got, want)
 	}
