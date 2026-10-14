@@ -2208,11 +2208,13 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     (`AppleMusicPusher.pushSnapshot`, #497). It reports the outcome of the
     latest report the pusher sent, which can be a newer Music update merged
     into the snapshot. Later rounds retry it only after a transport error or
-    a 5xx, and after a 429 not before its `Retry-After`; any other failure
-    (400, 413) waits for the next long-poll failure. There is no timer.
+    a 5xx, and after a 429 not before its `Retry-After`, which a long-poll
+    failure doesn't cut short; any other failure (400, 413, an encoding
+    error) waits for the next long-poll failure. There is no timer.
     Commands age from when the poll returned, so a slow snapshot push can't
-    make a queued command look younger than it is. The `playerInfo` userInfo keys are undocumented by Apple; the ones read have
-    been stable since iTunes.
+    make a queued command look younger than it is. The `playerInfo`
+    userInfo keys are undocumented by Apple; the ones read have been stable
+    since iTunes.
 - **Not built yet:** iTunes album fallback, Plex websocket.
 
 ### Runtime settings overlay (`settings_overlay.go`)
