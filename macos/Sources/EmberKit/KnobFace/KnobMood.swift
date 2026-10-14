@@ -29,7 +29,7 @@ public struct KnobMood: Equatable, Sendable {
             let lead = win.source.uppercased()
             let label = Self.leadLabel(lead, hosts: lead.isEmpty ? 0 : count.count, maxChars: maxChars)
             let same = sessions.filter { $0.state == win.state }.count
-            let project = Self.projectLabel(win.project ?? "", others: same - 1)
+            let project = Self.projectLabel(KnobTextFold.fold(win.project ?? ""), others: same - 1)
             self.init(mood: BotMood(state: win.state), host: project.isEmpty ? label : project,
                       hostColor: win.sourceColor.flatMap(RGB.init(hex:)), tool: win.tool,
                       sub: !project.isEmpty && count.count > 1 ? Self.leadLabel(lead, hosts: 1, maxChars: maxChars) : "",

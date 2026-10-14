@@ -89,3 +89,8 @@ private func session(_ src: String, _ state: String, project: String? = nil, sin
     #expect(KnobMood(mood: .working, host: "ember", sub: "M4").shownSub == "")
     #expect(KnobMood(mood: .error, host: "ember", sub: "M4").shownSub == "")
 }
+
+@Test func projectIsFoldedToASCIIBeforeTheLabel() {
+    #expect(KnobMood(sessions: [session("m4", "waiting", project: "café")]).host == "cafe")
+    #expect(KnobMood(sessions: [session("m4", "done", project: "проект")]).host == "proekt")
+}
