@@ -1310,7 +1310,15 @@ render buckets (`clear/clouds/fog/rain/snow/storm`) + a `severe` flag
 temperatures** and (Open-Meteo only) the location's **UTC offset**
 (`&timezone=auto` → `utc_offset_seconds`). The latest observation lives in an
 in-memory `weatherStore`, the single source: one poller fills it and nothing
-fetches per device. The store is tagged with the source it serves, provider,
+fetches per device. Each fetch that stores or confirms an observation also
+saves it in the settings store (`weather_snapshot`, `weather_snapshot.go`,
+#497: the source tag, MET's `Last-Modified` and the observation; no
+credential), and the first poll after boot restores it when its source
+matches the configured one and it is still fresh (`weatherStaleAfter` past
+`FetchedAt`/`ValidUntil`), with `lastFetch` = its `FetchedAt`. So a restart
+under a keyed provider's 5-min floor still serves weather, and doesn't
+refetch before `refresh_minutes`. Units aren't part of the tag: the
+observation is in °C either way. The store is tagged with the source it serves, provider,
 Open-Meteo model and location (`weatherSource`; #409 for the provider, #350
 added the location, #427 the model): `state()` hides an observation tagged
 with another source, so after a provider, model or location change every view
@@ -2053,7 +2061,9 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
   `(source, player)`; a report is `{source, player, state
   playing|paused|stopped, title, artist, album, track_id, duration_ms,
   position_ms}` (`source` `^[a-z][a-z0-9_-]{0,31}$`, text ≤200 characters).
-  `stopped` deletes the entry. Shown: the most recently *started* playing
+  `stopped` deletes the entry, and so does a playing or paused report with
+  no title and no track id (#497; it names no track, and the knob would draw
+  an empty face). Shown: the most recently *started* playing
   entry, else the most recently paused one. Paused lives 10 min from the
   pause (re-reports don't extend it); playing lives until its extrapolated
   end + 5 min (a Mac that slept never says "stopped"; Music posts no notification on a seek, so a backward seek must not hide a playing track), or 30 min after its
@@ -2192,6 +2202,13 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     can launch Music), only while Automation is already granted (checked
     without prompting; the prompt is the Settings button's), then re-reads
     and re-reports (Music posts no notification for a volume change). The
+    registry lives in server memory and the Music pusher is event-driven, so
+    the long-poll doubles as the reconnect signal: its first successful round
+    after a failure (a server restart) re-pushes the Music snapshot
+    (`AppleMusicPusher.pushSnapshot`, #497), and every later round retries it
+until the server accepts the report; there is no timer. Commands age from
+when the poll returned, so a slow snapshot push can't make a queued
+command look younger than it is. The
     `playerInfo` userInfo keys are undocumented by Apple; the ones read have
     been stable since iTunes.
 - **Not built yet:** iTunes album fallback, Plex websocket.

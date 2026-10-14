@@ -969,7 +969,9 @@ store, without the key). A 429, 401 or 403 backs off to its `Retry-After`,
 or to the next top of the hour when the reply has none (the free plan sends
 no rate-limit headers). Only the 429 deadline survives a restart: after
 fixing a rejected key, restart and Ember tries it within 5 minutes (the
-saved last attempt still holds the minimum interval). Air quality still comes from Open-Meteo and costs no Tomorrow.io
+saved last attempt still holds the minimum interval). The last forecast is kept in
+the store too (`weather_snapshot`), so a restart shows it at once while it
+is still fresh instead of waiting out the 5-minute floor. Air quality still comes from Open-Meteo and costs no Tomorrow.io
 calls. Other apps using the same key share its quota.
 
 **Key removed.** Tomorrow.io stays the chosen provider (stored or in

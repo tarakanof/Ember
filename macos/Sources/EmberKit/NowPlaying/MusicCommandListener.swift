@@ -47,16 +47,20 @@ public final class MusicCommandListener {
 
     private func run(source: NowPlayingCommandSource, player: String) async {
         var backoff = Self.firstBackoff
+        var failed = false
         let clock = ContinuousClock()
         while !Task.isCancelled {
             let began = clock.now
             do {
                 let commands = try await source.commands(player: player, wait: Self.wait)
+                let received = clock.now
                 backoff = Self.firstBackoff
-                await execute(commands, received: clock.now)
+                if failed, await pusher.pushSnapshot() { failed = false }
+                await execute(commands, received: received)
                 if commands.isEmpty, clock.now - began < Self.minRound { try await sleep(Self.minRound) }
             } catch {
                 if Task.isCancelled || error is CancellationError { return }
+                failed = true
                 let pause: Duration
                 switch error as? APIError {
                 case .http(404, _)?: pause = Self.missingRouteBackoff

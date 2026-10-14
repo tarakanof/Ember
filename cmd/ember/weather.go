@@ -320,6 +320,8 @@ type weatherStore struct {
 
 	quotas map[string]*providerQuota
 
+	snapshotLoaded bool
+
 	air         airObservation
 	haveAir     bool
 	airTriedAt  time.Time
@@ -502,9 +504,13 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	if !cfg.Enabled {
 		return
 	}
+	available := a.weatherFetcher.providerAvailable(cfg.Provider)
+	if available {
+		a.restoreWeatherSnapshot(src, now)
+	}
 	a.checkSunPopups(ctx, now, cfg)
 	a.pollAir(ctx, now, cfg)
-	if !a.weatherFetcher.providerAvailable(cfg.Provider) {
+	if !available {
 		return
 	}
 	a.loadWeatherQuota(cfg, now)
@@ -532,6 +538,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	}
 	if res.NotModified {
 		if a.confirmWeather(now, src, cfg, res) {
+			a.saveWeatherSnapshot(src)
 			a.changes.notify(topicWeather)
 			a.popKeptWeather(ctx, now, src, cfg)
 		} else {
@@ -555,6 +562,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.weather.lastModified = res.LastModified
 	a.weather.notBefore = obs.ValidUntil
 	a.weather.mu.Unlock()
+	a.saveWeatherSnapshot(src)
 	a.changes.notify(topicWeather)
 	a.popWeather(ctx, now, src, cfg, obs.current(now))
 	a.nudgePomo()
