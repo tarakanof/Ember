@@ -24,7 +24,8 @@ const (
 	demoUTCOffset = time.Hour
 	demoCoverPx   = 480
 	// Fixed, not the PNG hash: PNG bytes differ between Go releases (ARCHITECTURE "Knob demo mode").
-	demoArtHash = "de30de30de30de30"
+	demoArtHash      = "de30de30de30de30"
+	demoLightArtHash = "de30de30de30f0f0"
 )
 
 type demoScene struct {
@@ -40,18 +41,37 @@ type demoScene struct {
 type demoArt struct {
 	entry nowplaying.Entry
 	img   *nowplaying.Image
+	light *demoArt
 }
 
 var demoArtOnce = sync.OnceValues(newDemoArt)
 
 func newDemoArt() (*demoArt, error) {
-	src := image.NewRGBA(image.Rect(0, 0, demoCoverPx, demoCoverPx))
 	from, to := [3]float64{0xF0, 0x6A, 0x2A}, [3]float64{0x5A, 0x2C, 0xD8}
+	art, err := prepareDemoArt(demoArtHash, func(x, y int) color.RGBA {
+		t := float64(x+y) / float64(2*(demoCoverPx-1))
+		mix := func(i int) uint8 { return uint8(from[i] + (to[i]-from[i])*t + 0.5) }
+		return color.RGBA{mix(0), mix(1), mix(2), 255}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if art.light, err = prepareDemoArt(demoLightArtHash, func(x, y int) color.RGBA {
+		if x%40 < 3 || y%60 < 3 {
+			return color.RGBA{0x22, 0x22, 0x22, 255}
+		}
+		return color.RGBA{0xF4, 0xEE, 0xE0, 255}
+	}); err != nil {
+		return nil, err
+	}
+	return art, nil
+}
+
+func prepareDemoArt(hash string, fill func(x, y int) color.RGBA) (*demoArt, error) {
+	src := image.NewRGBA(image.Rect(0, 0, demoCoverPx, demoCoverPx))
 	for y := range demoCoverPx {
 		for x := range demoCoverPx {
-			t := float64(x+y) / float64(2*(demoCoverPx-1))
-			mix := func(i int) uint8 { return uint8(from[i] + (to[i]-from[i])*t + 0.5) }
-			src.SetRGBA(x, y, color.RGBA{mix(0), mix(1), mix(2), 255})
+			src.SetRGBA(x, y, fill(x, y))
 		}
 	}
 	var buf bytes.Buffer
@@ -62,7 +82,7 @@ func newDemoArt() (*demoArt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("prepare demo cover: %w", err)
 	}
-	img.Hash = demoArtHash
+	img.Hash = hash
 	return &demoArt{entry: nowplaying.Entry{AlbumArt: img}, img: img}, nil
 }
 
@@ -75,7 +95,7 @@ func (d *demoArt) picture(kind nowplaying.Kind, v string) (*nowplaying.Image, st
 		version = d.entry.CoverVersion()
 	}
 	if v != version {
-		return nil, "", false
+		return d.light.picture(kind, v)
 	}
 	return d.entry.Picture(kind), version, true
 }
@@ -391,7 +411,7 @@ func demoPomoScenes() []demoScene {
 }
 
 func demoNPScenes() []demoScene {
-	np := func(name, title string, offline bool, state string) demoScene {
+	np := func(name, title string, offline, light bool, state string) demoScene {
 		return demoScene{Name: "nowplaying." + name, Group: demoGroupNP, Title: title, page: knobNowPlayingPage, offline: offline,
 			view: func(at time.Time, art *demoArt) knobView {
 				v := knobView{Mood: block(&knobMood{}), NowPlaying: &knobNowPlaying{State: nowPlayingNone}}
@@ -401,6 +421,9 @@ func demoNPScenes() []demoScene {
 				v.NowPlaying = &knobNowPlaying{State: state, Source: "demo", Title: "Ember Demo Track", Artist: "The Gradients",
 					Album: "Test Pattern", TrackID: "demo", DurationMS: 214_000, PositionMS: 63_000, PositionAt: at.UnixMilli(),
 					Volume: new(45)}
+				if light && art != nil {
+					art = art.light
+				}
 				if art != nil {
 					v.NowPlaying.ArtVersion = art.entry.ArtVersion()
 					v.NowPlaying.AlbumArt = true
@@ -412,9 +435,10 @@ func demoNPScenes() []demoScene {
 			}}
 	}
 	return []demoScene{
-		np("playing", "Playing", false, string(nowplaying.Playing)),
-		np("paused", "Paused", false, string(nowplaying.Paused)),
-		np("nothing", "Nothing playing", false, nowPlayingNone),
-		np("offline", "Offline", true, string(nowplaying.Playing)),
+		np("playing", "Playing", false, false, string(nowplaying.Playing)),
+		np("playing_light", "Light cover", false, true, string(nowplaying.Playing)),
+		np("paused", "Paused", false, false, string(nowplaying.Paused)),
+		np("nothing", "Nothing playing", false, false, nowPlayingNone),
+		np("offline", "Offline", true, false, string(nowplaying.Playing)),
 	}
 }
