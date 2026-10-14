@@ -54,8 +54,8 @@ func leadOf(v sessions.View) moodLead {
 		}
 	}
 	l.Hosts = len(count)
-	if win.State == "waiting" {
-		return waitingLead(*win, l.Hosts)
+	if win.State == "waiting" || win.State == "done" {
+		return newestLead(*win, l.Hosts)
 	}
 	if l.Lead == "" {
 		return l
@@ -77,7 +77,7 @@ func leadOf(v sessions.View) moodLead {
 	return l
 }
 
-func waitingLead(win Session, hosts int) moodLead {
+func newestLead(win Session, hosts int) moodLead {
 	l := moodLead{Lead: strings.ToUpper(win.Source), Hosts: hosts, Tool: win.Tool, Project: win.Project}
 	if l.Lead == "" {
 		l.Hosts = 0

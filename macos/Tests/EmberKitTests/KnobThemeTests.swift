@@ -87,6 +87,12 @@ private let pinned: [String: String] = [
     "bot.host.claude_color": "#D77757",
     "bot.host.codex_color": "#FFFFFF",
     "bot.host.max_chars": "10",
+    "bot.host.sub_font_px": "18",
+    "bot.host.sub_radius_px": "147",
+    "bot.host.mark_bottom_sub_px": "128",
+    "bot.host.canvas_w_px": "340",
+    "bot.host.canvas_h_px": "116",
+    "bot.host.canvas_y_px": "312",
     "bot.glint.width_px": "12",
     "bot.glint.tail_deg": "40",
     "bot.glint.white_mix": "0.85",
@@ -304,7 +310,8 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
 @Test func cinderDirFromTheEnvironmentHasEveryFileTheParityTestsRead() {
     guard let env = ProcessInfo.processInfo.environment["CINDER_DIR"] else { return }
     let root = URL(fileURLWithPath: env)
-    for file in ["firmware/main/bot_view.c", "firmware/components/bot/tool_marks.c", "firmware/components/nowplaying/np.c", "firmware/test/host/test_np.c"] {
+    for file in ["firmware/main/bot_view.c", "firmware/components/ember_host/include/ember_host.h", "firmware/components/bot/tool_marks.c", "firmware/components/nowplaying/np.c", "firmware/test/host/test_np.c",
+                 "firmware/components/bot/bot_behavior.c", "firmware/CMakeLists.txt"] {
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path), "CINDER_DIR has no \(file)")
     }
 }
@@ -366,7 +373,16 @@ private func allChecks() -> [Check] {
         one(bv, #"#define GLINT_FPS (\d+)"#, "bot.glint.fps"),
         one(bb, #"m == BOT_IDLE \|\| m == BOT_SLEEPY \? "# + num, "bot.rim_dim_gain"),
         one(bv, hex + #", 1\.0f\);"#, "bot.eye_color"),
-        one(bv, #"const font = &lv_font_montserrat_(\d+)"#, "bot.host.font_px"),
+        one(bv, #"arc_line\(&layer, &lv_font_montserrat_(\d+), s_host\.text, LABEL_R, "#, "bot.host.font_px"),
+        one(bv, #"arc_line\(&layer, &lv_font_montserrat_(\d+), sub, LABEL_SUB_R, "#, "bot.host.sub_font_px"),
+        one(bv, #"#define LABEL_SUB_R "# + num, "bot.host.sub_radius_px"),
+        one(bv, #"#define LABEL_ICON_SUB_R (\d+)"#, "bot.host.mark_bottom_sub_px"),
+        one("main/bot_view.h", #"#define BOT_VIEW_LABEL_W (\d+)"#, "bot.host.canvas_w_px"),
+        one("main/bot_view.h", #"#define BOT_VIEW_LABEL_H (\d+)"#, "bot.host.canvas_h_px"),
+        one("main/bot_view.h", #"#define BOT_VIEW_LABEL_Y (\d+)"#, "bot.host.canvas_y_px"),
+        Check(file: bv, pattern: #"#define LABEL_X \(\(int\)CX - LABEL_W / 2\)"#, keys: []),
+        Check(file: bv, pattern: #"y = \(int\)\(CY - LABEL_Y\) \+ \(sub\[0\] \? LABEL_ICON_SUB_R : LABEL_ICON_R\);"#, keys: []),
+        Check(file: bv, pattern: #"bool marked = bot_label_mark\(s_rim_mood\);"#, keys: []),
         one(bv, #"cos\(M_PI / 4\) \* "# + num, "bot.badge.at"),
         one(bv, #"gap = \(int\)lround\("# + num, "bot.badge.gap"),
         one(bv, #"dot = \(int\)lround\("# + num, "bot.badge.dot"),
@@ -551,4 +567,51 @@ func markImagesMatchFirmwareMasks() throws {
         let got = stride(from: 3, to: rgba.count, by: 4).map { rgba[$0] }
         #expect(got == want, "\(tool) mask differs from firmware")
     }
+}
+
+@Test(.enabled(if: cinderDir != nil, "no cinder checkout next to this repo (set CINDER_DIR)"))
+func projectSlotsMatchCinder() throws {
+    let h = try #require(cinderDir).appendingPathComponent("firmware/components/ember_host/include/ember_host.h")
+    let src = try String(contentsOf: h, encoding: .utf8)
+    for (name, want) in [("EMBER_PROJECT_SLOTS", KnobMood.projectSlots), ("EMBER_LABEL_SLOTS", KnobMood.labelSlots)] {
+        let re = try NSRegularExpression(pattern: "#define \(name) (\\d+)")
+        let m = try #require(re.firstMatch(in: src, range: NSRange(src.startIndex..., in: src)), "\(name)")
+        #expect(Int(src[Range(m.range(at: 1), in: src)!]) == want, "\(name)")
+    }
+    #expect(src.contains(#"#define EMBER_ELLIPSIS "...""#))
+}
+
+private func cinderMoods(_ expr: String, _ term: String) throws -> Set<BotMood> {
+    let re = try NSRegularExpression(pattern: term + "BOT_([A-Z]+)")
+    let found = re.matches(in: expr, range: NSRange(expr.startIndex..., in: expr)).map { m in
+        BotMood(rawValue: String(expr[Range(m.range(at: 1), in: expr)!]).lowercased())
+    }
+    #expect(!found.contains(nil), "unknown mood in \(expr)")
+    let rest = re.stringByReplacingMatches(in: expr, range: NSRange(expr.startIndex..., in: expr), withTemplate: "")
+    let plain = rest.replacingOccurrences(of: "||", with: "").allSatisfy { $0.isWhitespace }
+    #expect(plain, "not a plain mood list: \(expr)")
+    return Set(found.compactMap { $0 })
+}
+
+private func cinderMatch(_ file: String, _ pattern: String) throws -> String {
+    let src = try String(contentsOf: try #require(cinderDir).appendingPathComponent("firmware/" + file), encoding: .utf8)
+    let re = try NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
+    let m = try #require(re.firstMatch(in: src, range: NSRange(src.startIndex..., in: src)), "\(file): no match for \(pattern)")
+    return String(src[Range(m.range(at: 1), in: src)!])
+}
+
+@Test(.enabled(if: cinderDir != nil, "no cinder checkout next to this repo (set CINDER_DIR)"))
+func toolMarkGateMatchesCinder() throws {
+    let hidden = try cinderMoods(try cinderMatch(bb, #"bool bot_label_mark\(bot_mood_t m\) \{ return (m != BOT_[A-Z]+); \}"#), "m != ")
+    #expect(Set(BotMood.allCases.filter { !KnobMood.marksTool($0) }) == hidden)
+}
+
+@Test(.enabled(if: cinderDir != nil, "no cinder checkout next to this repo (set CINDER_DIR)"))
+func labelMoodsAndHostLineMatchCinder() throws {
+    let show = try cinderMatch(bv, #"static void host_sync\(void\)\s*\{\s*bool show = s_opt_label && s_host\.text\[0\] &&\s*\(([^;]*)\);"#)
+    let shown = try cinderMoods(show, "s_rim_mood == ")
+    #expect(shown == KnobMood.labelMoods)
+    let sub = try cinderMatch(bv, #"const char \*sub = ([^?;]*) \? s_host\.sub : "";"#)
+    let lined = try cinderMoods(sub, "s_rim_mood == ")
+    #expect(lined == KnobMood.hostLineMoods)
 }

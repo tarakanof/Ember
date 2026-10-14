@@ -3030,7 +3030,14 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   shows the clock's frames, but drawn locally: the knob renders on-device and
   its view endpoint takes a device token only. The app composes the same
   inputs from what it already polls: `/state` sessions (mood and host label,
-  `KnobMood`, the firmware's render priority and #213 host rule; the last
+  `KnobMood`, the firmware's render priority and #213 host rule; on a
+  waiting or done bot the newest session in that state leads, as the
+  server's `mood.lead*` does, and the label is its project like cinder
+  0.9.81's `ember_host_project_label` (≤10 slots or 9 + "...", " +N" other
+  sessions in that state, ≤12 slots, the host label without a letter or
+  digit) with a Montserrat 18 host line at r 147 when several hosts report,
+  the tool icon raised to r 128 and the label clipped to the 340×116 canvas
+  at y 312; `KnobLabelTests` holds cinder's table cases; the last
   good mood stays while `/state` fails, as on the knob),
   `/v1/pomodoro/state`, `/v1/weather/state` (tracked while a preview is up)
   and `/v1/display/brightness` (read at once when "Follow Ember brightness"
@@ -4300,13 +4307,13 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (distinct sources in that state; left out at 0 or 1), `lead_color` (first
   valid `source_color` of the lead's sessions, uppercased) and `tool` (the
   lead's tool when its sessions agree), all omitted when empty, so an idle
-  view's bytes do not change. When the winning state is `waiting` (#485) the
-  lead is the newest waiting session instead (latest `state_since`, the
-  rule the app and the clock use): `lead` is its host, `lead_color` its
-  colour, `tool` its tool, and `lead_project` its `project` (omitted when
-  the producer sent none). "+N" on the knob is `waiting` − 1, other waiting
-  sessions, not hosts. `Upsert` also notifies when this summary moves
-  without the render (a new source colour);
+  view's bytes do not change. When the winning state is `waiting` (#485)
+  or `done` (#493) the lead is the newest session in that state instead
+  (latest `state_since`, the rule the app and the clock use): `lead` is its
+  host, `lead_color` its colour, `tool` its tool, and `lead_project` its
+  `project` (omitted when the producer sent none). "+N" on the knob is
+  `waiting` − 1 (or `done` − 1), other sessions, not hosts. `Upsert` also
+  notifies when this summary moves without the render (a new source colour);
   `pomo` is null with the Pomodoro off, and carries `ends_at` (server Unix
   seconds) while counting down, `remaining_sec` otherwise (paused, parked,
   idle), never both; `weather` is null when disabled or never fetched,

@@ -79,6 +79,45 @@ func TestLeadOfWaitingIsTheNewestWaiter(t *testing.T) {
 	}
 }
 
+func TestLeadOfDoneIsTheNewestDoneSession(t *testing.T) {
+	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	purple := "#b48cff"
+	v := sessions.View{Now: t0, Sessions: []render.Session{
+		{Source: "m4", Tool: "claude", Session: "a", State: "done", Project: "ember", StateSince: t0.Add(-time.Minute), UpdatedAt: t0},
+		{Source: "m4", Tool: "claude", Session: "b", State: "done", Project: "cinder", StateSince: t0.Add(-2 * time.Minute), UpdatedAt: t0},
+		{Source: "m5", Tool: "codex", Session: "c", State: "done", Project: "learn-language", StateSince: t0.Add(-10 * time.Second), UpdatedAt: t0.Add(-5 * time.Second), SourceColor: &purple},
+	}}
+	want := moodLead{Lead: "M5", Hosts: 2, Color: "#B48CFF", Tool: "codex", Project: "learn-language"}
+	if got := leadOf(v); got != want {
+		t.Fatalf("lead = %+v, want %+v", got, want)
+	}
+}
+
+func TestLeadOfWaitingBeatsANewerDone(t *testing.T) {
+	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	v := sessions.View{Now: t0, Sessions: []render.Session{
+		{Source: "m4", Tool: "claude", Session: "a", State: "waiting", Project: "ember", StateSince: t0.Add(-time.Minute), UpdatedAt: t0},
+		{Source: "m5", Tool: "codex", Session: "b", State: "done", Project: "cinder", StateSince: t0, UpdatedAt: t0},
+	}}
+	want := moodLead{Lead: "M4", Hosts: 1, Tool: "claude", Project: "ember"}
+	if got := leadOf(v); got != want {
+		t.Fatalf("lead = %+v, want %+v", got, want)
+	}
+}
+
+func TestLeadOfDoneWithoutAProject(t *testing.T) {
+	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	v := sessions.View{Now: t0, Sessions: []render.Session{
+		{Source: "m4", Tool: "claude", Session: "a", State: "done", StateSince: t0.Add(-2 * time.Minute), UpdatedAt: t0},
+		{Source: "m4", Tool: "claude", Session: "b", State: "done", StateSince: t0.Add(-time.Minute), UpdatedAt: t0},
+		{Source: "m5", Tool: "codex", Session: "c", State: "done", StateSince: t0, UpdatedAt: t0},
+	}}
+	want := moodLead{Lead: "M5", Hosts: 2, Tool: "codex"}
+	if got := leadOf(v); got != want {
+		t.Fatalf("lead = %+v, want %+v", got, want)
+	}
+}
+
 func TestKnobViewMoodCarriesTheLeadProject(t *testing.T) {
 	f := newViewFixture(t)
 	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "waiting", Project: "learn-language"})

@@ -149,7 +149,7 @@ enum KnobFaceRender {
             ctx.fill(disc(b.badge.gap * p.badge * r), with: .color(.black))
             ctx.fill(disc(b.badge.dot * p.badge * r), with: .color(Color(color)))
         }
-        if mood.showsHost && (p.mood == .working || p.mood == .waiting || p.mood == .error) {
+        if showsLabel(mood, rim: p.mood) {
             arcLabel(mood, moodColor: color, center: CGPoint(x: c, y: c + rimDY), theme: theme, in: &ctx)
         }
     }
@@ -189,32 +189,34 @@ enum KnobFaceRender {
         return out
     }()
 
+    static func showsLabel(_ mood: KnobMood, rim: BotMood) -> Bool {
+        mood.showsHost && KnobMood.labelMoods.contains(rim)
+    }
+
+    static func labelCanvas(center: CGPoint, theme: KnobTheme) -> CGRect {
+        let h = theme.bot.host
+        return CGRect(x: center.x - h.canvasWPx / 2, y: center.y - theme.screen.diameterPx / 2 + h.canvasYPx,
+                      width: h.canvasWPx, height: h.canvasHPx)
+    }
+
     static func arcLabel(_ mood: KnobMood, moodColor: RGB, center: CGPoint, theme: KnobTheme,
                          in ctx: inout GraphicsContext) {
         let h = theme.bot.host
         let textColor = mood.hostColor ?? moodColor
-        let font: Font = fontRegistered ? .custom(theme.font.family, fixedSize: h.fontPx)
-            : .system(size: h.fontPx, weight: .medium)
-        let glyphs = mood.host.map { ctx.resolve(Text(verbatim: String($0)).font(font).foregroundStyle(Color(textColor))) }
-        let sizes = glyphs.map { $0.measure(in: CGSize(width: 200, height: 200)) }
-        let widths = sizes.map(\.width)
-        let total = widths.reduce(0, +), k = 180 / .pi / h.radiusPx
-        var s = 0.0
-        var items: [(CGPoint, Double)] = []
-        for w in widths {
-            let th = 90 + total / 2 * k - (s + w / 2) * k, a = th * .pi / 180
-            items.append((CGPoint(x: center.x + h.radiusPx * cos(a), y: center.y + h.radiusPx * sin(a)), th - 90))
-            s += w
-        }
-        let box = CGRect(x: center.x - h.markHPx / 2, y: center.y + h.markBottomPx - h.markHPx, width: h.markHPx, height: h.markHPx)
-        if let mark = toolMarks[mood.tool] {
+        let sub = mood.shownSub
+        var ctx = ctx
+        ctx.clip(to: Path(labelCanvas(center: center, theme: theme)))
+        let markBottom = h.markBottom(hostLine: !sub.isEmpty)
+        let box = CGRect(x: center.x - h.markHPx / 2, y: center.y + markBottom - h.markHPx, width: h.markHPx, height: h.markHPx)
+        let marked = KnobMood.marksTool(mood.mood)
+        if marked, let mark = toolMarks[mood.tool] {
             let r = CGRect(x: center.x - Double(mark.width) / 2, y: box.maxY - Double(mark.height),
                            width: Double(mark.width), height: Double(mark.height))
             var c2 = ctx
             let brand = mood.tool == "claude" ? h.claudeColor : h.codexColor
             c2.clipToLayer(opacity: 1) { l in l.draw(Image(decorative: mark, scale: 1), in: r) }
             c2.fill(Path(r), with: .color(Color(brand)))
-        } else if mood.tool == "t3" {
+        } else if marked && mood.tool == "t3" {
             let (body, feature) = t3Icon
             let off = (h.markHPx - 8 * h.iconCellPx) / 2
             for (rows, color) in [(body, textColor), (feature, moodColor)] {
@@ -228,12 +230,25 @@ enum KnobFaceRender {
                 ctx.fill(cells, with: .color(Color(color)))
             }
         }
+        arcLine(mood.host, fontPx: h.fontPx, radius: h.radiusPx, center: center, color: textColor, theme: theme, in: &ctx)
+        arcLine(sub, fontPx: h.subFontPx, radius: h.subRadiusPx, center: center, color: textColor, theme: theme, in: &ctx)
+    }
+
+    static func arcLine(_ text: String, fontPx: Double, radius: Double, center: CGPoint, color: RGB, theme: KnobTheme,
+                        in ctx: inout GraphicsContext) {
+        guard !text.isEmpty else { return }
+        let font: Font = fontRegistered ? .custom(theme.font.family, fixedSize: fontPx) : .system(size: fontPx, weight: .medium)
+        let glyphs = text.map { ctx.resolve(Text(verbatim: String($0)).font(font).foregroundStyle(Color(color))) }
+        let sizes = glyphs.map { $0.measure(in: CGSize(width: 200, height: 200)) }
+        let total = sizes.map(\.width).reduce(0, +), k = 180 / .pi / radius
+        var s = 0.0
         for (i, g) in glyphs.enumerated() {
-            let (p, rot) = items[i]
-            var c2 = ctx
-            c2.translateBy(x: p.x, y: p.y)
-            c2.rotate(by: .degrees(rot))
             let size = sizes[i]
+            let th = 90 + total / 2 * k - (s + size.width / 2) * k, a = th * .pi / 180
+            s += size.width
+            var c2 = ctx
+            c2.translateBy(x: center.x + radius * cos(a), y: center.y + radius * sin(a))
+            c2.rotate(by: .degrees(th - 90))
             c2.draw(g, in: CGRect(x: -size.width / 2, y: -g.firstBaseline(in: size), width: size.width, height: size.height))
         }
     }

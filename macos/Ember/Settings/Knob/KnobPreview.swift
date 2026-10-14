@@ -99,7 +99,7 @@ struct KnobPreviewData {
 
     private var botCaption: Text {
         let m = mood
-        let host = m.host
+        let host = m.lead
         switch m.mood {
         case .waiting:
             return host.isEmpty ? Text("Waiting: an agent needs you.")

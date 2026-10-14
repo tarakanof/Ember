@@ -39,7 +39,8 @@
         "done": 1,
         "source": "studio",
         "lead_color": "#00C8C8",
-        "tool": "claude"
+        "tool": "claude",
+        "lead_project": "ember"
       },
       "brightness": {
         "level": 255,
