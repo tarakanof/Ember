@@ -4298,12 +4298,12 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (distinct sources in that state; left out at 0 or 1), `lead_color` (first
   valid `source_color` of the lead's sessions, uppercased) and `tool` (the
   lead's tool when its sessions agree), all omitted when empty, so an idle
-  view's bytes do not change. When the winning state is `waiting` (#485) the
-  lead is the newest waiting session instead (latest `state_since`, the
-  rule the app and the clock use): `lead` is its host, `lead_color` its
-  colour, `tool` its tool, and `lead_project` its `project` (omitted when
-  the producer sent none). "+N" on the knob is `waiting` − 1, other waiting
-  sessions, not hosts. `Upsert` also notifies when this summary moves
+  view's bytes do not change. When the winning state is `waiting` (#485)
+  or `done` (#493) the lead is the newest session in that state instead
+  (latest `state_since`, the rule the app and the clock use): `lead` is its
+  host, `lead_color` its colour, `tool` its tool, and `lead_project` its
+  `project` (omitted when the producer sent none). "+N" on the knob is
+  `waiting` − 1 (or `done` − 1), other sessions, not hosts. `Upsert` also notifies when this summary moves
   without the render (a new source colour);
   `pomo` is null with the Pomodoro off, and carries `ends_at` (server Unix
   seconds) while counting down, `remaining_sec` otherwise (paused, parked,

@@ -75,14 +75,18 @@ and fall under the same rules as the view.
    shape updates the fixtures below in the same PR, and the PR says so, so
    cinder can sync them.
 
-**`mood.lead_project` (#485).** Optional string, the newest waiting
-session's `project` (≤32 characters: a folder name or a T3 thread title),
-present only while the winning state is `waiting` and that session's
-producer sent one. While waiting, `lead`, `lead_color` and `tool` also
-follow that session rather than the host with the most waiters. Firmware
-without the field ignores it (cinder reads `mood` keys by name with
+**`mood.lead_project` (#485, #493).** Optional string, the `project` of
+the newest session in the winning state (≤32 characters: a folder name or
+a T3 thread title), present only while the winning state is `waiting` or
+`done` and that session's producer sent one. In those two states `lead`,
+`lead_color` and `tool` also follow that session rather than the host
+with the most sessions. Waiting still beats done. Firmware without the
+field ignores it (cinder reads `mood` keys by name with
 `cJSON_GetObjectItemCaseSensitive`, so an unknown key is skipped). The
-"+N" of other waiting sessions is `waiting` − 1; no new count is sent.
+"+N" of other sessions is `waiting` − 1 (or `done` − 1 on a done bot); no
+new count is sent. The demo scenes `bot.waiting`, `bot.hop` and
+`bot.quiet_calm` carry `learn-language`, `bot.done` and `bot.pop` carry
+`ember`.
 
 ## Capabilities
 
