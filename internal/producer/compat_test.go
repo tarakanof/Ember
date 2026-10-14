@@ -91,3 +91,25 @@ func TestPostDoesNotRetryOtherBadRequests(t *testing.T) {
 		t.Fatalf("err = %v, calls = %d", err, calls)
 	}
 }
+
+func TestPostInFlightWhenAnotherDroppedTheFieldIsRetried(t *testing.T) {
+	resetOptionalFields(t)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if _, has := body["project"]; has {
+			optionalFields.drop("project", time.Now())
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"json: unknown field \"project\""}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	req := StatusRequest{Source: "m4", Tool: "claude", Session: "s", State: "waiting", Project: "ember"}
+	if err := NewClient(srv.URL, "", time.Second).Post(context.Background(), req); err != nil || calls != 2 {
+		t.Fatalf("err = %v, calls = %d; a POST in flight when another one dropped the field must be resent", err, calls)
+	}
+}

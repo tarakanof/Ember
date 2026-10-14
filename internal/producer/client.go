@@ -68,14 +68,14 @@ func (c *Client) WithAutoServer(a *AutoServer) *Client {
 
 func (c *Client) Post(ctx context.Context, req StatusRequest) error {
 	req = optionalFields.strip(req, time.Now())
-	for {
+	for attempt := 0; ; attempt++ {
 		body, err := json.Marshal(req)
 		if err != nil {
 			return err
 		}
 		err = c.send(ctx, http.MethodPost, "/v1/status", body)
 		field, ok := unknownField(err)
-		if !ok || !optionalFields.drop(field, time.Now()) {
+		if !ok || attempt >= len(optionalFields.zeroers) || !optionalFields.drop(field, time.Now()) {
 			return err
 		}
 		req = optionalFields.strip(req, time.Now())

@@ -40,10 +40,12 @@ var optionalFields = &fieldDropper{
 func (d *fieldDropper) drop(field string, now time.Time) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if _, known := d.zeroers[field]; !known || now.Before(d.until[field]) {
+	if _, known := d.zeroers[field]; !known {
 		return false
 	}
-	d.until[field] = now.Add(droppedFieldTTL)
+	if !now.Before(d.until[field]) {
+		d.until[field] = now.Add(droppedFieldTTL)
+	}
 	return true
 }
 
