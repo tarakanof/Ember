@@ -3589,9 +3589,9 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   already served (`deliverKnobView`: a 200 or 304 reply carried it, not
   just a view build such as the long poll's pre-check; it is marked before
   the write, so a report racing the reply still counts, and unmarked if the
-  body write returns an error; best effort, since `net/http` buffers about
-  4 KB and the reply sets `Content-Length`, so a gone client usually fails
-  only at the flush after the handler returns), up to 5 s past the
+  body write returns an error; best effort, since `net/http` and the OS
+  send buffer absorb the reply, so a gone client may fail only at the
+  flush after the handler returns, or not at all), up to 5 s past the
   10 s cutoff, still counts (`playing`
   revives it, `done` advances the queue): the knob took it at 9.9 s and its
   report rode the next request.
@@ -3619,8 +3619,8 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   stays `unanswered`. A checkin that `knobCheckinStale` reads as an older
   one arriving late (within `staleCheckinWindow`, 1 min; an uptime lower
   than the stored one on the same or unknown boot, or, when either side
-  lacks `diag.boots`, grown more than the time since plus 10 s) is answered but not stored: the next comparison and
-  the device list keep the newer record and caps, its crash isn't reported
+  lacks `diag.boots`, grown more than the time since plus 10 s) is
+  answered but not stored: the next comparison and the device list keep the newer record and caps, its crash isn't reported
   again, and it adds no stats sample and no OTA step.
 - **App.** `KnobDemoModel.follow` reads the status every second while the
   run is `pending` or `playing`, keeps the 1 s pace for the first five
