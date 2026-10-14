@@ -448,16 +448,19 @@ private func waitUntil(_ cond: () async -> Bool) async {
 }
 
 @MainActor
-private func recoveryAttempts(after error: Error) async -> Int {
+private func recoveryAttempts(
+    after error: Error,
+    rounds: [Result<[NowPlayingCommand], Error>] = [.failure(APIError.transport("down")), .success([]), .success([]), .success([])]
+) async -> Int {
     let bridge = FakeBridge(), sink = FakeSink()
     await bridge.setArt(nil)
     await bridge.setSnapshot(MusicPlayerInfo(state: .playing, name: "Song", persistentID: "T1"))
     await sink.set(failing: 1, with: error)
     let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
     let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: Sleeps().sleep)
-    let source = FakeCommands([.failure(APIError.transport("down")), .success([]), .success([]), .success([])])
+    let source = FakeCommands(rounds)
     listener.start(source: source, player: "M4")
-    await waitUntil { await source.calls >= 5 }
+    await waitUntil { await source.calls > rounds.count }
     await pusher.drain()
     listener.stop()
     await listener.join()
@@ -476,4 +479,31 @@ private func recoveryAttempts(after error: Error) async -> Int {
 @Test func listenerHoldsTheRecoveryPushForRetryAfter() async {
     #expect(await recoveryAttempts(after: APIError.rateLimited(retryAfter: .seconds(3600))) == 1)
     #expect(await recoveryAttempts(after: APIError.rateLimited(retryAfter: .zero)) == 2)
+}
+
+@MainActor
+@Test func listenerClassifiesClockTimeoutsAndUnsentRequests() async {
+    #expect(await recoveryAttempts(after: APIError.clockTimedOut(nil)) == 2)
+    #expect(await recoveryAttempts(after: RequestNotSent(underlying: .transport("down"))) == 2)
+    #expect(await recoveryAttempts(after: RequestNotSent(underlying: .http(status: 400, body: ""))) == 1)
+}
+
+@MainActor
+@Test func listenerStopsRetryingTheRecoveryPushAfterAnEncodingError() async {
+    let error = EncodingError.invalidValue(Double.nan, .init(codingPath: [], debugDescription: "nan"))
+    #expect(await recoveryAttempts(after: error) == 1)
+}
+
+@MainActor
+@Test func listenerReArmsTheRecoveryPushAfterA4xxWhenALaterPollFails() async {
+    let down: Result<[NowPlayingCommand], Error> = .failure(APIError.transport("down"))
+    #expect(await recoveryAttempts(after: APIError.http(status: 400, body: ""),
+                                   rounds: [down, .success([]), .success([]), down, .success([])]) == 2)
+}
+
+@MainActor
+@Test func listenerKeepsTheRetryAfterHoldAcrossAPollFailure() async {
+    let down: Result<[NowPlayingCommand], Error> = .failure(APIError.transport("down"))
+    #expect(await recoveryAttempts(after: APIError.rateLimited(retryAfter: .seconds(3600)),
+                                   rounds: [down, .success([]), down, .success([]), .success([])]) == 1)
 }
