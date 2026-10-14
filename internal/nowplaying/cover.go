@@ -31,7 +31,7 @@ const (
 	bandLeft       = 63
 	bandRight      = 403
 
-	coverLightLuminance = 0.25
+	coverLightLuminance = 0.22
 )
 
 var (

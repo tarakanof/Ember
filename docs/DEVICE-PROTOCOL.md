@@ -252,8 +252,10 @@ it (API.md, `openapi.yaml`).
   `brightness`; its times are relative to when the scene became available
   (whole seconds, the same clock as `X-Ember-Now`), so it keeps one ETag
   while it plays. Weather carries the `wx_faces` detail; now playing carries
-  `art_version`, `accent` and `cover_version` of a built-in gradient that
-  `GET /v1/nowplaying/art` serves for those `v` values like real art.
+  `art_version`, `accent` and `cover_version` of one of two built-in covers
+  (an orange-to-violet gradient; for `nowplaying.playing_light`, cream line
+  art that also gets `cover_light`), which `GET /v1/nowplaying/art` serves
+  for those `v` values like real art.
 - `act` (optional): `moment:<kind>:full|quiet` (kind `glance`, `night`,
   `frost`, `heat`, `wind`, `afterrain`, `snow`, `rain`, `storm`; `quiet` is
   the working-mood variant, its view has a working `mood`), `chase:full`,
@@ -704,17 +706,22 @@ the album circle.
     (~2.5 ms for a 1400 px JPEG on an M4, on top of the ~27 ms
     `Prepare`). Pure white gives 0.576, `#C8C8C8` 0.335, yellow
     `#FADC3C` 0.415, black 0.
-  - **Light:** mean ≥ **0.25**. The knob's artist line is `#BDBDBD`
+  - **Light:** mean ≥ **0.22**. The knob's artist line is `#BDBDBD`
     (relative luminance 0.509), drawn over the light scrim the knob uses
-    without the hint: black at 40 % (opacity 102). LVGL blends
-    gamma-encoded RGB565, so that scrim scales each sRGB value by 0.6 and
-    the luminance by about 0.6^2.4 = 0.293. The line keeps 4.5:1 (WCAG AA
-    text) while (0.509 + 0.05) / (0.293 × L + 0.05) ≥ 4.5, so up to
-    L = 0.253, rounded to 0.25. At 3:1 the same sum gives 0.46, which
-    leaves out `#C8C8C8`, yellow and 10 % line art, all hard to read on
-    the device: a mean hides the bright patches right under the glyphs,
-    so the bar is the text one. Mixing in linear light instead, 3:1 would
-    give 0.227.
+    without the hint: black at 40 % (opacity 102). LVGL blends the
+    gamma-encoded values, so the scrim scales each sRGB channel by 0.6.
+    Through the full sRGB curve (the 0.055 offset included) that leaves
+    0.34 of a band's luminance, measured over the band for greys near the
+    bar; on the knob's RGB565 (channels truncated to 5/6/5 bits, then
+    `c × 153 >> 8`, text truncated too, L 0.513) it leaves ~0.31. The line
+    keeps 4.5:1 (WCAG AA text) while (0.509 + 0.05) / (0.34 × L + 0.05)
+    ≥ 4.5, so up to L ≈ 0.218 in 8-bit (≈ 0.24 in RGB565); the bar takes
+    the stricter, rounded: 0.22 (4.48:1 in 8-bit, 4.76:1 in RGB565). At
+    3:1 the same sums give ~0.41 (8-bit) to ~0.44 (RGB565), which leaves
+    out `#C8C8C8` (0.335) and yellow `#FADC3C` (0.415), both hard to read
+    on the device: a mean hides the bright patches right under the
+    glyphs, so the bar is the text one. Greys bracket it: `#A4A4A4` 0.217
+    (no key), `#A6A6A6` 0.223 (`cover_light`).
   - It changes only with the picture, so it never changes without
     `cover_version` (and the view ETag) changing too; the ETag hashes the
     body, so `cover_light` alone moves it as well.

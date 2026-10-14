@@ -4392,7 +4392,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `nowplaying` when the entry has a picture, and fetches `kind=cover` at
   `v=<cover_version>`; DEVICE-PROTOCOL.md "Prepared cover" has the recipe
   and rules. `"cover_light":true` follows when the cover's text band
-  (y 280–391, x 63–402) has mean relative luminance ≥ 0.25, measured per
+  (y 280–391, x 63–402) has mean relative luminance ≥ 0.22, measured per
   prepared pixel at prepare time (`nowplaying.Image.CoverLight`,
   cinder#168; the threshold's derivation is in DEVICE-PROTOCOL). Every other view keeps its bytes.
 - **Knob view long-poll (#235).** `?wait=N` (whole seconds, capped at 25,

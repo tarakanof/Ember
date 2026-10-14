@@ -453,8 +453,8 @@ func TestCoverBandLuminanceOfKnownCovers(t *testing.T) {
 		{"white", testPNG(t, 64, 64, solid(color.White)), 0.5762},
 		{"#C8C8C8", grey(0xC8), 0.3352},
 		{"yellow #FADC3C", testPNG(t, 64, 64, solid(color.RGBA{0xFA, 0xDC, 0x3C, 255})), 0.4152},
-		{"#B0B0B0 just above", grey(0xB0), 0.2529},
-		{"#AEAEAE just below", grey(0xAE), 0.2467},
+		{"#A6A6A6 just above", grey(0xA6), 0.2227},
+		{"#A4A4A4 just below", grey(0xA4), 0.2169},
 		{"black", testPNG(t, 64, 64, solid(color.Black)), 0},
 		{"1 px black and white columns", testPNG(t, 416, 416, func(x, _ int) color.Color { return []color.Color{color.White, color.Black}[x%2] }), 0.2881},
 		{"white only in the band", testPNG(t, 416, 416, rows(250, 372, color.White, color.Black)), 0.5762},
@@ -467,9 +467,24 @@ func TestCoverBandLuminanceOfKnownCovers(t *testing.T) {
 		if got := coverBandLuminance(src); math.Abs(got-c.want) > 0.001 {
 			t.Errorf("%s: band luminance %.4f, want %.4f", c.name, got, c.want)
 		}
-		if got, want := prepared(t, c.src).CoverLight, c.want >= 0.25; got != want {
-			t.Errorf("%s: cover_light %v, want %v at band %.4f against 0.25", c.name, got, want, c.want)
+		if got, want := prepared(t, c.src).CoverLight, c.want >= 0.22; got != want {
+			t.Errorf("%s: cover_light %v, want %v at band %.4f against 0.22", c.name, got, want, c.want)
 		}
+	}
+}
+
+func TestCoverBandIsExactlyTheTextRectangle(t *testing.T) {
+	src, err := decode(testPNG(t, 416, 416, func(x, y int) color.Color {
+		if y >= 255 && y < 367 && x >= 38 && x < 378 {
+			return color.Black
+		}
+		return color.White
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := coverBandLuminance(src); got != 0 {
+		t.Fatalf("band luminance %v over a cover black exactly in disc rows [255, 367) x columns [38, 378), want 0: the band is not [280, 392) x [63, 403) of the 466 px cover", got)
 	}
 }
 
@@ -493,7 +508,7 @@ func TestCoverLightLeavesDarkBandsOut(t *testing.T) {
 	for name, src := range map[string][]byte{
 		"dark":               testPNG(t, 300, 300, solid(color.RGBA{30, 25, 60, 255})),
 		"photo":              testPNG(t, 300, 300, photoLike(300)),
-		"#AEAEAE":            testPNG(t, 300, 300, solid(color.RGBA{0xAE, 0xAE, 0xAE, 255})),
+		"#A4A4A4":            testPNG(t, 300, 300, solid(color.RGBA{0xA4, 0xA4, 0xA4, 255})),
 		"light outside band": testPNG(t, 416, 416, rows(250, 372, color.Black, color.White)),
 	} {
 		if prepared(t, src).CoverLight {
