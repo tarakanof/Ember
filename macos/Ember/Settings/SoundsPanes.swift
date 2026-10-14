@@ -42,7 +42,7 @@ struct ClockSoundsPane: View {
                 Text("Chimes")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("A meeting chimes with its popup, so it needs a popup time in Clock › Apps › Calendar. The severe weather sound plays with its alert, set in Sources › Weather. Quiet hours, in Sounds & Alerts, mute all of these.")
+                    Text("A meeting chimes with its popup, so it needs a popup time in Clock › Apps › Calendar. The severe weather sound plays with its alert, set in Sources › Weather. Quiet hours mute all of these. Set the hours in Sounds & Alerts.")
                     SaveErrorFooter(error: pomodoro.saveError ?? display.saveError ?? usage.saveError
                                     ?? meetings.saveError ?? weather.saveError)
                 }
@@ -55,7 +55,7 @@ struct ClockSoundsPane: View {
             } header: {
                 Text("This Mac")
             } footer: {
-                Text("Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start.")
+                Text("Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start. Set the hours in Sounds & Alerts.")
             }
             .disabled(!watcher.prefs.enabled)
         }

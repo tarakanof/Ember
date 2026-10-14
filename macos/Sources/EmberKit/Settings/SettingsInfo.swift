@@ -32,8 +32,8 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobWorkingRing: "A glint circles the bot's outline while an agent works"
         case .knobWeatherMoments: "The bot shows the weather when it changes"
         case .knobWeatherEvery: "How often the bot shows the weather when nothing changes"
-        case .knobQuietCalm: "Keeps the bot calm during quiet hours"
-        case .knobQuietDim: "The brightest the knob gets during quiet hours"
+        case .knobQuietCalm: "Keeps the bot calm during quiet hours, set in Sounds & Alerts"
+        case .knobQuietDim: "The brightest the knob gets during quiet hours, set in Sounds & Alerts"
         case .clockAutoBrightness: "Lets the clock's light sensor set its brightness"
         case .clockUppercase: "Shows the text of apps and popups in capitals"
         case .clockTimePerApp: "How long each app stays on screen"
@@ -83,7 +83,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobFollowBrightness:
             "The knob has no light sensor, so it uses the level Ember works out from the clock's light sensor, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on."
         case .knobMinBrightness:
-            "The knob never goes below this, whether it follows Ember or not, except during quiet hours, when Quiet brightness applies. Raising it above Brightness raises Brightness too. Default: 4 percent."
+            "The knob never goes below this, whether it follows Ember or not, except during quiet hours, when Quiet brightness applies; set the hours in Sounds & Alerts. Raising it above Brightness raises Brightness too. Default: 4 percent."
         case .knobStartupBrightness:
             "The screen stays dark while the knob boots, then lights at this level until your brightness setting takes over. Default: 60 percent."
         case .knobSleepy:
@@ -97,9 +97,9 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobWeatherEvery:
             "Between changes, the bot also shows the current weather this often, at most every 30 min, and skips it when the line would read the same as last time. Never: only show a moment when the weather changes. Default: 30 min."
         case .knobQuietCalm:
-            "During quiet hours the bot skips its attention and excited animations, so a waiting or failed agent doesn't light up the room. The knob has no speaker, so quiet hours only change what it shows. Default: on."
+            "During quiet hours the bot skips its attention and excited animations, so a waiting or failed agent doesn't light up the room; the knob has no speaker, so they only change what it shows. Set the hours in Sounds & Alerts. Default: on."
         case .knobQuietDim:
-            "During quiet hours the knob dims to this level, or stays darker if it already is, even below the minimum brightness. Default: 8 percent, the clock's night level."
+            "During quiet hours the knob dims to this level, or stays darker if it already is, even below the minimum brightness. Set the hours in Sounds & Alerts. Default: 8 percent, the clock's night level."
         case .clockAutoBrightness:
             "The clock follows its light sensor within its own minimum and maximum, staying dim until the room is properly bright, and eases changes in over about 10 s. The Brightness slider isn't used while this is on. Default: off."
         case .clockUppercase:
@@ -115,7 +115,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .melody:
             "Built-in plays Ember's own tune. Pick a melody stored on the clock, or choose Custom and type a stored melody's name or an RTTTL tune."
         case .attentionChime:
-            "The clock chimes once when a session starts waiting for you or hits an error and takes over the screen. Quiet hours mute it."
+            "The clock chimes once when a session starts waiting for you or hits an error and takes over the screen. Quiet hours mute it; set the hours in Sounds & Alerts."
         case .limitAlarm:
             "When Claude's or Codex's 5-hour window is used up, the clock shows a popup with a chime about a minute after it resets, so you know you can carry on. Default: on."
         case .bottomBar:
@@ -157,7 +157,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .weatherProvider:
             "Conditions and the hourly forecast come from this service. Air quality always comes from Open-Meteo, because MET Norway has none. Default: Open-Meteo."
         case .weatherSevereAlert:
-            "Shows a weather popup with a sound when heavy rain, heavy snow or a thunderstorm begins, once each time. Pick the sound in Clock › Sounds; quiet hours mute it. Default: on."
+            "Shows a weather popup with a sound when heavy rain, heavy snow or a thunderstorm begins, once each time, with the sound picked in Clock › Sounds. Quiet hours mute it; set the hours in Sounds & Alerts. Default: on."
         case .sourceColor:
             "Colors this Mac's agent icon and its name card on the clock, so you can tell computers apart. Off uses the default colors."
         case .menuBarIcon:
