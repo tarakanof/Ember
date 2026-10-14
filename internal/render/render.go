@@ -710,7 +710,7 @@ func RenderForCoordWith(snap Snapshot, pointer string, card int, locked bool, li
 	if session == nil {
 		return nil
 	}
-	name := DisplayName(*session, HostCount(snap.Sessions))
+	name := waitingLabel(*session, snap.Sessions)
 	if locked && session.State == "waiting" && name != "" {
 		return waitingLockPayload(*session, snap.Sessions, name, lifetimeSeconds, opts.WaitIcons)
 	}

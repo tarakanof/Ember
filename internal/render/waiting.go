@@ -2,39 +2,56 @@ package render
 
 import (
 	"bytes"
+	"fmt"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/gif"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 type CoordOpts struct {
 	WaitIcons bool
 }
 
-const waitIconBlinkCs = 50
+const (
+	waitIconBlinkCs = 50
+	waitIconPrefix  = "ember_wait_"
+)
 
 var waitIconTools = []string{"claude", "codex", "t3"}
 
 func WaitIconName(tool string) string {
 	switch tool {
 	case "codex", "t3":
-		return "ember_wait_" + tool
+	default:
+		tool = "claude"
 	}
-	return "ember_wait_claude"
+	icons, _ := WaitIcons()
+	for name := range icons {
+		if strings.HasPrefix(name, waitIconPrefix+tool+"_") {
+			return name
+		}
+	}
+	return waitIconPrefix + tool
 }
 
-func WaitIcons() (map[string][]byte, error) {
+var waitIconSet = sync.OnceValues(func() (map[string][]byte, error) {
 	out := make(map[string][]byte, len(waitIconTools))
 	for _, tool := range waitIconTools {
 		data, err := waitIconGIF(Session{Tool: tool})
 		if err != nil {
 			return nil, err
 		}
-		out[WaitIconName(tool)] = data
+		out[fmt.Sprintf("%s%s_%08x", waitIconPrefix, tool, crc32.ChecksumIEEE(data))] = data
 	}
 	return out, nil
-}
+})
+
+func WaitIcons() (map[string][]byte, error) { return waitIconSet() }
 
 func waitIconGIF(s Session) ([]byte, error) {
 	palette := color.Palette{color.Black, color.RGBA{colorWaiting.R, colorWaiting.G, colorWaiting.B, 0xff}}
@@ -78,6 +95,23 @@ func DisplayName(s Session, hosts int) string {
 	return s.Project
 }
 
+func waitingLabel(s Session, sessions []Session) string {
+	name := DisplayName(s, HostCount(sessions))
+	if name == "" || s.State != "waiting" {
+		return name
+	}
+	others := -1
+	for _, o := range sessions {
+		if o.State == "waiting" {
+			others++
+		}
+	}
+	if others > 0 {
+		name += " +" + strconv.Itoa(others)
+	}
+	return name
+}
+
 func scrollLoopWhenLong() map[string]any {
 	return map[string]any{"mode": "loop", "whenFits": "static"}
 }
@@ -103,4 +137,32 @@ func withNativeWaitIcon(p map[string]any, s Session) {
 
 func waitingCardPayload(s Session, sessions []Session, name string, lifetimeSeconds int) map[string]any {
 	return readOnce(detailPayload(s, sessions, name, stateHex("waiting"), false, lifetimeSeconds, false))
+}
+
+const (
+	ngScrollPxPerSec = 21
+	ngScrollHold     = time.Second
+)
+
+func textWidthPx(text string) int {
+	w := 0
+	for i, r := range strings.ToUpper(text) {
+		if i > 0 {
+			w++
+		}
+		w += ngGlyphW(r)
+	}
+	return w
+}
+
+func CardDwell(snap Snapshot, s Session, u *UsageView, card int) time.Duration {
+	cards := AvailableCards(s, u)
+	if card < 0 || card >= len(cards) || cards[card] != cardProject {
+		return 0
+	}
+	w := textWidthPx(waitingLabel(s, snap.Sessions))
+	if w <= panelW-contentX {
+		return 0
+	}
+	return ngScrollHold + time.Duration(w+panelW-contentX)*time.Second/ngScrollPxPerSec
 }

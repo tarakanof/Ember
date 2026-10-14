@@ -153,7 +153,7 @@ func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 					"uptime_seconds", cur.uptimeSec,
 					"prev_uptime_seconds", last.uptimeSec,
 					"since_prev_seconds", int64(cur.at.Sub(last.at)/time.Second))
-				a.RepublishAll("clock_reboot")
+				a.clockRebooted("clock_reboot")
 			}
 			last = cur
 		}

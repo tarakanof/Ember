@@ -69,6 +69,11 @@ func (a *App) clockJobFailed(ctx context.Context, msg string, args ...any) {
 	a.logger.Warn(msg, args...)
 }
 
+func (a *App) clockRebooted(reason string) {
+	a.RepublishAll(reason)
+	a.provisionIconsInBackground()
+}
+
 func (a *App) clockMoved(reason string) {
 	a.waitIcons.Store(false)
 	a.RepublishAll(reason)
@@ -134,9 +139,7 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 			armed = false
 		}
 	}
-	if armed {
-		a.waitIcons.Store(true)
-	}
+	a.waitIcons.Store(armed)
 }
 
 func (a *App) putIcon(ctx context.Context, name string, data []byte) bool {

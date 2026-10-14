@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"slices"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/render"
 )
 
 var errTest = errors.New("test error")
@@ -207,5 +209,5 @@ func TestFetchIconFrom_ExtensionlessNonPNGFails(t *testing.T) {
 }
 
 func waitIconFiles() []string {
-	return []string{"ember_wait_claude.gif", "ember_wait_codex.gif", "ember_wait_t3.gif"}
+	return []string{render.WaitIconName("claude") + ".gif", render.WaitIconName("codex") + ".gif", render.WaitIconName("t3") + ".gif"}
 }

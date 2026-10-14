@@ -2,7 +2,10 @@ package render
 
 import (
 	"bytes"
+	"fmt"
+	"hash/crc32"
 	"image/gif"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,7 +29,7 @@ func TestLockedWaitScrollsTheProjectInALoopAndBlinksTheLogo(t *testing.T) {
 	if p["text"] != "learn-language" {
 		t.Fatalf("text = %v", p["text"])
 	}
-	if p["icon"] != "ember_wait_claude" {
+	if p["icon"] != WaitIconName("claude") {
 		t.Fatalf("icon = %v, want the blinking amber logo", p["icon"])
 	}
 	if _, ok := p["textBlinkMs"]; ok {
@@ -68,7 +71,7 @@ func TestLockedWaitBlinksTheNameUntilTheIconsAreOnTheClock(t *testing.T) {
 func TestDisplayNamePrefixesTheHostOnlyWithSeveralHosts(t *testing.T) {
 	snap := projectSnap(waiter("m5", "claude", "s1", "learn-language"), waiter("m4", "codex", "s2", "ember"))
 	p := RenderForCoordWith(snap, snap.Sessions[0].Key(), 0, true, 30, nil, CoordOpts{})
-	if p["text"] != "M5/learn-language" {
+	if p["text"] != "M5/learn-language +1" {
 		t.Fatalf("text = %v", p["text"])
 	}
 }
@@ -109,7 +112,7 @@ func TestWaitIconsBlinkEveryHalfSecond(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"ember_wait_claude", "ember_wait_codex", "ember_wait_t3"} {
+	for _, name := range []string{WaitIconName("claude"), WaitIconName("codex"), WaitIconName("t3")} {
 		g, err := gif.DecodeAll(bytes.NewReader(icons[name]))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -134,5 +137,33 @@ func TestWaitIconsBlinkEveryHalfSecond(t *testing.T) {
 				t.Fatalf("%s: the off frame is not blank", name)
 			}
 		}
+	}
+}
+
+func TestWaitIconNamesCarryTheirContentHash(t *testing.T) {
+	icons, err := WaitIcons()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range icons {
+		if want := fmt.Sprintf("_%08x", crc32.ChecksumIEEE(data)); !strings.HasSuffix(name, want) {
+			t.Fatalf("%s: want suffix %s, so a changed GIF gets a new name and is uploaded again", name, want)
+		}
+	}
+	if WaitIconName("gemini") != WaitIconName("claude") {
+		t.Fatal("unknown tools use the Claude logo")
+	}
+}
+
+func TestWaitingLabelCountsTheOtherWaiters(t *testing.T) {
+	snap := projectSnap(waiter("m4", "claude", "s1", "learn-language"), waiter("m4", "codex", "s2", "ember"),
+		waiter("m4", "claude", "s3", ""), Session{Source: "m4", Tool: "claude", Session: "s4", State: "running"})
+	p := RenderForCoordWith(snap, snap.Sessions[0].Key(), 0, true, 30, nil, CoordOpts{})
+	if p["text"] != "learn-language +2" {
+		t.Fatalf("text = %v, want the lead plus the 2 other waiting sessions", p["text"])
+	}
+	card := RenderForCoordWith(snap, snap.Sessions[0].Key(), 0, false, 30, nil, CoordOpts{})
+	if card["text"] != "learn-language +2" {
+		t.Fatalf("card text = %v", card["text"])
 	}
 }
