@@ -383,7 +383,7 @@ func TestKnobStatsRenderAndRequestFieldsWeighOnlyMeasuredWindows(t *testing.T) {
 	}
 	missing := func(ms int) string { return `{"period_ms":` + strconv.Itoa(ms) + `}` }
 	want := map[string]float64{
-		"render_fps": 1, "frame_avg_ms": 1,
+		"render_fps":       1,
 		"requests_per_min": 120, "request_failures_per_min": 60,
 	}
 	cases := map[string]struct {
@@ -458,7 +458,7 @@ func TestKnobStatsEachFieldWeighsOnlyItsOwnReports(t *testing.T) {
 		return weighReport{periodMS: 30000, v: 20, reqs: 60, missing: missing, zeroed: zeroed}
 	}
 	full := map[string]float64{
-		"cpu": 130.0 / 3, "render_fps": 130.0 / 3, "frame_avg_ms": 130.0 / 3, "request_latency_avg_ms": 4900.0 / 150,
+		"cpu": 130.0 / 3, "render_fps": 130.0 / 3, "frame_avg_ms": 162000.0 / 2600, "request_latency_avg_ms": 4900.0 / 150,
 		"requests_per_min": 150, "request_failures_per_min": 75, "invalidated_areas_per_sec": 130.0 / 3,
 	}
 	with := func(over map[string]float64) map[string]float64 {
@@ -478,10 +478,10 @@ func TestKnobStatsEachFieldWeighsOnlyItsOwnReports(t *testing.T) {
 		"all fields":      {[]weighReport{r1, mid("", ""), r3}, full},
 		"cpu missing":     {[]weighReport{r1, mid("cpu", ""), r3}, with(map[string]float64{"cpu": 200.0 / 3})},
 		"cpu zero":        {[]weighReport{r1, mid("", "cpu"), r3}, with(map[string]float64{"cpu": 100.0 / 3})},
-		"fps missing":     {[]weighReport{r1, mid("fps", ""), r3}, with(map[string]float64{"render_fps": 200.0 / 3})},
-		"fps zero":        {[]weighReport{r1, mid("", "fps"), r3}, with(map[string]float64{"render_fps": 100.0 / 3})},
-		"frame missing":   {[]weighReport{r1, mid("frame", ""), r3}, with(map[string]float64{"frame_avg_ms": 200.0 / 3})},
-		"frame zero":      {[]weighReport{r1, mid("", "frame"), r3}, with(map[string]float64{"frame_avg_ms": 100.0 / 3})},
+		"fps missing":     {[]weighReport{r1, mid("fps", ""), r3}, with(map[string]float64{"render_fps": 200.0 / 3, "frame_avg_ms": 75})},
+		"fps zero":        {[]weighReport{r1, mid("", "fps"), r3}, with(map[string]float64{"render_fps": 100.0 / 3, "frame_avg_ms": 75})},
+		"frame missing":   {[]weighReport{r1, mid("frame", ""), r3}, with(map[string]float64{"frame_avg_ms": 75})},
+		"frame zero":      {[]weighReport{r1, mid("", "frame"), r3}, with(map[string]float64{"frame_avg_ms": 150000.0 / 2600})},
 		"latency missing": {[]weighReport{r1, mid("latency", ""), r3}, with(map[string]float64{"request_latency_avg_ms": 250.0 / 3})},
 		"latency zero":    {[]weighReport{r1, mid("", "latency"), r3}, with(map[string]float64{"request_latency_avg_ms": 2500.0 / 150})},
 		"request counts missing": {[]weighReport{r1, mid("requests", ""), r3}, with(map[string]float64{
@@ -495,7 +495,7 @@ func TestKnobStatsEachFieldWeighsOnlyItsOwnReports(t *testing.T) {
 			{periodMS: 60000, sentPeriod: "0", v: 20, reqs: 60},
 			{periodMS: 60000, sentPeriod: "omit", v: 50, reqs: 5},
 		}, map[string]float64{
-			"cpu": 170.0 / 3, "render_fps": 170.0 / 3, "frame_avg_ms": 170.0 / 3, "request_latency_avg_ms": 4900.0 / 150,
+			"cpu": 170.0 / 3, "render_fps": 170.0 / 3, "frame_avg_ms": 774000.0 / 10200, "request_latency_avg_ms": 4900.0 / 150,
 			"requests_per_min": 50, "request_failures_per_min": 25, "invalidated_areas_per_sec": 170.0 / 3,
 		}},
 	}
@@ -527,6 +527,23 @@ func TestKnobStatsEachFieldWeighsOnlyItsOwnReports(t *testing.T) {
 				t.Errorf("invalidated_px_per_sec = %v, want %v", got, want)
 			}
 		})
+	}
+}
+
+func TestKnobStatsFrameTimeIsAMeanPerFrame(t *testing.T) {
+	f := newStatsFixture(t)
+	f.setDiagnostics(t, "full")
+	for _, r := range []string{
+		`{"period_ms":10000,"fps":60,"frame_ms_avg":10}`,
+		`{"period_ms":50000,"fps":2,"frame_ms_avg":40}`,
+		`{"period_ms":10000,"frame_ms_avg":99}`,
+	} {
+		f.clk.advance(10 * time.Second)
+		f.checkinStats(t, r)
+	}
+	b := f.stats(t, "1h").Points[0]
+	if got, want := num(t, b, "frame_avg_ms"), (600*10.0+100*40.0)/700; math.Abs(got-want) > 1e-9 {
+		t.Errorf("frame_avg_ms = %v, want %v: weighted by the frames each report rendered", got, want)
 	}
 }
 

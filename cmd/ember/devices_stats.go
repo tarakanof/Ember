@@ -121,7 +121,7 @@ type knobSample struct {
 	reqMS       int64
 	reqLatN     int64
 	fpsMS       int64
-	frameAvgMS  int64
+	frameN      int64
 	invAreasMS  int64
 	invPxMS     int64
 }
@@ -170,8 +170,8 @@ func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
 	if s.FPS != nil {
 		out.fpsMS = out.periodMS
 	}
-	if s.FrameMSAvg != nil {
-		out.frameAvgMS = out.periodMS
+	if s.FrameMSAvg != nil && s.FPS != nil {
+		out.frameN = int64(math.Round(*s.FPS * float64(out.periodMS) / 1000))
 	}
 	if s.InvAreas != nil {
 		out.InvalidatedAreasPerS, out.invAreasMS = rate(*s.InvAreas, 1000), out.periodMS
@@ -237,7 +237,7 @@ func (a knobSample) merge(b knobSample) knobSample {
 	out.RequestLatencyAvgMS, out.reqLatN = measuredMean(a.RequestLatencyAvgMS, a.reqLatN, b.RequestLatencyAvgMS, b.reqLatN)
 	out.RequestLatencyMaxMS = highest(a.RequestLatencyMaxMS, b.RequestLatencyMaxMS)
 	out.RenderFPS, out.fpsMS = measuredMean(a.RenderFPS, a.fpsMS, b.RenderFPS, b.fpsMS)
-	out.FrameAvgMS, out.frameAvgMS = measuredMean(a.FrameAvgMS, a.frameAvgMS, b.FrameAvgMS, b.frameAvgMS)
+	out.FrameAvgMS, out.frameN = measuredMean(a.FrameAvgMS, a.frameN, b.FrameAvgMS, b.frameN)
 	out.FrameMaxMS = highest(a.FrameMaxMS, b.FrameMaxMS)
 	out.InvalidatedAreasPerS, out.invAreasMS = measuredMean(a.InvalidatedAreasPerS, a.invAreasMS, b.InvalidatedAreasPerS, b.invAreasMS)
 	out.InvalidatedPxPerS, out.invPxMS = measuredMean(a.InvalidatedPxPerS, a.invPxMS, b.InvalidatedPxPerS, b.invPxMS)

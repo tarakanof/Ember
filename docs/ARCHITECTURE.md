@@ -3418,7 +3418,7 @@ show data the owner turned off.
 | `req_ms_avg` | number, ms | full | Mean request duration over the window (merged per request, by `req_ok + req_fail`). |
 | `req_ms_max` | int, ms | full | Slowest request in the window. |
 | `fps` | number, frames/s | full | Rendered frames per second over the window. |
-| `frame_ms_avg` | number, ms | full | Mean time to render a frame. |
+| `frame_ms_avg` | number, ms | full | Mean time to render a frame (merged per frame, by `fps·period_ms`). |
 | `frame_ms_max` | int, ms | full | Slowest frame in the window. |
 | `inv_areas` | int, count | full | Areas LVGL drew over the window, summed over every refresh that ended in it (cinder `refr_stats`, cinder#118): read at `LV_EVENT_RENDER_START`, after `lv_obj_update_layout` and `lv_refr_join_area`, so a moved object's new position counts and joined areas count once, as their bounding box. Past 32 areas (`LV_INV_BUF_SIZE`) LVGL collapses the list to one full-screen area (472×466 px), so at the busiest frames areas fall while px peak. |
 | `inv_px` | int, px | full | Pixels in those areas over the window, the same basis. Areas that overlap without being joined each count their own pixels, so the overlap counts twice. |
@@ -3485,11 +3485,12 @@ newest value, `*_min` the lowest, `*_max` the highest, averages and rates the
 mean weighted by `period_ms`; a bucket's `t` is its newest report. Each
 average and rate weighs only the reports that carried it (each field keeps
 its own measured duration, #473/#475/#482: `cpu_percent`, the request
-rates, `render_fps`, `frame_avg_ms` and the `invalidated_*` rates), so a
+rates, `render_fps` and the `invalidated_*` rates), so a
 report without it, such as one sent at basic diagnostics, doesn't dilute
 the mean; a field sent as `0` counts. `request_latency_avg_ms` is the mean
 per request: it weighs each report by its `req_ok + req_fail`, so a report
-with no counted requests adds nothing. Counts become
+with no counted requests adds nothing. `frame_avg_ms` is the mean per frame
+the same way, weighed by `fps·period_ms` (no weight without `fps`). Counts become
 rates on arrival (`(req_ok+req_fail)·60000/period_ms` per minute,
 `inv_areas·1000/period_ms` per second, like `fps`). Both rings grow as
 samples arrive (never past their cap) and give their buffer back when it
