@@ -116,10 +116,8 @@ struct KnobPagesSection: View {
                 }
                 .contentShape(Rectangle())
                 .draggable(KnobPageDrag(id: page.id))
-                .dropDestination(for: KnobPageDrag.self) { drops, _ in
-                    guard let drop = drops.first else { return false }
+                .reorderDrop(KnobPageDrag.self) { drop in
                     knob.edit { $0.movePage(drop.id, to: page.id) }
-                    return true
                 }
                 .contextMenu {
                     Button("Move Up") { move(page.id, by: -1) }.disabled(index == 0)
@@ -149,7 +147,7 @@ struct KnobPagesSection: View {
 struct KnobPageDrag: Codable, Transferable {
     let id: String
     static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .json)
+        CodableRepresentation(contentType: .emberKnobPage)
     }
 }
 

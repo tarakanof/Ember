@@ -25,10 +25,8 @@ struct NativeAppsSection: View {
                 }
                 .contentShape(Rectangle())
                 .draggable(ClockAppDrag(name: app.name))
-                .dropDestination(for: ClockAppDrag.self) { drops, _ in
-                    guard let drop = drops.first else { return false }
+                .reorderDrop(ClockAppDrag.self) { drop in
                     Task { await device.moveApp(drop.name, onto: app.name) }
-                    return true
                 }
                 .contextMenu {
                     Button("Move Up") { Task { await device.moveApps(fromOffsets: [index], toOffset: index - 1) } }
@@ -98,7 +96,7 @@ struct NativeAppsSection: View {
 struct ClockAppDrag: Codable, Transferable {
     let name: String
     static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .json)
+        CodableRepresentation(contentType: .emberClockApp)
     }
 }
 

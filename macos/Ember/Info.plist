@@ -34,6 +34,29 @@
     <string>Ember uses your location to prefill the weather widget's coordinates.</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Ember finds your Ember server and AWTRIX clock on the local network.</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.ember.Ember.clock-app</string>
+            <key>UTTypeDescription</key>
+            <string>Ember clock app</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.ember.Ember.knob-page</string>
+            <key>UTTypeDescription</key>
+            <string>Ember knob page</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+        </dict>
+    </array>
     <key>NSBonjourServices</key>
     <array>
         <string>_ember._tcp</string>
