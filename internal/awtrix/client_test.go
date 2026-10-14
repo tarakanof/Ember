@@ -268,6 +268,16 @@ func TestPutIcon(t *testing.T) {
 	}
 }
 
+func TestDeleteIcon(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.DeleteIcon(context.Background(), "ember_wait_claude_0badf00d.gif"); err != nil {
+		t.Fatalf("DeleteIcon: %v", err)
+	}
+	if rec.method != http.MethodDelete || rec.path != "/api/v1/files" || rec.rawQuery != "path=%2FICONS%2Fember_wait_claude_0badf00d.gif" {
+		t.Fatalf("got %s %s?%s", rec.method, rec.path, rec.rawQuery)
+	}
+}
+
 func TestDeviceInfo(t *testing.T) {
 	c, rec := serve(t, http.StatusOK, `{"version":"1.0.13","uid":"e868e705ffb8","boardType":"awtrixng","uptimeSeconds":42}`)
 	info, err := c.DeviceInfo(context.Background())

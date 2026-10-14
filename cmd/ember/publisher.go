@@ -22,6 +22,7 @@ type Publisher interface {
 	Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error
 	ListIcons(ctx context.Context) ([]string, error)
 	PutIcon(ctx context.Context, filename string, data []byte) error
+	DeleteIcon(ctx context.Context, filename string) error
 }
 
 type disabledPublisher struct{}
@@ -43,6 +44,7 @@ func (disabledPublisher) ReadSettings(context.Context) (map[string]any, error) {
 func (disabledPublisher) Switch(context.Context, string, awtrix.SwitchMode) error { return nil }
 func (disabledPublisher) ListIcons(context.Context) ([]string, error)             { return nil, nil }
 func (disabledPublisher) PutIcon(context.Context, string, []byte) error           { return nil }
+func (disabledPublisher) DeleteIcon(context.Context, string) error                { return nil }
 
 type clockPublisher struct{ k *clockAccess }
 
@@ -84,6 +86,10 @@ func (p clockPublisher) ListIcons(ctx context.Context) ([]string, error) {
 		return err
 	})
 	return names, err
+}
+
+func (p clockPublisher) DeleteIcon(ctx context.Context, filename string) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.DeleteIcon(ctx, filename) })
 }
 
 func (p clockPublisher) PutIcon(ctx context.Context, filename string, data []byte) error {

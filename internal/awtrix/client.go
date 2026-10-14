@@ -258,6 +258,10 @@ func (c *Client) ListIcons(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
+func (c *Client) DeleteIcon(ctx context.Context, filename string) error {
+	return c.doJSON(ctx, http.MethodDelete, "/api/v1/files?path="+url.QueryEscape("/ICONS/"+filename), nil, nil)
+}
+
 func (c *Client) PutIcon(ctx context.Context, filename string, data []byte) error {
 	if c.base == "" {
 		return errors.New("awtrix base URL is required")

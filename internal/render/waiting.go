@@ -19,7 +19,7 @@ type CoordOpts struct {
 
 const (
 	waitIconBlinkCs = 50
-	waitIconPrefix  = "ember_wait_"
+	WaitIconPrefix  = "ember_wait_"
 )
 
 var waitIconTools = []string{"claude", "codex", "t3"}
@@ -32,11 +32,11 @@ func WaitIconName(tool string) string {
 	}
 	icons, _ := WaitIcons()
 	for name := range icons {
-		if strings.HasPrefix(name, waitIconPrefix+tool+"_") {
+		if strings.HasPrefix(name, WaitIconPrefix+tool+"_") {
 			return name
 		}
 	}
-	return waitIconPrefix + tool
+	return WaitIconPrefix + tool
 }
 
 var waitIconSet = sync.OnceValues(func() (map[string][]byte, error) {
@@ -46,7 +46,7 @@ var waitIconSet = sync.OnceValues(func() (map[string][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		out[fmt.Sprintf("%s%s_%08x", waitIconPrefix, tool, crc32.ChecksumIEEE(data))] = data
+		out[fmt.Sprintf("%s%s_%08x", WaitIconPrefix, tool, crc32.ChecksumIEEE(data))] = data
 	}
 	return out, nil
 })

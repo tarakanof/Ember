@@ -140,6 +140,23 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 		}
 	}
 	a.waitIcons.Store(armed)
+	if armed {
+		a.deleteStaleWaitIcons(ctx, have, wait)
+	}
+}
+
+func (a *App) deleteStaleWaitIcons(ctx context.Context, have []string, current map[string][]byte) {
+	for _, file := range have {
+		name := strings.TrimSuffix(file, ".gif")
+		if !strings.HasPrefix(name, render.WaitIconPrefix) || current[name] != nil {
+			continue
+		}
+		if err := a.publisher.DeleteIcon(ctx, file); err != nil {
+			a.clockJobFailed(ctx, "icon provision: stale wait icon delete failed", "name", file, "err", err)
+			continue
+		}
+		a.logger.Info("stale wait icon deleted", "name", file)
+	}
 }
 
 func (a *App) putIcon(ctx context.Context, name string, data []byte) bool {

@@ -107,3 +107,27 @@ func TestProjectCardStaysUntilItsNameHasScrolledOnce(t *testing.T) {
 		t.Fatalf("cursor = %d, want the next card once the scroll is done", c.cardCursor)
 	}
 }
+
+func TestFailedReuploadDisarmsTheWaitIcons(t *testing.T) {
+	pub := &recordingPublisher{putIconErr: errTest}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	ownIconJobs(t, app)
+	app.waitIcons.Store(true)
+	app.ensureNativeIcons(context.Background())
+	if app.waitIcons.Load() {
+		t.Fatal("a clock that lost the icons and refused the upload must fall back to the drawn icon")
+	}
+}
+
+func TestProvisioningDeletesStaleWaitIcons(t *testing.T) {
+	current := render.WaitIconName("claude") + ".gif"
+	pub := &recordingPublisher{icons: append(waitIconFiles(), "ember_wait_claude_00000000.gif", "ember_wait_codex.gif", "29802.gif")}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	ownIconJobs(t, app)
+	app.ensureNativeIcons(context.Background())
+	got := pub.DeletedIconsSnapshot()
+	slices.Sort(got)
+	if want := []string{"ember_wait_claude_00000000.gif", "ember_wait_codex.gif"}; !slices.Equal(got, want) {
+		t.Fatalf("deleted %v, want only the stale wait icons (kept %s)", got, current)
+	}
+}
