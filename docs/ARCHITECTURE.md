@@ -637,11 +637,15 @@ markers still get reaped.
   after a daemon restart or update. Frame writes have a 10 s deadline. After
   a minute with no inbound message, a `thread/loaded/list {limit:1}` must be
   answered within 10 s, so a hung daemon that keeps the socket open still
-  triggers a reconnect. The handshake is bounded the same way: `initialize`
-  and each bootstrap `thread/loaded/list` page must be answered within 10 s,
-  and the whole handshake within 30 s, so a daemon that hangs before the
-  worker starts is dropped as fast. A message over 16 MiB is drained and skipped and the
-  connection stays up. It **never starts the daemon**. It
+  triggers a reconnect. The handshake is bounded too: `initialize` and each
+  bootstrap `thread/loaded/list` page get 10 s, and the whole handshake gets
+  30 s, after which the connection is closed (that also cuts a blocked
+  write), so a daemon that hangs before the worker starts is dropped within
+  30 s. A `thread/read`, `thread/resume` or `thread/unsubscribe` that times
+  out (30 s) also reconnects. A previous session's released threads survive
+  failed handshakes, so the first full bootstrap still DELETEs the gone ones.
+  A message over 16 MiB is drained and skipped and the connection stays up.
+  It **never starts the daemon**. It
   initializes as `codex_app_server_daemon`: the first client name outside
   the server's non-originating list becomes the daemon-wide originator, which
   Codex records in every TUI rollout; the name is on that list

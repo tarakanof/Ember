@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -61,11 +62,13 @@ type appServer struct {
 	retryEvery  time.Duration
 	callTimeout time.Duration
 	bootTimeout time.Duration
+	bootCall    time.Duration
 	liveEvery   time.Duration
 	liveTimeout time.Duration
 	failLog     *producer.FailureLogger
 
 	kick chan struct{}
+	dial func(ctx context.Context, path string) (*wsConn, error)
 
 	mu           sync.Mutex
 	connected    bool
@@ -92,10 +95,12 @@ func newAppServer(cfg Config) *appServer {
 		retryEvery:  time.Second,
 		callTimeout: 30 * time.Second,
 		bootTimeout: 30 * time.Second,
+		bootCall:    10 * time.Second,
 		liveEvery:   time.Minute,
 		liveTimeout: 10 * time.Second,
 		failLog:     producer.NewFailureLogger(10 * time.Minute),
 		kick:        make(chan struct{}, 1),
+		dial:        dialWS,
 		threads:     map[string]*apThread{},
 		unread:      map[string]*apPending{},
 		ephemeral:   map[string]time.Time{},
@@ -150,7 +155,7 @@ func (as *appServer) run(ctx context.Context) {
 }
 
 func (as *appServer) session(ctx context.Context) error {
-	ws, err := dialWS(ctx, as.sock)
+	ws, err := as.dial(ctx, as.sock)
 	if err != nil {
 		return err
 	}
@@ -172,7 +177,9 @@ func (as *appServer) session(ctx context.Context) error {
 	}()
 
 	bctx, bcancel := context.WithTimeout(sctx, as.bootTimeout)
+	stopClose := context.AfterFunc(bctx, func() { _ = ws.Close() })
 	loaded, err := as.bootstrap(bctx, c)
+	stopClose()
 	bcancel()
 	if err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
@@ -195,7 +202,7 @@ func (as *appServer) bootstrap(ctx context.Context, c *rpcConn) (map[string]bool
 	var init struct {
 		UserAgent string `json:"userAgent"`
 	}
-	if err := as.callFor(ctx, c, as.liveTimeout, "initialize", map[string]any{
+	if err := as.callFor(ctx, c, as.bootCall, "initialize", map[string]any{
 		"clientInfo":   map[string]any{"name": appServerClientName, "title": "Ember (passive observer)", "version": version},
 		"capabilities": map[string]any{"optOutNotificationMethods": appServerOptOut},
 	}, &init); err != nil {
@@ -220,7 +227,7 @@ func (as *appServer) bootstrap(ctx context.Context, c *rpcConn) (map[string]bool
 			Data       []string `json:"data"`
 			NextCursor *string  `json:"nextCursor"`
 		}
-		if err := as.callFor(ctx, c, as.liveTimeout, "thread/loaded/list", params, &ll); err != nil {
+		if err := as.callFor(ctx, c, as.bootCall, "thread/loaded/list", params, &ll); err != nil {
 			return nil, err
 		}
 		as.mu.Lock()
@@ -252,7 +259,9 @@ func (as *appServer) callFor(ctx context.Context, c *rpcConn, d time.Duration, m
 func (as *appServer) disconnect() {
 	as.mu.Lock()
 	defer as.mu.Unlock()
-	as.lastReleased = map[string]bool{}
+	if as.lastReleased == nil {
+		as.lastReleased = map[string]bool{}
+	}
 	for id, t := range as.threads {
 		if t.post.Posted() {
 			as.released = append(as.released, id)
@@ -270,7 +279,10 @@ func (as *appServer) worker(ctx context.Context, c *rpcConn) error {
 	live := time.NewTicker(as.liveEvery)
 	defer live.Stop()
 	for {
-		next := as.reconcile(ctx, c)
+		next, err := as.reconcile(ctx, c)
+		if err != nil {
+			return fmt.Errorf("daemon not answering: %w", err)
+		}
 		var retry <-chan time.Time
 		var timer *time.Timer
 		if !next.IsZero() {
@@ -336,18 +348,19 @@ func (as *appServer) nextAction(now time.Time) (a apAction, retryAt time.Time) {
 	return apAction{}, retryAt
 }
 
-func (as *appServer) reconcile(ctx context.Context, c *rpcConn) time.Time {
+func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, error) {
 	for ctx.Err() == nil {
 		a, retryAt := as.nextAction(time.Now())
 		if a.kind == "" {
-			return retryAt
+			return retryAt, nil
 		}
+		var err error
 		switch a.kind {
 		case "read":
 			var res struct {
 				Thread wireThread `json:"thread"`
 			}
-			err := as.call(ctx, c, "thread/read", map[string]any{"threadId": a.id}, &res)
+			err = as.call(ctx, c, "thread/read", map[string]any{"threadId": a.id}, &res)
 			as.mu.Lock()
 			p := as.unread[a.id]
 			delete(as.unread, a.id)
@@ -359,7 +372,7 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) time.Time {
 			}
 			as.mu.Unlock()
 		case "resume":
-			err := as.call(ctx, c, "thread/resume", map[string]any{"threadId": a.id, "excludeTurns": true}, nil)
+			err = as.call(ctx, c, "thread/resume", map[string]any{"threadId": a.id, "excludeTurns": true}, nil)
 			as.mu.Lock()
 			if t := as.threads[a.id]; t != nil {
 				if err == nil {
@@ -370,15 +383,18 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) time.Time {
 			}
 			as.mu.Unlock()
 		case "unsubscribe":
-			_ = as.call(ctx, c, "thread/unsubscribe", map[string]any{"threadId": a.id}, nil)
+			err = as.call(ctx, c, "thread/unsubscribe", map[string]any{"threadId": a.id}, nil)
 			as.mu.Lock()
 			if t := as.threads[a.id]; t != nil {
 				t.subscribed = false
 			}
 			as.mu.Unlock()
 		}
+		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+			return time.Time{}, err
+		}
 	}
-	return time.Time{}
+	return time.Time{}, nil
 }
 
 type wireStatus struct {
