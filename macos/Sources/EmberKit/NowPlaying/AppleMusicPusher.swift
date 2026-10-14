@@ -57,7 +57,7 @@ public final class AppleMusicPusher {
     @ObservationIgnored private var player: String
     @ObservationIgnored private var latest: MusicPlayerInfo?
     @ObservationIgnored private var worker: Task<Void, Never>?
-    @ObservationIgnored private var reportFailed = false
+    @ObservationIgnored private var reportError: Error?
 
     public init(bridge: MusicBridge, sink: NowPlayingSink, player: String) {
         self.bridge = bridge
@@ -87,11 +87,11 @@ public final class AppleMusicPusher {
     }
 
     @discardableResult
-    public func pushSnapshot() async -> Bool {
-        guard await bridge.isRunning(), let info = await bridge.snapshot() else { return true }
+    public func pushSnapshot() async -> Error? {
+        guard await bridge.isRunning(), let info = await bridge.snapshot() else { return nil }
         submit(info)
         await drain()
-        return !reportFailed
+        return reportError
     }
 
     public func stop() async {
@@ -129,11 +129,11 @@ public final class AppleMusicPusher {
             let ack = try await sink.report(report)
             lastSent = report
             lastError = nil
-            reportFailed = false
+            reportError = nil
             return ack
         } catch {
             lastError = error.localizedDescription
-            reportFailed = true
+            reportError = error
             return nil
         }
     }

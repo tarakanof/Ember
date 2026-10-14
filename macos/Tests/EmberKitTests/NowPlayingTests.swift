@@ -96,12 +96,16 @@ private actor FakeSink: NowPlayingSink {
     var hasArt = false
     var attempts = 0
     var failing = 0
-    func set(failing: Int) { self.failing = failing }
+    var failure: Error = APIError.transport("down")
+    func set(failing: Int, with error: Error = APIError.transport("down")) {
+        self.failing = failing
+        failure = error
+    }
     func report(_ r: NowPlayingReport) async throws -> NowPlayingAck {
         attempts += 1
         if failing > 0 {
             failing -= 1
-            throw APIError.transport("down")
+            throw failure
         }
         reports.append(r)
         return try JSONDecoder().decode(NowPlayingAck.self, from: Data(#"{"has_album_art":\#(hasArt),"has_artist_art":false}"#.utf8))
@@ -441,4 +445,35 @@ private func waitUntil(_ cond: () async -> Bool) async {
     #expect(await sink.reports.map(\.trackID) == ["T1"])
     listener.stop()
     await listener.join()
+}
+
+@MainActor
+private func recoveryAttempts(after error: Error) async -> Int {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setArt(nil)
+    await bridge.setSnapshot(MusicPlayerInfo(state: .playing, name: "Song", persistentID: "T1"))
+    await sink.set(failing: 1, with: error)
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: Sleeps().sleep)
+    let source = FakeCommands([.failure(APIError.transport("down")), .success([]), .success([]), .success([])])
+    listener.start(source: source, player: "M4")
+    await waitUntil { await source.calls >= 5 }
+    await pusher.drain()
+    listener.stop()
+    await listener.join()
+    return await sink.attempts
+}
+
+@MainActor
+@Test func listenerRetriesTheRecoveryPushOnlyAfterATransientFailure() async {
+    #expect(await recoveryAttempts(after: APIError.http(status: 503, body: "")) == 2)
+    #expect(await recoveryAttempts(after: APIError.timedOut) == 2)
+    #expect(await recoveryAttempts(after: APIError.http(status: 400, body: "")) == 1)
+    #expect(await recoveryAttempts(after: APIError.http(status: 413, body: "")) == 1)
+}
+
+@MainActor
+@Test func listenerHoldsTheRecoveryPushForRetryAfter() async {
+    #expect(await recoveryAttempts(after: APIError.rateLimited(retryAfter: .seconds(3600))) == 1)
+    #expect(await recoveryAttempts(after: APIError.rateLimited(retryAfter: .zero)) == 2)
 }

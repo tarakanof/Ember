@@ -47,7 +47,7 @@ public final class MusicCommandListener {
 
     private func run(source: NowPlayingCommandSource, player: String) async {
         var backoff = Self.firstBackoff
-        var failed = false
+        var recoverAt: ContinuousClock.Instant?
         let clock = ContinuousClock()
         while !Task.isCancelled {
             let began = clock.now
@@ -55,12 +55,15 @@ public final class MusicCommandListener {
                 let commands = try await source.commands(player: player, wait: Self.wait)
                 let received = clock.now
                 backoff = Self.firstBackoff
-                if failed, await pusher.pushSnapshot() { failed = false }
+                if let at = recoverAt, clock.now >= at {
+                    let error = await pusher.pushSnapshot()
+                    recoverAt = Self.retry(after: error).map { clock.now + $0 }
+                }
                 await execute(commands, received: received)
                 if commands.isEmpty, clock.now - began < Self.minRound { try await sleep(Self.minRound) }
             } catch {
                 if Task.isCancelled || error is CancellationError { return }
-                failed = true
+                recoverAt = clock.now
                 let pause: Duration
                 switch error as? APIError {
                 case .http(404, _)?: pause = Self.missingRouteBackoff
@@ -71,6 +74,18 @@ public final class MusicCommandListener {
                 }
                 do { try await sleep(pause) } catch { return }
             }
+        }
+    }
+
+    static func retry(after error: Error?) -> Duration? {
+        guard let error else { return nil }
+        if let notSent = error as? RequestNotSent { return retry(after: notSent.underlying) }
+        guard let api = error as? APIError else { return .zero }
+        switch api {
+        case .transport, .timedOut, .clockTimedOut: return .zero
+        case .http(let status, _) where status >= 500: return .zero
+        case .rateLimited(let after): return after
+        default: return nil
         }
     }
 
