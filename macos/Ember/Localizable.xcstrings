@@ -1419,7 +1419,7 @@
       "comment" : "Demo page status: the knob never started the scene within 10 seconds; the argument is the scene's title (\"Hop\")."
     },
     "Knob name" : {},
-    "Knob presses and turns run these actions on one Mac. Shortcuts and scripts run as you, without asking." : {},
+    "Knob presses and turns run these actions on the Mac picked above. The actions are kept on this Mac only; the server just relays which gesture you made." : {},
     "Knob restarted during %@" : {
       "comment" : "Demo page status: the knob rebooted while a scene was sent or playing, so the server dropped the demo and its queue; the argument is the scene's title (\"Hop\")."
     },

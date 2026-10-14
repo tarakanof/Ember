@@ -93,7 +93,7 @@ func TestControlsActionNeedsTheTargetToListen(t *testing.T) {
 	}
 	pollControls(t, srv, "M4", 0)
 	code, res, b := controlsAction(t, srv, testToken, `{"gesture":"push"}`, "")
-	if code != http.StatusAccepted || res.Status != "queued" || res.Kind != controlMedia || res.Target != "M4" {
+	if code != http.StatusAccepted || res.Status != "queued" || res.Target != "M4" {
 		t.Fatalf("after the target polled: %d %s", code, b)
 	}
 }
@@ -109,7 +109,7 @@ func TestControlsCommandsReachOnlyTheTargetMac(t *testing.T) {
 		t.Fatalf("M5 got %+v", got)
 	}
 	got := pollControls(t, srv, "M4", 0)
-	if len(got) != 1 || got[0].Kind != controlMedia || got[0].Key != mediaKeyPlayPause || got[0].ID == "" {
+	if len(got) != 1 || got[0].Gesture != gesturePush || got[0].Steps != 0 || got[0].ID == "" {
 		t.Fatalf("M4 got %+v", got)
 	}
 	if again := pollControls(t, srv, "M4", 0); len(again) != 0 {
@@ -128,7 +128,7 @@ func TestControlsActionAcceptsTheKnobDeviceToken(t *testing.T) {
 	}
 	assertDeviceGolden(t, "controls_action", b)
 	got := pollControls(t, srv, "M4", 0)
-	if len(got) != 1 || got[0].Kind != controlVolume || got[0].Delta != 3*defaultVolumeStep {
+	if len(got) != 1 || got[0].Gesture != gestureTurn || got[0].Steps != 3 {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -155,17 +155,6 @@ func TestControlsIdempotencyKeyDedupesAndFailuresReleaseIt(t *testing.T) {
 	}
 }
 
-func TestControlsUnassignedGestureQueuesNothing(t *testing.T) {
-	_, srv := controlsServer(t, "M4")
-	pollControls(t, srv, "M4", 0)
-	if code, res, b := controlsAction(t, srv, testToken, `{"gesture":"double_push"}`, ""); code != http.StatusOK || res.Status != "unassigned" {
-		t.Fatalf("double_push: %d %s", code, b)
-	}
-	if got := pollControls(t, srv, "M4", 0); len(got) != 0 {
-		t.Fatalf("got %+v", got)
-	}
-}
-
 func TestControlsActionIsRateLimitedPerCaller(t *testing.T) {
 	_, srv := controlsServer(t, "M4")
 	pollControls(t, srv, "M4", 0)
@@ -179,21 +168,6 @@ func TestControlsActionIsRateLimitedPerCaller(t *testing.T) {
 	}
 	if !limited {
 		t.Fatal("never limited")
-	}
-}
-
-func TestControlsResolveTurnAgainstTheConfiguredAction(t *testing.T) {
-	_, srv := controlsServer(t, "M4")
-	if code, _, b := putControls(t, srv, testToken, `{"turn":{"kind":"scroll","lines":4,"axis":"horizontal"}}`); code != http.StatusOK {
-		t.Fatalf("put: %d %s", code, b)
-	}
-	pollControls(t, srv, "M4", 0)
-	if code, _, b := controlsAction(t, srv, testToken, `{"gesture":"turn","steps":-2}`, ""); code != http.StatusAccepted {
-		t.Fatalf("turn: %d %s", code, b)
-	}
-	got := pollControls(t, srv, "M4", 0)
-	if len(got) != 1 || got[0].Kind != controlScroll || got[0].Axis != scrollAxisHorizontal || got[0].Delta != -8 {
-		t.Fatalf("got %+v", got)
 	}
 }
 
@@ -231,47 +205,19 @@ func TestControlsCommandsNeedAMac(t *testing.T) {
 	}
 }
 
-func TestControlQueueCoalescesVolumeAndSameAxisScroll(t *testing.T) {
-	q := newControlQueue()
-	q.lastPoll["M4"] = time.Now()
-	for _, c := range []controlCommand{
-		{Kind: controlVolume, Delta: 4}, {Kind: controlVolume, Delta: 2}, {Kind: controlVolume, Delta: 98},
-		{Kind: controlScroll, Axis: scrollAxisVertical, Delta: 3}, {Kind: controlScroll, Axis: scrollAxisVertical, Delta: 3},
-		{Kind: controlScroll, Axis: scrollAxisHorizontal, Delta: 1},
-		{Kind: controlMedia, Key: mediaKeyNext}, {Kind: controlMedia, Key: mediaKeyNext},
-	} {
-		if _, err := q.push("M4", c); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, _ := q.take(context.Background(), "M4", 0)
-	want := []struct {
-		kind  controlKind
-		delta int
-	}{{controlVolume, 100}, {controlScroll, 6}, {controlScroll, 1}, {controlMedia, 0}, {controlMedia, 0}}
-	if len(got) != len(want) {
-		t.Fatalf("got %+v", got)
-	}
-	for i, w := range want {
-		if got[i].Kind != w.kind || got[i].Delta != w.delta {
-			t.Errorf("[%d] = %+v, want %v %d", i, got[i], w.kind, w.delta)
-		}
-	}
-}
-
 func TestControlQueueDropsStaleStepsSoonerThanPresses(t *testing.T) {
 	now := time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
 	q := newControlQueue()
 	q.clock = func() time.Time { return now }
 	q.lastPoll["M4"] = now
-	_, _ = q.push("M4", controlCommand{Kind: controlVolume, Delta: 2})
-	_, _ = q.push("M4", controlCommand{Kind: controlShortcut, Name: "Focus"})
+	_, _ = q.push("M4", controlCommand{Gesture: gestureTurn, Steps: 2})
+	_, _ = q.push("M4", controlCommand{Gesture: gestureLongPush})
 	now = now.Add(controlStepTTL + time.Millisecond)
 	got, _ := q.take(context.Background(), "M4", 0)
-	if len(got) != 1 || got[0].Kind != controlShortcut || got[0].AgeMS != (controlStepTTL+time.Millisecond).Milliseconds() {
+	if len(got) != 1 || got[0].Gesture != gestureLongPush || got[0].AgeMS != (controlStepTTL+time.Millisecond).Milliseconds() {
 		t.Fatalf("after the step TTL: %+v", got)
 	}
-	_, _ = q.push("M4", controlCommand{Kind: controlMute})
+	_, _ = q.push("M4", controlCommand{Gesture: gesturePush})
 	now = now.Add(controlPressTTL)
 	if got, _ := q.take(context.Background(), "M4", 0); len(got) != 0 {
 		t.Fatalf("after the press TTL: %+v", got)
@@ -281,11 +227,11 @@ func TestControlQueueDropsStaleStepsSoonerThanPresses(t *testing.T) {
 func TestControlQueueKeepsTheNewestEight(t *testing.T) {
 	q := newControlQueue()
 	q.lastPoll["M4"] = time.Now()
-	for i := range controlsPerMac + 3 {
-		_, _ = q.push("M4", controlCommand{Kind: controlShortcut, Name: strconv.Itoa(i)})
+	for range controlsPerMac + 3 {
+		_, _ = q.push("M4", controlCommand{Gesture: gesturePush})
 	}
 	got, _ := q.take(context.Background(), "M4", 0)
-	if len(got) != controlsPerMac || got[0].Name != "3" || got[len(got)-1].Name != strconv.Itoa(controlsPerMac+2) {
+	if len(got) != controlsPerMac || got[0].ID != "k4" || got[len(got)-1].ID != "k"+strconv.Itoa(controlsPerMac+3) {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -296,76 +242,15 @@ func TestControlQueueRefusesAMacThatStoppedListening(t *testing.T) {
 	q.clock = func() time.Time { return now }
 	q.lastPoll["M4"] = now
 	now = now.Add(controlListenGrace + time.Second)
-	if _, err := q.push("M4", controlCommand{Kind: controlMute}); err != errControlTargetDeaf {
+	if _, err := q.push("M4", controlCommand{Gesture: gesturePush}); err != errControlTargetDeaf {
 		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestControlsConfigDefaults(t *testing.T) {
-	_, srv := controlsServer(t, "")
-	resp, b := devReq(t, srv, "GET", "/v1/controls/config", testToken, "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("get: %d %s", resp.StatusCode, b)
-	}
-	var got controlsConfigAnswer
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Target != "" || got.Push != (ControlAction{Kind: controlMedia, Key: mediaKeyPlayPause}) ||
-		got.DoublePush.Kind != controlNone || got.LongPush.Kind != controlNone ||
-		got.Turn != (ControlAction{Kind: controlVolume, Step: defaultVolumeStep}) || got.Macs == nil {
-		t.Fatalf("defaults: %s", b)
-	}
-}
-
-func TestControlsConfigRejectsInvalidActions(t *testing.T) {
-	_, srv := controlsServer(t, "")
-	long := make([]byte, maxAppleScriptBytes+1)
-	for i := range long {
-		long[i] = 'a'
-	}
-	for _, body := range []string{
-		`{"push":{"kind":"volume"}}`,
-		`{"turn":{"kind":"applescript","script":"beep"}}`,
-		`{"turn":{"kind":"shortcut","name":"x"}}`,
-		`{"push":{"kind":"media","key":"stop"}}`,
-		`{"push":{"kind":"shortcut","name":"  "}}`,
-		`{"long_push":{"kind":"applescript","script":" "}}`,
-		`{"long_push":{"kind":"applescript","script":"` + string(long) + `"}}`,
-		`{"turn":{"kind":"volume","step":21}}`,
-		`{"turn":{"kind":"scroll","lines":11}}`,
-		`{"turn":{"kind":"scroll","axis":"diagonal"}}`,
-		`{"push":{"kind":"launch"}}`,
-		`{"target":"` + string(long[:maxControlTarget+1]) + `"}`,
-	} {
-		if code, _, b := putControls(t, srv, testToken, body); code != http.StatusBadRequest {
-			t.Errorf("%.60s: %d %s, want 400", body, code, b)
-		}
-	}
-}
-
-func TestControlsConfigNormalizesAndKeepsOtherGestures(t *testing.T) {
-	_, srv := controlsServer(t, "")
-	code, got, b := putControls(t, srv, testToken,
-		`{"target":" M4 ","long_push":{"kind":"shortcut","name":" Focus ","script":"ignored","step":3},"turn":{"kind":"scroll"}}`)
-	if code != http.StatusOK {
-		t.Fatalf("put: %d %s", code, b)
-	}
-	if got.Target != "M4" || got.LongPush != (ControlAction{Kind: controlShortcut, Name: "Focus"}) ||
-		got.Turn != (ControlAction{Kind: controlScroll, Lines: defaultScrollLines, Axis: scrollAxisVertical}) ||
-		got.Push.Kind != controlMedia {
-		t.Fatalf("put answer: %s", b)
-	}
-	code, got, b = putControls(t, srv, testToken, `{"double_push":{"kind":"applescript","script":"beep"}}`)
-	if code != http.StatusOK || got.Target != "M4" || got.LongPush.Name != "Focus" || got.DoublePush.Script != "beep" {
-		t.Fatalf("merge: %d %s", code, b)
 	}
 }
 
 func TestControlsConfigPutIsMasterOnly(t *testing.T) {
 	_, srv := controlsServer(t, "")
 	admin := mintClient(t, srv, "admin", scopeAdmin)
-	if code, _, b := putControls(t, srv, admin.Token, `{"long_push":{"kind":"applescript","script":"beep"}}`); code != http.StatusForbidden {
+	if code, _, b := putControls(t, srv, admin.Token, `{"target":"Elsewhere"}`); code != http.StatusForbidden {
 		t.Fatalf("admin client: %d %s", code, b)
 	}
 	if resp, b := devReq(t, srv, "GET", "/v1/controls/config", admin.Token, ""); resp.StatusCode != http.StatusOK {
@@ -391,7 +276,7 @@ func TestControlsConfigListsMacsSeenPolling(t *testing.T) {
 func TestControlsConfigSurvivesARestart(t *testing.T) {
 	db := t.TempDir() + "/s.db"
 	app, srv := newDevicesApp(t, db)
-	if code, _, b := putControls(t, srv, testToken, `{"target":"M4","long_push":{"kind":"shortcut","name":"Focus"}}`); code != http.StatusOK {
+	if code, _, b := putControls(t, srv, testToken, `{"target":"M4"}`); code != http.StatusOK {
 		t.Fatalf("put: %d %s", code, b)
 	}
 	srv.Close()
@@ -399,7 +284,7 @@ func TestControlsConfigSurvivesARestart(t *testing.T) {
 	app2, _ := newDevicesApp(t, db)
 	app2.settings.reapply()
 	got := app2.settings.controls.get()
-	if got.Target != "M4" || got.LongPush.Name != "Focus" {
+	if got.Target != "M4" {
 		t.Fatalf("after restart: %+v", got)
 	}
 }
@@ -441,5 +326,68 @@ func TestControlsOwnerRoutesRejectKnobAndNarrowClientTokens(t *testing.T) {
 	}
 	if got := pollControls(t, srv, "M4", 0); len(got) != 1 {
 		t.Fatalf("a rejected poll drained the queue: %+v", got)
+	}
+}
+
+func TestControlQueueCoalescesTurnsButNotPresses(t *testing.T) {
+	q := newControlQueue()
+	q.lastPoll["M4"] = time.Now()
+	for _, c := range []controlCommand{
+		{Gesture: gestureTurn, Steps: 4}, {Gesture: gestureTurn, Steps: 2}, {Gesture: gestureTurn, Steps: 98},
+		{Gesture: gesturePush}, {Gesture: gesturePush}, {Gesture: gestureTurn, Steps: -1},
+	} {
+		if _, err := q.push("M4", c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := q.take(context.Background(), "M4", 0)
+	want := []controlCommand{{Gesture: gestureTurn, Steps: maxQueuedSteps}, {Gesture: gesturePush}, {Gesture: gesturePush},
+		{Gesture: gestureTurn, Steps: -1}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v", got)
+	}
+	for i, w := range want {
+		if got[i].Gesture != w.Gesture || got[i].Steps != w.Steps {
+			t.Errorf("[%d] = %+v, want %+v", i, got[i], w)
+		}
+	}
+}
+
+func TestControlsConfigHoldsOnlyTheTarget(t *testing.T) {
+	_, srv := controlsServer(t, "")
+	code, got, b := putControls(t, srv, testToken, `{"target":" M4 "}`)
+	if code != http.StatusOK || got.Target != "M4" || got.Macs == nil {
+		t.Fatalf("put: %d %s", code, b)
+	}
+	var raw map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(b), &raw)
+	if len(raw) != 2 {
+		t.Fatalf("config carries more than target and macs: %s", b)
+	}
+	long := strings.Repeat("x", maxControlTarget+1)
+	if code, _, b := putControls(t, srv, testToken, `{"target":"`+long+`"}`); code != http.StatusBadRequest {
+		t.Fatalf("long target: %d %s", code, b)
+	}
+}
+
+func TestControlsCommandsCarryOnlyTheGesture(t *testing.T) {
+	_, srv := controlsServer(t, "M4")
+	pollControls(t, srv, "M4", 0)
+	if code, _, b := controlsAction(t, srv, testToken, `{"gesture":"turn","steps":-2}`, ""); code != http.StatusAccepted {
+		t.Fatalf("turn: %d %s", code, b)
+	}
+	resp, b := npDo(t, srv, "GET", "/v1/controls/commands?mac=M4", testToken, nil, nil)
+	var raw struct {
+		Commands []map[string]json.RawMessage `json:"commands"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil || resp.StatusCode != http.StatusOK || len(raw.Commands) != 1 {
+		t.Fatalf("poll: %d %s", resp.StatusCode, b)
+	}
+	for k := range raw.Commands[0] {
+		switch k {
+		case "id", "gesture", "steps", "age_ms":
+		default:
+			t.Errorf("command carries %q: %s", k, b)
+		}
 	}
 }

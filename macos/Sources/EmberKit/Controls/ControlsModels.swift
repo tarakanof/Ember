@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ControlGesture: String, CaseIterable, Sendable {
+public enum ControlGesture: String, Codable, CaseIterable, Sendable {
     case push, doublePush = "double_push", longPush = "long_push", turn
 
     public var isTurn: Bool { self == .turn }
@@ -13,8 +13,6 @@ public enum ControlKind: String, Codable, CaseIterable, Sendable {
     public static let turnKinds: [ControlKind] = [.none, .volume, .scroll]
 
     public var needsEventAccess: Bool { self == .media || self == .scroll }
-
-    public var lifetime: Duration { self == .volume || self == .scroll ? .seconds(2) : .seconds(5) }
 
     public init(from decoder: Decoder) throws {
         self = ControlKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .none
@@ -70,43 +68,16 @@ public struct ControlsMac: Codable, Equatable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey { case name, listening, lastPoll = "last_poll" }
 }
 
-public struct ControlsConfig: Codable, Equatable, Sendable {
-    public var target: String
+public struct ControlsMapping: Codable, Equatable, Sendable {
     public var push: ControlAction
     public var doublePush: ControlAction
     public var longPush: ControlAction
     public var turn: ControlAction
-    public var macs: [ControlsMac]
 
-    public init(target: String = "", push: ControlAction = ControlAction(kind: .media, key: .playPause),
+    public init(push: ControlAction = ControlAction(kind: .media, key: .playPause),
                 doublePush: ControlAction = ControlAction(), longPush: ControlAction = ControlAction(),
-                turn: ControlAction = ControlAction(kind: .volume, step: 2), macs: [ControlsMac] = []) {
-        self.target = target; self.push = push; self.doublePush = doublePush; self.longPush = longPush
-        self.turn = turn; self.macs = macs
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case target, push, doublePush = "double_push", longPush = "long_push", turn, macs
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        let d = ControlsConfig()
-        target = try c.decodeIfPresent(String.self, forKey: .target) ?? d.target
-        push = try c.decodeIfPresent(ControlAction.self, forKey: .push) ?? d.push
-        doublePush = try c.decodeIfPresent(ControlAction.self, forKey: .doublePush) ?? d.doublePush
-        longPush = try c.decodeIfPresent(ControlAction.self, forKey: .longPush) ?? d.longPush
-        turn = try c.decodeIfPresent(ControlAction.self, forKey: .turn) ?? d.turn
-        macs = try c.decodeIfPresent([ControlsMac].self, forKey: .macs) ?? []
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(target, forKey: .target)
-        try c.encode(push, forKey: .push)
-        try c.encode(doublePush, forKey: .doublePush)
-        try c.encode(longPush, forKey: .longPush)
-        try c.encode(turn, forKey: .turn)
+                turn: ControlAction = ControlAction(kind: .volume, step: 2)) {
+        self.push = push; self.doublePush = doublePush; self.longPush = longPush; self.turn = turn
     }
 
     public subscript(gesture: ControlGesture) -> ControlAction {
@@ -132,6 +103,40 @@ public struct ControlsConfig: Codable, Equatable, Sendable {
         ControlGesture.allCases.contains { self[$0].kind.needsEventAccess }
     }
 
+    public static let defaultsKey = "knobControls.mapping"
+
+    public static func load(from defaults: UserDefaults) -> ControlsMapping {
+        guard let data = defaults.data(forKey: defaultsKey),
+              let m = try? JSONDecoder().decode(ControlsMapping.self, from: data) else { return ControlsMapping() }
+        return m
+    }
+
+    public func save(to defaults: UserDefaults) {
+        if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: Self.defaultsKey) }
+    }
+}
+
+public struct ControlsConfig: Codable, Equatable, Sendable {
+    public var target: String
+    public var macs: [ControlsMac]
+
+    public init(target: String = "", macs: [ControlsMac] = []) {
+        self.target = target; self.macs = macs
+    }
+
+    enum CodingKeys: String, CodingKey { case target, macs }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        target = try c.decodeIfPresent(String.self, forKey: .target) ?? ""
+        macs = try c.decodeIfPresent([ControlsMac].self, forKey: .macs) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(target, forKey: .target)
+    }
+
     public func targetChoices(thisMac: String) -> [String] {
         var names = macs.map(\.name)
         for extra in [thisMac, target] where !extra.isEmpty && !names.contains(extra) { names.append(extra) }
@@ -139,33 +144,55 @@ public struct ControlsConfig: Codable, Equatable, Sendable {
     }
 }
 
+public enum ControlsGate {
+    public static func shouldListen(target: String?, thisMac: String, hasToken: Bool) -> Bool {
+        guard hasToken, let target, !target.isEmpty else { return false }
+        return target == thisMac
+    }
+}
+
+public struct ControlCommandRejected: Error, Equatable {
+    public let reason: String
+}
+
 public struct ControlCommand: Decodable, Equatable, Sendable {
+    public static let lifetimeTurn: Duration = .seconds(2)
+    public static let lifetimePress: Duration = .seconds(5)
+    public static let maxSteps = 100
+
     public let id: String
-    public let kind: ControlKind
-    public let key: MediaKey?
-    public let name: String
-    public let script: String
-    public let axis: ScrollAxis?
-    public let delta: Int
+    public let gesture: ControlGesture
+    public let steps: Int
     public let ageMs: Int
 
-    public init(id: String, kind: ControlKind, key: MediaKey? = nil, name: String = "", script: String = "",
-                axis: ScrollAxis? = nil, delta: Int = 0, ageMs: Int = 0) {
-        self.id = id; self.kind = kind; self.key = key; self.name = name; self.script = script
-        self.axis = axis; self.delta = delta; self.ageMs = ageMs
+    public init(id: String, gesture: ControlGesture, steps: Int = 0, ageMs: Int = 0) {
+        self.id = id; self.gesture = gesture; self.steps = steps; self.ageMs = ageMs
     }
 
-    enum CodingKeys: String, CodingKey { case id, kind, key, name, script, axis, delta, ageMs = "age_ms" }
+    public var lifetime: Duration { gesture == .turn ? Self.lifetimeTurn : Self.lifetimePress }
+
+    enum CodingKeys: String, CodingKey, CaseIterable { case id, gesture, steps, ageMs = "age_ms" }
+
+    private struct AnyKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
 
     public init(from decoder: Decoder) throws {
+        let allowed = Set(CodingKeys.allCases.map(\.rawValue))
+        let extra = try decoder.container(keyedBy: AnyKey.self).allKeys.map(\.stringValue).filter { !allowed.contains($0) }
+        guard extra.isEmpty else { throw ControlCommandRejected(reason: "unexpected fields \(extra.sorted())") }
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
-        kind = try c.decodeIfPresent(ControlKind.self, forKey: .kind) ?? .none
-        key = try c.decodeIfPresent(String.self, forKey: .key).flatMap(MediaKey.init(rawValue:))
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
-        script = try c.decodeIfPresent(String.self, forKey: .script) ?? ""
-        axis = try c.decodeIfPresent(String.self, forKey: .axis).flatMap(ScrollAxis.init(rawValue:))
-        delta = try c.decodeIfPresent(Int.self, forKey: .delta) ?? 0
+        id = try c.decode(String.self, forKey: .id)
+        let raw = try c.decode(String.self, forKey: .gesture)
+        guard let g = ControlGesture(rawValue: raw) else { throw ControlCommandRejected(reason: "unknown gesture") }
+        gesture = g
+        steps = try c.decodeIfPresent(Int.self, forKey: .steps) ?? 0
+        guard g == .turn ? (steps != 0 && abs(steps) <= Self.maxSteps) : steps == 0 else {
+            throw ControlCommandRejected(reason: "bad steps")
+        }
         ageMs = max(0, try c.decodeIfPresent(Int.self, forKey: .ageMs) ?? 0)
     }
 }
@@ -177,7 +204,7 @@ public struct ControlCommands: Decodable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        commands = try c.decodeIfPresent([ControlCommand].self, forKey: .commands) ?? []
+        commands = try c.decode([ControlCommand].self, forKey: .commands)
     }
 }
 

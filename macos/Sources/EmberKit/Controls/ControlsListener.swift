@@ -16,35 +16,35 @@ public protocol ControlsExecutor: Sendable {
 }
 
 public enum ControlOutcome: Equatable, Sendable {
-    case ran, failed, stale, needsAccessibility, unsupported
+    case ran, failed, stale, needsAccessibility, unassigned, notTarget
 }
 
 public enum ControlDispatcher {
-    public static func perform(_ c: ControlCommand, on executor: ControlsExecutor,
+    public static func perform(_ c: ControlCommand, mapping: ControlsMapping, on executor: ControlsExecutor,
                                age: Duration = .zero) async -> ControlOutcome {
-        guard age <= c.kind.lifetime else { return .stale }
-        if c.kind.needsEventAccess, !(await executor.canPostEvents()) { return .needsAccessibility }
+        guard age <= c.lifetime else { return .stale }
+        let action = mapping[c.gesture]
+        if action.kind.needsEventAccess, !(await executor.canPostEvents()) { return .needsAccessibility }
         let ok: Bool
-        switch c.kind {
-        case .volume:
-            guard c.delta != 0 else { return .unsupported }
-            ok = await executor.changeVolume(by: c.delta)
-        case .mute:
+        switch (c.gesture.isTurn, action.kind) {
+        case (true, .volume):
+            ok = await executor.changeVolume(by: max(-100, min(100, c.steps * (action.step ?? 2))))
+        case (true, .scroll):
+            ok = await executor.scroll(action.axis ?? .vertical, lines: max(-100, min(100, c.steps * (action.lines ?? 3))))
+        case (false, .mute):
             ok = await executor.toggleMute()
-        case .media:
-            guard let key = c.key else { return .unsupported }
-            ok = await executor.press(key)
-        case .scroll:
-            guard let axis = c.axis, c.delta != 0 else { return .unsupported }
-            ok = await executor.scroll(axis, lines: c.delta)
-        case .shortcut:
-            guard !c.name.isEmpty else { return .unsupported }
-            ok = await executor.runShortcut(c.name)
-        case .applescript:
-            guard !c.script.isEmpty else { return .unsupported }
-            ok = await executor.runAppleScript(c.script)
-        case .none:
-            return .unsupported
+        case (false, .media):
+            ok = await executor.press(action.key ?? .playPause)
+        case (false, .shortcut):
+            guard let name = action.name, !name.trimmingCharacters(in: .whitespaces).isEmpty else { return .unassigned }
+            ok = await executor.runShortcut(name)
+        case (false, .applescript):
+            guard let script = action.script, !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .unassigned
+            }
+            ok = await executor.runAppleScript(script)
+        default:
+            return .unassigned
         }
         return ok ? .ran : .failed
     }
@@ -53,6 +53,10 @@ public enum ControlDispatcher {
 public struct ControlsClient: ControlsCommandSource {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
+
+    public func config() async throws -> ControlsConfig {
+        try await client.get("/v1/controls/config")
+    }
 
     public func commands(mac: String, wait: Int) async throws -> [ControlCommand] {
         let answer: ControlCommands = try await client.get("/v1/controls/commands", query: [
@@ -74,12 +78,18 @@ public final class ControlsListener {
     public typealias Sleep = @Sendable (Duration) async throws -> Void
 
     private let executor: ControlsExecutor
+    private let mapping: @MainActor () -> ControlsMapping
+    private let isTarget: @MainActor () -> Bool
     private let sleep: Sleep
     private var task: Task<Void, Never>?
     private var loggedNoAccess = false
 
-    public init(executor: ControlsExecutor, sleep: @escaping Sleep = { try await Task.sleep(for: $0) }) {
+    public init(executor: ControlsExecutor, mapping: @escaping @MainActor () -> ControlsMapping,
+                isTarget: @escaping @MainActor () -> Bool,
+                sleep: @escaping Sleep = { try await Task.sleep(for: $0) }) {
         self.executor = executor
+        self.mapping = mapping
+        self.isTarget = isTarget
         self.sleep = sleep
     }
 
@@ -109,6 +119,7 @@ public final class ControlsListener {
                 if commands.isEmpty, clock.now - began < Self.minRound { try await sleep(Self.minRound) }
             } catch {
                 if Task.isCancelled || error is CancellationError { return }
+                Self.log.notice("knob controls poll failed, nothing run: \(String(describing: error), privacy: .public)")
                 let pause: Duration
                 switch error as? APIError {
                 case .http(404, _)?: pause = Self.missingRouteBackoff
@@ -124,24 +135,28 @@ public final class ControlsListener {
 
     @discardableResult
     func execute(_ commands: [ControlCommand], received: ContinuousClock.Instant = .now) async -> [ControlOutcome] {
+        guard isTarget() else {
+            if !commands.isEmpty { Self.log.notice("knob controls ignored: this Mac is not the target") }
+            return commands.map { _ in .notTarget }
+        }
         var outcomes: [ControlOutcome] = []
         for c in commands {
             let age = Duration.milliseconds(c.ageMs) + (ContinuousClock.now - received)
-            let outcome = await ControlDispatcher.perform(c, on: executor, age: age)
+            let outcome = await ControlDispatcher.perform(c, mapping: mapping(), on: executor, age: age)
             outcomes.append(outcome)
             switch outcome {
             case .needsAccessibility:
                 if !loggedNoAccess {
-                    Self.log.notice("knob control skipped: Accessibility not granted (\(c.kind.rawValue, privacy: .public))")
+                    Self.log.notice("knob control skipped: Accessibility not granted (\(c.gesture.rawValue, privacy: .public))")
                 }
                 loggedNoAccess = true
             case .stale:
-                Self.log.notice("dropped a stale knob control (\(c.kind.rawValue, privacy: .public))")
+                Self.log.notice("dropped a stale knob control (\(c.gesture.rawValue, privacy: .public))")
             case .failed:
-                Self.log.error("knob control failed (\(c.kind.rawValue, privacy: .public))")
+                Self.log.error("knob control failed (\(c.gesture.rawValue, privacy: .public))")
             case .ran:
-                if c.kind.needsEventAccess { loggedNoAccess = false }
-            case .unsupported:
+                if mapping()[c.gesture].kind.needsEventAccess { loggedNoAccess = false }
+            case .unassigned, .notTarget:
                 break
             }
         }

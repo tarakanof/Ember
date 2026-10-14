@@ -25,30 +25,22 @@ const (
 var (
 	errNoControlTarget    = errors.New("no Mac is set to run knob controls")
 	errControlTargetDeaf  = errors.New("the Mac set to run knob controls is not listening")
-	errControlsMasterOnly = errors.New("changing knob controls requires EMBER_TOKEN")
+	errControlsMasterOnly = errors.New("changing the knob controls target requires EMBER_TOKEN")
 )
 
 type controlCommand struct {
-	ID     string      `json:"id"`
-	Kind   controlKind `json:"kind"`
-	Key    string      `json:"key,omitempty"`
-	Name   string      `json:"name,omitempty"`
-	Script string      `json:"script,omitempty"`
-	Axis   string      `json:"axis,omitempty"`
-	Delta  int         `json:"delta,omitempty"`
-	AgeMS  int64       `json:"age_ms"`
-	at     time.Time
+	ID      string         `json:"id"`
+	Gesture controlGesture `json:"gesture"`
+	Steps   int            `json:"steps,omitempty"`
+	AgeMS   int64          `json:"age_ms"`
+	at      time.Time
 }
 
 func (c controlCommand) ttl() time.Duration {
-	if c.Kind == controlVolume || c.Kind == controlScroll {
+	if c.Gesture == gestureTurn {
 		return controlStepTTL
 	}
 	return controlPressTTL
-}
-
-func (c controlCommand) merges(next controlCommand) bool {
-	return c.Kind == next.Kind && (c.Kind == controlVolume || c.Kind == controlScroll && c.Axis == next.Axis)
 }
 
 type controlsService struct {
@@ -98,8 +90,8 @@ func (q *controlQueue) push(mac string, cmd controlCommand) (controlCommand, err
 	}
 	cmds := dropStaleControls(q.queued[mac], now)
 	cmd.at = now
-	if n := len(cmds); n > 0 && cmds[n-1].merges(cmd) {
-		cmds[n-1].Delta = clampDelta(cmds[n-1].Delta + cmd.Delta)
+	if n := len(cmds); n > 0 && cmd.Gesture == gestureTurn && cmds[n-1].Gesture == gestureTurn {
+		cmds[n-1].Steps = clampSteps(cmds[n-1].Steps + cmd.Steps)
 		cmds[n-1].at = now
 		cmd = cmds[n-1]
 	} else {
@@ -227,16 +219,14 @@ func (a *App) handleControlsConfigPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d, ok := serveSettingPut(a, w, r, a.settings.controls); ok {
-		a.logger.Info("knob controls changed", "target", d.Target, "push", d.Push.Kind, "double_push", d.DoublePush.Kind,
-			"long_push", d.LongPush.Kind, "turn", d.Turn.Kind)
+		a.logger.Info("knob controls target changed", "target", d.Target)
 		writeJSON(w, http.StatusOK, a.controlsAnswer(d))
 	}
 }
 
 type controlsActionAnswer struct {
-	Status string      `json:"status"`
-	Kind   controlKind `json:"kind,omitempty"`
-	Target string      `json:"target,omitempty"`
+	Status string `json:"status"`
+	Target string `json:"target,omitempty"`
 }
 
 func (a *App) handleControlsAction(w http.ResponseWriter, r *http.Request) {
@@ -268,29 +258,22 @@ func (a *App) handleControlsAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, errors.New("control requests too fast"))
 		return
 	}
-	cfg := a.settings.controls.get()
-	act := cfg.action(req.Gesture)
-	if act.Kind == controlNone {
-		s.keys.release(caller, key)
-		writeJSON(w, http.StatusOK, controlsActionAnswer{Status: "unassigned"})
-		return
-	}
-	if cfg.Target == "" {
+	target := a.settings.controls.get().Target
+	if target == "" {
 		s.keys.release(caller, key)
 		a.logger.Info("knob control rejected", "gesture", req.Gesture, "caller", caller, "err", errNoControlTarget)
 		writeError(w, http.StatusServiceUnavailable, errNoControlTarget)
 		return
 	}
-	cmd, err := s.queue.push(cfg.Target, resolveControl(act, req.Steps))
+	cmd, err := s.queue.push(target, controlCommand{Gesture: req.Gesture, Steps: req.Steps})
 	if err != nil {
 		s.keys.release(caller, key)
-		a.logger.Info("knob control rejected", "gesture", req.Gesture, "target", cfg.Target, "caller", caller, "err", err)
+		a.logger.Info("knob control rejected", "gesture", req.Gesture, "target", target, "caller", caller, "err", err)
 		writeError(w, http.StatusServiceUnavailable, err)
 		return
 	}
-	a.logger.Debug("knob control queued", "gesture", req.Gesture, "kind", cmd.Kind, "id", cmd.ID,
-		"target", cfg.Target, "caller", caller)
-	writeJSON(w, http.StatusAccepted, controlsActionAnswer{Status: "queued", Kind: cmd.Kind, Target: cfg.Target})
+	a.logger.Debug("knob control queued", "gesture", cmd.Gesture, "id", cmd.ID, "target", target, "caller", caller)
+	writeJSON(w, http.StatusAccepted, controlsActionAnswer{Status: "queued", Target: target})
 }
 
 type controlCommandsAnswer struct {

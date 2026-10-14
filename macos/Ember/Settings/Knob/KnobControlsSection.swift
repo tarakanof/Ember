@@ -12,7 +12,7 @@ struct KnobControlsSection: View {
     }
 
     @ViewBuilder private func content(_ model: ServerConfigModel<ControlsConfig>) -> some View {
-        let service = env.knobControls
+        @Bindable var service = env.knobControls
         let cfg = model.draft
         Section {
             Picker("Run on", selection: Binding(
@@ -26,10 +26,10 @@ struct KnobControlsSection: View {
             }
             ForEach(ControlGesture.allCases, id: \.self) { gesture in
                 ControlActionRow(gesture: gesture, action: Binding(
-                    get: { model.draft[gesture] },
-                    set: { v in model.draft[gesture] = v }))
+                    get: { service.mapping[gesture] },
+                    set: { v in service.mapping[gesture] = v }))
             }
-            if cfg.target == service.macName, cfg.needsEventAccess, !service.eventAccess {
+            if cfg.target == service.macName, service.mapping.needsEventAccess, !service.eventAccess {
                 LabeledContent {
                     Button("Allow…") { service.requestEventAccess() }
                 } label: {
@@ -39,11 +39,12 @@ struct KnobControlsSection: View {
         } header: {
             Text("Controls")
         } footer: {
-            SectionFooter(text: "Knob presses and turns run these actions on one Mac. Shortcuts and scripts run as you, without asking.",
+            SectionFooter(text: "Knob presses and turns run these actions on the Mac picked above. The actions are kept on this Mac only; the server just relays which gesture you made.",
                           error: model.saveError)
         }
         .autosaves(model)
         .onAppear { service.refreshEventAccess() }
+        .onChange(of: model.applied?.target) { _, _ in Task { await service.refresh() } }
     }
 
     private func macLabel(_ name: String, thisMac: String, listening: Bool?) -> Text {
