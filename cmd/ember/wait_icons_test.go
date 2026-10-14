@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -129,5 +130,52 @@ func TestProvisioningDeletesStaleWaitIcons(t *testing.T) {
 	slices.Sort(got)
 	if want := []string{"ember_wait_claude_00000000.gif", "ember_wait_codex.gif"}; !slices.Equal(got, want) {
 		t.Fatalf("deleted %v, want only the stale wait icons (kept %s)", got, current)
+	}
+}
+
+func TestStaleWaitIconsStayWhileTheCurrentSetIsNotArmed(t *testing.T) {
+	pub := &recordingPublisher{icons: []string{render.WaitIconName("claude") + ".gif", "ember_wait_codex.gif"}, putIconErr: errTest}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	ownIconJobs(t, app)
+	app.ensureNativeIcons(context.Background())
+	if got := pub.DeletedIconsSnapshot(); len(got) != 0 {
+		t.Fatalf("deleted %v while the current wait icons failed to upload", got)
+	}
+}
+
+type gatedIconPublisher struct {
+	*recordingPublisher
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (p *gatedIconPublisher) PutIcon(ctx context.Context, name string, data []byte) error {
+	p.once.Do(func() {
+		close(p.entered)
+		<-p.release
+	})
+	return p.recordingPublisher.PutIcon(ctx, name, data)
+}
+
+func TestAProvisioningJobRunningAtAClockMoveDoesNotRearmTheWaitIcons(t *testing.T) {
+	pub := &gatedIconPublisher{recordingPublisher: &recordingPublisher{}, entered: make(chan struct{}), release: make(chan struct{})}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	ownIconJobs(t, app)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		app.ensureNativeIcons(context.Background())
+	}()
+	<-pub.entered
+	app.disarmWaitIcons()
+	close(pub.release)
+	<-done
+	if app.waitIcons.Load() {
+		t.Fatal("a job started for the old clock armed the wait icons on the new one")
+	}
+	app.ensureNativeIcons(context.Background())
+	if !app.waitIcons.Load() {
+		t.Fatal("the next provisioning run must arm them")
 	}
 }

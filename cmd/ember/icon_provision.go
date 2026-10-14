@@ -75,9 +75,32 @@ func (a *App) clockRebooted(reason string) {
 }
 
 func (a *App) clockMoved(reason string) {
-	a.waitIcons.Store(false)
+	a.disarmWaitIcons()
 	a.RepublishAll(reason)
 	a.provisionClockInBackground()
+}
+
+func (a *App) disarmWaitIcons() {
+	a.waitArmMu.Lock()
+	defer a.waitArmMu.Unlock()
+	a.clockGen++
+	a.waitIcons.Store(false)
+}
+
+func (a *App) clockGeneration() uint64 {
+	a.waitArmMu.Lock()
+	defer a.waitArmMu.Unlock()
+	return a.clockGen
+}
+
+func (a *App) armWaitIcons(gen uint64, armed bool) bool {
+	a.waitArmMu.Lock()
+	defer a.waitArmMu.Unlock()
+	if gen != a.clockGen {
+		return false
+	}
+	a.waitIcons.Store(armed)
+	return armed
 }
 
 func (a *App) ensureNativeIcons(ctx context.Context) {
@@ -94,6 +117,7 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 	if clockDisabled() {
 		return
 	}
+	gen := a.clockGeneration()
 	wait, err := render.WaitIcons()
 	if err != nil {
 		a.logger.Error("wait icons: encode failed", "err", err)
@@ -139,8 +163,7 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 			armed = false
 		}
 	}
-	a.waitIcons.Store(armed)
-	if armed {
+	if a.armWaitIcons(gen, armed) {
 		a.deleteStaleWaitIcons(ctx, have, wait)
 	}
 }
