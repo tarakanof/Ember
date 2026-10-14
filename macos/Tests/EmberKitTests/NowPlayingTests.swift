@@ -487,12 +487,6 @@ private func recoveryAttempts(
 }
 
 @MainActor
-@Test func retryClassifierUnwrapsUnsentRequests() {
-    #expect(MusicCommandListener.retry(after: RequestNotSent(underlying: .transport("down"))) == .zero)
-    #expect(MusicCommandListener.retry(after: RequestNotSent(underlying: .http(status: 400, body: ""))) == nil)
-}
-
-@MainActor
 @Test func listenerStopsRetryingTheRecoveryPushAfterAnEncodingError() async {
     let error = EncodingError.invalidValue(Double.nan, .init(codingPath: [], debugDescription: "nan"))
     #expect(await recoveryAttempts(after: error) == 1)

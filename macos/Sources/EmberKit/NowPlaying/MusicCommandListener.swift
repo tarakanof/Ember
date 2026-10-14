@@ -79,7 +79,6 @@ public final class MusicCommandListener {
 
     static func retry(after error: Error?) -> Duration? {
         guard let error else { return nil }
-        if let notSent = error as? RequestNotSent { return retry(after: notSent.underlying) }
         guard let api = error as? APIError else { return nil }
         switch api {
         case .transport, .timedOut, .clockTimedOut: return .zero
