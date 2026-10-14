@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -163,22 +164,28 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 			armed = false
 		}
 	}
-	if a.armWaitIcons(gen, armed) {
-		a.deleteStaleWaitIcons(ctx, have, wait)
+	if a.armWaitIcons(gen, armed) && slices.ContainsFunc(have, staleWaitIcon(wait)) {
+		a.deleteStaleWaitIcons(ctx, gen, wait)
 	}
 }
 
-func (a *App) deleteStaleWaitIcons(ctx context.Context, have []string, current map[string][]byte) {
-	for _, file := range have {
+func staleWaitIcon(current map[string][]byte) func(string) bool {
+	return func(file string) bool {
 		name := strings.TrimSuffix(file, ".gif")
-		if !strings.HasPrefix(name, render.WaitIconPrefix) || current[name] != nil {
-			continue
-		}
-		if err := a.publisher.DeleteIcon(ctx, file); err != nil {
-			a.clockJobFailed(ctx, "icon provision: stale wait icon delete failed", "name", file, "err", err)
-			continue
-		}
+		return strings.HasPrefix(name, render.WaitIconPrefix) && current[name] == nil
+	}
+}
+
+func (a *App) deleteStaleWaitIcons(ctx context.Context, gen uint64, current map[string][]byte) {
+	stale := staleWaitIcon(current)
+	deleted, err := a.publisher.DeleteIcons(ctx, func(file string) bool {
+		return stale(file) && a.clockGeneration() == gen
+	})
+	for _, file := range deleted {
 		a.logger.Info("stale wait icon deleted", "name", file)
+	}
+	if err != nil {
+		a.clockJobFailed(ctx, "icon provision: stale wait icon delete failed", "err", err)
 	}
 }
 

@@ -69,11 +69,17 @@ func (p *recordingPublisher) PutIcon(_ context.Context, filename string, _ []byt
 	return nil
 }
 
-func (p *recordingPublisher) DeleteIcon(_ context.Context, filename string) error {
+func (p *recordingPublisher) DeleteIcons(_ context.Context, pick func(string) bool) ([]string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.deletedIcons = append(p.deletedIcons, filename)
-	return nil
+	var out []string
+	for _, name := range p.icons {
+		if pick(name) {
+			out = append(out, name)
+		}
+	}
+	p.deletedIcons = append(p.deletedIcons, out...)
+	return out, nil
 }
 
 func (p *recordingPublisher) DeletedIconsSnapshot() []string {
@@ -433,7 +439,9 @@ func (noopPublisher) CustomApp(context.Context, string, map[string]any) error { 
 func (noopPublisher) ClearApp(context.Context, string) error                  { return nil }
 func (noopPublisher) ListIcons(context.Context) ([]string, error)             { return nil, nil }
 func (noopPublisher) PutIcon(context.Context, string, []byte) error           { return nil }
-func (noopPublisher) DeleteIcon(context.Context, string) error                { return nil }
+func (noopPublisher) DeleteIcons(context.Context, func(string) bool) ([]string, error) {
+	return nil, nil
+}
 func (noopPublisher) ListApps(context.Context) ([]string, error)              { return nil, nil }
 func (noopPublisher) Notify(context.Context, map[string]any) error            { return nil }
 func (noopPublisher) DismissNotifyByName(context.Context, string) error       { return nil }

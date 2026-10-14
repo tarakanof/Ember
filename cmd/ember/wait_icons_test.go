@@ -179,3 +179,62 @@ func TestAProvisioningJobRunningAtAClockMoveDoesNotRearmTheWaitIcons(t *testing.
 		t.Fatal("the next provisioning run must arm them")
 	}
 }
+
+type movingIconClock struct {
+	*recordingPublisher
+	mu          sync.Mutex
+	clocks      [2][]string
+	cur         int
+	puts        int
+	switchAfter int
+	deleted     [2][]string
+}
+
+func (c *movingIconClock) ListIcons(context.Context) ([]string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.clocks[c.cur]...), nil
+}
+
+func (c *movingIconClock) PutIcon(_ context.Context, name string, _ []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.clocks[c.cur] = append(c.clocks[c.cur], name)
+	if c.puts++; c.puts == c.switchAfter {
+		c.cur = 1
+	}
+	return nil
+}
+
+func (c *movingIconClock) deleteLocked(name string) {
+	c.deleted[c.cur] = append(c.deleted[c.cur], name)
+	c.clocks[c.cur] = slices.DeleteFunc(c.clocks[c.cur], func(n string) bool { return n == name })
+}
+
+func (c *movingIconClock) DeleteIcons(_ context.Context, pick func(string) bool) ([]string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for _, name := range append([]string(nil), c.clocks[c.cur]...) {
+		if pick(name) {
+			c.deleteLocked(name)
+			out = append(out, name)
+		}
+	}
+	return out, nil
+}
+
+func TestStaleWaitIconCleanupUsesTheListingOfTheClockItDeletesFrom(t *testing.T) {
+	current := waitIconFiles()
+	clock := &movingIconClock{recordingPublisher: &recordingPublisher{}, switchAfter: 2}
+	clock.clocks[0] = []string{current[0], "ember_wait_codex.gif"}
+	clock.clocks[1] = append(append([]string(nil), current...), "ember_wait_t3.gif")
+	app := NewApp(defaultConfig(), clock, testLogger())
+	ownIconJobs(t, app)
+	app.ensureNativeIcons(context.Background())
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	if !slices.Equal(clock.deleted[1], []string{"ember_wait_t3.gif"}) {
+		t.Fatalf("deleted on the new clock %v, want only its own stale ember_wait_t3.gif (old clock: %v)", clock.deleted[1], clock.deleted[0])
+	}
+}
