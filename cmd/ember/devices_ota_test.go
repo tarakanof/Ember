@@ -227,6 +227,25 @@ func startPomodoro(t *testing.T, app *App) *pomodoro.Engine {
 	return e
 }
 
+func TestOTAStaleCheckinGetsNoOffer(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	checkinAt := func(uptime int) map[string]any {
+		return k.checkin(t, fmt.Sprintf(`{"fw":"0.9.13","fw_build":%q,"config_version":1,"uptime_s":%d,"diag":{"boots":40},"ota":{"image":"valid","phase":"idle","rollback":true,"slot":0}}`, runningBuild, uptime))
+	}
+	checkinAt(830)
+	k.target(t, "0.9.14")
+	if got := offerOf(t, checkinAt(800)); got != nil {
+		t.Fatalf("a stale checkin got an offer: %v", got)
+	}
+	if st := k.status(t); st.Phase == otaPhaseOffered {
+		t.Fatalf("a stale checkin stepped the OTA: %+v", st)
+	}
+	if got := offerOf(t, checkinAt(840)); got == nil {
+		t.Fatal("the next fresh checkin got no offer")
+	}
+}
+
 func TestOTANoOfferWhenTheKnobRunsTheTargetBuild(t *testing.T) {
 	k := newOTAKnob(t)
 	img := k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
