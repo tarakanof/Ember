@@ -67,7 +67,12 @@ private actor FakeBridge: MusicBridge {
         return (artTrack ?? snap?.persistentID ?? "T1", art)
     }
     func setArtTrack(_ id: String) { artTrack = id }
-    func snapshot() async -> MusicPlayerInfo? { running ? snap : nil }
+    var snapDelay: Duration?
+    func set(snapDelay: Duration) { self.snapDelay = snapDelay }
+    func snapshot() async -> MusicPlayerInfo? {
+        if let snapDelay { try? await Task.sleep(for: snapDelay) }
+        return running ? snap : nil
+    }
     func setSnapshot(_ s: MusicPlayerInfo) { snap = s }
     func setArt(_ d: Data?) { art = d }
     var level = 40
@@ -89,7 +94,15 @@ private actor FakeSink: NowPlayingSink {
     var reports: [NowPlayingReport] = []
     var uploads: [String] = []
     var hasArt = false
+    var attempts = 0
+    var failing = 0
+    func set(failing: Int) { self.failing = failing }
     func report(_ r: NowPlayingReport) async throws -> NowPlayingAck {
+        attempts += 1
+        if failing > 0 {
+            failing -= 1
+            throw APIError.transport("down")
+        }
         reports.append(r)
         return try JSONDecoder().decode(NowPlayingAck.self, from: Data(#"{"has_album_art":\#(hasArt),"has_artist_art":false}"#.utf8))
     }
@@ -392,4 +405,40 @@ private func waitUntil(_ cond: () async -> Bool) async {
     #expect(tagged.report(source: "music", player: "M4").state == .paused)
     let titled = MusicPlayerInfo(state: .playing, name: "Song")
     #expect(titled.report(source: "music", player: "M4").state == .playing)
+}
+
+@MainActor
+@Test func listenerAgesCommandsFromReceiptNotFromTheRecoveryPush() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setArt(nil)
+    await bridge.setSnapshot(MusicPlayerInfo(state: .playing, name: "Song", persistentID: "T1"))
+    await bridge.set(snapDelay: .milliseconds(1200))
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: Sleeps().sleep)
+    let source = FakeCommands([.failure(APIError.transport("down")),
+                               .success([NowPlayingCommand(id: "queued", action: .next, ageMs: 4_000)])])
+    listener.start(source: source, player: "M4")
+    await waitUntil { await source.calls >= 3 }
+    await pusher.drain()
+    #expect(await bridge.performed.isEmpty)
+    listener.stop()
+    await listener.join()
+}
+
+@MainActor
+@Test func listenerRetriesTheRecoveryPushUntilTheServerTakesIt() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setArt(nil)
+    await bridge.setSnapshot(MusicPlayerInfo(state: .playing, name: "Song", persistentID: "T1"))
+    await sink.set(failing: 1)
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: Sleeps().sleep)
+    let source = FakeCommands([.failure(APIError.transport("down")), .success([]), .success([]), .success([])])
+    listener.start(source: source, player: "M4")
+    await waitUntil { await source.calls >= 5 }
+    await pusher.drain()
+    #expect(await sink.attempts == 2)
+    #expect(await sink.reports.map(\.trackID) == ["T1"])
+    listener.stop()
+    await listener.join()
 }

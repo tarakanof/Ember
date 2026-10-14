@@ -2205,7 +2205,10 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     registry lives in server memory and the Music pusher is event-driven, so
     the long-poll doubles as the reconnect signal: its first successful round
     after a failure (a server restart) re-pushes the Music snapshot
-    (`AppleMusicPusher.pushSnapshot`, #497); there is no timer. The
+    (`AppleMusicPusher.pushSnapshot`, #497), and every later round retries it
+until the server accepts the report; there is no timer. Commands age from
+when the poll returned, so a slow snapshot push can't make a queued
+command look younger than it is. The
     `playerInfo` userInfo keys are undocumented by Apple; the ones read have
     been stable since iTunes.
 - **Not built yet:** iTunes album fallback, Plex websocket.

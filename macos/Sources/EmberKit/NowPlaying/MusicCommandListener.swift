@@ -53,12 +53,10 @@ public final class MusicCommandListener {
             let began = clock.now
             do {
                 let commands = try await source.commands(player: player, wait: Self.wait)
+                let received = clock.now
                 backoff = Self.firstBackoff
-                if failed {
-                    failed = false
-                    await pusher.pushSnapshot()
-                }
-                await execute(commands, received: clock.now)
+                if failed, await pusher.pushSnapshot() { failed = false }
+                await execute(commands, received: received)
                 if commands.isEmpty, clock.now - began < Self.minRound { try await sleep(Self.minRound) }
             } catch {
                 if Task.isCancelled || error is CancellationError { return }
