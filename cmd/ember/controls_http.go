@@ -25,7 +25,7 @@ const (
 var (
 	errNoControlTarget    = errors.New("no Mac is set to run knob controls")
 	errControlTargetDeaf  = errors.New("the Mac set to run knob controls is not listening")
-	errControlsMasterOnly = errors.New("changing the knob controls target requires EMBER_TOKEN")
+	errControlsMasterOnly = errors.New("knob controls target and queue need EMBER_TOKEN")
 )
 
 type controlCommand struct {
@@ -94,6 +94,9 @@ func (q *controlQueue) push(mac string, cmd controlCommand) (controlCommand, err
 		cmds[n-1].Steps = clampSteps(cmds[n-1].Steps + cmd.Steps)
 		cmds[n-1].at = now
 		cmd = cmds[n-1]
+		if cmd.Steps == 0 {
+			cmds = cmds[:n-1]
+		}
 	} else {
 		if len(cmds) >= controlsPerMac {
 			cmds = cmds[1:]
@@ -102,7 +105,11 @@ func (q *controlQueue) push(mac string, cmd controlCommand) (controlCommand, err
 		cmd.ID = "k" + strconv.FormatUint(q.seq, 10)
 		cmds = append(cmds, cmd)
 	}
-	q.queued[mac] = cmds
+	if len(cmds) == 0 {
+		delete(q.queued, mac)
+	} else {
+		q.queued[mac] = cmds
+	}
 	close(q.wake)
 	q.wake = make(chan struct{})
 	return cmd, nil
@@ -170,6 +177,7 @@ func (q *controlQueue) leave(mac string) {
 			}
 		}
 		delete(q.lastPoll, oldest)
+		delete(q.queued, oldest)
 	}
 }
 
@@ -212,10 +220,17 @@ func (a *App) handleControlsConfigGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.controlsAnswer(a.settings.controls.get()))
 }
 
+func (a *App) controlsMasterOnly(w http.ResponseWriter, r *http.Request) bool {
+	if _, isClient := r.Context().Value(clientCallerKey{}).(clientCaller); !isClient {
+		return true
+	}
+	a.logger.InfoContext(r.Context(), "auth scope denied", "reason", "master_required", "path", r.URL.Path, "method", r.Method)
+	writeError(w, http.StatusForbidden, errControlsMasterOnly)
+	return false
+}
+
 func (a *App) handleControlsConfigPut(w http.ResponseWriter, r *http.Request) {
-	if _, isClient := r.Context().Value(clientCallerKey{}).(clientCaller); isClient {
-		a.logger.InfoContext(r.Context(), "auth scope denied", "reason", "master_required", "path", r.URL.Path, "method", r.Method)
-		writeError(w, http.StatusForbidden, errControlsMasterOnly)
+	if !a.controlsMasterOnly(w, r) {
 		return
 	}
 	if d, ok := serveSettingPut(a, w, r, a.settings.controls); ok {
@@ -281,6 +296,9 @@ type controlCommandsAnswer struct {
 }
 
 func (a *App) handleControlsCommands(w http.ResponseWriter, r *http.Request) {
+	if !a.controlsMasterOnly(w, r) {
+		return
+	}
 	q := r.URL.Query()
 	mac := q.Get("mac")
 	if mac == "" || !utf8.ValidString(mac) || utf8.RuneCountInString(mac) > maxControlTarget {

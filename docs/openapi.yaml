@@ -3167,6 +3167,18 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: Too many actions from this caller; honour `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: No target Mac is set, or it is not listening. Don't retry the press.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/controls/config:
     get:
       tags: [controls, settings]
@@ -3187,7 +3199,8 @@ paths:
       summary: Set the target Mac (merge)
       description: Master token only; every client token, `admin` included, gets 403.
       x-internal: true
-      security: [{ownerToken: []}, {clientToken: [admin]}]
+      x-master-only: true
+      security: [{ownerToken: []}]
       responses:
         "200":
           $ref: "#/components/responses/Object"
@@ -3202,8 +3215,10 @@ paths:
       tags: [controls]
       operationId: getControlsCommands
       summary: Ember.app's long-poll for knob control commands (`?mac=&wait=≤25`)
+      description: Master token only; every client token, `admin` included, gets 403.
       x-internal: true
-      security: [{ownerToken: []}, {clientToken: [admin]}]
+      x-master-only: true
+      security: [{ownerToken: []}]
       responses:
         "200":
           $ref: "#/components/responses/Object"

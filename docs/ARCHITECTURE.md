@@ -2237,18 +2237,28 @@ is the Mac side; the knob page (`controls`, C2) does not exist yet.
   at most 64; `listening` = a poll waiting or one in the last 30 s).
 - **Queue** (`controlQueue`, modelled on the now-playing `commandQueue`):
   per Mac, at most 8, consecutive `turn`s merged (steps summed, clamped to
-  ±100), turns dropped after 2 s and presses after 5 s so a late action
-  never fires, at-most-once delivery. A push for a Mac that is not
+  ±100; a merge that reaches 0 drops the turn, since the app rejects a
+  turn without steps and would lose the whole batch), turns dropped after
+  2 s and presses after 5 s so a late action never fires, at-most-once
+  delivery. At most 64 Macs are remembered; evicting the oldest idle one
+  drops its queue with it. A push for a Mac that is not
   listening is 503 and releases the `Idempotency-Key` (same store rules as
   now-playing control: 2 min, 128 per caller); per-caller limit burst 20,
-  10/s. Routes: `/v1/controls/commands` and `/v1/controls/config` sit
-  behind the owner auth (`requireAuth`, a knob token is 401); the action
-  route takes the master or a knob device token, never a client token.
+  10/s. Routes: `/v1/controls/commands` and `PUT /v1/controls/config` are
+  master token only (a knob token is 401, any client token 403, `admin`
+  included: a client could otherwise drain the target's queue, hold the 8
+  long-poll slots or pose as a listening Mac); `GET /v1/controls/config`
+  also takes an `admin` client. The action route takes the master or a
+  knob device token, never a client token; it keeps the master token like
+  `/v1/nowplaying/control`, since a master holder can mint a knob token
+  anyway.
 - **App, fail closed.** `KnobControlsService` reads the target every 30 s
   (and when the Settings picker saves) and runs the `ControlsListener`
   long-poll only while the target is this Mac and a token is set; no
   target, a failed read, another Mac or no token stops it. The listener
-  re-checks the target before each batch. `ControlCommand` decoding is
+  re-checks cancellation and the target before each action. A target
+  picked from another Mac's Settings takes effect when the target Mac next
+  refreshes, up to 30 s; until then the action route answers 503. `ControlCommand` decoding is
   strict: an unknown gesture, a missing `id`, bad `steps` or any field
   outside `id, gesture, steps, age_ms` fails the whole answer, which runs
   nothing and is logged. `ControlDispatcher` maps gesture + local mapping
@@ -2263,7 +2273,12 @@ is the Mac side; the knob page (`controls`, C2) does not exist yet.
   lines; a clockwise turn (positive steps) scrolls down or right, so the
   wheel value is negated. Shortcuts run as `/usr/bin/shortcuts run <name>`
   and AppleScript as `/usr/bin/osascript -` with the script on stdin, both
-  launched without waiting so a slow script never holds the queue.
+  launched without waiting so a slow script never holds the queue, through
+  `ScriptProcessRunner`: one script process at a time (a press while one
+  runs is dropped and logged), killed after 10 s, and the stdin pipe set to
+  `F_SETNOSIGPIPE` and written with the throwing `write(contentsOf:)` off
+  the main thread, so a script that exits before reading can't raise
+  SIGPIPE in Ember.
   Posting events (media keys, scroll) needs Accessibility: the executor
   only checks `CGPreflightPostEventAccess` and skips (logged once); the
   prompt (`CGRequestPostEventAccess`) is the Settings › Knob › Pages ›

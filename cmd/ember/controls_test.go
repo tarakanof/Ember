@@ -305,6 +305,12 @@ func TestControlsOwnerRoutesRejectKnobAndNarrowClientTokens(t *testing.T) {
 	_, srv := controlsServer(t, "M4")
 	knob := mintKnob(t, srv, http.StatusCreated)
 	ingest := mintClient(t, srv, "ingest", scopeIngest)
+	admin := mintClient(t, srv, "admin", scopeAdmin)
+	adminWant := map[string]int{
+		"GET /v1/controls/commands?mac=M4": http.StatusForbidden,
+		"GET /v1/controls/config":          http.StatusOK,
+		"PUT /v1/controls/config":          http.StatusForbidden,
+	}
 	pollControls(t, srv, "M4", 0)
 	if code, _, b := controlsAction(t, srv, knob.Token, `{"gesture":"push"}`, ""); code != http.StatusAccepted {
 		t.Fatalf("queue one: %d %s", code, b)
@@ -318,7 +324,8 @@ func TestControlsOwnerRoutesRejectKnobAndNarrowClientTokens(t *testing.T) {
 		for _, c := range []struct {
 			name, token string
 			want        int
-		}{{"none", "", 401}, {"wrong", "wrong", 401}, {"knob", knob.Token, 401}, {"ingest client", ingest.Token, 403}} {
+		}{{"none", "", 401}, {"wrong", "wrong", 401}, {"knob", knob.Token, 401}, {"ingest client", ingest.Token, 403},
+			{"admin client", admin.Token, adminWant[r.method+" "+r.path]}} {
 			if resp, b := devReq(t, srv, r.method, r.path, c.token, r.body); resp.StatusCode != c.want {
 				t.Errorf("%s %s as %s: %d %s, want %d", r.method, r.path, c.name, resp.StatusCode, b, c.want)
 			}
@@ -388,6 +395,41 @@ func TestControlsCommandsCarryOnlyTheGesture(t *testing.T) {
 		case "id", "gesture", "steps", "age_ms":
 		default:
 			t.Errorf("command carries %q: %s", k, b)
+		}
+	}
+}
+
+func TestControlQueueDropsTurnsThatCancelOut(t *testing.T) {
+	_, srv := controlsServer(t, "M4")
+	pollControls(t, srv, "M4", 0)
+	for _, body := range []string{`{"gesture":"turn","steps":1}`, `{"gesture":"turn","steps":-1}`, `{"gesture":"push"}`} {
+		if code, _, b := controlsAction(t, srv, testToken, body, ""); code != http.StatusAccepted {
+			t.Fatalf("%s: %d %s", body, code, b)
+		}
+	}
+	got := pollControls(t, srv, "M4", 0)
+	if len(got) != 1 || got[0].Gesture != gesturePush {
+		t.Fatalf("got %+v, want only the push", got)
+	}
+}
+
+func TestControlQueueEvictsQueuedCommandsWithTheirMac(t *testing.T) {
+	q := newControlQueue()
+	for i := range controlMacsMax * 2 {
+		mac := "M" + strconv.Itoa(i)
+		_, _ = q.take(context.Background(), mac, 0)
+		if _, err := q.push(mac, controlCommand{Gesture: gesturePush}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.lastPoll) > controlMacsMax || len(q.queued) > controlMacsMax+1 {
+		t.Fatalf("lastPoll %d, queued %d; want both bounded by %d", len(q.lastPoll), len(q.queued), controlMacsMax)
+	}
+	for m := range q.queued {
+		if _, ok := q.lastPoll[m]; !ok {
+			t.Errorf("queue for %s outlived its Mac", m)
 		}
 	}
 }

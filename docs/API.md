@@ -194,10 +194,13 @@ right=skip — all on press; the left+right chord from AWTRIX3 is gone).
 (`steps` for `turn` only; master or knob device token, client tokens 401,
 optional `Idempotency-Key`; 202 `{"status":"queued","target"}`, 200
 `duplicate`, 429, 503 no target or target not listening),
-`GET/PUT /v1/controls/config` (`{"target"}` plus read-only `macs`
-`[{name, listening, last_poll}]`; merge PUT, master token only, client tokens
-403) and `GET /v1/controls/commands?mac=&wait=≤25` (Ember.app's long-poll,
-`{"commands":[{"id","gesture","steps","age_ms"}]}`). The server never holds
+`GET /v1/controls/config` (`{"target"}` plus read-only `macs`
+`[{name, listening, last_poll}]`; master or `admin` client), `PUT
+/v1/controls/config` (merge; master token only, every client token 403) and
+`GET /v1/controls/commands?mac=&wait=≤25` (Ember.app's long-poll,
+`{"commands":[{"id","gesture","steps","age_ms"}]}`; master token only, every
+client token 403, so no client can drain a Mac's queue or show up as
+listening). The server never holds
 or sends an action: the gesture-to-action mapping lives in Ember.app on the
 target Mac.
 
