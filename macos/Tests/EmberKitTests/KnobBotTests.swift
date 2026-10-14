@@ -116,3 +116,59 @@ private func frames(_ b: inout BotBehavior, from: Double = 0, seconds: Double) -
     #expect(knob > 0.3)
     #expect(knob > mac)
 }
+
+@Test func macSleepyBlinkAddsNoFrame() {
+    var b = BotBehavior(seed: 9, now: 0)
+    var shown: BotPose?, lidShown: BotPose?, pushes = 0, lidPushes = 0
+    for (_, p) in frames(&b, from: 0, seconds: 360) {
+        let q = p.quantized(toPixels: 16)
+        var lidOnly = q
+        lidOnly.blinkLeft = 0; lidOnly.blinkRight = 0
+        if q != shown { pushes += 1; shown = q }
+        if lidOnly != lidShown { lidPushes += 1; lidShown = lidOnly }
+        #expect(!p.hide)
+    }
+    #expect(b.mood == .sleepy)
+    #expect(pushes == lidPushes)
+}
+
+@Test func knobSwapAt20FPSHappensOnlyOnAShutFrame() {
+    for seed in UInt64(0)..<40 {
+        var b = BotBehavior(seed: seed, now: 0, tuning: KnobTheme.standard.botTuning)
+        var prev: BotPose?
+        for (i, m) in [BotMood.working, .waiting, .done, .error, .idle].enumerated() {
+            let t0 = 2.0 + Double(i) * 1.5
+            for t in stride(from: t0 - 1.5, to: t0, by: 1.0 / 20) {
+                let p = b.pose(at: t)
+                if let q = prev, q.eyes != p.eyes {
+                    #expect(p.hide && min(p.blinkLeft, p.blinkRight) >= geometry.blinkHide, "seed \(seed) t \(t)")
+                }
+                prev = p
+            }
+            b.setMood(m, at: t0)
+        }
+        var last = BotPose()
+        for t in stride(from: 9.5, to: 12, by: 1.0 / 20) { last = b.pose(at: t) }
+        #expect(last.eyes == .dash && !last.hide, "seed \(seed)")
+    }
+}
+
+@Test func knobReduceMotionKeepsARunningShakeAndStopsHuffs() {
+    let fx = KnobTheme.standard.bot.error
+    func started() -> (BotBehavior, Double) {
+        var b = BotBehavior(seed: 11, now: 0, tuning: KnobTheme.standard.botTuning)
+        b.setMood(.error, at: 1)
+        let f = frames(&b, from: 0, seconds: 1.2)
+        let swap = f.first { $0.pose.eyes == .angry }!.t
+        let mid = swap + fx.shakeAtS + fx.shakeS / 4
+        _ = frames(&b, from: 1.2, seconds: mid - 1.2)
+        return (b, mid)
+    }
+    var (calm, mid) = started()
+    var (loud, _) = started()
+    calm.reduceMotion = true
+    let a = calm.pose(at: mid + 0.02), b = loud.pose(at: mid + 0.02)
+    #expect(a.offsetX == b.offsetX)
+    #expect(frames(&calm, from: mid + 1, seconds: 300).allSatisfy { $0.pose.eyeDY == 0 })
+    #expect(frames(&loud, from: mid + 1, seconds: 300).contains { $0.pose.eyeDY != 0 })
+}

@@ -47,7 +47,7 @@ public struct BotPose: Equatable, Sendable {
         var p = self
         p.gazeX = q(gazeX, step); p.gazeY = q(gazeY, step)
         p.lidLeft = q(lidLeft, step); p.lidRight = q(lidRight, step)
-        p.blinkLeft = q(blinkLeft, step); p.blinkRight = q(blinkRight, step)
+        p.blinkLeft = hide ? q(blinkLeft, step) : 0; p.blinkRight = hide ? q(blinkRight, step) : 0
         p.eyeDY = q(eyeDY, step)
         p.triangle = q(triangle, step); p.slump = q(slump, step); p.badge = q(badge, step)
         p.scaleX = q(scaleX, step / 2); p.scaleY = q(scaleY, step / 2)
@@ -62,13 +62,13 @@ public struct BotBehavior: Sendable {
     public static let sleepAfter = 300.0
 
     public struct ErrorFX: Sendable, Equatable {
-        public var gazeSplit: [Double]
+        public var gazeViewerBelow, gazeDownBelow: Double
         public var shakeAt, shakeLength, shakeCycles, shakeAmp: Double
         public var huffLength, huffDip, huffLid, huffMedian, huffSigma: Double
 
-        public init(gazeSplit: [Double], shakeAt: Double, shakeLength: Double, shakeCycles: Double, shakeAmp: Double,
+        public init(gazeViewerBelow: Double, gazeDownBelow: Double, shakeAt: Double, shakeLength: Double, shakeCycles: Double, shakeAmp: Double,
                     huffLength: Double, huffDip: Double, huffLid: Double, huffMedian: Double, huffSigma: Double) {
-            self.gazeSplit = gazeSplit; self.shakeAt = shakeAt; self.shakeLength = shakeLength
+            self.gazeViewerBelow = gazeViewerBelow; self.gazeDownBelow = gazeDownBelow; self.shakeAt = shakeAt; self.shakeLength = shakeLength
             self.shakeCycles = shakeCycles; self.shakeAmp = shakeAmp; self.huffLength = huffLength
             self.huffDip = huffDip; self.huffLid = huffLid; self.huffMedian = huffMedian; self.huffSigma = huffSigma
         }
@@ -101,10 +101,12 @@ public struct BotBehavior: Sendable {
         didSet {
             if reduceMotion {
                 nextHopAt = .infinity; hopStart = nil; popStart = nil
-                shakeAt = -.infinity
+                if lastPoseAt < shakeAt { shakeAt = -.infinity }
+                nextHuffAt = .infinity
             } else {
                 nextSaccadeAt = 0
                 if mood == .waiting { nextHopAt = 0 }
+                if mood == .error && eyes == mood.eyes { nextHuffAt = -.infinity }
             }
         }
     }
@@ -139,6 +141,7 @@ public struct BotBehavior: Sendable {
     private var hopStart: Double?
     private var nextHopAt = Double.infinity
     private var shakeAt = -Double.infinity, huffAt = -Double.infinity, nextHuffAt = Double.infinity
+    private var lastPoseAt = -Double.infinity
 
     private let tuning: Tuning
 
@@ -168,9 +171,13 @@ public struct BotBehavior: Sendable {
                                       in: tuning.hopIntervalRange)
         }
 
-        if let fx = tuning.errorFX, mood == .error, t >= nextHuffAt {
-            if !reduceMotion { huffAt = t }
-            nextHuffAt = t + huffGap(fx)
+        lastPoseAt = t
+        if let fx = tuning.errorFX, mood == .error, !reduceMotion {
+            if nextHuffAt == -.infinity { nextHuffAt = t + huffGap(fx) }
+            if t >= nextHuffAt {
+                huffAt = t
+                nextHuffAt = t + huffGap(fx)
+            }
         }
 
         var p = BotPose()
@@ -183,12 +190,8 @@ public struct BotBehavior: Sendable {
             blinkR = Self.lid(u - blinkLag, speed: blinkSpeed)
             let length = Self.blinkLength(speed: blinkSpeed)
             if let hide = tuning.blinkHide {
-                let lag = max(blinkLag, 0)
-                if swapEyesOnClose && u <= 0.075 * blinkSpeed + lag { blinkSwap = true }
-                if swapEyesOnClose && blinkSwap && u >= lag + 0.075 * blinkSpeed * hide.squareRoot()
-                    && u - blinkLag < length {
-                    swapEyes(at: t)
-                }
+                if swapEyesOnClose && u <= 0.075 * blinkSpeed + max(blinkLag, 0) { blinkSwap = true }
+                if swapEyesOnClose && blinkSwap && min(blinkL, blinkR) >= hide { swapEyes(at: t) }
             } else if swapEyesOnClose && max(blinkL, blinkR) >= 0.9 {
                 swapEyes(at: t)
             }
@@ -298,7 +301,7 @@ public struct BotBehavior: Sendable {
         swapEyesOnClose = false
         if let fx = tuning.errorFX, mood == .error {
             shakeAt = reduceMotion ? -.infinity : t + fx.shakeAt
-            nextHuffAt = t + fx.shakeAt + huffGap(fx)
+            nextHuffAt = reduceMotion ? .infinity : t + fx.shakeAt + huffGap(fx)
         }
     }
 
@@ -369,10 +372,10 @@ public struct BotBehavior: Sendable {
             return (j(0.5), Double.random(in: -0.5 ... -0.2, using: &rng), nil)
         case .error:
             guard let fx = tuning.errorFX else { return (j(0.9), j(0.7), nil) }
-            if r < fx.gazeSplit[0] {
+            if r < fx.gazeViewerBelow {
                 return (Self.viewer.x + j(0.08), Self.viewer.y + j(0.08), lognormal(median: 1.7, sigma: 0.3, in: 1.2...2.5))
             }
-            if r < fx.gazeSplit[1] { return (j(0.15), -0.5 + j(0.1), lognormal(median: 1.7, sigma: 0.3, in: 1.2...2.5)) }
+            if r < fx.gazeDownBelow { return (j(0.15), -0.5 + j(0.1), lognormal(median: 1.7, sigma: 0.3, in: 1.2...2.5)) }
             let side: Double = Double.random(in: 0..<1, using: &rng) < 0.5 ? -1 : 1
             return (side * Double.random(in: 0.7...0.9, using: &rng), j(0.3), Double.random(in: 0.4...0.9, using: &rng))
         case .done:

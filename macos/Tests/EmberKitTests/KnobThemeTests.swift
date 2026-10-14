@@ -92,7 +92,8 @@ private let pinned: [String: String] = [
     "bot.glint.white_mix": "0.85",
     "bot.glint.period_s": "3",
     "bot.glint.fps": "15",
-    "bot.error.gaze_split": "[0.45,0.7]",
+    "bot.error.gaze_viewer_below": "0.45",
+    "bot.error.gaze_down_below": "0.7",
     "bot.error.shake_at_s": "0.3",
     "bot.error.shake_s": "0.4",
     "bot.error.shake_cycles": "3",
@@ -401,10 +402,22 @@ private func allChecks() -> [Check] {
                 + #"s->keep = p->eyes == BOT_EYES_HAPPY \? 0 : BOT_LID_KEEP \* \(1 - hide\);"#, keys: []),
         Check(file: bs, pattern: #"top -= width / 2 \+ 1;\s+bot \+= width / 2 \+ 1;\s+"#
                 + #"return top \+ \(bot - keep \* width - top\) \* \(lid > 1 \? 1 : lid\);"#, keys: []),
-        Check(file: bb, pattern: #"case BOT_ERROR: \{\s+if \(r < "# + num + #"\)[^\n]*lognormal\(b, 1\.7, 0\.3, 1\.2, 2\.5\); return; \}\s+if \(r < "#
+        Check(file: bb, pattern: #"case BOT_ERROR: \{\s+if \(r < "# + num
+                + #"\) \{ \*x = VIEWER_X \+ jitter\(b, 0\.08\); \*y = VIEWER_Y \+ jitter\(b, 0\.08\); \*fix = lognormal\(b, 1\.7, 0\.3, 1\.2, 2\.5\); return; \}\s+if \(r < "#
                 + num + #"\) \{ \*x = jitter\(b, 0\.15\); \*y = -0\.5 \+ jitter\(b, 0\.1\);[^\n]*\s+"#
                 + #"double side = [^\n]*\s+\*x = side \* rng_range\(b, 0\.7, 0\.9\); \*y = jitter\(b, 0\.3\); \*fix = rng_range\(b, 0\.4, 0\.9\);"#,
-              keys: [("bot.error.gaze_split", arr(1, 2))]),
+              keys: [("bot.error.gaze_viewer_below", g(1)), ("bot.error.gaze_down_below", g(2))]),
+        Check(file: bb, pattern: #"#define LID_SHUT BOT_BLINK_HIDE"#, keys: []),
+        Check(file: bb, pattern: #"double u = t - b->blink_start, shut = 0\.075 \* b->blink_speed \+ fmax\(b->blink_lag, 0\);"#, keys: []),
+        Check(file: bb, pattern: #"if \(b->swap_eyes_on_close && u <= \(b->blink_heavy \? [^:]+ : shut\)\) b->blink_swap = true;\s+"#
+                + #"if \(b->swap_eyes_on_close && b->blink_swap && fmin\(bl, br\) >= LID_SHUT && now\) swap_eyes\(b, t\);"#, keys: []),
+        Check(file: bb, pattern: #"\} else if \(\(beat_due \|\| b->swap_eyes_on_close\) && !b->asleep\) \{\s+reclose\(b, t\);"#, keys: []),
+        Check(file: bb, pattern: #"static void reclose\(bot_t \*b, double t\)\s*\{[^}]*b->blink_lag = 0;[^}]*"#
+                + #"if \(b->blink_speed < 1\.6\) b->blink_speed = 1\.6;"#, keys: []),
+        Check(file: bb, pattern: #"b->shake_at = t \+ BOT_SHAKE_AT_S;\s+b->next_huff_at = b->shake_at \+ huff_gap\(b\);"#, keys: []),
+        Check(file: bb, pattern: #"if \(fx && !b->acting\) b->huff_at = t;\s+b->next_huff_at = t \+ huff_gap\(b\);"#, keys: []),
+        Check(file: bb, pattern: #"if \(\(!fx && t < b->shake_at\) \|\| b->tracking\) b->shake_at = -INFINITY;"#, keys: []),
+        Check(file: bb, pattern: #"if \(t < b->shake_at\) b->shake_at = -INFINITY;\s+b->next_huff_at = INFINITY;"#, keys: []),
         one(bbh, #"#define BOT_SHAKE_AT_S "# + num, "bot.error.shake_at_s"),
         one(bbh, #"#define BOT_SHAKE_S "# + num, "bot.error.shake_s"),
         one(bbh, #"#define BOT_SHAKE_CYCLES "# + num, "bot.error.shake_cycles"),

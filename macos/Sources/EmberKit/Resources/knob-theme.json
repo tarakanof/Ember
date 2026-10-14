@@ -91,7 +91,8 @@
       "fps": 15
     },
     "error": {
-      "gaze_split": [0.45, 0.7],
+      "gaze_viewer_below": 0.45,
+      "gaze_down_below": 0.7,
       "shake_at_s": 0.3,
       "shake_s": 0.4,
       "shake_cycles": 3,
