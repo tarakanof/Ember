@@ -108,6 +108,8 @@ type App struct {
 	clockJobs *clockJobGroup
 	iconHold  atomic.Int32
 	waitIcons atomic.Bool
+	waitArmMu sync.Mutex
+	clockGen  uint64
 
 	republish republishGate
 	browseFn  func(context.Context, time.Duration) ([]discovery.Candidate, error)

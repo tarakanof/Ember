@@ -446,7 +446,7 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	}
 	now := a.knobStats.now()
 	if diag, _, err := a.devices.diagnostics(id); err == nil {
-		if stats = stats.forLevel(diag); stats != nil {
+		if stats = stats.forLevel(diag); stats != nil && !res.stale {
 			sample := knobSampleFromReport(report, stats)
 			sample.BrightnessLevel = refOf(a.currentBrightness(now).Level)
 			a.knobStats.record(id, now, sample)
@@ -454,7 +454,9 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		res.DiagLiveUntil = a.knobLiveUnix(id, diag, now)
 	}
 	a.coredumpReply(id, report.Diag, &res)
-	if err := a.otaCheckin(id, report, &res); err != nil {
+	if res.stale {
+		a.logger.InfoContext(r.Context(), "stale device checkin ignored", "device_id", id, "uptime_s", report.UptimeS)
+	} else if err := a.otaCheckin(id, report, &res); err != nil {
 		a.logger.WarnContext(r.Context(), "knob ota step failed", "device_id", id, "err", err)
 	}
 	if res.NewToken != "" {

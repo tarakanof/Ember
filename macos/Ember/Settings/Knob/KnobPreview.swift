@@ -209,10 +209,8 @@ struct KnobPagesPreviewSection: View {
                     }
                     .frame(maxWidth: .infinity)
                     .draggable(KnobPageDrag(id: page.id))
-                    .dropDestination(for: KnobPageDrag.self) { drops, _ in
-                        guard let drop = drops.first else { return false }
+                    .reorderDrop(KnobPageDrag.self) { drop in
                         env.knob.edit { $0.movePage(drop.id, to: page.id) }
-                        return true
                     }
                 }
             }

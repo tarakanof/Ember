@@ -596,6 +596,7 @@ type checkinResult struct {
 	CapsAck        bool      `json:"caps_ack,omitempty"`
 	newCrash       *deviceCrash
 	bootedAt       time.Time
+	stale          bool
 }
 
 func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCaps, capsErr string) (checkinResult, error) {
@@ -613,7 +614,9 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 	}
 	report.SeenAt = r.now().UTC()
 	res := checkinResult{ConfigVersion: d.ConfigVersion, CapsAck: caps != nil}
-	capsChanged := !d.Caps.equal(caps) || d.CapsError != capsErr
+	stale := knobCheckinStale(d.LastCheckin, report)
+	res.stale = stale
+	capsChanged := !stale && (!d.Caps.equal(caps) || d.CapsError != capsErr)
 	var prevDiag *deviceDiag
 	if d.LastCheckin != nil {
 		prevDiag = d.LastCheckin.Diag
@@ -621,9 +624,15 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 	if report.Diag != nil {
 		report.Diag.carryFrom(prevDiag)
 	}
-	res.newCrash = newDiagCrash(prevDiag, report.Diag)
+	if !stale {
+		res.newCrash = newDiagCrash(prevDiag, report.Diag)
+	}
 	if knobRebooted(d.LastCheckin, report) {
 		res.bootedAt = report.bootedAt()
+	}
+	last := &report
+	if stale {
+		last = d.LastCheckin
 	}
 	if report.AppliedVersion != d.ConfigVersion {
 		c := d.clone().Config
@@ -635,7 +644,7 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 			res.NewToken = newToken(deviceTokenPrefix)
 			err := r.mutateLocked(func(st *deviceState) error {
 				d := st.find(id)
-				d.LastCheckin = &report
+				d.LastCheckin = last
 				if capsChanged {
 					d.Caps, d.CapsError = caps.clone(), capsErr
 				}
@@ -649,7 +658,7 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 			return res, nil
 		}
 	}
-	d.LastCheckin = &report
+	d.LastCheckin = last
 	if capsChanged {
 		d.Caps, d.CapsError = caps.clone(), capsErr
 	}
@@ -670,13 +679,28 @@ func knobRebooted(prev *deviceCheckin, cur deviceCheckin) bool {
 		return false
 	}
 	pb, cb := prev.boots(), cur.boots()
-	if pb > 0 && cb > 0 {
+	if pb > 0 && cb > 0 && cb >= pb {
 		return cb > pb
 	}
-	if pb > 0 || cb > 0 || prev.UptimeS <= 0 || cur.UptimeS <= 0 || cur.UptimeS >= prev.UptimeS {
+	if prev.UptimeS <= 0 || cur.UptimeS <= 0 || cur.UptimeS >= prev.UptimeS {
 		return false
 	}
 	return time.Duration(cur.UptimeS)*time.Second <= cur.SeenAt.Sub(prev.SeenAt)+rebootUptimeSlack
+}
+
+func knobCheckinStale(prev *deviceCheckin, cur deviceCheckin) bool {
+	if prev == nil || knobRebooted(prev, cur) || cur.SeenAt.Sub(prev.SeenAt) > staleCheckinWindow {
+		return false
+	}
+	known := prev.UptimeS > 0 && cur.UptimeS > 0
+	if pb, cb := prev.boots(), cur.boots(); pb > 0 && cb > 0 && cb != pb {
+		return cb < pb && known
+	}
+	if !known {
+		return false
+	}
+	grown := time.Duration(cur.UptimeS-prev.UptimeS) * time.Second
+	return grown < 0 || grown > cur.SeenAt.Sub(prev.SeenAt)+rebootUptimeSlack
 }
 
 func (c deviceCheckin) boots() int64 {
@@ -688,7 +712,7 @@ func (c deviceCheckin) boots() int64 {
 
 func (c deviceCheckin) bootedAt() time.Time {
 	if c.UptimeS <= 0 {
-		return c.SeenAt
+		return time.Time{}
 	}
 	return c.SeenAt.Add(-time.Duration(c.UptimeS) * time.Second)
 }

@@ -115,9 +115,14 @@ func (b viewBlock[T]) IsZero() bool { return !b.on }
 func (b viewBlock[T]) MarshalJSON() ([]byte, error) { return json.Marshal(b.val) }
 
 func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
+	body, etag, _, err := a.buildKnobView(id, now)
+	return body, etag, err
+}
+
+func (a *App) buildKnobView(id string, now time.Time) ([]byte, string, string, error) {
 	st, err := a.devices.viewState(id)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	mood := a.moodState()
 	m := newKnobMood(mood.Render, mood.Lead)
@@ -145,12 +150,12 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	}
 	body, err := json.Marshal(v)
 	if err != nil {
-		return nil, "", fmt.Errorf("encode knob view: %w", err)
+		return nil, "", "", fmt.Errorf("encode knob view: %w", err)
 	}
 	if st.caps != nil {
 		limit := st.caps.limits().ViewBytes
 		if body, err = v.fit(body, limit); err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 		over := ""
 		if limit > 0 && len(body) > limit {
@@ -162,7 +167,11 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	}
 	h := fnv.New64a()
 	_, _ = h.Write(body)
-	return body, fmt.Sprintf(`"%016x"`, h.Sum64()), nil
+	demoID := ""
+	if v.Demo != nil {
+		demoID = v.Demo.ID
+	}
+	return body, fmt.Sprintf(`"%016x"`, h.Sum64()), demoID, nil
 }
 
 func (v *knobView) applyCaps(caps *deviceCaps, cfg knobSettings) {
@@ -302,27 +311,35 @@ func (a *App) handleDeviceSelfView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := a.viewNow()
-	body, etag, err := a.knobView(id, now)
+	body, etag, demoID, err := a.buildKnobView(id, now)
 	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return
 	}
-	a.writeKnobView(w, r, body, etag, now)
+	a.deliverKnobView(w, r, id, demoID, body, etag, now)
 }
 
-func (a *App) writeKnobView(w http.ResponseWriter, r *http.Request, body []byte, etag string, now time.Time) {
+func (a *App) deliverKnobView(w http.ResponseWriter, r *http.Request, id, demoID string, body []byte, etag string, now time.Time) {
+	a.demos.setServed(id, demoID, true)
+	if !a.writeKnobView(w, r, body, etag, now) {
+		a.demos.setServed(id, demoID, false)
+	}
+}
+
+func (a *App) writeKnobView(w http.ResponseWriter, r *http.Request, body []byte, etag string, now time.Time) bool {
 	h := w.Header()
 	h.Set("ETag", etag)
 	h.Set("Cache-Control", "no-cache")
 	h.Set(knobNowHeader, strconv.FormatInt(now.Unix(), 10))
 	if etagMatches(r.Header.Get("If-None-Match"), etag) {
 		w.WriteHeader(http.StatusNotModified)
-		return
+		return true
 	}
 	h.Set("Content-Type", "application/json")
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
+	_, err := w.Write(body)
+	return err == nil
 }
 
 func etagMatches(header, etag string) bool {

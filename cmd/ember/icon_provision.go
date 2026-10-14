@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -75,9 +76,32 @@ func (a *App) clockRebooted(reason string) {
 }
 
 func (a *App) clockMoved(reason string) {
-	a.waitIcons.Store(false)
+	a.disarmWaitIcons()
 	a.RepublishAll(reason)
 	a.provisionClockInBackground()
+}
+
+func (a *App) disarmWaitIcons() {
+	a.waitArmMu.Lock()
+	defer a.waitArmMu.Unlock()
+	a.clockGen++
+	a.waitIcons.Store(false)
+}
+
+func (a *App) clockGeneration() uint64 {
+	a.waitArmMu.Lock()
+	defer a.waitArmMu.Unlock()
+	return a.clockGen
+}
+
+func (a *App) armWaitIcons(gen uint64, armed bool) bool {
+	a.waitArmMu.Lock()
+	defer a.waitArmMu.Unlock()
+	if gen != a.clockGen {
+		return false
+	}
+	a.waitIcons.Store(armed)
+	return armed
 }
 
 func (a *App) ensureNativeIcons(ctx context.Context) {
@@ -94,6 +118,7 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 	if clockDisabled() {
 		return
 	}
+	gen := a.clockGeneration()
 	wait, err := render.WaitIcons()
 	if err != nil {
 		a.logger.Error("wait icons: encode failed", "err", err)
@@ -139,23 +164,28 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 			armed = false
 		}
 	}
-	a.waitIcons.Store(armed)
-	if armed {
-		a.deleteStaleWaitIcons(ctx, have, wait)
+	if a.armWaitIcons(gen, armed) && slices.ContainsFunc(have, staleWaitIcon(wait)) {
+		a.deleteStaleWaitIcons(ctx, gen, wait)
 	}
 }
 
-func (a *App) deleteStaleWaitIcons(ctx context.Context, have []string, current map[string][]byte) {
-	for _, file := range have {
+func staleWaitIcon(current map[string][]byte) func(string) bool {
+	return func(file string) bool {
 		name := strings.TrimSuffix(file, ".gif")
-		if !strings.HasPrefix(name, render.WaitIconPrefix) || current[name] != nil {
-			continue
-		}
-		if err := a.publisher.DeleteIcon(ctx, file); err != nil {
-			a.clockJobFailed(ctx, "icon provision: stale wait icon delete failed", "name", file, "err", err)
-			continue
-		}
+		return strings.HasPrefix(name, render.WaitIconPrefix) && current[name] == nil
+	}
+}
+
+func (a *App) deleteStaleWaitIcons(ctx context.Context, gen uint64, current map[string][]byte) {
+	stale := staleWaitIcon(current)
+	deleted, err := a.publisher.DeleteIcons(ctx, func(file string) bool {
+		return stale(file) && a.clockGeneration() == gen
+	})
+	for _, file := range deleted {
 		a.logger.Info("stale wait icon deleted", "name", file)
+	}
+	if err != nil {
+		a.clockJobFailed(ctx, "icon provision: stale wait icon delete failed", "err", err)
 	}
 }
 

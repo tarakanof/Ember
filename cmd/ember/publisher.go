@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
@@ -22,7 +24,8 @@ type Publisher interface {
 	Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error
 	ListIcons(ctx context.Context) ([]string, error)
 	PutIcon(ctx context.Context, filename string, data []byte) error
-	DeleteIcon(ctx context.Context, filename string) error
+	// DeleteIcons lists the clock's icons and deletes those pick selects, both on one clock; it returns the deleted names.
+	DeleteIcons(ctx context.Context, pick func(filename string) bool) ([]string, error)
 }
 
 type disabledPublisher struct{}
@@ -44,7 +47,9 @@ func (disabledPublisher) ReadSettings(context.Context) (map[string]any, error) {
 func (disabledPublisher) Switch(context.Context, string, awtrix.SwitchMode) error { return nil }
 func (disabledPublisher) ListIcons(context.Context) ([]string, error)             { return nil, nil }
 func (disabledPublisher) PutIcon(context.Context, string, []byte) error           { return nil }
-func (disabledPublisher) DeleteIcon(context.Context, string) error                { return nil }
+func (disabledPublisher) DeleteIcons(context.Context, func(string) bool) ([]string, error) {
+	return nil, nil
+}
 
 type clockPublisher struct{ k *clockAccess }
 
@@ -88,8 +93,28 @@ func (p clockPublisher) ListIcons(ctx context.Context) ([]string, error) {
 	return names, err
 }
 
-func (p clockPublisher) DeleteIcon(ctx context.Context, filename string) error {
-	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.DeleteIcon(ctx, filename) })
+func (p clockPublisher) DeleteIcons(ctx context.Context, pick func(string) bool) ([]string, error) {
+	var deleted []string
+	err := p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error {
+		deleted = deleted[:0]
+		names, err := c.ListIcons(ctx)
+		if err != nil {
+			return err
+		}
+		var errs []error
+		for _, name := range names {
+			if !pick(name) {
+				continue
+			}
+			if err := c.DeleteIcon(ctx, name); err != nil {
+				errs = append(errs, fmt.Errorf("delete icon %s: %w", name, err))
+				continue
+			}
+			deleted = append(deleted, name)
+		}
+		return errors.Join(errs...)
+	})
+	return deleted, err
 }
 
 func (p clockPublisher) PutIcon(ctx context.Context, filename string, data []byte) error {

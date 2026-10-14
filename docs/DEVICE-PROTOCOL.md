@@ -212,7 +212,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `v` outside range | server sends `v` = min(1, `caps.view[1]`); the knob keeps its last view and shows the update state | `TestCapsKnobViewMajorIsTheLowerOfServerAndFirmware`; cinder host test with a `v:99` fixture |
 | new | new, `rotations` listed or not | `effective_caps.rotations` sorted, `[0]` when missing; config PUT 400 for a rotation outside it, a stored one kept; a legacy or downgraded knob is unchecked | `TestCapsRotationsPresentAndMissing`, `TestCapsKnobConfigPutRejectsRotationOutsideCaps`, `TestCapsKnobDowngradedToLegacyFirmwareKeepsAndFreesRotation`, `TestLegacyKnobConfigPutIsNotCheckedForRotation`, `TestKnobRotationRoundTripsAndReachesTheKnob` |
 | new | new, `wx_faces` or not | detail only with the token and the `weather` block; a caps knob without it gets the legacy block; dropped first to fit `view_bytes`; the worst case stays under 8 KB | `TestKnobViewWeatherFacesGolden` (`view_faces*.json`, `devices_view_weather_test.go`), `TestCapsKnobWithoutWxFacesGetsNoWeatherDetail`, `TestCapsKnobWithWxFacesButWeatherPageOffGetsNoWeather`, `TestCapsKnobViewDropsWeatherDetailFirst`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
-| new | new, `wx_faces` | every `days` entry carries `end` right after `t` (#434): the day's next true local midnight in the location's zone (23 h or 25 h after `t` on a DST day), so a view held across a DST change ends each row at the real midnight; `t` is the day's true local midnight for every provider (#439); without a known zone `end` = `t` + 24 h; old firmware skips the key, and cinder derives row ends from the next `t` (`knob_view.c`) and weekdays with a +12 h rounding (`wx_days.c`) until it reads `end` | `TestStaleKnobViewKeepsTrueDayBoundariesAcrossDST`, `TestOpenMeteoDaysAreTrueLocalMidnightsAcrossDST`, `TestMetNoDaysAreTrueLocalMidnightsAcrossDST`, `TestTomorrowDaysAreTrueLocalMidnightsAcrossDST`, `TestWeatherAPIDaysAreTrueLocalMidnightsAcrossDST`, `TestOpenMeteoDaysWithoutAZoneEndADayLater`, `TestKnobViewWeatherFacesGolden`, `TestKnobViewWorstCaseFitsHalfTheBuffer`; cinder: the follow-up that reads `end` |
+| new | new, `wx_faces` | every `days` entry carries `end` right after `t` (#434): the day's next true local midnight in the location's zone (23 h or 25 h after `t` on a DST day), so a view held across a DST change ends each row at the real midnight; `t` is the day's true local midnight for every provider (#439); without a known zone `end` = `t` + 24 h; old firmware skips the key; cinder before 0.9.60 derives row ends from the next `t` (`knob_view.c`) and weekdays with a +12 h rounding (`wx_days.c`), and reads `end` from 0.9.60 (cinder#92) | `TestStaleKnobViewKeepsTrueDayBoundariesAcrossDST`, `TestOpenMeteoDaysAreTrueLocalMidnightsAcrossDST`, `TestMetNoDaysAreTrueLocalMidnightsAcrossDST`, `TestTomorrowDaysAreTrueLocalMidnightsAcrossDST`, `TestWeatherAPIDaysAreTrueLocalMidnightsAcrossDST`, `TestOpenMeteoDaysWithoutAZoneEndADayLater`, `TestDayClockStartsAMidnightlessDayAtItsFirstInstant`, `TestProvidersSplitAMidnightlessDayAtItsFirstInstant`, `TestDayClockOverEveryZoneForTwoYears`, `TestKnobViewWeatherFacesGolden`, `TestKnobViewWorstCaseFitsHalfTheBuffer`; cinder reads `end` since 0.9.60 (cinder#92) |
 | new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
 | new | new, `np_cover` or not | `accent` and `cover_version` only with the token, only when there is a picture, and the only change to `nowplaying`; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, `wx_moments` or not (cinder 0.9.65 sends it) | `effective_caps.features` lists it as reported; the config carries `bot.weather_moments` and `bot.weather_every_min` either way; Ember.app shows the Weather moments rows only with the token (no semver fallback: a server without `effective_caps` predates the keys) | `TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments` (`knob_weather_moments_test.go`); Ember.app `knobWeatherMomentsRowsNeedTheWxMomentsToken`; cinder host test: `wx_moments` in `FEATURES_AHEAD` |
@@ -284,37 +284,57 @@ the scene ends. The server reads a view request with no report while the
 scene is `playing` as a reboot (see below), so a knob that leaves the report
 off ends its own demo. Any other client polling `GET /v1/devices/self/view`
 with the knob's token, such as a debugging script, sends no report either
-and ends a playing demo the same way. The server reads reports before the long poll: `done` for the
-current id clears it and serves the next queued scene (new id) or nothing,
-so the reply to that request already reflects it; `playing` changes no
-bytes. A report for another id, an unknown state or a knob without a demo
-is ignored. A scene not reported `playing` 10 s after it became available
-is dropped with the rest of its queue (status `unanswered`, which reads
-`idle` again 60 s later). A `playing` or `done` report for that id up to
-5 s past the cutoff still counts when the server had already served the
-scene (the knob took it just before 10 s): `playing` revives the scene and
-the reply carries it again, `done` advances the queue as usual. A playing scene with no report for 60 s is dropped too.
+and ends a playing demo the same way. The server reads reports before the
+long poll: `done` for the current id clears it and serves the next queued
+scene (new id) or nothing, so the reply to that request already reflects
+it; `playing` changes no bytes. A report for another id, an unknown state
+or a knob without a demo is ignored. A scene not reported `playing` 10 s
+after it became available is dropped with the rest of its queue (status
+`unanswered`, which reads `idle` again 60 s later). A `playing` or `done`
+report for that id up to 5 s past the cutoff still counts when the server
+had already served the scene, that is, written a view reply (200 or 304)
+that carried it (the knob took it just before 10 s): `playing` revives the
+scene and the reply carries it again, `done` advances the queue as usual.
+A playing scene with no report for 60 s is dropped too.
 
 **Knob reboot.** The knob's once-per-id memory is RAM, so a knob that
 crashes in a scene would play it again after the reboot (cinder#109, #460).
 The server drops the demo and its queue when it sees a reboot, two ways:
 
 - A checkin that reads as a reboot. When both it and the previous checkin
-  carry `diag.boots`, only a higher `boots` counts (a lower one is an
-  older checkin arriving late; `uptime_s` is then not compared). When
-  neither carries it, a lower `uptime_s` counts, but only if both are
+  carry `diag.boots`, a higher `boots` counts and an equal one doesn't.
+  Otherwise (a lower `boots`, as after an NVS erase, or `boots` missing or
+  `0` on either side) a lower `uptime_s` counts, but only if both are
   known (absent or `0` is unknown) and the new uptime fits in the time since
   the previous checkin plus 10 s (otherwise it is an older checkin arriving
   late). The knob booted at the checkin's arrival minus its `uptime_s`, and
   only a demo started before that boot is dropped: one set after the knob
   came back (before its first checkin, or while the checkin was in flight)
-  is kept. The previous checkin is the stored one, which may predate a
-  server restart.
+  is kept. That estimate runs late by the truncated uptime and the transit,
+  so for a run still `pending` the server moves it 2 s earlier: the knob
+  could have picked that run up after it booted. A `playing` run was
+  reported by the knob before the reboot (a booted knob reports `playing`
+  only on the poll after its first checkin), so it is compared with the
+  estimate as is, and a scene that crashes the knob at once is dropped at
+  the first checkin however fast the knob came back. A reboot
+  checkin without `uptime_s` drops nothing, since the boot time is unknown;
+  the view rule below still catches a playing scene. The previous checkin
+  is the stored one, which may predate a server restart. An older checkin
+  arriving late (within a minute of the stored one: the same boot, or no
+  `boots`, with an `uptime_s` lower than the stored one or higher than it
+  plus the time since and 10 s; or a lower `boots` whose uptime doesn't fit
+  a reboot) is answered but doesn't replace the stored checkin or caps,
+  isn't recorded as a stats sample and doesn't step an OTA.
 - A view request with no `demo_id` while the scene is `playing` and the
   last `playing` report came 3 s or more before it (a booting knob polls
-  the view before its first checkin, and a reboot takes longer than 3 s).
-  A request sent before the knob started the scene and delivered just after
-  its first report is younger than that and is served the scene as usual.
+  the view before its first checkin). A request sent before the knob
+  started the scene and delivered just after its first report is younger
+  than that and is served the scene as usual. The 3 s gap only narrows the
+  race: a request whose segment is lost once lands about 3 s late (lwIP's
+  first retransmit), and a knob that reboots in under 3 s is served the
+  scene again on its first poll. The checkin, which follows in the same
+  main-loop pass, is the backstop: it reads the reboot and drops the
+  `playing` run.
 
 Either turns the run into status `restarted` (scene and id of the dropped
 scene, `queue_left` 0), which reads `idle` again 60 s later; reports for
@@ -322,8 +342,9 @@ its id are ignored. A view request with no report while the scene is still
 `pending` is served the scene as before. A reboot while the run is already
 `unanswered` leaves it `unanswered`: nothing is served then anyway, and the
 status keeps saying the knob never started the scene. Setting or
-stopping a demo, and a reboot drop, wake a waiting view poll; the lazy drops (unanswered,
-silent, the hold cap) reach a waiting poll within 5 s, at its recheck.
+stopping a demo, and a reboot drop, wake a waiting view poll; the lazy
+drops (unanswered, silent, the hold cap) reach a waiting poll within 5 s,
+at its recheck.
 
 **Scenes** (`GET /v1/devices/{id}/demo/scenes`, `{name, group, title}`):
 

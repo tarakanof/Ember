@@ -186,14 +186,47 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
 }
 
 @MainActor
-@Test func demoFollowStopsOnUnansweredAndSaysSo() async {
-    let server = DemoServer(statuses: ["pending", "unanswered", "unanswered"])
-    let m = demoModel(server)
+@Test func demoFollowReadsAnUnansweredKnobEverySecondThroughTheReviveWindowThenSlowly() async {
+    let sleeps = SleepLog()
+    let server = DemoServer(statuses: ["pending"] + Array(repeating: "unanswered", count: 7) + ["idle"])
+    let m = demoModel(server, sleeps: sleeps)
     await m.loadScenes()
     await m.play(m.groups[0].scenes[1])
     await m.follow()
+    #expect(m.status.state == .idle && m.line == .idle)
+    #expect(sleeps.waits == Array(repeating: KnobDemoModel.pollInterval, count: 7)
+        + [KnobDemoModel.fadePollInterval, KnobDemoModel.fadePollInterval])
+    #expect(server.statusReads == 9)
+}
+
+@MainActor
+@Test func demoUnansweredLineNamesTheSceneAndFades() async {
+    let server = DemoServer(statuses: ["unanswered"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.refreshStatus()
+    #expect(m.status.state == .unanswered && !m.status.isActive && m.status.isFading)
     #expect(m.line == .unanswered(title: "Hop"))
-    #expect(server.requests.filter { $0.method == "GET" && $0.path.hasSuffix("/demo") }.count == 2)
+}
+
+@Test func demoWarningsCanBeDismissedWithStop() {
+    #expect(KnobDemoStatus(state: .pending).canStop)
+    #expect(KnobDemoStatus(state: .playing).canStop)
+    #expect(KnobDemoStatus(state: .unanswered).canStop)
+    #expect(KnobDemoStatus(state: .restarted).canStop)
+    #expect(!KnobDemoStatus.idle.canStop)
+}
+
+@MainActor
+@Test func demoStopClearsARestartedWarning() async throws {
+    let server = DemoServer(statuses: ["restarted"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.refreshStatus()
+    await m.stop()
+    let del = try #require(server.requests.last)
+    #expect(del.method == "DELETE" && del.path == "/v1/devices/knob-61fc8c/demo")
+    #expect(m.status == .idle && m.line == .idle)
 }
 
 @MainActor
@@ -247,6 +280,26 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
     m.configure(service: service, device: "knob-61fc8c")
     await m.loadScenes()
     #expect(m.catalogError == .featureOff && !m.scenesLoaded)
+}
+
+@MainActor
+@Test func aServerWithoutTheDemoRoutesShowsOneMessage() async {
+    let service = KnobService(client: stubbedClient(token: "t") { req in (okResponse(req.url!, status: 404), Data()) })
+    let m = KnobDemoModel(service: service, sleep: { _ in })
+    m.configure(service: service, device: "knob-61fc8c")
+    await m.enter()
+    #expect(m.catalogError == .featureOff)
+    #expect(m.error == .featureOff)
+    #expect(m.statusError == nil)
+}
+
+@MainActor
+@Test func aStatusErrorShowsWhenTheCatalogLoaded() async {
+    let server = DemoServer(statuses: ["fail"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.refreshStatus()
+    #expect(m.catalogError == nil && m.statusError != nil)
 }
 
 @Test func demoRouteIsShownOnlyWithDeveloperTools() {

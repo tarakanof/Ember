@@ -3415,10 +3415,10 @@ show data the owner turned off.
 | `reset_reason` | string `^[a-z][a-z0-9_]{0,15}$` | basic | Why the chip last restarted: `poweron`, `ext`, `sw`, `panic`, `int_wdt`, `task_wdt`, `wdt`, `deepsleep`, `brownout`, `sdio`, `usb`, `jtag`, `efuse`, `pwr_glitch`, `cpu_lockup`, `unknown` (ESP-IDF `esp_reset_reason`, lower-cased without the `ESP_RST_` prefix), or `lvgl_stall` (cinder's LVGL stall watchdog restarted it). |
 | `req_ok` | int, count | full | HTTP requests to Ember that got an answer (any 2xx/304) during the window. |
 | `req_fail` | int, count | full | Requests that failed (transport error, timeout, non-2xx/304) during the window. |
-| `req_ms_avg` | number, ms | full | Mean request duration over the window. |
+| `req_ms_avg` | number, ms | full | Mean request duration over the window (merged per request, by `req_ok + req_fail`). |
 | `req_ms_max` | int, ms | full | Slowest request in the window. |
 | `fps` | number, frames/s | full | Rendered frames per second over the window. |
-| `frame_ms_avg` | number, ms | full | Mean time to render a frame. |
+| `frame_ms_avg` | number, ms | full | Mean time to render a frame (merged per frame, by `fps·period_ms`). |
 | `frame_ms_max` | int, ms | full | Slowest frame in the window. |
 | `inv_areas` | int, count | full | Areas LVGL drew over the window, summed over every refresh that ended in it (cinder `refr_stats`, cinder#118): read at `LV_EVENT_RENDER_START`, after `lv_obj_update_layout` and `lv_refr_join_area`, so a moved object's new position counts and joined areas count once, as their bounding box. Past 32 areas (`LV_INV_BUF_SIZE`) LVGL collapses the list to one full-screen area (472×466 px), so at the busiest frames areas fall while px peak. |
 | `inv_px` | int, px | full | Pixels in those areas over the window, the same basis. Areas that overlap without being joined each count their own pixels, so the overlap counts twice. |
@@ -3482,11 +3482,15 @@ the 2 s view poll already limits. Table in the #249 PR.
 and a minute ring (at most 1440 buckets; buckets older than 24 h leave it) where
 samples of one wall-clock minute fold into one bucket: gauges take the
 newest value, `*_min` the lowest, `*_max` the highest, averages and rates the
-`period_ms`-weighted mean; a bucket's `t` is its newest report. The
-request, render and `invalidated_*` averages and rates weigh only the reports
-that carried them (each keeps its own measured duration, #473/#475), so a
-report without them, such as one sent at basic diagnostics, doesn't dilute
-the mean. Counts become
+mean weighted by `period_ms`; a bucket's `t` is its newest report. Each
+average and rate weighs only the reports that carried it (each field keeps
+its own measured duration, #473/#475/#482: `cpu_percent`, the request
+rates, `render_fps` and the `invalidated_*` rates), so a
+report without it, such as one sent at basic diagnostics, doesn't dilute
+the mean; a field sent as `0` counts. `request_latency_avg_ms` is the mean
+per request: it weighs each report by its `req_ok + req_fail`, so a report
+with no counted requests adds nothing. `frame_avg_ms` is the mean per frame
+the same way, weighed by `fps·period_ms` (no weight without `fps`). Counts become
 rates on arrival (`(req_ok+req_fail)·60000/period_ms` per minute,
 `inv_areas·1000/period_ms` per second, like `fps`). Both rings grow as
 samples arrive (never past their cap) and give their buffer back when it
@@ -3494,9 +3498,9 @@ falls under a quarter full, so a device costs what it reports: about 500 KB
 for a day at 30-60 s, 300 KB at 120 s, 150 KB at 300 s, plus 25/47/110 KB at
 10/5/2 s while a live session is in the window; the live share is released
 as it ages out. These are estimates: the measured 380/245/125 and 20/37/87 KB
-plus 80 B a sample (48 B for the two `invalidated_*` rates since cinder#118,
-32 B of struct and 16 B of values, and 32 B for the four measured durations
-of #475). Deleting the device drops its series.
+plus 88 B a sample (48 B for the two `invalidated_*` rates since cinder#118,
+32 B of struct and 16 B of values, and 40 B for the five weights of
+#475/#482). Deleting the device drops its series.
 
 **`GET /v1/devices/{id}/stats?range=15m|1h|24h`** (owner token; default
 `1h`, anything else 400, unknown id 404). Answer (dashboard wire
@@ -3582,13 +3586,17 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   rebooted mid-scene), a held scene 60 s after its first `playing` → gone
   (the knob caps it too; a knob that keeps re-reporting `playing` would
   otherwise hold it forever). A late `playing` or `done` for a scene the view
-  already served, up to 5 s past the 10 s cutoff, still counts (`playing`
+  already served (`deliverKnobView`: a 200 or 304 reply carried it, not
+  just a view build such as the long poll's pre-check; it is marked before
+  the write, so a report racing the reply still counts, and unmarked if the
+  body write fails), up to 5 s past the
+  10 s cutoff, still counts (`playing`
   revives it, `done` advances the queue): the knob took it at 9.9 s and its
   report rode the next request.
 - **Reboot.** A checkin that reads as a reboot (`knobRebooted`: a higher
-  `diag.boots` when both checkins carry it; without boots on either, a
-  lower `uptime_s` that fits the time since the previous checkin, both
-  known) or a view request with no report while the scene is `playing` and
+  `diag.boots` when both checkins carry it; otherwise, including a lower
+  or one-sided `boots`, a lower `uptime_s` that fits the time since the
+  previous checkin, both known) or a view request with no report while the scene is `playing` and
   the last report is 3 s old (`demoReportGap`) turns the run into
   `restarted` (queue cut to the dropped scene, nothing served, reports
   ignored, gone 60 s later) and notifies `topicDemo`. Without it a crash in
@@ -3596,11 +3604,29 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   again (#460). The view rule is what catches the first post-boot poll,
   which cinder sends before its first checkin; the 3 s gap keeps a
   report-free request sent before playback and delivered late from ending
-  a healthy run. The checkin path drops a run only if it started before the
-  boot (arrival minus `uptime_s`) and is the run whose generation the
+  a healthy run; it only narrows that race, and the checkin that follows
+  the poll is the backstop for a `playing` run that reboots in under 3 s.
+  The checkin path drops a run only if it started before the boot (arrival
+  minus `uptime_s`; for a `pending` run 2 s earlier, `bootEstimateSlack`,
+  since the estimate runs late by the truncated uptime and the transit and
+  the booted knob could have taken that run; a `playing` run was reported
+  before the reboot, so it gets no slack; no drop when `uptime_s` is
+  unknown) and is the run whose generation the
   handler read before the checkin, so a demo set after the knob came back,
   or set while the checkin was in flight, survives. An `unanswered` run
-  stays `unanswered`.
+  stays `unanswered`. A checkin that `knobCheckinStale` reads as an older
+  one arriving late (within `staleCheckinWindow`, 1 min; an uptime lower
+  than the stored one, or grown more than the time since plus 10 s, on the
+  same or unknown boot) is answered but not stored: the next comparison and
+  the device list keep the newer record and caps, its crash isn't reported
+  again, and it adds no stats sample and no OTA step.
+- **App.** `KnobDemoModel.follow` reads the status every second while the
+  run is `pending` or `playing`, keeps the 1 s pace for the first five
+  `unanswered` reads (the server can still revive the run for 5 s past the
+  cutoff), and then reads every 5 s while an `unanswered` or `restarted`
+  warning shows, until the server reports `idle` (60 s later),
+  so the line fades with it. Stop stays enabled for those warnings and
+  dismisses them (`DELETE …/demo`).
 - **Cover.** The now-playing scenes use a built-in 480 px orange-to-violet
   gradient, prepared once like uploaded art (`nowplaying.Prepare`). The art
   route serves it whenever `v` equals its `art_version` or `cover_version`,
@@ -4600,11 +4626,16 @@ rather than doubling some hours.
   (`ember_wait_<tool>_<crc32 of the GIF>`, a two-frame 8×8 GIF, 50 cs per
   frame, generated by `render.WaitIcons`; the hash in the name makes a
   changed GIF upload again, and provisioning deletes any other
-  `ember_wait_*` icon once the current set is on the clock). `ensureNativeIcons` uploads them with the other
+  `ember_wait_*` icon once the current set is on the clock; the delete
+  lists the icons again and deletes them in one `Publisher.DeleteIcons`
+  call, so it only acts on the listing of the clock it deletes from, even
+  if the clock moved after the first listing). `ensureNativeIcons` uploads them with the other
   icons, so the name does not blink and `textOffsetX` is left out: NG starts
   text at col 9 after an 8 px icon with the default `iconGap`. Until the
   icons are on the clock (`App.waitIcons`, cleared on a clock move,
-  re-checked by one icon listing after a detected reboot or boot ping) the
+  re-checked by one icon listing after a detected reboot or boot ping; a
+  provisioning job that started before a move doesn't arm them or delete
+  icons, since the move bumps a clock generation it checks) the
   drawn icon stays and the name blinks instead. After the lock, the
   session's first rotation card (`cardProject`) shows the name once
   (`repeat:1`, no hold), and the coordinator keeps that card until the
