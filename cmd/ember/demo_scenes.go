@@ -107,9 +107,9 @@ func moodView(m knobMood) func(time.Time, *demoArt) knobView {
 func demoBotScenes() []demoScene {
 	idle := knobMood{}
 	working := knobMood{Running: 1, Source: "studio", LeadColor: "#00C8C8", Tool: "claude"}
-	waiting := knobMood{Waiting: 1, Running: 1, Source: "studio", LeadColor: "#00C8C8", Tool: "claude"}
+	waiting := knobMood{Waiting: 1, Running: 1, Source: "studio", LeadColor: "#00C8C8", Tool: "claude", LeadProject: "learn-language"}
 	errored := knobMood{Errors: 1, Source: "studio", LeadColor: "#00C8C8", Tool: "codex"}
-	done := knobMood{Done: 1, Source: "studio", LeadColor: "#00C8C8", Tool: "claude"}
+	done := knobMood{Done: 1, Source: "studio", LeadColor: "#00C8C8", Tool: "claude", LeadProject: "ember"}
 	bot := func(name, title string, m knobMood, act string) demoScene {
 		return demoScene{Name: "bot." + name, Group: demoGroupBot, Title: title, page: "bot", act: act, view: moodView(m)}
 	}
