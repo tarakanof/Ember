@@ -123,8 +123,15 @@ func (d *demoRegistry) current(device string, now time.Time) (demoCurrent, bool)
 	if run == nil || run.state == demoUnanswered || run.state == demoRestarted {
 		return demoCurrent{}, false
 	}
-	run.served = true
 	return demoCurrent{scene: run.queue[0], id: run.id, hold: run.hold, since: run.since}, true
+}
+
+func (d *demoRegistry) markServed(device, id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if run := d.runs[device]; run != nil && run.id == id {
+		run.served = true
+	}
 }
 
 func (d *demoRegistry) report(device, id, state string, now time.Time) bool {

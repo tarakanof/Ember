@@ -284,16 +284,18 @@ the scene ends. The server reads a view request with no report while the
 scene is `playing` as a reboot (see below), so a knob that leaves the report
 off ends its own demo. Any other client polling `GET /v1/devices/self/view`
 with the knob's token, such as a debugging script, sends no report either
-and ends a playing demo the same way. The server reads reports before the long poll: `done` for the
-current id clears it and serves the next queued scene (new id) or nothing,
-so the reply to that request already reflects it; `playing` changes no
-bytes. A report for another id, an unknown state or a knob without a demo
-is ignored. A scene not reported `playing` 10 s after it became available
-is dropped with the rest of its queue (status `unanswered`, which reads
-`idle` again 60 s later). A `playing` or `done` report for that id up to
-5 s past the cutoff still counts when the server had already served the
-scene (the knob took it just before 10 s): `playing` revives the scene and
-the reply carries it again, `done` advances the queue as usual. A playing scene with no report for 60 s is dropped too.
+and ends a playing demo the same way. The server reads reports before the
+long poll: `done` for the current id clears it and serves the next queued
+scene (new id) or nothing, so the reply to that request already reflects
+it; `playing` changes no bytes. A report for another id, an unknown state
+or a knob without a demo is ignored. A scene not reported `playing` 10 s
+after it became available is dropped with the rest of its queue (status
+`unanswered`, which reads `idle` again 60 s later). A `playing` or `done`
+report for that id up to 5 s past the cutoff still counts when the server
+had already served the scene, that is, written a view reply (200 or 304)
+that carried it (the knob took it just before 10 s): `playing` revives the
+scene and the reply carries it again, `done` advances the queue as usual.
+A playing scene with no report for 60 s is dropped too.
 
 **Knob reboot.** The knob's once-per-id memory is RAM, so a knob that
 crashes in a scene would play it again after the reboot (cinder#109, #460).
@@ -331,8 +333,9 @@ its id are ignored. A view request with no report while the scene is still
 `pending` is served the scene as before. A reboot while the run is already
 `unanswered` leaves it `unanswered`: nothing is served then anyway, and the
 status keeps saying the knob never started the scene. Setting or
-stopping a demo, and a reboot drop, wake a waiting view poll; the lazy drops (unanswered,
-silent, the hold cap) reach a waiting poll within 5 s, at its recheck.
+stopping a demo, and a reboot drop, wake a waiting view poll; the lazy
+drops (unanswered, silent, the hold cap) reach a waiting poll within 5 s,
+at its recheck.
 
 **Scenes** (`GET /v1/devices/{id}/demo/scenes`, `{name, group, title}`):
 

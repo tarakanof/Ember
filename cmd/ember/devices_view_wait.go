@@ -81,7 +81,7 @@ const (
 	longPollBusy     = "busy"
 )
 
-func (a *App) awaitKnobView(ctx context.Context, id, inm string, wait time.Duration) ([]byte, string, string, error) {
+func (a *App) awaitKnobView(ctx context.Context, id, inm string, wait time.Duration) ([]byte, string, string, string, error) {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	recheck := time.NewTicker(a.knobViewRecheckEvery())
@@ -90,14 +90,14 @@ func (a *App) awaitKnobView(ctx context.Context, id, inm string, wait time.Durat
 	for {
 		_, ch := a.changes.subscribe()
 		now := a.viewNow()
-		body, etag, err := a.knobView(id, now)
+		body, etag, demoID, err := a.buildKnobView(id, now)
 		switch {
 		case err != nil:
-			return nil, "", "", err
+			return nil, "", "", "", err
 		case !etagMatches(inm, etag):
-			return body, etag, longPollChange, nil
+			return body, etag, demoID, longPollChange, nil
 		case final != "":
-			return body, etag, final, nil
+			return body, etag, demoID, final, nil
 		}
 		if a.viewWaitHook != nil {
 			a.viewWaitHook()
@@ -111,7 +111,7 @@ func (a *App) awaitKnobView(ctx context.Context, id, inm string, wait time.Durat
 		case <-a.changes.stopped():
 			final = longPollShutdown
 		case <-ctx.Done():
-			return nil, "", longPollGone, nil
+			return nil, "", "", longPollGone, nil
 		}
 	}
 }
@@ -168,7 +168,7 @@ func (a *App) serveKnobViewWait(w http.ResponseWriter, r *http.Request, id strin
 	_ = rc.SetWriteDeadline(dl)
 	_ = rc.SetReadDeadline(dl)
 
-	body, etag, result, err := a.awaitKnobView(r.Context(), id, inm, wait)
+	body, etag, demoID, result, err := a.awaitKnobView(r.Context(), id, inm, wait)
 	if result != "" {
 		a.metrics.incLongPoll(result)
 	}
@@ -180,6 +180,7 @@ func (a *App) serveKnobViewWait(w http.ResponseWriter, r *http.Request, id strin
 	case result == longPollGone:
 	default:
 		a.writeKnobView(w, r, body, etag, a.viewNow())
+		a.demos.markServed(id, demoID)
 	}
 	return true
 }

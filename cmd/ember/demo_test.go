@@ -503,7 +503,7 @@ func TestDemoLatePlayingReportForTheServedSceneRevivesIt(t *testing.T) {
 	f := demoFixture(t)
 	postDemo(t, f, `{"scene":"bot.hop"}`)
 	f.clk.advance(demoPickup - 100*time.Millisecond)
-	if d := viewDemo(t, goldenView(t, f)); d == nil {
+	if _, body := f.get(t, ""); viewDemo(t, body) == nil {
 		t.Fatal("no demo served")
 	}
 	f.clk.advance(time.Second)
@@ -517,7 +517,7 @@ func TestDemoLatePlayingReportForTheServedSceneRevivesIt(t *testing.T) {
 
 	g := demoFixture(t)
 	postDemo(t, g, `{"scene":"bot.hop"}`)
-	goldenView(t, g)
+	g.get(t, "")
 	g.clk.advance(demoPickup + demoGrace)
 	g.report(t, "d0000001", "playing")
 	if st := demoStatusOf(t, g); st.State != demoUnanswered {
@@ -525,11 +525,25 @@ func TestDemoLatePlayingReportForTheServedSceneRevivesIt(t *testing.T) {
 	}
 }
 
+func TestDemoCountsAsServedOnlyOnceAReplyCarriesIt(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(demoPickup - 100*time.Millisecond)
+	if body, _, err := f.app.knobView(f.m.ID, f.clk.Now()); err != nil || viewDemo(t, body) == nil {
+		t.Fatalf("view build: %v %s", err, body)
+	}
+	f.clk.advance(time.Second)
+	f.report(t, "d0000001", "playing")
+	if st := demoStatusOf(t, f); st.State != demoUnanswered {
+		t.Fatalf("a late report revived a scene no reply carried: %+v", st)
+	}
+}
+
 func TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue(t *testing.T) {
 	f := demoFixture(t)
 	postDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
 	f.clk.advance(demoPickup - 100*time.Millisecond)
-	if d := viewDemo(t, goldenView(t, f)); d == nil {
+	if _, body := f.get(t, ""); viewDemo(t, body) == nil {
 		t.Fatal("no demo served")
 	}
 	f.clk.advance(time.Second)

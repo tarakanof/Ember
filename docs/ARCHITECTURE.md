@@ -3585,7 +3585,9 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   rebooted mid-scene), a held scene 60 s after its first `playing` → gone
   (the knob caps it too; a knob that keeps re-reporting `playing` would
   otherwise hold it forever). A late `playing` or `done` for a scene the view
-  already served, up to 5 s past the 10 s cutoff, still counts (`playing`
+  already served (`markServed`: a written 200 or 304 reply carried it, not
+  just a view build such as the long poll's pre-check), up to 5 s past the
+  10 s cutoff, still counts (`playing`
   revives it, `done` advances the queue): the knob took it at 9.9 s and its
   report rode the next request.
 - **Reboot.** A checkin that reads as a reboot (`knobRebooted`: a higher
