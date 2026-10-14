@@ -172,3 +172,16 @@ private func frames(_ b: inout BotBehavior, from: Double = 0, seconds: Double) -
     #expect(frames(&calm, from: mid + 1, seconds: 300).allSatisfy { $0.pose.eyeDY == 0 })
     #expect(frames(&loud, from: mid + 1, seconds: 300).contains { $0.pose.eyeDY != 0 })
 }
+
+@Test func macReduceMotionReassignInErrorKeepsTheNextEventFinite() {
+    var b = BotBehavior(seed: 4, now: 0)
+    b.setMood(.error, at: 0)
+    _ = frames(&b, seconds: 2)
+    b.reduceMotion = false
+    _ = b.pose(at: 2)
+    #expect(b.nextEventAt.isFinite && b.nextEventAt > 2)
+    b.reduceMotion = true
+    b.reduceMotion = false
+    _ = b.pose(at: 2.1)
+    #expect(b.nextEventAt.isFinite && b.nextEventAt > 2.1)
+}

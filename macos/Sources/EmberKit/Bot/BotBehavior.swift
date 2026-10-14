@@ -106,7 +106,7 @@ public struct BotBehavior: Sendable {
             } else {
                 nextSaccadeAt = 0
                 if mood == .waiting { nextHopAt = 0 }
-                if mood == .error && eyes == mood.eyes { nextHuffAt = -.infinity }
+                if tuning.errorFX != nil && mood == .error && eyes == mood.eyes { nextHuffAt = -.infinity }
             }
         }
     }
@@ -265,7 +265,8 @@ public struct BotBehavior: Sendable {
         isTransitioning = t < moodSince + Self.transitionLength && !reduceMotion
         isAnimating = blinkStart != nil || sacActive || hopping || popping || shaking || huffing
             || [triangle, slump, badge, leanX, leanY].contains { $0.isActive(at: t) }
-        var next = min(nextBlinkAt, nextSaccadeAt, nextHopAt, nextHuffAt)
+        var next = min(nextBlinkAt, nextSaccadeAt, nextHopAt)
+        if tuning.errorFX != nil { next = min(next, nextHuffAt) }
         if shakeAt > t { next = min(next, shakeAt) }
         if mood == .idle { next = min(next, moodSince + tuning.sleepAfter) }
         nextEventAt = next
