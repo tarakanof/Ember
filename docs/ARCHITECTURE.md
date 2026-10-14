@@ -90,10 +90,29 @@ The aggregator and the only writer to the device.
   (it cedes the slot, publishing nothing). For ≥2 sessions in the winning group,
   an aggregate label is shown. One Go ordering, `render.StatePriority`: the
   `/state` render and the preview pick their winner with `render.PickWinning`
-  (most recent within a state), while the clock's rotation and session bar
-  order by it via `render.SortedActiveKeys` (ties by source/tool/session). The
+  (most recent within a state: the later `state_since`, else the later
+  `updated_at`), while the clock's rotation and session bar
+  order by it via `render.SortedActiveKeys` (waiting sessions newest
+  `state_since` first, #485; other ties by source/tool/session). The
   menu's Swift `pickWinning` is a port of `PickWinning`;
   `TestPickWinningTable` is the case table a Swift test should mirror.
+- **Session identity (#485).** `state_since` is set by the registry when a
+  session enters a state and kept by a same-state repost, so the 10 s
+  heartbeats never reorder two waiting sessions. `project` (optional, ≤32
+  characters) names the session: the cwd basename from the Claude and Codex
+  producers (none for a session in `$HOME`, which would name the user), the
+  thread title from T3 only while its activity trail is on (titles are often
+  prompt text and `/state` has no auth), none with `EMBER_SEND_PROJECT=0`
+  or from older producers. The server drops control characters, collapses
+  whitespace and keeps 32 characters. `POST /v1/status` has always ignored
+  unknown fields, but should a server answer 400 naming `project` as an
+  unknown field, `producer.Client` resends without it and leaves it out
+  for an hour (per process, so each Claude hook retries once; a POST in
+  flight when another dropped it is resent too). The display name (`render.DisplayName`, Swift
+  `displayName`) is the project, prefixed with the host only when more than
+  one host has a non-idle session: `M5/learn-language` on the clock,
+  `m5 · learn-language` in the app. Without a project every surface keeps
+  its old host/tool text.
 - **The coordinator** (single-writer goroutine) owns all publish timing and
   device state. Responsibilities: rotation across sessions by **stable session
   key** (not slice index), attention **preempt** (jump to a waiting/error
@@ -843,8 +862,31 @@ Claude producer constraints:
   watcher may end it; any hook write clears the flag), idle → `done`
   "interrupted". It only ends waits it understands: a permission dialog
   (`pending_permission`) or its own; Notification-only waits
-  (`quota_auto_resume_stale`, `agent_needs_input`, elicitation) stay with the
-  hooks. A Stop skipped for waking background work sets `bg_wake`, which
+  (`quota_auto_resume_stale`, elicitation) stay with the hooks. An
+  `agent_needs_input` wait (#485) comes from a background session but marks
+  the parent waiting, so it is flagged `agent_input_wait` and the marker
+  keeps the hook's `cwd`. Real `claude agents --json` background rows carry
+  `kind:"background"`, `state` and `cwd` but no `waitingFor`; one needs
+  input while `state` is `blocked`. An agent belongs to a parent when its
+  cwd equals or is under the parent's cwd, or shares its git common dir (a
+  worktree, found by reading `.git` files, no `git` process). The wait ends
+  once no blocked background agent belongs to the marker; a blocked agent
+  no live marker owns, unparseable output, or an old marker without a cwd
+  holds every such wait: back to `running` "working" if the parent is busy,
+  `idle` if not (never `done`, which would fire the done reward), and a
+  leftover `pending_permission` can't clear it while its agent is blocked.
+  Before #485 it stuck until the 6 h heartbeat TTL. Backstop for waits the
+  poller can't confirm (`agent_input_wait`, elicitation and other
+  Notification-only waits): no hook, state change or poller confirmation
+  for 30 min (`waitBackstop`, `tick.go`; heartbeats don't count) parks the
+  marker (`wait_expired`, state `idle`, no heartbeats) and deletes the
+  server session; the next hook or poller correction re-adds it. A wait the
+  poller sees (a permission prompt, the row's `waitingFor`, or a blocked
+  same-cwd agent) writes `wait_confirmed_at` at most every 5 min and never
+  expires. Expiry re-checks after the network: a POST that lands after the
+  DELETE from a now-parked marker is followed by another DELETE, and a hook
+  that rewrote the marker during the DELETE is posted again.
+  Stop skipped for waking background work sets `bg_wake`, which
   blocks idle → done until the next prompt or done/error.
   Each call costs ~0.1 s CPU and a ~75 MB transient process (no disk writes),
   so it runs only while some marker is running/waiting, and then only when a
@@ -4228,7 +4270,12 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (distinct sources in that state; left out at 0 or 1), `lead_color` (first
   valid `source_color` of the lead's sessions, uppercased) and `tool` (the
   lead's tool when its sessions agree), all omitted when empty, so an idle
-  view's bytes do not change. `Upsert` also notifies when this summary moves
+  view's bytes do not change. When the winning state is `waiting` (#485) the
+  lead is the newest waiting session instead (latest `state_since`, the
+  rule the app and the clock use): `lead` is its host, `lead_color` its
+  colour, `tool` its tool, and `lead_project` its `project` (omitted when
+  the producer sent none). "+N" on the knob is `waiting` − 1, other waiting
+  sessions, not hosts. `Upsert` also notifies when this summary moves
   without the render (a new source colour);
   `pomo` is null with the Pomodoro off, and carries `ends_at` (server Unix
   seconds) while counting down, `remaining_sec` otherwise (paused, parked,
@@ -4542,6 +4589,26 @@ rather than doubling some hours.
   apart from the agent-state colours. HH:MM reset-clock faces carry a gray
   hourglass at cols 27–29 rather than `5h`: the clock ends at col 23, and a
   `5h` at col 25 read as `17:305h`.
+- **Waiting with a project (#485)** — while the lock holds, the payload
+  names the session: `text` is the display name plus " +N" for the other
+  waiting sessions (`learn-language +2`), in amber, with
+  `scroll:{mode:"loop",whenFits:"static"}` (NG's documented `loop`: the text
+  moves without end, a copy following `gap` px behind; a short name rests).
+  The tool logo blinks amber every 500 ms as a native `icon`
+  (`ember_wait_<tool>_<crc32 of the GIF>`, a two-frame 8×8 GIF, 50 cs per
+  frame, generated by `render.WaitIcons`; the hash in the name makes a
+  changed GIF upload again, and provisioning deletes any other
+  `ember_wait_*` icon once the current set is on the clock). `ensureNativeIcons` uploads them with the other
+  icons, so the name does not blink and `textOffsetX` is left out: NG starts
+  text at col 9 after an 8 px icon with the default `iconGap`. Until the
+  icons are on the clock (`App.waitIcons`, cleared on a clock move,
+  re-checked by one icon listing after a detected reboot or boot ping) the
+  drawn icon stays and the name blinks instead. After the lock, the
+  session's first rotation card (`cardProject`) shows the name once
+  (`repeat:1`, no hold), and the coordinator keeps that card until the
+  scroll is done (`render.CardDwell`: 1 s NG hold plus width + 23 px at
+  21 px/s) instead of moving on at the 3 s dwell. The lead is the newest
+  waiting session.
 - **Locked attention view** — 8×8 tool icon in cols 0–7, firmware-native
   blinking text `WAIT <SOURCE>` / `ERR <SOURCE>` at `textOffsetX:9` (with
   `textCenter:false` — see the gotcha below); scrolls when the label overflows

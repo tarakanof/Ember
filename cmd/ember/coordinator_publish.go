@@ -79,7 +79,8 @@ func (c *coordinator) publish(snap Snapshot) {
 
 		switch mode {
 		case idleModeActive:
-			payload = render.RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime, c.usageViews(now, snap))
+			opts := render.CoordOpts{WaitIcons: c.waitIcons != nil && c.waitIcons()}
+			payload = render.RenderForCoordWith(snap, c.pointer, c.cardCursor, c.locked, lifetime, c.usageViews(now, snap), opts)
 			if render.AttentionHeld(snap, c.pointer, c.locked) {
 				want = holdAttention
 			}

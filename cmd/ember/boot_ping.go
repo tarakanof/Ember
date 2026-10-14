@@ -31,7 +31,7 @@ func (a *App) expectedBootCallback() string {
 }
 
 func (a *App) handleAwtrixBoot(w http.ResponseWriter, r *http.Request) {
-	a.RepublishAll("device_boot")
+	a.clockRebooted("device_boot")
 	w.WriteHeader(http.StatusNoContent)
 }
 

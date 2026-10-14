@@ -36,6 +36,7 @@ func wireRequest(cfg Config, req StatusRequest) StatusRequest {
 	}
 	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
 	req.SourceCard, req.SessionBar = &sc, &sb
+	req.Project = cfg.Project(req.Project)
 	req.RateWeekPct = nil
 	req.RateWeekResetAt = 0
 	req.RateWeekResetLabel = ""

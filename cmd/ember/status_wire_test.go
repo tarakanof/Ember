@@ -30,3 +30,21 @@ func TestStatusCarriesSourceCardAndSessionBar(t *testing.T) {
 		t.Fatalf("legacy tokens_today must still parse: %v", err)
 	}
 }
+
+func TestStatusCarriesTheProjectTrimmedAndCut(t *testing.T) {
+	req := StatusRequest{Source: "m4", Tool: "claude", Session: "s", State: "waiting",
+		Project: "  learn-language-with-a-very-long-folder-name  "}
+	if got := req.normalized().Project; got != "learn-language-with-a-very-long-" {
+		t.Fatalf("project = %q, want the first 32 runes", got)
+	}
+	if got := (StatusRequest{Source: "m4", Tool: "claude", Session: "s", State: "idle"}).normalized().Project; got != "" {
+		t.Fatalf("an old producer's project = %q, want empty", got)
+	}
+}
+
+func TestStatusProjectDropsControlCharacters(t *testing.T) {
+	req := StatusRequest{Source: "m4", Tool: "claude", Session: "s", State: "waiting", Project: "le\x1b[31marn\x00\tlang\u0085"}
+	if got := req.normalized().Project; got != "le[31marn lang" {
+		t.Fatalf("project = %q", got)
+	}
+}

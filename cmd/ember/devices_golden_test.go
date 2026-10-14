@@ -87,10 +87,15 @@ func fullViewScenario(t *testing.T, f *viewFixture) {
 	f.app.weather.have = true
 	f.app.weather.source = f.app.cfg.Load().Weather.source()
 	teal := "#00c8c8"
-	f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s1", State: "waiting", SourceColor: &teal})
+	amber := "#ffaa00"
+	f.clk.advance(-3 * time.Second)
+	f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s1", State: "waiting", SourceColor: &teal, Project: "example-site"})
+	f.app.Upsert(StatusRequest{Source: "laptop", Tool: "codex", Session: "s4", State: "running", SourceColor: &amber})
+	f.clk.advance(time.Second)
 	f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s2", State: "waiting", SourceColor: &teal})
-	f.app.Upsert(StatusRequest{Source: "laptop", Tool: "codex", Session: "s3", State: "waiting"})
-	f.app.Upsert(StatusRequest{Source: "laptop", Tool: "codex", Session: "s4", State: "running"})
+	f.clk.advance(time.Second)
+	f.app.Upsert(StatusRequest{Source: "laptop", Tool: "codex", Session: "s3", State: "waiting", SourceColor: &amber, Project: "example-api"})
+	f.clk.advance(time.Second)
 	f.eng.Start(pomodoro.PhaseFocus)
 	putKnobConfig(t, f.srv, f.m.ID, `{"diagnostics":"full","pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
 	resp, b := devReq(t, f.srv, "POST", "/v1/devices/"+f.m.ID+"/stats/live", testToken, `{"seconds":300}`)

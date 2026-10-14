@@ -8,10 +8,11 @@
     "running": 1,
     "done": 0,
     "source": "",
-    "lead": "STUDIO",
+    "lead": "LAPTOP",
     "hosts": 2,
-    "lead_color": "#00C8C8",
-    "tool": "claude"
+    "lead_color": "#FFAA00",
+    "tool": "codex",
+    "lead_project": "example-api"
   },
   "pomo": {
     "phase": "focus",

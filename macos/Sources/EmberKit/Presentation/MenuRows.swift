@@ -31,7 +31,7 @@ public enum MenuRows {
         case .online, .degraded:
             guard let winning else { return Header(title: "Idle", detail: nil) }
             let p = SessionPresentation(winning)
-            return Header(title: p.title, detail: p.subtitle(maxLength: activityMaxLength))
+            return Header(title: p.headerTitle, detail: p.subtitle(maxLength: activityMaxLength))
         }
     }
 
@@ -40,7 +40,7 @@ public enum MenuRows {
         case .unconfigured: "Not set up"
         case .connecting: "Connecting…"
         case .offline: "Offline"
-        case .online, .degraded: winning.map { SessionPresentation($0).title } ?? "Idle"
+        case .online, .degraded: winning.map { SessionPresentation($0).headerTitle } ?? "Idle"
         }
     }
 
@@ -74,6 +74,7 @@ public enum MenuRows {
                                      locale: Locale = .current) -> OtherSessions {
         guard sessions.count > 1 else { return OtherSessions(rows: [], overflow: nil) }
         let winnerKey = winning.map(key)
+        let multi = multiHost(sessions)
         let rest = sessions
             .filter { key($0) != winnerKey }
             .sorted {
@@ -82,7 +83,7 @@ public enum MenuRows {
             }
         let shown = rest.prefix(max(0, limit)).map { s in
             let p = SessionPresentation(s)
-            let title = String(localized: p.title)
+            let title = String(localized: p.rowTitle(multiHost: multi))
             let text: LocalizedStringResource = p.contextText(locale: locale).map {
                 "\(title) · \(String(localized: $0))"
             } ?? "\(title)"
@@ -90,6 +91,10 @@ public enum MenuRows {
         }
         let hidden = rest.count - shown.count
         return OtherSessions(rows: shown, overflow: hidden > 0 ? "\(hidden) more" : nil)
+    }
+
+    public static func multiHost(_ sessions: [Session]) -> Bool {
+        Set(sessions.filter { $0.stateEnum != .idle && !$0.source.isEmpty }.map(\.source)).count > 1
     }
 
     private static func key(_ s: Session) -> String { "\(s.source)\u{1F}\(s.tool)\u{1F}\(s.session)" }

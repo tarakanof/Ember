@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +62,44 @@ func TestLeadOf(t *testing.T) {
 		if got := leadOf(c.v); got != c.want {
 			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestLeadOfWaitingIsTheNewestWaiter(t *testing.T) {
+	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	purple := "#b48cff"
+	v := sessions.View{Now: t0, Sessions: []render.Session{
+		{Source: "m4", Tool: "claude", Session: "a", State: "waiting", Project: "ember", StateSince: t0.Add(-time.Minute), UpdatedAt: t0},
+		{Source: "m4", Tool: "claude", Session: "b", State: "waiting", Project: "cinder", StateSince: t0.Add(-2 * time.Minute), UpdatedAt: t0},
+		{Source: "m5", Tool: "codex", Session: "c", State: "waiting", Project: "learn-language", StateSince: t0.Add(-10 * time.Second), UpdatedAt: t0.Add(-5 * time.Second), SourceColor: &purple},
+	}}
+	want := moodLead{Lead: "M5", Hosts: 2, Color: "#B48CFF", Tool: "codex", Project: "learn-language"}
+	if got := leadOf(v); got != want {
+		t.Fatalf("lead = %+v, want %+v", got, want)
+	}
+}
+
+func TestKnobViewMoodCarriesTheLeadProject(t *testing.T) {
+	f := newViewFixture(t)
+	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "waiting", Project: "learn-language"})
+	_, body := f.get(t, "")
+	var v struct {
+		Mood knobMood `json:"mood"`
+	}
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Mood.LeadProject != "learn-language" {
+		t.Fatalf("lead_project = %q", v.Mood.LeadProject)
+	}
+}
+
+func TestKnobViewMoodLeavesOutTheProjectOfAnOldProducer(t *testing.T) {
+	f := newViewFixture(t)
+	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "waiting"})
+	_, body := f.get(t, "")
+	if strings.Contains(string(body), "lead_project") {
+		t.Fatalf("view = %s", body)
 	}
 }
 

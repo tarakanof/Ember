@@ -95,6 +95,9 @@ func PreviewFrames(s Session, u *UsageView, now time.Time) Preview {
 			p.Activity = s.Activity
 			continue
 		}
+		if c == cardProject {
+			continue
+		}
 		frame := ComposeFrame(s, c, u, []Session{s}, now)
 		p.Frames = append(p.Frames, CardFrame{Card: cardName(c), Pixels: HexPixels(&frame)})
 	}
@@ -117,6 +120,8 @@ func cardName(c int) string {
 		return "usage-model-a"
 	case cardUsageModelB:
 		return "usage-model-b"
+	case cardProject:
+		return "project"
 	default:
 		panic(fmt.Sprintf("cardName: unknown card const %d", c))
 	}

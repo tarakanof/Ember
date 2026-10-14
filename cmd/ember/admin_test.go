@@ -534,6 +534,7 @@ func TestAdminReload_LogsOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
+	app.clockJobs.Wait()
 
 	logs := buf.String()
 	if !strings.Contains(logs, `"msg":"admin reload"`) ||

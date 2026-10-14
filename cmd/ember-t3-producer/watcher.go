@@ -51,7 +51,7 @@ func (w *watcher) tick(threads []thread, now time.Time) (posts []producer.Status
 		}
 		seen[th.ID] = true
 		req := w.buildStatusRequest(th, state, message)
-		fp := req.State + "\x00" + req.Message + "\x00" + req.Activity
+		fp := req.State + "\x00" + req.Message + "\x00" + req.Activity + "\x00" + req.Project
 		if lt == nil {
 			lt = &liveThread{}
 			w.live[th.ID] = lt
@@ -88,6 +88,7 @@ func (w *watcher) buildStatusRequest(th thread, state, message string) producer.
 	req.Message = message
 	if w.cfg.ActivityTrailEnabled {
 		req.Activity = producer.Truncate(th.Title, maxActivityRunes)
+		req.Project = w.cfg.Project(producer.ProjectFromTitle(th.Title))
 	}
 	return req
 }

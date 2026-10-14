@@ -14,6 +14,7 @@ import (
 
 type marker struct {
 	producer.StatusRequest
+	Cwd        string `json:"cwd,omitempty"`
 	OwnerPID   int    `json:"owner_pid,omitempty"`
 	OwnerStart string `json:"owner_start,omitempty"`
 	// unix s.
@@ -41,10 +42,13 @@ type ToolTrack struct {
 	LastToolFP        string `json:"last_tool_fp,omitempty"`
 	ResumedTool       string `json:"resumed_tool,omitempty"`
 	// unix s.
-	ResumedAt      int64 `json:"resumed_at,omitempty"`
-	BackgroundWake bool  `json:"bg_wake,omitempty"`
-	AgentsWait     bool  `json:"agents_wait,omitempty"`
-	AgentsRun      bool  `json:"agents_run,omitempty"`
+	ResumedAt       int64 `json:"resumed_at,omitempty"`
+	BackgroundWake  bool  `json:"bg_wake,omitempty"`
+	AgentsWait      bool  `json:"agents_wait,omitempty"`
+	AgentsRun       bool  `json:"agents_run,omitempty"`
+	AgentInputWait  bool  `json:"agent_input_wait,omitempty"`
+	WaitExpired     bool  `json:"wait_expired,omitempty"`
+	WaitConfirmedAt int64 `json:"wait_confirmed_at,omitempty"`
 }
 
 var shellComms = map[string]bool{

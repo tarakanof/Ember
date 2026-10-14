@@ -424,6 +424,7 @@ func (p *fakePublisher) Switch(ctx context.Context, name string, _ awtrix.Switch
 func (p *fakePublisher) ReadSettings(context.Context) (map[string]any, error)  { return nil, nil }
 func (p *fakePublisher) ListIcons(ctx context.Context) ([]string, error)       { return nil, nil }
 func (p *fakePublisher) PutIcon(ctx context.Context, _ string, _ []byte) error { return nil }
+func (p *fakePublisher) DeleteIcon(context.Context, string) error              { return nil }
 
 func TestCoord_IncrementsOKCounter(t *testing.T) {
 	cfg := defaultConfig()

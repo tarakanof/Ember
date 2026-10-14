@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"slices"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/render"
 )
 
 var errTest = errors.New("test error")
@@ -23,7 +25,7 @@ func ownIconJobs(t *testing.T, a *App) {
 
 func iconTestApp(t *testing.T, mutate func(*WeatherConfig)) (*App, *recordingPublisher) {
 	t.Helper()
-	pub := &recordingPublisher{}
+	pub := &recordingPublisher{icons: waitIconFiles()}
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
@@ -37,7 +39,7 @@ func iconTestApp(t *testing.T, mutate func(*WeatherConfig)) (*App, *recordingPub
 
 func TestEnsureWeatherIcons_UploadsMissing(t *testing.T) {
 	app, pub := iconTestApp(t, func(w *WeatherConfig) { w.TileNativeIcons = true })
-	pub.icons = []string{"2289.gif"}
+	pub.icons = append(pub.icons, "2289.gif")
 
 	app.ensureNativeIcons(context.Background())
 
@@ -93,7 +95,7 @@ func TestEnsureWeatherIcons_ListFailureUploadsNothing(t *testing.T) {
 }
 
 func TestEnsureNativeIcons_PomodoroEnabledProvisionsTomatoAndCoffee(t *testing.T) {
-	pub := &recordingPublisher{}
+	pub := &recordingPublisher{icons: waitIconFiles()}
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = false
@@ -114,7 +116,7 @@ func TestEnsureNativeIcons_PomodoroEnabledProvisionsTomatoAndCoffee(t *testing.T
 }
 
 func TestEnsureNativeIcons_PomodoroDisabledProvisionsWeatherOnly(t *testing.T) {
-	pub := &recordingPublisher{}
+	pub := &recordingPublisher{icons: waitIconFiles()}
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
@@ -204,4 +206,8 @@ func TestFetchIconFrom_ExtensionlessNonPNGFails(t *testing.T) {
 	if _, _, err := fetchIconFrom(context.Background(), srv.URL+"/", "1"); err == nil {
 		t.Fatal("expected an error for a non-PNG extensionless response")
 	}
+}
+
+func waitIconFiles() []string {
+	return []string{render.WaitIconName("claude") + ".gif", render.WaitIconName("codex") + ".gif", render.WaitIconName("t3") + ".gif"}
 }

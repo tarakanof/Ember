@@ -38,6 +38,7 @@ type sessionMeta struct {
 	id         string
 	source     string
 	originator string
+	cwd        string
 }
 
 const claudeOriginator = "Claude Code"
@@ -52,6 +53,7 @@ type metaPayload struct {
 	ID         string          `json:"id"`
 	Originator string          `json:"originator"`
 	Source     json.RawMessage `json:"source"`
+	Cwd        string          `json:"cwd"`
 }
 
 type tokenInfo struct {
@@ -96,7 +98,7 @@ func parseSessionMeta(line []byte) (sessionMeta, bool) {
 	if json.Unmarshal(rl.Payload, &p) != nil || p.ID == "" {
 		return sessionMeta{}, false
 	}
-	return sessionMeta{id: p.ID, source: sourceKind(p.Source), originator: p.Originator}, true
+	return sessionMeta{id: p.ID, source: sourceKind(p.Source), originator: p.Originator, cwd: p.Cwd}, true
 }
 
 func sourceKind(raw json.RawMessage) string {

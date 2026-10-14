@@ -301,7 +301,11 @@
       "extractionState" : "manual"
     },
     "%@ — %@" : {
-      "comment" : "An agent session with no Mac name: tool name, then its state (\"Claude — Running\").",
+      "comment" : "An agent session with no Mac name, or its project: tool name or project, then its state (\"Claude — Running\", \"learn-language — Waiting\").",
+      "extractionState" : "manual"
+    },
+    "%@ — %@ · %@" : {
+      "comment" : "Menu header: the lead session's project, its state, then the Mac it runs on (\"learn-language — Waiting · m4\").",
       "extractionState" : "manual"
     },
     "%@, %@" : {

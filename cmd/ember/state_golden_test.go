@@ -52,7 +52,7 @@ var stateGoldenCases = []struct {
 	}},
 }
 
-var stateTimestamp = regexp.MustCompile(`"(now|updated_at)":"[^"]*"`)
+var stateTimestamp = regexp.MustCompile(`"(now|updated_at|state_since)":"[^"]*"`)
 
 func TestStateGolden(t *testing.T) {
 	for _, tc := range stateGoldenCases {

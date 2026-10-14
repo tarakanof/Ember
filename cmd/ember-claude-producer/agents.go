@@ -37,8 +37,11 @@ var minAgentsVersion = [3]int{2, 1, 288}
 
 type agentRow struct {
 	PID        int    `json:"pid"`
+	Kind       string `json:"kind"`
 	SessionID  string `json:"sessionId"`
+	Cwd        string `json:"cwd"`
 	Status     string `json:"status"`
+	State      string `json:"state"`
 	WaitingFor string `json:"waitingFor"`
 }
 
@@ -55,6 +58,102 @@ func parseAgents(out []byte) (map[string]agentRow, error) {
 		m[r.SessionID] = r
 	}
 	return m, nil
+}
+
+type blockedAgents struct {
+	all    bool
+	cwds   []string
+	orphan bool
+}
+
+func backgroundBlocked(out []byte) blockedAgents {
+	var rows []agentRow
+	if json.Unmarshal(bytes.TrimSpace(out), &rows) != nil {
+		return blockedAgents{all: true}
+	}
+	var b blockedAgents
+	for _, r := range rows {
+		if r.Kind == "background" && r.State == "blocked" {
+			b.cwds = append(b.cwds, r.Cwd)
+		}
+	}
+	return b
+}
+
+func (b blockedAgents) bind(active []activeMarker) blockedAgents {
+	b.orphan = false
+	for _, cwd := range b.cwds {
+		owned := false
+		for _, a := range active {
+			if a.m.Cwd != "" && cwdBelongs(cwd, a.m.Cwd) {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			b.orphan = true
+		}
+	}
+	return b
+}
+
+func (b blockedAgents) holds(m marker) bool {
+	if b.all || (len(b.cwds) > 0 && (b.orphan || m.Cwd == "")) {
+		return true
+	}
+	for _, cwd := range b.cwds {
+		if cwdBelongs(cwd, m.Cwd) {
+			return true
+		}
+	}
+	return false
+}
+
+func cwdBelongs(agent, parent string) bool {
+	if agent == "" || parent == "" {
+		return false
+	}
+	agent, parent = filepath.Clean(agent), filepath.Clean(parent)
+	if agent == parent || strings.HasPrefix(agent, parent+string(filepath.Separator)) {
+		return true
+	}
+	common := gitCommonDir(agent)
+	return common != "" && common == gitCommonDir(parent)
+}
+
+func gitCommonDir(dir string) string {
+	for d := dir; ; d = filepath.Dir(d) {
+		dotGit := filepath.Join(d, ".git")
+		if st, err := os.Stat(dotGit); err == nil {
+			if st.IsDir() {
+				return dotGit
+			}
+			return commonFromGitFile(d, dotGit)
+		}
+		if filepath.Dir(d) == d {
+			return ""
+		}
+	}
+}
+
+func commonFromGitFile(worktree, dotGit string) string {
+	b, err := os.ReadFile(dotGit)
+	if err != nil {
+		return ""
+	}
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir:")
+	if !ok {
+		return ""
+	}
+	gitdir = strings.TrimSpace(gitdir)
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(worktree, gitdir)
+	}
+	gitdir = filepath.Clean(gitdir)
+	if filepath.Base(filepath.Dir(gitdir)) == "worktrees" {
+		return filepath.Dir(filepath.Dir(gitdir))
+	}
+	return gitdir
 }
 
 func agentsPollEnabled() bool {
@@ -242,6 +341,7 @@ func hookView(body []byte) ([]byte, marker, bool) {
 	v.RateResetAt, v.RateWeekResetAt = 0, 0
 	v.RateResetLabel, v.RateWeekResetLabel = "", ""
 	v.StatuslineChangedMs, v.StatuslineAt = 0, 0
+	v.WaitConfirmedAt = 0
 	b, err := json.Marshal(v)
 	if err != nil {
 		return nil, m, false
@@ -395,7 +495,26 @@ func wantFor(m marker, row agentRow) (correction, bool) {
 	return correction{}, false
 }
 
+func agentInputCleared(m marker, row agentRow, blocked blockedAgents) (correction, bool) {
+	if m.State != "waiting" || !m.AgentInputWait || blocked.holds(m) {
+		return correction{}, false
+	}
+	switch row.Status {
+	case "busy":
+		return correction{"running", workingMessage}, true
+	case "idle":
+		return correction{"idle", ""}, true
+	}
+	return correction{}, false
+}
+
 func (w *agentsWatcher) wantForSession(a activeMarker, row agentRow) (correction, bool) {
+	if want, ok := agentInputCleared(a.m, row, w.blocked); ok {
+		return want, true
+	}
+	if a.m.State == "waiting" && a.m.AgentInputWait {
+		return correction{}, false
+	}
 	want, ok := wantFor(a.m, row)
 	var s claudeSession
 	read := false
@@ -436,6 +555,7 @@ type agentsWatcher struct {
 	lastCall     time.Time
 	backoffUntil time.Time
 	pending      map[string]pendingCorrection
+	blocked      blockedAgents
 	fileSeen     map[string]time.Time
 	slSeen       map[string]int64
 	failLog      *producer.FailureLogger
@@ -514,6 +634,7 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 	if err == nil {
 		var rows map[string]agentRow
 		if rows, err = parseAgents(out); err == nil {
+			w.blocked = backgroundBlocked(out).bind(append(active, wake...))
 			w.reconcile(ctx, cfg, client, append(active, wake...), rows, now)
 			return true
 		}
@@ -570,6 +691,9 @@ func (w *agentsWatcher) reconcile(ctx context.Context, cfg Config, client *Clien
 			}
 			continue
 		}
+		if w.confirmsWait(a.m, row) {
+			confirmWait(cfg, a, now)
+		}
 		want, ok := w.wantForSession(a, row)
 		if !ok {
 			continue
@@ -587,6 +711,41 @@ func (w *agentsWatcher) reconcile(ctx context.Context, cfg Config, client *Clien
 		next[a.sessionID] = pendingCorrection{want: want, body: a.view, seen: now}
 	}
 	w.pending = next
+}
+
+const waitConfirmEvery = 5 * time.Minute
+
+func (w *agentsWatcher) confirmsWait(m marker, row agentRow) bool {
+	if m.State != "waiting" {
+		return false
+	}
+	if m.AgentInputWait {
+		return w.blocked.holds(m)
+	}
+	return row.Status == "waiting"
+}
+
+func confirmWait(cfg Config, a activeMarker, now time.Time) {
+	if now.Sub(time.Unix(a.m.WaitConfirmedAt, 0)) < waitConfirmEvery {
+		return
+	}
+	_ = withLockExWait(a.lockP, hookLockWait(cfg), func() error {
+		cur, err := readMarker(a.markerP)
+		if err != nil {
+			return nil
+		}
+		var m marker
+		if json.Unmarshal(cur, &m) != nil || m.State != "waiting" || m.WaitExpired {
+			return nil
+		}
+		m.WaitConfirmedAt = now.Unix()
+		b, err := json.Marshal(m)
+		if err != nil {
+			return nil
+		}
+		_ = writeMarker(a.markerP, b)
+		return nil
+	})
 }
 
 func applyCorrection(ctx context.Context, cfg Config, client *Client, a activeMarker, want correction) {
@@ -621,6 +780,8 @@ func applyCorrection(ctx context.Context, cfg Config, client *Client, a activeMa
 		m.Message = truncate(want.message, 80)
 		m.StateChangedAt = hookNow().Unix()
 		m.AgentsWait = want.state == "waiting"
+		m.AgentInputWait = m.AgentInputWait && want.state == "waiting"
+		m.WaitExpired = false
 		if want.state != "waiting" {
 			m.PendingPermission, m.PendingToolUseID = "", ""
 		}

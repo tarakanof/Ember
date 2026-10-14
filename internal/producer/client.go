@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -28,6 +27,7 @@ type StatusRequest struct {
 	RateResetLabel string  `json:"rate_reset_label,omitempty"`
 	SourceCard     *bool   `json:"source_card,omitempty"`
 	SessionBar     *bool   `json:"session_bar,omitempty"`
+	Project        string  `json:"project,omitempty"`
 	// Never reach POST /v1/status.
 	RateWeekPct        *int   `json:"rate_week_pct,omitempty"`
 	RateWeekResetAt    int64  `json:"rate_week_reset_at,omitempty"`
@@ -67,11 +67,19 @@ func (c *Client) WithAutoServer(a *AutoServer) *Client {
 }
 
 func (c *Client) Post(ctx context.Context, req StatusRequest) error {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return err
+	req = optionalFields.strip(req, time.Now())
+	for attempt := 0; ; attempt++ {
+		body, err := json.Marshal(req)
+		if err != nil {
+			return err
+		}
+		err = c.send(ctx, http.MethodPost, "/v1/status", body)
+		field, ok := unknownField(err)
+		if !ok || attempt >= len(optionalFields.zeroers) || !optionalFields.drop(field, time.Now()) {
+			return err
+		}
+		req = optionalFields.strip(req, time.Now())
 	}
-	return c.send(ctx, http.MethodPost, "/v1/status", body)
 }
 
 func (c *Client) Delete(ctx context.Context, req DeleteRequest) error {
@@ -133,5 +141,14 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte) err
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
-	return fmt.Errorf("server returned %s", resp.Status)
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	return &ServerError{Status: resp.Status, Code: resp.StatusCode, Body: string(msg)}
 }
+
+type ServerError struct {
+	Status string
+	Code   int
+	Body   string
+}
+
+func (e *ServerError) Error() string { return "server returned " + e.Status }

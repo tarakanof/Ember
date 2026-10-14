@@ -33,6 +33,7 @@ type apThread struct {
 	id         string
 	tracked    bool
 	viaClaude  bool
+	project    string
 	d          derived
 	busy       bool
 	subscribed bool
@@ -380,6 +381,7 @@ type wireThread struct {
 	Preview    string          `json:"preview"`
 	UpdatedAt  int64           `json:"updatedAt"`
 	Status     wireStatus      `json:"status"`
+	Cwd        string          `json:"cwd"`
 }
 
 func (as *appServer) addThreadLocked(th wireThread) {
@@ -397,7 +399,8 @@ func (as *appServer) addThreadLocked(th wireThread) {
 	if th.Originator != nil {
 		meta.originator = *th.Originator
 	}
-	t := &apThread{id: th.ID, tracked: as.cfg.tracks(meta), viaClaude: meta.originator == claudeOriginator}
+	t := &apThread{id: th.ID, tracked: as.cfg.tracks(meta), viaClaude: meta.originator == claudeOriginator,
+		project: producer.ProjectFromCwd(th.Cwd)}
 	t.lastChange = as.now()
 	if th.UpdatedAt > 0 {
 		t.lastChange = time.Unix(th.UpdatedAt, 0)
@@ -730,6 +733,7 @@ func (as *appServer) tick() apTick {
 		d.rateWindowPct, d.rateResetAt = as.rate.rateWindowPct, as.rate.rateResetAt
 		if t.post.Due(fingerprint(d), now) {
 			req := buildStatusRequest(as.cfg, id, d)
+			req.Project = as.cfg.Project(t.project)
 			if t.viaClaude {
 				req.Message = viaClaudeMessage(req.Message)
 			}

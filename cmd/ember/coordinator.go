@@ -50,6 +50,7 @@ type coordinator struct {
 
 	pointer    string
 	cardCursor int
+	cardSince  time.Time
 	attentionState
 	lockReleaseTimer *time.Timer
 
@@ -60,6 +61,8 @@ type coordinator struct {
 	pomoView func() (render.PomodoroView, bool)
 
 	hiddenApps func() map[string]bool
+
+	waitIcons func() bool
 
 	indicators [3]indicatorState
 
@@ -314,6 +317,7 @@ func (c *coordinator) onTick() {
 	}
 
 	c.stateMu.Lock()
+	prevPointer, prevCursor := c.pointer, c.cardCursor
 	switch {
 	case len(keys) == 0:
 		c.pointer = ""
@@ -321,18 +325,26 @@ func (c *coordinator) onTick() {
 	case c.locked:
 		c.pointer = c.lockedKey
 		c.cardCursor = 0
+		c.cardSince = c.clk.Now()
 	case c.pointer == "" || !slices.Contains(keys, c.pointer):
 		c.pointer = keys[0]
 		c.cardCursor = 0
 	default:
 		sess := render.SessionByKey(snap, c.pointer)
-		n := render.CardsForSession(sess, c.usageViews(c.clk.Now(), snap)[sess.Tool])
+		u := c.usageViews(c.clk.Now(), snap)[sess.Tool]
+		n := render.CardsForSession(sess, u)
+		if c.clk.Now().Sub(c.cardSince) < render.CardDwell(snap, sess, u, c.cardCursor) {
+			break
+		}
 		if c.cardCursor+1 < n {
 			c.cardCursor++
 		} else {
 			c.pointer = render.PickRotated(c.pointer, keys)
 			c.cardCursor = 0
 		}
+	}
+	if c.pointer != prevPointer || c.cardCursor != prevCursor {
+		c.cardSince = c.clk.Now()
 	}
 	c.stateMu.Unlock()
 

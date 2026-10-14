@@ -75,6 +75,15 @@ and fall under the same rules as the view.
    shape updates the fixtures below in the same PR, and the PR says so, so
    cinder can sync them.
 
+**`mood.lead_project` (#485).** Optional string, the newest waiting
+session's `project` (≤32 characters: a folder name or a T3 thread title),
+present only while the winning state is `waiting` and that session's
+producer sent one. While waiting, `lead`, `lead_color` and `tool` also
+follow that session rather than the host with the most waiters. Firmware
+without the field ignores it (cinder reads `mood` keys by name with
+`cJSON_GetObjectItemCaseSensitive`, so an unknown key is skipped). The
+"+N" of other waiting sessions is `waiting` − 1; no new count is sent.
+
 ## Capabilities
 
 Since #341 the knob may say what it can do in every checkin (cinder#27):
@@ -680,7 +689,7 @@ Indented JSON; key order is the wire order.
 
 | File | Content |
 |---|---|
-| `view_full.json` | Every block: two-host `mood` with `lead`/`hosts`/`lead_color`/`tool`, counting `pomo` (`ends_at`), `weather` with sun times and `observed_at`, `nowplaying` playing with art and volume, `diag_live_until` |
+| `view_full.json` | Every block: two-host waiting `mood` with `lead`/`hosts`/`lead_color`/`tool`/`lead_project` (the newest waiter, on the host with fewer waiters, so the old most-sessions rule would pick the other host), counting `pomo` (`ends_at`), `weather` with sun times and `observed_at`, `nowplaying` playing with art and volume, `diag_live_until` |
 | `view_minimal.json` | Pomodoro and weather off (`null`), `nowplaying` page off (block absent) |
 | `view_nowplaying_none.json` | `nowplaying` page on, nothing playing (`{"state":"none"}`); idle `pomo` (`remaining_sec`) |
 | `view_quiet.json` | Quiet hours on: `"quiet":true` after `brightness`; Pomodoro and weather off |

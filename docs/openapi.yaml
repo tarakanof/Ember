@@ -256,6 +256,13 @@ components:
           type: boolean
         session_bar:
           type: boolean
+        project:
+          type: string
+          description: |
+            The session's project: the working directory's basename (Claude,
+            Codex) or the thread title (T3). Whitespace is collapsed and the
+            server keeps the first 32 characters. Absent from older producers
+            and with `EMBER_SEND_PROJECT=0`.
     Session:
       allOf:
         - $ref: "#/components/schemas/StatusRequest"
@@ -264,6 +271,13 @@ components:
             updated_at:
               type: string
               format: date-time
+            state_since:
+              type: string
+              format: date-time
+              description: |
+                When the session entered its current state. A repost in the
+                same state keeps it, so it orders the waiting sessions
+                (newest first) without the heartbeats reshuffling them.
     Render:
       type: object
       properties:
