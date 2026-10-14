@@ -27,6 +27,7 @@ type fakeAppServer struct {
 	loaded         []string
 	resumeFailures int
 	received       []map[string]any
+	answered       map[string]int
 	conns          []*wsConn
 	beforeRead     func(id string)
 	hang           bool
@@ -49,7 +50,7 @@ func newFakeAppServer(t *testing.T, path string) *fakeAppServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeAppServer{t: t, path: path, ln: ln, threads: map[string]map[string]any{}}
+	f := &fakeAppServer{t: t, path: path, ln: ln, threads: map[string]map[string]any{}, answered: map[string]int{}}
 	t.Cleanup(f.close)
 	go f.accept()
 	return f
@@ -152,6 +153,15 @@ func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 		msg["result"] = result
 	}
 	f.sendOn(ws, msg)
+	f.mu.Lock()
+	f.answered[method]++
+	f.mu.Unlock()
+}
+
+func (f *fakeAppServer) answers(method string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.answered[method]
 }
 
 func (f *fakeAppServer) sendOn(ws *wsConn, v any) {
@@ -687,7 +697,7 @@ func TestAppServer_ReconnectsWhenTheDaemonStopsAnswering(t *testing.T) {
 	done := make(chan struct{})
 	go func() { as.run(ctx); close(done) }()
 	t.Cleanup(func() { stopAppServer(t, cancel, done) })
-	waitFor(t, "connect", connected(as))
+	waitFor(t, "bootstrap answered", func() bool { return f.answers("thread/loaded/list") >= 1 })
 	f.mu.Lock()
 	f.hang = true
 	f.mu.Unlock()
