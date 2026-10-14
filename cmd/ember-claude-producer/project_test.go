@@ -223,7 +223,10 @@ func TestAgents_AgentInputWaitStaysWhileItsBackgroundAgentIsBlocked(t *testing.T
 func TestAgents_ABlockedAgentOfAnotherProjectDoesNotHoldTheWait(t *testing.T) {
 	f := newAgentsFixture(t)
 	f.writeMarker(t, "s1", agentInputMarker())
-	f.out = `[` + parentRow("idle") + `,` + backgroundRow("/w/other", "blocked") + `]`
+	other := agentInputMarker()
+	other.Cwd = "/w/other"
+	f.writeMarker(t, "s2", other)
+	f.out = `[` + parentRow("idle") + `,` + strings.Replace(strings.Replace(parentRow("idle"), agentsCwd, "/w/other", 1), `"s1"`, `"s2"`, 1) + `,` + backgroundRow("/w/other", "blocked") + `]`
 	f.activate(t)
 	f.step(time.Second)
 	f.step(2 * time.Second)
@@ -385,5 +388,48 @@ func TestHook_MarkerKeepsTheCwdForBackgroundMatching(t *testing.T) {
 	dispatchHookForTest(t, "notification", []byte(`{"session_id":"abc","notification_type":"agent_needs_input","message":"m"}`))
 	if got := readTickMarker(t, filepath.Join(h.sessionsDir(), "abc.json")); got.Cwd != "/w/app" {
 		t.Fatalf("cwd = %q", got.Cwd)
+	}
+}
+
+func TestAgents_AnOrphanBlockedAgentHoldsTheWait(t *testing.T) {
+	f := newAgentsFixture(t)
+	f.writeMarker(t, "s1", agentInputMarker())
+	f.out = `[` + parentRow("idle") + `,` + backgroundRow("/w/app-wt/isolated", "blocked") + `]`
+	f.activate(t)
+	f.step(time.Second)
+	f.step(2 * time.Second)
+	if got := f.readMarker(t, "s1"); got.State != "waiting" {
+		t.Fatalf("state=%s; a blocked agent no live session owns must keep the wait", got.State)
+	}
+}
+
+func TestCwdBelongsMatchesSubdirectoriesAndWorktrees(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	wt := filepath.Join(root, "repo-wt", "feature")
+	other := filepath.Join(root, "other")
+	for _, d := range []string{filepath.Join(repo, ".git", "worktrees", "feature"), wt, other} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitFile := "gitdir: " + filepath.Join(repo, ".git", "worktrees", "feature") + "\n"
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte(gitFile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		agent, parent string
+		want          bool
+	}{
+		{repo, repo, true},
+		{filepath.Join(repo, "sub"), repo, true},
+		{wt, repo, true},
+		{repo + "2", repo, false},
+		{other, repo, false},
+	}
+	for _, c := range cases {
+		if got := cwdBelongs(c.agent, c.parent); got != c.want {
+			t.Errorf("cwdBelongs(%s, %s) = %v, want %v", c.agent, c.parent, got, c.want)
+		}
 	}
 }

@@ -60,25 +60,100 @@ func parseAgents(out []byte) (map[string]agentRow, error) {
 	return m, nil
 }
 
-type blockedAgents map[string]bool
+type blockedAgents struct {
+	all    bool
+	cwds   []string
+	orphan bool
+}
 
 func backgroundBlocked(out []byte) blockedAgents {
 	var rows []agentRow
 	if json.Unmarshal(bytes.TrimSpace(out), &rows) != nil {
-		return blockedAgents{"": true}
+		return blockedAgents{all: true}
 	}
-	b := blockedAgents{}
+	var b blockedAgents
 	for _, r := range rows {
 		if r.Kind == "background" && r.State == "blocked" {
-			b[r.Cwd] = true
-			b[""] = true
+			b.cwds = append(b.cwds, r.Cwd)
+		}
+	}
+	return b
+}
+
+func (b blockedAgents) bind(active []activeMarker) blockedAgents {
+	b.orphan = false
+	for _, cwd := range b.cwds {
+		owned := false
+		for _, a := range active {
+			if a.m.Cwd != "" && cwdBelongs(cwd, a.m.Cwd) {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			b.orphan = true
 		}
 	}
 	return b
 }
 
 func (b blockedAgents) holds(m marker) bool {
-	return b[m.Cwd]
+	if b.all || (len(b.cwds) > 0 && (b.orphan || m.Cwd == "")) {
+		return true
+	}
+	for _, cwd := range b.cwds {
+		if cwdBelongs(cwd, m.Cwd) {
+			return true
+		}
+	}
+	return false
+}
+
+func cwdBelongs(agent, parent string) bool {
+	if agent == "" || parent == "" {
+		return false
+	}
+	agent, parent = filepath.Clean(agent), filepath.Clean(parent)
+	if agent == parent || strings.HasPrefix(agent, parent+string(filepath.Separator)) {
+		return true
+	}
+	common := gitCommonDir(agent)
+	return common != "" && common == gitCommonDir(parent)
+}
+
+func gitCommonDir(dir string) string {
+	for d := dir; ; d = filepath.Dir(d) {
+		dotGit := filepath.Join(d, ".git")
+		if st, err := os.Stat(dotGit); err == nil {
+			if st.IsDir() {
+				return dotGit
+			}
+			return commonFromGitFile(d, dotGit)
+		}
+		if filepath.Dir(d) == d {
+			return ""
+		}
+	}
+}
+
+func commonFromGitFile(worktree, dotGit string) string {
+	b, err := os.ReadFile(dotGit)
+	if err != nil {
+		return ""
+	}
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir:")
+	if !ok {
+		return ""
+	}
+	gitdir = strings.TrimSpace(gitdir)
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(worktree, gitdir)
+	}
+	gitdir = filepath.Clean(gitdir)
+	if filepath.Base(filepath.Dir(gitdir)) == "worktrees" {
+		return filepath.Dir(filepath.Dir(gitdir))
+	}
+	return gitdir
 }
 
 func agentsPollEnabled() bool {
@@ -559,7 +634,7 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 	if err == nil {
 		var rows map[string]agentRow
 		if rows, err = parseAgents(out); err == nil {
-			w.blocked = backgroundBlocked(out)
+			w.blocked = backgroundBlocked(out).bind(append(active, wake...))
 			w.reconcile(ctx, cfg, client, append(active, wake...), rows, now)
 			return true
 		}
