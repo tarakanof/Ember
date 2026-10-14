@@ -307,10 +307,16 @@ The server drops the demo and its queue when it sees a reboot, two ways:
   `0` on either side) a lower `uptime_s` counts, but only if both are
   known (absent or `0` is unknown) and the new uptime fits in the time since
   the previous checkin plus 10 s (otherwise it is an older checkin arriving
-  late). The knob booted at the checkin's arrival minus its `uptime_s`,
-  less 2 s for the truncated uptime and the transit, and only a demo started
-  before that boot is dropped: one set after the knob came back (before its
-  first checkin, or while the checkin was in flight) is kept. A reboot
+  late). The knob booted at the checkin's arrival minus its `uptime_s`, and
+  only a demo started before that boot is dropped: one set after the knob
+  came back (before its first checkin, or while the checkin was in flight)
+  is kept. That estimate runs late by the truncated uptime and the transit,
+  so for a run still `pending` the server moves it 2 s earlier: the knob
+  could have picked that run up after it booted. A `playing` run was
+  reported by the knob before the reboot (a booted knob reports `playing`
+  only on the poll after its first checkin), so it is compared with the
+  estimate as is, and a scene that crashes the knob at once is dropped at
+  the first checkin however fast the knob came back. A reboot
   checkin without `uptime_s` drops nothing, since the boot time is unknown;
   the view rule below still catches a playing scene. The previous checkin
   is the stored one, which may predate a server restart. An older checkin
@@ -325,7 +331,8 @@ The server drops the demo and its queue when it sees a reboot, two ways:
   race: a request whose segment is lost once lands about 3 s late (lwIP's
   first retransmit), and a knob that reboots in under 3 s is served the
   scene again on its first poll. The checkin, which follows in the same
-  main-loop pass, is the backstop: it reads the reboot and drops the run.
+  main-loop pass, is the backstop: it reads the reboot and drops the
+  `playing` run.
 
 Either turns the run into status `restarted` (scene and id of the dropped
 scene, `queue_left` 0), which reads `idle` again 60 s later; reports for

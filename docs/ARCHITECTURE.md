@@ -3602,10 +3602,13 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   which cinder sends before its first checkin; the 3 s gap keeps a
   report-free request sent before playback and delivered late from ending
   a healthy run; it only narrows that race, and the checkin that follows
-  the poll is the backstop for a reboot under 3 s. The checkin path drops a
-  run only if it started before the boot (arrival minus `uptime_s` minus
-  2 s, `bootEstimateSlack`, for the truncated uptime and the transit; no
-  drop when `uptime_s` is unknown) and is the run whose generation the
+  the poll is the backstop for a `playing` run that reboots in under 3 s.
+  The checkin path drops a run only if it started before the boot (arrival
+  minus `uptime_s`; for a `pending` run 2 s earlier, `bootEstimateSlack`,
+  since the estimate runs late by the truncated uptime and the transit and
+  the booted knob could have taken that run; a `playing` run was reported
+  before the reboot, so it gets no slack; no drop when `uptime_s` is
+  unknown) and is the run whose generation the
   handler read before the checkin, so a demo set after the knob came back,
   or set while the checkin was in flight, survives. An `unanswered` run
   stays `unanswered`. A checkin that `knobCheckinStale` reads as an older

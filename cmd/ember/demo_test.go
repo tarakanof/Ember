@@ -655,7 +655,7 @@ func TestDemoKnobRebootDropsTheDemoAndItsQueue(t *testing.T) {
 	f := demoFixture(t)
 	demoCheckin(t, f, 800, 40)
 	playDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
-	f.clk.advance(4 * time.Second)
+	f.clk.advance(2 * time.Second)
 	demoCheckin(t, f, 1, 41)
 	if st := demoStatusOf(t, f); st != (demoStatus{State: demoRestarted, Scene: "bot.hop", ID: "d0000001"}) {
 		t.Fatalf("status after the reboot = %+v", st)
@@ -678,6 +678,17 @@ func TestDemoKnobRebootDropsTheDemoAndItsQueue(t *testing.T) {
 	f.clk.advance(time.Second)
 	if st := demoStatusOf(t, f); st != (demoStatus{State: demoIdle}) {
 		t.Fatalf("status %v after the reboot = %+v", demoForget, st)
+	}
+}
+
+func TestDemoKnobCrashingRightAfterPlayingIsDroppedAtItsFirstCheckin(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 800, 40)
+	playDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(2 * time.Second)
+	demoCheckin(t, f, 1, 41)
+	if st := demoStatusOf(t, f); st.State != demoRestarted {
+		t.Fatalf("a knob that crashed in the scene and checked in 2 s after it started kept the demo: %+v", st)
 	}
 }
 
@@ -844,16 +855,16 @@ func TestDemoRebootSparesARunStartedAfterTheRebootWasRead(t *testing.T) {
 	d.start("k", []string{"bot.hop"}, false, t0)
 	gen := d.generation("k")
 	d.start("k", []string{"bot.done"}, false, t0)
-	if d.knobRestarted("k", gen, t0.Add(time.Second), t0.Add(2*time.Second)) {
+	if d.knobRestarted("k", gen, t0.Add(3*time.Second), t0.Add(4*time.Second)) {
 		t.Fatal("a reboot read before the newer run started dropped it")
 	}
-	if st := d.status("k", t0.Add(2*time.Second)); st.State != demoPending || st.Scene != "bot.done" {
+	if st := d.status("k", t0.Add(4*time.Second)); st.State != demoPending || st.Scene != "bot.done" {
 		t.Fatalf("status = %+v", st)
 	}
-	if !d.knobRestarted("k", d.generation("k"), t0.Add(time.Second), t0.Add(2*time.Second)) {
+	if !d.knobRestarted("k", d.generation("k"), t0.Add(3*time.Second), t0.Add(4*time.Second)) {
 		t.Fatal("the run of the same generation that started before the boot was kept")
 	}
-	if d.knobRestarted("k", 0, t0.Add(time.Second), t0.Add(2*time.Second)) {
+	if d.knobRestarted("k", 0, t0.Add(3*time.Second), t0.Add(4*time.Second)) {
 		t.Fatal("restarted twice")
 	}
 }

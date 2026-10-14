@@ -180,7 +180,13 @@ func (d *demoRegistry) knobRestarted(device string, gen uint64, bootedAt, now ti
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	run := d.liveLocked(device, now)
-	if run == nil || run.gen != gen || run.state == demoUnanswered || !run.started.Before(bootedAt) {
+	if run == nil || run.gen != gen || run.state == demoUnanswered {
+		return false
+	}
+	if run.state != demoPlaying {
+		bootedAt = bootedAt.Add(-bootEstimateSlack)
+	}
+	if !run.started.Before(bootedAt) {
 		return false
 	}
 	return d.restartLocked(run, now)

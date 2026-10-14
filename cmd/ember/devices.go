@@ -708,7 +708,7 @@ func (c deviceCheckin) bootedAt() time.Time {
 	if c.UptimeS <= 0 {
 		return time.Time{}
 	}
-	return c.SeenAt.Add(-time.Duration(c.UptimeS)*time.Second - bootEstimateSlack)
+	return c.SeenAt.Add(-time.Duration(c.UptimeS) * time.Second)
 }
 
 func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
