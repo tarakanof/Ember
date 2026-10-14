@@ -66,7 +66,7 @@ public struct KnobBotLive: View {
 
     private var shown: KnobMood {
         var m = mood
-        if !sourceLabel { m.host = "" }
+        if !sourceLabel { m.host = ""; m.sub = "" }
         return m
     }
 

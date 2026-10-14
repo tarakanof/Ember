@@ -81,7 +81,13 @@
       "mark_bottom_px": 146,
       "claude_color": "#D77757",
       "codex_color": "#FFFFFF",
-      "max_chars": 10
+      "max_chars": 10,
+      "sub_font_px": 18,
+      "sub_radius_px": 147,
+      "mark_bottom_sub_px": 128,
+      "canvas_w_px": 340,
+      "canvas_h_px": 116,
+      "canvas_y_px": 312
     },
     "glint": {
       "width_px": 12,

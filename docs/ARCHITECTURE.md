@@ -3030,7 +3030,14 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   shows the clock's frames, but drawn locally: the knob renders on-device and
   its view endpoint takes a device token only. The app composes the same
   inputs from what it already polls: `/state` sessions (mood and host label,
-  `KnobMood`, the firmware's render priority and #213 host rule; the last
+  `KnobMood`, the firmware's render priority and #213 host rule; on a
+  waiting or done bot the newest session in that state leads, as the
+  server's `mood.lead*` does, and the label is its project like cinder
+  0.9.81's `ember_host_project_label` (≤10 slots or 9 + "...", " +N" other
+  sessions in that state, ≤12 slots, the host label without a letter or
+  digit) with a Montserrat 18 host line at r 147 when several hosts report,
+  the tool icon raised to r 128 and the label clipped to the 340×116 canvas
+  at y 312; `KnobLabelTests` holds cinder's table cases; the last
   good mood stays while `/state` fails, as on the knob),
   `/v1/pomodoro/state`, `/v1/weather/state` (tracked while a preview is up)
   and `/v1/display/brightness` (read at once when "Follow Ember brightness"

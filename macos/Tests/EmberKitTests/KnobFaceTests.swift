@@ -87,14 +87,15 @@ import Testing
     #expect(KnobMood(sessions: [s("a", "error"), s("b", "error", 5)]).host == "A +1")
     #expect(KnobMood(sessions: [s("mini", "running", 9), s("m4", "running"), s("m4", "running", 1)]).host == "M4 +1")
     #expect(KnobMood(sessions: [s("very-long-hostname", "waiting")]).host == "VERY-LONG-")
-    #expect(KnobMood(sessions: [s("very-long-hostname", "waiting"), s("b", "waiting")]).host == "B +1")
+    #expect(KnobMood(sessions: [s("very-long-hostname", "waiting"), s("b", "waiting", 1)]).host == "B +1")
     #expect(KnobMood(sessions: [s("very-long-hostname", "waiting"), s("very-long-hostname", "waiting", 1),
                                 s("b", "waiting")]).host == "VERY-LO +1")
     #expect(KnobMood(sessions: [s("", "running")]).host == "")
     #expect(KnobMood(sessions: [s("m4", "running"), s("M4", "running", 1)]).host == "M4", "hosts compare uppercased")
     #expect(KnobMood(mood: .working, host: "X").showsHost)
     #expect(KnobMood(mood: .error, host: "X").showsHost)
-    #expect(KnobMood(mood: .done, host: "X").showsHost == false)
+    #expect(KnobMood(mood: .done, host: "X").showsHost)
+    #expect(KnobMood(mood: .idle, host: "X").showsHost == false)
 }
 
 @Test func knobMoodCarriesTheLeadColourAndTool() throws {

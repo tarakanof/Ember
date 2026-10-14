@@ -54,6 +54,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         }
         public struct Host: Decodable, Sendable, Equatable {
             public var fontPx, radiusPx, iconCellPx, markHPx, markBottomPx: Double
+            public var subFontPx, subRadiusPx, markBottomSubPx, canvasWPx, canvasHPx, canvasYPx: Double
             public var claudeColor, codexColor: RGB
             public var maxChars: Int
         }
