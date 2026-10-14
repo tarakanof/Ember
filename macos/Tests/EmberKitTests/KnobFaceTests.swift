@@ -430,3 +430,71 @@ private extension Double { var asInt: Int { Int(self) } }
     let end = try #require(KnobWeatherScene.shape(.rain, frame: 0).strokes.first?.last)
     #expect(abs(end.x - (6 + 14 * slant[0] / slant[1])) < 1e-9)
 }
+
+@Test func knobLabelShowsOnlyOnALabelMoodWithAHost() {
+    for m in BotMood.allCases {
+        let shown = [BotMood.working, .waiting, .error, .done].contains(m)
+        #expect(KnobFaceRender.showsLabel(KnobMood(mood: m, host: "ember"), rim: m) == shown, "\(m)")
+    }
+    #expect(!KnobFaceRender.showsLabel(KnobMood(mood: .done, host: "ember"), rim: .idle), "the rim mood gates it too")
+    #expect(!KnobFaceRender.showsLabel(KnobMood(mood: .done), rim: .done), "no host, no label")
+}
+
+@Test func knobToolMarkIsLeftOutOnlyOnError() {
+    for m in BotMood.allCases { #expect(KnobMood.marksTool(m) == (m != .error), "\(m)") }
+}
+
+@Test func knobMarkSitsHigherOverTheHostLine() {
+    let h = KnobTheme.standard.bot.host
+    #expect(h.markBottom(hostLine: false) == h.markBottomPx && h.markBottom(hostLine: true) == h.markBottomSubPx)
+    #expect(h.markBottomSubPx < h.markBottomPx)
+}
+
+@Test func knobLabelCanvasIsTheFirmwareBox() {
+    let h = KnobTheme.standard.bot.host
+    #expect(KnobFaceRender.labelCanvas(center: CGPoint(x: 233, y: 233), theme: .standard)
+        == CGRect(x: 233 - h.canvasWPx / 2, y: h.canvasYPx, width: h.canvasWPx, height: h.canvasHPx))
+}
+
+private struct Bitmap {
+    let w: Int, h: Int, rgba: [UInt8]
+    init(_ img: CGImage) {
+        w = img.width; h = img.height
+        var buf = [UInt8](repeating: 0, count: w * h * 4)
+        let ctx = CGContext(data: &buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        rgba = buf
+    }
+    func at(_ x: Int, _ y: Int) -> RGB {
+        let i = (y * w + x) * 4
+        return RGB(r: rgba[i], g: rgba[i + 1], b: rgba[i + 2])
+    }
+    func rows(_ ys: Range<Int>, _ xs: Range<Int>, near c: RGB, _ tol: Int = 30) -> [Int] {
+        ys.filter { y in xs.contains { x in near(at(x, y), c, tol) } }
+    }
+}
+
+@MainActor @Test func knobLabelIsClippedToItsCanvas() throws {
+    let purple = RGB(r: 0xB4, g: 0x8C, b: 0xFF)
+    let long = KnobMood(mood: .waiting, host: String(repeating: "W", count: 24), hostColor: purple)
+    let img = Bitmap(try #require(render(KnobFaceView(.bot(pose: KnobBotDriver.restingPose(.waiting), mood: long)))))
+    let box = KnobFaceRender.labelCanvas(center: CGPoint(x: 233, y: 233), theme: .standard)
+    #expect(!img.rows(Int(box.minY)..<Int(box.maxY), 0..<466, near: purple, 40).isEmpty, "label drawn")
+    #expect(img.rows(120..<Int(box.minY), 0..<466, near: purple, 40).isEmpty, "nothing above the canvas")
+}
+
+@MainActor @Test func knobMarkRisesOverTheHostLineAndHidesOnError() throws {
+    let th = KnobTheme.standard, purple = RGB(r: 0xB4, g: 0x8C, b: 0xFF)
+    func markRows(_ mood: KnobMood) throws -> [Int] {
+        let img = Bitmap(try #require(render(KnobFaceView(.bot(pose: KnobBotDriver.restingPose(mood.mood), mood: mood)))))
+        return img.rows(250..<440, 205..<261, near: th.bot.host.claudeColor)
+    }
+    let plain = try markRows(KnobMood(mood: .done, host: "ember", hostColor: purple, tool: "claude"))
+    let lined = try markRows(KnobMood(mood: .done, host: "ember", hostColor: purple, tool: "claude", sub: "M4"))
+    let rise = th.bot.host.markBottomPx - th.bot.host.markBottomSubPx
+    #expect(!plain.isEmpty && !lined.isEmpty)
+    #expect(Double((plain.last ?? 0) - (lined.last ?? 0)) == rise, "plain \(plain.last ?? -1), lined \(lined.last ?? -1)")
+    #expect(try markRows(KnobMood(mood: .error, host: "ember", hostColor: purple, tool: "claude")).isEmpty)
+}

@@ -149,7 +149,7 @@ enum KnobFaceRender {
             ctx.fill(disc(b.badge.gap * p.badge * r), with: .color(.black))
             ctx.fill(disc(b.badge.dot * p.badge * r), with: .color(Color(color)))
         }
-        if mood.showsHost && (p.mood == .working || p.mood == .waiting || p.mood == .error || p.mood == .done) {
+        if showsLabel(mood, rim: p.mood) {
             arcLabel(mood, moodColor: color, center: CGPoint(x: c, y: c + rimDY), theme: theme, in: &ctx)
         }
     }
@@ -189,17 +189,26 @@ enum KnobFaceRender {
         return out
     }()
 
+    static func showsLabel(_ mood: KnobMood, rim: BotMood) -> Bool {
+        mood.showsHost && KnobMood.labelMoods.contains(rim)
+    }
+
+    static func labelCanvas(center: CGPoint, theme: KnobTheme) -> CGRect {
+        let h = theme.bot.host
+        return CGRect(x: center.x - h.canvasWPx / 2, y: center.y - theme.screen.diameterPx / 2 + h.canvasYPx,
+                      width: h.canvasWPx, height: h.canvasHPx)
+    }
+
     static func arcLabel(_ mood: KnobMood, moodColor: RGB, center: CGPoint, theme: KnobTheme,
                          in ctx: inout GraphicsContext) {
         let h = theme.bot.host
         let textColor = mood.hostColor ?? moodColor
         let sub = mood.shownSub
         var ctx = ctx
-        ctx.clip(to: Path(CGRect(x: center.x - h.canvasWPx / 2, y: center.y - theme.screen.diameterPx / 2 + h.canvasYPx,
-                                 width: h.canvasWPx, height: h.canvasHPx)))
-        let markBottom = sub.isEmpty ? h.markBottomPx : h.markBottomSubPx
+        ctx.clip(to: Path(labelCanvas(center: center, theme: theme)))
+        let markBottom = h.markBottom(hostLine: !sub.isEmpty)
         let box = CGRect(x: center.x - h.markHPx / 2, y: center.y + markBottom - h.markHPx, width: h.markHPx, height: h.markHPx)
-        let marked = mood.mood != .error
+        let marked = KnobMood.marksTool(mood.mood)
         if marked, let mark = toolMarks[mood.tool] {
             let r = CGRect(x: center.x - Double(mark.width) / 2, y: box.maxY - Double(mark.height),
                            width: Double(mark.width), height: Double(mark.height))

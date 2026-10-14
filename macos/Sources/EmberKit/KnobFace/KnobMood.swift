@@ -81,9 +81,12 @@ public struct KnobMood: Equatable, Sendable {
         return String(decoding: name, as: UTF8.self) + cut + suffix
     }
 
-    public var showsHost: Bool {
-        !host.isEmpty && (mood == .working || mood == .waiting || mood == .error || mood == .done)
-    }
+    public static let labelMoods: Set<BotMood> = [.working, .waiting, .error, .done]
+    public static let hostLineMoods: Set<BotMood> = [.waiting, .done]
 
-    public var shownSub: String { mood == .waiting || mood == .done ? sub : "" }
+    public static func marksTool(_ mood: BotMood) -> Bool { mood != .error }
+
+    public var showsHost: Bool { !host.isEmpty && Self.labelMoods.contains(mood) }
+
+    public var shownSub: String { Self.hostLineMoods.contains(mood) ? sub : "" }
 }

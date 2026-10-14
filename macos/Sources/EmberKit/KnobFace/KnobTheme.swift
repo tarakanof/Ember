@@ -57,6 +57,8 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             public var subFontPx, subRadiusPx, markBottomSubPx, canvasWPx, canvasHPx, canvasYPx: Double
             public var claudeColor, codexColor: RGB
             public var maxChars: Int
+
+            public func markBottom(hostLine: Bool) -> Double { hostLine ? markBottomSubPx : markBottomPx }
         }
         public struct Glint: Decodable, Sendable, Equatable {
             public var widthPx, tailDeg, whiteMix, periodS, fps: Double
