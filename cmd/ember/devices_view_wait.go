@@ -179,8 +179,7 @@ func (a *App) serveKnobViewWait(w http.ResponseWriter, r *http.Request, id strin
 		a.writeDeviceError(w, r, err)
 	case result == longPollGone:
 	default:
-		a.writeKnobView(w, r, body, etag, a.viewNow())
-		a.demos.markServed(id, demoID)
+		a.deliverKnobView(w, r, id, demoID, body, etag, a.viewNow())
 	}
 	return true
 }

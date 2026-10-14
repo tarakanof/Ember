@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -536,6 +539,121 @@ func TestDemoCountsAsServedOnlyOnceAReplyCarriesIt(t *testing.T) {
 	f.report(t, "d0000001", "playing")
 	if st := demoStatusOf(t, f); st.State != demoUnanswered {
 		t.Fatalf("a late report revived a scene no reply carried: %+v", st)
+	}
+}
+
+type hookedViewWriter struct {
+	header  http.Header
+	code    int
+	fail    bool
+	onWrite func()
+}
+
+func (w *hookedViewWriter) Header() http.Header { return w.header }
+
+func (w *hookedViewWriter) WriteHeader(code int) { w.code = code }
+
+func (w *hookedViewWriter) Write(b []byte) (int, error) {
+	if w.onWrite != nil {
+		w.onWrite()
+	}
+	if w.fail {
+		return 0, errors.New("broken pipe")
+	}
+	return len(b), nil
+}
+
+func serveViewThrough(t *testing.T, f *viewFixture, w *hookedViewWriter) {
+	t.Helper()
+	req := httptest.NewRequest("GET", knobViewPath, nil)
+	req.Header.Set("Authorization", "Bearer "+f.m.Token)
+	f.srv.Config.Handler.ServeHTTP(w, req)
+	if w.code != http.StatusOK {
+		t.Fatalf("view = %d", w.code)
+	}
+}
+
+func lateDemoState(t *testing.T, f *viewFixture) string {
+	t.Helper()
+	f.report(t, "d0000001", "playing")
+	return demoStatusOf(t, f).State
+}
+
+func TestDemoReportRacingTheReplyThatCarriedTheSceneCounts(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(demoPickup - 100*time.Millisecond)
+	var raced string
+	serveViewThrough(t, f, &hookedViewWriter{header: http.Header{}, onWrite: func() {
+		f.clk.advance(time.Second)
+		raced = lateDemoState(t, f)
+	}})
+	if raced != demoPlaying {
+		t.Fatalf("a late playing report handled while its reply was being written was rejected: %s", raced)
+	}
+}
+
+func TestDemoReplyThatFailedToWriteIsNotServed(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(demoPickup - 100*time.Millisecond)
+	serveViewThrough(t, f, &hookedViewWriter{header: http.Header{}, fail: true})
+	f.clk.advance(time.Second)
+	if st := lateDemoState(t, f); st != demoUnanswered {
+		t.Fatalf("a reply that never reached the knob let a late report revive the scene: %s", st)
+	}
+}
+
+func TestDemoNotModifiedReplyCountsAsServed(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(demoPickup - 100*time.Millisecond)
+	_, etag, err := f.app.knobView(f.m.ID, f.clk.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, _ := f.get(t, etag); resp.StatusCode != http.StatusNotModified {
+		t.Fatalf("conditional view = %d", resp.StatusCode)
+	}
+	f.clk.advance(time.Second)
+	if st := lateDemoState(t, f); st != demoPlaying {
+		t.Fatalf("a 304 for the view holding the scene did not count as served: %s", st)
+	}
+}
+
+func TestDemoLongPollThatDeliversTheSceneCountsAsServed(t *testing.T) {
+	f := demoFixture(t)
+	resp, _ := f.get(t, "")
+	_, body, _ := waitThenAct(t, f, resp.Header.Get("ETag"), func() { postDemo(t, f, `{"scene":"bot.hop"}`) })
+	if viewDemo(t, body) == nil {
+		t.Fatalf("long poll woke without the scene: %s", body)
+	}
+	f.clk.advance(demoPickup + time.Second)
+	if st := lateDemoState(t, f); st != demoPlaying {
+		t.Fatalf("a long-poll reply carrying the scene did not count as served: %s", st)
+	}
+}
+
+func TestDemoLongPollTheKnobLeftIsNotServed(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	_, etag, err := f.app.knobView(f.m.ID, f.clk.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _, _ = f.wait(ctx, t, etag, "10")
+	}()
+	waitForWaiters(t, f.app, 1)
+	cancel()
+	<-done
+	waitForWaiters(t, f.app, 0)
+	f.clk.advance(demoPickup + time.Second)
+	if st := lateDemoState(t, f); st != demoUnanswered {
+		t.Fatalf("a long poll that never answered let a late report revive the scene: %s", st)
 	}
 }
 

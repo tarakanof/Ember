@@ -126,11 +126,11 @@ func (d *demoRegistry) current(device string, now time.Time) (demoCurrent, bool)
 	return demoCurrent{scene: run.queue[0], id: run.id, hold: run.hold, since: run.since}, true
 }
 
-func (d *demoRegistry) markServed(device, id string) {
+func (d *demoRegistry) setServed(device, id string, served bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if run := d.runs[device]; run != nil && run.id == id {
-		run.served = true
+		run.served = served
 	}
 }
 
