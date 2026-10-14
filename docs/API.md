@@ -96,7 +96,8 @@ ARCHITECTURE "Knob checkin", RUNBOOK "Decoding a knob core dump"), `GET /v1/cloc
 (clock probe history, memory only — ARCHITECTURE "Clock stats"),
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
 `POST /v1/usage`, `GET/PUT /v1/usage/config`, `POST /v1/nowplaying` (a
-source's player report), `GET /v1/nowplaying/commands?player=&wait=` (Ember.app's
+source's player report; a playing or paused report with no title and no
+`track_id` counts as stopped and drops the entry), `GET /v1/nowplaying/commands?player=&wait=` (Ember.app's
 long-poll for Music commands) and `PUT /v1/nowplaying/art?source=&player=&kind=album|artist&track_id=`
 (raw JPEG/PNG ≤2 MB; 409 once the track moved on — ARCHITECTURE "Now playing"), `GET/PUT /v1/display/config`,
 `GET/PUT /v1/weather/config` (`provider` `open-meteo`, `met-no`,
