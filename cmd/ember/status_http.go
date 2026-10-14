@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/tarakanof/ember/internal/render"
@@ -121,6 +122,12 @@ func (r StatusRequest) validate() error {
 const projectMaxRunes = 32
 
 func normalizedProject(p string) string {
+	p = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, p)
 	p = strings.Join(strings.Fields(p), " ")
 	if r := []rune(p); len(r) > projectMaxRunes {
 		p = string(r[:projectMaxRunes])

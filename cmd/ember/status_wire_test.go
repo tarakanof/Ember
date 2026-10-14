@@ -41,3 +41,10 @@ func TestStatusCarriesTheProjectTrimmedAndCut(t *testing.T) {
 		t.Fatalf("an old producer's project = %q, want empty", got)
 	}
 }
+
+func TestStatusProjectDropsControlCharacters(t *testing.T) {
+	req := StatusRequest{Source: "m4", Tool: "claude", Session: "s", State: "waiting", Project: "le\x1b[31marn\x00\tlang\u0085"}
+	if got := req.normalized().Project; got != "le[31marn lang" {
+		t.Fatalf("project = %q", got)
+	}
+}
