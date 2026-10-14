@@ -3036,15 +3036,17 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   and `/v1/display/brightness` (read at once when "Follow Ember brightness"
   turns on, then every 60 s), plus the draft knob settings, so toggling a
   page or a bot timing shows at once. The renderers port cinder's firmware
-  (`bot_shape.c`, `bot_view.c` Head style with its plain 6 px outline and
-  squash variants picked by sy/sx so the pop only pulses the eyes,
+  (`bot_shape.c`, `bot_view.c` Head style with its plain 9 px outline and
+  squash variants picked by sy/sx so the pop only pulses the eyes, the eye
+  lid as a clip line from the top (`bot_lid_line_y`),
   `pomo_view.c`, `weather_face.c`, `weather_scene.c`, and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three
   pictures from `/v1/nowplaying/art` once per `art_version`, only while a
   preview is up; burn-in dimming and drift are not drawn; text folds with the firmware's own tables, `KnobTextFold`, tested against np.c; failed picture fetches retry with a 5-60 s back-off; Knob > Now Playing is its own app page from firmware 0.9.0; `GET /v1/nowplaying/state` sends `X-Ember-Now` for clock skew); `BotBehavior.Tuning`
-  carries the knob's slower, flatter hop. `knob-theme.json`
+  carries the knob's slower, flatter hop, its swap-blink hide rule and its
+  error shake, huff and gaze split (`bot.error`). `knob-theme.json`
   (`macos/Sources/EmberKit/Resources/`) holds the numbers the renderers
   share with the firmware: geometry, palette, label layout and LVGL font
   metrics, eye geometry, and the weather scene's sprite sizes, layout,

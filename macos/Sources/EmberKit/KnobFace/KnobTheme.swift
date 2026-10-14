@@ -35,7 +35,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         }
         public struct Eyes: Decodable, Sendable, Equatable {
             public struct Capsule: Decodable, Sendable, Equatable {
-                public var width, height, angleDeg: [Double]
+                public var width, widen, height, angleDeg: Double
             }
             public struct Happy: Decodable, Sendable, Equatable {
                 public var width: Double
@@ -45,6 +45,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             }
             public var restX, reach, reachTriangle, dropTriangle, dropSlump, limit, limitTriangle: Double
             public var foreshorten, straight, leanAt, sep, sepRound, rise, minHalf: Double
+            public var lidKeep, lidDroop, blinkHide: Double
             public var dash, angry, round: Capsule
             public var happy: Happy
         }
@@ -59,6 +60,11 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public struct Glint: Decodable, Sendable, Equatable {
             public var widthPx, tailDeg, whiteMix, periodS, fps: Double
         }
+        public struct ErrorFX: Decodable, Sendable, Equatable {
+            public var gazeSplit: [Double]
+            public var shakeAtS, shakeS, shakeCycles, shakeAmp: Double
+            public var huffS, huffDip, huffLid, huffMedianS, huffSigma: Double
+        }
         public var fill: Double
         public var bodyColor, eyeColor: RGB
         public var eyeScale, hopScale, rimPx, rimDimGain: Double
@@ -70,6 +76,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public var badge: Badge
         public var host: Host
         public var glint: Glint
+        public var error: ErrorFX
     }
 
     public struct Label: Decodable, Sendable, Equatable {
@@ -209,10 +216,15 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
     }
 
     public var botTuning: BotBehavior.Tuning {
-        let h = bot.hop
+        let h = bot.hop, e = bot.error
+        let fx = BotBehavior.ErrorFX(gazeSplit: e.gazeSplit, shakeAt: e.shakeAtS, shakeLength: e.shakeS,
+                                     shakeCycles: e.shakeCycles, shakeAmp: e.shakeAmp, huffLength: e.huffS,
+                                     huffDip: e.huffDip, huffLid: e.huffLid, huffMedian: e.huffMedianS,
+                                     huffSigma: e.huffSigma)
         return BotBehavior.Tuning(sleepAfter: BotBehavior.sleepAfter, hopLength: h.durationS, hopSquash: h.squash,
                                   hopIntervalMedian: h.intervalMedianS, hopIntervalSigma: h.intervalSigma,
-                                  hopIntervalRange: h.intervalMinS...h.intervalMaxS)
+                                  hopIntervalRange: h.intervalMinS...h.intervalMaxS, blinkHide: bot.eyes.blinkHide,
+                                  errorFX: fx)
     }
 }
 

@@ -129,9 +129,15 @@ enum KnobFaceRender {
             return CGPoint(x: c + r * (p.offsetX + p.scaleX * q.x), y: c - r * by)
         }
         let k = r * (p.scaleX + p.scaleY) / 2
+        let d = theme.screen.diameterPx
         for eye in KnobBotShape.eyes(p, scale: b.eyeScale, geometry: b.eyes) {
-            ctx.stroke(polyline(eye.points.map(screen)), with: .color(Color(b.eyeColor)),
-                       style: StrokeStyle(lineWidth: eye.width * k, lineCap: .round, lineJoin: .round))
+            let pts = eye.points.map(screen), width = eye.width * k
+            var lidded = ctx
+            if let y = KnobBotShape.lidLineY(pts.map { Double($0.y) }, width: width, lid: eye.lid, keep: eye.keep) {
+                lidded.clip(to: Path(CGRect(x: 0, y: y, width: d, height: max(d - y, 0))))
+            }
+            lidded.stroke(polyline(pts), with: .color(Color(b.eyeColor)),
+                          style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
         }
 
         if p.badge > 0.01 {
