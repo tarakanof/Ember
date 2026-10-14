@@ -111,6 +111,7 @@ public final class KnobDemoModel {
 
     public static let pollInterval: Duration = .seconds(1)
     public static let fadePollInterval: Duration = .seconds(5)
+    public static let reviveWindowReads = 5
     public static let maxRetryInterval: Duration = .seconds(16)
 
     public enum Refresh: Equatable, Sendable {
@@ -227,12 +228,20 @@ public final class KnobDemoModel {
 
     public func follow() async {
         let gen = generation
-        var wait = status.isFading ? Self.fadePollInterval : Self.pollInterval
+        var unansweredReads = 0
+        func pace() -> Duration {
+            if status.state == .unanswered {
+                unansweredReads += 1
+                if unansweredReads <= Self.reviveWindowReads { return Self.pollInterval }
+            }
+            return status.isFading ? Self.fadePollInterval : Self.pollInterval
+        }
+        var wait = pace()
         while status.isActive || status.isFading, gen == generation, !Task.isCancelled {
             do { try await sleep(wait) } catch { return }
             guard gen == generation, !Task.isCancelled else { return }
             switch await refreshStatus() {
-            case .updated, .superseded: wait = status.isFading ? Self.fadePollInterval : Self.pollInterval
+            case .updated, .superseded: wait = pace()
             case .failed: wait = min(wait * 2, Self.maxRetryInterval)
             }
         }

@@ -186,16 +186,17 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
 }
 
 @MainActor
-@Test func demoFollowKeepsReadingAnUnansweredKnobSlowlyUntilItFades() async {
+@Test func demoFollowReadsAnUnansweredKnobEverySecondThroughTheReviveWindowThenSlowly() async {
     let sleeps = SleepLog()
-    let server = DemoServer(statuses: ["pending", "unanswered", "unanswered", "idle"])
+    let server = DemoServer(statuses: ["pending"] + Array(repeating: "unanswered", count: 7) + ["idle"])
     let m = demoModel(server, sleeps: sleeps)
     await m.loadScenes()
     await m.play(m.groups[0].scenes[1])
     await m.follow()
     #expect(m.status.state == .idle && m.line == .idle)
-    #expect(sleeps.waits == [KnobDemoModel.pollInterval, KnobDemoModel.pollInterval, KnobDemoModel.fadePollInterval, KnobDemoModel.fadePollInterval])
-    #expect(server.statusReads == 4)
+    #expect(sleeps.waits == Array(repeating: KnobDemoModel.pollInterval, count: 7)
+        + [KnobDemoModel.fadePollInterval, KnobDemoModel.fadePollInterval])
+    #expect(server.statusReads == 9)
 }
 
 @MainActor

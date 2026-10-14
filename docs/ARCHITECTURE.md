@@ -3621,8 +3621,10 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   the device list keep the newer record and caps, its crash isn't reported
   again, and it adds no stats sample and no OTA step.
 - **App.** `KnobDemoModel.follow` reads the status every second while the
-  run is `pending` or `playing`, and every 5 s while an `unanswered` or
-  `restarted` warning shows, until the server reports `idle` (60 s later),
+  run is `pending` or `playing`, keeps the 1 s pace for the first five
+  `unanswered` reads (the server can still revive the run for 5 s past the
+  cutoff), and then reads every 5 s while an `unanswered` or `restarted`
+  warning shows, until the server reports `idle` (60 s later),
   so the line fades with it. Stop stays enabled for those warnings and
   dismisses them (`DELETE …/demo`).
 - **Cover.** The now-playing scenes use a built-in 480 px orange-to-violet
