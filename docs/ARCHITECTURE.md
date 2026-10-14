@@ -4636,8 +4636,10 @@ rather than doubling some hours.
   text at col 9 after an 8 px icon with the default `iconGap`. Until the
   icons are on the clock (`App.waitIcons`, cleared on a clock move,
   re-checked by one icon listing after a detected reboot or boot ping; a
-  provisioning job that started before a move doesn't arm them or delete
-  icons, since the move bumps a clock generation it checks) the
+  provisioning job that started before a move doesn't arm them or start
+  the delete, since the move bumps a clock generation it checks; a move
+  during the delete needs no check, as the set is fixed and a stale name
+  is stale on any clock) the
   drawn icon stays and the name blinks instead. After the lock, the
   session's first rotation card (`cardProject`) shows the name once
   (`repeat:1`, no hold), and the coordinator keeps that card until the
