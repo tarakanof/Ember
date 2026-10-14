@@ -84,3 +84,95 @@ func TestWeatherSnapshotIgnoredWhenStaleOrForAnotherSource(t *testing.T) {
 		})
 	}
 }
+
+func TestWeatherSnapshotRestoreNudgesTheClock(t *testing.T) {
+	st := newWAStub(t, waFixture(t))
+	t0 := waT0.Add(time.Minute)
+	db := seededWeatherStore(t, st, t0)
+	b := restartedWAApp(t, st, db, nil)
+	b.pollWeather(context.Background(), t0.Add(2*time.Minute))
+	if len(b.coord.ticks) != 1 {
+		t.Error("restored weather queued no coordinator tick, so the clock waits for its next tick")
+	}
+}
+
+func TestWeatherSnapshotRestoredBeforeTheFirstSunPopup(t *testing.T) {
+	st := newWAStub(t, waFixture(t))
+	day := time.Date(waT0.Year(), waT0.Month(), waT0.Day(), 0, 0, 0, 0, time.UTC)
+	rise, _, ok := sunTimes(waBelgrade.Latitude, waBelgrade.Longitude, day).pair()
+	if !ok {
+		t.Fatal("no sunrise")
+	}
+	db := seededWeatherStore(t, st, rise.Add(-5*time.Minute))
+	b := restartedWAApp(t, st, db, func(c *WeatherConfig) { c.SunPopups = boolPtr(true) })
+	b.pollWeather(context.Background(), rise)
+	b.weather.mu.RLock()
+	want := "SUNRISE " + sunClock(rise, b.weather.obs, waBelgrade.Longitude)
+	b.weather.mu.RUnlock()
+	if want == "SUNRISE "+sunClock(rise, weatherObservation{}, waBelgrade.Longitude) {
+		t.Fatal("fixture offset equals the longitude guess; the test can't tell them apart")
+	}
+	pub := b.publisher.(*recordingPublisher)
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	if len(pub.notify) != 1 || pub.notify[0]["text"] != want {
+		t.Errorf("sun popups %v, want one %q in the restored zone", pub.notify, want)
+	}
+}
+
+func TestWeatherSnapshotIgnoredForAnotherModel(t *testing.T) {
+	st := newWAStub(t, waFixture(t))
+	t0 := waT0.Add(time.Minute)
+	db := seededWeatherStore(t, st, t0)
+	b := restartedWAApp(t, st, db, nil)
+	src := b.cfg.Load().Weather.source()
+	other := src
+	other.model = "ecmwf_ifs025"
+	b.weather.switchSource(other)
+	b.restoreWeatherSnapshot(other, t0.Add(time.Minute))
+	if _, have, _, _ := b.weather.snapshot(other); have {
+		t.Fatal("restored a snapshot saved under another model")
+	}
+	b.weather.snapshotLoaded = false
+	b.weather.switchSource(src)
+	b.restoreWeatherSnapshot(src, t0.Add(time.Minute))
+	if _, have, _, _ := b.weather.snapshot(src); !have {
+		t.Fatal("did not restore under the saved source")
+	}
+}
+
+func TestWeatherSnapshotKeepsMETRevalidation(t *testing.T) {
+	db := t.TempDir() + "/s.db"
+	t0 := metT0
+	st := &metStub{lastModified: "Sun, 21 Jun 2026 19:55:00 GMT", expires: t0.Add(25 * time.Minute)}
+	a := newMetCacheApp(t, st, false)
+	if err := a.ensureStore(db); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	a.pollWeather(ctx, t0)
+	st.mu.Lock()
+	st.notModified = true
+	st.expires = t0.Add(60 * time.Minute)
+	st.mu.Unlock()
+	a.pollWeather(ctx, t0.Add(30*time.Minute))
+	if st.hits.Load() != 2 {
+		t.Fatalf("setup: %d requests, want a 200 then a 304", st.hits.Load())
+	}
+
+	b := newMetCacheApp(t, st, false)
+	if err := b.ensureStore(db); err != nil {
+		t.Fatal(err)
+	}
+	now := t0.Add(80 * time.Minute)
+	b.pollWeather(ctx, now)
+	wx := b.weather.state(b.cfg.Load().Weather, now)
+	if !wx.HaveObs || !wx.Fresh || !wx.Obs.FetchedAt.Equal(now) {
+		t.Fatalf("after restart: have %v fresh %v fetched %v, want the restored observation renewed by a 304", wx.HaveObs, wx.Fresh, wx.Obs.FetchedAt)
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.hits.Load() != 3 || st.ims[2] != st.lastModified {
+		t.Errorf("restart request: hits %d If-Modified-Since %q, want a revalidation with %q", st.hits.Load(), st.ims, st.lastModified)
+	}
+}

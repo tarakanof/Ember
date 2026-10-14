@@ -504,12 +504,15 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	if !cfg.Enabled {
 		return
 	}
+	available := a.weatherFetcher.providerAvailable(cfg.Provider)
+	if available {
+		a.restoreWeatherSnapshot(src, now)
+	}
 	a.checkSunPopups(ctx, now, cfg)
 	a.pollAir(ctx, now, cfg)
-	if !a.weatherFetcher.providerAvailable(cfg.Provider) {
+	if !available {
 		return
 	}
-	a.restoreWeatherSnapshot(src, now)
 	a.loadWeatherQuota(cfg, now)
 	if !a.weather.due(cfg, now) {
 		return

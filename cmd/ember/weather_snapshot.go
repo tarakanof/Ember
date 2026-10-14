@@ -81,4 +81,5 @@ func (a *App) restoreWeatherSnapshot(src weatherSource, now time.Time) {
 	a.weather.mu.Unlock()
 	a.logger.Info("weather restored from store", "provider", src.provider, "fetched_at", r.Obs.FetchedAt)
 	a.changes.notify(topicWeather)
+	a.nudgePomo()
 }
