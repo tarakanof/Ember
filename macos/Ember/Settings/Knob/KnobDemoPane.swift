@@ -55,7 +55,7 @@ struct KnobDemoPane: View {
                 statusLine
                 Spacer()
                 Button("Stop") { Task { await demo.stop() } }
-                    .disabled(!demo.status.isActive || demo.busy)
+                    .disabled(!demo.status.canStop || demo.busy)
             }
             Toggle("Hold", isOn: $demo.hold)
         } header: {

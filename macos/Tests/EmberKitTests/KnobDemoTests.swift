@@ -186,14 +186,46 @@ private func knob(fw: String?, caps: KnobCaps?) -> KnobDevice {
 }
 
 @MainActor
-@Test func demoFollowStopsOnUnansweredAndSaysSo() async {
-    let server = DemoServer(statuses: ["pending", "unanswered", "unanswered"])
-    let m = demoModel(server)
+@Test func demoFollowKeepsReadingAnUnansweredKnobSlowlyUntilItFades() async {
+    let sleeps = SleepLog()
+    let server = DemoServer(statuses: ["pending", "unanswered", "unanswered", "idle"])
+    let m = demoModel(server, sleeps: sleeps)
     await m.loadScenes()
     await m.play(m.groups[0].scenes[1])
     await m.follow()
+    #expect(m.status.state == .idle && m.line == .idle)
+    #expect(sleeps.waits == [KnobDemoModel.pollInterval, KnobDemoModel.pollInterval, KnobDemoModel.fadePollInterval, KnobDemoModel.fadePollInterval])
+    #expect(server.statusReads == 4)
+}
+
+@MainActor
+@Test func demoUnansweredLineNamesTheSceneAndFades() async {
+    let server = DemoServer(statuses: ["unanswered"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.refreshStatus()
+    #expect(m.status.state == .unanswered && !m.status.isActive && m.status.isFading)
     #expect(m.line == .unanswered(title: "Hop"))
-    #expect(server.requests.filter { $0.method == "GET" && $0.path.hasSuffix("/demo") }.count == 2)
+}
+
+@Test func demoWarningsCanBeDismissedWithStop() {
+    #expect(KnobDemoStatus(state: .pending).canStop)
+    #expect(KnobDemoStatus(state: .playing).canStop)
+    #expect(KnobDemoStatus(state: .unanswered).canStop)
+    #expect(KnobDemoStatus(state: .restarted).canStop)
+    #expect(!KnobDemoStatus.idle.canStop)
+}
+
+@MainActor
+@Test func demoStopClearsARestartedWarning() async throws {
+    let server = DemoServer(statuses: ["restarted"])
+    let m = demoModel(server)
+    await m.loadScenes()
+    await m.refreshStatus()
+    await m.stop()
+    let del = try #require(server.requests.last)
+    #expect(del.method == "DELETE" && del.path == "/v1/devices/knob-61fc8c/demo")
+    #expect(m.status == .idle && m.line == .idle)
 }
 
 @MainActor

@@ -67,7 +67,9 @@ public struct KnobDemoStatus: Codable, Equatable, Sendable {
 
     public var isActive: Bool { state == .pending || state == .playing }
 
-    public var isFading: Bool { state == .restarted }
+    public var isFading: Bool { state == .unanswered || state == .restarted }
+
+    public var canStop: Bool { isActive || isFading }
 }
 
 public enum KnobDemoAvailability: Equatable, Sendable {

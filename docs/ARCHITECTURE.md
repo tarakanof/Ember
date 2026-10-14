@@ -3610,6 +3610,11 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   one arriving late (within `staleCheckinWindow`, 1 min) is answered but
   not stored, so the next comparison and the device list keep the newer
   record and its crash isn't reported again.
+- **App.** `KnobDemoModel.follow` reads the status every second while the
+  run is `pending` or `playing`, and every 5 s while an `unanswered` or
+  `restarted` warning shows, until the server reports `idle` (60 s later),
+  so the line fades with it. Stop stays enabled for those warnings and
+  dismisses them (`DELETE …/demo`).
 - **Cover.** The now-playing scenes use a built-in 480 px orange-to-violet
   gradient, prepared once like uploaded art (`nowplaying.Prepare`). The art
   route serves it whenever `v` equals its `art_version` or `cover_version`,
