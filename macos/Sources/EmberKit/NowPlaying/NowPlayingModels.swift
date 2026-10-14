@@ -102,7 +102,7 @@ public struct MusicPlayerInfo: Equatable, Sendable {
 
     public func report(source: String, player: String) -> NowPlayingReport {
         let player = Self.clip(player, Self.playerNameLimit)
-        guard state != .stopped else { return NowPlayingReport(source: source, player: player, state: .stopped) }
+        guard state != .stopped, !(name.isEmpty && persistentID.isEmpty) else { return NowPlayingReport(source: source, player: player, state: .stopped) }
         return NowPlayingReport(
             source: source, player: player, state: state,
             title: Self.clip(name, 200), artist: Self.clip(artist, 200), album: Self.clip(album, 200),

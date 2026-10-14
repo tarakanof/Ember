@@ -349,3 +349,47 @@ private func waitUntil(_ cond: () async -> Bool) async {
     let long = String(repeating: "p", count: MusicPlayerInfo.playerNameLimit + 10)
     #expect(info.report(source: "s", player: long).player.count == MusicPlayerInfo.playerNameLimit)
 }
+
+@MainActor
+@Test func listenerPushesTheSnapshotWhenTheServerComesBack() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setArt(nil)
+    await bridge.setSnapshot(MusicPlayerInfo(state: .paused, name: "Song", persistentID: "T1"))
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: Sleeps().sleep)
+    let source = FakeCommands([.success([]), .failure(APIError.transport("down")), .success([]), .success([])])
+    listener.start(source: source, player: "M4")
+    await waitUntil { await source.calls >= 5 }
+    await pusher.drain()
+    let reports = await sink.reports
+    #expect(reports.map(\.trackID) == ["T1"])
+    #expect(reports.first?.state == .paused)
+    listener.stop()
+    await listener.join()
+}
+
+@MainActor
+@Test func listenerDoesNotPushWhileTheServerStaysUp() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setSnapshot(MusicPlayerInfo(state: .playing, name: "Song", persistentID: "T1"))
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: Sleeps().sleep)
+    let source = FakeCommands([.success([]), .success([]), .success([])])
+    listener.start(source: source, player: "M4")
+    await waitUntil { await source.calls >= 4 }
+    await pusher.drain()
+    #expect(await sink.reports.isEmpty)
+    listener.stop()
+    await listener.join()
+}
+
+@Test func untitledPlayingReportWithoutTrackIDIsStopped() {
+    for state in [NowPlayingReport.State.playing, .paused] {
+        let info = MusicPlayerInfo(state: state, artist: "Band", album: "Record", durationMs: 1000, position: 3)
+        #expect(info.report(source: "music", player: "M4") == NowPlayingReport(source: "music", player: "M4", state: .stopped))
+    }
+    let tagged = MusicPlayerInfo(state: .paused, persistentID: "AB")
+    #expect(tagged.report(source: "music", player: "M4").state == .paused)
+    let titled = MusicPlayerInfo(state: .playing, name: "Song")
+    #expect(titled.report(source: "music", player: "M4").state == .playing)
+}
