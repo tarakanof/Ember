@@ -165,7 +165,7 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 		}
 	}
 	if a.armWaitIcons(gen, armed) && slices.ContainsFunc(have, staleWaitIcon(wait)) {
-		a.deleteStaleWaitIcons(ctx, gen, wait)
+		a.deleteStaleWaitIcons(ctx, wait)
 	}
 }
 
@@ -176,11 +176,8 @@ func staleWaitIcon(current map[string][]byte) func(string) bool {
 	}
 }
 
-func (a *App) deleteStaleWaitIcons(ctx context.Context, gen uint64, current map[string][]byte) {
-	stale := staleWaitIcon(current)
-	deleted, err := a.publisher.DeleteIcons(ctx, func(file string) bool {
-		return stale(file) && a.clockGeneration() == gen
-	})
+func (a *App) deleteStaleWaitIcons(ctx context.Context, current map[string][]byte) {
+	deleted, err := a.publisher.DeleteIcons(ctx, staleWaitIcon(current))
 	for _, file := range deleted {
 		a.logger.Info("stale wait icon deleted", "name", file)
 	}

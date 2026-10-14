@@ -693,14 +693,16 @@ func knobCheckinStale(prev *deviceCheckin, cur deviceCheckin) bool {
 		return false
 	}
 	known := prev.UptimeS > 0 && cur.UptimeS > 0
-	if pb, cb := prev.boots(), cur.boots(); pb > 0 && cb > 0 && cb != pb {
+	pb, cb := prev.boots(), cur.boots()
+	bootsKnown := pb > 0 && cb > 0
+	if bootsKnown && cb != pb {
 		return cb < pb && known
 	}
 	if !known {
 		return false
 	}
 	grown := time.Duration(cur.UptimeS-prev.UptimeS) * time.Second
-	return grown < 0 || grown > cur.SeenAt.Sub(prev.SeenAt)+rebootUptimeSlack
+	return grown < 0 || (!bootsKnown && grown > cur.SeenAt.Sub(prev.SeenAt)+rebootUptimeSlack)
 }
 
 func (c deviceCheckin) boots() int64 {
