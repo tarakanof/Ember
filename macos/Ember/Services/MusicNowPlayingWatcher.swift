@@ -56,8 +56,7 @@ final class MusicNowPlayingWatcher {
 
     private func configurePusher() async {
         let source = ConnectionSettings(reading: await envStore.read()).source
-            .trimmingCharacters(in: .whitespaces)
-        player = source.isEmpty ? Self.computerName : source
+        player = ThisMac.name(source: source, computerName: Self.computerName)
         await pusher.configure(sink: NowPlayingClient(client: client), player: player)
     }
 

@@ -103,6 +103,9 @@ func (a *App) routeTable() (http.Handler, []string) {
 	writeMux.Handle("POST /v1/nowplaying", http.HandlerFunc(a.handleNowPlayingReport))
 	writeMux.Handle("PUT /v1/nowplaying/art", http.HandlerFunc(a.handleNowPlayingArtPut))
 	writeMux.Handle("GET /v1/nowplaying/commands", http.HandlerFunc(a.handleNowPlayingCommands))
+	writeMux.Handle("GET /v1/controls/config", http.HandlerFunc(a.handleControlsConfigGet))
+	writeMux.Handle("PUT /v1/controls/config", http.HandlerFunc(a.handleControlsConfigPut))
+	writeMux.Handle("GET /v1/controls/commands", http.HandlerFunc(a.handleControlsCommands))
 	writeMux.Handle("GET /v1/device/discover", http.HandlerFunc(a.handleDeviceDiscover))
 	writeMux.Handle("GET /v1/device/config", http.HandlerFunc(a.handleDeviceConfigGet))
 	writeMux.Handle("PUT /v1/device/config", http.HandlerFunc(a.handleDeviceConfigPut))
@@ -168,6 +171,7 @@ func (a *App) routeTable() (http.Handler, []string) {
 	mux.Handle("POST /v1/pomodoro/stop", rateLimit(a, requireControl(a, http.HandlerFunc(a.handlePomodoroStop))))
 	mux.Handle("POST /v1/pomodoro/skip", rateLimit(a, requireControl(a, http.HandlerFunc(a.handlePomodoroSkip))))
 	mux.Handle("POST /v1/nowplaying/control", rateLimitAuthFailures(a, http.HandlerFunc(a.handleNowPlayingControl), http.HandlerFunc(a.handleNowPlayingControl)))
+	mux.Handle("POST /v1/controls/action", rateLimitAuthFailures(a, http.HandlerFunc(a.handleControlsAction), http.HandlerFunc(a.handleControlsAction)))
 
 	adminMux := newRouteMux(&patterns)
 	adminMux.Handle("GET /admin/doctor", handleAdminDoctor(a))

@@ -35,7 +35,8 @@ struct KnobDetail: View {
             await knob.load()
             async let a: Void = env.settings.pomodoro.load()
             async let b: Void = env.settings.weather.load()
-            _ = await (a, b)
+            async let c: Void = env.settings.controls.load()
+            _ = await (a, b, c)
         }
         .task {
             while !Task.isCancelled {
@@ -73,6 +74,7 @@ struct KnobDetail: View {
         case .apps:
             KnobPagesPreviewSection()
             KnobPagesSection().disabled(!knob.settings.isLoaded)
+            KnobControlsSection()
         case .app(let app):
             if let source = AppCatalog.source(of: app) { SourceLinkSection(source: source, isOff: isOff(source)) }
             if let page = AppCatalog.knobPage(app) { KnobAppPreviewSection(page: page) }

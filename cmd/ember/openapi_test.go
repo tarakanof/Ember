@@ -28,6 +28,7 @@ type specAuth struct {
 	owner        bool
 	device       bool
 	clientScopes []string
+	masterOnly   bool
 }
 
 type specOp struct {
@@ -39,6 +40,7 @@ var (
 	specPathRe     = regexp.MustCompile(`^  (/[^:]*):\s*$`)
 	specMethodRe   = regexp.MustCompile(`^    (get|put|post|delete|patch):\s*$`)
 	specSecurityRe = regexp.MustCompile(`^      security: (\[.*\])\s*$`)
+	specMasterRe   = regexp.MustCompile(`^      x-master-only: true\s*$`)
 	specSchemeRe   = regexp.MustCompile(`\{(\w+): \[([^\]]*)\]\}`)
 )
 
@@ -67,6 +69,10 @@ func readSpecOps(t *testing.T) []specOp {
 		}
 		if m := specMethodRe.FindStringSubmatch(line); m != nil {
 			ops = append(ops, specOp{route: strings.ToUpper(m[1]) + " " + path})
+			continue
+		}
+		if specMasterRe.MatchString(line) && len(ops) > 0 {
+			ops[len(ops)-1].auth.masterOnly = true
 			continue
 		}
 		if m := specSecurityRe.FindStringSubmatch(line); m != nil && len(ops) > 0 {
@@ -174,6 +180,8 @@ func TestOpenAPIAuthMatchesServer(t *testing.T) {
 			want := 0
 			switch {
 			case c.owner && op.auth.owner, c.device && op.auth.device:
+			case c.scopes != nil && op.auth.masterOnly:
+				want = http.StatusForbidden
 			case c.scopes != nil && len(op.auth.clientScopes) > 0:
 				if !slices.ContainsFunc(op.auth.clientScopes, func(s string) bool { return scopeAllowed(c.scopes, s) }) {
 					want = http.StatusForbidden

@@ -189,6 +189,21 @@ the form `button=…&state=1|0&uid` — both accepted; `select` accepted as an
 alias for `middle`; Pomodoro maps middle=play/pause/resume, left=stop,
 right=skip — all on press; the left+right chord from AWTRIX3 is gone).
 
+**Knob controls** (#515, cinder#144; ARCHITECTURE "Knob controls"):
+`POST /v1/controls/action` `{"gesture":"push|double_push|long_push|turn","steps":±1..20}`
+(`steps` for `turn` only; master or knob device token, client tokens 401,
+optional `Idempotency-Key`; 202 `{"status":"queued","target"}`, 200
+`duplicate`, 429, 503 no target or target not listening),
+`GET /v1/controls/config` (`{"target"}` plus read-only `macs`
+`[{name, listening, last_poll}]`; master or `admin` client), `PUT
+/v1/controls/config` (merge; master token only, every client token 403) and
+`GET /v1/controls/commands?mac=&wait=≤25` (Ember.app's long-poll,
+`{"commands":[{"id","gesture","steps","age_ms"}]}`; master token only, every
+client token 403, so no client can drain a Mac's queue or show up as
+listening). The server never holds
+or sends an action: the gesture-to-action mapping lives in Ember.app on the
+target Mac.
+
 The `/v1/device/*` group discovers the clock (mDNS `_awtrixng._tcp` browse +
 `FIND_AWTRIXNG` UDP fallback, fingerprinted via `GET /api/v1/device`) and
 proxies its NG API to the menu's Settings › Clock pane; the effective clock URL is the

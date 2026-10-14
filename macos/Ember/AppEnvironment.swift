@@ -22,6 +22,7 @@ public final class AppEnvironment {
     public private(set) var knobDiagnosticsError: String?
     public private(set) var reminderWatcher: ReminderWatcher
     let musicWatcher: MusicNowPlayingWatcher
+    let knobControls: KnobControlsService
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
     public let clockDiscovery = ClockDiscovery()
@@ -127,6 +128,7 @@ public final class AppEnvironment {
         reminderWatcher = watcher
         let music = MusicNowPlayingWatcher(client: client, envStore: envStore)
         musicWatcher = music
+        knobControls = KnobControlsService(client: client, envStore: envStore)
         producers = ProducerInstallService(
             sm: RealSMAppService(),
             runner: ProcessCommandRunner(),
@@ -152,6 +154,7 @@ public final class AppEnvironment {
         observeSleep()
         reminderWatcher.start()
         musicWatcher.start()
+        knobControls.start()
         AppEnvironment.applyAppIcon(prefs.appIcon)
         BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
         feedBot()
@@ -206,6 +209,7 @@ public final class AppEnvironment {
         let client = connection.client
         reminderWatcher.reconfigure(client: client)
         musicWatcher.reconfigure(client: client)
+        knobControls.reconfigure(client: client)
         live.configure(client: client)
         settings.configure(client: client)
         deviceSettings.configure(service: connection.device)

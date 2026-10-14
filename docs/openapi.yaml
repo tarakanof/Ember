@@ -63,6 +63,8 @@ tags:
     description: Proxy to the TC001 clock's awtrix-ng API. Internal.
   - name: nowplaying
     description: Now-playing reports, art and playback commands.
+  - name: controls
+    description: Knob gestures relayed to actions on one Mac (cinder#144).
   - name: operator
     description: Health and version.
 
@@ -3112,6 +3114,118 @@ paths:
           $ref: "#/components/responses/Object"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /v1/controls/action:
+    post:
+      tags: [controls, device-self]
+      operationId: postControlsAction
+      summary: Relay a knob gesture to the configured Mac
+      description: |
+        The device names a gesture, never an action: the server queues
+        `{gesture, steps}` for the target Mac, whose Ember.app maps it to
+        an action kept only in that Mac's settings. 202 `queued`, 200
+        `duplicate` (same `Idempotency-Key` within 2 min), 401 for client
+        tokens and unknown or deleted device tokens, 429 per caller
+        (burst 20, 10/s), 503 when no target is set or the target Mac is
+        not listening.
+      security: [{ownerToken: []}, {deviceToken: []}]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [gesture]
+              additionalProperties: false
+              properties:
+                gesture:
+                  type: string
+                  enum: [push, double_push, long_push, turn]
+                steps:
+                  type: integer
+                  minimum: -20
+                  maximum: 20
+                  description: Detents, signed; `turn` only (not 0), absent for presses.
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "202":
+          description: Queued for the target Mac.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string, enum: [queued]}
+                  target: {type: string}
+              examples:
+                queued:
+                  externalValue: ../cmd/ember/testdata/devices/controls_action.json
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: Too many actions from this caller; honour `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: No target Mac is set, or it is not listening. Don't retry the press.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/controls/config:
+    get:
+      tags: [controls, settings]
+      operationId: getControlsConfig
+      summary: The target Mac and the Macs seen polling
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [controls, settings]
+      operationId: putControlsConfig
+      summary: Set the target Mac (merge)
+      description: Master token only; every client token, `admin` included, gets 403.
+      x-internal: true
+      x-master-only: true
+      security: [{ownerToken: []}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/controls/commands:
+    get:
+      tags: [controls]
+      operationId: getControlsCommands
+      summary: Ember.app's long-poll for knob control commands (`?mac=&wait=≤25`)
+      description: Master token only; every client token, `admin` included, gets 403.
+      x-internal: true
+      x-master-only: true
+      security: [{ownerToken: []}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /v1/device/discover:
     get:

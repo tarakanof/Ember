@@ -193,6 +193,7 @@ type Config struct {
 	UsageThresholdPct *int             `json:"usage_threshold_pct,omitempty"`
 	QuietHours        QuietHoursConfig `json:"quiet_hours"`
 	Brightness        BrightnessConfig `json:"brightness"`
+	Controls          ControlsConfig   `json:"controls"`
 
 	clockPresentation *clockStoredConfig
 }
