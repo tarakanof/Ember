@@ -689,7 +689,7 @@ Indented JSON; key order is the wire order.
 
 | File | Content |
 |---|---|
-| `view_full.json` | Every block: two-host waiting `mood` with `lead`/`hosts`/`lead_color`/`tool`/`lead_project` (the newest waiter), counting `pomo` (`ends_at`), `weather` with sun times and `observed_at`, `nowplaying` playing with art and volume, `diag_live_until` |
+| `view_full.json` | Every block: two-host waiting `mood` with `lead`/`hosts`/`lead_color`/`tool`/`lead_project` (the newest waiter, on the host with fewer waiters, so the old most-sessions rule would pick the other host), counting `pomo` (`ends_at`), `weather` with sun times and `observed_at`, `nowplaying` playing with art and volume, `diag_live_until` |
 | `view_minimal.json` | Pomodoro and weather off (`null`), `nowplaying` page off (block absent) |
 | `view_nowplaying_none.json` | `nowplaying` page on, nothing playing (`{"state":"none"}`); idle `pomo` (`remaining_sec`) |
 | `view_quiet.json` | Quiet hours on: `"quiet":true` after `brightness`; Pomodoro and weather off |

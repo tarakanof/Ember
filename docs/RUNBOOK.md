@@ -921,7 +921,7 @@ field the producer sets, not the data capture. See ARCHITECTURE → "spine".
 | `EMBER_SOURCE_COLOR` | hex body colour for the 8×8 icon + source-name card digits |
 | `EMBER_SOURCE_CARD` (default true) | source-name card (uppercased, 4 glyphs) in the number slot; set false to hide |
 | `EMBER_SESSION_BAR` (default true) | session-pixel bar on row 7 (1 px per non-idle session); set false to hide |
-| `EMBER_SEND_PROJECT` (default true) | send the session's `project` (Claude/Codex: the cwd basename; T3: the thread title; ≤32 chars) so the clock, knob and app name the waiting session; set false to send none (#485) |
+| `EMBER_SEND_PROJECT` (default true) | send the session's `project` (Claude/Codex: the cwd basename, none in `$HOME`; T3: the thread title, only with `EMBER_ACTIVITY_TRAIL_ENABLED`; ≤32 chars) so the clock, knob and app name the waiting session; set false to send none (#485) |
 | `EMBER_CODEX_SOURCES` (default `cli,vscode`) | Codex producer only: comma-separated `session_meta.source` kinds shown; add `exec` / `mcp` for headless or agent-driven Codex runs |
 | `EMBER_CODEX_INCLUDE_CLAUDE` | Codex producer only: also show sessions Claude Code's Codex plugin starts (originator `Claude Code`), messages prefixed `via Claude`; off because the parent Claude session already shows that work |
 | `EMBER_CODEX_APPSERVER` (default true) | Codex producer only: observe TUI sessions through the Codex app-server daemon socket (`$CODEX_HOME/app-server-control/app-server-control.sock`) when it exists; a no-op without the daemon. Ember never starts the daemon. `doctor` shows the socket, a probe connection (daemon user agent, loaded threads) and the daemon's updater setting |
