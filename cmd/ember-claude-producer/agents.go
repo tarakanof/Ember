@@ -39,7 +39,9 @@ type agentRow struct {
 	PID        int    `json:"pid"`
 	Kind       string `json:"kind"`
 	SessionID  string `json:"sessionId"`
+	Cwd        string `json:"cwd"`
 	Status     string `json:"status"`
+	State      string `json:"state"`
 	WaitingFor string `json:"waitingFor"`
 }
 
@@ -58,17 +60,25 @@ func parseAgents(out []byte) (map[string]agentRow, error) {
 	return m, nil
 }
 
-func backgroundAgentWaiting(out []byte) bool {
+type blockedAgents map[string]bool
+
+func backgroundBlocked(out []byte) blockedAgents {
 	var rows []agentRow
 	if json.Unmarshal(bytes.TrimSpace(out), &rows) != nil {
-		return true
+		return blockedAgents{"": true}
 	}
+	b := blockedAgents{}
 	for _, r := range rows {
-		if r.Kind == "background" && r.WaitingFor != "" {
-			return true
+		if r.Kind == "background" && r.State == "blocked" {
+			b[r.Cwd] = true
+			b[""] = true
 		}
 	}
-	return false
+	return b
+}
+
+func (b blockedAgents) holds(m marker) bool {
+	return b[m.Cwd]
 }
 
 func agentsPollEnabled() bool {
@@ -256,6 +266,7 @@ func hookView(body []byte) ([]byte, marker, bool) {
 	v.RateResetAt, v.RateWeekResetAt = 0, 0
 	v.RateResetLabel, v.RateWeekResetLabel = "", ""
 	v.StatuslineChangedMs, v.StatuslineAt = 0, 0
+	v.WaitConfirmedAt = 0
 	b, err := json.Marshal(v)
 	if err != nil {
 		return nil, m, false
@@ -409,8 +420,8 @@ func wantFor(m marker, row agentRow) (correction, bool) {
 	return correction{}, false
 }
 
-func agentInputCleared(m marker, row agentRow, bgWaiting bool) (correction, bool) {
-	if m.State != "waiting" || !m.AgentInputWait || bgWaiting {
+func agentInputCleared(m marker, row agentRow, blocked blockedAgents) (correction, bool) {
+	if m.State != "waiting" || !m.AgentInputWait || blocked.holds(m) {
 		return correction{}, false
 	}
 	switch row.Status {
@@ -423,8 +434,11 @@ func agentInputCleared(m marker, row agentRow, bgWaiting bool) (correction, bool
 }
 
 func (w *agentsWatcher) wantForSession(a activeMarker, row agentRow) (correction, bool) {
-	if want, ok := agentInputCleared(a.m, row, w.bgWaiting); ok {
+	if want, ok := agentInputCleared(a.m, row, w.blocked); ok {
 		return want, true
+	}
+	if a.m.State == "waiting" && a.m.AgentInputWait {
+		return correction{}, false
 	}
 	want, ok := wantFor(a.m, row)
 	var s claudeSession
@@ -466,7 +480,7 @@ type agentsWatcher struct {
 	lastCall     time.Time
 	backoffUntil time.Time
 	pending      map[string]pendingCorrection
-	bgWaiting    bool
+	blocked      blockedAgents
 	fileSeen     map[string]time.Time
 	slSeen       map[string]int64
 	failLog      *producer.FailureLogger
@@ -545,7 +559,7 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 	if err == nil {
 		var rows map[string]agentRow
 		if rows, err = parseAgents(out); err == nil {
-			w.bgWaiting = backgroundAgentWaiting(out)
+			w.blocked = backgroundBlocked(out)
 			w.reconcile(ctx, cfg, client, append(active, wake...), rows, now)
 			return true
 		}
@@ -602,6 +616,9 @@ func (w *agentsWatcher) reconcile(ctx context.Context, cfg Config, client *Clien
 			}
 			continue
 		}
+		if w.confirmsWait(a.m, row) {
+			confirmWait(cfg, a, now)
+		}
 		want, ok := w.wantForSession(a, row)
 		if !ok {
 			continue
@@ -619,6 +636,41 @@ func (w *agentsWatcher) reconcile(ctx context.Context, cfg Config, client *Clien
 		next[a.sessionID] = pendingCorrection{want: want, body: a.view, seen: now}
 	}
 	w.pending = next
+}
+
+const waitConfirmEvery = 5 * time.Minute
+
+func (w *agentsWatcher) confirmsWait(m marker, row agentRow) bool {
+	if m.State != "waiting" {
+		return false
+	}
+	if m.AgentInputWait {
+		return w.blocked.holds(m)
+	}
+	return row.Status == "waiting"
+}
+
+func confirmWait(cfg Config, a activeMarker, now time.Time) {
+	if now.Sub(time.Unix(a.m.WaitConfirmedAt, 0)) < waitConfirmEvery {
+		return
+	}
+	_ = withLockExWait(a.lockP, hookLockWait(cfg), func() error {
+		cur, err := readMarker(a.markerP)
+		if err != nil {
+			return nil
+		}
+		var m marker
+		if json.Unmarshal(cur, &m) != nil || m.State != "waiting" || m.WaitExpired {
+			return nil
+		}
+		m.WaitConfirmedAt = now.Unix()
+		b, err := json.Marshal(m)
+		if err != nil {
+			return nil
+		}
+		_ = writeMarker(a.markerP, b)
+		return nil
+	})
 }
 
 func applyCorrection(ctx context.Context, cfg Config, client *Client, a activeMarker, want correction) {

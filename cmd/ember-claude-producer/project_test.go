@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -148,11 +151,22 @@ func TestTick_RunningMarkerIsNotExpiredByTheWaitBackstop(t *testing.T) {
 	}
 }
 
+const agentsCwd = "/w/app"
+
 func agentInputMarker() marker {
 	var m marker
 	m.State, m.Message = "waiting", "Agent needs input"
 	m.AgentInputWait = true
+	m.Cwd = agentsCwd
 	return m
+}
+
+func parentRow(status string) string {
+	return `{"cwd":"` + agentsCwd + `","kind":"interactive","name":"parent","pid":1,"sessionId":"s1","startedAt":1,"status":"` + status + `"}`
+}
+
+func backgroundRow(cwd, state string) string {
+	return `{"cwd":"` + cwd + `","id":"bg000001","kind":"background","name":"helper","pid":2,"sessionId":"bg000001-0000","startedAt":1,"state":"` + state + `","status":"idle"}`
 }
 
 func TestHook_AgentNeedsInputFlagsTheWait(t *testing.T) {
@@ -179,8 +193,7 @@ func TestAgents_AgentInputWaitClearsOnceNoBackgroundAgentWaits(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			f := newAgentsFixture(t)
 			f.writeMarker(t, "s1", agentInputMarker())
-			f.out = `[{"pid":1,"sessionId":"s1","kind":"interactive","status":"` + c.parent + `"},
-			  {"pid":2,"sessionId":"bg1","kind":"background","status":"idle"}]`
+			f.out = `[` + parentRow(c.parent) + `,` + backgroundRow(agentsCwd, "done") + `]`
 			f.activate(t)
 			f.step(time.Second)
 			f.step(2 * time.Second)
@@ -195,15 +208,182 @@ func TestAgents_AgentInputWaitClearsOnceNoBackgroundAgentWaits(t *testing.T) {
 	}
 }
 
-func TestAgents_AgentInputWaitStaysWhileABackgroundAgentWaits(t *testing.T) {
+func TestAgents_AgentInputWaitStaysWhileItsBackgroundAgentIsBlocked(t *testing.T) {
 	f := newAgentsFixture(t)
 	f.writeMarker(t, "s1", agentInputMarker())
-	f.out = `[{"pid":1,"sessionId":"s1","kind":"interactive","status":"idle"},
-	  {"pid":2,"sessionId":"bg1","kind":"background","status":"waiting","waitingFor":"input"}]`
+	f.out = `[` + parentRow("idle") + `,` + backgroundRow(agentsCwd, "blocked") + `]`
 	f.activate(t)
 	f.step(time.Second)
 	f.step(2 * time.Second)
 	if got := f.readMarker(t, "s1"); got.State != "waiting" || f.h.posts.Load() != 0 {
-		t.Fatalf("state=%s posts=%d; a waiting background agent keeps the wait", got.State, f.h.posts.Load())
+		t.Fatalf("state=%s posts=%d; a blocked background agent in the same cwd keeps the wait", got.State, f.h.posts.Load())
+	}
+}
+
+func TestAgents_ABlockedAgentOfAnotherProjectDoesNotHoldTheWait(t *testing.T) {
+	f := newAgentsFixture(t)
+	f.writeMarker(t, "s1", agentInputMarker())
+	f.out = `[` + parentRow("idle") + `,` + backgroundRow("/w/other", "blocked") + `]`
+	f.activate(t)
+	f.step(time.Second)
+	f.step(2 * time.Second)
+	if got := f.readMarker(t, "s1"); got.State != "idle" {
+		t.Fatalf("state=%s; another session's blocked agent must not keep this wait", got.State)
+	}
+}
+
+func TestAgents_PermissionThenAgentInputStaysWhileTheAgentIsBlocked(t *testing.T) {
+	for _, parent := range []string{"idle", "busy"} {
+		t.Run(parent, func(t *testing.T) {
+			f := newAgentsFixture(t)
+			m := agentInputMarker()
+			m.PendingPermission = "Bash:abc"
+			f.writeMarker(t, "s1", m)
+			f.out = `[` + parentRow(parent) + `,` + backgroundRow(agentsCwd, "blocked") + `]`
+			f.activate(t)
+			f.step(time.Second)
+			f.step(2 * time.Second)
+			if got := f.readMarker(t, "s1"); got.State != "waiting" || f.h.posts.Load() != 0 {
+				t.Fatalf("state=%s posts=%d; the pending permission must not clear a wait its agent still holds", got.State, f.h.posts.Load())
+			}
+		})
+	}
+}
+
+func TestAgents_ConfirmedWaitDefersTheBackstop(t *testing.T) {
+	f := newAgentsFixture(t)
+	now := f.clock
+	setHookNowPtr(t, &now)
+	m := agentInputMarker()
+	m.HookAt = now.Add(-25 * time.Minute).Unix()
+	m.StateChangedAt = m.HookAt
+	f.writeMarker(t, "s1", m)
+	f.out = `[` + parentRow("idle") + `,` + backgroundRow(agentsCwd, "blocked") + `]`
+	f.step(time.Second)
+	if f.calls != 1 {
+		t.Fatalf("calls=%d; a stale wait polls at once", f.calls)
+	}
+	if got := f.readMarker(t, "s1"); got.WaitConfirmedAt == 0 {
+		t.Fatal("a poll that sees the blocked agent must confirm the wait")
+	}
+	now = now.Add(10 * time.Minute)
+	dispatchTick(context.Background(), f.cfg)
+	if f.h.deletes.Load() != 0 {
+		t.Fatalf("deletes=%d; a wait the poller confirmed 10 min ago must not expire", f.h.deletes.Load())
+	}
+}
+
+func TestTick_PermissionWaitIsNeverExpiredByTheBackstop(t *testing.T) {
+	h := newHookHarness(t)
+	now := time.Now()
+	setHookNowPtr(t, &now)
+	var m marker
+	m.State, m.Message = "waiting", "approve Bash"
+	m.PendingPermission = "Bash:abc"
+	m.HookAt = now.Add(-2 * time.Hour).Unix()
+	m.StateChangedAt = m.HookAt
+	writeTickMarker(t, h, "abc", m)
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if h.deletes.Load() != 0 || h.posts.Load() != 1 {
+		t.Fatalf("posts=%d deletes=%d; the poller confirms permission waits, so the backstop leaves them", h.posts.Load(), h.deletes.Load())
+	}
+}
+
+type sessionServer struct {
+	mu       sync.Mutex
+	present  map[string]string
+	onPost   func()
+	onDelete func()
+}
+
+func (s *sessionServer) state(id string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.present[id]
+	return v, ok
+}
+
+func useSessionServer(t *testing.T, h *hookHarness) *sessionServer {
+	t.Helper()
+	s := &sessionServer{present: map[string]string{}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req StatusRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		switch r.Method {
+		case http.MethodPost:
+			if f := s.onPost; f != nil {
+				s.onPost = nil
+				f()
+			}
+			s.mu.Lock()
+			s.present[req.Session] = req.State
+			s.mu.Unlock()
+		case http.MethodDelete:
+			if f := s.onDelete; f != nil {
+				s.onDelete = nil
+				f()
+			}
+			s.mu.Lock()
+			delete(s.present, req.Session)
+			s.mu.Unlock()
+		}
+		w.WriteHeader(204)
+	}))
+	t.Cleanup(srv.Close)
+	env := filepath.Join(h.home, ".config", "ember", "producer.env")
+	if err := os.WriteFile(env, []byte("EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL="+srv.URL+"\nEMBER_TOKEN=tok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func expirableWait(now time.Time) marker {
+	var m marker
+	m.State, m.Message = "waiting", "needs input"
+	m.HookAt = now.Add(-31 * time.Minute).Unix()
+	m.StateChangedAt = m.HookAt
+	return m
+}
+
+func TestExpiry_InFlightHeartbeatLandingAfterTheDeleteIsDeletedAgain(t *testing.T) {
+	h := newHookHarness(t)
+	srv := useSessionServer(t, h)
+	now := time.Now()
+	setHookNowPtr(t, &now)
+	p := writeTickMarker(t, h, "abc", expirableWait(now))
+	body, _ := os.ReadFile(p)
+	cfg, _ := loadConfig()
+	client := NewDaemonClient(cfg)
+	lockP := lockPath(h.sessionsDir(), "abc")
+	srv.onPost = func() { expireWait(context.Background(), cfg, client, p, lockP) }
+	_ = postReconciled(context.Background(), cfg, client, p, lockP, body, -1)
+	if st, ok := srv.state("abc"); ok {
+		t.Fatalf("server still has the session (%s); a POST that lands after the expiry must be deleted again", st)
+	}
+}
+
+func TestExpiry_FreshHookBeforeTheDeleteLandsIsPostedAgain(t *testing.T) {
+	h := newHookHarness(t)
+	srv := useSessionServer(t, h)
+	now := time.Now()
+	setHookNowPtr(t, &now)
+	writeTickMarker(t, h, "abc", expirableWait(now))
+	srv.onDelete = func() {
+		dispatchHookForTest(t, "notification", []byte(`{"session_id":"abc","cwd":"/srv/ember","notification_type":"permission_prompt","message":"approve"}`))
+	}
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if st, ok := srv.state("abc"); !ok || st != "waiting" {
+		t.Fatalf("server state = %q %v; the old expiry's DELETE must not remove a fresh wait", st, ok)
+	}
+}
+
+func TestHook_MarkerKeepsTheCwdForBackgroundMatching(t *testing.T) {
+	h := newHookHarness(t)
+	dispatchHookForTest(t, "user-prompt-submit", []byte(`{"session_id":"abc","cwd":"/w/app","prompt":"hi"}`))
+	dispatchHookForTest(t, "notification", []byte(`{"session_id":"abc","notification_type":"agent_needs_input","message":"m"}`))
+	if got := readTickMarker(t, filepath.Join(h.sessionsDir(), "abc.json")); got.Cwd != "/w/app" {
+		t.Fatalf("cwd = %q", got.Cwd)
 	}
 }

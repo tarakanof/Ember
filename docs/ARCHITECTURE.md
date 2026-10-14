@@ -863,14 +863,25 @@ Claude producer constraints:
   (`pending_permission`) or its own; Notification-only waits
   (`quota_auto_resume_stale`, elicitation) stay with the hooks. An
   `agent_needs_input` wait (#485) comes from a background session but marks
-  the parent waiting, so it is flagged `agent_input_wait` and ends once no
-  `kind:"background"` row reports a `waitingFor`: back to `running`
-  "working" if the parent is busy, `idle` if not (never `done`, which would
-  fire the done reward). Before #485 it stuck until the 6 h heartbeat TTL.
-  Backstop for every other wait: a `waiting` marker with no hook and no
-  state change for 30 min (`waitBackstop`, `tick.go`; heartbeats don't
-  count) is parked (`wait_expired`, state `idle`, no heartbeats) and the
-  server session deleted; the next hook or poller correction re-adds it. A
+  the parent waiting, so it is flagged `agent_input_wait` and the marker
+  keeps the hook's `cwd`. Real `claude agents --json` background rows carry
+  `kind:"background"`, `state` and `cwd` but no `waitingFor`; one needs
+  input while `state` is `blocked`. The wait ends once no blocked
+  background row shares the marker's cwd (no cwd on an old marker: any
+  blocked row holds it): back to `running` "working" if the parent is busy,
+  `idle` if not (never `done`, which would fire the done reward), and a
+  leftover `pending_permission` can't clear it while its agent is blocked.
+  Before #485 it stuck until the 6 h heartbeat TTL. Backstop for waits the
+  poller can't confirm (`agent_input_wait`, elicitation and other
+  Notification-only waits): no hook, state change or poller confirmation
+  for 30 min (`waitBackstop`, `tick.go`; heartbeats don't count) parks the
+  marker (`wait_expired`, state `idle`, no heartbeats) and deletes the
+  server session; the next hook or poller correction re-adds it. A wait the
+  poller sees (a permission prompt, the row's `waitingFor`, or a blocked
+  same-cwd agent) writes `wait_confirmed_at` at most every 5 min and never
+  expires. Expiry re-checks after the network: a POST that lands after the
+  DELETE from a now-parked marker is followed by another DELETE, and a hook
+  that rewrote the marker during the DELETE is posted again.
   Stop skipped for waking background work sets `bg_wake`, which
   blocks idle → done until the next prompt or done/error.
   Each call costs ~0.1 s CPU and a ~75 MB transient process (no disk writes),

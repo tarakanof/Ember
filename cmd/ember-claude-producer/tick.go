@@ -178,7 +178,7 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 		return nil
 	}
 	if waitOutlived(m, hookNow()) {
-		expireWait(ctx, client, markerP, lockP)
+		expireWait(ctx, cfg, client, markerP, lockP)
 		return nil
 	}
 	req := m.StatusRequest
@@ -232,7 +232,14 @@ func postReconciled(ctx context.Context, cfg Config, client *Client, markerP, lo
 		}
 	case !bytes.Equal(now, body):
 		var cur marker
-		if json.Unmarshal(now, &cur) == nil && heartbeatDue(cfg, cur, time.Now(), time.Now()) {
+		if json.Unmarshal(now, &cur) != nil {
+			break
+		}
+		if cur.WaitExpired {
+			deleteSession(ctx, client, &cur.StatusRequest)
+			break
+		}
+		if heartbeatDue(cfg, cur, time.Now(), time.Now()) {
 			if err := client.Post(ctx, wireRequest(cfg, cur.StatusRequest)); err != nil && postErr == nil {
 				postErr = err
 			}
@@ -242,12 +249,16 @@ func postReconciled(ctx context.Context, cfg Config, client *Client, markerP, lo
 }
 
 func waitOutlived(m marker, now time.Time) bool {
-	last := max(m.HookAt, m.StateChangedAt)
-	return m.State == "waiting" && !m.WaitExpired && last > 0 && now.Sub(time.Unix(last, 0)) >= waitBackstop
+	if m.State != "waiting" || m.WaitExpired || (correctableWait(m) && !m.AgentInputWait) {
+		return false
+	}
+	last := max(m.HookAt, m.StateChangedAt, m.WaitConfirmedAt)
+	return last > 0 && now.Sub(time.Unix(last, 0)) >= waitBackstop
 }
 
-func expireWait(ctx context.Context, client *Client, markerP, lockP string) {
+func expireWait(ctx context.Context, cfg Config, client *Client, markerP, lockP string) {
 	var gone *StatusRequest
+	var parked []byte
 	_ = withLockEx(lockP, func() error {
 		body, err := readMarker(markerP)
 		if err != nil {
@@ -266,13 +277,24 @@ func expireWait(ctx context.Context, client *Client, markerP, lockP string) {
 		if err != nil || writeMarker(markerP, b) != nil {
 			return nil
 		}
-		gone = &m.StatusRequest
+		gone, parked = &m.StatusRequest, b
 		return nil
 	})
-	if gone != nil {
-		slog.Info("claude wait expired without a fresh signal; session removed until the next hook", "session", gone.Session)
+	if gone == nil {
+		return
 	}
+	slog.Info("claude wait expired without a fresh signal; session removed until the next hook", "session", gone.Session)
 	deleteSession(ctx, client, gone)
+	now, ok := snapshotMarker(markerP, lockP, -1)
+	if !ok || bytes.Equal(now, parked) {
+		return
+	}
+	var cur marker
+	if json.Unmarshal(now, &cur) == nil && heartbeatDue(cfg, cur, time.Now(), time.Now()) {
+		if err := client.Post(ctx, wireRequest(cfg, cur.StatusRequest)); err != nil {
+			tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
+		}
+	}
 }
 
 func snapshotMarker(markerP, lockP string, wait time.Duration) (body []byte, ok bool) {
