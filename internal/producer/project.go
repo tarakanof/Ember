@@ -1,15 +1,21 @@
 package producer
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 )
 
 const ProjectMaxRunes = 32
 
+var userHomeDir = os.UserHomeDir
+
 func ProjectFromCwd(cwd string) string {
 	cwd = strings.TrimRight(strings.TrimSpace(cwd), "/\\")
 	if cwd == "" {
+		return ""
+	}
+	if home, err := userHomeDir(); err == nil && filepath.Clean(cwd) == filepath.Clean(home) {
 		return ""
 	}
 	base := filepath.Base(cwd)

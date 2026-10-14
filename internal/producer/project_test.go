@@ -46,3 +46,15 @@ func TestSendProjectDefaultsOnAndZeroTurnsItOff(t *testing.T) {
 		t.Fatal("EMBER_SEND_PROJECT=0 must send none")
 	}
 }
+
+func TestProjectFromCwdSkipsTheHomeDirectory(t *testing.T) {
+	old := userHomeDir
+	userHomeDir = func() (string, error) { return "/Users/someone", nil }
+	t.Cleanup(func() { userHomeDir = old })
+	if got := ProjectFromCwd("/Users/someone/"); got != "" {
+		t.Fatalf("project = %q, want none for the home directory", got)
+	}
+	if got := ProjectFromCwd("/Users/someone/ember"); got != "ember" {
+		t.Fatalf("project = %q", got)
+	}
+}
