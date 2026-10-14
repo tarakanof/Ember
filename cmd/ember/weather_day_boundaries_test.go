@@ -406,6 +406,13 @@ func TestDayClockOverEveryZoneForTwoYears(t *testing.T) {
 		for i := range 731 {
 			start := c.midnight(y, m, d+i)
 			end := c.after(start)
+			wy, wm, wd := from.AddDate(0, 0, i).Date()
+			if sy, sm, sd := start.In(loc).Date(); sy != wy || sm != wm || sd != wd {
+				t.Fatalf("%s %04d-%02d-%02d: starts on %04d-%02d-%02d", f.Name, wy, wm, wd, sy, sm, sd)
+			}
+			if py, pm, pd := start.Add(-time.Nanosecond).In(loc).Date(); py == wy && pm == wm && pd == wd {
+				t.Fatalf("%s %04d-%02d-%02d: starts at %v, after the date's first instant", f.Name, wy, wm, wd, start.In(loc))
+			}
 			if !end.After(start) {
 				t.Fatalf("%s %s: [%v, %v) is empty", f.Name, from.AddDate(0, 0, i).Format("2006-01-02"), start, end)
 			}
