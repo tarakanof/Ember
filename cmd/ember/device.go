@@ -110,7 +110,11 @@ type deviceProbe struct {
 	at        time.Time
 }
 
-const rebootUptimeSlack = 10 * time.Second
+const (
+	rebootUptimeSlack  = 10 * time.Second
+	bootEstimateSlack  = 2 * time.Second
+	staleCheckinWindow = time.Minute
+)
 
 func rebootDetected(last, cur deviceProbe) bool {
 	if !last.reachable || !cur.reachable {

@@ -641,7 +641,7 @@ func TestDemoKnobRebootDropsTheDemoAndItsQueue(t *testing.T) {
 	f := demoFixture(t)
 	demoCheckin(t, f, 800, 40)
 	playDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
-	f.clk.advance(2 * time.Second)
+	f.clk.advance(4 * time.Second)
 	demoCheckin(t, f, 1, 41)
 	if st := demoStatusOf(t, f); st != (demoStatus{State: demoRestarted, Scene: "bot.hop", ID: "d0000001"}) {
 		t.Fatalf("status after the reboot = %+v", st)
@@ -682,7 +682,7 @@ func TestDemoKnobRebootWhileThePendingSceneWaitsDropsIt(t *testing.T) {
 	f := demoFixture(t)
 	demoCheckin(t, f, 800, 40)
 	postDemo(t, f, `{"scenes":["bot.hop","bot.done"]}`)
-	f.clk.advance(3 * time.Second)
+	f.clk.advance(4 * time.Second)
 	demoCheckin(t, f, 1, 41)
 	if st := demoStatusOf(t, f); st != (demoStatus{State: demoRestarted, Scene: "bot.hop", ID: "d0000001"}) {
 		t.Fatalf("status = %+v", st)
@@ -770,6 +770,60 @@ func TestDemoSetBetweenBootAndFirstCheckinStaysPending(t *testing.T) {
 	}
 }
 
+func TestDemoStartedJustAfterTheEstimatedBootSurvives(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 800, 40)
+	f.clk.advance(time.Minute)
+	postDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(1500 * time.Millisecond)
+	demoCheckin(t, f, 1, 41)
+	if st := demoStatusOf(t, f); st.State != demoPending {
+		t.Fatalf("a demo set within the boot estimate's error (uptime truncation, transit) was dropped: %+v", st)
+	}
+}
+
+func TestDemoRebootWithUnknownUptimeKeepsTheDemo(t *testing.T) {
+	f := demoFixture(t)
+	demoCheckin(t, f, 800, 40)
+	playDemo(t, f, `{"scene":"bot.hop"}`)
+	f.clk.advance(5 * time.Second)
+	demoCheckin(t, f, 0, 41)
+	if st := demoStatusOf(t, f); st.State != demoPlaying {
+		t.Fatalf("a reboot checkin without uptime_s dropped the demo with an unknown boot time: %+v", st)
+	}
+}
+
+func TestStaleCheckinKeepsTheNewerLastCheckin(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		boots       int64
+		gap         time.Duration
+		wantUptime  int64
+		description string
+	}{
+		{"same boots", 40, time.Second, 830, "an older checkin arriving late replaced the newer one"},
+		{"no diag", 0, time.Second, 830, "an older checkin arriving late replaced the newer one"},
+		{"long after", 40, 2 * time.Minute, 800, "a lower uptime minutes later must still be stored"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := demoFixture(t)
+			demoCheckin(t, f, 830, tc.boots)
+			f.clk.advance(tc.gap)
+			demoCheckin(t, f, 800, tc.boots)
+			if got := f.app.devices.list()[0].LastCheckin.UptimeS; got != tc.wantUptime {
+				t.Fatalf("stored uptime = %d, want %d: %s", got, tc.wantUptime, tc.description)
+			}
+		})
+	}
+	f := demoFixture(t)
+	demoCheckin(t, f, 30, 41)
+	f.clk.advance(time.Second)
+	demoCheckin(t, f, 800, 40)
+	if got := f.app.devices.list()[0].LastCheckin.Diag.Boots; got != 41 {
+		t.Fatalf("stored boots = %d, want 41: a checkin from before the reboot replaced the newer one", got)
+	}
+}
+
 func TestDemoRebootSparesARunStartedAfterTheRebootWasRead(t *testing.T) {
 	t0 := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
 	d := &demoRegistry{}
@@ -832,7 +886,7 @@ func TestDemoKnobRestartAnswersTheLongPollAtOnce(t *testing.T) {
 	f := demoFixture(t)
 	demoCheckin(t, f, 800, 40)
 	postDemo(t, f, `{"scene":"bot.hop"}`)
-	f.clk.advance(3 * time.Second)
+	f.clk.advance(4 * time.Second)
 	resp, _ := f.get(t, "")
 	etag := resp.Header.Get("ETag")
 	resp, body, after := waitThenAct(t, f, etag, func() { demoCheckin(t, f, 1, 41) })
@@ -862,7 +916,10 @@ func TestKnobRebootedReadsUptimeAndBoots(t *testing.T) {
 		{"boots fell: an older checkin", at(0, 30, 8), at(time.Second, 800, 7), false},
 		{"boots unknown", at(0, 2, 0), at(10*time.Second, 5, 8), false},
 		{"diag dropped", at(0, 2, 7), at(10*time.Second, 5, -1), false},
-		{"diag dropped, uptime fell", at(0, 100, 7), at(10*time.Second, 4, -1), false},
+		{"diag dropped, uptime fell", at(0, 100, 7), at(10*time.Second, 4, -1), true},
+		{"boots 0 on one side, uptime fell", at(0, 100, 7), at(10*time.Second, 4, 0), true},
+		{"boots 0 on one side, uptime grew", at(0, 100, 0), at(10*time.Second, 110, 7), false},
+		{"boots fell after an NVS erase", at(0, 3000, 40), at(30*time.Second, 20, 1), true},
 		{"uptime missing, no diag", at(0, 800, -1), at(10*time.Second, 0, -1), false},
 		{"out of order, no diag", at(0, 830, -1), at(time.Second, 800, -1), false},
 		{"previous record days old, no diag", at(0, 800, -1), at(72*time.Hour, 30, -1), true},

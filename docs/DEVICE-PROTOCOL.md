@@ -300,21 +300,30 @@ crashes in a scene would play it again after the reboot (cinder#109, #460).
 The server drops the demo and its queue when it sees a reboot, two ways:
 
 - A checkin that reads as a reboot. When both it and the previous checkin
-  carry `diag.boots`, only a higher `boots` counts (a lower one is an
-  older checkin arriving late; `uptime_s` is then not compared). When
-  neither carries it, a lower `uptime_s` counts, but only if both are
+  carry `diag.boots`, a higher `boots` counts and an equal one doesn't.
+  Otherwise (a lower `boots`, as after an NVS erase, or `boots` missing or
+  `0` on either side) a lower `uptime_s` counts, but only if both are
   known (absent or `0` is unknown) and the new uptime fits in the time since
   the previous checkin plus 10 s (otherwise it is an older checkin arriving
-  late). The knob booted at the checkin's arrival minus its `uptime_s`, and
-  only a demo started before that boot is dropped: one set after the knob
-  came back (before its first checkin, or while the checkin was in flight)
-  is kept. The previous checkin is the stored one, which may predate a
-  server restart.
+  late). The knob booted at the checkin's arrival minus its `uptime_s`,
+  less 2 s for the truncated uptime and the transit, and only a demo started
+  before that boot is dropped: one set after the knob came back (before its
+  first checkin, or while the checkin was in flight) is kept. A reboot
+  checkin without `uptime_s` drops nothing, since the boot time is unknown;
+  the view rule below still catches a playing scene. The previous checkin
+  is the stored one, which may predate a server restart. An older checkin
+  arriving late (within a minute of the stored one: the same boot with a
+  lower `uptime_s`, or a lower `boots` whose uptime doesn't fit a reboot)
+  is answered as usual but doesn't replace the stored one.
 - A view request with no `demo_id` while the scene is `playing` and the
   last `playing` report came 3 s or more before it (a booting knob polls
-  the view before its first checkin, and a reboot takes longer than 3 s).
-  A request sent before the knob started the scene and delivered just after
-  its first report is younger than that and is served the scene as usual.
+  the view before its first checkin). A request sent before the knob
+  started the scene and delivered just after its first report is younger
+  than that and is served the scene as usual. The 3 s gap only narrows the
+  race: a request whose segment is lost once lands about 3 s late (lwIP's
+  first retransmit), and a knob that reboots in under 3 s is served the
+  scene again on its first poll. The checkin, which follows in the same
+  main-loop pass, is the backstop: it reads the reboot and drops the run.
 
 Either turns the run into status `restarted` (scene and id of the dropped
 scene, `queue_left` 0), which reads `idle` again 60 s later; reports for

@@ -3589,9 +3589,9 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   revives it, `done` advances the queue): the knob took it at 9.9 s and its
   report rode the next request.
 - **Reboot.** A checkin that reads as a reboot (`knobRebooted`: a higher
-  `diag.boots` when both checkins carry it; without boots on either, a
-  lower `uptime_s` that fits the time since the previous checkin, both
-  known) or a view request with no report while the scene is `playing` and
+  `diag.boots` when both checkins carry it; otherwise, including a lower
+  or one-sided `boots`, a lower `uptime_s` that fits the time since the
+  previous checkin, both known) or a view request with no report while the scene is `playing` and
   the last report is 3 s old (`demoReportGap`) turns the run into
   `restarted` (queue cut to the dropped scene, nothing served, reports
   ignored, gone 60 s later) and notifies `topicDemo`. Without it a crash in
@@ -3599,11 +3599,17 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   again (#460). The view rule is what catches the first post-boot poll,
   which cinder sends before its first checkin; the 3 s gap keeps a
   report-free request sent before playback and delivered late from ending
-  a healthy run. The checkin path drops a run only if it started before the
-  boot (arrival minus `uptime_s`) and is the run whose generation the
+  a healthy run; it only narrows that race, and the checkin that follows
+  the poll is the backstop for a reboot under 3 s. The checkin path drops a
+  run only if it started before the boot (arrival minus `uptime_s` minus
+  2 s, `bootEstimateSlack`, for the truncated uptime and the transit; no
+  drop when `uptime_s` is unknown) and is the run whose generation the
   handler read before the checkin, so a demo set after the knob came back,
   or set while the checkin was in flight, survives. An `unanswered` run
-  stays `unanswered`.
+  stays `unanswered`. A checkin that `knobCheckinStale` reads as an older
+  one arriving late (within `staleCheckinWindow`, 1 min) is answered but
+  not stored, so the next comparison and the device list keep the newer
+  record and its crash isn't reported again.
 - **Cover.** The now-playing scenes use a built-in 480 px orange-to-violet
   gradient, prepared once like uploaded art (`nowplaying.Prepare`). The art
   route serves it whenever `v` equals its `art_version` or `cover_version`,
