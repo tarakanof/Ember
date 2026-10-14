@@ -535,6 +535,8 @@ private final class NGAppList: @unchecked Sendable {
     var enabled: [String: Bool] {
         lock.withLock { Dictionary(uniqueKeysWithValues: apps.map { ($0.name, !disabled.contains($0.name)) }) }
     }
+
+    var rotation: [String] { lock.withLock { order } }
 }
 
 @MainActor
@@ -615,18 +617,22 @@ private func names(_ m: DeviceSettingsModel) -> [String: Bool] {
 }
 
 @MainActor @Test func anAppDroppedOnAnotherTakesItsPlace() async throws {
-    let (m, clock, _, _) = await ngRoundTripModel()
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
     defer { withExtendedLifetime(clock) {} }
     await m.moveApp("Time", onto: "Humidity")
     await m.load(force: true)
     #expect(m.nativeApps.map(\.name) == ["Date", "Temperature", "Humidity", "Time", "Battery"])
+    #expect(clockApps.rotation.firstIndex(of: "ember") == 1)
     await m.moveApp("Battery", onto: "Date")
     await m.load(force: true)
     #expect(m.nativeApps.map(\.name) == ["Battery", "Date", "Temperature", "Humidity", "Time"])
     #expect(m.nativeApps.first { $0.name == "Battery" }?.enabled == false)
+    #expect(clockApps.rotation.firstIndex(of: "ember") == 1)
+    let writes = fake.paths.filter { $0.hasPrefix("PUT ") }.count
     await m.moveApp("Date", onto: "Date")
     await m.moveApp("Nope", onto: "Date")
     #expect(m.nativeApps.map(\.name) == ["Battery", "Date", "Temperature", "Humidity", "Time"])
+    #expect(fake.paths.filter { $0.hasPrefix("PUT ") }.count == writes)
 }
 
 @MainActor @Test func anAppSwitchedOffKeepsItsSlotAfterAReload() async throws {
