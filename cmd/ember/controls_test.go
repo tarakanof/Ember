@@ -403,3 +403,43 @@ func TestControlsConfigSurvivesARestart(t *testing.T) {
 		t.Fatalf("after restart: %+v", got)
 	}
 }
+
+func TestControlsActionRejectsAnUnpairedKnob(t *testing.T) {
+	_, srv := controlsServer(t, "M4")
+	knob := mintKnob(t, srv, http.StatusCreated)
+	pollControls(t, srv, "M4", 0)
+	if resp, b := devReq(t, srv, "DELETE", "/v1/devices/"+knob.ID, testToken, ""); resp.StatusCode/100 != 2 {
+		t.Fatalf("delete knob: %d %s", resp.StatusCode, b)
+	}
+	if code, _, b := controlsAction(t, srv, knob.Token, `{"gesture":"push"}`, ""); code != http.StatusUnauthorized {
+		t.Fatalf("deleted knob: %d %s, want 401", code, b)
+	}
+}
+
+func TestControlsOwnerRoutesRejectKnobAndNarrowClientTokens(t *testing.T) {
+	_, srv := controlsServer(t, "M4")
+	knob := mintKnob(t, srv, http.StatusCreated)
+	ingest := mintClient(t, srv, "ingest", scopeIngest)
+	pollControls(t, srv, "M4", 0)
+	if code, _, b := controlsAction(t, srv, knob.Token, `{"gesture":"push"}`, ""); code != http.StatusAccepted {
+		t.Fatalf("queue one: %d %s", code, b)
+	}
+	routes := []struct{ method, path, body string }{
+		{"GET", "/v1/controls/commands?mac=M4", ""},
+		{"GET", "/v1/controls/config", ""},
+		{"PUT", "/v1/controls/config", `{"target":"M5"}`},
+	}
+	for _, r := range routes {
+		for _, c := range []struct {
+			name, token string
+			want        int
+		}{{"none", "", 401}, {"wrong", "wrong", 401}, {"knob", knob.Token, 401}, {"ingest client", ingest.Token, 403}} {
+			if resp, b := devReq(t, srv, r.method, r.path, c.token, r.body); resp.StatusCode != c.want {
+				t.Errorf("%s %s as %s: %d %s, want %d", r.method, r.path, c.name, resp.StatusCode, b, c.want)
+			}
+		}
+	}
+	if got := pollControls(t, srv, "M4", 0); len(got) != 1 {
+		t.Fatalf("a rejected poll drained the queue: %+v", got)
+	}
+}
