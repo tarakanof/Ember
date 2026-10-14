@@ -113,3 +113,25 @@ func TestPostInFlightWhenAnotherDroppedTheFieldIsRetried(t *testing.T) {
 		t.Fatalf("err = %v, calls = %d; a POST in flight when another one dropped the field must be resent", err, calls)
 	}
 }
+
+func TestPostStopsResendingWhenTheServerKeepsRejectingTheDroppedField(t *testing.T) {
+	resetOptionalFields(t)
+	var mu sync.Mutex
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"json: unknown field \"project\""}`))
+	}))
+	t.Cleanup(srv.Close)
+	req := StatusRequest{Source: "m4", Tool: "claude", Session: "s", State: "waiting", Project: "ember"}
+	err := NewClient(srv.URL, "", time.Second).Post(context.Background(), req)
+	var se *ServerError
+	mu.Lock()
+	defer mu.Unlock()
+	if !errors.As(err, &se) || se.Code != http.StatusBadRequest || calls != 2 {
+		t.Fatalf("err = %v, calls = %d; want the 400 back after the one stripped resend", err, calls)
+	}
+}

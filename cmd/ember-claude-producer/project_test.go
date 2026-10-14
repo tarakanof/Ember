@@ -407,15 +407,20 @@ func TestCwdBelongsMatchesSubdirectoriesAndWorktrees(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
 	wt := filepath.Join(root, "repo-wt", "feature")
+	rel := filepath.Join(root, "repo-wt", "relative")
 	other := filepath.Join(root, "other")
-	for _, d := range []string{filepath.Join(repo, ".git", "worktrees", "feature"), wt, other} {
+	for _, d := range []string{filepath.Join(repo, ".git", "worktrees", "feature"), filepath.Join(repo, ".git", "worktrees", "relative"), wt, rel, other} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	gitFile := "gitdir: " + filepath.Join(repo, ".git", "worktrees", "feature") + "\n"
-	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte(gitFile), 0o644); err != nil {
-		t.Fatal(err)
+	for dir, gitdir := range map[string]string{
+		wt:  filepath.Join(repo, ".git", "worktrees", "feature"),
+		rel: filepath.Join("..", "..", "repo", ".git", "worktrees", "relative"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: "+gitdir+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	cases := []struct {
 		agent, parent string
@@ -424,8 +429,11 @@ func TestCwdBelongsMatchesSubdirectoriesAndWorktrees(t *testing.T) {
 		{repo, repo, true},
 		{filepath.Join(repo, "sub"), repo, true},
 		{wt, repo, true},
+		{rel, repo, true},
+		{filepath.Join(other, "sub"), other, true},
 		{repo + "2", repo, false},
 		{other, repo, false},
+		{filepath.Join(other, "sub"), repo, false},
 	}
 	for _, c := range cases {
 		if got := cwdBelongs(c.agent, c.parent); got != c.want {
