@@ -10,6 +10,7 @@ import (
 	"image/draw"
 	"image/jpeg"
 	_ "image/png"
+	"slices"
 	"sync"
 )
 
@@ -46,9 +47,8 @@ func Prepare(data []byte) (*Image, error) {
 		return nil, err
 	}
 	img := NewImage(data)
-	g := grid(src, accentGrid)
-	img.Accent = accent(g)
-	img.CoverLight = coverLight(g)
+	img.Accent = accent(grid(src, accentGrid))
+	img.CoverLight = coverBandLuminance(src) >= coverLightLuminance
 	return img, nil
 }
 
@@ -103,6 +103,10 @@ func square(src image.Image) *image.RGBA {
 }
 
 func grid(src image.Image, n int) plane {
+	return gridRows(src, n, 0, n)
+}
+
+func gridRows(src image.Image, n, lo, hi int) plane {
 	b := src.Bounds()
 	s := min(b.Dx(), b.Dy())
 	off := image.Pt(b.Min.X+(b.Dx()-s)/2, b.Min.Y+(b.Dy()-s)/2)
@@ -115,9 +119,9 @@ func grid(src image.Image, n int) plane {
 	}
 	line := image.NewRGBA(image.Rect(0, 0, s, 1))
 	tmp := make([]float32, n*3)
-	out := plane{n: n, pix: make([]float32, n*n*3)}
+	out := plane{n: n, pix: make([]float32, (hi-lo)*n*3)}
 	for y, dst := range rows {
-		if len(dst) == 0 {
+		if !slices.ContainsFunc(dst, func(d tap) bool { return d.i >= lo && d.i < hi }) {
 			continue
 		}
 		for i := 0; i < len(line.Pix); i += 4 {
@@ -135,7 +139,10 @@ func grid(src image.Image, n int) plane {
 			tmp[x*3], tmp[x*3+1], tmp[x*3+2] = r, g, b
 		}
 		for _, d := range dst {
-			o := d.i * n * 3
+			if d.i < lo || d.i >= hi {
+				continue
+			}
+			o := (d.i - lo) * n * 3
 			for k, v := range tmp {
 				out.pix[o+k] += d.w * v
 			}

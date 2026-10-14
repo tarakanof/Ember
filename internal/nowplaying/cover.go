@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"sync"
 )
 
 const (
@@ -29,8 +30,31 @@ const (
 	bandBottom     = 392
 	bandLeft       = 63
 	bandRight      = 403
-	bandStep       = 4
-	lightLuminance = 0.45
+
+	coverLightLuminance = 0.25
+)
+
+var (
+	srgbLinear = func() (t [256]float64) {
+		for v := range t {
+			c := float64(v) / 255
+			if c <= 0.04045 {
+				t[v] = c / 12.92
+			} else {
+				t[v] = math.Pow((c+0.055)/1.055, 2.4)
+			}
+		}
+		return t
+	}()
+	bandGain = sync.OnceValue(func() []float32 {
+		g := make([]float32, 0, (bandBottom-bandTop)*(bandRight-bandLeft))
+		for y := bandTop; y < bandBottom; y++ {
+			for x := bandLeft; x < bandRight; x++ {
+				g = append(g, float32(coverGain(x, y)))
+			}
+		}
+		return g
+	})
 )
 
 func cover(sq *image.RGBA) *image.RGBA {
@@ -78,28 +102,29 @@ func coverGain(x, y int) float64 {
 	return edge * vignette * scrim
 }
 
-func coverLight(p plane) bool {
+func coverBandLuminance(src image.Image) float64 {
 	off := (coverSize - coverDisc) / 2
+	disc := gridRows(src, coverDisc, bandTop-off, bandBottom-off)
+	gain := bandGain()
 	var sum float64
-	var n int
-	for y := bandTop; y < bandBottom; y += bandStep {
-		gy := min(max(y-off, 0), coverDisc-1) * p.n / coverDisc
-		for x := bandLeft; x < bandRight; x += bandStep {
-			n++
-			k := coverGain(x, y)
+	i := 0
+	for y := bandTop; y < bandBottom; y++ {
+		row := (y - bandTop) * coverDisc
+		for x := bandLeft; x < bandRight; x++ {
+			k := gain[i]
+			i++
 			if k == 0 {
 				continue
 			}
-			gx := min(max(x-off, 0), coverDisc-1) * p.n / coverDisc
-			o := (gy*p.n + gx) * 3
+			o := (row + min(max(x-off, 0), coverDisc-1)) * 3
 			var q [3]uint8
 			for ch := range 3 {
-				q[ch] = uint8(min(max(float64(p.pix[o+ch])*k+0.5, 0), 255))
+				q[ch] = uint8(min(max(disc.pix[o+ch]*k+0.5, 0), 255))
 			}
 			sum += luminance(q)
 		}
 	}
-	return n > 0 && sum/float64(n) >= lightLuminance
+	return sum / float64(len(gain))
 }
 
 func accent(p plane) string {
@@ -198,14 +223,7 @@ func contrastOnBlack(q [3]uint8) float64 {
 }
 
 func luminance(q [3]uint8) float64 {
-	lin := func(v uint8) float64 {
-		c := float64(v) / 255
-		if c <= 0.04045 {
-			return c / 12.92
-		}
-		return math.Pow((c+0.055)/1.055, 2.4)
-	}
-	return 0.2126*lin(q[0]) + 0.7152*lin(q[1]) + 0.0722*lin(q[2])
+	return 0.2126*srgbLinear[q[0]] + 0.7152*srgbLinear[q[1]] + 0.0722*srgbLinear[q[2]]
 }
 
 func hsl(c [3]float64) (h, s, l float64) {

@@ -233,7 +233,7 @@ func (a *App) knobNowPlaying(now time.Time, accent bool) *knobNowPlaying {
 	if img := e.Picture(nowplaying.Cover); accent && img != nil {
 		np.Accent = img.Accent
 		np.CoverVersion = e.CoverVersion()
-		np.CoverLight = img.CoverLight && np.Accent != "" && np.CoverVersion != ""
+		np.CoverLight = img.CoverLight
 	}
 	return np
 }

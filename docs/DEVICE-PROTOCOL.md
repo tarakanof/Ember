@@ -218,7 +218,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `wx_faces` or not | detail only with the token and the `weather` block; a caps knob without it gets the legacy block; dropped first to fit `view_bytes`; the worst case stays under 8 KB | `TestKnobViewWeatherFacesGolden` (`view_faces*.json`, `devices_view_weather_test.go`), `TestCapsKnobWithoutWxFacesGetsNoWeatherDetail`, `TestCapsKnobWithWxFacesButWeatherPageOffGetsNoWeather`, `TestCapsKnobViewDropsWeatherDetailFirst`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, `wx_faces` | every `days` entry carries `end` right after `t` (#434): the day's next true local midnight in the location's zone (23 h or 25 h after `t` on a DST day), so a view held across a DST change ends each row at the real midnight; `t` is the day's true local midnight for every provider (#439); without a known zone `end` = `t` + 24 h; old firmware skips the key; cinder before 0.9.60 derives row ends from the next `t` (`knob_view.c`) and weekdays with a +12 h rounding (`wx_days.c`), and reads `end` from 0.9.60 (cinder#92) | `TestStaleKnobViewKeepsTrueDayBoundariesAcrossDST`, `TestOpenMeteoDaysAreTrueLocalMidnightsAcrossDST`, `TestMetNoDaysAreTrueLocalMidnightsAcrossDST`, `TestTomorrowDaysAreTrueLocalMidnightsAcrossDST`, `TestWeatherAPIDaysAreTrueLocalMidnightsAcrossDST`, `TestOpenMeteoDaysWithoutAZoneEndADayLater`, `TestDayClockStartsAMidnightlessDayAtItsFirstInstant`, `TestProvidersSplitAMidnightlessDayAtItsFirstInstant`, `TestDayClockOverEveryZoneForTwoYears`, `TestKnobViewWeatherFacesGolden`, `TestKnobViewWorstCaseFitsHalfTheBuffer`; cinder reads `end` since 0.9.60 (cinder#92) |
 | new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
-| new | new, `np_cover` or not | `accent` and `cover_version` only with the token, only when there is a picture, and the only change to `nowplaying`; `cover_light` only with them and only `true`; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>`; `kind=artist` immutable only at `v=<art_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewNPCoverLightGolden` (`view_np_cover_light.json`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewSendsCoverLightOnlyWithNPCover`, `TestNowPlayingArtistArtIsImmutableOnlyAtTheArtVersion`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
+| new | new, `np_cover` or not | `accent`, `cover_version` and `cover_light` only with the token, only when there is a picture, and the only change to `nowplaying` (old firmware and caps knobs without the token get it byte-identical); `cover_light` only with the other two, only `true`, last; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>`; `kind=artist` immutable only at `v=<art_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewNPCoverLightGolden` (`view_np_cover_light.json`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewSendsCoverLightOnlyWithNPCover`, `TestKnobViewETagChangesWithCoverLightAlone`, `TestCoverBandLuminanceOfKnownCovers`, `TestNowPlayingArtistArtIsImmutableOnlyAtTheArtVersion`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, `wx_moments` or not (cinder 0.9.65 sends it) | `effective_caps.features` lists it as reported; the config carries `bot.weather_moments` and `bot.weather_every_min` either way; Ember.app shows the Weather moments rows only with the token (no semver fallback: a server without `effective_caps` predates the keys) | `TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments` (`knob_weather_moments_test.go`); Ember.app `knobWeatherMomentsRowsNeedTheWxMomentsToken`; cinder host test: `wx_moments` in `FEATURES_AHEAD` |
 | new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`, `TestDemoPlayingReportDoesNotAnswerTheLongPoll`, `TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted`, `TestDemoLatePlayingReportForTheServedSceneRevivesIt`, `TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue`, `TestDemoOnTheWorstCaseViewFitsTheBuffer`, `TestDemoKnobRebootDropsTheDemoAndItsQueue`, `TestDemoViewWithoutAReportWhilePlayingMeansTheKnobRestarted`, `TestDemoDelayedUnreportedViewAfterPlayingKeepsTheDemo`, `TestDemoCheckinWithUnknownOrStaleUptimeKeepsTheDemo`, `TestDemoStartedAfterTheKnobBootedSurvivesAStaleLastCheckin`, `TestDemoSetBetweenBootAndFirstCheckinStaysPending`; cinder host test: every `demo/*.json` parses |
 | new | any, `stats.inv_areas`/`inv_px` sent or not (cinder#118) | the firmware must send totals for exactly the `period_ms` window (since the previous report, its own accumulator, not the 30 s serial log's take), counted at `LV_EVENT_RENDER_START` as in ARCHITECTURE "Knob diagnostics"; window totals become `invalidated_areas_per_sec`/`invalidated_px_per_sec` in the stats points (full diagnostics only); firmware without them gets nulls; an older server ignores the keys. No caps token: the stats keys are optional on both sides (ARCHITECTURE "Knob diagnostics") | `TestKnobStatsCheckinStoresSample`, `TestKnobStatsFirmwareWithoutInvalidatedAreasLeavesThemNull`, `TestKnobStatsInvalidatedAreasMergeAsPeriodWeightedRates`, `TestKnobStatsInvalidatedAreasWeighOnlyMeasuredWindows`, `TestKnobStatsBasicDropsFullOnlyFields`, `TestDeviceCheckinGolden` (`devices_stats_test.go`, `devices_golden_test.go`); cinder sends them since 0.9.72 (cinder#133), its `NOT_YET_SENT` list is empty |
@@ -365,7 +365,8 @@ at its recheck.
   golden evening, dusk, polar day, polar night.
 - Pomodoro (`pomodoro.*`): focus, break, long break, paused, parked
   (`running` and `paused` false), 3 done, offline.
-- Now playing (`nowplaying.*`): playing, paused, nothing, offline.
+- Now playing (`nowplaying.*`): playing, light cover (`playing_light`: a
+  cream line-art cover with `cover_light`), paused, nothing, offline.
 
 OTA, reset, setup and join screens are not scenes.
 
@@ -667,8 +668,9 @@ With `np_cover` in its caps (#412, cinder#35), a knob draws the
 now-playing page from one prepared picture instead of the backdrop plus
 the album circle.
 
-- **`accent`** and **`cover_version`** are the last two keys of
-  `nowplaying` (`"accent":"#6C22E6","cover_version":"fb43cf74b67a-r1"`).
+- **`accent`** and **`cover_version`** follow every other key of
+  `nowplaying` (`"accent":"#6C22E6","cover_version":"fb43cf74b67a-r1"`);
+  only `cover_light`, when sent, comes after them.
   `accent` is `#RRGGBB` upper-case, like `mood.lead_color`;
   `cover_version` is `<art_version>-<recipe>`. Both are absent without the
   token and when the entry has no picture. Old firmware and caps knobs
@@ -688,16 +690,34 @@ the album circle.
   `cover_version` when the prepared cover's text band is light, so the
   knob can put a stronger scrim or dark text behind the title, artist and
   time. The key is left out otherwise, never `false`, and only ever sent
-  with `accent` and `cover_version`. The band is rows y 280–391 and
-  columns x 63–402 of the 466 px `kind=cover` image (half-open
-  [280, 392) × [63, 403)), where the knob draws the text. It is light
-  when the mean WCAG relative luminance of its sRGB pixels, after the
-  circle mask, vignette and scrim below, is ≥ 0.45. The server estimates
-  that from the same 32×32 grid as `accent`, one sample every 4 px of the
-  band, once when the picture arrives; a pure white picture gives ~0.58,
-  a dark one near 0. It changes only with the picture, so it never
-  changes without `cover_version` (and the view ETag) changing too. Old
-  firmware ignores the key.
+  with `accent` and `cover_version`. Old firmware ignores it.
+  - **Band:** rows [280, 392) and columns [63, 403) of the 466 px
+    `kind=cover` image (y 280–391, x 63–402), where the knob draws the
+    text.
+  - **Measure:** the mean, over every pixel of the band, of the WCAG
+    relative luminance of the prepared pixel: each sRGB channel after the
+    circle mask, vignette and scrim below, rounded to 8 bits as the render
+    does, linearised, then weighted 0.2126/0.7152/0.0722. Pixels are
+    linearised before they are averaged, so fine black-on-white line art
+    counts as the light it is. The server computes it once when the
+    picture arrives, from the band's 112 rows of the 416 px disc only
+    (~2.5 ms for a 1400 px JPEG on an M4, on top of the ~27 ms
+    `Prepare`). Pure white gives 0.576, `#C8C8C8` 0.335, yellow
+    `#FADC3C` 0.415, black 0.
+  - **Light:** mean ≥ **0.25**. The knob's artist line is `#BDBDBD`
+    (relative luminance 0.509), drawn over the light scrim the knob uses
+    without the hint: black at 40 % (opacity 102). LVGL blends
+    gamma-encoded RGB565, so that scrim scales each sRGB value by 0.6 and
+    the luminance by about 0.6^2.4 = 0.293. The line keeps 4.5:1 (WCAG AA
+    text) while (0.509 + 0.05) / (0.293 × L + 0.05) ≥ 4.5, so up to
+    L = 0.253, rounded to 0.25. At 3:1 the same sum gives 0.46, which
+    leaves out `#C8C8C8`, yellow and 10 % line art, all hard to read on
+    the device: a mean hides the bright patches right under the glyphs,
+    so the bar is the text one. Mixing in linear light instead, 3:1 would
+    give 0.227.
+  - It changes only with the picture, so it never changes without
+    `cover_version` (and the view ETag) changing too; the ETag hashes the
+    body, so `cover_light` alone moves it as well.
 - **`GET /v1/nowplaying/art?kind=cover&size=466&v=<cover_version>`**: a
   466 px baseline JPEG (q 80). The album picture, else the artist one,
   else 404 (the knob shows its vinyl). The recipe:

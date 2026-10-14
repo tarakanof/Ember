@@ -403,64 +403,130 @@ func inkOnWhite(x, y int) color.Color {
 	return color.White
 }
 
-func bandLuminance(t *testing.T, data []byte) float64 {
+func lineArt(x, y int) color.Color {
+	if x%20 < 2 {
+		return color.Black
+	}
+	return color.White
+}
+
+func rows(lo, hi int, in, out color.Color) func(int, int) color.Color {
+	return func(_, y int) color.Color {
+		if y >= lo && y < hi {
+			return in
+		}
+		return out
+	}
+}
+
+func renderedBand(t *testing.T, data []byte) float64 {
 	t.Helper()
-	out, err := Render(data, Cover, coverSize)
+	out, err := Render(data, Cover, 466)
 	if err != nil {
 		t.Fatal(err)
 	}
 	img := decodeJPEG(t, out)
+	lin := func(v uint32) float64 {
+		c := float64(v) / 255
+		if c <= 0.04045 {
+			return c / 12.92
+		}
+		return math.Pow((c+0.055)/1.055, 2.4)
+	}
 	var sum float64
-	var n int
-	for y := bandTop; y < bandBottom; y++ {
-		for x := bandLeft; x < bandRight; x++ {
+	for y := 280; y < 392; y++ {
+		for x := 63; x < 403; x++ {
 			r, g, b := level(img, x, y)
-			sum += luminance([3]uint8{uint8(r), uint8(g), uint8(b)})
-			n++
+			sum += 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
 		}
 	}
-	return sum / float64(n)
+	return sum / (112 * 340)
 }
 
-func TestCoverLightMarksALightTextBand(t *testing.T) {
+func TestCoverBandLuminanceOfKnownCovers(t *testing.T) {
+	grey := func(v uint8) []byte { return testPNG(t, 64, 64, solid(color.RGBA{v, v, v, 255})) }
+	for _, c := range []struct {
+		name string
+		src  []byte
+		want float64
+	}{
+		{"white", testPNG(t, 64, 64, solid(color.White)), 0.5762},
+		{"#C8C8C8", grey(0xC8), 0.3352},
+		{"yellow #FADC3C", testPNG(t, 64, 64, solid(color.RGBA{0xFA, 0xDC, 0x3C, 255})), 0.4152},
+		{"#B0B0B0 just above", grey(0xB0), 0.2529},
+		{"#AEAEAE just below", grey(0xAE), 0.2467},
+		{"black", testPNG(t, 64, 64, solid(color.Black)), 0},
+		{"1 px black and white columns", testPNG(t, 416, 416, func(x, _ int) color.Color { return []color.Color{color.White, color.Black}[x%2] }), 0.2881},
+		{"white only in the band", testPNG(t, 416, 416, rows(250, 372, color.White, color.Black)), 0.5762},
+		{"white only outside the band", testPNG(t, 416, 416, rows(250, 372, color.Black, color.White)), 0},
+	} {
+		src, err := decode(c.src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := coverBandLuminance(src); math.Abs(got-c.want) > 0.001 {
+			t.Errorf("%s: band luminance %.4f, want %.4f", c.name, got, c.want)
+		}
+		if got, want := prepared(t, c.src).CoverLight, c.want >= 0.25; got != want {
+			t.Errorf("%s: cover_light %v, want %v at band %.4f against 0.25", c.name, got, want, c.want)
+		}
+	}
+}
+
+func TestCoverLightMarksLightCovers(t *testing.T) {
 	for name, src := range map[string][]byte{
 		"white":        testPNG(t, 300, 300, solid(color.White)),
+		"#C8C8C8":      testPNG(t, 300, 300, solid(color.RGBA{0xC8, 0xC8, 0xC8, 255})),
+		"yellow":       testPNG(t, 300, 300, solid(color.RGBA{0xFA, 0xDC, 0x3C, 255})),
+		"10% line art": testPNG(t, 600, 600, lineArt),
 		"ink on white": testPNG(t, 512, 512, inkOnWhite),
+		"band only":    testPNG(t, 416, 416, rows(250, 372, color.White, color.Black)),
+		"1 px stripes": testPNG(t, 416, 416, func(x, _ int) color.Color { return []color.Color{color.White, color.Black}[x%2] }),
 	} {
 		if !prepared(t, src).CoverLight {
-			t.Errorf("%s: cover_light false, band luminance %.3f", name, bandLuminance(t, src))
+			t.Errorf("%s: cover_light false, rendered band %.3f", name, renderedBand(t, src))
 		}
 	}
 }
 
 func TestCoverLightLeavesDarkBandsOut(t *testing.T) {
-	lightOutside := testPNG(t, 400, 400, func(_, y int) color.Color {
-		if y >= 230 && y < 370 {
-			return color.RGBA{20, 20, 24, 255}
-		}
-		return color.White
-	})
 	for name, src := range map[string][]byte{
 		"dark":               testPNG(t, 300, 300, solid(color.RGBA{30, 25, 60, 255})),
 		"photo":              testPNG(t, 300, 300, photoLike(300)),
-		"light outside band": lightOutside,
+		"#AEAEAE":            testPNG(t, 300, 300, solid(color.RGBA{0xAE, 0xAE, 0xAE, 255})),
+		"light outside band": testPNG(t, 416, 416, rows(250, 372, color.Black, color.White)),
 	} {
 		if prepared(t, src).CoverLight {
-			t.Errorf("%s: cover_light true, band luminance %.3f", name, bandLuminance(t, src))
+			t.Errorf("%s: cover_light true, rendered band %.3f", name, renderedBand(t, src))
 		}
 	}
 }
 
-func TestCoverLightAgreesWithTheRenderedBand(t *testing.T) {
-	for name, src := range map[string][]byte{
+func TestCoverBandLuminanceMatchesTheRenderedCover(t *testing.T) {
+	for name, data := range map[string][]byte{
 		"white":        testPNG(t, 300, 300, solid(color.White)),
+		"#C8C8C8":      testPNG(t, 200, 200, solid(color.RGBA{0xC8, 0xC8, 0xC8, 255})),
+		"10% line art": testPNG(t, 600, 600, lineArt),
 		"ink on white": testPNG(t, 512, 512, inkOnWhite),
-		"grey":         testPNG(t, 200, 200, solid(color.RGBA{90, 90, 90, 255})),
-		"photo":        testPNG(t, 300, 300, photoLike(300)),
+		"photo":        testPNG(t, 900, 600, photoLike(900)),
+		"band only":    testPNG(t, 416, 416, rows(250, 372, color.White, color.Black)),
 	} {
-		got, want := prepared(t, src).CoverLight, bandLuminance(t, src) >= lightLuminance
-		if got != want {
-			t.Errorf("%s: cover_light %v, rendered band luminance %.3f", name, got, bandLuminance(t, src))
+		src, err := decode(data)
+		if err != nil {
+			t.Fatal(err)
 		}
+		if got, want := coverBandLuminance(src), renderedBand(t, data); math.Abs(got-want) > 0.01 {
+			t.Errorf("%s: band luminance %.4f, rendered JPEG %.4f", name, got, want)
+		}
+	}
+}
+
+func BenchmarkCoverBandLuminance(b *testing.B) {
+	src, err := decode(photoJPEG(b, 1400))
+	if err != nil {
+		b.Fatal(err)
+	}
+	for b.Loop() {
+		coverBandLuminance(src)
 	}
 }

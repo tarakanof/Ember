@@ -113,10 +113,7 @@ func TestKnobViewSendsCoverLightOnlyWithNPCover(t *testing.T) {
 		t.Fatalf("caps knob without np_cover got cover_light %v", l)
 	}
 	postCapsCheckin(t, f, "0.10.0", knobCapsCover)
-	light, lightTag, err := f.app.knobView(f.m.ID, f.clk.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	light := goldenView(t, f)
 	if l, ok := viewCoverLight(t, light); !ok || l != true {
 		t.Fatalf("white cover: cover_light = %v, want true: %s", l, light)
 	}
@@ -124,18 +121,40 @@ func TestKnobViewSendsCoverLightOnlyWithNPCover(t *testing.T) {
 		t.Fatalf("cover_light without accent and cover_version: %s", light)
 	}
 	setCoverArt(t, f, color.RGBA{0x20, 0x18, 0x40, 255})
-	dark, darkTag, err := f.app.knobView(f.m.ID, f.clk.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	dark := goldenView(t, f)
 	if l, ok := viewCoverLight(t, dark); ok {
 		t.Fatalf("dark cover: cover_light = %v, want the key left out: %s", l, dark)
 	}
-	if darkTag == lightTag {
-		t.Fatal("view ETag did not change with cover_light")
+}
+
+func TestKnobViewETagChangesWithCoverLightAlone(t *testing.T) {
+	f := coverViewFixture(t, false)
+	postCapsCheckin(t, f, "0.10.0", knobCapsCover)
+	view := func(light bool) ([]byte, string) {
+		t.Helper()
+		img := nowplaying.NewImage([]byte("same picture"))
+		img.Accent = "#6C22E6"
+		img.CoverLight = light
+		if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, img); err != nil {
+			t.Fatal(err)
+		}
+		body, etag, err := f.app.knobView(f.m.ID, f.clk.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body, etag
 	}
-	if string(viewKeys(t, light)["nowplaying"]) == string(viewKeys(t, dark)["nowplaying"]) {
-		t.Fatal("nowplaying did not change with the cover")
+	dark, darkTag := view(false)
+	light, lightTag := view(true)
+	want := strings.Replace(string(viewKeys(t, dark)["nowplaying"]), `-r1"}`, `-r1","cover_light":true}`, 1)
+	if got := string(viewKeys(t, light)["nowplaying"]); got != want {
+		t.Fatalf("cover_light must be the only change to nowplaying:\n%s\n%s", want, got)
+	}
+	if lightTag == darkTag {
+		t.Fatalf("view ETag %s did not change with cover_light alone", lightTag)
+	}
+	if _, again := view(false); again != darkTag {
+		t.Fatalf("ETag %s, want %s back once cover_light is gone", again, darkTag)
 	}
 }
 
