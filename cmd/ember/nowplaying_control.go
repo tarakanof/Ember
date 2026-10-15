@@ -44,6 +44,7 @@ var (
 	errNoController   = errors.New("the source of the shown track can't be controlled")
 	errControlFailed  = errors.New("the player did not take the command")
 	errShownChanged   = errors.New("the shown track changed")
+	errCommandsMaster = errors.New("the Music command queue needs EMBER_TOKEN")
 )
 
 type controlRequest struct {
@@ -392,6 +393,9 @@ type commandsAnswer struct {
 }
 
 func (a *App) handleNowPlayingCommands(w http.ResponseWriter, r *http.Request) {
+	if !a.masterOnly(w, r, errCommandsMaster) {
+		return
+	}
 	q := r.URL.Query()
 	player := q.Get("player")
 	if player == "" || !utf8.ValidString(player) || utf8.RuneCountInString(player) > 64 {

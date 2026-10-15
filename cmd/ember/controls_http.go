@@ -220,17 +220,8 @@ func (a *App) handleControlsConfigGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.controlsAnswer(a.settings.controls.get()))
 }
 
-func (a *App) controlsMasterOnly(w http.ResponseWriter, r *http.Request) bool {
-	if _, isClient := r.Context().Value(clientCallerKey{}).(clientCaller); !isClient {
-		return true
-	}
-	a.logger.InfoContext(r.Context(), "auth scope denied", "reason", "master_required", "path", r.URL.Path, "method", r.Method)
-	writeError(w, http.StatusForbidden, errControlsMasterOnly)
-	return false
-}
-
 func (a *App) handleControlsConfigPut(w http.ResponseWriter, r *http.Request) {
-	if !a.controlsMasterOnly(w, r) {
+	if !a.masterOnly(w, r, errControlsMasterOnly) {
 		return
 	}
 	if d, ok := serveSettingPut(a, w, r, a.settings.controls); ok {
@@ -296,7 +287,7 @@ type controlCommandsAnswer struct {
 }
 
 func (a *App) handleControlsCommands(w http.ResponseWriter, r *http.Request) {
-	if !a.controlsMasterOnly(w, r) {
+	if !a.masterOnly(w, r, errControlsMasterOnly) {
 		return
 	}
 	q := r.URL.Query()
