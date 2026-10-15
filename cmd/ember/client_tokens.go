@@ -37,7 +37,6 @@ type clientCaller struct {
 	sources []string
 }
 
-// A leaked client must not outlive its own revocation, so a client token (even admin) can never manage clients.
 func (a *App) requireMasterForClients(w http.ResponseWriter, r *http.Request) bool {
 	return a.masterOnly(w, r, errMasterRequired)
 }
