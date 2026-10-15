@@ -490,4 +490,10 @@ func TestNowPlayingCommandsIsMasterOnly(t *testing.T) {
 	if got := pollCommands(t, srv, "M4", 0); len(got) != 1 || got[0].Action != actNext {
 		t.Fatalf("a rejected poll drained the queue: %+v", got)
 	}
+	if resp, b := npDo(t, srv, "GET", "/v1/nowplaying/commands?player=M5&wait=0", admin.Token, nil, nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("admin poll for M5: %d %s", resp.StatusCode, b)
+	}
+	if err := app.nowPlaying.commands.push("M5", controlRequest{Action: actNext}); err != errNoController {
+		t.Fatalf("a rejected poll marked M5 as listening: push err = %v", err)
+	}
 }
