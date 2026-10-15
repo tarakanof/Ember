@@ -50,6 +50,11 @@ type apPending struct {
 	closed   bool
 }
 
+type apSlow struct {
+	backoff time.Duration
+	until   time.Time
+}
+
 const ephemeralTTL = 10 * time.Minute
 
 type appServer struct {
@@ -65,6 +70,8 @@ type appServer struct {
 	bootCall    time.Duration
 	liveEvery   time.Duration
 	liveTimeout time.Duration
+	slowMin     time.Duration
+	slowMax     time.Duration
 	failLog     *producer.FailureLogger
 
 	kick chan struct{}
@@ -77,6 +84,9 @@ type appServer struct {
 	unread       map[string]*apPending
 	ephemeral    map[string]time.Time
 	gone         map[string]time.Time
+	slow         map[string]*apSlow
+	acting       string
+	actingClosed bool
 	lastReleased map[string]bool
 	deletes      []string
 	released     []string
@@ -98,6 +108,8 @@ func newAppServer(cfg Config) *appServer {
 		bootCall:    10 * time.Second,
 		liveEvery:   time.Minute,
 		liveTimeout: 10 * time.Second,
+		slowMin:     time.Minute,
+		slowMax:     10 * time.Minute,
 		failLog:     producer.NewFailureLogger(10 * time.Minute),
 		kick:        make(chan struct{}, 1),
 		dial:        dialWS,
@@ -105,6 +117,7 @@ func newAppServer(cfg Config) *appServer {
 		unread:      map[string]*apPending{},
 		ephemeral:   map[string]time.Time{},
 		gone:        map[string]time.Time{},
+		slow:        map[string]*apSlow{},
 	}
 }
 
@@ -272,6 +285,8 @@ func (as *appServer) disconnect() {
 	as.threads = map[string]*apThread{}
 	as.unread = map[string]*apPending{}
 	as.ephemeral = map[string]time.Time{}
+	as.slow = map[string]*apSlow{}
+	as.acting = ""
 	as.hasRate, as.rate = false, derived{}
 }
 
@@ -310,11 +325,15 @@ func (as *appServer) worker(ctx context.Context, c *rpcConn) error {
 		default:
 		}
 		if check {
-			if err := as.callFor(ctx, c, as.liveTimeout, "thread/loaded/list", map[string]any{"limit": 1}, nil); err != nil {
+			if err := as.probe(ctx, c); err != nil {
 				return fmt.Errorf("daemon not answering: %w", err)
 			}
 		}
 	}
+}
+
+func (as *appServer) probe(ctx context.Context, c *rpcConn) error {
+	return as.callFor(ctx, c, as.liveTimeout, "thread/loaded/list", map[string]any{"limit": 1}, nil)
 }
 
 type apAction struct {
@@ -325,27 +344,81 @@ type apAction struct {
 func (as *appServer) nextAction(now time.Time) (a apAction, retryAt time.Time) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
-	for id, p := range as.unread {
-		if !p.inflight {
-			p.inflight = true
-			return apAction{"read", id}, time.Time{}
+	later := func(at time.Time) {
+		if retryAt.IsZero() || at.Before(retryAt) {
+			retryAt = at
 		}
+	}
+	for id, p := range as.unread {
+		if p.inflight {
+			continue
+		}
+		if until := as.slowUntilLocked(id, now); !until.IsZero() {
+			later(until)
+			continue
+		}
+		p.inflight = true
+		as.acting, as.actingClosed = id, false
+		return apAction{"read", id}, time.Time{}
 	}
 	for id, t := range as.threads {
 		switch {
 		case t.busy && t.tracked && !t.subscribed:
-			if now.Before(t.resumeAt) {
-				if retryAt.IsZero() || t.resumeAt.Before(retryAt) {
-					retryAt = t.resumeAt
-				}
+			at := t.resumeAt
+			if until := as.slowUntilLocked(id, now); until.After(at) {
+				at = until
+			}
+			if now.Before(at) {
+				later(at)
 				continue
 			}
+			as.acting, as.actingClosed = id, false
 			return apAction{"resume", id}, time.Time{}
 		case !t.busy && t.subscribed:
+			as.acting, as.actingClosed = id, false
 			return apAction{"unsubscribe", id}, time.Time{}
 		}
 	}
 	return apAction{}, retryAt
+}
+
+func (as *appServer) slowUntilLocked(id string, now time.Time) time.Time {
+	if s := as.slow[id]; s != nil && now.Before(s.until) {
+		return s.until
+	}
+	return time.Time{}
+}
+
+func (as *appServer) quarantine(id string) (wait time.Duration, fresh, ok bool) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	if as.acting == id && as.actingClosed {
+		return 0, false, false
+	}
+	now := time.Now()
+	s := as.slow[id]
+	switch {
+	case s == nil:
+		s = &apSlow{}
+		as.slow[id] = s
+		fresh = true
+	case now.After(s.until.Add(as.slowMax)):
+		s.backoff = 0
+		fresh = true
+	}
+	if s.backoff == 0 {
+		s.backoff = as.slowMin
+	} else {
+		s.backoff = min(2*s.backoff, as.slowMax)
+	}
+	s.until = now.Add(s.backoff)
+	return s.backoff, fresh, true
+}
+
+func (as *appServer) recoveredLocked(id string) {
+	if s := as.slow[id]; s != nil {
+		s.backoff = 0
+	}
 }
 
 func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, error) {
@@ -364,6 +437,9 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			as.mu.Lock()
 			p := as.unread[a.id]
 			delete(as.unread, a.id)
+			if err == nil {
+				as.recoveredLocked(a.id)
+			}
 			if err == nil && p != nil && !p.closed {
 				as.addThreadLocked(res.Thread)
 				if t := as.threads[a.id]; t != nil && p.status != nil {
@@ -377,6 +453,7 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			if t := as.threads[a.id]; t != nil {
 				if err == nil {
 					t.subscribed = true
+					as.recoveredLocked(a.id)
 				} else {
 					t.resumeAt = time.Now().Add(as.retryEvery)
 				}
@@ -391,8 +468,20 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			as.mu.Unlock()
 		}
 		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
-			return time.Time{}, err
+			if perr := as.probe(ctx, c); perr != nil {
+				return time.Time{}, fmt.Errorf("%w; probe: %w", err, perr)
+			}
+			if wait, fresh, ok := as.quarantine(a.id); ok {
+				level := slog.LevelDebug
+				if fresh {
+					level = slog.LevelWarn
+				}
+				slog.Log(ctx, level, "codex app-server call timed out on a live daemon", "action", a.kind, "thread_id", a.id, "retry_in", wait)
+			}
 		}
+		as.mu.Lock()
+		as.acting = ""
+		as.mu.Unlock()
 	}
 	return time.Time{}, nil
 }
@@ -490,6 +579,10 @@ func (as *appServer) closeLocked(id string) {
 		delete(as.unread, id)
 	}
 	delete(as.ephemeral, id)
+	delete(as.slow, id)
+	if id == as.acting {
+		as.actingClosed = true
+	}
 	if t == nil {
 		return
 	}
@@ -783,7 +876,7 @@ func (as *appServer) tick() apTick {
 	}
 	out.pending = map[string]bool{}
 	for id, p := range as.unread {
-		if !p.closed {
+		if !p.closed && (p.inflight || as.slowUntilLocked(id, time.Now()).IsZero()) {
 			out.pending[id] = true
 		}
 	}

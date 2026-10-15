@@ -642,8 +642,22 @@ markers still get reaped.
   30 s, after which the connection is closed (that also cuts a blocked
   write), so a daemon that hangs before the worker starts is dropped within
   30 s. A `thread/read`, `thread/resume` or `thread/unsubscribe` that times
-  out (30 s) also reconnects. A previous session's released threads survive
-  failed handshakes, so the first full bootstrap still DELETEs the gone ones.
+  out (30 s) is followed by the liveness probe. If that also fails, the
+  session reconnects, so a daemon that hangs mid-session is dropped within
+  about 40 s. If it answers, only that thread is quarantined (an unsubscribe
+  timeout too): no read or resume for it for 1 min, doubling on each further
+  timeout up to 10 min and starting again at 1 min after 10 quiet minutes
+  past the last one. A read or resume that succeeds resets the backoff to
+  1 min; the thread closing (even mid-call) or a reconnect drops the
+  quarantine. A thread's first timeout, and the first after 10 quiet
+  minutes, log a warning; the rest log at debug. Other threads are read and subscribed as usual
+  meanwhile, and a quarantined thread whose read is queued again stays with
+  the rollout watcher instead of being held back. So one reliably slow thread
+  on a healthy daemon neither forces a reconnect every 31 s (churning the
+  device rows) nor stalls the worker. A daemon that answers probes but times
+  out every thread call costs 30 s per thread once, then each retry is spread
+  out by its quarantine. A previous session's released threads survive failed
+  handshakes, so the first full bootstrap still DELETEs the gone ones.
   A message over 16 MiB is drained and skipped and the connection stays up.
   It **never starts the daemon**. It
   initializes as `codex_app_server_daemon`: the first client name outside
