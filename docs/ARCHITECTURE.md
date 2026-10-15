@@ -1161,7 +1161,8 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
 - **Apple Music pusher (#226).** Settings › Sources › Music toggles it
   (per Mac, `UserDefaults` `musicNowPlaying.enabled`, off by default).
   `MusicNowPlayingWatcher` observes the `com.apple.Music.playerInfo`
-  distributed notification only while it is on: no timers, no polling.
+  distributed notification only while it is on: no timers, no polling
+  (a knob skip re-reads briefly instead, see "Now playing" › Music).
   EmberKit's `AppleMusicPusher` coalesces bursts to the latest state, POSTs
   `/v1/nowplaying` (`source:"music"`, `player` = the Connection pane's
   source name, else the computer name, `track_id` = Music's persistent ID
@@ -2222,7 +2223,12 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     Music's **PID** (an event to a process that just quit fails; nothing
     can launch Music), only while Automation is already granted (checked
     without prompting; the prompt is the Settings button's), then re-reads
-    and re-reports (Music posts no notification for a volume change). The
+    and re-reports (Music posts no notification for a volume change). After
+    a `next`/`previous` it re-reads every 200 ms, at most 10 times (#526),
+    until the persistent ID differs from the one read before the command,
+    then reports that read (or the last one): the first read comes before
+    Music has switched, and Music posts no `playerInfo` for a skip while
+    paused, so a single read would report the old track. The
     registry lives in server memory and the Music pusher is event-driven, so
     the long-poll doubles as the reconnect signal: its first successful round
     after a failure (a server restart) re-pushes the Music snapshot

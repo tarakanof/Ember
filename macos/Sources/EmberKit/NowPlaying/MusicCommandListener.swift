@@ -14,6 +14,8 @@ public final class MusicCommandListener {
     static let missingRouteBackoff: Duration = .seconds(300)
     static let minRound: Duration = .seconds(1)
     static let maxAge: Duration = .seconds(5)
+    static let skipPoll: Duration = .milliseconds(200)
+    static let skipPolls = 10
 
     public typealias Sleep = @Sendable (Duration) async throws -> Void
 
@@ -90,6 +92,7 @@ public final class MusicCommandListener {
 
     func execute(_ commands: [NowPlayingCommand], received: ContinuousClock.Instant = .now) async {
         var ran = false
+        var skippedFrom: String?
         for c in commands where c.action != nil {
             let age = Duration.milliseconds(c.ageMs) + (ContinuousClock.now - received)
             if age > Self.maxAge {
@@ -103,9 +106,26 @@ public final class MusicCommandListener {
                 continue
             }
             loggedDenied = false
-            if await bridge.perform(c) { ran = true }
+            let skip = c.action == .next || c.action == .previous
+            let before = skip && skippedFrom == nil ? await bridge.snapshot()?.persistentID : nil
+            guard await bridge.perform(c) else { continue }
+            ran = true
+            if skip, skippedFrom == nil { skippedFrom = before ?? "" }
         }
-        guard ran, let info = await bridge.snapshot() else { return }
+        guard ran else { return }
+        let info = if let skippedFrom { await snapshot(leaving: skippedFrom) } else { await bridge.snapshot() }
+        guard let info else { return }
         pusher.submit(info)
+    }
+
+    private func snapshot(leaving trackID: String) async -> MusicPlayerInfo? {
+        var info = await bridge.snapshot()
+        var polls = 0
+        while info?.persistentID == trackID, polls < Self.skipPolls {
+            do { try await sleep(Self.skipPoll) } catch { break }
+            polls += 1
+            info = await bridge.snapshot()
+        }
+        return info
     }
 }

@@ -69,8 +69,13 @@ private actor FakeBridge: MusicBridge {
     func setArtTrack(_ id: String) { artTrack = id }
     var snapDelay: Duration?
     func set(snapDelay: Duration) { self.snapDelay = snapDelay }
+    var snapshots = 0
+    var pendingChange: (at: Int, info: MusicPlayerInfo)?
+    func change(to info: MusicPlayerInfo, afterSnapshots n: Int) { pendingChange = (snapshots + n, info) }
     func snapshot() async -> MusicPlayerInfo? {
         if let snapDelay { try? await Task.sleep(for: snapDelay) }
+        snapshots += 1
+        if let p = pendingChange, snapshots > p.at { snap = p.info; pendingChange = nil }
         return running ? snap : nil
     }
     func setSnapshot(_ s: MusicPlayerInfo) { snap = s }
@@ -511,4 +516,55 @@ private func recoveryAttempts(
     let down: Result<[NowPlayingCommand], Error> = .failure(APIError.transport("down"))
     #expect(await recoveryAttempts(after: APIError.rateLimited(retryAfter: .zero),
                                    rounds: [down, .success([]), down, .success([])]) == 2)
+}
+
+@MainActor
+private func skipRun(_ action: NowPlayingCommand.Action, changeAfter n: Int) async -> (trackIDs: [String], sleeps: [Duration], snapshots: Int) {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setArt(nil)
+    await bridge.setSnapshot(MusicPlayerInfo(state: .paused, name: "Old", persistentID: "T1"))
+    await bridge.change(to: MusicPlayerInfo(state: .paused, name: "New", persistentID: "T2"), afterSnapshots: n)
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let sleeps = Sleeps()
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: sleeps.sleep)
+    await listener.execute([NowPlayingCommand(id: "1", action: action)])
+    await pusher.drain()
+    return (await sink.reports.map(\.trackID), sleeps.all, await bridge.snapshots)
+}
+
+@MainActor
+@Test func pausedSkipPushesTheNewTrackOnceMusicSwitches() async {
+    for action in [NowPlayingCommand.Action.next, .previous] {
+        let run = await skipRun(action, changeAfter: 3)
+        #expect(run.trackIDs == ["T2"])
+        #expect(run.sleeps == [MusicCommandListener.skipPoll, MusicCommandListener.skipPoll])
+        #expect(run.snapshots == 4)
+    }
+}
+
+@MainActor
+@Test func skipStopsRetryingAtOnceWhenTheTrackAlreadyChanged() async {
+    let run = await skipRun(.next, changeAfter: 1)
+    #expect(run.trackIDs == ["T2"])
+    #expect(run.sleeps.isEmpty)
+    #expect(run.snapshots == 2)
+}
+
+@MainActor
+@Test func skipRetriesAreBoundedAndPushTheLastSnapshot() async {
+    let run = await skipRun(.next, changeAfter: 1_000)
+    #expect(run.trackIDs == ["T1"])
+    #expect(run.sleeps == Array(repeating: MusicCommandListener.skipPoll, count: MusicCommandListener.skipPolls))
+    #expect(run.snapshots == 2 + MusicCommandListener.skipPolls)
+    #expect(MusicCommandListener.skipPoll * MusicCommandListener.skipPolls <= .seconds(2))
+}
+
+@MainActor
+@Test func playPauseTakesOneSnapshotWithoutRetrying() async {
+    for action in [NowPlayingCommand.Action.playPause, .play, .pause] {
+        let run = await skipRun(action, changeAfter: 1)
+        #expect(run.trackIDs == ["T1"])
+        #expect(run.sleeps.isEmpty)
+        #expect(run.snapshots == 1)
+    }
 }
