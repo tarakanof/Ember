@@ -94,7 +94,8 @@ public final class MusicCommandListener {
 
     func execute(_ commands: [NowPlayingCommand], received: ContinuousClock.Instant = .now) async {
         var ran = false
-        var skippedFrom: String?
+        var skips = 0
+        var track = TrackChanges()
         for c in commands where c.action != nil {
             let age = Duration.milliseconds(c.ageMs) + (ContinuousClock.now - received)
             if age > Self.maxAge {
@@ -109,25 +110,43 @@ public final class MusicCommandListener {
             }
             loggedDenied = false
             let skip = c.action == .next || c.action == .previous
-            let before = skip && skippedFrom == nil ? await bridge.snapshot()?.persistentID : nil
+            if skip { track.see(await bridge.trackID()) }
             guard await bridge.perform(c) else { continue }
             ran = true
-            if skip, skippedFrom == nil { skippedFrom = before ?? "" }
+            if skip { skips += 1 }
         }
         guard ran else { return }
-        let info = if let skippedFrom { await snapshot(leaving: skippedFrom) } else { await bridge.snapshot() }
-        guard let info else { return }
+        let info = skips > 0 ? await snapshot(after: skips, from: track) : await bridge.snapshot()
+        guard let info, !Task.isCancelled else { return }
         pusher.submit(info)
     }
 
-    private func snapshot(leaving trackID: String) async -> MusicPlayerInfo? {
-        var info = await bridge.snapshot()
-        var polls = 0
-        while info?.persistentID == trackID, polls < Self.skipPolls {
-            do { try await sleep(Self.skipPoll) } catch { break }
-            polls += 1
-            info = await bridge.snapshot()
+    struct TrackChanges {
+        private(set) var current: String?
+        private(set) var count = 0
+
+        mutating func see(_ id: String?) {
+            guard let id, !id.isEmpty else { return }
+            if let current, current != id { count += 1 }
+            current = id
         }
-        return info
+    }
+
+    private func snapshot(after skips: Int, from start: TrackChanges) async -> MusicPlayerInfo? {
+        var track = start
+        var latest: MusicPlayerInfo?
+        for poll in 0...Self.skipPolls {
+            if poll > 0 {
+                do { try await sleep(Self.skipPoll) } catch { return nil }
+            }
+            if let info = await bridge.snapshot() {
+                latest = info
+                track.see(info.persistentID)
+                if track.count >= skips { break }
+            } else if !(await bridge.isRunning()) {
+                return nil
+            }
+        }
+        return latest
     }
 }

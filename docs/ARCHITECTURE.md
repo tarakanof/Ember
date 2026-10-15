@@ -2224,11 +2224,18 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     can launch Music), only while Automation is already granted (checked
     without prompting; the prompt is the Settings button's), then re-reads
     and re-reports (Music posts no notification for a volume change). After
-    a `next`/`previous` it re-reads every 200 ms, at most 10 times (#526),
-    until the persistent ID differs from the one read before the command,
-    then reports that read (or the last one): the first read comes before
-    Music has switched, and Music posts no `playerInfo` for a skip while
-    paused, so a single read would report the old track. The
+    a `next`/`previous` it re-reads every 200 ms, at most 10 times (#526):
+    the first read comes before Music has switched, and Music posts no
+    `playerInfo` for a skip while paused, so a single read would report the
+    old track. It reads the persistent ID before each skip and stops once
+    it has seen as many track changes as skips that ran (a batch of two
+    `next` waits for the second); a failed read and an empty ID (Music
+    briefly stopped mid-switch) don't count, so an unknown starting track
+    waits for a change. It then reports the last good read, or nothing if
+    Music quits or the listener stops meanwhile. While polling it holds the command loop, so
+    commands queued behind it wait up to 2 s; that full wait happens only
+    when no change shows, e.g. `next` + `previous` that Music applies in one
+    go, or a skip in a stopped or one-track queue. The
     registry lives in server memory and the Music pusher is event-driven, so
     the long-poll doubles as the reconnect signal: its first successful round
     after a failure (a server restart) re-pushes the Music snapshot

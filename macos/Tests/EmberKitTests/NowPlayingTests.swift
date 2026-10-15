@@ -70,13 +70,35 @@ private actor FakeBridge: MusicBridge {
     var snapDelay: Duration?
     func set(snapDelay: Duration) { self.snapDelay = snapDelay }
     var snapshots = 0
-    var pendingChange: (at: Int, info: MusicPlayerInfo)?
-    func change(to info: MusicPlayerInfo, afterSnapshots n: Int) { pendingChange = (snapshots + n, info) }
+    var idReads = 0
+    var readFailures = 0
+    var performFailures = 0
+    var quitOnSkip = false
+    var skipReads: [[MusicPlayerInfo?]] = []
+    var pending: [MusicPlayerInfo?] = []
+    func onSkip(_ reads: [MusicPlayerInfo?]) { skipReads.append(reads) }
+    func set(readFailures: Int) { self.readFailures = readFailures }
+    func set(performFailures: Int) { self.performFailures = performFailures }
+    func set(quitOnSkip: Bool) { self.quitOnSkip = quitOnSkip }
+    private func read() -> MusicPlayerInfo? {
+        if readFailures > 0 {
+            readFailures -= 1
+            return nil
+        }
+        if !pending.isEmpty {
+            guard let next = pending.removeFirst() else { return nil }
+            snap = next
+        }
+        return running ? snap : nil
+    }
     func snapshot() async -> MusicPlayerInfo? {
         if let snapDelay { try? await Task.sleep(for: snapDelay) }
         snapshots += 1
-        if let p = pendingChange, snapshots > p.at { snap = p.info; pendingChange = nil }
-        return running ? snap : nil
+        return read()
+    }
+    func trackID() async -> String? {
+        idReads += 1
+        return read()?.persistentID
     }
     func setSnapshot(_ s: MusicPlayerInfo) { snap = s }
     func setArt(_ d: Data?) { art = d }
@@ -88,7 +110,15 @@ private actor FakeBridge: MusicBridge {
     func volume() async -> Int? { running ? level : nil }
     func perform(_ command: NowPlayingCommand) async -> Bool {
         guard running else { return false }
+        if performFailures > 0 {
+            performFailures -= 1
+            return false
+        }
         performed.append(command)
+        if command.action == .next || command.action == .previous {
+            if quitOnSkip { running = false }
+            if !skipReads.isEmpty { pending += skipReads.removeFirst() }
+        }
         if command.action == .volume { level = min(max(level + command.delta, 0), 100) }
         snap?.volume = level
         return true
@@ -296,6 +326,7 @@ private func waitUntil(_ cond: () async -> Bool) async {
     let bridge = FakeBridge(), sink = FakeSink()
     await bridge.setArt(nil)
     await bridge.setSnapshot(MusicPlayerInfo(state: .playing, name: "Song", persistentID: "T1"))
+    await bridge.onSkip([MusicPlayerInfo(state: .playing, name: "Next", persistentID: "T2", volume: 46)])
     let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
     let sleeps = Sleeps()
     let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: sleeps.sleep)
@@ -308,6 +339,8 @@ private func waitUntil(_ cond: () async -> Bool) async {
     await pusher.drain()
     #expect(await bridge.performed.map(\.id) == ["1", "3"])
     #expect(await sink.reports.last?.volume == 46)
+    #expect(await sink.reports.last?.trackID == "T2")
+    #expect(!sleeps.all.contains(MusicCommandListener.skipPoll))
     listener.stop()
     await listener.join()
 }
@@ -518,53 +551,169 @@ private func recoveryAttempts(
                                    rounds: [down, .success([]), down, .success([])]) == 2)
 }
 
+private let t1 = MusicPlayerInfo(state: .paused, name: "Old", persistentID: "T1")
+private let t2 = MusicPlayerInfo(state: .paused, name: "New", persistentID: "T2")
+private let t3 = MusicPlayerInfo(state: .paused, name: "Third", persistentID: "T3")
+private let stoppedMusic = MusicPlayerInfo(state: .stopped)
+
+private struct SkipRun {
+    var reports: [NowPlayingReport]
+    var sleeps: [Duration]
+    var snapshots: Int
+    var performed: [String]
+    var trackIDs: [String] { reports.map(\.trackID) }
+}
+
 @MainActor
-private func skipRun(_ action: NowPlayingCommand.Action, changeAfter n: Int) async -> (trackIDs: [String], sleeps: [Duration], snapshots: Int) {
+private func skipRun(_ actions: [NowPlayingCommand.Action], from start: MusicPlayerInfo = t1,
+                     setup: (FakeBridge) async -> Void = { _ in }) async -> SkipRun {
     let bridge = FakeBridge(), sink = FakeSink()
     await bridge.setArt(nil)
-    await bridge.setSnapshot(MusicPlayerInfo(state: .paused, name: "Old", persistentID: "T1"))
-    await bridge.change(to: MusicPlayerInfo(state: .paused, name: "New", persistentID: "T2"), afterSnapshots: n)
+    await bridge.setSnapshot(start)
+    await setup(bridge)
     let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
     let sleeps = Sleeps()
     let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: sleeps.sleep)
-    await listener.execute([NowPlayingCommand(id: "1", action: action)])
+    await listener.execute(actions.enumerated().map { NowPlayingCommand(id: "\($0.offset + 1)", action: $0.element) })
     await pusher.drain()
-    return (await sink.reports.map(\.trackID), sleeps.all, await bridge.snapshots)
+    return SkipRun(reports: await sink.reports, sleeps: sleeps.all, snapshots: await bridge.snapshots,
+                   performed: await bridge.performed.map(\.id))
 }
+
+@MainActor
+private func polls(_ n: Int) -> [Duration] { Array(repeating: MusicCommandListener.skipPoll, count: n) }
 
 @MainActor
 @Test func pausedSkipPushesTheNewTrackOnceMusicSwitches() async {
     for action in [NowPlayingCommand.Action.next, .previous] {
-        let run = await skipRun(action, changeAfter: 3)
+        let run = await skipRun([action]) { await $0.onSkip([t1, t1, t2]) }
         #expect(run.trackIDs == ["T2"])
-        #expect(run.sleeps == [MusicCommandListener.skipPoll, MusicCommandListener.skipPoll])
-        #expect(run.snapshots == 4)
+        #expect(run.sleeps == polls(2))
+        #expect(run.snapshots == 3)
     }
 }
 
 @MainActor
 @Test func skipStopsRetryingAtOnceWhenTheTrackAlreadyChanged() async {
-    let run = await skipRun(.next, changeAfter: 1)
+    let run = await skipRun([.next]) { await $0.onSkip([t2]) }
     #expect(run.trackIDs == ["T2"])
     #expect(run.sleeps.isEmpty)
-    #expect(run.snapshots == 2)
+    #expect(run.snapshots == 1)
 }
 
 @MainActor
 @Test func skipRetriesAreBoundedAndPushTheLastSnapshot() async {
-    let run = await skipRun(.next, changeAfter: 1_000)
+    let run = await skipRun([.next])
     #expect(run.trackIDs == ["T1"])
-    #expect(run.sleeps == Array(repeating: MusicCommandListener.skipPoll, count: MusicCommandListener.skipPolls))
-    #expect(run.snapshots == 2 + MusicCommandListener.skipPolls)
+    #expect(run.sleeps == polls(MusicCommandListener.skipPolls))
+    #expect(run.snapshots == 1 + MusicCommandListener.skipPolls)
     #expect(MusicCommandListener.skipPoll * MusicCommandListener.skipPolls <= .seconds(2))
 }
 
 @MainActor
 @Test func playPauseTakesOneSnapshotWithoutRetrying() async {
     for action in [NowPlayingCommand.Action.playPause, .play, .pause] {
-        let run = await skipRun(action, changeAfter: 1)
+        let run = await skipRun([action]) { await $0.onSkip([t2]) }
         #expect(run.trackIDs == ["T1"])
         #expect(run.sleeps.isEmpty)
         #expect(run.snapshots == 1)
     }
+}
+
+@MainActor
+@Test func skipRetriesThroughAFailedRead() async {
+    let run = await skipRun([.next]) { await $0.onSkip([t1, nil, t2]) }
+    #expect(run.trackIDs == ["T2"])
+    #expect(run.sleeps == polls(2))
+}
+
+@MainActor
+@Test func skipWithAnUnknownStartingTrackWaitsForAChange() async {
+    let run = await skipRun([.next]) {
+        await $0.set(readFailures: 1)
+        await $0.onSkip([t1, t2])
+    }
+    #expect(run.trackIDs == ["T2"])
+    #expect(run.sleeps == polls(1))
+}
+
+@MainActor
+@Test func skipReadsThroughAStoppedStateMidSwitch() async {
+    let run = await skipRun([.next]) { await $0.onSkip([stoppedMusic, t2]) }
+    #expect(run.trackIDs == ["T2"])
+    #expect(run.sleeps == polls(1))
+
+    let idle = await skipRun([.next], from: stoppedMusic)
+    #expect(idle.reports.map(\.state) == [.stopped])
+    #expect(idle.sleeps == polls(MusicCommandListener.skipPolls))
+}
+
+@MainActor
+@Test func skipBatchWaitsForTheLastSkip() async {
+    let run = await skipRun([.next, .next]) {
+        await $0.onSkip([t1])
+        await $0.onSkip([t2, t2, t3])
+    }
+    #expect(run.trackIDs == ["T3"])
+    #expect(run.sleeps == polls(2))
+}
+
+@MainActor
+@Test func nextThenPreviousStopsOnceMusicIsBack() async {
+    let run = await skipRun([.next, .previous]) {
+        await $0.onSkip([t2])
+        await $0.onSkip([t1])
+    }
+    #expect(run.trackIDs == ["T1"])
+    #expect(run.sleeps.isEmpty)
+}
+
+@MainActor
+@Test func skipPushesNothingWhenMusicQuits() async {
+    let run = await skipRun([.next]) { await $0.set(quitOnSkip: true) }
+    #expect(run.reports.isEmpty)
+    #expect(run.sleeps.isEmpty)
+}
+
+@MainActor
+@Test func failedFirstSkipStillWaitsForTheSecond() async {
+    let run = await skipRun([.next, .next]) {
+        await $0.set(performFailures: 1)
+        await $0.onSkip([t1, t2])
+    }
+    #expect(run.performed == ["2"])
+    #expect(run.trackIDs == ["T2"])
+    #expect(run.sleeps == polls(1))
+}
+
+private final class BlockingSleeps: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    private let poll: Duration
+    init(poll: Duration) { self.poll = poll }
+    var polls: Int { lock.withLock { count } }
+    func sleep(_ d: Duration) async throws {
+        guard d == poll else { return try Task.checkCancellation() }
+        lock.withLock { count += 1 }
+        try await Task.sleep(for: .seconds(3600))
+    }
+}
+
+@MainActor
+@Test func stoppingTheListenerMidSkipPushesNothing() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setArt(nil)
+    await bridge.setSnapshot(t1)
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let sleeps = BlockingSleeps(poll: MusicCommandListener.skipPoll)
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: sleeps.sleep)
+    let source = FakeCommands([.success([NowPlayingCommand(id: "1", action: .next)])])
+    listener.start(source: source, player: "M4")
+    await waitUntil { sleeps.polls >= 1 }
+    #expect(sleeps.polls == 1)
+    listener.stop()
+    await listener.join()
+    await pusher.drain()
+    #expect(await bridge.performed.map(\.id) == ["1"])
+    #expect(await sink.reports.isEmpty)
 }

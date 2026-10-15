@@ -43,6 +43,11 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         }
     }
 
+    func trackID() async -> String? {
+        guard await isRunning(), let d = await run(Self.trackIDScript) else { return nil }
+        return d.stringValue ?? ""
+    }
+
     func volume() async -> Int? {
         await onQueue { self.readVolume() }
     }
@@ -167,6 +172,12 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
     tell application id "com.apple.Music"
         set t to current track
         return {(persistent ID of t), (raw data of artwork 1 of t)}
+    end tell
+    """#
+    private static let trackIDScript = #"""
+    tell application id "com.apple.Music"
+        if player state is stopped then return ""
+        return persistent ID of current track
     end tell
     """#
     private static let snapshotScript = #"""
