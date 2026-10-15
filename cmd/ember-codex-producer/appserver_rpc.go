@@ -34,6 +34,8 @@ type outbound struct {
 
 const lateReplyTTL = 10 * time.Minute
 
+var errConnLost = errors.New("connection lost")
+
 type lateHook struct {
 	fn func(error)
 	at time.Time
@@ -81,13 +83,13 @@ func (c *rpcConn) callLate(ctx context.Context, method string, params, out any, 
 		c.mu.Unlock()
 	}()
 	if err := c.send(outbound{ID: id, Method: method, Params: params}); err != nil {
-		return fmt.Errorf("%s: %w", method, err)
+		return fmt.Errorf("%s: %w: %w", method, errConnLost, err)
 	}
 	select {
 	case m := <-ch:
 		return decodeReply(method, m, out)
 	case <-c.done:
-		return fmt.Errorf("%s: %w", method, c.closeErr())
+		return fmt.Errorf("%s: %w: %w", method, errConnLost, c.closeErr())
 	case <-ctx.Done():
 		c.mu.Lock()
 		delete(c.pending, id)

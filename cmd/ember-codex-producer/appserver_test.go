@@ -1314,6 +1314,36 @@ func TestAppServer_ALateUnsubscribeSettlesTheThread(t *testing.T) {
 	})
 }
 
+func TestAppServer_ReconnectsWhenTheDaemonDiesMidUnsubscribe(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout = 2 * time.Second
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	f.mu.Lock()
+	f.hangOn, f.hangThread = "thread/unsubscribe", "t1"
+	f.onDrop = func(method, thread string) { go f.close() }
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "disconnect after the daemon dropped mid-unsubscribe", func() bool { return !connected(as)() })
+}
+
+func TestAppServer_PrunesLateSubscriptionsPastTheirTTL(t *testing.T) {
+	as := newAppServer(testAppServerConfig("/nonexistent"))
+	now := time.Now()
+	as.now = func() time.Time { return now }
+	as.lateSubs["old"] = now.Add(-lateReplyTTL - time.Second)
+	as.lateSubs["new"] = now
+	as.tick()
+	if _, old := as.lateSubs["old"]; old || len(as.lateSubs) != 1 {
+		t.Errorf("late subscriptions after a tick: %v, want only the fresh one", as.lateSubs)
+	}
+}
+
 func TestRPCConn_PrunesLateHooksPastTheirTTL(t *testing.T) {
 	c := newRPCConn(nil)
 	now := time.Now()

@@ -91,7 +91,7 @@ type appServer struct {
 	acting       string
 	actingClosed bool
 	lastReleased map[string]bool
-	lateSubs     map[string]bool
+	lateSubs     map[string]time.Time
 	deletes      []string
 	released     []string
 	rate         derived
@@ -122,7 +122,7 @@ func newAppServer(cfg Config) *appServer {
 		ephemeral:   map[string]time.Time{},
 		gone:        map[string]time.Time{},
 		slow:        map[string]*apSlow{},
-		lateSubs:    map[string]bool{},
+		lateSubs:    map[string]time.Time{},
 	}
 }
 
@@ -289,7 +289,7 @@ func (as *appServer) lateReply(id string, subscribed bool) func(error) {
 		case subscribed && cur != nil:
 			cur.subscribed = true
 		case subscribed:
-			as.lateSubs[id] = true
+			as.lateSubs[id] = as.now()
 		case t != nil && cur == t:
 			cur.subscribed, cur.unsure = false, false
 		default:
@@ -322,7 +322,7 @@ func (as *appServer) disconnect() {
 	as.unread = map[string]*apPending{}
 	as.ephemeral = map[string]time.Time{}
 	as.slow = map[string]*apSlow{}
-	as.lateSubs = map[string]bool{}
+	as.lateSubs = map[string]time.Time{}
 	as.acting = ""
 	as.hasRate, as.rate = false, derived{}
 }
@@ -468,6 +468,11 @@ func (as *appServer) recoveredLocked(id string) {
 
 func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, error) {
 	for ctx.Err() == nil {
+		select {
+		case <-c.done:
+			return time.Time{}, c.closeErr()
+		default:
+		}
 		a, retryAt := as.nextAction(time.Now())
 		if a.kind == "" {
 			return retryAt, nil
@@ -520,12 +525,17 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 					t.unsubWait = min(max(2*t.unsubWait, as.slowMin), as.slowMax)
 					t.unsubAt = time.Now().Add(t.unsubWait)
 					wait = t.unsubWait
+				default:
+					t.unsubAt = time.Now().Add(as.retryEvery)
 				}
 			}
 			as.mu.Unlock()
 			if rejected {
 				as.failLog.Warn(slog.Default(), "codex_unsubscribe", "codex app-server rejected an unsubscribe", "thread_id", a.id, "err", err, "retry_in", wait)
 			}
+		}
+		if errors.Is(err, errConnLost) {
+			return time.Time{}, err
 		}
 		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
 			if perr := as.probe(ctx, c); perr != nil {
@@ -593,7 +603,7 @@ func (as *appServer) addThreadLocked(th wireThread) {
 	case "active":
 		as.applyStatusLocked(t, th.Status)
 	}
-	if as.lateSubs[th.ID] {
+	if _, late := as.lateSubs[th.ID]; late {
 		t.unsure = true
 		delete(as.lateSubs, th.ID)
 	}
@@ -947,6 +957,11 @@ func (as *appServer) tick() apTick {
 	for id, at := range as.ephemeral {
 		if now.Sub(at) > ephemeralTTL {
 			delete(as.ephemeral, id)
+		}
+	}
+	for id, at := range as.lateSubs {
+		if now.Sub(at) > lateReplyTTL {
+			delete(as.lateSubs, id)
 		}
 	}
 	for id, at := range as.gone {

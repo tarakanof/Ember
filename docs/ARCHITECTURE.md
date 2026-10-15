@@ -664,9 +664,13 @@ markers still get reaped.
   success) and logs a warning at most every 10 min. A timed-out call's late
   reply still counts: a late resume marks the thread subscribed (or, if the
   thread was closed and is read again, unknown), so it is unsubscribed once
-  more; a late unsubscribe settles it. A hook for a reply that never comes is
-  dropped after 10 min. A previous session's released threads survive failed
-  handshakes, so the first full bootstrap still DELETEs the gone ones.
+  more; a late unsubscribe settles it. Hooks, and stashed late resumes for a
+  thread not read again, are dropped after 10 min: a reply later than that is
+  ignored, and if a later call already settled the thread its subscription
+  stays stray. A call that fails because the connection is gone ends the
+  session at once, so it reconnects; any other failed unsubscribe waits at
+  least 1 s before the retry. A previous session's released threads survive
+  failed handshakes, so the first full bootstrap still DELETEs the gone ones.
   A message over 16 MiB is drained and skipped and the connection stays up.
   It **never starts the daemon**. It
   initializes as `codex_app_server_daemon`: the first client name outside
