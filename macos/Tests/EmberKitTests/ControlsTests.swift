@@ -469,3 +469,48 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     #expect(runner.run("/nonexistent/tool", [], what: "test") == .failed)
     #expect(!runner.isBusy)
 }
+
+@Test func scriptRunnerStopEndsTheRunningProcessGroup() async throws {
+    let log = SignalLog()
+    let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) })
+    let pidFile = scratchFile("pid")
+    defer { try? FileManager.default.removeItem(at: pidFile) }
+    #expect(runner.run("/bin/sh", ["-c", "/bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path], what: "test") == .launched)
+    let grandchild = try await readPid(pidFile)
+    #expect(grandchild > 0)
+    let started = ContinuousClock.now
+    runner.stop()
+    #expect(ContinuousClock.now - started < .seconds(1))
+    for _ in 0..<200 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(grandchild > 0 && !alive(grandchild))
+    #expect(log.signals(SIGTERM).count == 1 && log.signals(SIGTERM).allSatisfy { $0 < 0 })
+    #expect(log.signals(SIGKILL).isEmpty)
+    if alive(grandchild) { kill(grandchild, SIGKILL) }
+}
+
+@Test func scriptRunnerStopKillsAGroupThatIgnoresTerm() async throws {
+    let log = SignalLog()
+    let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) })
+    let pidFile = scratchFile("pid")
+    defer { try? FileManager.default.removeItem(at: pidFile) }
+    #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path],
+                       what: "test") == .launched)
+    let grandchild = try await readPid(pidFile)
+    #expect(grandchild > 0)
+    let started = ContinuousClock.now
+    runner.stop(grace: .milliseconds(200))
+    #expect(ContinuousClock.now - started < .seconds(1))
+    for _ in 0..<200 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(grandchild > 0 && !alive(grandchild))
+    #expect(log.signals(SIGKILL).count == 1 && log.signals(SIGKILL).allSatisfy { $0 < 0 })
+    if alive(grandchild) { kill(grandchild, SIGKILL) }
+}
+
+@Test func scriptRunnerRefusesScriptsOnceStopped() {
+    let log = SignalLog()
+    let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) })
+    runner.stop()
+    #expect(runner.run("/bin/sleep", ["30"], what: "test") == .failed)
+    #expect(!runner.isBusy)
+    #expect(log.signals(SIGTERM).isEmpty && log.signals(SIGKILL).isEmpty)
+}

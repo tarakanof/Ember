@@ -64,6 +64,13 @@ final class KnobControlsService {
         apply()
     }
 
+    func shutdown() {
+        refresher?.cancel()
+        listener.stop()
+        listening = false
+        MacControlsExecutor.stopScripts()
+    }
+
     func refreshEventAccess() {
         eventAccess = CGPreflightPostEventAccess()
     }

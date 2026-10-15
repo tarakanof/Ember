@@ -2314,10 +2314,16 @@ is the Mac side; the knob page (`controls`, C2) does not exist yet.
   (`kill(-pid, …)`; Foundation's `Process` starts each child as its own
   group leader, which a test pins), so grandchildren left by `do shell
   script` die too. It then probes the group every 50 ms (`kill(-pid, 0)`)
-  and sends SIGKILL 1 s later only if the group still exists. The residual
-  risk is the up to 50 ms between the last probe and the SIGKILL: the group
-  could empty and a new group leader take the same number only after a full
-  pid wrap in that window, which is accepted. Killing `shortcuts run` only
+  and sends SIGKILL 1 s later only if the group still exists. The SIGKILL
+  follows the last probe immediately, so the residual risk is the
+  microseconds between them: the group could empty and a new group leader
+  take the same number only after a full pid wrap in that window, which is
+  accepted. On quit (`applicationWillTerminate` →
+  `KnobControlsService.shutdown()`) the listener stops and the runner's
+  `stop()` sends SIGTERM to the running group, probes it every 10 ms and
+  sends SIGKILL after 500 ms if it is still there, blocking the quit for
+  at most that long; the runner then refuses new scripts (outcome
+  `failed`), and a script launched in the same instant is killed at once. Killing `shortcuts run` only
   stops the CLI: the shortcut itself most likely keeps running in the
   Shortcuts engine (not verified on a device), and the runner is free again,
   so a shortcut that runs past 10 s can overlap the next one (at most one
@@ -2333,6 +2339,11 @@ is the Mac side; the knob page (`controls`, C2) does not exist yet.
   again for cancellation, the target and the slot's mapping (a slot edited
   meanwhile is dropped as stale). CoreAudio volume calls and `Process.run`
   therefore run on the main thread; a script is spawned, never awaited.
+  A CoreAudio call can stall for hundreds of ms while coreaudiod restarts or
+  the output switches to Bluetooth or AirPlay, which would freeze the menu
+  bar; not seen so far (#525). If it shows, keep the target and mapping
+  checks on main and move only the CoreAudio calls to a private serial
+  queue.
   Posting events (media keys, scroll) needs Accessibility: the executor only
   checks `CGPreflightPostEventAccess` and skips (logged once); the prompt
   (`CGRequestPostEventAccess`) is the Settings › Knob › Pages › Controls

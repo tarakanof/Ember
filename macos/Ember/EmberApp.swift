@@ -100,6 +100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                        name: NSWindow.willCloseNotification, object: nil)
     }
 
+    func applicationWillTerminate(_ note: Notification) {
+        env.knobControls.shutdown()
+    }
+
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         DockMenu.make(env: env)
     }
