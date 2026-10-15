@@ -6,6 +6,7 @@ public enum ScriptLaunch: Equatable, Sendable { case launched, busy, failed }
 public final class ScriptProcessRunner: @unchecked Sendable {
     typealias Signal = @Sendable (pid_t, Int32) -> Int32
     typealias Launch = @Sendable (Process) throws -> Void
+    typealias Pause = @Sendable (Duration) -> Void
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "controls")
     static let killGrace: Duration = .seconds(1)
@@ -29,6 +30,7 @@ public final class ScriptProcessRunner: @unchecked Sendable {
     private let timeout: Duration
     private let signal: Signal
     private let launch: Launch
+    private let pause: Pause
     private let state = NSCondition()
     private var running: Process?
     private var launching = false
@@ -40,10 +42,12 @@ public final class ScriptProcessRunner: @unchecked Sendable {
         self.init(timeout: timeout, signal: { kill($0, $1) })
     }
 
-    init(timeout: Duration, signal: @escaping Signal, launch: @escaping Launch = { try $0.run() }) {
+    init(timeout: Duration, signal: @escaping Signal, launch: @escaping Launch = { try $0.run() },
+         pause: @escaping Pause = { Thread.sleep(forTimeInterval: ScriptProcessRunner.seconds($0)) }) {
         self.timeout = timeout
         self.signal = signal
         self.launch = launch
+        self.pause = pause
     }
 
     public var isBusy: Bool { state.withLock { running != nil } }
@@ -134,11 +138,13 @@ public final class ScriptProcessRunner: @unchecked Sendable {
             taken.values.forEach { $0.cancel() }
             return taken
         }
-        var pending = snapshot.filter { deliver(SIGTERM, to: $0.key, of: $0.value.leader) }
+        var pending = snapshot.filter {
+            !gone($0.key, $0.value.leader) && deliver(SIGTERM, to: $0.key, of: $0.value.leader)
+        }
         while true {
             pending = pending.filter { !gone($0.key, $0.value.leader) }
             if pending.isEmpty || clock.now >= deadline { break }
-            Thread.sleep(forTimeInterval: Self.seconds(min(Self.shutdownPoll, deadline - clock.now)))
+            pause(min(Self.shutdownPoll, deadline - clock.now))
         }
         for (group, entry) in pending { _ = deliver(SIGKILL, to: group, of: entry.leader) }
     }

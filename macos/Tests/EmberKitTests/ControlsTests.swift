@@ -289,12 +289,15 @@ private final class SignalLog: @unchecked Sendable {
         lock.withLock { sent.append((pid, sig, at)) }
         return kill(pid, sig)
     }
+    func pause(_ d: Duration) {
+        lock.withLock { sent.append((0, -1, ContinuousClock.now)) }
+        Thread.sleep(forTimeInterval: Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18)
+    }
     func signals(_ sig: Int32) -> [pid_t] { lock.withLock { sent.filter { $0.sig == sig }.map(\.pid) } }
-    func gapBeforeKill(of pid: pid_t) -> Duration? {
+    func eventBeforeKill(of pid: pid_t) -> (pid: pid_t, sig: Int32)? {
         lock.withLock {
-            guard let k = sent.firstIndex(where: { $0.sig == SIGKILL && $0.pid == pid }),
-                  let probe = sent[..<k].lastIndex(where: { $0.sig == 0 && $0.pid == pid }) else { return nil }
-            return sent[k].at - sent[probe].at
+            guard let k = sent.firstIndex(where: { $0.sig == SIGKILL && $0.pid == pid }), k > 0 else { return nil }
+            return (sent[k - 1].pid, sent[k - 1].sig)
         }
     }
 }
@@ -537,7 +540,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 
 @Test func scriptRunnerShutdownKillsAGroupThatIgnoresTerm() async throws {
     let log = SignalLog()
-    let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) })
+    let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) }, pause: { log.pause($0) })
     defer { runner.shutdown(grace: .zero) }
     let pidFile = scratchFile("pid")
     defer { try? FileManager.default.removeItem(at: pidFile) }
@@ -552,8 +555,8 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     #expect(grandchild > 0 && !alive(grandchild))
     #expect(log.signals(SIGKILL).count == 1 && log.signals(SIGKILL).allSatisfy { $0 < 0 })
     let group = log.signals(SIGKILL).first ?? 0
-    let gap = log.gapBeforeKill(of: group)
-    #expect(gap != nil && gap! < .milliseconds(8))
+    let before = log.eventBeforeKill(of: group)
+    #expect(before?.pid == group && before?.sig == 0)
     if alive(grandchild) { kill(grandchild, SIGKILL) }
 }
 
@@ -572,14 +575,19 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     let gate = LaunchGate()
     let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) }, launch: { try gate.launch($0) })
     defer { runner.shutdown(grace: .zero) }
+    defer { gate.release() }
     async let launched = offMain { runner.run("/bin/sleep", ["30"], what: "test") }
     await offMain { gate.waitEntered() }
     let done = Flag()
     async let stopped: Void = offMain {
-        runner.shutdown(grace: .seconds(2))
+        runner.shutdown(grace: .seconds(5))
         done.set()
     }
-    try await Task.sleep(for: .milliseconds(200))
+    for _ in 0..<1000 where runner.run("/usr/bin/true", [], what: "probe") != .failed {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(runner.run("/usr/bin/true", [], what: "probe") == .failed)
+    try await Task.sleep(for: .milliseconds(100))
     #expect(!done.isSet)
     gate.release()
     await stopped
