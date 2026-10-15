@@ -791,7 +791,7 @@ carries only the scopes it was minted with:
 | `ingest` | `POST`/`DELETE /v1/status`, `POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire` |
 | `control` | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` |
 | `read` | the non-secret settings reads: `GET /v1/{apps,pomodoro/config,usage/config,display/config,brightness/config,quiet/config,clock/stats}` (weather and meetings config hold a location or a calendar URL: `admin` only) |
-| `admin` | every route `EMBER_TOKEN` passes under `/v1/`, except minting any token and rotating or deleting client tokens (master only, so a leaked client can't outlive its revocation) |
+| `admin` | every route `EMBER_TOKEN` passes under `/v1/`, except these master-only ones (403 for every client token): minting any token and rotating or deleting client tokens (so a leaked client can't outlive its revocation), and Ember.app's command queues `GET /v1/nowplaying/commands`, `GET /v1/controls/commands` and `PUT /v1/controls/config` (so a client can't drain a Mac's commands or pose as a listening Mac) |
 
 Public reads (`/state`, `/v1/*/state`, previews, dashboard reads) need no
 token. A missing or unknown token is 401; a client token without the scope is
