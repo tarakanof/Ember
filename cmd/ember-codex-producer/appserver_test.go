@@ -33,6 +33,8 @@ type fakeAppServer struct {
 	beforeRead     func(id string)
 	hang           bool
 	hangOn         string
+	hangThread     string
+	hangProbes     bool
 	dropped        []map[string]any
 	pageDelay      time.Duration
 	endlessPages   bool
@@ -51,12 +53,20 @@ func shortSockDir(t *testing.T) string {
 
 func newFakeAppServer(t *testing.T, path string) *fakeAppServer {
 	t.Helper()
+	return newFakeAppServerWith(t, path, nil)
+}
+
+func newFakeAppServerWith(t *testing.T, path string, setup func(*fakeAppServer)) *fakeAppServer {
+	t.Helper()
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f := &fakeAppServer{t: t, path: path, ln: ln, threads: map[string]map[string]any{}, replied: map[string]int{}}
 	t.Cleanup(f.close)
+	if setup != nil {
+		setup(f)
+	}
 	go f.accept()
 	return f
 }
@@ -116,7 +126,8 @@ func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 	p, _ := params.(map[string]any)
 	f.mu.Lock()
 	hook := f.beforeRead
-	if f.hang || f.hangOn == method {
+	thread, _ := p["threadId"].(string)
+	if f.hang || f.hangOn == method && (f.hangThread == "" || f.hangThread == thread) || f.hangProbes && isProbe(map[string]any{"method": method, "params": params}) {
 		f.dropped = append(f.dropped, map[string]any{"method": method, "params": params})
 		f.mu.Unlock()
 		return
@@ -171,6 +182,9 @@ func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 	}
 	f.mu.Lock()
 	f.replied[method]++
+	if isProbe(map[string]any{"method": method, "params": params}) {
+		f.replied["probe"]++
+	}
 	f.mu.Unlock()
 }
 
@@ -810,16 +824,42 @@ func TestAppServer_BootstrapDeadlineBoundsABlockedWrite(t *testing.T) {
 	waitFor(t, "reconnect attempt", func() bool { return len(f.calls("initialize")) >= 2 })
 }
 
-func TestAppServer_ReconnectsWhenAThreadReadHangs(t *testing.T) {
+func TestAppServer_ReconnectsWhenAThreadReadAndTheProbeHang(t *testing.T) {
 	sock := filepath.Join(shortSockDir(t), "s.sock")
 	f := newFakeAppServer(t, sock)
 	f.addThread("t1", "cli", active(), nil)
 	f.loaded = []string{"t1"}
-	f.hangOn = "thread/read"
+	f.hangOn, f.hangProbes = "thread/read", true
 	as := newAppServer(testAppServerConfig(sock))
-	as.callTimeout = 50 * time.Millisecond
+	as.callTimeout, as.liveTimeout = 50*time.Millisecond, 50*time.Millisecond
 	startAppServerWith(t, as)
 	waitFor(t, "reconnect attempt", func() bool { return len(f.calls("initialize")) >= 2 })
+	if f.droppedProbes() == 0 {
+		t.Error("reconnected without an unanswered liveness probe")
+	}
+}
+
+func TestAppServer_SkipsASlowThreadOnALiveDaemon(t *testing.T) {
+	for _, method := range []string{"thread/read", "thread/resume"} {
+		t.Run(method, func(t *testing.T) {
+			sock := filepath.Join(shortSockDir(t), "s.sock")
+			f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
+				f.addThread("t1", "cli", active(), nil)
+				f.addThread("t2", "cli", active(), nil)
+				f.loaded = []string{"t1", "t2"}
+				f.hangOn, f.hangThread = method, "t1"
+			})
+			as := newAppServer(testAppServerConfig(sock))
+			as.callTimeout = 50 * time.Millisecond
+			startAppServerWith(t, as)
+			waitFor(t, "t2 subscribed and a probe answered after the slow call", func() bool {
+				return subscribed(as, "t2")() && f.replies("probe") >= 1
+			})
+			if n := len(f.calls("initialize")); n != 1 {
+				t.Errorf("%d initialize calls, want 1: a slow call on a live daemon must not reconnect", n)
+			}
+		})
+	}
 }
 
 func TestAppServer_KeepsReleasedThreadsAcrossAFailedBootstrap(t *testing.T) {
@@ -839,10 +879,7 @@ func TestAppServer_KeepsReleasedThreadsAcrossAFailedBootstrap(t *testing.T) {
 	}
 	_ = os.Remove(sock)
 
-	f2 := newFakeAppServer(t, sock)
-	f2.mu.Lock()
-	f2.hangOn = "thread/loaded/list"
-	f2.mu.Unlock()
+	f2 := newFakeAppServerWith(t, sock, func(f *fakeAppServer) { f.hangOn = "thread/loaded/list" })
 	waitFor(t, "a failed bootstrap", func() bool { return len(f2.calls("initialize")) >= 2 })
 	f2.mu.Lock()
 	f2.hangOn = ""

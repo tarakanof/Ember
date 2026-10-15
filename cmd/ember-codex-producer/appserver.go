@@ -310,11 +310,15 @@ func (as *appServer) worker(ctx context.Context, c *rpcConn) error {
 		default:
 		}
 		if check {
-			if err := as.callFor(ctx, c, as.liveTimeout, "thread/loaded/list", map[string]any{"limit": 1}, nil); err != nil {
+			if err := as.probe(ctx, c); err != nil {
 				return fmt.Errorf("daemon not answering: %w", err)
 			}
 		}
 	}
+}
+
+func (as *appServer) probe(ctx context.Context, c *rpcConn) error {
+	return as.callFor(ctx, c, as.liveTimeout, "thread/loaded/list", map[string]any{"limit": 1}, nil)
 }
 
 type apAction struct {
@@ -391,7 +395,10 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			as.mu.Unlock()
 		}
 		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
-			return time.Time{}, err
+			if perr := as.probe(ctx, c); perr != nil {
+				return time.Time{}, fmt.Errorf("%w; probe: %w", err, perr)
+			}
+			as.failLog.Warn(slog.Default(), "codex_appserver_slow_call", "codex app-server call timed out on a live daemon", "action", a.kind, "thread_id", a.id)
 		}
 	}
 	return time.Time{}, nil
