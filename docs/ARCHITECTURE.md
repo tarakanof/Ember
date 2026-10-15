@@ -647,9 +647,10 @@ markers still get reaped.
   about 40 s. If it answers, only that thread is quarantined (an unsubscribe
   timeout too): no read or resume for it for 1 min, doubling on each further
   timeout up to 10 min and starting again at 1 min after 10 quiet minutes
-  past the last one. A read or resume that succeeds, the thread closing, or a
-  reconnect clears it; the first timeout of a quarantine logs a warning, the
-  rest log at debug. Other threads are read and subscribed as usual
+  past the last one. A read or resume that succeeds resets the backoff to
+  1 min; the thread closing (even mid-call) or a reconnect drops the
+  quarantine. Only the first timeout after 10 quiet minutes logs a warning,
+  the rest log at debug. Other threads are read and subscribed as usual
   meanwhile, and a quarantined thread whose read is queued again stays with
   the rollout watcher instead of being held back. So one reliably slow thread
   on a healthy daemon neither forces a reconnect every 31 s (churning the

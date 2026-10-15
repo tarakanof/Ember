@@ -85,6 +85,8 @@ type appServer struct {
 	ephemeral    map[string]time.Time
 	gone         map[string]time.Time
 	slow         map[string]*apSlow
+	acting       string
+	actingClosed bool
 	lastReleased map[string]bool
 	deletes      []string
 	released     []string
@@ -284,6 +286,7 @@ func (as *appServer) disconnect() {
 	as.unread = map[string]*apPending{}
 	as.ephemeral = map[string]time.Time{}
 	as.slow = map[string]*apSlow{}
+	as.acting = ""
 	as.hasRate, as.rate = false, derived{}
 }
 
@@ -355,6 +358,7 @@ func (as *appServer) nextAction(now time.Time) (a apAction, retryAt time.Time) {
 			continue
 		}
 		p.inflight = true
+		as.acting, as.actingClosed = id, false
 		return apAction{"read", id}, time.Time{}
 	}
 	for id, t := range as.threads {
@@ -368,8 +372,10 @@ func (as *appServer) nextAction(now time.Time) (a apAction, retryAt time.Time) {
 				later(at)
 				continue
 			}
+			as.acting, as.actingClosed = id, false
 			return apAction{"resume", id}, time.Time{}
 		case !t.busy && t.subscribed:
+			as.acting, as.actingClosed = id, false
 			return apAction{"unsubscribe", id}, time.Time{}
 		}
 	}
@@ -383,24 +389,36 @@ func (as *appServer) slowUntilLocked(id string, now time.Time) time.Time {
 	return time.Time{}
 }
 
-func (as *appServer) quarantine(id string) (wait time.Duration, fresh bool) {
+func (as *appServer) quarantine(id string) (wait time.Duration, fresh, ok bool) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
+	if as.acting == id && as.actingClosed {
+		return 0, false, false
+	}
 	now := time.Now()
 	s := as.slow[id]
 	switch {
 	case s == nil:
-		s = &apSlow{backoff: as.slowMin}
+		s = &apSlow{}
 		as.slow[id] = s
 		fresh = true
 	case now.After(s.until.Add(as.slowMax)):
-		s.backoff = as.slowMin
+		s.backoff = 0
 		fresh = true
-	default:
+	}
+	if s.backoff == 0 {
+		s.backoff = as.slowMin
+	} else {
 		s.backoff = min(2*s.backoff, as.slowMax)
 	}
 	s.until = now.Add(s.backoff)
-	return s.backoff, fresh
+	return s.backoff, fresh, true
+}
+
+func (as *appServer) recoveredLocked(id string) {
+	if s := as.slow[id]; s != nil {
+		s.backoff = 0
+	}
 }
 
 func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, error) {
@@ -420,7 +438,7 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			p := as.unread[a.id]
 			delete(as.unread, a.id)
 			if err == nil {
-				delete(as.slow, a.id)
+				as.recoveredLocked(a.id)
 			}
 			if err == nil && p != nil && !p.closed {
 				as.addThreadLocked(res.Thread)
@@ -435,7 +453,7 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			if t := as.threads[a.id]; t != nil {
 				if err == nil {
 					t.subscribed = true
-					delete(as.slow, a.id)
+					as.recoveredLocked(a.id)
 				} else {
 					t.resumeAt = time.Now().Add(as.retryEvery)
 				}
@@ -453,13 +471,17 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			if perr := as.probe(ctx, c); perr != nil {
 				return time.Time{}, fmt.Errorf("%w; probe: %w", err, perr)
 			}
-			level := slog.LevelDebug
-			wait, fresh := as.quarantine(a.id)
-			if fresh {
-				level = slog.LevelWarn
+			if wait, fresh, ok := as.quarantine(a.id); ok {
+				level := slog.LevelDebug
+				if fresh {
+					level = slog.LevelWarn
+				}
+				slog.Log(ctx, level, "codex app-server call timed out on a live daemon", "action", a.kind, "thread_id", a.id, "retry_in", wait)
 			}
-			slog.Log(ctx, level, "codex app-server call timed out on a live daemon", "action", a.kind, "thread_id", a.id, "retry_in", wait)
 		}
+		as.mu.Lock()
+		as.acting = ""
+		as.mu.Unlock()
 	}
 	return time.Time{}, nil
 }
@@ -558,6 +580,9 @@ func (as *appServer) closeLocked(id string) {
 	}
 	delete(as.ephemeral, id)
 	delete(as.slow, id)
+	if id == as.acting {
+		as.actingClosed = true
+	}
 	if t == nil {
 		return
 	}

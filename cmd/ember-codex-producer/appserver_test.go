@@ -36,6 +36,7 @@ type fakeAppServer struct {
 	hangThread     string
 	hangProbes     bool
 	probeDelay     time.Duration
+	onDrop         func(method, thread string)
 	dropped        []map[string]any
 	pageDelay      time.Duration
 	endlessPages   bool
@@ -130,7 +131,11 @@ func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 	thread, _ := p["threadId"].(string)
 	if f.hang || f.hangOn == method && (f.hangThread == "" || f.hangThread == thread) || f.hangProbes && isProbe(map[string]any{"method": method, "params": params}) {
 		f.dropped = append(f.dropped, map[string]any{"method": method, "params": params, "at": time.Now()})
+		onDrop := f.onDrop
 		f.mu.Unlock()
+		if onDrop != nil {
+			onDrop(method, thread)
+		}
 		return
 	}
 	delay, endless, probeDelay := f.pageDelay, f.endlessPages, f.probeDelay
@@ -954,14 +959,61 @@ func TestAppServer_QuarantineBackoffDecaysAfterAQuietPeriod(t *testing.T) {
 	as := newAppServer(testAppServerConfig("/nonexistent"))
 	as.slowMin, as.slowMax = time.Minute, 4*time.Minute
 	for _, want := range []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 4 * time.Minute} {
-		if got, _ := as.quarantine("t1"); got != want {
+		if got, _, _ := as.quarantine("t1"); got != want {
 			t.Fatalf("backoff %v, want %v", got, want)
 		}
 	}
 	as.slow["t1"].until = time.Now().Add(-as.slowMax - time.Second)
-	if got, fresh := as.quarantine("t1"); got != as.slowMin || !fresh {
+	if got, fresh, _ := as.quarantine("t1"); got != as.slowMin || !fresh {
 		t.Errorf("after a quiet period: backoff %v fresh %v, want %v and a fresh quarantine", got, fresh, as.slowMin)
 	}
+}
+
+func TestAppServer_RecoveryResetsTheBackoffButKeepsTheEpisode(t *testing.T) {
+	as := newAppServer(testAppServerConfig("/nonexistent"))
+	as.slowMin, as.slowMax = time.Minute, 4*time.Minute
+	as.quarantine("t1")
+	as.quarantine("t1")
+	as.mu.Lock()
+	as.recoveredLocked("t1")
+	as.mu.Unlock()
+	if got, fresh, _ := as.quarantine("t1"); got != as.slowMin || fresh {
+		t.Errorf("slow again after a success: backoff %v fresh %v, want %v and the same episode (no new warning)", got, fresh, as.slowMin)
+	}
+}
+
+func TestAppServer_AThreadClosedDuringItsSlowCallIsNotQuarantined(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.hangOn, fs.hangThread = "thread/resume", "t1"
+		fs.onDrop = func(method, thread string) {
+			go fs.notify("thread/closed", map[string]any{"threadId": thread})
+		}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout = 50 * time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "the slow resume and its probe", func() bool {
+		return len(f.droppedCalls("thread/resume", "t1")) == 1 && f.replies("probe") >= 1
+	})
+	f.addThread("t2", "cli", active(), nil)
+	f.mu.Lock()
+	f.hangOn = ""
+	t1, t2 := f.threads["t1"], f.threads["t2"]
+	f.mu.Unlock()
+	f.notify("thread/started", map[string]any{"thread": t2})
+	waitFor(t, "t2 subscribed", subscribed(as, "t2"))
+	as.mu.Lock()
+	leaked := as.slow["t1"] != nil
+	as.mu.Unlock()
+	if leaked {
+		t.Error("a thread closed during its slow call was quarantined")
+	}
+	f.notify("thread/started", map[string]any{"thread": t1})
+	waitFor(t, "the restarted t1 subscribed", subscribed(as, "t1"))
 }
 
 func TestAppServer_KeepsReleasedThreadsAcrossAFailedBootstrap(t *testing.T) {
