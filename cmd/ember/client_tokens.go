@@ -39,11 +39,15 @@ type clientCaller struct {
 
 // A leaked client must not outlive its own revocation, so a client token (even admin) can never manage clients.
 func (a *App) requireMasterForClients(w http.ResponseWriter, r *http.Request) bool {
+	return a.masterOnly(w, r, errMasterRequired)
+}
+
+func (a *App) masterOnly(w http.ResponseWriter, r *http.Request, err error) bool {
 	if _, isClient := r.Context().Value(clientCallerKey{}).(clientCaller); !isClient {
 		return true
 	}
 	a.logger.InfoContext(r.Context(), "auth scope denied", "reason", "master_required", "path", r.URL.Path, "method", r.Method)
-	writeError(w, http.StatusForbidden, errMasterRequired)
+	writeError(w, http.StatusForbidden, err)
 	return false
 }
 

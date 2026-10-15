@@ -3090,9 +3090,11 @@ paths:
     get:
       tags: [nowplaying]
       operationId: getNowPlayingCommands
-      summary: Ember.app's long-poll for player commands
+      summary: Ember.app's long-poll for player commands (`?player=&wait=≤25`)
+      description: Master token only; every client token, `admin` included, gets 403.
       x-internal: true
-      security: [{ownerToken: []}, {clientToken: [admin]}]
+      x-master-only: true
+      security: [{ownerToken: []}]
       responses:
         "200":
           $ref: "#/components/responses/Object"

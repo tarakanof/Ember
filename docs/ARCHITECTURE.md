@@ -2201,7 +2201,7 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     per-player queue (`commandQueue`, at most 8, coalescing consecutive
     volume steps, dropped after 5 s so a late "next" never fires) that
     Ember.app long-polls with `GET /v1/nowplaying/commands?player=&wait=≤25`
-    (request budget `.clockLong`, 35 s to the first byte, above that wait; master token; delivery at most once; each command carries `age_ms`,
+    (request budget `.clockLong`, 35 s to the first byte, above that wait; master token only, every client token 403; delivery at most once; each command carries `age_ms`,
     its wait here, and the app drops one older than 5 s in all). A Mac
     counts as listening while a poll waits and 30 s after one; otherwise
     the control answers 503. The app sends Apple Events to the running

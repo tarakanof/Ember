@@ -468,3 +468,26 @@ func TestKnobBurstIsNotChargedPerIP(t *testing.T) {
 		t.Fatal("failed tokens were never limited")
 	}
 }
+
+func TestNowPlayingCommandsIsMasterOnly(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	app.updateConfig(func(c *Config) { c.RateLimit.Disabled = true })
+	knob := mintKnob(t, srv, http.StatusCreated)
+	admin := mintClient(t, srv, "admin", scopeAdmin)
+	playMusic(t, app, "M4")
+	pollCommands(t, srv, "M4", 0)
+	if code, _, b := control(t, srv, testToken, `{"action":"next"}`, ""); code != http.StatusAccepted {
+		t.Fatalf("queue one: %d %s", code, b)
+	}
+	for _, c := range []struct {
+		name, token string
+		want        int
+	}{{"none", "", 401}, {"wrong", "wrong", 401}, {"knob", knob.Token, 401}, {"admin client", admin.Token, 403}} {
+		if resp, b := npDo(t, srv, "GET", "/v1/nowplaying/commands?player=M4&wait=0", c.token, nil, nil); resp.StatusCode != c.want {
+			t.Errorf("as %s: %d %s, want %d", c.name, resp.StatusCode, b, c.want)
+		}
+	}
+	if got := pollCommands(t, srv, "M4", 0); len(got) != 1 || got[0].Action != actNext {
+		t.Fatalf("a rejected poll drained the queue: %+v", got)
+	}
+}
