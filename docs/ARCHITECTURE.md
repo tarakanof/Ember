@@ -659,7 +659,10 @@ markers still get reaped.
   out by its quarantine. A timed-out resume or unsubscribe leaves the
   daemon's subscription unknown (a late resume still subscribes; a lost
   unsubscribe keeps it), so once that thread is idle it is unsubscribed again
-  after its quarantine, until the daemon answers (#523). A previous session's released threads survive failed
+  after its quarantine until an unsubscribe succeeds; a rejected one is
+  retried with the same backoff. A timed-out call's late reply still counts:
+  a resume that lands after the cleanup marks the thread subscribed again, so
+  it is unsubscribed once more (#523). A previous session's released threads survive failed
   handshakes, so the first full bootstrap still DELETEs the gone ones.
   A message over 16 MiB is drained and skipped and the connection stays up.
   It **never starts the daemon**. It

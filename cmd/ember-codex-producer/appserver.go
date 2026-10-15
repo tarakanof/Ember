@@ -264,6 +264,29 @@ func (as *appServer) call(ctx context.Context, c *rpcConn, method string, params
 	return as.callFor(ctx, c, as.callTimeout, method, params, out)
 }
 
+func (as *appServer) callLate(ctx context.Context, c *rpcConn, method string, params any, onLate func(error)) error {
+	cctx, cancel := context.WithTimeout(ctx, as.callTimeout)
+	defer cancel()
+	return c.callLate(cctx, method, params, nil, onLate)
+}
+
+func (as *appServer) lateReply(id string, subscribed bool) func(error) {
+	as.mu.Lock()
+	t := as.threads[id]
+	as.mu.Unlock()
+	return func(err error) {
+		if err != nil {
+			return
+		}
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		if t != nil && as.threads[id] == t {
+			t.subscribed = subscribed
+			as.wake()
+		}
+	}
+}
+
 func (as *appServer) callFor(ctx context.Context, c *rpcConn, d time.Duration, method string, params, out any) error {
 	cctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
@@ -453,7 +476,7 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			}
 			as.mu.Unlock()
 		case "resume":
-			err = as.call(ctx, c, "thread/resume", map[string]any{"threadId": a.id, "excludeTurns": true}, nil)
+			err = as.callLate(ctx, c, "thread/resume", map[string]any{"threadId": a.id, "excludeTurns": true}, as.lateReply(a.id, true))
 			as.mu.Lock()
 			if t := as.threads[a.id]; t != nil {
 				if err == nil {
@@ -466,12 +489,16 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			}
 			as.mu.Unlock()
 		case "unsubscribe":
-			err = as.call(ctx, c, "thread/unsubscribe", map[string]any{"threadId": a.id}, nil)
+			err = as.callLate(ctx, c, "thread/unsubscribe", map[string]any{"threadId": a.id}, as.lateReply(a.id, false))
 			as.mu.Lock()
 			if t := as.threads[a.id]; t != nil {
-				t.subscribed, t.unsure = false, errors.Is(err, context.DeadlineExceeded)
+				t.subscribed, t.unsure = false, err != nil
 			}
 			as.mu.Unlock()
+			var rerr *rpcError
+			if errors.As(err, &rerr) {
+				as.quarantine(a.id)
+			}
 		}
 		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
 			if perr := as.probe(ctx, c); perr != nil {

@@ -41,6 +41,8 @@ type fakeAppServer struct {
 	pageDelay      time.Duration
 	endlessPages   bool
 	lateBy         time.Duration
+	lateGate       chan struct{}
+	unsubFailures  int
 	subs           map[string]bool
 }
 
@@ -133,13 +135,16 @@ func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 	thread, _ := p["threadId"].(string)
 	if f.hang || f.hangOn == method && (f.hangThread == "" || f.hangThread == thread) || f.hangProbes && isProbe(map[string]any{"method": method, "params": params}) {
 		f.dropped = append(f.dropped, map[string]any{"method": method, "params": params, "at": time.Now()})
-		onDrop, late := f.onDrop, f.lateBy
+		onDrop, late, gate := f.onDrop, f.lateBy, f.lateGate
 		f.mu.Unlock()
 		if onDrop != nil {
 			onDrop(method, thread)
 		}
-		if late > 0 {
+		if late > 0 || gate != nil {
 			go func() {
+				if gate != nil {
+					<-gate
+				}
 				time.Sleep(late)
 				f.reply(ws, id, method, p)
 			}()
@@ -188,8 +193,13 @@ func (f *fakeAppServer) reply(ws *wsConn, id any, method string, p map[string]an
 			f.subs[p["threadId"].(string)] = true
 		}
 	case "thread/unsubscribe":
-		result = map[string]any{"status": "unsubscribed"}
-		delete(f.subs, p["threadId"].(string))
+		if f.unsubFailures > 0 {
+			f.unsubFailures--
+			rpcErr = map[string]any{"code": -32603, "message": "internal error"}
+		} else {
+			result = map[string]any{"status": "unsubscribed"}
+			delete(f.subs, p["threadId"].(string))
+		}
 	default:
 		result = map[string]any{}
 	}
@@ -1051,9 +1061,6 @@ func TestAppServer_UnsubscribesAResumeThatLandedAfterItsTimeout(t *testing.T) {
 	waitFor(t, "the timed-out resume landing late", func() bool {
 		return len(f.droppedCalls("thread/resume", "t1")) >= 1 && f.replies("thread/resume") >= 1
 	})
-	if subscribed(as, "t1")() {
-		t.Fatal("a timed-out resume counted as a subscription")
-	}
 	f.mu.Lock()
 	f.hangOn = ""
 	f.mu.Unlock()
@@ -1064,31 +1071,97 @@ func TestAppServer_UnsubscribesAResumeThatLandedAfterItsTimeout(t *testing.T) {
 	}
 }
 
+func unsure(as *appServer, id string) bool {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	th := as.threads[id]
+	return th != nil && th.unsure
+}
+
 func TestAppServer_RetriesAnUnsubscribeThatTimedOut(t *testing.T) {
 	sock := filepath.Join(shortSockDir(t), "s.sock")
-	f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
-		f.addThread("t1", "cli", active(), nil)
-		f.loaded = []string{"t1"}
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.onDrop = func(method, thread string) {
+			fs.mu.Lock()
+			fs.hangOn = ""
+			fs.mu.Unlock()
+		}
 	})
 	as := newAppServer(testAppServerConfig(sock))
 	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
-	as.slowMin, as.slowMax = 150*time.Millisecond, 300*time.Millisecond
+	as.slowMin, as.slowMax = 50*time.Millisecond, 100*time.Millisecond
 	startAppServerWith(t, as)
 	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
 	f.mu.Lock()
 	f.hangOn, f.hangThread = "thread/unsubscribe", "t1"
 	f.mu.Unlock()
 	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
-	waitFor(t, "the timed-out unsubscribe and its probe", func() bool {
-		return len(f.droppedCalls("thread/unsubscribe", "t1")) == 1 && f.replies("probe") >= 1
-	})
-	f.mu.Lock()
-	f.hangOn = ""
-	f.mu.Unlock()
 	waitFor(t, "the daemon's t1 subscription dropped", func() bool { return !f.subscribedTo("t1") })
 	if n := len(f.droppedCalls("thread/unsubscribe", "t1")); n != 1 {
-		t.Errorf("unsubscribe timed out %d times, want 1: the retry must wait out the quarantine", n)
+		t.Errorf("unsubscribe timed out %d times, want 1", n)
 	}
+}
+
+func TestAppServer_RetriesCleanupThatTheDaemonRejected(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.onDrop = func(method, thread string) {
+			fs.mu.Lock()
+			fs.hangOn, fs.unsubFailures = "", 1
+			fs.mu.Unlock()
+		}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+	as.slowMin, as.slowMax = 30*time.Millisecond, 60*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	f.mu.Lock()
+	f.hangOn, f.hangThread = "thread/unsubscribe", "t1"
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "a rejected cleanup retried until the daemon's t1 subscription dropped", func() bool {
+		return !f.subscribedTo("t1") && f.replies("thread/unsubscribe") >= 2
+	})
+	if n := len(f.droppedCalls("thread/unsubscribe", "t1")); n != 1 {
+		t.Errorf("unsubscribe timed out %d times, want 1", n)
+	}
+	waitFor(t, "t1 settled", func() bool { return !unsure(as, "t1") })
+}
+
+func TestAppServer_UnsubscribesAResumeThatLandsAfterCleanup(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	gate := make(chan struct{})
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.hangOn, fs.hangThread, fs.lateGate = "thread/resume", "t1", gate
+		fs.onDrop = func(method, thread string) {
+			fs.mu.Lock()
+			fs.hangOn = ""
+			fs.mu.Unlock()
+		}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+	as.slowMin, as.slowMax = 30*time.Millisecond, 60*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "the timed-out resume and its probe", func() bool {
+		return len(f.droppedCalls("thread/resume", "t1")) == 1 && f.replies("probe") >= 1
+	})
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "cleanup after the timed-out resume", func() bool {
+		return f.replies("thread/unsubscribe") >= 1 && !unsure(as, "t1") && !subscribed(as, "t1")()
+	})
+	close(gate)
+	waitFor(t, "the late resume landing", func() bool { return f.replies("thread/resume") >= 1 })
+	waitFor(t, "the daemon's late t1 subscription dropped", func() bool {
+		return !f.subscribedTo("t1") && f.replies("thread/unsubscribe") >= 2
+	})
 }
 
 func TestAppServer_KeepsReleasedThreadsAcrossAFailedBootstrap(t *testing.T) {
