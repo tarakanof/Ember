@@ -35,6 +35,7 @@ type fakeAppServer struct {
 	hangOn         string
 	hangThread     string
 	hangProbes     bool
+	probeDelay     time.Duration
 	dropped        []map[string]any
 	pageDelay      time.Duration
 	endlessPages   bool
@@ -128,13 +129,15 @@ func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 	hook := f.beforeRead
 	thread, _ := p["threadId"].(string)
 	if f.hang || f.hangOn == method && (f.hangThread == "" || f.hangThread == thread) || f.hangProbes && isProbe(map[string]any{"method": method, "params": params}) {
-		f.dropped = append(f.dropped, map[string]any{"method": method, "params": params})
+		f.dropped = append(f.dropped, map[string]any{"method": method, "params": params, "at": time.Now()})
 		f.mu.Unlock()
 		return
 	}
-	delay, endless := f.pageDelay, f.endlessPages
+	delay, endless, probeDelay := f.pageDelay, f.endlessPages, f.probeDelay
 	f.mu.Unlock()
-	if method == "thread/loaded/list" && delay > 0 {
+	if isProbe(map[string]any{"method": method, "params": params}) {
+		time.Sleep(probeDelay)
+	} else if method == "thread/loaded/list" && delay > 0 {
 		time.Sleep(delay)
 	}
 	if method == "thread/read" && hook != nil {
@@ -839,26 +842,82 @@ func TestAppServer_ReconnectsWhenAThreadReadAndTheProbeHang(t *testing.T) {
 	}
 }
 
-func TestAppServer_SkipsASlowThreadOnALiveDaemon(t *testing.T) {
+func (f *fakeAppServer) droppedCalls(method, thread string) []time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []time.Time
+	for _, m := range f.dropped {
+		p, _ := m["params"].(map[string]any)
+		if m["method"] == method && p["threadId"] == thread {
+			out = append(out, m["at"].(time.Time))
+		}
+	}
+	return out
+}
+
+func TestAppServer_QuarantinesASlowThreadWhileOthersProgress(t *testing.T) {
 	for _, method := range []string{"thread/read", "thread/resume"} {
 		t.Run(method, func(t *testing.T) {
 			sock := filepath.Join(shortSockDir(t), "s.sock")
 			f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
 				f.addThread("t1", "cli", active(), nil)
-				f.addThread("t2", "cli", active(), nil)
-				f.loaded = []string{"t1", "t2"}
+				f.loaded = []string{"t1"}
 				f.hangOn, f.hangThread = method, "t1"
+				f.probeDelay = 30 * time.Millisecond
 			})
 			as := newAppServer(testAppServerConfig(sock))
-			as.callTimeout = 50 * time.Millisecond
+			as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
 			startAppServerWith(t, as)
-			waitFor(t, "t2 subscribed and a probe answered after the slow call", func() bool {
-				return subscribed(as, "t2")() && f.replies("probe") >= 1
+			waitFor(t, "the slow call and its probe", func() bool {
+				return len(f.droppedCalls(method, "t1")) == 1 && f.replies("probe") >= 1
 			})
+			for _, id := range []string{"t2", "t3", "t4"} {
+				f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": active()})
+				f.addThread(id, "cli", active(), nil)
+				f.mu.Lock()
+				th := f.threads[id]
+				f.mu.Unlock()
+				f.notify("thread/started", map[string]any{"thread": th})
+				waitFor(t, id+" subscribed", subscribed(as, id))
+			}
+			if n := len(f.droppedCalls(method, "t1")); n != 1 {
+				t.Errorf("slow t1 %s tried %d times while healthy threads waited, want 1", method, n)
+			}
+			if tk := as.tick(); tk.pending["t1"] {
+				t.Error("a quarantined thread is held back from the watcher")
+			}
 			if n := len(f.calls("initialize")); n != 1 {
 				t.Errorf("%d initialize calls, want 1: a slow call on a live daemon must not reconnect", n)
 			}
 		})
+	}
+}
+
+func TestAppServer_BacksOffRepeatedSlowResumes(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
+		f.addThread("t1", "cli", active(), nil)
+		f.loaded = []string{"t1"}
+		f.hangOn, f.hangThread = "thread/resume", "t1"
+		f.probeDelay = 30 * time.Millisecond
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+	as.slowMin, as.slowMax = 100*time.Millisecond, 200*time.Millisecond
+	startAppServerWith(t, as)
+	var at []time.Time
+	waitFor(t, "three slow resumes", func() bool {
+		at = f.droppedCalls("thread/resume", "t1")
+		return len(at) >= 3
+	})
+	slowCall := as.callTimeout + 30*time.Millisecond
+	for i, want := range []time.Duration{slowCall + as.slowMin, slowCall + as.slowMax} {
+		if gap := at[i+1].Sub(at[i]); gap < want {
+			t.Errorf("slow resume %d retried after %v, want at least %v", i+2, gap, want)
+		}
+	}
+	if n := len(f.calls("initialize")); n != 1 {
+		t.Errorf("%d initialize calls, want 1", n)
 	}
 }
 

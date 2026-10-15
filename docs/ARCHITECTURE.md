@@ -642,10 +642,18 @@ markers still get reaped.
   30 s, after which the connection is closed (that also cuts a blocked
   write), so a daemon that hangs before the worker starts is dropped within
   30 s. A `thread/read`, `thread/resume` or `thread/unsubscribe` that times
-  out (30 s) is followed by the liveness probe: if that also fails, the
-  session reconnects; if it answers, only that thread is skipped (a read is
-  dropped, a resume retries later), so one reliably slow thread on a healthy
-  daemon can't force a reconnect every 31 s and churn the device rows. A
+  out (30 s) is followed by the liveness probe. If that also fails, the
+  session reconnects, so a daemon that hangs mid-session is dropped within
+  about 40 s. If it answers, only that thread is quarantined: no read or
+  resume for it for 1 min, doubling on each further timeout up to 10 min,
+  cleared by a read or resume that succeeds, or by a reconnect. Other threads
+  are read and subscribed as usual meanwhile, and a quarantined thread whose
+  read is queued again stays with the rollout watcher instead of being held
+  back. So
+  one reliably slow thread on a healthy daemon neither forces a reconnect
+  every 31 s (churning the device rows) nor stalls the worker. A daemon that
+  answers probes but times out every thread call costs 30 s per thread once,
+  then each retry is spread out by its quarantine. A
   previous session's released threads survive failed handshakes, so the first
   full bootstrap still DELETEs the gone ones.
   A message over 16 MiB is drained and skipped and the connection stays up.
