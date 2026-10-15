@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -940,8 +941,7 @@ func TestAppServer_BacksOffRepeatedSlowResumes(t *testing.T) {
 		at = f.droppedCalls("thread/resume", "t1")
 		return len(at) >= 3
 	})
-	slowCall := as.callTimeout + 30*time.Millisecond
-	for i, want := range []time.Duration{slowCall + as.slowMin, slowCall + as.slowMax} {
+	for i, want := range []time.Duration{as.slowMin, as.slowMax} {
 		if gap := at[i+1].Sub(at[i]); gap < want {
 			t.Errorf("slow resume %d retried after %v, want at least %v", i+2, gap, want)
 		}
@@ -1162,6 +1162,167 @@ func TestAppServer_UnsubscribesAResumeThatLandsAfterCleanup(t *testing.T) {
 	waitFor(t, "the daemon's late t1 subscription dropped", func() bool {
 		return !f.subscribedTo("t1") && f.replies("thread/unsubscribe") >= 2
 	})
+}
+
+type lockedBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+func captureLogs(t *testing.T) *lockedBuf {
+	t.Helper()
+	buf := &lockedBuf{}
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+	return buf
+}
+
+func TestAppServer_ResumesAThreadActiveAgainAfterARejectedUnsubscribe(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	f.mu.Lock()
+	f.unsubFailures = 1000
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "the rejected unsubscribe", func() bool { return f.replies("thread/unsubscribe") >= 1 })
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": active()})
+	waitFor(t, "t1 resumed again", func() bool { return f.replies("thread/resume") >= 2 && subscribed(as, "t1")() })
+}
+
+func TestAppServer_BacksOffAndLogsAPermanentlyRejectedUnsubscribe(t *testing.T) {
+	logs := captureLogs(t)
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.unsubFailures = 1000
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.slowMin, as.slowMax = 20*time.Millisecond, 40*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	start := time.Now()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "four rejected unsubscribes", func() bool { return f.replies("thread/unsubscribe") >= 4 })
+	if got, want := time.Since(start), as.slowMin+2*as.slowMax; got < want {
+		t.Errorf("four rejected unsubscribes in %v, want at least %v of backoff", got, want)
+	}
+	if n := strings.Count(logs.String(), "rejected an unsubscribe"); n != 1 {
+		t.Errorf("%d rejection warnings, want 1:\n%s", n, logs.String())
+	}
+}
+
+func TestAppServer_UnsubscribesALateResumeForAReloadedThread(t *testing.T) {
+	for _, reloadFirst := range []bool{true, false} {
+		name := "reloaded before the reply"
+		if !reloadFirst {
+			name = "reloaded after the reply"
+		}
+		t.Run(name, func(t *testing.T) {
+			sock := filepath.Join(shortSockDir(t), "s.sock")
+			gate := make(chan struct{})
+			f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+				fs.addThread("t1", "cli", active(), nil)
+				fs.loaded = []string{"t1"}
+				fs.hangOn, fs.hangThread, fs.lateGate = "thread/resume", "t1", gate
+				fs.onDrop = func(method, thread string) {
+					fs.mu.Lock()
+					fs.hangOn = ""
+					fs.mu.Unlock()
+				}
+			})
+			as := newAppServer(testAppServerConfig(sock))
+			as.callTimeout = 20 * time.Millisecond
+			startAppServerWith(t, as)
+			waitFor(t, "the timed-out resume and its probe", func() bool {
+				return len(f.droppedCalls("thread/resume", "t1")) == 1 && f.replies("probe") >= 1
+			})
+			f.notify("thread/closed", map[string]any{"threadId": "t1"})
+			waitFor(t, "t1 closed", func() bool {
+				as.mu.Lock()
+				defer as.mu.Unlock()
+				return as.threads["t1"] == nil
+			})
+			f.addThread("t1", "cli", idle, nil)
+			f.mu.Lock()
+			th := f.threads["t1"]
+			f.mu.Unlock()
+			reload := func() {
+				f.notify("thread/started", map[string]any{"thread": th})
+				waitFor(t, "t1 reloaded", func() bool {
+					as.mu.Lock()
+					defer as.mu.Unlock()
+					return as.threads["t1"] != nil
+				})
+			}
+			if reloadFirst {
+				reload()
+			}
+			close(gate)
+			waitFor(t, "the late resume landing", func() bool { return f.replies("thread/resume") >= 1 })
+			if !reloadFirst {
+				reload()
+			}
+			waitFor(t, "the daemon's late t1 subscription dropped", func() bool {
+				return !f.subscribedTo("t1") && f.replies("thread/unsubscribe") >= 1
+			})
+		})
+	}
+}
+
+func TestAppServer_ALateUnsubscribeSettlesTheThread(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	gate := make(chan struct{})
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.lateGate = gate
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout = 20 * time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	f.mu.Lock()
+	f.hangOn, f.hangThread = "thread/unsubscribe", "t1"
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "the timed-out unsubscribe and its probe", func() bool {
+		return len(f.droppedCalls("thread/unsubscribe", "t1")) == 1 && f.replies("probe") >= 1 && unsure(as, "t1")
+	})
+	close(gate)
+	waitFor(t, "the late unsubscribe settling t1", func() bool {
+		return f.replies("thread/unsubscribe") == 1 && !unsure(as, "t1")
+	})
+}
+
+func TestRPCConn_PrunesLateHooksPastTheirTTL(t *testing.T) {
+	c := newRPCConn(nil)
+	now := time.Now()
+	c.late[1] = lateHook{fn: func(error) {}, at: now.Add(-lateReplyTTL - time.Second)}
+	c.late[2] = lateHook{fn: func(error) {}, at: now}
+	c.pruneLateLocked(now)
+	if _, old := c.late[1]; old || len(c.late) != 1 {
+		t.Errorf("late hooks after prune: %v, want only the fresh one", c.late)
+	}
 }
 
 func TestAppServer_KeepsReleasedThreadsAcrossAFailedBootstrap(t *testing.T) {

@@ -32,6 +32,13 @@ type outbound struct {
 	Params any    `json:"params,omitempty"`
 }
 
+const lateReplyTTL = 10 * time.Minute
+
+type lateHook struct {
+	fn func(error)
+	at time.Time
+}
+
 type rpcConn struct {
 	ws       *wsConn
 	next     atomic.Int64
@@ -40,12 +47,12 @@ type rpcConn struct {
 
 	mu      sync.Mutex
 	pending map[int64]chan inbound
-	late    map[int64]func(error)
+	late    map[int64]lateHook
 	err     error
 }
 
 func newRPCConn(ws *wsConn) *rpcConn {
-	return &rpcConn{ws: ws, done: make(chan struct{}), pending: map[int64]chan inbound{}, late: map[int64]func(error){}}
+	return &rpcConn{ws: ws, done: make(chan struct{}), pending: map[int64]chan inbound{}, late: map[int64]lateHook{}}
 }
 
 func (c *rpcConn) send(m outbound) error {
@@ -91,10 +98,19 @@ func (c *rpcConn) callLate(ctx context.Context, method string, params, out any, 
 		default:
 		}
 		if onLate != nil {
-			c.late[id] = onLate
+			c.pruneLateLocked(time.Now())
+			c.late[id] = lateHook{fn: onLate, at: time.Now()}
 		}
 		c.mu.Unlock()
 		return fmt.Errorf("%s: %w", method, ctx.Err())
+	}
+}
+
+func (c *rpcConn) pruneLateLocked(now time.Time) {
+	for id, h := range c.late {
+		if now.Sub(h.at) > lateReplyTTL {
+			delete(c.late, id)
+		}
 	}
 }
 
@@ -149,11 +165,11 @@ func (c *rpcConn) readLoop(onNotify func(method string, params json.RawMessage))
 				default:
 				}
 			}
-			onLate := c.late[id]
+			hook, late := c.late[id]
 			delete(c.late, id)
 			c.mu.Unlock()
-			if onLate != nil {
-				onLate(decodeReply("", m, nil))
+			if late {
+				hook.fn(decodeReply("", m, nil))
 			}
 		case m.Method != "" && len(m.ID) > 0:
 			// Server requests are never answered: see outbound.
