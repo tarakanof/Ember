@@ -921,6 +921,49 @@ func TestAppServer_BacksOffRepeatedSlowResumes(t *testing.T) {
 	}
 }
 
+func TestAppServer_ClosingAThreadEndsItsQuarantine(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
+		f.addThread("t1", "cli", active(), nil)
+		f.loaded = []string{"t1"}
+		f.hangOn, f.hangThread = "thread/resume", "t1"
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout = 20 * time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "t1 quarantined", func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		return as.slow["t1"] != nil
+	})
+	f.notify("thread/closed", map[string]any{"threadId": "t1"})
+	waitFor(t, "t1 closed", func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		return as.threads["t1"] == nil
+	})
+	f.mu.Lock()
+	f.hangOn = ""
+	th := f.threads["t1"]
+	f.mu.Unlock()
+	f.notify("thread/started", map[string]any{"thread": th})
+	waitFor(t, "the reloaded t1 subscribed", subscribed(as, "t1"))
+}
+
+func TestAppServer_QuarantineBackoffDecaysAfterAQuietPeriod(t *testing.T) {
+	as := newAppServer(testAppServerConfig("/nonexistent"))
+	as.slowMin, as.slowMax = time.Minute, 4*time.Minute
+	for _, want := range []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 4 * time.Minute} {
+		if got, _ := as.quarantine("t1"); got != want {
+			t.Fatalf("backoff %v, want %v", got, want)
+		}
+	}
+	as.slow["t1"].until = time.Now().Add(-as.slowMax - time.Second)
+	if got, fresh := as.quarantine("t1"); got != as.slowMin || !fresh {
+		t.Errorf("after a quiet period: backoff %v fresh %v, want %v and a fresh quarantine", got, fresh, as.slowMin)
+	}
+}
+
 func TestAppServer_KeepsReleasedThreadsAcrossAFailedBootstrap(t *testing.T) {
 	sock := filepath.Join(shortSockDir(t), "s.sock")
 	f := newFakeAppServer(t, sock)

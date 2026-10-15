@@ -383,18 +383,24 @@ func (as *appServer) slowUntilLocked(id string, now time.Time) time.Time {
 	return time.Time{}
 }
 
-func (as *appServer) quarantine(id string) time.Duration {
+func (as *appServer) quarantine(id string) (wait time.Duration, fresh bool) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
+	now := time.Now()
 	s := as.slow[id]
-	if s == nil {
+	switch {
+	case s == nil:
 		s = &apSlow{backoff: as.slowMin}
 		as.slow[id] = s
-	} else {
+		fresh = true
+	case now.After(s.until.Add(as.slowMax)):
+		s.backoff = as.slowMin
+		fresh = true
+	default:
 		s.backoff = min(2*s.backoff, as.slowMax)
 	}
-	s.until = time.Now().Add(s.backoff)
-	return s.backoff
+	s.until = now.Add(s.backoff)
+	return s.backoff, fresh
 }
 
 func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, error) {
@@ -447,8 +453,12 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			if perr := as.probe(ctx, c); perr != nil {
 				return time.Time{}, fmt.Errorf("%w; probe: %w", err, perr)
 			}
-			wait := as.quarantine(a.id)
-			as.failLog.Warn(slog.Default(), "codex_appserver_slow_call:"+a.id, "codex app-server call timed out on a live daemon", "action", a.kind, "thread_id", a.id, "retry_in", wait)
+			level := slog.LevelDebug
+			wait, fresh := as.quarantine(a.id)
+			if fresh {
+				level = slog.LevelWarn
+			}
+			slog.Log(ctx, level, "codex app-server call timed out on a live daemon", "action", a.kind, "thread_id", a.id, "retry_in", wait)
 		}
 	}
 	return time.Time{}, nil
@@ -547,6 +557,7 @@ func (as *appServer) closeLocked(id string) {
 		delete(as.unread, id)
 	}
 	delete(as.ephemeral, id)
+	delete(as.slow, id)
 	if t == nil {
 		return
 	}
