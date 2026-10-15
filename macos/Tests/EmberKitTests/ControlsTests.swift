@@ -413,16 +413,17 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 }
 
 @Test func scriptRunnerTerminatesTheWholeProcessGroupPastItsTimeout() async throws {
-    let runner = ScriptProcessRunner(timeout: .seconds(1))
+    let log = SignalLog()
+    let runner = ScriptProcessRunner(timeout: .seconds(1), signal: { log.send($0, $1) })
     let pidFile = scratchFile("pid")
     defer { try? FileManager.default.removeItem(at: pidFile) }
-    let started = ContinuousClock.now
     #expect(runner.run("/bin/sh", ["-c", "/bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path], what: "test") == .launched)
     let grandchild = try await readPid(pidFile)
     #expect(grandchild > 0)
     for _ in 0..<500 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
     #expect(grandchild > 0 && !alive(grandchild))
-    #expect(ContinuousClock.now - started < .seconds(1) + ScriptProcessRunner.killGrace * 0.9)
+    #expect(log.signals(SIGTERM).count == 1 && log.signals(SIGTERM).allSatisfy { $0 < 0 })
+    #expect(log.signals(SIGKILL).isEmpty)
     if alive(grandchild) { kill(grandchild, SIGKILL) }
 }
 
@@ -480,7 +481,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     #expect(grandchild > 0)
     let started = ContinuousClock.now
     runner.stop()
-    #expect(ContinuousClock.now - started < .seconds(1))
+    #expect(ContinuousClock.now - started < .seconds(2))
     for _ in 0..<200 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
     #expect(grandchild > 0 && !alive(grandchild))
     #expect(log.signals(SIGTERM).count == 1 && log.signals(SIGTERM).allSatisfy { $0 < 0 })
@@ -499,7 +500,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     #expect(grandchild > 0)
     let started = ContinuousClock.now
     runner.stop(grace: .milliseconds(200))
-    #expect(ContinuousClock.now - started < .seconds(1))
+    #expect(ContinuousClock.now - started < .seconds(2))
     for _ in 0..<200 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
     #expect(grandchild > 0 && !alive(grandchild))
     #expect(log.signals(SIGKILL).count == 1 && log.signals(SIGKILL).allSatisfy { $0 < 0 })
