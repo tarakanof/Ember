@@ -2232,10 +2232,12 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     `next` waits for the second); a failed read and an empty ID (Music
     briefly stopped mid-switch) don't count, so an unknown starting track
     waits for a change. It then reports the last good read, or nothing if
-    Music quits or the listener stops meanwhile. While polling it holds the command loop, so
-    commands queued behind it wait up to 2 s; that full wait happens only
-    when no change shows, e.g. `next` + `previous` that Music applies in one
-    go, or a skip in a stopped or one-track queue. The
+    Music quits or the listener stops meanwhile. While polling it holds the
+    command loop, so commands queued behind it wait up to 2 s; that full
+    wait happens only when fewer track changes show than skips ran: none
+    show (`next` + `previous` that Music applies in one go, a `previous`
+    that restarts the track, a skip in a stopped or one-track queue), or
+    Music coalesces two `next` into one change. The
     registry lives in server memory and the Music pusher is event-driven, so
     the long-poll doubles as the reconnect signal: its first successful round
     after a failure (a server restart) re-pushes the Music snapshot

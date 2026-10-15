@@ -39,6 +39,13 @@ private func golden(_ name: String) throws -> Data {
     #expect(MusicPlayerInfo(userInfo: ["Player State": "Stopped"])?.state == .stopped)
 }
 
+@Test func trackIDReplyIsNilForNullOrList() {
+    #expect(MusicReply.trackID(NSAppleEventDescriptor(string: "AB")) == "AB")
+    #expect(MusicReply.trackID(NSAppleEventDescriptor(string: "")) == "")
+    #expect(MusicReply.trackID(NSAppleEventDescriptor.null()) == nil)
+    #expect(MusicReply.trackID(NSAppleEventDescriptor.list()) == nil)
+}
+
 @Test func reportCarriesOnlyWhatTheServerNeeds() throws {
     var info = MusicPlayerInfo(state: .paused, name: String(repeating: "é", count: 300), artist: "Band",
                                album: "Record", durationMs: 1000, persistentID: "AB", position: 12.5)

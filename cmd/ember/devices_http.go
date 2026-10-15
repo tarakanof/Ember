@@ -267,6 +267,10 @@ func (a *App) handleDeviceConfigPutOwner(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *App) handleDevicePatch(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if isClientID(id) && !a.requireMasterForClients(w, r) {
+		return
+	}
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -278,11 +282,7 @@ func (a *App) handleDevicePatch(w http.ResponseWriter, r *http.Request) {
 		a.writeDeviceError(w, r, err)
 		return
 	}
-	id := r.PathValue("id")
 	if isClientID(id) {
-		if !a.requireMasterForClients(w, r) {
-			return
-		}
 		view, err := a.clients.rename(id, name)
 		if err != nil {
 			a.writeClientError(w, r, err)

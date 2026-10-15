@@ -184,6 +184,8 @@ func TestAdminClientCannotManageClients(t *testing.T) {
 		{"POST", "/v1/devices/" + other.ID + "/rotate", ""},
 		{"POST", "/v1/devices/" + admin.ID + "/rotate", ""},
 		{"DELETE", "/v1/devices/" + other.ID, ""},
+		{"PATCH", "/v1/devices/" + other.ID, `{"name":"x"}`},
+		{"PATCH", "/v1/devices/" + other.ID, ""},
 	} {
 		resp, b := devReq(t, srv, c.method, c.path, admin.Token, c.body)
 		if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), "EMBER_TOKEN") {

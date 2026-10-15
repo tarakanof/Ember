@@ -16,6 +16,12 @@ public protocol MusicBridge: Sendable {
     func canControl() async -> Bool
 }
 
+public enum MusicReply {
+    public static func trackID(_ reply: NSAppleEventDescriptor) -> String? {
+        reply.stringValue
+    }
+}
+
 public protocol NowPlayingSink: Sendable {
     func report(_ r: NowPlayingReport) async throws -> NowPlayingAck
     func putArtwork(_ data: Data, contentType: String, source: String, player: String, trackID: String) async throws
