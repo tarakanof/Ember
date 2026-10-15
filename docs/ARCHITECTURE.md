@@ -2283,25 +2283,34 @@ is the Mac side; the knob page (`controls`, C2) does not exist yet.
   launched without waiting so a slow script never holds the queue, through
   `ScriptProcessRunner`: one script process at a time (a press while one
   runs is dropped and logged as a drop, outcome `busy`, not a failure).
-  After 10 s the runner sends SIGTERM, then SIGKILL 1 s later, to the
-  script's process group (`kill(-pid, …)`; Foundation's `Process` starts
-  each child as its own group leader, which a test pins), so grandchildren
-  left by `do shell script` die too. Killing `shortcuts run` only stops the
-  CLI: the shortcut itself most likely keeps running in the Shortcuts
-  engine (not verified on a device), and the runner is free again, so a shortcut that runs past 10 s can overlap the
-  next one (at most one new shortcut per ~11 s). That is accepted: the
-  `shortcuts` CLI has no stop command, and holding the runner longer would block every
-  script action behind one slow shortcut. The stdin pipe is set to
-  `F_SETNOSIGPIPE` and written with the throwing `write(contentsOf:)` off
-  the main thread, so a script that exits before reading can't raise
-  SIGPIPE in Ember.
-  The target check runs right before the action, after the Accessibility
-  check (its one suspension), so a target that moves meanwhile runs nothing.
-  Posting events (media keys, scroll) needs Accessibility: the executor
-  only checks `CGPreflightPostEventAccess` and skips (logged once); the
-  prompt (`CGRequestPostEventAccess`) is the Settings › Knob › Pages ›
-  Controls button, shown only when this Mac is the target and a mapped
-  action needs it.
+  After 10 s the runner sends SIGTERM to the script's process group
+  (`kill(-pid, …)`; Foundation's `Process` starts each child as its own
+  group leader, which a test pins), so grandchildren left by `do shell
+  script` die too. It then probes the group every 50 ms (`kill(-pid, 0)`)
+  and sends SIGKILL 1 s later only if the group still exists. The residual
+  risk is the up to 50 ms between the last probe and the SIGKILL: the group
+  could empty and a new group leader take the same number only after a full
+  pid wrap in that window, which is accepted. Killing `shortcuts run` only
+  stops the CLI: the shortcut itself most likely keeps running in the
+  Shortcuts engine (not verified on a device), and the runner is free again,
+  so a shortcut that runs past 10 s can overlap the next one (at most one
+  new shortcut per ~11 s). That is accepted: the `shortcuts` CLI has no stop
+  command, and holding the runner longer would block every script action
+  behind one slow shortcut. The stdin pipe is set to `F_SETNOSIGPIPE` and
+  written with the throwing `write(contentsOf:)` off the main thread, so a
+  script that exits before reading can't raise SIGPIPE in Ember.
+  The executor's effects are synchronous and `@MainActor`, like the
+  listener, so `ControlDispatcher` checks the target and then runs the
+  effect with no suspension in between. The only suspension is the
+  Accessibility check (`canPostEvents`), after which the dispatcher checks
+  again for cancellation, the target and the slot's mapping (a slot edited
+  meanwhile is dropped as stale). CoreAudio volume calls and `Process.run`
+  therefore run on the main thread; a script is spawned, never awaited.
+  Posting events (media keys, scroll) needs Accessibility: the executor only
+  checks `CGPreflightPostEventAccess` and skips (logged once); the prompt
+  (`CGRequestPostEventAccess`) is the Settings › Knob › Pages › Controls
+  button, shown only when this Mac is the target and a mapped action needs
+  it.
 - **Latency** (C1, loopback scratch server, n = 120 each): POST →
   executor call p50 0.5 ms / p95 0.8 ms from a keep-alive client, p50
   8.6 ms / p95 11.5 ms with a fresh `curl` per action (process start

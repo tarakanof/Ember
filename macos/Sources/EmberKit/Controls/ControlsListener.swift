@@ -6,12 +6,12 @@ public protocol ControlsCommandSource: Sendable {
 }
 
 public protocol ControlsExecutor: Sendable {
-    func changeVolume(by points: Int) async -> Bool
-    func toggleMute() async -> Bool
-    func press(_ key: MediaKey) async -> Bool
-    func scroll(_ axis: ScrollAxis, lines: Int) async -> Bool
-    func runShortcut(_ name: String) async -> ScriptLaunch
-    func runAppleScript(_ source: String) async -> ScriptLaunch
+    @MainActor func changeVolume(by points: Int) -> Bool
+    @MainActor func toggleMute() -> Bool
+    @MainActor func press(_ key: MediaKey) -> Bool
+    @MainActor func scroll(_ axis: ScrollAxis, lines: Int) -> Bool
+    @MainActor func runShortcut(_ name: String) -> ScriptLaunch
+    @MainActor func runAppleScript(_ source: String) -> ScriptLaunch
     func canPostEvents() async -> Bool
 }
 
@@ -21,30 +21,34 @@ public enum ControlOutcome: Equatable, Sendable {
 
 public enum ControlDispatcher {
     @MainActor
-    public static func perform(_ c: ControlCommand, mapping: ControlsMapping, on executor: ControlsExecutor,
-                               age: Duration = .zero, isTarget: @MainActor () -> Bool = { true }) async -> ControlOutcome {
+    public static func perform(_ c: ControlCommand, mapping: @MainActor () -> ControlsMapping, on executor: ControlsExecutor,
+                               age: Duration = .zero, isTarget: @MainActor () -> Bool) async -> ControlOutcome {
         guard isTarget() else { return .notTarget }
         guard age <= c.lifetime else { return .stale }
-        let action = mapping[c.gesture]
-        if action.kind.needsEventAccess, !(await executor.canPostEvents()) { return .needsAccessibility }
-        guard isTarget() else { return .notTarget }
+        let action = mapping()[c.gesture]
+        if action.kind.needsEventAccess {
+            guard await executor.canPostEvents() else { return .needsAccessibility }
+            if Task.isCancelled { return .cancelled }
+            guard isTarget() else { return .notTarget }
+            guard mapping()[c.gesture] == action else { return .stale }
+        }
         switch (c.gesture.isTurn, action.kind) {
         case (true, .volume):
-            return outcome(await executor.changeVolume(by: max(-100, min(100, c.steps * (action.step ?? 2)))))
+            return outcome(executor.changeVolume(by: max(-100, min(100, c.steps * (action.step ?? 2)))))
         case (true, .scroll):
-            return outcome(await executor.scroll(action.axis ?? .vertical, lines: max(-100, min(100, c.steps * (action.lines ?? 3)))))
+            return outcome(executor.scroll(action.axis ?? .vertical, lines: max(-100, min(100, c.steps * (action.lines ?? 3)))))
         case (false, .mute):
-            return outcome(await executor.toggleMute())
+            return outcome(executor.toggleMute())
         case (false, .media):
-            return outcome(await executor.press(action.key ?? .playPause))
+            return outcome(executor.press(action.key ?? .playPause))
         case (false, .shortcut):
             guard let name = action.name, !name.trimmingCharacters(in: .whitespaces).isEmpty else { return .unassigned }
-            return outcome(await executor.runShortcut(name))
+            return outcome(executor.runShortcut(name))
         case (false, .applescript):
             guard let script = action.script, !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return .unassigned
             }
-            return outcome(await executor.runAppleScript(script))
+            return outcome(executor.runAppleScript(script))
         default:
             return .unassigned
         }
@@ -153,7 +157,7 @@ public final class ControlsListener {
                 continue
             }
             let age = Duration.milliseconds(c.ageMs) + (ContinuousClock.now - received)
-            let outcome = await ControlDispatcher.perform(c, mapping: mapping(), on: executor, age: age, isTarget: isTarget)
+            let outcome = await ControlDispatcher.perform(c, mapping: mapping, on: executor, age: age, isTarget: isTarget)
             outcomes.append(outcome)
             switch outcome {
             case .notTarget:

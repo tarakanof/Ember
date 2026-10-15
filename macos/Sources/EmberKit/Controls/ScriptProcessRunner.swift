@@ -4,15 +4,25 @@ import OSLog
 public enum ScriptLaunch: Equatable, Sendable { case launched, busy, failed }
 
 public final class ScriptProcessRunner: @unchecked Sendable {
+    typealias Signal = @Sendable (pid_t, Int32) -> Int32
+
     private static let log = Logger(subsystem: "com.ember.Ember", category: "controls")
+    static let killGrace: Duration = .seconds(1)
+    static let groupPoll: Duration = .milliseconds(50)
 
     private let timeout: Duration
+    private let signal: Signal
     private let lock = NSLock()
     private var running: Process?
     private var watchdog: Task<Void, Never>?
 
-    public init(timeout: Duration = .seconds(10)) {
+    public convenience init(timeout: Duration = .seconds(10)) {
+        self.init(timeout: timeout, signal: { kill($0, $1) })
+    }
+
+    init(timeout: Duration, signal: @escaping Signal) {
         self.timeout = timeout
+        self.signal = signal
     }
 
     public var isBusy: Bool { lock.withLock { running != nil } }
@@ -61,13 +71,19 @@ public final class ScriptProcessRunner: @unchecked Sendable {
         }
         let limit = timeout
         let group = p.processIdentifier
+        let send = signal
         let dog = Task.detached {
             guard (try? await Task.sleep(for: limit)) != nil, p.isRunning else { return }
             Self.log.notice("knob \(what, privacy: .public) killed after \(limit.components.seconds) s")
-            Self.signal(group, of: p, SIGTERM)
+            guard Self.deliver(SIGTERM, to: group, of: p, send) else { return }
             Task.detached {
-                try? await Task.sleep(for: .seconds(1))
-                Self.signal(group, of: p, SIGKILL)
+                let clock = ContinuousClock()
+                let deadline = clock.now + Self.killGrace
+                while clock.now < deadline {
+                    try? await Task.sleep(for: Self.groupPoll)
+                    if send(-group, 0) != 0, !p.isRunning { return }
+                }
+                _ = Self.deliver(SIGKILL, to: group, of: p, send)
             }
         }
         lock.withLock {
@@ -76,8 +92,9 @@ public final class ScriptProcessRunner: @unchecked Sendable {
         return .launched
     }
 
-    private static func signal(_ group: pid_t, of p: Process, _ sig: Int32) {
-        if kill(-group, sig) != 0, p.isRunning { kill(group, sig) }
+    private static func deliver(_ sig: Int32, to group: pid_t, of p: Process, _ send: Signal) -> Bool {
+        if send(-group, sig) == 0 { return true }
+        return p.isRunning && send(group, sig) == 0
     }
 
     private func finished(_ p: Process) {
