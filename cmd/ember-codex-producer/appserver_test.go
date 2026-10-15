@@ -40,6 +40,8 @@ type fakeAppServer struct {
 	dropped        []map[string]any
 	pageDelay      time.Duration
 	endlessPages   bool
+	lateBy         time.Duration
+	subs           map[string]bool
 }
 
 func shortSockDir(t *testing.T) string {
@@ -64,7 +66,7 @@ func newFakeAppServerWith(t *testing.T, path string, setup func(*fakeAppServer))
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeAppServer{t: t, path: path, ln: ln, threads: map[string]map[string]any{}, replied: map[string]int{}}
+	f := &fakeAppServer{t: t, path: path, ln: ln, threads: map[string]map[string]any{}, replied: map[string]int{}, subs: map[string]bool{}}
 	t.Cleanup(f.close)
 	if setup != nil {
 		setup(f)
@@ -131,14 +133,20 @@ func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 	thread, _ := p["threadId"].(string)
 	if f.hang || f.hangOn == method && (f.hangThread == "" || f.hangThread == thread) || f.hangProbes && isProbe(map[string]any{"method": method, "params": params}) {
 		f.dropped = append(f.dropped, map[string]any{"method": method, "params": params, "at": time.Now()})
-		onDrop := f.onDrop
+		onDrop, late := f.onDrop, f.lateBy
 		f.mu.Unlock()
 		if onDrop != nil {
 			onDrop(method, thread)
 		}
+		if late > 0 {
+			go func() {
+				time.Sleep(late)
+				f.reply(ws, id, method, p)
+			}()
+		}
 		return
 	}
-	delay, endless, probeDelay := f.pageDelay, f.endlessPages, f.probeDelay
+	delay, probeDelay := f.pageDelay, f.probeDelay
 	f.mu.Unlock()
 	if isProbe(map[string]any{"method": method, "params": params}) {
 		time.Sleep(probeDelay)
@@ -148,6 +156,11 @@ func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 	if method == "thread/read" && hook != nil {
 		hook(p["threadId"].(string))
 	}
+	f.reply(ws, id, method, p)
+}
+
+func (f *fakeAppServer) reply(ws *wsConn, id any, method string, p map[string]any) {
+	params := any(p)
 	f.mu.Lock()
 	var result any
 	var rpcErr any
@@ -156,7 +169,7 @@ func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 		result = map[string]any{"userAgent": "codex_app_server_daemon/0.160.0 (Mac OS 27.0.0; arm64)", "codexHome": "/x", "platformFamily": "unix", "platformOs": "macos"}
 	case "thread/loaded/list":
 		var next any
-		if endless {
+		if f.endlessPages {
 			next = "more"
 		}
 		result = map[string]any{"data": f.loaded, "nextCursor": next}
@@ -172,9 +185,11 @@ func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 			rpcErr = map[string]any{"code": -32600, "message": "no rollout found for thread id " + p["threadId"].(string)}
 		} else {
 			result = map[string]any{"thread": f.threads[p["threadId"].(string)]}
+			f.subs[p["threadId"].(string)] = true
 		}
 	case "thread/unsubscribe":
 		result = map[string]any{"status": "unsubscribed"}
+		delete(f.subs, p["threadId"].(string))
 	default:
 		result = map[string]any{}
 	}
@@ -1014,6 +1029,66 @@ func TestAppServer_AThreadClosedDuringItsSlowCallIsNotQuarantined(t *testing.T) 
 	}
 	f.notify("thread/started", map[string]any{"thread": t1})
 	waitFor(t, "the restarted t1 subscribed", subscribed(as, "t1"))
+}
+
+func (f *fakeAppServer) subscribedTo(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.subs[id]
+}
+
+func TestAppServer_UnsubscribesAResumeThatLandedAfterItsTimeout(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
+		f.addThread("t1", "cli", active(), nil)
+		f.loaded = []string{"t1"}
+		f.hangOn, f.hangThread, f.lateBy = "thread/resume", "t1", 60*time.Millisecond
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+	as.slowMin, as.slowMax = 100*time.Millisecond, 200*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "the timed-out resume landing late", func() bool {
+		return len(f.droppedCalls("thread/resume", "t1")) >= 1 && f.replies("thread/resume") >= 1
+	})
+	if subscribed(as, "t1")() {
+		t.Fatal("a timed-out resume counted as a subscription")
+	}
+	f.mu.Lock()
+	f.hangOn = ""
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "the daemon's stray t1 subscription dropped", func() bool { return !f.subscribedTo("t1") })
+	if n := len(f.calls("initialize")); n != 1 {
+		t.Errorf("%d initialize calls, want 1", n)
+	}
+}
+
+func TestAppServer_RetriesAnUnsubscribeThatTimedOut(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
+		f.addThread("t1", "cli", active(), nil)
+		f.loaded = []string{"t1"}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+	as.slowMin, as.slowMax = 150*time.Millisecond, 300*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	f.mu.Lock()
+	f.hangOn, f.hangThread = "thread/unsubscribe", "t1"
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "the timed-out unsubscribe and its probe", func() bool {
+		return len(f.droppedCalls("thread/unsubscribe", "t1")) == 1 && f.replies("probe") >= 1
+	})
+	f.mu.Lock()
+	f.hangOn = ""
+	f.mu.Unlock()
+	waitFor(t, "the daemon's t1 subscription dropped", func() bool { return !f.subscribedTo("t1") })
+	if n := len(f.droppedCalls("thread/unsubscribe", "t1")); n != 1 {
+		t.Errorf("unsubscribe timed out %d times, want 1: the retry must wait out the quarantine", n)
+	}
 }
 
 func TestAppServer_KeepsReleasedThreadsAcrossAFailedBootstrap(t *testing.T) {

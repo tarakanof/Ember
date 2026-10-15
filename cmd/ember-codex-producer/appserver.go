@@ -38,6 +38,7 @@ type apThread struct {
 	d          derived
 	busy       bool
 	subscribed bool
+	unsure     bool
 	resumeAt   time.Time
 	failed     bool
 	lastChange time.Time
@@ -374,7 +375,11 @@ func (as *appServer) nextAction(now time.Time) (a apAction, retryAt time.Time) {
 			}
 			as.acting, as.actingClosed = id, false
 			return apAction{"resume", id}, time.Time{}
-		case !t.busy && t.subscribed:
+		case !t.busy && (t.subscribed || t.unsure):
+			if until := as.slowUntilLocked(id, now); !until.IsZero() {
+				later(until)
+				continue
+			}
 			as.acting, as.actingClosed = id, false
 			return apAction{"unsubscribe", id}, time.Time{}
 		}
@@ -452,10 +457,11 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			as.mu.Lock()
 			if t := as.threads[a.id]; t != nil {
 				if err == nil {
-					t.subscribed = true
+					t.subscribed, t.unsure = true, false
 					as.recoveredLocked(a.id)
 				} else {
 					t.resumeAt = time.Now().Add(as.retryEvery)
+					t.unsure = t.unsure || errors.Is(err, context.DeadlineExceeded)
 				}
 			}
 			as.mu.Unlock()
@@ -463,7 +469,7 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			err = as.call(ctx, c, "thread/unsubscribe", map[string]any{"threadId": a.id}, nil)
 			as.mu.Lock()
 			if t := as.threads[a.id]; t != nil {
-				t.subscribed = false
+				t.subscribed, t.unsure = false, errors.Is(err, context.DeadlineExceeded)
 			}
 			as.mu.Unlock()
 		}
