@@ -1,14 +1,15 @@
 import Foundation
 import OSLog
 
-public final class ScriptProcessRunner: @unchecked Sendable {
-    public enum Result: Equatable, Sendable { case launched, busy, failed }
+public enum ScriptLaunch: Equatable, Sendable { case launched, busy, failed }
 
+public final class ScriptProcessRunner: @unchecked Sendable {
     private static let log = Logger(subsystem: "com.ember.Ember", category: "controls")
 
     private let timeout: Duration
     private let lock = NSLock()
     private var running: Process?
+    private var watchdog: Task<Void, Never>?
 
     public init(timeout: Duration = .seconds(10)) {
         self.timeout = timeout
@@ -16,7 +17,7 @@ public final class ScriptProcessRunner: @unchecked Sendable {
 
     public var isBusy: Bool { lock.withLock { running != nil } }
 
-    public func run(_ tool: String, _ args: [String], stdin: Data? = nil, what: String) -> Result {
+    public func run(_ tool: String, _ args: [String], stdin: Data? = nil, what: String) -> ScriptLaunch {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: tool)
         p.arguments = args
@@ -59,21 +60,33 @@ public final class ScriptProcessRunner: @unchecked Sendable {
             }
         }
         let limit = timeout
-        Task.detached {
-            try? await Task.sleep(for: limit)
-            if p.isRunning {
-                Self.log.notice("knob \(what, privacy: .public) killed after \(limit.components.seconds) s")
-                p.terminate()
+        let group = p.processIdentifier
+        let dog = Task.detached {
+            guard (try? await Task.sleep(for: limit)) != nil, p.isRunning else { return }
+            Self.log.notice("knob \(what, privacy: .public) killed after \(limit.components.seconds) s")
+            Self.signal(group, of: p, SIGTERM)
+            Task.detached {
                 try? await Task.sleep(for: .seconds(1))
-                if p.isRunning { kill(p.processIdentifier, SIGKILL) }
+                Self.signal(group, of: p, SIGKILL)
             }
+        }
+        lock.withLock {
+            if running === p { watchdog = dog } else { dog.cancel() }
         }
         return .launched
     }
 
+    private static func signal(_ group: pid_t, of p: Process, _ sig: Int32) {
+        if kill(-group, sig) != 0, p.isRunning { kill(group, sig) }
+    }
+
     private func finished(_ p: Process) {
-        lock.withLock {
-            if running === p { running = nil }
+        let dog: Task<Void, Never>? = lock.withLock {
+            guard running === p else { return nil }
+            running = nil
+            defer { watchdog = nil }
+            return watchdog
         }
+        dog?.cancel()
     }
 }

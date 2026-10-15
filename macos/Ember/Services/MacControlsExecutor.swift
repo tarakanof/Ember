@@ -50,12 +50,12 @@ struct MacControlsExecutor: ControlsExecutor {
         return true
     }
 
-    func runShortcut(_ name: String) async -> Bool {
-        Self.scripts.run("/usr/bin/shortcuts", ["run", name], what: "shortcut") == .launched
+    func runShortcut(_ name: String) async -> ScriptLaunch {
+        Self.scripts.run("/usr/bin/shortcuts", ["run", name], what: "shortcut")
     }
 
-    func runAppleScript(_ source: String) async -> Bool {
-        Self.scripts.run("/usr/bin/osascript", ["-"], stdin: Data(source.utf8), what: "applescript") == .launched
+    func runAppleScript(_ source: String) async -> ScriptLaunch {
+        Self.scripts.run("/usr/bin/osascript", ["-"], stdin: Data(source.utf8), what: "applescript")
     }
 
     func canPostEvents() async -> Bool { CGPreflightPostEventAccess() }

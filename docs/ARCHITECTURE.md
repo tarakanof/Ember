@@ -2282,10 +2282,21 @@ is the Mac side; the knob page (`controls`, C2) does not exist yet.
   and AppleScript as `/usr/bin/osascript -` with the script on stdin, both
   launched without waiting so a slow script never holds the queue, through
   `ScriptProcessRunner`: one script process at a time (a press while one
-  runs is dropped and logged), killed after 10 s, and the stdin pipe set to
+  runs is dropped and logged as a drop, outcome `busy`, not a failure).
+  After 10 s the runner sends SIGTERM, then SIGKILL 1 s later, to the
+  script's process group (`kill(-pid, …)`; Foundation's `Process` starts
+  each child as its own group leader, which a test pins), so grandchildren
+  left by `do shell script` die too. Killing `shortcuts run` only stops the
+  CLI: the shortcut itself most likely keeps running in the Shortcuts
+  engine (not verified on a device), and the runner is free again, so a shortcut that runs past 10 s can overlap the
+  next one (at most one new shortcut per ~11 s). That is accepted: the
+  `shortcuts` CLI has no stop command, and holding the runner longer would block every
+  script action behind one slow shortcut. The stdin pipe is set to
   `F_SETNOSIGPIPE` and written with the throwing `write(contentsOf:)` off
   the main thread, so a script that exits before reading can't raise
   SIGPIPE in Ember.
+  The target check runs right before the action, after the Accessibility
+  check (its one suspension), so a target that moves meanwhile runs nothing.
   Posting events (media keys, scroll) needs Accessibility: the executor
   only checks `CGPreflightPostEventAccess` and skips (logged once); the
   prompt (`CGRequestPostEventAccess`) is the Settings › Knob › Pages ›

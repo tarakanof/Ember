@@ -6,17 +6,24 @@ private actor RecordingExecutor: ControlsExecutor {
     var calls: [String] = []
     var granted = true
     var succeeds = true
+    var busy = false
 
     func set(granted: Bool) { self.granted = granted }
     func set(succeeds: Bool) { self.succeeds = succeeds }
+    func set(busy: Bool) { self.busy = busy }
 
     func changeVolume(by points: Int) async -> Bool { record("volume \(points)") }
     func toggleMute() async -> Bool { record("mute") }
     func press(_ key: MediaKey) async -> Bool { record("media \(key.rawValue)") }
     func scroll(_ axis: ScrollAxis, lines: Int) async -> Bool { record("scroll \(axis.rawValue) \(lines)") }
-    func runShortcut(_ name: String) async -> Bool { record("shortcut \(name)") }
-    func runAppleScript(_ source: String) async -> Bool { record("applescript \(source)") }
+    func runShortcut(_ name: String) async -> ScriptLaunch { launch("shortcut \(name)") }
+    func runAppleScript(_ source: String) async -> ScriptLaunch { launch("applescript \(source)") }
     func canPostEvents() async -> Bool { granted }
+
+    private func launch(_ s: String) -> ScriptLaunch {
+        if busy { return .busy }
+        return record(s) ? .launched : .failed
+    }
 
     private func record(_ s: String) -> Bool {
         calls.append(s)
@@ -253,9 +260,34 @@ private actor SuspendingExecutor: ControlsExecutor {
     func changeVolume(by points: Int) async -> Bool { await toggleMute() }
     func press(_ key: MediaKey) async -> Bool { await toggleMute() }
     func scroll(_ axis: ScrollAxis, lines: Int) async -> Bool { await toggleMute() }
-    func runShortcut(_ name: String) async -> Bool { await toggleMute() }
-    func runAppleScript(_ source: String) async -> Bool { await toggleMute() }
+    func runShortcut(_ name: String) async -> ScriptLaunch { await toggleMute() ? .launched : .failed }
+    func runAppleScript(_ source: String) async -> ScriptLaunch { await toggleMute() ? .launched : .failed }
     func canPostEvents() async -> Bool { true }
+}
+
+private actor AccessCheckingExecutor: ControlsExecutor {
+    var presses = 0
+    private var checking: CheckedContinuation<Void, Never>?
+    private var answer: CheckedContinuation<Bool, Never>?
+
+    func waitChecking() async {
+        if answer != nil { return }
+        await withCheckedContinuation { checking = $0 }
+    }
+    func grant() { answer?.resume(returning: true); answer = nil }
+
+    func canPostEvents() async -> Bool {
+        await withCheckedContinuation { c in
+            answer = c
+            checking?.resume(); checking = nil
+        }
+    }
+    func press(_ key: MediaKey) async -> Bool { presses += 1; return true }
+    func changeVolume(by points: Int) async -> Bool { true }
+    func toggleMute() async -> Bool { true }
+    func scroll(_ axis: ScrollAxis, lines: Int) async -> Bool { true }
+    func runShortcut(_ name: String) async -> ScriptLaunch { .launched }
+    func runAppleScript(_ source: String) async -> ScriptLaunch { .launched }
 }
 
 private let muteOnPush = ControlsMapping(push: ControlAction(kind: .mute))
@@ -287,11 +319,55 @@ private let muteOnPush = ControlsMapping(push: ControlAction(kind: .mute))
     #expect(await ex.calls == 1)
 }
 
+@MainActor
+@Test func controlsListenerRechecksTheTargetAfterTheAccessibilityCheck() async {
+    let ex = AccessCheckingExecutor()
+    var target = true
+    let listener = ControlsListener(executor: ex, mapping: { mapping }, isTarget: { target })
+    let run = Task { await listener.execute([ControlCommand(id: "1", gesture: .push)]) }
+    await ex.waitChecking()
+    target = false
+    await ex.grant()
+    #expect(await run.value == [.notTarget])
+    #expect(await ex.presses == 0)
+}
+
+@MainActor
+@Test func aPressDroppedByABusyRunnerIsADropNotAFailure() async {
+    let ex = RecordingExecutor()
+    await ex.set(busy: true)
+    #expect(await ControlDispatcher.perform(ControlCommand(id: "1", gesture: .doublePush), mapping: mapping, on: ex) == .busy)
+    let listener = ControlsListener(executor: ex, mapping: { mapping }, isTarget: { true })
+    #expect(await listener.execute([ControlCommand(id: "2", gesture: .longPush)]) == [.busy])
+    #expect(await ex.calls.isEmpty)
+}
+
 @Test func scriptRunnerRunsOneProcessAtATime() async throws {
     let runner = ScriptProcessRunner(timeout: .seconds(30))
-    #expect(runner.run("/bin/sleep", ["2"], what: "test") == .launched)
-    #expect(runner.run("/bin/sleep", ["2"], what: "test") == .busy)
+    #expect(runner.run("/bin/sleep", ["0.3"], what: "test") == .launched)
+    #expect(runner.run("/bin/sleep", ["0.3"], what: "test") == .busy)
     #expect(runner.isBusy)
+    for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(!runner.isBusy)
+}
+
+@Test func scriptRunnerKillsTheWholeProcessGroupPastItsTimeout() async throws {
+    let runner = ScriptProcessRunner(timeout: .milliseconds(200))
+    let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent("ember-test-\(UUID().uuidString).pid")
+    defer { try? FileManager.default.removeItem(at: pidFile) }
+    #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path],
+                       what: "test") == .launched)
+    var grandchild: pid_t = 0
+    for _ in 0..<300 where grandchild == 0 {
+        grandchild = (try? String(contentsOf: pidFile, encoding: .utf8)).flatMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 0
+        if grandchild == 0 { try await Task.sleep(for: .milliseconds(10)) }
+    }
+    #expect(grandchild > 0)
+    for _ in 0..<500 where grandchild > 0 && kill(grandchild, 0) == 0 { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(grandchild > 0 && kill(grandchild, 0) != 0)
+    if grandchild > 0 { kill(grandchild, SIGKILL) }
+    for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(!runner.isBusy)
 }
 
 @Test func scriptRunnerKillsAProcessPastItsTimeout() async throws {
