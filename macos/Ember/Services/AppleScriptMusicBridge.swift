@@ -45,7 +45,7 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
 
     func trackID() async -> String? {
         guard await isRunning(), let d = await run(Self.trackIDScript) else { return nil }
-        return d.stringValue ?? ""
+        return MusicReply.trackID(d)
     }
 
     func volume() async -> Int? {
