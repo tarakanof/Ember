@@ -39,7 +39,7 @@ private func golden(_ name: String) throws -> Data {
     #expect(MusicPlayerInfo(userInfo: ["Player State": "Stopped"])?.state == .stopped)
 }
 
-@Test func trackIDReplyIsNilUnlessItIsAString() {
+@Test func trackIDReplyIsNilForNullOrList() {
     #expect(MusicReply.trackID(NSAppleEventDescriptor(string: "AB")) == "AB")
     #expect(MusicReply.trackID(NSAppleEventDescriptor(string: "")) == "")
     #expect(MusicReply.trackID(NSAppleEventDescriptor.null()) == nil)

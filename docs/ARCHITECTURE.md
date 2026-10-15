@@ -2235,9 +2235,9 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     Music quits or the listener stops meanwhile. While polling it holds the
     command loop, so commands queued behind it wait up to 2 s; that full
     wait happens only when fewer track changes show than skips ran: none
-    show (`next` + `previous` that Music applies in one go, a skip in a
-    stopped or one-track queue), Music coalesces two `next` into one
-    change, or `previous` restarts the current track inside a batch. The
+    show (`next` + `previous` that Music applies in one go, a `previous`
+    that restarts the track, a skip in a stopped or one-track queue), or
+    Music coalesces two `next` into one change. The
     registry lives in server memory and the Music pusher is event-driven, so
     the long-poll doubles as the reconnect signal: its first successful round
     after a failure (a server restart) re-pushes the Music snapshot

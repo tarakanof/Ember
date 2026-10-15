@@ -267,12 +267,12 @@ func (a *App) handleDeviceConfigPutOwner(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *App) handleDevicePatch(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name string `json:"name"`
-	}
 	id := r.PathValue("id")
 	if isClientID(id) && !a.requireMasterForClients(w, r) {
 		return
+	}
+	var req struct {
+		Name string `json:"name"`
 	}
 	if !a.decodeOrReject(w, r, &req, true) {
 		return

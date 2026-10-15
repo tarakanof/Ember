@@ -146,6 +146,26 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 	}
 }
 
+type specTarget struct {
+	method, path, label string
+	masterOnly          bool
+}
+
+func specTargets(op specOp, clientID, knobID string) []specTarget {
+	method, route, _ := strings.Cut(op.route, " ")
+	fill := func(id string) string {
+		return strings.NewReplacer("{id}", id, "{dump}", "1a2b3c4d", "{version}", "0.9.14", "{build}", "a1b2c3d4").Replace(route)
+	}
+	if !op.auth.masterOnly {
+		return []specTarget{{method: method, path: fill(knobID)}}
+	}
+	out := []specTarget{{method: method, path: fill(clientID), label: " (client id)", masterOnly: true}}
+	if strings.Contains(route, "{id}") {
+		out = append(out, specTarget{method: method, path: fill(knobID), label: " (knob id)"})
+	}
+	return out
+}
+
 func TestOpenAPIAuthMatchesServer(t *testing.T) {
 	ops := readSpecOps(t)
 	app := newPomodoroApp(t)
@@ -175,42 +195,38 @@ func TestOpenAPIAuthMatchesServer(t *testing.T) {
 		if op.auth.public {
 			continue
 		}
-		method, path, _ := strings.Cut(op.route, " ")
-		id := knob.ID
-		if op.auth.masterOnly {
-			id = target.ID
-		}
-		path = strings.NewReplacer("{id}", id, "{dump}", "1a2b3c4d", "{version}", "0.9.14", "{build}", "a1b2c3d4").Replace(path)
-		for _, c := range creds {
-			want := 0
-			switch {
-			case c.owner && op.auth.owner, c.device && op.auth.device:
-			case c.scopes != nil && op.auth.masterOnly:
-				want = http.StatusForbidden
-			case c.scopes != nil && len(op.auth.clientScopes) > 0:
-				if !slices.ContainsFunc(op.auth.clientScopes, func(s string) bool { return scopeAllowed(c.scopes, s) }) {
+		for _, tg := range specTargets(op, target.ID, knob.ID) {
+			for _, c := range creds {
+				want := 0
+				switch {
+				case c.owner && op.auth.owner, c.device && op.auth.device:
+				case c.scopes != nil && tg.masterOnly:
 					want = http.StatusForbidden
+				case c.scopes != nil && len(op.auth.clientScopes) > 0:
+					if !slices.ContainsFunc(op.auth.clientScopes, func(s string) bool { return scopeAllowed(c.scopes, s) }) {
+						want = http.StatusForbidden
+					}
+				default:
+					want = http.StatusUnauthorized
 				}
-			default:
-				want = http.StatusUnauthorized
+				if want == 0 {
+					if len(c.scopes) == 1 && c.scopes[0] != scopeAdmin && slices.Contains(op.auth.clientScopes, c.scopes[0]) {
+						t.Run(op.route+tg.label+" as "+c.name+" admitted", func(t *testing.T) {
+							resp, b := devReq(t, srv, tg.method, tg.path, c.token, "")
+							if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+								t.Fatalf("status = %d, want admitted: %s", resp.StatusCode, b)
+							}
+						})
+					}
+					continue
+				}
+				t.Run(op.route+tg.label+" as "+c.name, func(t *testing.T) {
+					resp, b := devReq(t, srv, tg.method, tg.path, c.token, "")
+					if resp.StatusCode != want {
+						t.Fatalf("status = %d, want %d: %s", resp.StatusCode, want, b)
+					}
+				})
 			}
-			if want == 0 {
-				if len(c.scopes) == 1 && c.scopes[0] != scopeAdmin && slices.Contains(op.auth.clientScopes, c.scopes[0]) {
-					t.Run(op.route+" as "+c.name+" admitted", func(t *testing.T) {
-						resp, b := devReq(t, srv, method, path, c.token, "")
-						if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-							t.Fatalf("status = %d, want admitted: %s", resp.StatusCode, b)
-						}
-					})
-				}
-				continue
-			}
-			t.Run(op.route+" as "+c.name, func(t *testing.T) {
-				resp, b := devReq(t, srv, method, path, c.token, "")
-				if resp.StatusCode != want {
-					t.Fatalf("status = %d, want %d: %s", resp.StatusCode, want, b)
-				}
-			})
 		}
 	}
 }
@@ -233,23 +249,25 @@ func TestOpenAPIExternalExamplesExist(t *testing.T) {
 
 func TestOpenAPIMasterOnlyTagMatchesGuards(t *testing.T) {
 	for _, op := range readSpecOps(t) {
-		if !slices.Contains(op.auth.clientScopes, scopeAdmin) {
+		if len(op.auth.clientScopes) == 0 {
 			continue
 		}
-		t.Run(op.route, func(t *testing.T) {
-			app := newPomodoroApp(t)
-			stubRemoteClock(t, app)
-			app.updateConfig(func(c *Config) { c.RateLimit.Disabled = true })
-			srv := httptest.NewServer(app.routes())
-			t.Cleanup(srv.Close)
-			admin := mintClient(t, srv, "admin", scopeAdmin)
-			target := mintClient(t, srv, "target", scopeIngest)
-			method, path, _ := strings.Cut(op.route, " ")
-			path = strings.NewReplacer("{id}", target.ID, "{dump}", "1a2b3c4d", "{version}", "0.9.14", "{build}", "a1b2c3d4").Replace(path)
-			resp, b := devReq(t, srv, method, path, admin.Token, "")
-			if guarded := resp.StatusCode == http.StatusForbidden; guarded != op.auth.masterOnly {
-				t.Fatalf("admin client got %d, x-master-only: %v: %s", resp.StatusCode, op.auth.masterOnly, b)
-			}
-		})
+		for _, tg := range specTargets(op, "client-target", "knob-target") {
+			t.Run(op.route+tg.label, func(t *testing.T) {
+				app := newPomodoroApp(t)
+				stubRemoteClock(t, app)
+				app.updateConfig(func(c *Config) { c.RateLimit.Disabled = true })
+				srv := httptest.NewServer(app.routes())
+				t.Cleanup(srv.Close)
+				admin := mintClient(t, srv, "admin", scopeAdmin)
+				target := mintClient(t, srv, "target", scopeIngest)
+				knob := mintKnob(t, srv, http.StatusCreated)
+				path := strings.NewReplacer("client-target", target.ID, "knob-target", knob.ID).Replace(tg.path)
+				resp, b := devReq(t, srv, tg.method, path, admin.Token, "")
+				if guarded := resp.StatusCode == http.StatusForbidden; guarded != tg.masterOnly {
+					t.Fatalf("admin client got %d, master-only here: %v: %s", resp.StatusCode, tg.masterOnly, b)
+				}
+			})
+		}
 	}
 }
