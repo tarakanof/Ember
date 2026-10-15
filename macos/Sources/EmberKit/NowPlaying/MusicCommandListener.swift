@@ -23,6 +23,7 @@ public final class MusicCommandListener {
     private let pusher: AppleMusicPusher
     private let sleep: Sleep
     private var task: Task<Void, Never>?
+    private var stopped: Task<Void, Never>?
     private var loggedDenied = false
 
     public init(bridge: MusicBridge, pusher: AppleMusicPusher,
@@ -42,10 +43,11 @@ public final class MusicCommandListener {
 
     public func stop() {
         task?.cancel()
+        if let task { stopped = task }
         task = nil
     }
 
-    public func join() async { await task?.value }
+    public func join() async { await (task ?? stopped)?.value }
 
     private func run(source: NowPlayingCommandSource, player: String) async {
         var backoff = Self.firstBackoff
