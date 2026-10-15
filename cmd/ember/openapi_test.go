@@ -169,13 +169,18 @@ func TestOpenAPIAuthMatchesServer(t *testing.T) {
 	for _, s := range []string{scopeIngest, scopeControl, scopeRead, scopeAdmin} {
 		creds = append(creds, cred{name: s, token: mintClient(t, srv, s, s).Token, scopes: []string{s}})
 	}
+	target := mintClient(t, srv, "target", scopeIngest)
 
 	for _, op := range ops {
 		if op.auth.public {
 			continue
 		}
 		method, path, _ := strings.Cut(op.route, " ")
-		path = strings.NewReplacer("{id}", knob.ID, "{dump}", "1a2b3c4d", "{version}", "0.9.14", "{build}", "a1b2c3d4").Replace(path)
+		id := knob.ID
+		if op.auth.masterOnly {
+			id = target.ID
+		}
+		path = strings.NewReplacer("{id}", id, "{dump}", "1a2b3c4d", "{version}", "0.9.14", "{build}", "a1b2c3d4").Replace(path)
 		for _, c := range creds {
 			want := 0
 			switch {
@@ -223,5 +228,28 @@ func TestOpenAPIExternalExamplesExist(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(filepath.Dir(openAPIPath), m[1])); err != nil {
 			t.Errorf("example %s: %v", m[1], err)
 		}
+	}
+}
+
+func TestOpenAPIMasterOnlyTagMatchesGuards(t *testing.T) {
+	for _, op := range readSpecOps(t) {
+		if !slices.Contains(op.auth.clientScopes, scopeAdmin) {
+			continue
+		}
+		t.Run(op.route, func(t *testing.T) {
+			app := newPomodoroApp(t)
+			stubRemoteClock(t, app)
+			app.updateConfig(func(c *Config) { c.RateLimit.Disabled = true })
+			srv := httptest.NewServer(app.routes())
+			t.Cleanup(srv.Close)
+			admin := mintClient(t, srv, "admin", scopeAdmin)
+			target := mintClient(t, srv, "target", scopeIngest)
+			method, path, _ := strings.Cut(op.route, " ")
+			path = strings.NewReplacer("{id}", target.ID, "{dump}", "1a2b3c4d", "{version}", "0.9.14", "{build}", "a1b2c3d4").Replace(path)
+			resp, b := devReq(t, srv, method, path, admin.Token, "")
+			if guarded := resp.StatusCode == http.StatusForbidden; guarded != op.auth.masterOnly {
+				t.Fatalf("admin client got %d, x-master-only: %v: %s", resp.StatusCode, op.auth.masterOnly, b)
+			}
+		})
 	}
 }

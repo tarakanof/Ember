@@ -21,6 +21,10 @@ info:
     - a knob device token (`deviceToken`, prefix `ekd_`) passes the
       device-self routes and the control routes.
 
+    Operations marked `x-master-only: true` refuse every client token,
+    `admin` included (403). On `/v1/devices/{id}` and its `rotate` that
+    holds when `{id}` names a client (`client-…`).
+
     An `ingest` client token minted with `sources` (not allowed with
     `admin`) is bound to them: `POST`/`DELETE
     /v1/status` and `POST /v1/usage` naming any other `source` (or, for
@@ -1718,6 +1722,7 @@ paths:
         The response carries the token once (`Cache-Control: no-store`).
         Minting (a client or a knob) takes the master token: a client token,
         admin included, gets 403. At most 64 clients (400 past that).
+      x-master-only: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       requestBody:
         required: true
@@ -1784,6 +1789,7 @@ paths:
       operationId: renameDevice
       summary: Rename a record
       description: Renaming a client takes the master token (403 for any client token).
+      x-master-only: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       requestBody:
         required: true
@@ -1820,6 +1826,7 @@ paths:
         Deleting a client takes the master token (403 for any client token).
         A deleted clock record comes back, with its default name, at the
         next good probe of the effective clock URL.
+      x-master-only: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
         "204":
@@ -1843,6 +1850,7 @@ paths:
         next checkin collects the new token. Rotating a client takes the
         master token (403 for any client token). The clock has no token:
         400 for `awtrix-ng`.
+      x-master-only: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
         "200":
