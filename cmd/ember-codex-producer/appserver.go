@@ -38,7 +38,10 @@ type apThread struct {
 	d          derived
 	busy       bool
 	subscribed bool
+	unsure     bool
 	resumeAt   time.Time
+	unsubAt    time.Time
+	unsubWait  time.Duration
 	failed     bool
 	lastChange time.Time
 	post       producer.Repost
@@ -88,6 +91,7 @@ type appServer struct {
 	acting       string
 	actingClosed bool
 	lastReleased map[string]bool
+	lateSubs     map[string]time.Time
 	deletes      []string
 	released     []string
 	rate         derived
@@ -118,6 +122,7 @@ func newAppServer(cfg Config) *appServer {
 		ephemeral:   map[string]time.Time{},
 		gone:        map[string]time.Time{},
 		slow:        map[string]*apSlow{},
+		lateSubs:    map[string]time.Time{},
 	}
 }
 
@@ -263,6 +268,37 @@ func (as *appServer) call(ctx context.Context, c *rpcConn, method string, params
 	return as.callFor(ctx, c, as.callTimeout, method, params, out)
 }
 
+func (as *appServer) callLate(ctx context.Context, c *rpcConn, method string, params any, onLate func(error)) error {
+	cctx, cancel := context.WithTimeout(ctx, as.callTimeout)
+	defer cancel()
+	return c.callLate(cctx, method, params, nil, onLate)
+}
+
+func (as *appServer) lateReply(id string, subscribed bool) func(error) {
+	as.mu.Lock()
+	t := as.threads[id]
+	as.mu.Unlock()
+	return func(err error) {
+		if err != nil {
+			return
+		}
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		cur := as.threads[id]
+		switch {
+		case subscribed && cur != nil:
+			cur.subscribed = true
+		case subscribed:
+			as.lateSubs[id] = as.now()
+		case t != nil && cur == t:
+			cur.subscribed, cur.unsure = false, false
+		default:
+			return
+		}
+		as.wake()
+	}
+}
+
 func (as *appServer) callFor(ctx context.Context, c *rpcConn, d time.Duration, method string, params, out any) error {
 	cctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
@@ -286,6 +322,7 @@ func (as *appServer) disconnect() {
 	as.unread = map[string]*apPending{}
 	as.ephemeral = map[string]time.Time{}
 	as.slow = map[string]*apSlow{}
+	as.lateSubs = map[string]time.Time{}
 	as.acting = ""
 	as.hasRate, as.rate = false, derived{}
 }
@@ -374,7 +411,15 @@ func (as *appServer) nextAction(now time.Time) (a apAction, retryAt time.Time) {
 			}
 			as.acting, as.actingClosed = id, false
 			return apAction{"resume", id}, time.Time{}
-		case !t.busy && t.subscribed:
+		case !t.busy && (t.subscribed || t.unsure):
+			at := t.unsubAt
+			if until := as.slowUntilLocked(id, now); until.After(at) {
+				at = until
+			}
+			if now.Before(at) {
+				later(at)
+				continue
+			}
 			as.acting, as.actingClosed = id, false
 			return apAction{"unsubscribe", id}, time.Time{}
 		}
@@ -423,6 +468,11 @@ func (as *appServer) recoveredLocked(id string) {
 
 func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, error) {
 	for ctx.Err() == nil {
+		select {
+		case <-c.done:
+			return time.Time{}, c.closeErr()
+		default:
+		}
 		a, retryAt := as.nextAction(time.Now())
 		if a.kind == "" {
 			return retryAt, nil
@@ -448,24 +498,44 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) (time.Time, erro
 			}
 			as.mu.Unlock()
 		case "resume":
-			err = as.call(ctx, c, "thread/resume", map[string]any{"threadId": a.id, "excludeTurns": true}, nil)
+			err = as.callLate(ctx, c, "thread/resume", map[string]any{"threadId": a.id, "excludeTurns": true}, as.lateReply(a.id, true))
 			as.mu.Lock()
 			if t := as.threads[a.id]; t != nil {
 				if err == nil {
-					t.subscribed = true
+					t.subscribed, t.unsure = true, false
 					as.recoveredLocked(a.id)
 				} else {
 					t.resumeAt = time.Now().Add(as.retryEvery)
+					t.unsure = t.unsure || errors.Is(err, context.DeadlineExceeded)
 				}
 			}
 			as.mu.Unlock()
 		case "unsubscribe":
-			err = as.call(ctx, c, "thread/unsubscribe", map[string]any{"threadId": a.id}, nil)
+			err = as.callLate(ctx, c, "thread/unsubscribe", map[string]any{"threadId": a.id}, as.lateReply(a.id, false))
 			as.mu.Lock()
+			var rerr *rpcError
+			rejected := errors.As(err, &rerr)
+			var wait time.Duration
 			if t := as.threads[a.id]; t != nil {
-				t.subscribed = false
+				t.subscribed, t.unsure = false, err != nil
+				switch {
+				case err == nil:
+					t.unsubAt, t.unsubWait = time.Time{}, 0
+				case rejected:
+					t.unsubWait = min(max(2*t.unsubWait, as.slowMin), as.slowMax)
+					t.unsubAt = time.Now().Add(t.unsubWait)
+					wait = t.unsubWait
+				default:
+					t.unsubAt = time.Now().Add(as.retryEvery)
+				}
 			}
 			as.mu.Unlock()
+			if rejected {
+				as.failLog.Warn(slog.Default(), "codex_unsubscribe", "codex app-server rejected an unsubscribe", "thread_id", a.id, "err", err, "retry_in", wait)
+			}
+		}
+		if errors.Is(err, errConnLost) {
+			return time.Time{}, err
 		}
 		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
 			if perr := as.probe(ctx, c); perr != nil {
@@ -532,6 +602,10 @@ func (as *appServer) addThreadLocked(th wireThread) {
 		t.d.state = "error"
 	case "active":
 		as.applyStatusLocked(t, th.Status)
+	}
+	if _, late := as.lateSubs[th.ID]; late {
+		t.unsure = true
+		delete(as.lateSubs, th.ID)
 	}
 	delete(as.gone, th.ID)
 	as.threads[th.ID] = t
@@ -883,6 +957,11 @@ func (as *appServer) tick() apTick {
 	for id, at := range as.ephemeral {
 		if now.Sub(at) > ephemeralTTL {
 			delete(as.ephemeral, id)
+		}
+	}
+	for id, at := range as.lateSubs {
+		if now.Sub(at) > lateReplyTTL {
+			delete(as.lateSubs, id)
 		}
 	}
 	for id, at := range as.gone {
