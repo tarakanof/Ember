@@ -8,6 +8,8 @@ public protocol MusicBridge: Sendable {
     func position() async -> Double?
     func artwork() async -> (trackID: String, data: Data)?
     func snapshot() async -> MusicPlayerInfo?
+    /// nil when unknown (Music closed or the read failed), "" when no track is current.
+    func trackID() async -> String?
     func volume() async -> Int?
     /// Address the running process only, never relaunch Music (ARCHITECTURE "Now playing" › Music).
     func perform(_ command: NowPlayingCommand) async -> Bool

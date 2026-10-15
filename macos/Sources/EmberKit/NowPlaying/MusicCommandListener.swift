@@ -14,6 +14,8 @@ public final class MusicCommandListener {
     static let missingRouteBackoff: Duration = .seconds(300)
     static let minRound: Duration = .seconds(1)
     static let maxAge: Duration = .seconds(5)
+    static let skipPoll: Duration = .milliseconds(200)
+    static let skipPolls = 10
 
     public typealias Sleep = @Sendable (Duration) async throws -> Void
 
@@ -21,6 +23,7 @@ public final class MusicCommandListener {
     private let pusher: AppleMusicPusher
     private let sleep: Sleep
     private var task: Task<Void, Never>?
+    private var stopped: Task<Void, Never>?
     private var loggedDenied = false
 
     public init(bridge: MusicBridge, pusher: AppleMusicPusher,
@@ -40,10 +43,11 @@ public final class MusicCommandListener {
 
     public func stop() {
         task?.cancel()
+        if let task { stopped = task }
         task = nil
     }
 
-    public func join() async { await task?.value }
+    public func join() async { await (task ?? stopped)?.value }
 
     private func run(source: NowPlayingCommandSource, player: String) async {
         var backoff = Self.firstBackoff
@@ -90,6 +94,8 @@ public final class MusicCommandListener {
 
     func execute(_ commands: [NowPlayingCommand], received: ContinuousClock.Instant = .now) async {
         var ran = false
+        var skips = 0
+        var track = TrackChanges()
         for c in commands where c.action != nil {
             let age = Duration.milliseconds(c.ageMs) + (ContinuousClock.now - received)
             if age > Self.maxAge {
@@ -103,9 +109,44 @@ public final class MusicCommandListener {
                 continue
             }
             loggedDenied = false
-            if await bridge.perform(c) { ran = true }
+            let skip = c.action == .next || c.action == .previous
+            if skip { track.see(await bridge.trackID()) }
+            guard await bridge.perform(c) else { continue }
+            ran = true
+            if skip { skips += 1 }
         }
-        guard ran, let info = await bridge.snapshot() else { return }
+        guard ran else { return }
+        let info = skips > 0 ? await snapshot(after: skips, from: track) : await bridge.snapshot()
+        guard let info, !Task.isCancelled else { return }
         pusher.submit(info)
+    }
+
+    struct TrackChanges {
+        private(set) var current: String?
+        private(set) var count = 0
+
+        mutating func see(_ id: String?) {
+            guard let id, !id.isEmpty else { return }
+            if let current, current != id { count += 1 }
+            current = id
+        }
+    }
+
+    private func snapshot(after skips: Int, from start: TrackChanges) async -> MusicPlayerInfo? {
+        var track = start
+        var latest: MusicPlayerInfo?
+        for poll in 0...Self.skipPolls {
+            if poll > 0 {
+                do { try await sleep(Self.skipPoll) } catch { return nil }
+            }
+            if let info = await bridge.snapshot() {
+                latest = info
+                track.see(info.persistentID)
+                if track.count >= skips { break }
+            } else if !(await bridge.isRunning()) {
+                return nil
+            }
+        }
+        return latest
     }
 }
