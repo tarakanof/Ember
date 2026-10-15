@@ -2318,13 +2318,23 @@ is the Mac side; the knob page (`controls`, C2) does not exist yet.
   follows the last probe immediately, so the residual risk is the
   microseconds between them: the group could empty and a new group leader
   take the same number only after a full pid wrap in that window, which is
-  accepted. On quit (`applicationWillTerminate` →
-  `KnobControlsService.shutdown()`) the listener stops and the runner's
-  `stop()` sends SIGTERM to the running group, probes it every 10 ms and
-  sends SIGKILL after 500 ms if it is still there, blocking the quit for
-  at most that long; the runner then refuses new scripts (outcome
-  `failed`), and a script launched in the same instant is killed at once. Killing `shortcuts run` only
-  stops the CLI: the shortcut itself most likely keeps running in the
+  accepted. The runner tracks each group apart from its leader: when the
+  leader exits but a descendant is still in the group, it probes the group
+  every 1 s and forgets it only once it is empty, so a pending timeout
+  SIGKILL and the quit path still reach it. On a normal quit
+  (`applicationWillTerminate` → `KnobControlsService.shutdown()`: the Quit
+  item, logout) the listener stops and `ScriptProcessRunner.shutdown()`
+  first waits for a launch still inside `Process.run()`, cancels the
+  timeout tasks, sends SIGTERM to every tracked group, probes them every
+  10 ms and, after 500 ms, probes once more and sends SIGKILL right away to
+  any group still there. Quit blocks for at most about that long, and only
+  while a group exists. The runner then refuses new scripts (outcome
+  `failed`). In the app `run` and `shutdown` are both on the main actor, so
+  they never overlap; the launch wait and the refusal guard the public API
+  for callers on other threads. A force quit, a crash or a SIGKILL of
+  Ember skips all of this and leaves the group running until it ends.
+  Killing `shortcuts run` only stops the CLI: the shortcut itself most
+  likely keeps running in the
   Shortcuts engine (not verified on a device), and the runner is free again,
   so a shortcut that runs past 10 s can overlap the next one (at most one
   new shortcut per ~11 s). That is accepted: the `shortcuts` CLI has no stop
