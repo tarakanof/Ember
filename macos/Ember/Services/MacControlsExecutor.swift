@@ -67,6 +67,8 @@ struct MacControlsExecutor: ControlsExecutor {
 
     static func requestEventAccess() -> Bool { CGRequestPostEventAccess() }
 
+    static func stopScripts() { scripts.shutdown() }
+
     private static func address(_ selector: AudioObjectPropertySelector,
                                 scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeOutput) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)

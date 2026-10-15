@@ -282,13 +282,53 @@ private final class GatedExecutor: ControlsExecutor {
 
 private final class SignalLog: @unchecked Sendable {
     private let lock = NSLock()
-    private var sent: [(pid_t, Int32)] = []
+    private var sent: [(pid: pid_t, sig: Int32, at: ContinuousClock.Instant)] = []
 
     func send(_ pid: pid_t, _ sig: Int32) -> Int32 {
-        lock.withLock { sent.append((pid, sig)) }
+        let at = ContinuousClock.now
+        lock.withLock { sent.append((pid, sig, at)) }
         return kill(pid, sig)
     }
-    func signals(_ sig: Int32) -> [pid_t] { lock.withLock { sent.filter { $0.1 == sig }.map(\.0) } }
+    func pause(_ d: Duration) {
+        lock.withLock { sent.append((0, -1, ContinuousClock.now)) }
+        Thread.sleep(forTimeInterval: Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18)
+    }
+    func signals(_ sig: Int32) -> [pid_t] { lock.withLock { sent.filter { $0.sig == sig }.map(\.pid) } }
+    func eventBeforeKill(of pid: pid_t) -> (pid: pid_t, sig: Int32)? {
+        lock.withLock {
+            guard let k = sent.firstIndex(where: { $0.sig == SIGKILL && $0.pid == pid }), k > 0 else { return nil }
+            return (sent[k - 1].pid, sent[k - 1].sig)
+        }
+    }
+}
+
+private final class LaunchGate: @unchecked Sendable {
+    private let entered = DispatchSemaphore(value: 0)
+    private let released = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var launched: pid_t = 0
+
+    var pid: pid_t { lock.withLock { launched } }
+
+    func launch(_ p: Process) throws {
+        entered.signal()
+        released.wait()
+        try p.run()
+        lock.withLock { launched = p.processIdentifier }
+    }
+    func waitEntered() { entered.wait() }
+    func release() { released.signal() }
+}
+
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
+}
+
+private func offMain<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+    await withCheckedContinuation { c in DispatchQueue.global().async { c.resume(returning: work()) } }
 }
 
 private func scratchFile(_ ext: String) -> URL {
@@ -391,6 +431,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 
 @Test func scriptRunnerRunsOneProcessAtATime() async throws {
     let runner = ScriptProcessRunner(timeout: .seconds(30))
+    defer { runner.shutdown(grace: .zero) }
     let release = scratchFile("release")
     defer { try? FileManager.default.removeItem(at: release) }
     let hold = ["-c", "while [ ! -e \"$0\" ]; do /bin/sleep 0.02; done", release.path]
@@ -404,6 +445,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 
 @Test func scriptRunnerKillsAProcessPastItsTimeout() async throws {
     let runner = ScriptProcessRunner(timeout: .milliseconds(200))
+    defer { runner.shutdown(grace: .zero) }
     let started = ContinuousClock.now
     #expect(runner.run("/bin/sleep", ["30"], what: "test") == .launched)
     for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
@@ -413,21 +455,25 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 }
 
 @Test func scriptRunnerTerminatesTheWholeProcessGroupPastItsTimeout() async throws {
-    let runner = ScriptProcessRunner(timeout: .seconds(1))
+    let log = SignalLog()
+    let runner = ScriptProcessRunner(timeout: .seconds(1), signal: { log.send($0, $1) })
+    defer { runner.shutdown(grace: .zero) }
     let pidFile = scratchFile("pid")
     defer { try? FileManager.default.removeItem(at: pidFile) }
-    let started = ContinuousClock.now
     #expect(runner.run("/bin/sh", ["-c", "/bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path], what: "test") == .launched)
     let grandchild = try await readPid(pidFile)
     #expect(grandchild > 0)
     for _ in 0..<500 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
     #expect(grandchild > 0 && !alive(grandchild))
-    #expect(ContinuousClock.now - started < .seconds(1) + ScriptProcessRunner.killGrace * 0.9)
+    try await Task.sleep(for: ScriptProcessRunner.killGrace + .milliseconds(300))
+    #expect(log.signals(SIGTERM).count == 1 && log.signals(SIGTERM).allSatisfy { $0 < 0 })
+    #expect(log.signals(SIGKILL).isEmpty)
     if alive(grandchild) { kill(grandchild, SIGKILL) }
 }
 
 @Test func scriptRunnerKillsTheWholeProcessGroupThatIgnoresTerm() async throws {
     let runner = ScriptProcessRunner(timeout: .seconds(1))
+    defer { runner.shutdown(grace: .zero) }
     let pidFile = scratchFile("pid")
     defer { try? FileManager.default.removeItem(at: pidFile) }
     #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path],
@@ -444,6 +490,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 @Test func scriptRunnerSkipsTheKillOnceTheGroupIsGone() async throws {
     let log = SignalLog()
     let runner = ScriptProcessRunner(timeout: .milliseconds(300), signal: { log.send($0, $1) })
+    defer { runner.shutdown(grace: .zero) }
     #expect(runner.run("/bin/sleep", ["30"], what: "test") == .launched)
     for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
     #expect(!runner.isBusy)
@@ -455,6 +502,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 
 @Test func scriptRunnerSurvivesAProcessThatExitsBeforeReadingStdin() async throws {
     let runner = ScriptProcessRunner()
+    defer { runner.shutdown(grace: .zero) }
     let big = Data(repeating: 0x41, count: 4 << 20)
     for _ in 0..<3 {
         #expect(runner.run("/usr/bin/true", [], stdin: big, what: "test") == .launched)
@@ -466,6 +514,109 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 
 @Test func scriptRunnerReportsAToolThatCannotStart() {
     let runner = ScriptProcessRunner()
+    defer { runner.shutdown(grace: .zero) }
     #expect(runner.run("/nonexistent/tool", [], what: "test") == .failed)
     #expect(!runner.isBusy)
+}
+
+@Test func scriptRunnerShutdownEndsTheRunningProcessGroup() async throws {
+    let log = SignalLog()
+    let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) })
+    defer { runner.shutdown(grace: .zero) }
+    let pidFile = scratchFile("pid")
+    defer { try? FileManager.default.removeItem(at: pidFile) }
+    #expect(runner.run("/bin/sh", ["-c", "/bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path], what: "test") == .launched)
+    let grandchild = try await readPid(pidFile)
+    #expect(grandchild > 0)
+    let started = ContinuousClock.now
+    runner.shutdown()
+    #expect(ContinuousClock.now - started < .seconds(2))
+    for _ in 0..<200 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(grandchild > 0 && !alive(grandchild))
+    #expect(log.signals(SIGTERM).count == 1 && log.signals(SIGTERM).allSatisfy { $0 < 0 })
+    #expect(log.signals(SIGKILL).isEmpty)
+    if alive(grandchild) { kill(grandchild, SIGKILL) }
+}
+
+@Test func scriptRunnerShutdownKillsAGroupThatIgnoresTerm() async throws {
+    let log = SignalLog()
+    let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) }, pause: { log.pause($0) })
+    defer { runner.shutdown(grace: .zero) }
+    let pidFile = scratchFile("pid")
+    defer { try? FileManager.default.removeItem(at: pidFile) }
+    #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path],
+                       what: "test") == .launched)
+    let grandchild = try await readPid(pidFile)
+    #expect(grandchild > 0)
+    let started = ContinuousClock.now
+    runner.shutdown(grace: .milliseconds(200))
+    #expect(ContinuousClock.now - started < .seconds(2))
+    for _ in 0..<200 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(grandchild > 0 && !alive(grandchild))
+    #expect(log.signals(SIGKILL).count == 1 && log.signals(SIGKILL).allSatisfy { $0 < 0 })
+    let group = log.signals(SIGKILL).first ?? 0
+    let before = log.eventBeforeKill(of: group)
+    #expect(before?.pid == group && before?.sig == 0)
+    if alive(grandchild) { kill(grandchild, SIGKILL) }
+}
+
+@Test func scriptRunnerRefusesScriptsAfterShutdown() {
+    let log = SignalLog()
+    let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) })
+    defer { runner.shutdown(grace: .zero) }
+    runner.shutdown()
+    #expect(runner.run("/bin/sleep", ["30"], what: "test") == .failed)
+    #expect(!runner.isBusy)
+    #expect(log.signals(SIGTERM).isEmpty && log.signals(SIGKILL).isEmpty)
+}
+
+@Test func scriptRunnerShutdownWaitsForALaunchInProgress() async throws {
+    let log = SignalLog()
+    let gate = LaunchGate()
+    let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) }, launch: { try gate.launch($0) })
+    defer { runner.shutdown(grace: .zero) }
+    defer { gate.release() }
+    async let launched = offMain { runner.run("/bin/sleep", ["30"], what: "test") }
+    await offMain { gate.waitEntered() }
+    let done = Flag()
+    async let stopped: Void = offMain {
+        runner.shutdown(grace: .seconds(5))
+        done.set()
+    }
+    for _ in 0..<1000 where runner.run("/usr/bin/true", [], what: "probe") != .failed {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(runner.run("/usr/bin/true", [], what: "probe") == .failed)
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(!done.isSet)
+    gate.release()
+    await stopped
+    #expect(await launched == .failed)
+    let child = gate.pid
+    #expect(child > 0)
+    for _ in 0..<200 where alive(child) { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(child > 0 && !alive(child))
+    #expect(log.signals(SIGTERM) == [-child])
+    if alive(child) { kill(child, SIGKILL) }
+}
+
+@Test func scriptRunnerShutdownEndsADescendantThatOutlivedItsLeader() async throws {
+    let log = SignalLog()
+    let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) })
+    defer { runner.shutdown(grace: .zero) }
+    let pidFile = scratchFile("pid")
+    defer { try? FileManager.default.removeItem(at: pidFile) }
+    #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 30 & echo $! > \"$0\"", pidFile.path],
+                       what: "test") == .launched)
+    let grandchild = try await readPid(pidFile)
+    #expect(grandchild > 0)
+    for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(!runner.isBusy)
+    #expect(alive(grandchild))
+    runner.shutdown(grace: .milliseconds(200))
+    for _ in 0..<200 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(grandchild > 0 && !alive(grandchild))
+    #expect(log.signals(SIGTERM).count == 1 && log.signals(SIGTERM).allSatisfy { $0 < 0 })
+    #expect(log.signals(SIGKILL).count == 1 && log.signals(SIGKILL).allSatisfy { $0 < 0 })
+    if alive(grandchild) { kill(grandchild, SIGKILL) }
 }
