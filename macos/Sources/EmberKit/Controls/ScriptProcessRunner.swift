@@ -1,22 +1,33 @@
 import Foundation
 import OSLog
 
+public enum ScriptLaunch: Equatable, Sendable { case launched, busy, failed }
+
 public final class ScriptProcessRunner: @unchecked Sendable {
-    public enum Result: Equatable, Sendable { case launched, busy, failed }
+    typealias Signal = @Sendable (pid_t, Int32) -> Int32
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "controls")
+    static let killGrace: Duration = .seconds(1)
+    static let groupPoll: Duration = .milliseconds(50)
 
     private let timeout: Duration
+    private let signal: Signal
     private let lock = NSLock()
     private var running: Process?
+    private var watchdog: Task<Void, Never>?
 
-    public init(timeout: Duration = .seconds(10)) {
+    public convenience init(timeout: Duration = .seconds(10)) {
+        self.init(timeout: timeout, signal: { kill($0, $1) })
+    }
+
+    init(timeout: Duration, signal: @escaping Signal) {
         self.timeout = timeout
+        self.signal = signal
     }
 
     public var isBusy: Bool { lock.withLock { running != nil } }
 
-    public func run(_ tool: String, _ args: [String], stdin: Data? = nil, what: String) -> Result {
+    public func run(_ tool: String, _ args: [String], stdin: Data? = nil, what: String) -> ScriptLaunch {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: tool)
         p.arguments = args
@@ -59,21 +70,40 @@ public final class ScriptProcessRunner: @unchecked Sendable {
             }
         }
         let limit = timeout
-        Task.detached {
-            try? await Task.sleep(for: limit)
-            if p.isRunning {
-                Self.log.notice("knob \(what, privacy: .public) killed after \(limit.components.seconds) s")
-                p.terminate()
-                try? await Task.sleep(for: .seconds(1))
-                if p.isRunning { kill(p.processIdentifier, SIGKILL) }
+        let group = p.processIdentifier
+        let send = signal
+        let dog = Task.detached {
+            guard (try? await Task.sleep(for: limit)) != nil, p.isRunning else { return }
+            Self.log.notice("knob \(what, privacy: .public) killed after \(limit.components.seconds) s")
+            guard Self.deliver(SIGTERM, to: group, of: p, send) else { return }
+            Task.detached {
+                let clock = ContinuousClock()
+                let deadline = clock.now + Self.killGrace
+                while clock.now < deadline {
+                    try? await Task.sleep(for: Self.groupPoll)
+                    if send(-group, 0) != 0, !p.isRunning { return }
+                }
+                _ = Self.deliver(SIGKILL, to: group, of: p, send)
             }
+        }
+        lock.withLock {
+            if running === p { watchdog = dog } else { dog.cancel() }
         }
         return .launched
     }
 
+    private static func deliver(_ sig: Int32, to group: pid_t, of p: Process, _ send: Signal) -> Bool {
+        if send(-group, sig) == 0 { return true }
+        return p.isRunning && send(group, sig) == 0
+    }
+
     private func finished(_ p: Process) {
-        lock.withLock {
-            if running === p { running = nil }
+        let dog: Task<Void, Never>? = lock.withLock {
+            guard running === p else { return nil }
+            running = nil
+            defer { watchdog = nil }
+            return watchdog
         }
+        dog?.cancel()
     }
 }

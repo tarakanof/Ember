@@ -6,47 +6,62 @@ public protocol ControlsCommandSource: Sendable {
 }
 
 public protocol ControlsExecutor: Sendable {
-    func changeVolume(by points: Int) async -> Bool
-    func toggleMute() async -> Bool
-    func press(_ key: MediaKey) async -> Bool
-    func scroll(_ axis: ScrollAxis, lines: Int) async -> Bool
-    func runShortcut(_ name: String) async -> Bool
-    func runAppleScript(_ source: String) async -> Bool
+    @MainActor func changeVolume(by points: Int) -> Bool
+    @MainActor func toggleMute() -> Bool
+    @MainActor func press(_ key: MediaKey) -> Bool
+    @MainActor func scroll(_ axis: ScrollAxis, lines: Int) -> Bool
+    @MainActor func runShortcut(_ name: String) -> ScriptLaunch
+    @MainActor func runAppleScript(_ source: String) -> ScriptLaunch
     func canPostEvents() async -> Bool
 }
 
 public enum ControlOutcome: Equatable, Sendable {
-    case ran, failed, stale, needsAccessibility, unassigned, notTarget, cancelled
+    case ran, failed, busy, stale, needsAccessibility, unassigned, notTarget, cancelled
 }
 
 public enum ControlDispatcher {
-    public static func perform(_ c: ControlCommand, mapping: ControlsMapping, on executor: ControlsExecutor,
-                               age: Duration = .zero) async -> ControlOutcome {
+    @MainActor
+    public static func perform(_ c: ControlCommand, mapping: @MainActor () -> ControlsMapping, on executor: ControlsExecutor,
+                               age: Duration = .zero, isTarget: @MainActor () -> Bool) async -> ControlOutcome {
+        guard isTarget() else { return .notTarget }
         guard age <= c.lifetime else { return .stale }
-        let action = mapping[c.gesture]
-        if action.kind.needsEventAccess, !(await executor.canPostEvents()) { return .needsAccessibility }
-        let ok: Bool
+        let action = mapping()[c.gesture]
+        if action.kind.needsEventAccess {
+            guard await executor.canPostEvents() else { return .needsAccessibility }
+            if Task.isCancelled { return .cancelled }
+            guard isTarget() else { return .notTarget }
+            guard mapping()[c.gesture] == action else { return .stale }
+        }
         switch (c.gesture.isTurn, action.kind) {
         case (true, .volume):
-            ok = await executor.changeVolume(by: max(-100, min(100, c.steps * (action.step ?? 2))))
+            return outcome(executor.changeVolume(by: max(-100, min(100, c.steps * (action.step ?? 2)))))
         case (true, .scroll):
-            ok = await executor.scroll(action.axis ?? .vertical, lines: max(-100, min(100, c.steps * (action.lines ?? 3))))
+            return outcome(executor.scroll(action.axis ?? .vertical, lines: max(-100, min(100, c.steps * (action.lines ?? 3)))))
         case (false, .mute):
-            ok = await executor.toggleMute()
+            return outcome(executor.toggleMute())
         case (false, .media):
-            ok = await executor.press(action.key ?? .playPause)
+            return outcome(executor.press(action.key ?? .playPause))
         case (false, .shortcut):
             guard let name = action.name, !name.trimmingCharacters(in: .whitespaces).isEmpty else { return .unassigned }
-            ok = await executor.runShortcut(name)
+            return outcome(executor.runShortcut(name))
         case (false, .applescript):
             guard let script = action.script, !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return .unassigned
             }
-            ok = await executor.runAppleScript(script)
+            return outcome(executor.runAppleScript(script))
         default:
             return .unassigned
         }
-        return ok ? .ran : .failed
+    }
+
+    private static func outcome(_ ok: Bool) -> ControlOutcome { ok ? .ran : .failed }
+
+    private static func outcome(_ launch: ScriptLaunch) -> ControlOutcome {
+        switch launch {
+        case .launched: .ran
+        case .busy: .busy
+        case .failed: .failed
+        }
     }
 }
 
@@ -141,15 +156,12 @@ public final class ControlsListener {
                 outcomes.append(.cancelled)
                 continue
             }
-            guard isTarget() else {
-                Self.log.notice("knob control ignored: this Mac is not the target (\(c.gesture.rawValue, privacy: .public))")
-                outcomes.append(.notTarget)
-                continue
-            }
             let age = Duration.milliseconds(c.ageMs) + (ContinuousClock.now - received)
-            let outcome = await ControlDispatcher.perform(c, mapping: mapping(), on: executor, age: age)
+            let outcome = await ControlDispatcher.perform(c, mapping: mapping, on: executor, age: age, isTarget: isTarget)
             outcomes.append(outcome)
             switch outcome {
+            case .notTarget:
+                Self.log.notice("knob control ignored: this Mac is not the target (\(c.gesture.rawValue, privacy: .public))")
             case .needsAccessibility:
                 if !loggedNoAccess {
                     Self.log.notice("knob control skipped: Accessibility not granted (\(c.gesture.rawValue, privacy: .public))")
@@ -161,7 +173,7 @@ public final class ControlsListener {
                 Self.log.error("knob control failed (\(c.gesture.rawValue, privacy: .public))")
             case .ran:
                 if mapping()[c.gesture].kind.needsEventAccess { loggedNoAccess = false }
-            case .unassigned, .notTarget, .cancelled:
+            case .busy, .unassigned, .cancelled:
                 break
             }
         }

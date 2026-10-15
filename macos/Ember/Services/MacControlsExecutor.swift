@@ -10,20 +10,22 @@ struct MacControlsExecutor: ControlsExecutor {
     private static let keyDown = 0xA
     private static let keyUp = 0xB
 
-    func changeVolume(by points: Int) async -> Bool {
+    @MainActor
+    func changeVolume(by points: Int) -> Bool {
         guard let device = Self.defaultOutput(), let current = Self.volume(device) else { return false }
         let next = min(max(current + Float32(points) / 100, 0), 1)
         if points > 0, Self.muted(device) == true { _ = Self.setMuted(device, false) }
         return Self.setVolume(device, next)
     }
 
-    func toggleMute() async -> Bool {
+    @MainActor
+    func toggleMute() -> Bool {
         guard let device = Self.defaultOutput(), let muted = Self.muted(device) else { return false }
         return Self.setMuted(device, !muted)
     }
 
     @MainActor
-    func press(_ key: MediaKey) async -> Bool {
+    func press(_ key: MediaKey) -> Bool {
         let code: Int
         switch key {
         case .playPause: code = 16
@@ -40,7 +42,8 @@ struct MacControlsExecutor: ControlsExecutor {
         return true
     }
 
-    func scroll(_ axis: ScrollAxis, lines: Int) async -> Bool {
+    @MainActor
+    func scroll(_ axis: ScrollAxis, lines: Int) -> Bool {
         let amount = Int32(clamping: -lines)
         let event = axis == .vertical
             ? CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: amount, wheel2: 0, wheel3: 0)
@@ -50,12 +53,14 @@ struct MacControlsExecutor: ControlsExecutor {
         return true
     }
 
-    func runShortcut(_ name: String) async -> Bool {
-        Self.scripts.run("/usr/bin/shortcuts", ["run", name], what: "shortcut") == .launched
+    @MainActor
+    func runShortcut(_ name: String) -> ScriptLaunch {
+        Self.scripts.run("/usr/bin/shortcuts", ["run", name], what: "shortcut")
     }
 
-    func runAppleScript(_ source: String) async -> Bool {
-        Self.scripts.run("/usr/bin/osascript", ["-"], stdin: Data(source.utf8), what: "applescript") == .launched
+    @MainActor
+    func runAppleScript(_ source: String) -> ScriptLaunch {
+        Self.scripts.run("/usr/bin/osascript", ["-"], stdin: Data(source.utf8), what: "applescript")
     }
 
     func canPostEvents() async -> Bool { CGPreflightPostEventAccess() }
