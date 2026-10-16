@@ -58,6 +58,18 @@ func TestRediscoverClock_NoopWhenReachable(t *testing.T) {
 	}
 }
 
+func TestRediscoverClock_SkipsBrowseWhenContextCancelled(t *testing.T) {
+	a := newTestApp(t)
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
+	browsed := false
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) { browsed = true; return nil, nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if a.rediscoverClock(ctx) || browsed {
+		t.Fatalf("cancelled rediscover must not browse: browsed=%v", browsed)
+	}
+}
+
 func TestRediscoverClock_NoDeviceFound(t *testing.T) {
 	a := newTestApp(t)
 	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })

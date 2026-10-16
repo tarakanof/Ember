@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/discovery"
 )
 
 func TestRebootDetected(t *testing.T) {
@@ -86,6 +88,7 @@ func TestStartDeviceWatch_RepublishesOnReboot(t *testing.T) {
 
 	a := newTestApp(t)
 	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = srv.URL })
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) { return nil, nil }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -55,6 +55,9 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 			}
 		}
 	}
+	if ctx.Err() != nil {
+		return false
+	}
 
 	browse := a.browseFn
 	if browse == nil {
@@ -144,6 +147,9 @@ func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			if ctx.Err() != nil {
+				return
+			}
 			if a.rediscoverClock(ctx) {
 				last = deviceProbe{}
 				a.clockMoved("clock_rediscovered")
