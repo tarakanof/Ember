@@ -289,17 +289,19 @@ func enrichFromStatusline(in statuslineInput, env map[string]string) {
 		return
 	}
 	session := sanitizeSessionID(in.SessionID, in.Cwd)
-	acct := sessionClaudeAccount(markerAccountAt(markerPath(dir, session)))
+	var carried markerAccount
+	seen := false
 	_ = enrichMarker(dir, session, ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel,
-		func(markerAccount) markerAccount { return acct })
-}
-
-func markerAccountAt(path string) markerAccount {
-	var m marker
-	if body, err := readMarker(path); err == nil {
-		_ = json.Unmarshal(body, &m)
+		func(a markerAccount) markerAccount { carried, seen = a, true; return a })
+	if !seen {
+		return
 	}
-	return m.markerAccount
+	next := sessionClaudeAccount(carried)
+	if next.UsageAccountSig == carried.UsageAccountSig {
+		return
+	}
+	_ = enrichMarker(dir, session, nil, nil, nil, "", nil, nil, "",
+		func(markerAccount) markerAccount { return next })
 }
 
 const statuslineLockWait = 250 * time.Millisecond

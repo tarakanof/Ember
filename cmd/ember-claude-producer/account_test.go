@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -380,5 +381,161 @@ func TestStatuslineRelaySkipsAMarkerWhoseSnapshotIsOld(t *testing.T) {
 	got := relayed(t, h)
 	if _, ok := got[workKey]; ok || got[personalKey].FiveHour == nil {
 		t.Fatalf("relayed = %+v, want the old login's stale snapshot left out", got)
+	}
+}
+
+func makeConfigFIFO(t *testing.T, dir string) (release func(body string)) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, ".claude.json")
+	if err := syscall.Mkfifo(p, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	feed := func(body string, wait time.Duration) {
+		once.Do(func() {
+			deadline := time.Now().Add(wait)
+			for {
+				if f, err := os.OpenFile(p, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+					_, _ = f.WriteString(body)
+					_ = f.Close()
+					return
+				}
+				if time.Now().After(deadline) {
+					return
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		})
+	}
+	t.Cleanup(func() { feed("{}", 0) })
+	return func(body string) { feed(body, 5*time.Second) }
+}
+
+func TestDispatchTickNeverReadsTheClaudeConfig(t *testing.T) {
+	resetClaudeAccountCache(t)
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	release := makeConfigFIFO(t, h.home)
+	writeMarkerFile(t, h.sessionsDir(), "s", fmt.Sprintf(`,"rate_window_pct":40,"statusline_at":%d,"usage_account_key":%q`, time.Now().Unix(), personalKey))
+	cfg, _ := loadConfig()
+	done := make(chan struct{})
+	go func() {
+		dispatchTick(context.Background(), cfg)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		release(fakeClaudeJSON)
+		<-done
+		t.Fatal("dispatchTick read ~/.claude.json; the tick must take the account from the marker")
+	}
+	if got := relayed(t, h); len(got) != 1 || got[personalKey].FiveHour == nil {
+		t.Fatalf("relayed = %+v, want the marker's account", got)
+	}
+}
+
+func TestClaudeAccountCacheKeepsTheParseWhileMtimeAndSizeHold(t *testing.T) {
+	resetClaudeAccountCache(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeClaudeJSON(t, home, fakeWorkClaudeJSON)
+	if a := claudeAccounts.current(); a.key != workKey {
+		t.Fatalf("key = %q, want the work account", a.key)
+	}
+	p := filepath.Join(home, ".claude.json")
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeClaudeJSON(t, home, strings.Replace(fakeWorkClaudeJSON, "work-acct", "work-acdt", 1))
+	if err := os.Chtimes(p, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if a := claudeAccounts.current(); a.key != workKey {
+		t.Fatalf("key = %q, want the cached parse while mtime and size are unchanged", a.key)
+	}
+	later := fi.ModTime().Add(time.Second)
+	if err := os.Chtimes(p, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if a := claudeAccounts.current(); a.key != producer.AccountKey("claude", "work-acdt", "work-org") {
+		t.Fatalf("key = %q, want a re-parse once the mtime moved", a.key)
+	}
+}
+
+func TestStatuslineWritesTheMarkerBeforeParsingTheAccount(t *testing.T) {
+	resetClaudeAccountCache(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sessions := filepath.Join(home, ".local", "state", "ember", "sessions")
+	mp := writeMarkerFile(t, sessions, "s", "")
+	cfgDir := filepath.Join(home, ".claude-work")
+	release := makeConfigFIFO(t, cfgDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	in, ok := parseStatusline([]byte(`{"session_id":"s","rate_limits":{"five_hour":{"used_percentage":55}}}`))
+	if !ok {
+		t.Fatal("parse failed")
+	}
+	done := make(chan struct{})
+	go func() {
+		enrichFromStatusline(in, nil)
+		close(done)
+	}()
+	readBack := func() marker {
+		var m marker
+		if raw, err := readMarker(mp); err == nil {
+			_ = json.Unmarshal(raw, &m)
+		}
+		return m
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if m := readBack(); m.RateWindowPct != nil && *m.RateWindowPct == 55 {
+			if m.UsageAccountKey != "" {
+				t.Fatalf("account = %q before the config was readable", m.UsageAccountKey)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			release(fakeWorkClaudeJSON)
+			<-done
+			t.Fatal("the marker was not written until the account had been parsed")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	release(fakeWorkClaudeJSON)
+	<-done
+	if m := readBack(); m.UsageAccountKey != workKey || m.UsagePlan != "team" || m.UsageAccountSig == "" || *m.RateWindowPct != 55 {
+		t.Fatalf("marker account = %q plan %q, want the parsed account written after the figures", m.UsageAccountKey, m.UsagePlan)
+	}
+}
+
+func TestStatuslineSkipsTheAccountRewriteWhenTheConfigIsUnchanged(t *testing.T) {
+	resetClaudeAccountCache(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sessions := filepath.Join(home, ".local", "state", "ember", "sessions")
+	mp := writeMarkerFile(t, sessions, "s", "")
+	writeClaudeJSON(t, home, fakeClaudeJSON)
+	render := func(pct int) {
+		in, _ := parseStatusline([]byte(fmt.Sprintf(`{"session_id":"s","rate_limits":{"five_hour":{"used_percentage":%d}}}`, pct)))
+		enrichFromStatusline(in, nil)
+	}
+	render(30)
+	p := filepath.Join(home, ".claude.json")
+	if err := os.Chmod(p, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(p, 0o600) })
+	render(31)
+	var m marker
+	raw, _ := readMarker(mp)
+	_ = json.Unmarshal(raw, &m)
+	if m.UsageAccountKey != personalKey || *m.RateWindowPct != 31 {
+		t.Fatalf("marker = key %q pct %v, want the carried-over account and the new figure", m.UsageAccountKey, m.RateWindowPct)
 	}
 }

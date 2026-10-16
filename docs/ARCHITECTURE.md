@@ -4715,12 +4715,16 @@ add `account_key` and `plan` to `POST /v1/usage`:
   into the session marker (`usage_account_key`, `usage_plan`, plus the
   config file's path, mtime and size so an unchanged file isn't re-parsed;
   hooks carry them over). It starts the wrapped status line command (if
-  any) in the background, meanwhile updates the marker, stats the config
-  and parses it only when the mtime or size moved, outside the marker
-  lock, and prints once both are done: a render takes the longer of the
-  two, a multi-MB `~/.claude.json` never holds the lock the daemon and
-  hooks wait on, and a slow wrapped command that Claude Code cancels on
-  the next update can't keep the marker from being written. An unchanged
+  any) in the background, meanwhile writes the marker's figures with the
+  carried-over account, then stats the config and, only when the mtime or
+  size moved, parses it outside the marker lock and rewrites the marker
+  with the new account (#543). It prints once both are done: a render
+  takes the longer of the two, a multi-MB `~/.claude.json` never holds
+  the lock the daemon and hooks wait on, and neither a slow parse nor a
+  slow wrapped command that Claude Code cancels on the next update can
+  keep the figures from being written. The daemon's tick never reads the
+  config; only the 5-min endpoint poll does, through a cache keyed by
+  path, mtime and size (#539). An unchanged
   render rewrites the marker once a minute, judged by `statusline_at`
   (hooks carry it over and bump the file's mtime, so the mtime can't
   tell). The daemon relays the
