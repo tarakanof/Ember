@@ -159,11 +159,13 @@ func specTargets(op specOp, clientID, knobID string) []specTarget {
 	if !op.auth.masterOnly {
 		return []specTarget{{method: method, path: fill(knobID)}}
 	}
-	out := []specTarget{{method: method, path: fill(clientID), label: " (client id)", masterOnly: true}}
-	if strings.Contains(route, "{id}") {
-		out = append(out, specTarget{method: method, path: fill(knobID), label: " (knob id)"})
+	if !strings.Contains(route, "{id}") {
+		return []specTarget{{method: method, path: fill(clientID), masterOnly: true}}
 	}
-	return out
+	return []specTarget{
+		{method: method, path: fill(clientID), label: " (client id)", masterOnly: true},
+		{method: method, path: fill(knobID), label: " (knob id)"},
+	}
 }
 
 func TestOpenAPIAuthMatchesServer(t *testing.T) {
@@ -264,8 +266,12 @@ func TestOpenAPIMasterOnlyTagMatchesGuards(t *testing.T) {
 				knob := mintKnob(t, srv, http.StatusCreated)
 				path := strings.NewReplacer("client-target", target.ID, "knob-target", knob.ID).Replace(tg.path)
 				resp, b := devReq(t, srv, tg.method, path, admin.Token, "")
-				if guarded := resp.StatusCode == http.StatusForbidden; guarded != tg.masterOnly {
-					t.Fatalf("admin client got %d, master-only here: %v: %s", resp.StatusCode, tg.masterOnly, b)
+				if tg.masterOnly {
+					if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), "EMBER_TOKEN") {
+						t.Fatalf("admin client got %d, want 403 naming EMBER_TOKEN: %s", resp.StatusCode, b)
+					}
+				} else if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+					t.Fatalf("admin client got %d, want admitted: %s", resp.StatusCode, b)
 				}
 			})
 		}
