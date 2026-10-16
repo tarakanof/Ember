@@ -56,6 +56,23 @@ extension NowPlayingClient: NowPlayingCommandSource {
 @Observable
 public final class AppleMusicPusher {
     public static let source = "music"
+    public static let seekPoll: Duration = .seconds(2)
+    static let seekTolerance: Int64 = 3000
+
+    public typealias Sleep = @Sendable (Duration) async throws -> Void
+    public typealias Now = @Sendable () -> ContinuousClock.Instant
+
+    struct Anchor: Equatable {
+        let playing: Bool
+        let positionMs: Int64
+        let at: ContinuousClock.Instant
+
+        func expected(at now: ContinuousClock.Instant) -> Int64 {
+            guard playing else { return positionMs }
+            let (s, a) = (now - at).components
+            return positionMs + s * 1000 + a / 1_000_000_000_000_000
+        }
+    }
 
     public private(set) var lastError: String?
     public private(set) var lastSent: NowPlayingReport?
@@ -66,11 +83,21 @@ public final class AppleMusicPusher {
     @ObservationIgnored private var latest: MusicPlayerInfo?
     @ObservationIgnored private var worker: Task<Void, Never>?
     @ObservationIgnored private var reportError: Error?
+    @ObservationIgnored private(set) var anchor: Anchor?
+    @ObservationIgnored private var seekWatch: Task<Void, Never>?
+    @ObservationIgnored private let seekEvery: Duration?
+    @ObservationIgnored private let sleep: Sleep
+    @ObservationIgnored private let now: Now
 
-    public init(bridge: MusicBridge, sink: NowPlayingSink, player: String) {
+    public init(bridge: MusicBridge, sink: NowPlayingSink, player: String, seekPoll: Duration? = nil,
+                sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
+                now: @escaping Now = { ContinuousClock.now }) {
         self.bridge = bridge
         self.sink = sink
         self.player = player
+        seekEvery = seekPoll
+        self.sleep = sleep
+        self.now = now
     }
 
     public func configure(sink: NowPlayingSink, player: String) async {
@@ -103,9 +130,13 @@ public final class AppleMusicPusher {
     }
 
     public func stop() async {
+        endSeekWatch()
         await drain()
-        guard let last = lastSent, last.state != .stopped else { return }
-        await send(MusicPlayerInfo(state: .stopped).report(source: Self.source, player: player))
+        if let last = lastSent, last.state != .stopped {
+            await send(MusicPlayerInfo(state: .stopped).report(source: Self.source, player: player))
+        }
+        anchor = nil
+        endSeekWatch()
     }
 
     public func drain() async {
@@ -131,13 +162,46 @@ public final class AppleMusicPusher {
         }
     }
 
+    func checkSeek() async {
+        guard worker == nil, let before = anchor, let pos = await bridge.position() else { return }
+        let at = now()
+        guard worker == nil, anchor == before,
+              abs(Int64(max(pos, 0) * 1000) - before.expected(at: at)) > Self.seekTolerance,
+              let info = await bridge.snapshot(), !Task.isCancelled else { return }
+        submit(info)
+    }
+
+    private func watchSeeks() {
+        guard let every = seekEvery, seekWatch == nil else { return }
+        seekWatch = Task { [weak self, sleep] in
+            while !Task.isCancelled {
+                do { try await sleep(every) } catch { return }
+                guard let self else { return }
+                await self.checkSeek()
+            }
+        }
+    }
+
+    private func endSeekWatch() {
+        seekWatch?.cancel()
+        seekWatch = nil
+    }
+
     @discardableResult
     private func send(_ report: NowPlayingReport) async -> NowPlayingAck? {
+        let at = now()
         do {
             let ack = try await sink.report(report)
             lastSent = report
             lastError = nil
             reportError = nil
+            if report.state == .stopped {
+                anchor = nil
+                endSeekWatch()
+            } else {
+                anchor = Anchor(playing: report.state == .playing, positionMs: report.positionMs, at: at)
+                watchSeeks()
+            }
             return ack
         } catch {
             lastError = error.localizedDescription

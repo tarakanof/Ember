@@ -1193,8 +1193,14 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
 - **Apple Music pusher (#226).** Settings › Sources › Music toggles it
   (per Mac, `UserDefaults` `musicNowPlaying.enabled`, off by default).
   `MusicNowPlayingWatcher` observes the `com.apple.Music.playerInfo`
-  distributed notification only while it is on: no timers, no polling
-  (a knob skip re-reads briefly instead, see "Now playing" › Music).
+  distributed notification only while it is on (a knob skip re-reads
+  briefly, see "Now playing" › Music). Music posts no `playerInfo` for a
+  seek or a restart of the same track (cinder#230), so while the last
+  report is playing or paused the pusher reads `player position` every 2 s
+  (`AppleMusicPusher.seekPoll`) and, when it is more than 3 s off the
+  report's position extrapolated to now (the server's seek tolerance),
+  pushes a fresh snapshot. A stopped report or turning the toggle off ends
+  the watch, so an idle Music costs no wake-ups.
   EmberKit's `AppleMusicPusher` coalesces bursts to the latest state, POSTs
   `/v1/nowplaying` (`source:"music"`, `player` = the Connection pane's
   source name, else the computer name, `track_id` = Music's persistent ID

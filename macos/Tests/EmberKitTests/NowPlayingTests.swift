@@ -67,7 +67,9 @@ private actor FakeBridge: MusicBridge {
     var snap: MusicPlayerInfo?
     func set(running: Bool) { self.running = running }
     func isRunning() async -> Bool { running }
-    func position() async -> Double? { positionReads += 1; return running ? 42 : nil }
+    var pos: Double = 42
+    func set(position: Double) { pos = position }
+    func position() async -> Double? { positionReads += 1; return running ? pos : nil }
     func artwork() async -> (trackID: String, data: Data)? {
         artReads += 1
         guard running, let art else { return nil }
@@ -232,6 +234,100 @@ private func jpeg(side: Int) -> Data {
     await p.stop()
     #expect(await sink.reports.map(\.state) == [.playing, .stopped])
     #expect(await sink.reports.first?.positionMs == 3000)
+}
+
+private final class FakeClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var t = ContinuousClock.now
+    var now: ContinuousClock.Instant { lock.withLock { t } }
+    func advance(_ d: Duration) { lock.withLock { t += d } }
+}
+
+@MainActor
+private func seekRig(_ state: NowPlayingReport.State) async -> (FakeBridge, FakeSink, FakeClock, AppleMusicPusher) {
+    let bridge = FakeBridge(), sink = FakeSink(), clock = FakeClock()
+    await bridge.setArt(nil)
+    let song = MusicPlayerInfo(state: state, name: "Song", durationMs: 300_000, persistentID: "T1")
+    await bridge.setSnapshot(song)
+    let p = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4", now: { clock.now })
+    p.submit(song)
+    await p.drain()
+    return (bridge, sink, clock, p)
+}
+
+@MainActor
+@Test func pusherReportsASeekMusicPostsNoNotificationFor() async {
+    let (bridge, sink, clock, p) = await seekRig(.playing)
+    clock.advance(.seconds(2))
+    await bridge.set(position: 44)
+    await p.checkSeek()
+    await p.drain()
+    #expect(await sink.reports.count == 1)
+    await bridge.set(position: 285)
+    var seeked = await bridge.snap!
+    seeked.position = 285
+    await bridge.setSnapshot(seeked)
+    await p.checkSeek()
+    await p.drain()
+    #expect(await sink.reports.map(\.positionMs) == [42_000, 285_000])
+}
+
+@MainActor
+@Test func pusherReportsARestartOfTheSameTrack() async {
+    let (bridge, sink, clock, p) = await seekRig(.playing)
+    clock.advance(.seconds(10))
+    await bridge.set(position: 52)
+    await p.checkSeek()
+    #expect(await sink.reports.count == 1)
+    var restarted = await bridge.snap!
+    restarted.position = 0.4
+    await bridge.setSnapshot(restarted)
+    await bridge.set(position: 0.4)
+    await p.checkSeek()
+    await p.drain()
+    #expect(await sink.reports.map(\.positionMs) == [42_000, 400])
+}
+
+@MainActor
+@Test func pusherReportsAScrubWhilePaused() async {
+    let (bridge, sink, clock, p) = await seekRig(.paused)
+    clock.advance(.seconds(30))
+    await p.checkSeek()
+    #expect(await sink.reports.count == 1)
+    var scrubbed = await bridge.snap!
+    scrubbed.position = 120
+    await bridge.setSnapshot(scrubbed)
+    await bridge.set(position: 120)
+    await p.checkSeek()
+    await p.drain()
+    #expect(await sink.reports.map(\.positionMs) == [42_000, 120_000])
+    #expect(await sink.reports.last?.state == .paused)
+}
+
+@MainActor
+@Test func pusherWatchesForSeeksOnlyWhileATrackIsReported() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setArt(nil)
+    let sleeps = BlockingSleeps(poll: AppleMusicPusher.seekPoll)
+    let p = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4", seekPoll: AppleMusicPusher.seekPoll,
+                             sleep: sleeps.sleep)
+    p.submit(MusicPlayerInfo(state: .stopped))
+    await p.drain()
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(sleeps.polls == 0)
+    p.submit(MusicPlayerInfo(state: .playing, name: "Song", persistentID: "T1"))
+    await p.drain()
+    await waitUntil { sleeps.polls >= 1 }
+    p.submit(MusicPlayerInfo(state: .paused, name: "Song", persistentID: "T1"))
+    await p.drain()
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(sleeps.polls == 1)
+    await p.stop()
+    #expect(p.anchor == nil)
+    p.submit(MusicPlayerInfo(state: .playing, name: "Song", persistentID: "T1"))
+    await p.drain()
+    await waitUntil { sleeps.polls >= 2 }
+    #expect(sleeps.polls == 2)
 }
 
 @Test func shrinkerKeepsSmallArtAndShrinksBigArt() throws {
