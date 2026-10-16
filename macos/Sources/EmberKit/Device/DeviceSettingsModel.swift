@@ -97,7 +97,7 @@ public final class DeviceSettingsModel {
     @ObservationIgnored private var appsFailed = false
     @ObservationIgnored private var appsSent: AppsUpdate?
     @ObservationIgnored private var appEdits: [String: Int] = [:]
-    @ObservationIgnored private var appEnabledRoute: Bool?
+    @ObservationIgnored private var appEnabledRoute = false
     @ObservationIgnored private weak var live: LiveModel?
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let debounce: Duration
@@ -132,7 +132,7 @@ public final class DeviceSettingsModel {
         melodies = []; audio = .unknown; discovered = nil
         actionErrors = [:]; lastFullLoad = nil; appsSeq += 1
         appsGeneration += 1; appsTail = nil; appsPending = 0; appsFailed = false; appsSent = nil
-        appEdits = [:]; appEnabledRoute = nil
+        appEdits = [:]; appEnabledRoute = false
         writes.clear()
         Task { await load(force: true) }
     }
@@ -272,19 +272,20 @@ public final class DeviceSettingsModel {
     }
 
     private func usesAppEnabledRoute() async -> Bool {
-        if let known = appEnabledRoute { return known }
+        if appEnabledRoute { return true }
         let svc = service
         guard let info = try? await svc.serverVersion(), svc == service else { return false }
-        let supported = info.supports(VersionInfo.deviceAppEnabled)
-        appEnabledRoute = supported
-        return supported
+        appEnabledRoute = info.supports(VersionInfo.deviceAppEnabled)
+        return appEnabledRoute
     }
 
     private func putApp(_ name: String, enabled: Bool) async throws {
+        let svc = service
+        let gen = appsGeneration
         do {
-            try await service.setAppEnabled(name, enabled: enabled)
+            try await svc.setAppEnabled(name, enabled: enabled)
         } catch let error as APIError {
-            guard case .http(404, _) = error else { throw error }
+            guard case .http(404, _) = error, svc == service, gen == appsGeneration else { throw error }
             appEnabledRoute = false
             try await putApps(NativeAppsPlan.update(for: apps))
         }

@@ -801,7 +801,8 @@ private func perAppModel(facade: Bool = true, missing: Bool = false) async -> (D
     await m.setApp("Date", enabled: false)
     await m.setApp("Humidity", enabled: true)
     let puts = fake.log.filter { $0.method == "PUT" }.map(\.path)
-    #expect(puts == ["/v1/device/apps/Date/enabled", "/v1/device/apps", "/v1/device/apps"])
+    #expect(puts == ["/v1/device/apps/Date/enabled", "/v1/device/apps",
+                     "/v1/device/apps/Humidity/enabled", "/v1/device/apps"])
     #expect(clockApps.enabled["Date"] == false)
     #expect(clockApps.enabled["Humidity"] == true)
     #expect(m.actionErrors[.apps] == nil)
@@ -825,6 +826,52 @@ private func perAppModel(facade: Bool = true, missing: Bool = false) async -> (D
     defer { withExtendedLifetime(clock) {} }
     await m.moveApps(fromOffsets: [1], toOffset: 0)
     #expect(fake.log.filter { $0.method == "PUT" }.map(\.path) == ["/v1/devices/clock-a1b2c3/config"])
+}
+
+@MainActor @Test func aServerWithoutTheFeatureIsAskedAgainAfterAnUpgrade() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["GET /version"] = (200, #"{"version":"v0.65.3","features":["firmware_delete_keep"]}"#)
+    await m.setApp("Date", enabled: false)
+    #expect(fake.log.filter { $0.method == "PUT" }.map(\.path) == ["/v1/devices/clock-a1b2c3/config"])
+    fake.responses["GET /version"] = (200, appEnabledVersion)
+    let base = fake.route
+    fake.route = { key, body in
+        guard key == "PUT /v1/device/apps/Humidity/enabled" else { return base?(key, body) }
+        clockApps.setEnabled("Humidity", body["enabled"] as? Bool ?? false)
+        return (200, "")
+    }
+    await m.setApp("Humidity", enabled: true)
+    #expect(fake.log.filter { $0.method == "PUT" }.last?.path == "/v1/device/apps/Humidity/enabled")
+    #expect(clockApps.enabled["Humidity"] == true)
+}
+
+@MainActor @Test func aFailedVersionReadIsAskedAgain() async throws {
+    let (m, clock, _, fake) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["GET /version"] = (500, #"{"error":"boom"}"#)
+    await m.setApp("Date", enabled: false)
+    #expect(fake.log.filter { $0.method == "PUT" }.map(\.path) == ["/v1/devices/clock-a1b2c3/config"])
+    fake.responses["GET /version"] = (200, appEnabledVersion)
+    await m.setApp("Humidity", enabled: true)
+    #expect(fake.log.filter { $0.method == "PUT" }.last?.path == "/v1/device/apps/Humidity/enabled")
+    #expect(fake.paths.filter { $0 == "GET /version" }.count == 2)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aLate404FromTheOldServerSendsNothingToTheNewOne() async throws {
+    let (m, clock, _, fake) = await perAppModel(facade: false, missing: true)
+    defer { withExtendedLifetime(clock) {} }
+    fake.gatedRoute = "PUT /v1/device/apps/Date/enabled"
+    let toggle = Task { await m.setApp("Date", enabled: false) }
+    await fake.gatedRequestArrived()
+    let next = ngServer()
+    next.responses["GET /version"] = (200, appEnabledVersion)
+    let nextService = DeviceService(client: stubbedClient(token: "t2") { next.handle($0) })
+    m.configure(service: nextService)
+    fake.gate.signal()
+    await toggle.value
+    #expect(!fake.paths.contains("PUT /v1/device/apps"))
+    #expect(!next.paths.contains { $0.hasPrefix("PUT ") })
 }
 
 @MainActor @Test func theServerFeatureIsReadOnce() async throws {
