@@ -129,3 +129,12 @@ private let cliT3 = "/Users/x/Library/LaunchAgents/com.ember.t3.plist"
     #expect(!AgentState.cliInstalled.isSwitchOn)
     #expect(!AgentState.error("x").isSwitchOn)
 }
+
+@Test func reportingExcludesOffAndErrorRows() {
+    #expect(AgentState.on.isReporting)
+    #expect(AgentState.notRunning.isReporting)
+    #expect(AgentState.needsApproval.isReporting)
+    #expect(AgentState.cliInstalled.isReporting)
+    #expect(!AgentState.off.isReporting)
+    #expect(!AgentState.error("x").isReporting)
+}

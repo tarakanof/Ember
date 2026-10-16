@@ -149,3 +149,18 @@ private func hookFixtures() -> URL {
     #expect(model.lastRunSucceeded == false)
     #expect(model.failure?.hasPrefix("Claude") == true)
 }
+
+@Test func anErrorClaudeRowDoesNotCountAsReporting() {
+    let missing = ClaudeHookRegistration(pluginEnabled: false, settingsEvents: 0, killSwitch: false)
+    let error = ProducerSnapshot(agents: [(.claude, .error("plist missing"))], toggle: .error, claudeHooks: missing)
+    #expect(error.claudeHooksNotice == .fine)
+    let on = ProducerSnapshot(agents: [(.claude, .on)], toggle: .on, claudeHooks: missing)
+    #expect(on.claudeHooksNotice == .missing)
+}
+
+@Test func anUndetectedErrorRowHidesItsSettings() {
+    let snap = ProducerSnapshot(agents: [(.codex, .error("plist missing")), (.t3, .on)], toggle: .error,
+                                undetected: [.codex, .t3])
+    #expect(!snap.showsSettings(for: .codex))
+    #expect(snap.showsSettings(for: .t3))
+}
