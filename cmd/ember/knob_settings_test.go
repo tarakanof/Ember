@@ -95,7 +95,7 @@ func TestKnobSettingsWireShape(t *testing.T) {
 	}
 	want := `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
 		`"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":false}],` +
-		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20,"source_label":true,"working_ring":true,"weather_moments":true,"weather_every_min":30},"diagnostics":"off",` +
+		`"home":"bot","swipe_pages":true,"poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20,"source_label":true,"working_ring":true,"weather_moments":true,"weather_every_min":30},"diagnostics":"off",` +
 		`"stats_interval_s":60,"live_interval_s":5,"display":{"fast_link":true,"rotation":0},"quiet":{"calm":true,"dim_level":20}}`
 	if string(b) != want {
 		t.Fatalf("wire shape\n got %s\nwant %s", b, want)
@@ -211,6 +211,7 @@ func TestKnobConfigFitsTheFirmwareStore(t *testing.T) {
 	s.Bot.WeatherMoments, s.Bot.WeatherEveryMin = boolPtr(false), new(240)
 	s.Display.FastLink, s.Quiet.Calm, s.Quiet.DimLevel = boolPtr(false), boolPtr(false), new(255)
 	s.Display.Rotation = 270
+	s.SwipePages = boolPtr(false)
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)

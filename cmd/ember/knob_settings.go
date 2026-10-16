@@ -20,6 +20,7 @@ type knobSettings struct {
 	Brightness     knobBrightness `json:"brightness"`
 	Pages          []knobPage     `json:"pages"`
 	Home           string         `json:"home"`
+	SwipePages     *bool          `json:"swipe_pages,omitempty"`
 	PollMS         int            `json:"poll_ms"`
 	Bot            knobBot        `json:"bot"`
 	Diagnostics    string         `json:"diagnostics"`
@@ -151,6 +152,10 @@ func (s knobSettings) clone() knobSettings {
 	s.Bot = s.Bot.clone()
 	s.Display = s.Display.clone()
 	s.Quiet = s.Quiet.clone()
+	if s.SwipePages != nil {
+		v := *s.SwipePages
+		s.SwipePages = &v
+	}
 	return s
 }
 
@@ -163,6 +168,7 @@ func defaultKnobSettings() knobSettings {
 		Brightness: knobBrightness{FollowEmber: true, Level: 153, Floor: 10, Startup: 153},
 		Pages:      pages,
 		Home:       "bot",
+		SwipePages: boolPtr(true),
 		PollMS:     2000,
 		Bot: knobBot{SleepyAfterS: 300, DemoHoldS: 20, SourceLabel: boolPtr(true), WorkingRing: boolPtr(true),
 			WeatherMoments: boolPtr(true), WeatherEveryMin: new(knobWeatherEveryMinDefault)},
@@ -185,10 +191,17 @@ func (s *knobSettings) fillDefaults() {
 	if s.LiveIntervalS == 0 {
 		s.LiveIntervalS = knobLiveIntervalDefault
 	}
+	s.fillFlagDefaults()
+	s.addKnownPages()
+}
+
+func (s *knobSettings) fillFlagDefaults() {
+	if s.SwipePages == nil {
+		s.SwipePages = boolPtr(true)
+	}
 	s.Bot.fillDefaults()
 	s.Display.fillDefaults()
 	s.Quiet.fillDefaults()
-	s.addKnownPages()
 }
 
 func (s *knobSettings) addKnownPages() {

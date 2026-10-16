@@ -26,6 +26,7 @@
       }
     ],
     "home": "bot",
+    "swipe_pages": true,
     "poll_ms": 2000,
     "bot": {
       "sleepy_after_s": 300,

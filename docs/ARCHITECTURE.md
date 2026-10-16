@@ -3125,7 +3125,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `pomodoro`, `weather` on and `nowplaying` off; a stored or PUT list missing a known
   id gets it appended off (at most 8 pages, the firmware's KS_MAX_PAGES), #284; any id matching `^[a-z][a-z0-9_-]{0,15}$` is kept, so
   firmware can add pages without a server release; order = page order; no
-  duplicates), `home` (must name a page that is on), `poll_ms` 1000-10000,
+  duplicates), `home` (must name a page that is on), `swipe_pages` (#315,
+  cinder#57, firmware 0.9.15: a vertical swipe changes the page; absent or
+  null = true like the bot flags; see DEVICE-PROTOCOL "Swipe pages"),
+  `poll_ms` 1000-10000,
   `bot{sleepy_after_s 0-86400 (0 = never), demo_hold_s 1-600, source_label,
   working_ring}` (the two booleans, cinder#42: the curved host label and the
   glint orbiting the outline while working; absent or null = true, so a
