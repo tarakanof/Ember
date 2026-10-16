@@ -328,23 +328,20 @@ func enrichFromStatusline(in statuslineInput, env map[string]string) {
 		settlePending(token, sessionClaudeAccount(carried)))
 }
 
-func pendIfConfigMoved(carried *markerAccount, token *int64) func(markerAccount) markerAccount {
-	return func(a markerAccount) markerAccount {
+func pendIfConfigMoved(carried *markerAccount, token *int64) func(markerAccount) (markerAccount, bool) {
+	return func(a markerAccount) (markerAccount, bool) {
 		*carried = a
-		if _, sig := claudeConfigSig(); sig != a.UsageAccountSig || a.UsageAccountPending != 0 {
+		if _, sig := claudeConfigSig(); sig != a.UsageAccountSig || a.pending() {
 			*token = max(time.Now().UnixNano(), a.UsageAccountPending+1)
-			a.UsageAccountPending = *token
+			a.UsageAccountPending, a.UsageAccountLegacyPending = *token, false
 		}
-		return a
+		return a, true
 	}
 }
 
-func settlePending(token int64, next markerAccount) func(markerAccount) markerAccount {
-	return func(a markerAccount) markerAccount {
-		if a.UsageAccountPending != token {
-			return a
-		}
-		return next
+func settlePending(token int64, next markerAccount) func(markerAccount) (markerAccount, bool) {
+	return func(a markerAccount) (markerAccount, bool) {
+		return next, a.UsageAccountPending == token
 	}
 }
 
@@ -353,7 +350,7 @@ const statuslineLockWait = 250 * time.Millisecond
 const statuslineRefresh = time.Minute
 
 func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string,
-	weekPct *int, weekResetAt *int64, weekResetLabel string, account func(markerAccount) markerAccount) error {
+	weekPct *int, weekResetAt *int64, weekResetLabel string, account func(markerAccount) (markerAccount, bool)) error {
 	mp := markerPath(stateDir, sessionID)
 	lp := lockPath(stateDir, sessionID)
 	return withLockExWait(lp, statuslineLockWait, func() error {
@@ -388,7 +385,10 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 		}
 		now := hookNow()
 		old := m.markerAccount
-		next := account(old)
+		next, ok := account(old)
+		if !ok {
+			return nil
+		}
 		m.UsageAccountKey, m.UsagePlan = next.UsageAccountKey, next.UsagePlan
 		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) {
 			if now.Sub(time.Unix(m.StatuslineAt, 0)) < statuslineRefresh && next == old {
