@@ -884,7 +884,9 @@ Claude producer constraints:
   killed and the session's last good output
   (`~/.local/state/ember/statusline/<session>.out`, pruned after a day) is
   shown instead. A command that exits 0 but leaves a background child holding
-  stdout still has its output shown.
+  stdout still has its output shown. A producer stopped by SIGTERM, SIGINT
+  or SIGHUP kills that process group before it exits; a SIGKILL can't be
+  caught, so a command started then can outlive it until its own end.
 - **`claude agents --json` cross-check** (#266, `agents.go`,
   `EMBER_CLAUDE_AGENTS_POLL`, default on). Hooks miss three transitions: an
   approved permission dialog stays `waiting` until the tool finishes (no hook

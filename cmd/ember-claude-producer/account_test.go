@@ -21,6 +21,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv("EMBER_TEST_STATUSLINE_CHILD") == "1" {
+		runStatusline()
+	}
 	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 	os.Exit(m.Run())
 }

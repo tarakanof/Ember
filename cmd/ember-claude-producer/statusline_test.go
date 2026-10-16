@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -375,6 +379,44 @@ func TestRunWrapped(t *testing.T) {
 	}
 	if string(out) != "hello-json" {
 		t.Errorf("runWrapped(cat) = %q, want hello-json", out)
+	}
+}
+
+func TestKilledStatuslineTakesItsWrappedCommandDown(t *testing.T) {
+	home := t.TempDir()
+	pidFile := filepath.Join(home, "child.pid")
+	cmd, _ := json.Marshal(`sleep 30 & echo $! > '` + pidFile + `'; wait`)
+	if err := os.MkdirAll(filepath.Dir(wrappedStatuslinePath(home)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrappedStatuslinePath(home), cmd, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := exec.Command(os.Args[0], "-test.run=^$")
+	p.Env = append(os.Environ(), "EMBER_TEST_STATUSLINE_CHILD=1", "HOME="+home, "EMBER_STATUSLINE_TIMEOUT_MS=30000")
+	p.Stdin = strings.NewReader(`{}`)
+	if err := p.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Process.Kill(); _ = p.Wait() })
+	var pid int
+	for deadline := time.Now().Add(5 * time.Second); pid == 0; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the wrapped command never started")
+		}
+		if b, err := os.ReadFile(pidFile); err == nil {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	if err := p.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	_ = p.Wait()
+	for deadline := time.Now().Add(3 * time.Second); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the wrapped command outlived the killed status line")
+		}
 	}
 }
 
