@@ -526,3 +526,27 @@ func TestExtractRateResetLabel(t *testing.T) {
 }
 
 func keepAccount(a markerAccount) markerAccount { return a }
+
+func TestEnrichMarker_RefreshesAnAgedStatuslineAtDespiteAHookFreshMtime(t *testing.T) {
+	now := time.Now()
+	defer func(f func() time.Time) { hookNow = f }(hookNow)
+	hookNow = func() time.Time { return now }
+	dir := t.TempDir()
+	mp := markerPath(dir, "s")
+	pct := 40
+	old := now.Add(-11 * time.Minute)
+	body, _ := json.Marshal(marker{StatusRequest: StatusRequest{Source: "mbp", Tool: "claude", Session: "s", State: "running", RateWindowPct: &pct},
+		StatuslineAt: old.Unix(), StatuslineChangedMs: old.UnixMilli()})
+	if err := os.WriteFile(mp, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := enrichMarker(dir, "s", ratePtr(40), nil, nil, "", nil, nil, "", keepAccount); err != nil {
+		t.Fatal(err)
+	}
+	var m marker
+	raw, _ := readMarker(mp)
+	_ = json.Unmarshal(raw, &m)
+	if m.StatuslineAt != now.Unix() || m.StatuslineChangedMs != old.UnixMilli() {
+		t.Fatalf("statusline_at = %d changed_ms = %d, want the render time and the old change time", m.StatuslineAt, m.StatuslineChangedMs)
+	}
+}
