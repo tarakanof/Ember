@@ -4838,7 +4838,8 @@ and the percents of up to 4 models with a name the view accepts, pct
 rounded to 0.1, no labels, no source. Its times are whole seconds in UTC,
 and `POST /v1/usage` clamps any `resets_at` into now − 1 day … now + 30
 days, so 64 worst-case accounts (each master-held and then taken over by
-a client token, the largest an entry gets) persist in about 28 KB, capped
+a client token, the largest an entry gets, with 19-digit sequence
+numbers) persist in about 29 KB, capped
 at 30 KiB by `TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize`.
 The snapshot is written with the entry, so
 after a restart an account with no post yet shows that snapshot as stale

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -733,6 +734,7 @@ func TestUsagePostRejectsOversizedModelsAndLabels(t *testing.T) {
 func TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize(t *testing.T) {
 	kv := &usageSeenKV{}
 	r := newUsageAccountRegistry(func() settingsKV { return kv })
+	r.nextSeq = math.MaxInt - usageAccountsTotal
 	loc := time.FixedZone("x", 3*3600)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 123456789, loc)
 	label := strings.Repeat("L", 32)
