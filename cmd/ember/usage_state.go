@@ -1,6 +1,8 @@
 package main
 
 import (
+	"cmp"
+	"slices"
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
@@ -21,15 +23,32 @@ type usageToolState struct {
 	ResetLabel   string
 }
 
-type usageState struct {
-	Tools map[string]usageToolState
+type usageAccountState struct {
+	Key    usageKey
+	Report ToolUsage
+	Fresh  bool
 }
 
-func newUsageState(reports map[string]ToolUsage, sessions []render.Session, now time.Time) usageState {
+type usageState struct {
+	Tools    map[string]usageToolState
+	Accounts []usageAccountState
+}
+
+func newUsageState(reports map[usageKey]ToolUsage, sessions []render.Session, now time.Time) usageState {
 	s := usageState{Tools: make(map[string]usageToolState, len(reports)+len(usageTools))}
-	for tool, u := range reports {
-		s.Tools[tool] = usageToolState{Report: u, HaveReport: true, Fresh: usageFresh(u, now)}
+	for k, u := range reports {
+		if now.Sub(u.UpdatedAt) > usageAccountTTL {
+			continue
+		}
+		a := usageAccountState{Key: k, Report: u, Fresh: usageFresh(u, now)}
+		s.Accounts = append(s.Accounts, a)
+		if cur, ok := s.Tools[k.Tool]; !ok || usageOutranks(a, cur) {
+			s.Tools[k.Tool] = usageToolState{Report: u, HaveReport: true, Fresh: a.Fresh}
+		}
 	}
+	slices.SortFunc(s.Accounts, func(x, y usageAccountState) int {
+		return cmp.Or(cmp.Compare(x.Key.Tool, y.Key.Tool), cmp.Compare(x.Key.Account, y.Key.Account))
+	})
 	for _, tool := range usageTools {
 		t := s.Tools[tool]
 		if t.Fresh {
@@ -48,6 +67,28 @@ func newUsageState(reports map[string]ToolUsage, sessions []render.Session, now 
 		s.Tools[tool] = t
 	}
 	return s
+}
+
+func usageOutranks(a usageAccountState, cur usageToolState) bool {
+	if a.Fresh != cur.Fresh {
+		return a.Fresh
+	}
+	if a.Fresh {
+		if p, q := fiveHourOrNone(a.Report), fiveHourOrNone(cur.Report); p != q {
+			return p > q
+		}
+	}
+	if !a.Report.UpdatedAt.Equal(cur.Report.UpdatedAt) {
+		return a.Report.UpdatedAt.After(cur.Report.UpdatedAt)
+	}
+	return a.Report.Account < cur.Report.Account
+}
+
+func fiveHourOrNone(u ToolUsage) float64 {
+	if u.FiveHour == nil {
+		return -1
+	}
+	return u.FiveHour.UsedPercent
 }
 
 func usageFresh(u ToolUsage, now time.Time) bool { return now.Sub(u.UpdatedAt) <= usageStaleTTL }

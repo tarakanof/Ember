@@ -24,23 +24,36 @@ func clampUsageWindow(win *UsageWindow) {
 
 func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Tool     string                  `json:"tool"`
-		Source   string                  `json:"source"`
-		FiveHour *UsageWindow            `json:"five_hour"`
-		SevenDay *UsageWindow            `json:"seven_day"`
-		Models   map[string]*UsageWindow `json:"models"`
+		Tool       string                  `json:"tool"`
+		Source     string                  `json:"source"`
+		AccountKey string                  `json:"account_key"`
+		Plan       string                  `json:"plan"`
+		FiveHour   *UsageWindow            `json:"five_hour"`
+		SevenDay   *UsageWindow            `json:"seven_day"`
+		Models     map[string]*UsageWindow `json:"models"`
 	}
 	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
-	if !toolNameRe.MatchString(req.Tool) {
+	for _, f := range []struct {
+		name, value string
+		ok          bool
+		msg         string
+	}{
+		{"tool", req.Tool, toolNameRe.MatchString(req.Tool), "tool must match ^[a-z0-9_-]{1,32}$"},
+		{"account_key", req.AccountKey, req.AccountKey == "" || accountKeyRe.MatchString(req.AccountKey), "account_key must be 16 lower-case hex characters"},
+		{"plan", req.Plan, req.Plan == "" || planRe.MatchString(req.Plan), "plan must match ^[a-z0-9_]{1,24}$"},
+	} {
+		if f.ok {
+			continue
+		}
 		a.logger.InfoContext(r.Context(), "request rejected",
 			"remote_addr", r.RemoteAddr,
 			"path", r.URL.Path,
 			"reason", "validation",
-			"field", "tool",
+			"field", f.name,
 		)
-		writeError(w, http.StatusBadRequest, errors.New("tool must match ^[a-z0-9_-]{1,32}$"))
+		writeError(w, http.StatusBadRequest, errors.New(f.msg))
 		return
 	}
 	if !a.allowSource(w, r, req.Source) {
@@ -52,16 +65,23 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		clampUsageWindow(win)
 	}
 	sources, _ := boundSources(r)
+	now := time.Now()
 	owner, ok := a.usage.PutIfOwned(req.Tool, ToolUsage{
 		FiveHour:  req.FiveHour,
 		SevenDay:  req.SevenDay,
 		Models:    req.Models,
 		Source:    req.Source,
-		UpdatedAt: time.Now(),
+		Account:   req.AccountKey,
+		Plan:      req.Plan,
+		UpdatedAt: now,
 	}, sources)
 	if !ok {
 		a.denySource(w, r, owner)
 		return
 	}
+	if err := a.usageSeen.observe(usageKey{req.Tool, req.AccountKey}, req.Plan, now); err != nil {
+		a.logger.Warn("usage account persist failed", "tool", req.Tool, "err", err)
+	}
+	a.changes.notify(topicUsage)
 	w.WriteHeader(http.StatusNoContent)
 }

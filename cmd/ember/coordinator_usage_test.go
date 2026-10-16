@@ -158,3 +158,17 @@ func TestIdleCardCursorAdvancesOnEmptyKeys(t *testing.T) {
 			cursorAfterFirst, cursorAfterSecond)
 	}
 }
+
+func TestUsageViewsShowTheToolsHighestFiveHourAccount(t *testing.T) {
+	c, st, _, clk := makeAlarmCoord(t)
+	now := clk.Now()
+	st.Put("claude", ToolUsage{Account: "aaaaaaaaaaaaaaa1", FiveHour: &UsageWindow{UsedPercent: 95, ResetLabel: "13:00"},
+		SevenDay: &UsageWindow{UsedPercent: 20}, UpdatedAt: now.Add(-time.Minute)})
+	st.Put("claude", ToolUsage{Account: "bbbbbbbbbbbbbbb2", FiveHour: &UsageWindow{UsedPercent: 70, ResetLabel: "15:00"},
+		SevenDay: &UsageWindow{UsedPercent: 80}, UpdatedAt: now})
+	st.Put("claude", ToolUsage{Account: "ccccccccccccccc3", FiveHour: &UsageWindow{UsedPercent: 99}, UpdatedAt: now.Add(-time.Hour)})
+	v := c.usageViews(now, Snapshot{})["claude"]
+	if v == nil || v.FiveHourPct != 95 || v.ResetLabel != "13:00" || v.SevenDayPct == nil || *v.SevenDayPct != 20 {
+		t.Fatalf("view = %+v, want the fresh 95%% account with its own 7d (the stale 99%% one ignored)", v)
+	}
+}

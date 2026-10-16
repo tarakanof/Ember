@@ -344,6 +344,19 @@ components:
           pattern: "^[a-z0-9_-]{1,32}$"
         source:
           type: string
+        account_key:
+          type: string
+          pattern: "^[0-9a-f]{16}$"
+          description: >-
+            The account the windows belong to: the first 8 bytes, in hex, of
+            sha256 over the tool and the account's ids, computed on the Mac
+            (ARCHITECTURE "Usage per account"). Never a raw id or an email.
+            Omitted by producers that can't read an account: one keyless
+            account per tool.
+        plan:
+          type: string
+          pattern: "^[a-z0-9_]{1,24}$"
+          description: The account's plan (`max`, `pro`, `team`, `plus`, …); the default account name.
         five_hour:
           $ref: "#/components/schemas/UsageWindow"
         seven_day:
@@ -352,6 +365,61 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/UsageWindow"
+    UsageAccountPrefs:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 24
+          description: Trimmed; empty means the default name.
+        hidden:
+          type: boolean
+          description: Left out of the knob's `usage` block.
+        order:
+          type: integer
+          minimum: 0
+          maximum: 999
+          description: Sort key; accounts with one come first, ascending.
+    UsageAccount:
+      type: object
+      required: [id, tool, plan, name, default_name, hidden, order, first_seen, updated_at, stale]
+      properties:
+        id:
+          type: string
+          description: The `account_key`, or the tool name for a keyless account.
+        tool:
+          type: string
+        plan:
+          type: [string, "null"]
+        name:
+          type: string
+          description: The set name, else `default_name`.
+        default_name:
+          type: string
+          description: The plan ("Max"), else the tool ("Claude"); numbered ("Max 1", "Max 2") when a tool has two on one plan.
+        hidden:
+          type: boolean
+        order:
+          type: [integer, "null"]
+          description: The stored sort key, `null` when unset. The array is already in display order.
+        first_seen:
+          type: string
+          format: date-time
+        updated_at:
+          type: [string, "null"]
+          format: date-time
+          description: The newest snapshot; `null` when none has arrived since the server started.
+        stale:
+          type: boolean
+    UsageAccounts:
+      type: object
+      required: [accounts]
+      properties:
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageAccount"
     NotifyRequest:
       type: object
       additionalProperties: false
@@ -1051,10 +1119,13 @@ paths:
       operationId: postUsage
       summary: Report a tool's account usage windows
       description: |
-        Usage is one entry per tool. A client token bound to `sources` gets
-        403 for any other `source`, for none, and when the tool's stored entry
-        came from a source outside its list; a tool with no entry yet is
-        accepted (the next unbound post overwrites it).
+        Usage is one entry per tool and `account_key` (no key: one keyless
+        account per tool); the newest post wins, so several Macs on one
+        account share an entry. An entry is dropped 7 days after its last
+        post. A client token bound to `sources` gets 403 for any other
+        `source`, for none, and when the entry came from a source outside
+        its list; an entry not stored yet is accepted (the next unbound post
+        overwrites it).
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true
@@ -1523,6 +1594,63 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/usage/accounts:
+    get:
+      tags: [settings]
+      operationId: getUsageAccounts
+      summary: Usage accounts in display order, with their names and settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: Every account seen in the last 7 days.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageAccounts"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putUsageAccounts
+      summary: Set account names, hiding and order (merge by account id)
+      description: |
+        Master token only; every client token, `admin` included, gets 403.
+        The body maps account ids to their settings; an id's object replaces
+        that account's settings, `null` or `{}` resets them, and ids left out
+        keep theirs. An id the server doesn't list is a 400. The reply is
+        the GET shape.
+      x-internal: true
+      x-master-only: true
+      security: [{ownerToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                oneOf:
+                  - $ref: "#/components/schemas/UsageAccountPrefs"
+                  - type: "null"
+            example:
+              3f9a1c0b7d2e4a65: {name: Work, order: 0}
+              claude: null
+      responses:
+        "200":
+          description: The accounts after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageAccounts"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3008,6 +3136,8 @@ paths:
                   externalValue: ../cmd/ember/testdata/devices/view_faces_met.json
                 view_faces_polar_dry:
                   externalValue: ../cmd/ember/testdata/devices/view_faces_polar_dry.json
+                view_usage:
+                  externalValue: ../cmd/ember/testdata/devices/view_usage.json
                 demo_storm:
                   externalValue: ../cmd/ember/testdata/devices/demo/moment.storm.full.json
         "304":

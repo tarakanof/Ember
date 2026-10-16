@@ -36,6 +36,7 @@ const (
 	featureNPCover        = "np_cover"
 	featureWxMoments      = "wx_moments"
 	featureDemo           = "demo"
+	featureUsage          = "usage"
 )
 
 var capsFeaturePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)

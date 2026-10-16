@@ -2838,7 +2838,8 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
 `GET /v1/pomodoro/{stats,heatmap,workhours}`:
 
 - **`GET /v1/usage`** — the latest `UsageStore` snapshot per tool (5h/7d windows,
-  `models` keyed by model name, `stale` past `usageStaleTTL`). Before this the
+  `models` keyed by model name, `stale` past `usageStaleTTL`; since #535 the
+  tool's representative account, "Usage per account"). Before this the
   snapshot was write-only; `/state` leaked just the 5h percent. In-memory and
   filled only by the producers' daemons (`ember-claude-producer run` relays the
   statusline windows every heartbeat and polls the OAuth endpoint), so it is
@@ -3077,10 +3078,11 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   records load unbound) and kept across rotation; `requireAuth` puts the
   caller's id and sources in the request context and `allowSource` makes
   `POST`/`DELETE /v1/status` and `POST /v1/usage` 403 for any other
-  `source` after body validation. Usage stays keyed by tool:
-  `UsageStore.PutIfOwned` checks the stored entry's `Source` against the
-  caller's sources and writes under the same lock, so a bound token can't
-  overwrite another source's tool (absent tool: allowed). Session keys
+  `source` after body validation. Usage is keyed by tool and account
+  (#535): `UsageStore.PutIfOwned` checks the stored entry's `Source`
+  against the caller's sources and writes under the same lock, so a bound
+  token can't overwrite another source's account entry (absent entry:
+  allowed). Session keys
   join `source/tool/session` with `/`, so `allowSessionKey` 400s a `/` in a
   bound caller's tool or session and mint rejects `/` in a source; otherwise
   `ci` + `lab` + `claude/1` would address `ci/lab`'s session. `boundSources` fails closed: an `ekc_` bearer with no caller in the
@@ -4544,7 +4546,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
   are left out unless the page is in `caps.pages` and on in the knob's
   `pages`; a kept `pomo` or `weather` is still `null` when off. A body over
   `caps.limits.view_bytes` (floor 4096) drops the weather detail, then
-  `nowplaying`, then `weather`, then `pomo` until it fits, and logs once
+  `nowplaying`, then `usage`, then `weather`, then `pomo` until it fits, and logs once
   per device if it still doesn't. A knob without `caps` gets the body
   above unchanged, bytes and ETag (`knobView` skips the filter for it).
   **Weather detail (#350):** a knob whose caps list `wx_faces` gets
@@ -4564,6 +4566,13 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (y 280–391, x 63–402) has mean relative luminance ≥ 0.22, measured per
   prepared pixel at prepare time (`nowplaying.Image.CoverLight`,
   cinder#168; the threshold's derivation is in DEVICE-PROTOCOL). Every other view keeps its bytes.
+  **Usage (#535):** a knob whose caps list `usage` gets a `usage` block
+  after `nowplaying` (`devices_view_usage.go`): the accounts of "Usage per
+  account" in display order, hidden ones and ones with no snapshot since
+  the server started left out, at most 8, the block left out when none
+  is left. Shape and rules in DEVICE-PROTOCOL.md "Usage". Fresh accounts
+  carry no time that moves on a repost, so the ETag moves only when a
+  value does; going stale is caught by the 5 s recheck.
 - **Knob view long-poll (#235).** `?wait=N` (whole seconds, capped at 25,
   `devices_view_wait.go`) with `If-None-Match` holds the request while the
   view still matches the tag: 200 with the new body as soon as it changes,
@@ -4598,7 +4607,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
   not a heartbeat that repeats the report), devices (`deviceRegistry.onChange` after
   each committed mutation: epoch, config, rotation; live mode), config
   (`tryUpdateConfig`: every settings PUT; `/admin/reload` stores directly and
-  notifies config + Pomodoro after its engine resync). `notify` takes only
+  notifies config + Pomodoro after its engine resync), usage (every accepted
+  `POST /v1/usage`; the waiter rebuilds and keeps waiting when the bytes
+  did not move). `notify` takes only
   its own lock and never blocks, so callers may hold theirs. Fields that move
   with the clock alone (sun-schedule brightness, weather going stale, live
   mode ending) are caught by a 5 s recheck inside the wait. Quiet hours are
@@ -4631,14 +4642,16 @@ draws-if-present in `internal/render`, add a menu checkbox.
 | `source_card` | producer.env `EMBER_SOURCE_CARD` | producer.env `EMBER_SOURCE_CARD` | `*bool`; absent = on; hides source-name card when false |
 | `session_bar` | producer.env `EMBER_SESSION_BAR` | producer.env `EMBER_SESSION_BAR` | `*bool`; absent = on; hides session-pixel bar when false |
 | `tokens_today`, cost, model, PR | — | — | wire field exists for tokens_today; **no producer fills it yet** |
-| usage 5h / weekly / per-model | `api/oauth/usage` (Keychain, always-on) | rollout `rate_limits.primary`+`secondary` (session-only) | drives the usage card inside the main `ember` app (threshold-gated) |
+| usage 5h / weekly / per-model | `api/oauth/usage` (Keychain, always-on) | rollout `rate_limits.primary`+`secondary` (session-only) | drives the usage card inside the main `ember` app (threshold-gated) and the knob's `usage` block |
+| usage account / plan | `~/.claude.json` `oauthAccount` (hashed) | `~/.codex/auth.json` + id_token claims (hashed) | `account_key`, `plan` on `POST /v1/usage` (#535) |
 
 ### AI usage card (threshold-gated, single app)
 
 Account-global subscription usage renders inside the main `ember` app as a
 **usage card** in the number-slot rotation — no standalone apps. The flow:
-producers `POST /v1/usage` → in-memory `UsageStore` (per tool; **not persisted**
-— every entry refreshes ≤5 min so a restart self-heals) → the coordinator
+producers `POST /v1/usage` → in-memory `UsageStore` (per tool and account,
+"Usage per account" below; **not persisted** — every entry refreshes ≤5 min
+so a restart self-heals) → the coordinator
 builds `UsageView` structs from the usage state each tick and includes a
 usage card for a tool **only when its 5h window ≥ `usage_threshold_pct`**
 (default 60; `0` = always show). The usage card rotates through up to five faces per
@@ -4666,7 +4679,13 @@ left on the device from the previous standalone model.
 
 **Usage state** (`cmd/ember/usage_state.go`, #338). Every reader of the
 stored usage goes through one projection, `UsageStore.state(sessions, now)` →
-`usageState` (`newUsageState` for tests). Per tool it holds the report,
+`usageState` (`newUsageState` for tests). `Accounts` lists every account
+report of the last 7 days with its `Fresh`. Per tool it holds one report,
+the tool's **representative account**: the fresh one with the highest 5h
+percent (no 5h window counts lowest; ties to the newest, then the smaller
+key), else, with none fresh, the newest. So the clock card, the limit
+alarm and `GET /v1/usage` see one account per tool, and with a single
+account nothing changed (#535). Per tool it holds the report,
 `Fresh` (`now - updated_at <= usageStaleTTL`, 10 min, inclusive; a report
 from the future counts as fresh) and, for `claude` and `codex`, the effective
 5h window: `FiveHourPct`/`ResetAt` from a fresh report's 5h window, otherwise
@@ -4678,6 +4697,65 @@ cards (`usageViews`; 7d and per-model only when `Fresh`), the limit alarm
 (`checkLimitAlarms`), and `GET /v1/usage` (`stale` = `!Fresh`; it passes no
 sessions and reads only the reports). The clock passes its hidden-filtered
 sessions, so a hidden tool has no fallback on the clock.
+
+**Usage per account** (#535; `usage.go`, `usage_accounts.go`). Producers
+add `account_key` and `plan` to `POST /v1/usage`:
+
+- `account_key` is the first 8 bytes, as 16 hex characters, of sha256 over
+  the tool and the account's ids joined by NUL
+  (`producer.AccountKey`), computed on the Mac. The server accepts only
+  `^[0-9a-f]{16}$`, so neither a raw id nor an email can be stored. Claude:
+  `oauthAccount.accountUuid` and `organizationUuid` from the global config
+  (`$CLAUDE_CONFIG_DIR/.claude.json`, else `~/.claude.json`; a legacy
+  `.config.json` beside it wins, as in Claude Code), re-read when its
+  mtime or size moves; the daemon reads it with its own environment, so
+  the statusline relay carries the daemon's account. Codex:
+  `$CODEX_HOME/auth.json` `tokens.account_id` (else the id_token's
+  `chatgpt_account_id`), plus `chatgpt_user_id` for the workspace plans
+  `team`, `business`, `enterprise` and `edu`, where the account id is the
+  workspace. The id_token's payload is base64-decoded locally, never
+  verified against the network and never logged; only the three claims
+  are read. No `oauthAccount` or no `tokens` (an API key): no key.
+- `plan` (`^[a-z0-9_]{1,24}$`): Claude from `organizationType` /
+  `organizationRateLimitTier` (`max`, `pro`, `team`, `enterprise`, `free`),
+  Codex from the id_token's `chatgpt_plan_type`, else the rate-limit
+  snapshot's plan (rollout `rate_limits.plan_type`, app-server `planType`).
+- Producers drop either field for an hour when an older server answers
+  400 `unknown field` (`fieldDropper` in `internal/producer/compat.go`, as
+  for the status `project`), so a new producer keeps posting to an old
+  server; an old producer's keyless post works unchanged.
+
+The store is keyed by (tool, account_key). The newest `updated_at` wins
+(the server stamps it on arrival; an older one never overwrites), so
+several Macs on one account share one entry. A keyless post is one
+account per tool, whose id is the tool name; once its tool has a keyed
+account, the keyless one is left out of the account list as soon as it is
+stale, so an upgraded fleet doesn't show a ghost. An entry is dropped 7
+days after its last post (`usageAccountTTL`; pruned on each post and
+skipped by `state`); stale still means 10 min.
+
+**Registry** (`usageAccountRegistry`, store key `usage_accounts_seen`):
+per account id its tool, plan and first and last sighting, persisted so the
+default order and the 7-day expiry survive a restart. A post writes it only
+for a new account, a plan change, or when the last sighting is an hour old
+(at most one write per account per hour); entries past 7 days or beyond 32
+accounts (oldest first) are pruned. The snapshots themselves stay in memory.
+
+**Settings** (`usage_accounts_json`, one `settingSpec`; `Config.UsageAccounts`):
+per account id `name`, `hidden` and `order`. `GET /v1/usage/accounts`
+(owner or `admin`) lists the accounts in display order with
+`name`, `default_name`, `plan`, `hidden`, `order`, `first_seen`,
+`updated_at` (null with no snapshot since the restart) and `stale`;
+`PUT` (master token only) merges by id: an id's object replaces its
+settings, `null` resets them, an id the server doesn't list is a 400.
+Order: accounts with an `order` first, ascending; then Claude, Codex, other
+tools by name, each by first seen. Names: the set one, else the plan's
+label ("Max", "Pro", "Team", "Plus"; no plan: "Claude", "Codex"). Two or
+more default-named accounts of one tool on one plan are numbered in display
+order ("Max 1", "Max 2"); an account with its own name leaves the
+numbering, and its `default_name` is what it would get back.
+`hidden` only affects the knob: the clock keeps the representative
+account and its per-tool hide in `/v1/apps`.
 
 **Idle usage frame.** When all sessions expire and a tool is over threshold,
 the coordinator publishes a **dimmed usage frame** (the same usage card content

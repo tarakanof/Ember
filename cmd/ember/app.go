@@ -91,7 +91,8 @@ type App struct {
 	appsMu     sync.Mutex
 	hiddenApps map[string]bool
 
-	usage *UsageStore
+	usage     *UsageStore
+	usageSeen *usageAccountRegistry
 
 	weather        *weatherStore
 	weatherFetcher *weatherFetcher
@@ -166,6 +167,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	})
 	a.devices.onChange = func() { a.changes.notify(topicDevices) }
 	a.clients = newClientRegistry(a.devices.kv)
+	a.usageSeen = newUsageAccountRegistry(a.devices.kv)
 	a.knobStats = newKnobStatsStore()
 	a.clockStats = newClockStatsStore()
 	a.metrics = newMetrics()

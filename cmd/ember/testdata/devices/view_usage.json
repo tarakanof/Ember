@@ -1,0 +1,74 @@
+{
+  "v": 1,
+  "epoch": 1,
+  "config_version": 1,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 0,
+    "done": 0,
+    "source": ""
+  },
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "usage": {
+    "accounts": [
+      {
+        "id": "aaaaaaaaaaaaaaa1",
+        "tool": "claude",
+        "name": "Max 1",
+        "five_hour": {
+          "pct": 64,
+          "resets_at": 1782049680,
+          "starts_at": 1782031680
+        },
+        "seven_day": {
+          "pct": 41,
+          "resets_at": 1782302400
+        },
+        "models": [
+          {
+            "name": "Opus",
+            "pct": 38
+          },
+          {
+            "name": "Sonnet",
+            "pct": 12
+          }
+        ],
+        "stale": false
+      },
+      {
+        "id": "bbbbbbbbbbbbbbb2",
+        "tool": "claude",
+        "name": "Max 2",
+        "five_hour": {
+          "pct": 0
+        },
+        "seven_day": {
+          "pct": 77,
+          "resets_at": 1782302400
+        },
+        "stale": true,
+        "updated_at": 1782041400
+      },
+      {
+        "id": "ddddddddddddddd4",
+        "tool": "codex",
+        "name": "Plus",
+        "five_hour": {
+          "pct": 12,
+          "resets_at": 1782057600,
+          "starts_at": 1782039600
+        },
+        "seven_day": {
+          "pct": 5,
+          "resets_at": 1782302400
+        },
+        "stale": false
+      }
+    ]
+  }
+}

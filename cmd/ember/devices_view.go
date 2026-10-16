@@ -24,6 +24,7 @@ type knobView struct {
 	Brightness    knobLight              `json:"brightness"`
 	Quiet         bool                   `json:"quiet,omitempty"`
 	NowPlaying    *knobNowPlaying        `json:"nowplaying,omitempty"`
+	Usage         *knobUsage             `json:"usage,omitempty"`
 	DiagLiveUntil *int64                 `json:"diag_live_until,omitempty"`
 	Demo          *knobDemo              `json:"demo,omitempty"`
 }
@@ -146,6 +147,9 @@ func (a *App) buildKnobView(id string, now time.Time) ([]byte, string, string, e
 	if st.caps != nil {
 		v.applyCaps(st.caps, st.cfg)
 	}
+	if st.caps.hasFeature(featureUsage) {
+		v.Usage = a.knobUsage(now)
+	}
 	if st.caps.hasFeature(featureDemo) {
 		v.Demo = a.knobDemo(id, v, now)
 	}
@@ -194,6 +198,7 @@ func (v *knobView) fit(body []byte, limit int) ([]byte, error) {
 			}
 		},
 		func() { v.NowPlaying = nil },
+		func() { v.Usage = nil },
 		func() { v.Weather.on = false },
 		func() { v.Pomo.on = false },
 	}
