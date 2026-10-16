@@ -303,6 +303,20 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     #expect(c.consecutiveFailures(.stats) == 0)
 }
 
+@MainActor @Test func agedRefreshWaitsOutARetryAfter() async {
+    let (c, clock, feeds) = makeCoordinator()
+    feeds.results[.usage] = .failed(.rateLimited, retryAfter: .seconds(300))
+    await c.refreshNow([.usage], ifOlderThan: .seconds(60))
+    #expect(feeds.count(.usage) == 1)
+    feeds.results[.usage] = .ok
+    await clock.advance(by: .seconds(61))
+    await c.refreshNow([.usage], ifOlderThan: .seconds(60))
+    #expect(feeds.count(.usage) == 1)
+    await clock.advance(by: .seconds(240))
+    await c.refreshNow([.usage], ifOlderThan: .seconds(60))
+    #expect(feeds.count(.usage) == 2)
+}
+
 @MainActor @Test func agedRefreshSkipsAFreshFeedAndFetchesAStaleOne() async {
     let (c, clock, feeds) = makeCoordinator()
     await c.refreshNow([.usage], ifOlderThan: .seconds(60))
