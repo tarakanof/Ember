@@ -173,6 +173,12 @@ func (r *clientRegistry) list() []clientView {
 	return out
 }
 
+func (r *clientRegistry) exists(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return indexClient(r.clients, id) >= 0
+}
+
 func indexClient(clients []clientRecord, id string) int {
 	return slices.IndexFunc(clients, func(c clientRecord) bool { return c.ID == id })
 }

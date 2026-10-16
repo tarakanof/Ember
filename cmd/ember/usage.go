@@ -53,7 +53,7 @@ type UsageStore struct {
 func newUsageStore() *UsageStore { return &UsageStore{byKey: map[usageKey]ToolUsage{}} }
 
 var (
-	errUsageNotOwned = errors.New("usage tool owned by another source")
+	errUsageNotOwned = errors.New("usage account owned by another writer")
 	errUsageFull     = errors.New("usage account limit reached")
 )
 
@@ -77,9 +77,6 @@ func (s *UsageStore) putLocked(tool string, u ToolUsage, limit int, now time.Tim
 	prev, exists := s.byKey[k]
 	if exists && u.UpdatedAt.Before(prev.UpdatedAt) {
 		return nil
-	}
-	if exists && u.Principal != "" {
-		u.Principal = prev.Principal
 	}
 	if !exists {
 		s.evictOwnOldestLocked(func(k usageKey) bool { return k.Tool == tool }, u.Principal, usageAccountsPerTool)
@@ -111,23 +108,30 @@ func (s *UsageStore) evictOwnOldestLocked(in func(usageKey) bool, principal stri
 	}
 }
 
-func (s *UsageStore) PutIfOwned(tool string, u ToolUsage, sources []string, limit int, now time.Time) (string, error) {
+func usageOwnerAfter(owner string, lastAt time.Time, writer string, alive func(string) bool, now time.Time) (string, bool) {
+	switch {
+	case owner == writer, now.Sub(lastAt) > usageStaleTTL, alive != nil && !alive(owner):
+		return writer, true
+	case writer == "":
+		return owner, true
+	}
+	return owner, false
+}
+
+func (s *UsageStore) PutIfOwned(tool string, u ToolUsage, alive func(string) bool, limit int, now time.Time) (string, error) {
 	u.UpdatedAt = now
 	u.Source = strings.TrimSpace(u.Source)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.expireLocked(now)
-	if u.Principal != "" {
-		for k, prev := range s.byKey {
-			if k.Tool != tool || prev.Principal == u.Principal {
-				continue
-			}
-			if len(sources) > 0 || k.Account == u.Account {
-				return prev.Source, errUsageNotOwned
-			}
+	if prev, ok := s.byKey[usageKey{tool, u.Account}]; ok {
+		owner, allowed := usageOwnerAfter(prev.Principal, prev.UpdatedAt, u.Principal, alive, now)
+		if !allowed {
+			return owner, errUsageNotOwned
 		}
+		u.Principal = owner
 	}
-	return "", s.putLocked(tool, u, limit, now)
+	return u.Principal, s.putLocked(tool, u, limit, now)
 }
 
 func (s *UsageStore) Get(tool string) (ToolUsage, bool) {

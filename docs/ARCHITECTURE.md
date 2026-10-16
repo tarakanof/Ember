@@ -3079,12 +3079,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   caller's id and sources in the request context and `allowSource` makes
   `POST`/`DELETE /v1/status` and `POST /v1/usage` 403 for any other
   `source` after body validation. Usage is stored per tool and account
-  (#535) and owned by the writer that created the entry (the client
-  token's id; the master token is its own writer), never by its
-  self-declared `source`: `UsageStore.PutIfOwned` checks the stored
-  entries' writer and writes under the same lock, so a client token can't
-  overwrite another writer's account and a bound one can't add a new
-  `account_key` to a tool another writer has (absent tool: allowed). Session keys
+  (#535) and owned per account by a writer (the client token's id; the
+  master token is its own writer), never by its self-declared `source`:
+  `UsageStore.PutIfOwned` applies `usageOwnerAfter` and writes under the
+  same lock (rules in "Usage per account"). Session keys
   join `source/tool/session` with `/`, so `allowSessionKey` 400s a `/` in a
   bound caller's tool or session and mint rejects `/` in a source; otherwise
   `ci` + `lab` + `claude/1` would address `ci/lab`'s session. `boundSources` fails closed: an `ekc_` bearer with no caller in the
@@ -4755,12 +4753,19 @@ no single client token reaches the 64-account limit; past it a client
 token's new account is refused (507, logged `usage post rejected
 reason=account_limit`), while the master token's never is. Every Mac on the
 master token shares its 8 per tool. An entry belongs to the writer that
-created it, and stays with it: a client token posting an account another
-writer owns (live in the store or only in the registry) is refused with
-403, like `allowSource`, so it can neither take the entry over nor evict
-it through its own cap; a bound token is also refused for a tool another
-writer has an entry in. The master token may post to any account and then
-owns it. The registry follows the same per-writer caps and skips a
+created it, and only that writer's caps count or evict it. Merging several
+Macs and boxes on one account is the point, so another writer may update
+it once it is stale (no post for 10 min, the view's staleness) or its
+owner's client token no longer exists (deleted; a re-minted token adopts
+its old accounts this way), and then takes it over. While it is fresh and
+someone else's, a client token's post is 403 ("the master token" or
+"another client token posted it in the last 10 min", logged `usage post
+rejected reason=owned owner=master|client`, no ids), checked against the
+registry too, so a restart doesn't open a window; the master token is never
+refused and updates the numbers without taking the entry over. So a Mac on
+the master token and a box on a client token logged into one account both
+feed it: the box's posts are refused while the Mac's are fresh and take
+over once the Mac sleeps. The registry follows the same per-writer caps and skips a
 new account at 64 instead of refusing. An account's
 id is `<tool>:<account_key>`, so one key on two tools stays two accounts; a
 keyless post is one account per tool, whose id is the bare tool name, which

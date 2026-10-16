@@ -1141,16 +1141,16 @@ paths:
         writer's own oldest, never another writer's; for a client token,
         past 64 accounts in all a new account is a 507 and nothing is
         evicted (the master token is never refused). A client token
-        bound to `sources` gets 403 for any other `source`, for none, and
-        when any of the tool's stored entries came from a source outside
-        its list, whatever the `account_key`; a tool with no entry yet is
-        accepted (the next unbound post overwrites it). Ownership goes by
-        the writer, not the `source`: a client token posting an account
-        another writer created (the master token or another client token),
-        live or known only from the registry, is 403, and so, when the token
-        is bound, is any post to a tool another writer has an entry in. The
-        master token may post to any account and then owns it, so no client
-        token's cap can evict it.
+        bound to `sources` gets 403 for any other `source` and for none.
+        Ownership goes by the writer, not the `source`: an account belongs
+        to the token that created it or last took it over, and only that
+        writer's cap counts or evicts it. Another writer's post updates it
+        while it is stale (no post for 10 min) or its owner's token was
+        deleted, and then takes it over. While it is fresh, a client
+        token's post is 403 ("the master token" or "another client token"
+        posted it in the last 10 min; no ids), checked against the registry
+        too after a restart; the master token's is accepted and leaves the
+        owner as it is.
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true

@@ -181,9 +181,6 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 		}
 	}
 	plan := rep.Plan
-	if ok && principal != "" {
-		principal = prev.Principal
-	}
 	next := usageAccountSeen{Tool: k.Tool, Principal: principal, Plan: plan, First: now, Last: now, Report: newUsageSnapshot(rep)}
 	if ok && prev.First.Before(now) {
 		next.First = prev.First
@@ -204,11 +201,15 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 	return kv.PutSetting(usageAccountsSeenKey, string(b))
 }
 
-func (r *usageAccountRegistry) ownedByAnother(k usageKey, principal string, now time.Time) bool {
+func (r *usageAccountRegistry) refuses(k usageKey, writer string, alive func(string) bool, now time.Time) (string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s, ok := r.seen[k.id()]
-	return ok && principal != "" && s.Principal != principal && now.Sub(s.Last) <= usageAccountTTL
+	if !ok || now.Sub(s.Last) > usageAccountTTL {
+		return "", false
+	}
+	owner, allowed := usageOwnerAfter(s.Principal, s.Last, writer, alive, now)
+	return owner, !allowed
 }
 
 func (r *usageAccountRegistry) expireLocked(now time.Time) {

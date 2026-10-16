@@ -369,7 +369,7 @@ func TestBoundClientCannotOverwriteAnotherSourcesUsage(t *testing.T) {
 		t.Fatalf("master usage = %d %s", resp.StatusCode, b)
 	}
 	resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, `{"tool":"claude","source":"ci","five_hour":{"used_percent":99}}`)
-	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), `\"dt-mbp\"`) {
+	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), "the master token") {
 		t.Fatalf("bound overwrite of dt-mbp usage = %d %s, want 403", resp.StatusCode, b)
 	}
 	u, ok := app.usage.Get("claude")
@@ -390,13 +390,13 @@ func TestUsagePutIfOwnedIsAtomic(t *testing.T) {
 	s := newUsageStore()
 	now := time.Now()
 	s.Put("claude", ToolUsage{Source: "dt-mbp", UpdatedAt: now})
-	if owner, err := s.PutIfOwned("claude", ToolUsage{Source: "ci", Principal: "client:ci"}, []string{"ci"}, usageAccountsTotal, now); !errors.Is(err, errUsageNotOwned) || owner != "dt-mbp" {
+	if owner, err := s.PutIfOwned("claude", ToolUsage{Source: "ci", Principal: "client:ci"}, nil, usageAccountsTotal, now); !errors.Is(err, errUsageNotOwned) || owner != "" {
 		t.Fatalf("PutIfOwned over dt-mbp = %q %v, want refused", owner, err)
 	}
 	if _, err := s.PutIfOwned("claude", ToolUsage{Source: "dt-mbp"}, nil, usageAccountsTotal, now); err != nil {
 		t.Fatal("unbound PutIfOwned refused")
 	}
-	if _, err := s.PutIfOwned("codex", ToolUsage{Source: "ci", Principal: "client:ci"}, []string{"ci"}, usageAccountsTotal, now); err != nil {
+	if _, err := s.PutIfOwned("codex", ToolUsage{Source: "ci", Principal: "client:ci"}, nil, usageAccountsTotal, now); err != nil {
 		t.Fatal("bound PutIfOwned on an absent tool refused")
 	}
 	var wg sync.WaitGroup
@@ -405,7 +405,7 @@ func TestUsagePutIfOwnedIsAtomic(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := s.PutIfOwned("race", ToolUsage{Source: src, Principal: "client:" + src}, []string{src}, usageAccountsTotal, now); err == nil {
+			if _, err := s.PutIfOwned("race", ToolUsage{Source: src, Principal: "client:" + src}, nil, usageAccountsTotal, now); err == nil {
 				wins <- src
 			}
 		}()

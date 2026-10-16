@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"regexp"
@@ -96,7 +97,6 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 	for _, win := range req.Models {
 		clampUsageWindow(win)
 	}
-	sources, _ := boundSources(r)
 	limit, principal := 0, ""
 	if c, isClient := r.Context().Value(clientCallerKey{}).(clientCaller); isClient {
 		limit, principal = usageAccountsTotal, "client:"+c.id
@@ -111,24 +111,41 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		Plan:      req.Plan,
 		Principal: principal,
 	}
-	if k := (usageKey{req.Tool, req.AccountKey}); a.usageSeen.ownedByAnother(k, principal, now) {
-		a.denySource(w, r, a.usage.All()[k].Source)
-		return
+	k := usageKey{req.Tool, req.AccountKey}
+	owner, refused := a.usageSeen.refuses(k, principal, a.usageWriterAlive, now)
+	var err error
+	if !refused {
+		owner, err = a.usage.PutIfOwned(req.Tool, rep, a.usageWriterAlive, limit, now)
 	}
-	owner, err := a.usage.PutIfOwned(req.Tool, rep, sources, limit, now)
 	switch {
-	case errors.Is(err, errUsageNotOwned):
-		a.denySource(w, r, owner)
+	case refused, errors.Is(err, errUsageNotOwned):
+		a.denyUsageOwner(w, r, req.Tool, owner)
 		return
 	case errors.Is(err, errUsageFull):
 		a.logger.WarnContext(r.Context(), "usage post rejected", "tool", req.Tool, "reason", "account_limit")
 		writeError(w, http.StatusInsufficientStorage, err)
 		return
 	}
-	if err := a.usageSeen.observe(usageKey{req.Tool, req.AccountKey}, rep, principal, now); err != nil {
+	if err := a.usageSeen.observe(k, rep, owner, now); err != nil {
 		a.logger.Warn("usage account persist failed", "tool", req.Tool, "err", err)
 	}
 	a.pruneUsageAccountPrefs(a.usageSeen.drainRemoved())
 	a.changes.notify(topicUsage)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) usageWriterAlive(principal string) bool {
+	id, ok := strings.CutPrefix(principal, "client:")
+	return !ok || a.clients == nil || a.clients.exists(id)
+}
+
+func (a *App) denyUsageOwner(w http.ResponseWriter, r *http.Request, tool, owner string) {
+	kind, label := "client", "another client token"
+	if owner == "" {
+		kind, label = "master", "the master token"
+	}
+	c, _ := r.Context().Value(clientCallerKey{}).(clientCaller)
+	a.logger.InfoContext(r.Context(), "usage post rejected",
+		"client_id", c.id, "tool", tool, "reason", "owned", "owner", kind)
+	writeError(w, http.StatusForbidden, fmt.Errorf("%w: %s posted it in the last 10 min", errUsageNotOwned, label))
 }

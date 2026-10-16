@@ -330,29 +330,6 @@ func (c *usageSeenKV) PutSetting(key, value string) error {
 	return nil
 }
 
-func TestBoundClientCannotAddAnAccountToAnotherSourcesTool(t *testing.T) {
-	app, srv := newDevicesApp(t, "")
-	m := mintBoundClient(t, srv, "ci", []string{"ci"}, "ingest")
-	if resp, b := devReq(t, srv, "POST", "/v1/usage", testToken, `{"tool":"claude","source":"dt-mbp","account_key":"`+keyMaxA+`","five_hour":{"used_percent":14}}`); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("master usage = %d %s", resp.StatusCode, b)
-	}
-	for _, key := range []string{keyMaxB, ""} {
-		body := `{"tool":"claude","source":"ci","five_hour":{"used_percent":99}`
-		if key != "" {
-			body += `,"account_key":"` + key + `"`
-		}
-		if resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, body+`}`); resp.StatusCode != http.StatusForbidden {
-			t.Fatalf("bound post to dt-mbp's tool with key %q = %d %s, want 403", key, resp.StatusCode, b)
-		}
-	}
-	if n := len(app.usage.state(nil, time.Now()).Accounts); n != 1 {
-		t.Fatalf("accounts = %d, want only dt-mbp's", n)
-	}
-	if resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, `{"tool":"gha","source":"ci","account_key":"`+keyMaxB+`"}`); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("bound post to a fresh tool = %d %s, want 204", resp.StatusCode, b)
-	}
-}
-
 func TestSameAccountKeyOnTwoToolsStaysTwoAccounts(t *testing.T) {
 	_, srv := newDevicesApp(t, "")
 	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
@@ -672,26 +649,6 @@ func TestClientAtItsCapNeverEvictsAMasterAccountItReposted(t *testing.T) {
 	}
 }
 
-func TestMasterPostingAClientsAccountTakesItOutOfTheClientsCap(t *testing.T) {
-	app, srv := newDevicesApp(t, "")
-	m := mintClient(t, srv, "open", "ingest")
-	if code := clientUsagePost(t, srv, m.Token, keyMaxA, 10); code != http.StatusNoContent {
-		t.Fatalf("client post = %d", code)
-	}
-	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":14}}`)
-	for i := range usageAccountsPerTool + 2 {
-		if code := clientUsagePost(t, srv, m.Token, fmt.Sprintf("%016x", i+1), 5); code != http.StatusNoContent {
-			t.Fatalf("client post %d = %d", i, code)
-		}
-	}
-	if u, ok := app.usage.All()[usageKey{"claude", keyMaxA}]; !ok || u.FiveHour.UsedPercent != 14 {
-		t.Fatalf("entry = %+v %v, want the master's post kept past the client's cap", u, ok)
-	}
-	if code := clientUsagePost(t, srv, m.Token, keyMaxA, 99); code != http.StatusForbidden {
-		t.Fatalf("client repost after the master took it = %d, want 403", code)
-	}
-}
-
 func TestClientRepostingAnAccountKnownOnlyToTheRegistryIsRefused(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "s.db")
 	app, srv := newDevicesApp(t, db)
@@ -805,5 +762,122 @@ func TestUsageAccountSettingsArePrunedWhenTheAccountExpires(t *testing.T) {
 	blob, _, _ := app.usageSeen.kv().GetSetting(usageAccountsSettingsKey)
 	if strings.Contains(blob, keyMaxA) {
 		t.Fatalf("stored settings %s still hold the expired account", blob)
+	}
+}
+
+func ageUsageAccount(t *testing.T, app *App, k usageKey, by time.Duration) {
+	t.Helper()
+	app.usage.mu.Lock()
+	u := app.usage.byKey[k]
+	u.UpdatedAt = u.UpdatedAt.Add(-by)
+	app.usage.byKey[k] = u
+	app.usage.mu.Unlock()
+	app.usageSeen.mu.Lock()
+	s := app.usageSeen.seen[k.id()]
+	s.Last = s.Last.Add(-by)
+	app.usageSeen.seen[k.id()] = s
+	app.usageSeen.mu.Unlock()
+}
+
+func TestBoundClientAndMasterKeepTheirOwnAccountsOfOneTool(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintBoundClient(t, srv, "ci", []string{"endpoint"}, "ingest")
+	if code := clientUsagePost(t, srv, m.Token, keyMaxB, 40); code != http.StatusNoContent {
+		t.Fatalf("bound post of its own account = %d", code)
+	}
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":14}}`)
+	if code := clientUsagePost(t, srv, m.Token, keyMaxB, 41); code != http.StatusNoContent {
+		t.Fatalf("bound post after the master posted another account = %d, want 204", code)
+	}
+	if u := app.usage.All()[usageKey{"claude", keyMaxB}]; u.FiveHour.UsedPercent != 41 {
+		t.Fatalf("bound account = %+v, want its new post", u)
+	}
+}
+
+func TestClientTakesOverTheMastersAccountOnceItIsStale(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":14}}`)
+	box := mintClient(t, srv, "box", "ingest")
+	if code := clientUsagePost(t, srv, box.Token, keyMaxA, 50); code != http.StatusForbidden {
+		t.Fatalf("box post while the Mac's entry is fresh = %d, want 403", code)
+	}
+	ageUsageAccount(t, app, usageKey{"claude", keyMaxA}, usageStaleTTL+time.Second)
+	if code := clientUsagePost(t, srv, box.Token, keyMaxA, 50); code != http.StatusNoContent {
+		t.Fatalf("box post once the Mac's entry is stale = %d, want 204", code)
+	}
+	if u := app.usage.All()[usageKey{"claude", keyMaxA}]; u.FiveHour.UsedPercent != 50 || u.Principal != "client:"+box.ID {
+		t.Fatalf("entry = %+v, want the box's numbers and the box as owner", u)
+	}
+	if s := app.usageSeen.snapshot(time.Now())[idMaxA]; s.Principal != "client:"+box.ID {
+		t.Fatalf("registry = %+v, want the box as owner", s)
+	}
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":60}}`)
+	if u := app.usage.All()[usageKey{"claude", keyMaxA}]; u.FiveHour.UsedPercent != 60 || u.Principal != "client:"+box.ID {
+		t.Fatalf("entry = %+v, want the Mac's update kept and the box still owner while fresh", u)
+	}
+}
+
+func TestReMintedTokenAdoptsItsOldAccounts(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	old := mintClient(t, srv, "box", "ingest")
+	if code := clientUsagePost(t, srv, old.Token, keyMaxA, 10); code != http.StatusNoContent {
+		t.Fatalf("first post = %d", code)
+	}
+	if resp, b := devReq(t, srv, "DELETE", "/v1/devices/"+old.ID, testToken, ""); resp.StatusCode/100 != 2 {
+		t.Fatalf("delete = %d %s", resp.StatusCode, b)
+	}
+	fresh := mintClient(t, srv, "box", "ingest")
+	if code := clientUsagePost(t, srv, fresh.Token, keyMaxA, 11); code != http.StatusNoContent {
+		t.Fatalf("re-minted token's post = %d, want 204", code)
+	}
+	if u := app.usage.All()[usageKey{"claude", keyMaxA}]; u.Principal != "client:"+fresh.ID {
+		t.Fatalf("entry = %+v, want the new token as owner", u)
+	}
+}
+
+func TestSecondKeylessTokenWinsOnceTheFirstIsStale(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	a, b := mintClient(t, srv, "a", "ingest"), mintClient(t, srv, "b", "ingest")
+	post := func(tok string) int {
+		resp, _ := devReq(t, srv, "POST", "/v1/usage", tok, `{"tool":"claude","five_hour":{"used_percent":5}}`)
+		return resp.StatusCode
+	}
+	if code := post(a.Token); code != http.StatusNoContent {
+		t.Fatalf("first keyless post = %d", code)
+	}
+	if code := post(b.Token); code != http.StatusForbidden {
+		t.Fatalf("second keyless post while the first is fresh = %d, want 403", code)
+	}
+	ageUsageAccount(t, app, usageKey{"claude", ""}, usageStaleTTL+time.Second)
+	if code := post(b.Token); code != http.StatusNoContent {
+		t.Fatalf("second keyless post once the first is stale = %d, want 204", code)
+	}
+}
+
+func TestMasterUpdatesAFreshClientAccountWithoutTakingIt(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintClient(t, srv, "open", "ingest")
+	if code := clientUsagePost(t, srv, m.Token, keyMaxA, 10); code != http.StatusNoContent {
+		t.Fatalf("client post = %d", code)
+	}
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":14}}`)
+	if u := app.usage.All()[usageKey{"claude", keyMaxA}]; u.FiveHour.UsedPercent != 14 || u.Principal != "client:"+m.ID {
+		t.Fatalf("entry = %+v, want the master's numbers, the client still owner", u)
+	}
+	if code := clientUsagePost(t, srv, m.Token, keyMaxA, 15); code != http.StatusNoContent {
+		t.Fatalf("client repost of its own account = %d, want 204", code)
+	}
+}
+
+func TestUsageRefusalNamesTheOwnerKind(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`"}`)
+	a, b := mintClient(t, srv, "a", "ingest"), mintClient(t, srv, "b", "ingest")
+	clientUsagePost(t, srv, a.Token, keyMaxB, 1)
+	for _, c := range []struct{ key, want string }{{keyMaxA, "master token"}, {keyMaxB, "another client token"}} {
+		resp, body := devReq(t, srv, "POST", "/v1/usage", b.Token, `{"tool":"claude","source":"endpoint","account_key":"`+c.key+`"}`)
+		if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(body), c.want) || strings.Contains(string(body), a.ID) {
+			t.Fatalf("refusal = %d %s, want 403 naming the %s and no id", resp.StatusCode, body, c.want)
+		}
 	}
 }
