@@ -66,20 +66,24 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	sources, _ := boundSources(r)
 	now := time.Now()
-	owner, ok := a.usage.PutIfOwned(req.Tool, ToolUsage{
-		FiveHour:  req.FiveHour,
-		SevenDay:  req.SevenDay,
-		Models:    req.Models,
-		Source:    req.Source,
-		Account:   req.AccountKey,
-		Plan:      req.Plan,
-		UpdatedAt: now,
-	}, sources)
-	if !ok {
+	owner, err := a.usage.PutIfOwned(req.Tool, ToolUsage{
+		FiveHour: req.FiveHour,
+		SevenDay: req.SevenDay,
+		Models:   req.Models,
+		Source:   req.Source,
+		Account:  req.AccountKey,
+		Plan:     req.Plan,
+	}, sources, now)
+	switch {
+	case errors.Is(err, errUsageNotOwned):
 		a.denySource(w, r, owner)
 		return
+	case errors.Is(err, errUsageFull):
+		a.logger.WarnContext(r.Context(), "usage post rejected", "tool", req.Tool, "reason", "account_limit")
+		writeError(w, http.StatusInsufficientStorage, err)
+		return
 	}
-	if err := a.usageSeen.observe(usageKey{req.Tool, req.AccountKey}, req.Plan, now); err != nil {
+	if err := a.usageSeen.observe(usageKey{req.Tool, req.AccountKey}, req.Plan, req.Source, now); err != nil {
 		a.logger.Warn("usage account persist failed", "tool", req.Tool, "err", err)
 	}
 	a.changes.notify(topicUsage)

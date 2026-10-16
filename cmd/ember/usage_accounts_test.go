@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -272,7 +273,7 @@ func TestUsageAccountRegistryWritesOnlyOnChange(t *testing.T) {
 	}
 	for _, s := range steps {
 		before := kv.puts
-		if err := r.observe(k, s.plan, now.Add(s.at)); err != nil {
+		if err := r.observe(k, s.plan, "endpoint", now.Add(s.at)); err != nil {
 			t.Fatal(err)
 		}
 		if wrote := kv.puts > before; wrote != s.write {
@@ -360,19 +361,84 @@ func TestUsageStoreCapsAccountsPerToolEvictingTheOldest(t *testing.T) {
 	}
 }
 
-func TestUsagePostWithAFutureTimeCannotEvictOtherAccounts(t *testing.T) {
+func TestUsagePostIsStampedWithTheReceiveTime(t *testing.T) {
+	now := time.Now()
+	for _, sent := range []time.Time{now.Add(30 * 24 * time.Hour), now.Add(-6 * 24 * time.Hour), {}} {
+		s := newUsageStore()
+		s.Put("claude", ToolUsage{Account: keyMaxA, UpdatedAt: now.Add(-time.Hour)})
+		if _, err := s.PutIfOwned("codex", ToolUsage{Account: keyCodex, UpdatedAt: sent}, nil, now); err != nil {
+			t.Fatal(err)
+		}
+		all := s.All()
+		if _, ok := all[usageKey{"claude", keyMaxA}]; !ok {
+			t.Fatalf("a post dated %v evicted another account", sent)
+		}
+		if got := all[usageKey{"codex", keyCodex}].UpdatedAt; !got.Equal(now) {
+			t.Fatalf("a post dated %v stored %v, want the receive time", sent, got)
+		}
+	}
+}
+
+func TestUsageCapEvictsOnlyTheWritersOwnAccounts(t *testing.T) {
 	s := newUsageStore()
 	now := time.Now()
-	s.Put("claude", ToolUsage{Account: keyMaxA, UpdatedAt: now.Add(-time.Hour)})
-	if _, ok := s.PutIfOwned("codex", ToolUsage{Account: keyCodex, UpdatedAt: now.Add(30 * 24 * time.Hour)}, nil); !ok {
-		t.Fatal("put refused")
+	for i := range 3 {
+		key := strings.Repeat(string(rune('a'+i)), 16)
+		if _, err := s.PutIfOwned("claude", ToolUsage{Account: key, Source: "endpoint"}, nil, now.Add(time.Duration(i)*time.Second)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	all := s.All()
-	if _, ok := all[usageKey{"claude", keyMaxA}]; !ok {
-		t.Fatal("a future-dated post evicted another account")
+	for i := range usageAccountsPerTool + 3 {
+		key := strings.Repeat(string(rune('k'+i)), 16)
+		if _, err := s.PutIfOwned("claude", ToolUsage{Account: key, Source: "noisy"}, nil, now.Add(time.Minute+time.Duration(i)*time.Second)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if got := all[usageKey{"codex", keyCodex}].UpdatedAt; got.After(time.Now()) {
-		t.Fatalf("stored updated_at %v is in the future, want the receive time", got)
+	own, noisy := 0, 0
+	for k, u := range s.All() {
+		switch {
+		case u.Source == "endpoint":
+			own++
+		case u.Source == "noisy":
+			noisy++
+			if k.Account == strings.Repeat("k", 16) {
+				t.Fatal("the noisy source's oldest account was kept past its cap")
+			}
+		}
+	}
+	if own != 3 || noisy != usageAccountsPerTool {
+		t.Fatalf("endpoint %d, noisy %d; want 3 untouched and the noisy source capped at %d", own, noisy, usageAccountsPerTool)
+	}
+}
+
+func TestUsageHardLimitRejectsInsteadOfEvictingOthers(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","source":"dt-mbp","account_key":"`+keyMaxA+`"}`)
+	m := mintBoundClient(t, srv, "ci", []string{"ci"}, "ingest")
+	rejected := 0
+	for i := range usageAccountsTotal + 5 {
+		body := fmt.Sprintf(`{"tool":"ci-%d","source":"ci","account_key":"%016x"}`, i/usageAccountsPerTool, i)
+		resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, body)
+		switch resp.StatusCode {
+		case http.StatusNoContent:
+		case http.StatusInsufficientStorage:
+			rejected++
+		default:
+			t.Fatalf("%s = %d %s", body, resp.StatusCode, b)
+		}
+	}
+	if _, ok := app.usage.All()[usageKey{"claude", keyMaxA}]; !ok || rejected == 0 {
+		t.Fatalf("master's account kept = %v, rejected = %d; want it kept and the overflow rejected", ok, rejected)
+	}
+}
+
+func TestStaleEntryFromAnotherSourceDoesNotLockOutTheMasterToken(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	app.usage.Put("claude", ToolUsage{Account: keyMaxA, Source: "ci", UpdatedAt: time.Now().Add(-time.Hour)})
+	postUsage(t, srv, `{"tool":"claude","source":"dt-mbp","account_key":"`+keyMaxB+`"}`)
+	postUsage(t, srv, `{"tool":"claude","source":"dt-mbp","account_key":"`+keyMaxA+`"}`)
+	if u := app.usage.All()[usageKey{"claude", keyMaxA}]; u.Source != "dt-mbp" {
+		t.Fatalf("entry = %+v, want the master's post to replace the stale ci one", u)
 	}
 }
 

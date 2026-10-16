@@ -1121,9 +1121,11 @@ paths:
       description: |
         Usage is one entry per tool and `account_key` (no key: one keyless
         account per tool); the newest post wins, so several Macs on one
-        account share an entry. The server stamps the receive time. An
-        entry is dropped 7 days after its last post, and a tool keeps at
-        most 8 accounts (64 in all), the oldest evicted. A client token
+        account share an entry. The server stamps every post with its
+        receive time, whatever the body says. An entry is dropped 7 days
+        after its last post. A `source` keeps at most 8 accounts per tool,
+        a new one replacing that source's own oldest; past 64 accounts in
+        all a new account is a 507 and nothing is evicted. A client token
         bound to `sources` gets 403 for any other `source`, for none, and
         when any of the tool's stored entries came from a source outside
         its list, whatever the `account_key`; a tool with no entry yet is
@@ -1568,6 +1570,12 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "507":
+          description: 64 accounts are stored; a new account is refused rather than evicting another source's.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/usage/config:
     get:
       tags: [settings]

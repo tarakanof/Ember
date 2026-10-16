@@ -22,7 +22,6 @@ const (
 	usageAccountsSeenKey     = "usage_accounts_seen"
 	usageAccountsSettingsKey = "usage_accounts_json"
 	usageAccountSeenEvery    = time.Hour
-	usageAccountsMax         = 32
 	usageAccountNameMax      = 24
 	usageAccountOrderMax     = 999
 )
@@ -72,10 +71,11 @@ func usageToolRank(tool string) int {
 }
 
 type usageAccountSeen struct {
-	Tool  string    `json:"tool"`
-	Plan  string    `json:"plan,omitempty"`
-	First time.Time `json:"first"`
-	Last  time.Time `json:"last"`
+	Tool   string    `json:"tool"`
+	Source string    `json:"source,omitempty"`
+	Plan   string    `json:"plan,omitempty"`
+	First  time.Time `json:"first"`
+	Last   time.Time `json:"last"`
 }
 
 type usageAccountRegistry struct {
@@ -107,20 +107,26 @@ func (r *usageAccountRegistry) load() error {
 	return nil
 }
 
-func (r *usageAccountRegistry) observe(k usageKey, plan string, now time.Time) error {
+func (r *usageAccountRegistry) observe(k usageKey, plan, source string, now time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.expireLocked(now)
 	id := k.id()
 	prev, ok := r.seen[id]
-	if ok && prev.Tool == k.Tool && prev.Plan == plan && now.Sub(prev.Last) < usageAccountSeenEvery && !now.Before(prev.Last) {
+	if ok && prev.Tool == k.Tool && prev.Plan == plan && prev.Source == source && now.Sub(prev.Last) < usageAccountSeenEvery && !now.Before(prev.Last) {
 		return nil
 	}
-	next := usageAccountSeen{Tool: k.Tool, Plan: plan, First: now, Last: now}
+	if !ok {
+		r.evictOwnOldestLocked(k.Tool, source)
+		if len(r.seen) >= usageAccountsTotal {
+			return nil
+		}
+	}
+	next := usageAccountSeen{Tool: k.Tool, Source: source, Plan: plan, First: now, Last: now}
 	if ok && prev.First.Before(now) {
 		next.First = prev.First
 	}
 	r.seen[id] = next
-	r.pruneLocked(now)
 	kv := r.kv()
 	if kv == nil {
 		return nil
@@ -132,27 +138,29 @@ func (r *usageAccountRegistry) observe(k usageKey, plan string, now time.Time) e
 	return kv.PutSetting(usageAccountsSeenKey, string(b))
 }
 
-func (r *usageAccountRegistry) pruneLocked(now time.Time) {
+func (r *usageAccountRegistry) expireLocked(now time.Time) {
 	for id, s := range r.seen {
 		if now.Sub(s.Last) > usageAccountTTL {
 			delete(r.seen, id)
 		}
 	}
-	perTool := map[string]int{}
-	for _, s := range r.seen {
-		perTool[s.Tool]++
-	}
-	for len(r.seen) > usageAccountsMax || slices.ContainsFunc(slices.Collect(maps.Values(perTool)), func(n int) bool { return n > usageAccountsPerTool }) {
-		oldest := ""
+}
+
+func (r *usageAccountRegistry) evictOwnOldestLocked(tool, source string) {
+	for {
+		n, oldest := 0, ""
 		for id, s := range r.seen {
-			if len(r.seen) <= usageAccountsMax && perTool[s.Tool] <= usageAccountsPerTool {
+			if s.Tool != tool || s.Source != source {
 				continue
 			}
+			n++
 			if o := r.seen[oldest]; oldest == "" || s.Last.Before(o.Last) || (s.Last.Equal(o.Last) && id < oldest) {
 				oldest = id
 			}
 		}
-		perTool[r.seen[oldest].Tool]--
+		if n < usageAccountsPerTool {
+			return
+		}
 		delete(r.seen, oldest)
 	}
 }
@@ -223,8 +231,8 @@ func (a *App) usageAccountsSettingSpec() settingSpec[usageAccountsDTO] {
 					out[id] = p
 				}
 			}
-			if len(out) > 2*usageAccountsMax {
-				return fmt.Errorf("at most %d account settings", 2*usageAccountsMax)
+			if len(out) > usageAccountsTotal {
+				return fmt.Errorf("at most %d account settings", usageAccountsTotal)
 			}
 			if len(out) == 0 {
 				out = nil

@@ -4727,10 +4727,14 @@ add `account_key` and `plan` to `POST /v1/usage`:
   server; an old producer's keyless post works unchanged.
 
 The store is keyed by (tool, account_key). The newest `updated_at` wins
-(the server stamps the receive time, so a client can't date a post into
-the future; an older one never overwrites), so several Macs on one account
-share one entry. A tool keeps at most 8 accounts and the store 64, the
-oldest evicted (the registry the same per tool, 32 in all). An account's
+(the server stamps every post with its receive time and ignores any time a
+client sends, so ranking, staleness and expiry can't be forged; an older
+one never overwrites), so several Macs on one account share one entry.
+Caps never evict another writer's entry: a `source` keeps at most 8
+accounts per tool, a new one replacing that source's own oldest, and past
+64 accounts in all a new account is refused (507, logged `usage post
+rejected reason=account_limit`). The registry follows the same rules,
+skipping a new account at 64 instead of refusing. An account's
 id is `<tool>:<account_key>`, so one key on two tools stays two accounts; a
 keyless post is one account per tool, whose id is the bare tool name, which
 no keyed id can equal; once its tool has a keyed
@@ -4740,11 +4744,10 @@ days after its last post (`usageAccountTTL`; pruned on each post and
 skipped by `state`); stale still means 10 min.
 
 **Registry** (`usageAccountRegistry`, store key `usage_accounts_seen`):
-per account id its tool, plan and first and last sighting, persisted so the
+per account id its tool, source, plan and first and last sighting, persisted so the
 default order and the 7-day expiry survive a restart. A post writes it only
 for a new account, a plan change, or when the last sighting is an hour old
-(at most one write per account per hour); entries past 7 days, beyond 8 per
-tool or beyond 32 accounts (oldest first) are pruned. The snapshots themselves stay in memory.
+(at most one write per account per hour); entries past 7 days are pruned. The snapshots themselves stay in memory.
 
 **Settings** (`usage_accounts_json`, one `settingSpec`; `Config.UsageAccounts`):
 per account id `name`, `hidden` and `order`. `GET /v1/usage/accounts`

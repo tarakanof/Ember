@@ -17,7 +17,7 @@ var knobCapsUsage = map[string]any{
 func putUsageAt(t *testing.T, f *viewFixture, tool string, u ToolUsage) {
 	t.Helper()
 	f.app.usage.Put(tool, u)
-	if err := f.app.usageSeen.observe(usageKey{tool, u.Account}, u.Plan, u.UpdatedAt); err != nil {
+	if err := f.app.usageSeen.observe(usageKey{tool, u.Account}, u.Plan, u.Source, u.UpdatedAt); err != nil {
 		t.Fatal(err)
 	}
 }
