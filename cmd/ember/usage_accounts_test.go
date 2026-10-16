@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -1150,5 +1151,22 @@ func TestUsageAccountsOutsideAFullRegistryKeepTheirOrder(t *testing.T) {
 	if accountNames(after) != accountNames(before) || !after.Accounts[0].FirstSeen.Equal(before.Accounts[0].FirstSeen) {
 		t.Fatalf("after a post = %s %v, want %s %v", accountNames(after), after.Accounts[0].FirstSeen,
 			accountNames(before), before.Accounts[0].FirstSeen)
+	}
+}
+
+func TestUsageAccountSnapshotsAreFlushedOnShutdown(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max","five_hour":{"used_percent":10}}`)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max","five_hour":{"used_percent":64}}`)
+	srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	app.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
+	app2, _ := newDevicesApp(t, db)
+	app2.loadUsageAccounts()
+	got := app2.knobUsage(time.Now())
+	if got == nil || len(got.Accounts) != 1 || got.Accounts[0].FiveHour == nil || got.Accounts[0].FiveHour.Pct != 64 {
+		t.Fatalf("knob usage after a restart = %+v, want the last snapshot before shutdown", got)
 	}
 }

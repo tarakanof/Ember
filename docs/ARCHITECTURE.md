@@ -4823,8 +4823,9 @@ skipped by `state`); stale still means 10 min.
 **Registry** (`usageAccountRegistry`, store key `usage_accounts_seen`):
 per account id its tool, writer, plan and first and last sighting, persisted so the
 default order and the 7-day expiry survive a restart. Memory follows every
-post; the store is written only for a new account, a plan change, or when
-the account's last write is an hour old (at most one write per account per
+post; the store is written only for a new account, a plan change, when
+the account's last write is an hour old, or on graceful shutdown if any
+newer sighting is still unwritten (at most one write per account per
 hour, plus one per plan or owner change, so a master takeover and the
 master-held mark reach the store at once; owners change at most once per
 10-min staleness, and the post's `source` plays no part, so one
@@ -4841,8 +4842,9 @@ a client token, the largest an entry gets) persist in about 28 KB, capped
 at 30 KiB by `TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize`.
 The snapshot is written with the entry, so
 after a restart an account with no post yet shows that snapshot as stale
-with its old `updated_at` (up to an hour behind the last post, the write
-throttle) instead of vanishing from the knob; the first post replaces it.
+with its old `updated_at` (the last post after a graceful shutdown, up to
+an hour behind it after a crash, the write throttle) instead of vanishing
+from the knob; the first post replaces it.
 
 **Settings** (`usage_accounts_json`, one `settingSpec`; `Config.UsageAccounts`):
 per account id `name`, `hidden` and `order`. `GET /v1/usage/accounts`

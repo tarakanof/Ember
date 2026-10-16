@@ -166,6 +166,7 @@ type usageAccountRegistry struct {
 	written map[string]time.Time
 	loadErr error
 	nextSeq int
+	dirty   bool
 	kv      func() settingsKV
 }
 
@@ -236,9 +237,23 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 	r.seen[id] = next
 	if ok && prev.Tool == k.Tool && prev.Plan == plan && prev.Principal == next.Principal && prev.Master == next.Master &&
 		now.Sub(r.written[id]) < usageAccountSeenEvery {
+		r.dirty = true
 		return nil
 	}
 	r.written[id] = now
+	return r.writeLocked()
+}
+
+func (r *usageAccountRegistry) flush() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.dirty {
+		return nil
+	}
+	return r.writeLocked()
+}
+
+func (r *usageAccountRegistry) writeLocked() error {
 	kv := r.kv()
 	if kv == nil || r.loadErr != nil {
 		return nil
@@ -247,7 +262,12 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 	if err != nil {
 		return err
 	}
-	return kv.PutSetting(usageAccountsSeenKey, string(b))
+	if err := kv.PutSetting(usageAccountsSeenKey, string(b)); err != nil {
+		r.dirty = true
+		return err
+	}
+	r.dirty = false
+	return nil
 }
 
 func (r *usageAccountRegistry) refuses(k usageKey, writer string, alive func(string) bool, now time.Time) (owner string, masterHeld, refused bool) {
