@@ -382,3 +382,16 @@ func TestConfigLogValueRedactsTokenAndListsToggles(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfig_AccountsFileFollowsXDGStateHome(t *testing.T) {
+	writeEnv(t, "")
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(state, "ember", accountHistoryFile); cfg.AccountsFile != want {
+		t.Fatalf("AccountsFile = %q, want %q", cfg.AccountsFile, want)
+	}
+}

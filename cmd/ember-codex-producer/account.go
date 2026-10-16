@@ -97,19 +97,18 @@ func (c *codexAccountCache) current(codexHome string) codexAccount {
 	if err != nil {
 		return codexAccount{}
 	}
-	if !json.Valid(b) {
-		return c.acct
-	}
 	c.path, c.mtime, c.size, c.acct = path, fi.ModTime(), fi.Size(), parseCodexAuth(b)
 	return c.acct
 }
+
+var statFile, lstatFile = os.Stat, os.Lstat
 
 func authBoundary(codexHome string) (time.Time, bool) {
 	if codexHome == "" {
 		return time.Time{}, false
 	}
 	path := filepath.Join(codexHome, "auth.json")
-	fi, err := os.Stat(path)
+	fi, err := statFile(path)
 	if err != nil {
 		return time.Time{}, false
 	}
@@ -117,7 +116,7 @@ func authBoundary(codexHome string) (time.Time, bool) {
 	if c := changeTime(fi); c.After(at) {
 		at = c
 	}
-	if li, err := os.Lstat(path); err == nil && li.ModTime().After(at) {
+	if li, err := lstatFile(path); err == nil && li.ModTime().After(at) {
 		at = li.ModTime()
 	}
 	return at, true
@@ -125,7 +124,7 @@ func authBoundary(codexHome string) (time.Time, bool) {
 
 const (
 	maxAccountEras      = 8
-	historySaveInterval = time.Minute
+	historySaveInterval = 10 * time.Minute
 	accountHistoryFile  = "codex-accounts.json"
 )
 
@@ -145,6 +144,7 @@ type accountHistory struct {
 	eras      []accountEra
 	checkedAt time.Time
 	savedAt   time.Time
+	rekeyed   bool
 }
 
 func (h *accountHistory) load() {
@@ -168,7 +168,7 @@ func (h *accountHistory) load() {
 
 func (h *accountHistory) save(now time.Time) {
 	h.savedAt = now
-	if h.path == "" {
+	if h.path == "" || h.unknownStart() {
 		return
 	}
 	b, err := json.Marshal(accountHistoryDoc{Eras: h.eras, CheckedAt: h.checkedAt})
@@ -193,6 +193,9 @@ func (h *accountHistory) observe(key string, boundary time.Time, haveBoundary bo
 	case n == 0:
 		h.eras = []accountEra{{Key: key}}
 		dirty = true
+	case n == 1 && h.unknownStart() && key != "":
+		h.eras[0].Key = key
+		dirty, h.rekeyed = true, true
 	case key == "" && h.eras[n-1].Key != "":
 	case h.eras[n-1].Key != key:
 		since = h.switchTime(boundary, haveBoundary, now)
@@ -218,6 +221,20 @@ func (h *accountHistory) switchTime(boundary time.Time, haveBoundary bool, now t
 		since = h.checkedAt
 	}
 	return since
+}
+
+func (h *accountHistory) unknownStart() bool {
+	return len(h.eras) == 1 && h.eras[0].Key == "" && h.eras[0].Since.IsZero()
+}
+
+func (h *accountHistory) starts() []time.Time {
+	var out []time.Time
+	for _, e := range h.eras {
+		if !e.Since.IsZero() {
+			out = append(out, e.Since)
+		}
+	}
+	return out
 }
 
 func (h *accountHistory) current() string {

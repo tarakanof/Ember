@@ -32,6 +32,8 @@ type derived struct {
 	rateBound     bool
 	lineAt        time.Time
 	segmentAt     time.Time
+	eraStarts     []time.Time
+	eraCrossed    bool
 	planType      string
 }
 
@@ -148,6 +150,15 @@ func isRunningEvent(t string) bool {
 	return false
 }
 
+func (d *derived) crossesEra(from, to time.Time) bool {
+	for _, s := range d.eraStarts {
+		if s.After(from) && !s.After(to) {
+			return true
+		}
+	}
+	return false
+}
+
 func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trailEnabled bool) {
 	var rl rolloutLine
 	if json.Unmarshal(line, &rl) != nil {
@@ -155,8 +166,12 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 	}
 	ts, tsErr := time.Parse(time.RFC3339Nano, rl.Timestamp)
 	if tsErr == nil {
-		if !d.lineAt.IsZero() && ts.Sub(d.lineAt) >= resumeGap {
-			d.segmentAt = ts
+		switch {
+		case d.lineAt.IsZero():
+		case ts.Sub(d.lineAt) >= resumeGap:
+			d.segmentAt, d.eraCrossed = ts, false
+		case d.crossesEra(d.lineAt, ts):
+			d.eraCrossed = true
 		}
 		if ts.After(d.lineAt) {
 			d.lineAt = ts
@@ -168,6 +183,9 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 	var p eventPayload
 	if json.Unmarshal(rl.Payload, &p) != nil {
 		return
+	}
+	if p.Type == "task_started" && d.eraCrossed && tsErr == nil {
+		d.segmentAt, d.eraCrossed = ts, false
 	}
 	switch {
 	case p.Type == "token_count":

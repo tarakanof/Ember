@@ -141,9 +141,14 @@ func buildUsageRequest(d derived) (producer.UsageRequest, bool) {
 }
 
 func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
+	acct, _, _ := w.observeAccount(w.now())
+	return w.tickWith(acct)
+}
+
+func (w *watcher) tickWith(acct codexAccount) (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
 	now := w.now()
 	w.handedOver = nil
-	acct, _, _ := w.observeAccount(now)
+	eraStarts := w.history.starts()
 	candidates := map[string]bool{}
 	for _, path := range w.candidateFiles(now) {
 		candidates[path] = true
@@ -197,6 +202,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		w.reads++
 		if lines, newOffset, err := readNewLines(path, ss.offset); err == nil {
 			seq := ss.derived.rateSeq
+			ss.derived.eraStarts = eraStarts
 			for _, ln := range lines {
 				ss.derived.foldEvent(ln, w.cfg.ContextPctEnabled, w.cfg.RatePctEnabled, w.cfg.ActivityTrailEnabled)
 			}
@@ -257,21 +263,23 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 }
 
 func (w *watcher) observeAccount(now time.Time) (acct codexAccount, since time.Time, switched bool) {
-	if w.history.path == "" && w.cfg.StateDir != "" {
-		w.history.path = filepath.Join(filepath.Dir(w.cfg.StateDir), accountHistoryFile)
+	if !w.history.loaded {
+		w.history.path = w.cfg.AccountsFile
 	}
 	acct = w.accounts.current(w.cfg.CodexHome)
 	boundary, ok := authBoundary(w.cfg.CodexHome)
 	since, switched = w.history.observe(acct.key, boundary, ok, now)
+	if w.history.rekeyed {
+		w.history.rekeyed = false
+		for _, ss := range w.sessions {
+			w.bindSession(ss)
+		}
+		w.extraSeen = time.Time{}
+	}
 	if acct.key != w.history.current() {
 		acct = codexAccount{key: w.history.current()}
 	}
 	return acct, since, switched
-}
-
-func (w *watcher) observeAccountSwitch() (since time.Time, switched bool) {
-	_, since, switched = w.observeAccount(w.now())
-	return since, switched
 }
 
 func (w *watcher) bindSession(ss *sessionState) {

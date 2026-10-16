@@ -557,3 +557,201 @@ func TestFold_ALongGapStartsASegment(t *testing.T) {
 		t.Fatalf("rateStart = %v, want the line after the gap", d.rateStart)
 	}
 }
+
+func TestWatcherUsageFromAQuickResumeUnderTheNewLogin(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	reset := t0.Add(time.Hour)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	metaA := metaAt("u-a", t0.Add(-3*time.Hour))
+	old := rateLine(t0.Add(-2*time.Minute), 100, reset)
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaA, evStarted, old)
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	w.tick()
+	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+	now = t0.Add(10 * time.Second)
+	w.tick()
+	resumed := `{"timestamp":"` + t0.Add(60*time.Second).UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"task_started"}}`
+	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(70*time.Second), metaA, evStarted, old, resumed, rateLine(t0.Add(70*time.Second), 4, t0.Add(5*time.Hour)))
+	now = t0.Add(71 * time.Second)
+	_, _, usages := w.tick()
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-b") || usages[0].FiveHour.UsedPercent != 4 {
+		t.Fatalf("usages = %+v, want B's rates from a resume a minute after the switch", usages)
+	}
+}
+
+func TestWatcherUsageKeepsAnOldLoginTurnRunningAcrossTheSwitchOffTheNewKey(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	reset := t0.Add(time.Hour)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	metaA := metaAt("u-a", t0.Add(-time.Hour))
+	old := rateLine(t0.Add(-2*time.Second), 40, reset)
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaA, evStarted, old)
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	w.tick()
+	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+	now = t0.Add(3 * time.Second)
+	w.tick()
+	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(8*time.Second), metaA, evStarted, old, rateLine(t0.Add(8*time.Second), 41, reset))
+	now = t0.Add(9 * time.Second)
+	if _, _, usages := w.tick(); len(usages) != 0 {
+		t.Fatalf("usages = %+v, want nothing from a turn still running on the old login", usages)
+	}
+}
+
+func TestCycleDropsTheOldLoginWindowWhenTheSwitchLandsMidCycle(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	now := t0.Add(-5 * time.Second)
+	w := switchWatcher(t, dir, home, &now)
+	as := connectedAppServer(w.cfg, "t1", wireStatus{Type: "active"})
+	as.now = func() time.Time { return now }
+	reset := strconv.FormatInt(t0.Add(time.Hour).Unix(), 10)
+	as.onNotification("account/rateLimits/updated", json.RawMessage(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":50,"resetsAt":`+reset+`},"secondary":{"usedPercent":60,"resetsAt":`+reset+`}}}`))
+	cycle(w, as)
+	now = time.Now().Add(2 * time.Second)
+	acct, _, switched := w.observeAccount(now)
+	if switched {
+		t.Fatal("switch seen before auth.json changed")
+	}
+	ap := as.tick()
+	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+	w.owned, w.pending, w.rateExtra = ap.owned, ap.pending, ap.rate
+	w.tickWith(acct)
+	now = now.Add(time.Second)
+	as.onNotification("account/rateLimits/updated", json.RawMessage(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":5,"resetsAt":`+reset+`},"secondary":null}}`))
+	now = now.Add(time.Second)
+	_, _, usages := cycle(w, as)
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-b") || usages[0].SevenDay != nil {
+		t.Fatalf("usages = %+v, want B's 5h window alone", usages)
+	}
+}
+
+func TestAccountHistoryCorruptFileIsAFirstRun(t *testing.T) {
+	for _, body := range []string{"", "{", `{"eras":null}`, `{"eras":[{"key":"x","since":"bogus"}]}`, `[]`, "\x00\x01"} {
+		path := filepath.Join(t.TempDir(), accountHistoryFile)
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		h := accountHistory{path: path}
+		now := time.Now()
+		h.observe("A", now.Add(-time.Hour), true, now)
+		if k, ok := h.at(now.Add(-1000 * time.Hour)); !ok || k != "A" {
+			t.Errorf("body %q: at(old) = %q %v, want first-run trust", body, k, ok)
+		}
+		b, _ := os.ReadFile(path)
+		var doc accountHistoryDoc
+		if json.Unmarshal(b, &doc) != nil || len(doc.Eras) != 1 || doc.Eras[0].Key != "A" {
+			t.Errorf("body %q: not rewritten: %q", body, b)
+		}
+	}
+}
+
+type fakeFileInfo struct{ mod time.Time }
+
+func (f fakeFileInfo) Name() string       { return "auth.json" }
+func (f fakeFileInfo) Size() int64        { return 1 }
+func (f fakeFileInfo) Mode() os.FileMode  { return 0o600 }
+func (f fakeFileInfo) ModTime() time.Time { return f.mod }
+func (f fakeFileInfo) IsDir() bool        { return false }
+func (f fakeFileInfo) Sys() any           { return nil }
+
+func TestAuthBoundaryTakesTheSymlinksOwnMtime(t *testing.T) {
+	t0 := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	prevStat, prevLstat := statFile, lstatFile
+	t.Cleanup(func() { statFile, lstatFile = prevStat, prevLstat })
+	statFile = func(string) (os.FileInfo, error) { return fakeFileInfo{t0.Add(-2 * time.Hour)}, nil }
+	lstatFile = func(string) (os.FileInfo, error) { return fakeFileInfo{t0}, nil }
+	if at, ok := authBoundary("/codex-home"); !ok || !at.Equal(t0) {
+		t.Fatalf("boundary = %v %v, want the link's own mtime %v", at, ok, t0)
+	}
+}
+
+func TestWatcherUsageKeepsTheKeyThroughAPartialAuthWrite(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	reset := t0.Add(time.Hour)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	metaA := metaAt("u-a", t0.Add(-time.Hour))
+	first := rateLine(t0.Add(-time.Minute), 30, reset)
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaA, evStarted, first)
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	if _, _, usages := w.tick(); len(usages) != 1 {
+		t.Fatalf("usages = %+v, want A's", usages)
+	}
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"tokens":{"id_tok`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(2*time.Second), metaA, evStarted, first, rateLine(t0.Add(2*time.Second), 31, reset))
+	now = t0.Add(3 * time.Second)
+	_, _, usages := w.tick()
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-a") || usages[0].FiveHour.UsedPercent != 31 {
+		t.Fatalf("usages = %+v, want A's new rates under A's key during a partial write", usages)
+	}
+}
+
+func TestWatcherFirstTickWithoutAKeyIsNotPersisted(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaAt("u-a", t0.Add(-72*time.Hour)), evStarted, rateLine(t0.Add(-time.Minute), 30, t0.Add(time.Hour)))
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	w.tick()
+	if _, err := os.Stat(filepath.Join(dir, accountHistoryFile)); !os.IsNotExist(err) {
+		t.Fatalf("history saved for a keyless first tick: %v", err)
+	}
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	now = t0.Add(2 * time.Second)
+	_, _, usages := w.tick()
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-a") {
+		t.Fatalf("usages = %+v, want the existing session's rates under the first real key", usages)
+	}
+}
+
+func TestAccountHistorySavesTheCheckTimeEveryTenMinutesAndOnShutdown(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	checked := func() time.Time {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(dir, accountHistoryFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc accountHistoryDoc
+		if err := json.Unmarshal(b, &doc); err != nil {
+			t.Fatal(err)
+		}
+		return doc.CheckedAt
+	}
+	w.tick()
+	now = t0.Add(9 * time.Minute)
+	w.tick()
+	if got := checked(); !got.Equal(t0) {
+		t.Fatalf("checked_at = %v after 9 min, want %v (no write yet)", got, t0)
+	}
+	now = t0.Add(10 * time.Minute)
+	w.tick()
+	if got := checked(); !got.Equal(now) {
+		t.Fatalf("checked_at = %v after 10 min, want %v", got, now)
+	}
+	now = t0.Add(11 * time.Minute)
+	w.tick()
+	shutdown(w, nil)
+	if got := checked(); !got.Equal(now) {
+		t.Fatalf("checked_at = %v after shutdown, want %v", got, now)
+	}
+}
