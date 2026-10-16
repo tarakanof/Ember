@@ -532,6 +532,10 @@ private final class NGAppList: @unchecked Sendable {
         }
     }
 
+    func setEnabled(_ name: String, _ on: Bool) {
+        lock.withLock { if on { disabled.remove(name) } else { disabled.insert(name) } }
+    }
+
     var enabled: [String: Bool] {
         lock.withLock { Dictionary(uniqueKeysWithValues: apps.map { ($0.name, !disabled.contains($0.name)) }) }
     }
@@ -729,4 +733,106 @@ private final class ArrivalFlag: @unchecked Sendable {
     private var value = false
     func set() { lock.withLock { value = true } }
     var isSet: Bool { lock.withLock { value } }
+}
+
+private let appEnabledVersion = #"{"version":"v0.66.0","features":["firmware_delete_keep","device_app_enabled"]}"#
+
+@MainActor
+private func perAppModel(facade: Bool = true, missing: Bool = false) async -> (DeviceSettingsModel, ClockConfigModel, NGAppList, FakeClock) {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel(facade: facade)
+    fake.responses["GET /version"] = (200, appEnabledVersion)
+    let base = fake.route
+    fake.route = { key, body in
+        let prefix = "PUT /v1/device/apps/", suffix = "/enabled"
+        guard key.hasPrefix(prefix), key.hasSuffix(suffix) else { return base?(key, body) }
+        if missing { return (404, "404 page not found") }
+        guard let on = body["enabled"] as? Bool else { return (400, #"{"error":"enabled must be true or false"}"#) }
+        clockApps.setEnabled(String(key.dropFirst(prefix.count).dropLast(suffix.count)), on)
+        return (200, "")
+    }
+    return (m, clock, clockApps, fake)
+}
+
+@MainActor @Test func appToggleUsesThePerAppRouteWhenTheServerHasIt() async throws {
+    let (m, clock, clockApps, fake) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Date", enabled: false)
+    let puts = fake.log.filter { $0.method == "PUT" }
+    #expect(puts.map(\.path) == ["/v1/device/apps/Date/enabled"])
+    #expect(puts.first?.body as? [String: Bool] == ["enabled": false])
+    #expect(clockApps.enabled["Date"] == false)
+    #expect(m.actionErrors[.apps] == nil)
+    #expect(m.writes.status == .saved)
+    await m.load(force: true)
+    #expect(names(m)["Date"] == false)
+}
+
+@MainActor @Test func aPerAppToggleLeavesAppsChangedElsewhereAlone() async throws {
+    let (m, clock, clockApps, _) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    clockApps.setEnabled("Battery", true)
+    await m.setApp("Date", enabled: false)
+    #expect(clockApps.enabled["Battery"] == true)
+    #expect(clockApps.enabled["Date"] == false)
+    await m.load(force: true)
+    #expect(names(m) == ["Time": true, "Date": false, "Temperature": true, "Humidity": false, "Battery": true])
+}
+
+@MainActor @Test func aFullStateToggleOverwritesAppsChangedElsewhere() async throws {
+    let (m, clock, clockApps, _) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    clockApps.setEnabled("Battery", true)
+    await m.setApp("Date", enabled: false)
+    #expect(clockApps.enabled["Battery"] == false)
+}
+
+@MainActor @Test func appToggleWithoutTheServerFeatureKeepsTheFullWrite() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["GET /version"] = (200, #"{"version":"v0.65.3","features":["firmware_delete_keep"]}"#)
+    await m.setApp("Date", enabled: false)
+    #expect(fake.log.filter { $0.method == "PUT" }.map(\.path) == ["/v1/devices/clock-a1b2c3/config"])
+    #expect(clockApps.enabled["Date"] == false)
+}
+
+@MainActor @Test func appToggleFallsBackToTheFullWriteWhenTheServerLacksTheRoute() async throws {
+    let (m, clock, clockApps, fake) = await perAppModel(facade: false, missing: true)
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Date", enabled: false)
+    await m.setApp("Humidity", enabled: true)
+    let puts = fake.log.filter { $0.method == "PUT" }.map(\.path)
+    #expect(puts == ["/v1/device/apps/Date/enabled", "/v1/device/apps", "/v1/device/apps"])
+    #expect(clockApps.enabled["Date"] == false)
+    #expect(clockApps.enabled["Humidity"] == true)
+    #expect(m.actionErrors[.apps] == nil)
+}
+
+@MainActor @Test func aFailedPerAppToggleIsUndoneAndShown() async throws {
+    let (m, clock, clockApps, fake) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["PUT /v1/device/apps/Date/enabled"] = (422, #"{"error":"clock returned 422"}"#)
+    let base = fake.route
+    fake.route = { key, body in key == "PUT /v1/device/apps/Date/enabled" ? nil : base?(key, body) }
+    await m.setApp("Date", enabled: false)
+    #expect(m.actionErrors[.apps] != nil)
+    #expect(names(m)["Date"] == true)
+    #expect(clockApps.enabled["Date"] == true)
+    #expect(!fake.paths.contains("PUT /v1/devices/clock-a1b2c3/config"))
+}
+
+@MainActor @Test func reorderStillWritesTheFullOrderWithThePerAppRoute() async throws {
+    let (m, clock, _, fake) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.moveApps(fromOffsets: [1], toOffset: 0)
+    #expect(fake.log.filter { $0.method == "PUT" }.map(\.path) == ["/v1/devices/clock-a1b2c3/config"])
+}
+
+@MainActor @Test func theServerFeatureIsReadOnce() async throws {
+    let (m, clock, _, fake) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Date", enabled: false)
+    await m.setApp("Date", enabled: true)
+    await m.setApp("Humidity", enabled: true)
+    #expect(fake.paths.filter { $0 == "GET /version" }.count == 1)
+    #expect(fake.log.filter { $0.method == "PUT" }.count == 3)
 }

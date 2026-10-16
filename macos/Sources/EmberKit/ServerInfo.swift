@@ -9,6 +9,7 @@ public struct VersionInfo: Codable, Sendable {
     public var features: [String]?
 
     public static let firmwareDeleteKeep = "firmware_delete_keep"
+    public static let deviceAppEnabled = "device_app_enabled"
 
     enum CodingKeys: String, CodingKey {
         case binary, version, revision, dirty, features
