@@ -79,13 +79,14 @@ type usageAccountSeen struct {
 }
 
 type usageAccountRegistry struct {
-	mu   sync.Mutex
-	seen map[string]usageAccountSeen
-	kv   func() settingsKV
+	mu      sync.Mutex
+	seen    map[string]usageAccountSeen
+	written map[string]time.Time
+	kv      func() settingsKV
 }
 
 func newUsageAccountRegistry(kv func() settingsKV) *usageAccountRegistry {
-	return &usageAccountRegistry{seen: map[string]usageAccountSeen{}, kv: kv}
+	return &usageAccountRegistry{seen: map[string]usageAccountSeen{}, written: map[string]time.Time{}, kv: kv}
 }
 
 func (r *usageAccountRegistry) load() error {
@@ -104,6 +105,10 @@ func (r *usageAccountRegistry) load() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.seen = seen
+	r.written = make(map[string]time.Time, len(seen))
+	for id, s := range seen {
+		r.written[id] = s.Last
+	}
 	return nil
 }
 
@@ -113,7 +118,7 @@ func (r *usageAccountRegistry) observe(k usageKey, plan, principal string, now t
 	r.expireLocked(now)
 	id := k.id()
 	prev, ok := r.seen[id]
-	if ok && prev.Tool == k.Tool && prev.Plan == plan && prev.Principal == principal && now.Sub(prev.Last) < usageAccountSeenEvery && !now.Before(prev.Last) {
+	if ok && now.Before(prev.Last) {
 		return nil
 	}
 	if !ok {
@@ -128,6 +133,10 @@ func (r *usageAccountRegistry) observe(k usageKey, plan, principal string, now t
 		next.First = prev.First
 	}
 	r.seen[id] = next
+	if ok && prev.Tool == k.Tool && prev.Plan == plan && now.Sub(r.written[id]) < usageAccountSeenEvery {
+		return nil
+	}
+	r.written[id] = now
 	kv := r.kv()
 	if kv == nil {
 		return nil
@@ -142,9 +151,14 @@ func (r *usageAccountRegistry) observe(k usageKey, plan, principal string, now t
 func (r *usageAccountRegistry) expireLocked(now time.Time) {
 	for id, s := range r.seen {
 		if now.Sub(s.Last) > usageAccountTTL {
-			delete(r.seen, id)
+			r.dropLocked(id)
 		}
 	}
+}
+
+func (r *usageAccountRegistry) dropLocked(id string) {
+	delete(r.seen, id)
+	delete(r.written, id)
 }
 
 func (r *usageAccountRegistry) evictOwnOldestLocked(in func(usageAccountSeen) bool, principal string, max int) {
@@ -162,7 +176,7 @@ func (r *usageAccountRegistry) evictOwnOldestLocked(in func(usageAccountSeen) bo
 		if n < max {
 			return
 		}
-		delete(r.seen, oldest)
+		r.dropLocked(oldest)
 	}
 }
 

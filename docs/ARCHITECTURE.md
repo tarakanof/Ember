@@ -4753,9 +4753,13 @@ skipped by `state`); stale still means 10 min.
 
 **Registry** (`usageAccountRegistry`, store key `usage_accounts_seen`):
 per account id its tool, writer, plan and first and last sighting, persisted so the
-default order and the 7-day expiry survive a restart. A post writes it only
-for a new account, a plan change, or when the last sighting is an hour old
-(at most one write per account per hour); entries past 7 days are pruned. The snapshots themselves stay in memory.
+default order and the 7-day expiry survive a restart. Memory follows every
+post; the store is written only for a new account, a plan change, or when
+the account's last write is an hour old (at most one write per account per
+hour, plus one per plan change; the post's `source` plays no part, so one
+account alternating between `statusline` and `endpoint` doesn't rewrite
+it). A post older than the account's last sighting changes nothing, so two
+racing posts can't move it back in time; entries past 7 days are pruned. The snapshots themselves stay in memory.
 
 **Settings** (`usage_accounts_json`, one `settingSpec`; `Config.UsageAccounts`):
 per account id `name`, `hidden` and `order`. `GET /v1/usage/accounts`

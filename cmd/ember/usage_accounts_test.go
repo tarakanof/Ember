@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -546,5 +547,60 @@ func TestUsageStoreGetReturnsTheToolsHighestFiveHourAccount(t *testing.T) {
 	s.Put("claude", ToolUsage{Account: keyMaxB, FiveHour: &UsageWindow{UsedPercent: 20}, UpdatedAt: now})
 	if u, ok := s.Get("claude"); !ok || u.Account != keyMaxA {
 		t.Fatalf("Get = %+v, want the 90%% account", u)
+	}
+}
+
+type registryWriteKV struct {
+	settingsKV
+	mu   sync.Mutex
+	puts map[string]int
+}
+
+func (c *registryWriteKV) PutSetting(key, value string) error {
+	c.mu.Lock()
+	c.puts[key]++
+	c.mu.Unlock()
+	return c.settingsKV.PutSetting(key, value)
+}
+
+func countRegistryWrites(app *App) *registryWriteKV {
+	c := &registryWriteKV{settingsKV: app.usageSeen.kv(), puts: map[string]int{}}
+	app.usageSeen.kv = func() settingsKV { return c }
+	return c
+}
+
+func TestUsageRegistryWriteIgnoresTheSourceFlipping(t *testing.T) {
+	app, srv := newDevicesApp(t, filepath.Join(t.TempDir(), "s.db"))
+	kv := countRegistryWrites(app)
+	for i := range 10 {
+		src := []string{"statusline", "endpoint"}[i%2]
+		postUsage(t, srv, `{"tool":"claude","source":"`+src+`","account_key":"`+keyMaxA+`","plan":"max"}`)
+	}
+	if n := kv.puts[usageAccountsSeenKey]; n != 1 {
+		t.Fatalf("registry writes = %d, want 1 for one account on one plan", n)
+	}
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","plan":"pro"}`)
+	if n := kv.puts[usageAccountsSeenKey]; n != 2 {
+		t.Fatalf("registry writes = %d, want one more for the plan change", n)
+	}
+}
+
+func TestUsageRegistryRejectsAnObservationOlderThanItsLast(t *testing.T) {
+	kv := &usageSeenKV{}
+	r := newUsageAccountRegistry(func() settingsKV { return kv })
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	k := usageKey{"claude", keyMaxA}
+	if err := r.observe(k, "pro", "", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.observe(k, "max", "client:ci", now); err != nil {
+		t.Fatal(err)
+	}
+	got := r.snapshot(now.Add(2 * time.Minute))[idMaxA]
+	if got.Plan != "pro" || !got.Last.Equal(now.Add(time.Minute)) || got.Principal != "" {
+		t.Fatalf("seen = %+v, want the newer observation kept", got)
+	}
+	if kv.puts != 1 || strings.Contains(kv.vals[usageAccountsSeenKey], `"max"`) {
+		t.Fatalf("persisted %d times: %s, want only the newer one", kv.puts, kv.vals[usageAccountsSeenKey])
 	}
 }
