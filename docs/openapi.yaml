@@ -1149,8 +1149,10 @@ paths:
         deleted, and then takes it over. While it is fresh, a client
         token's post is 403 ("the master token" or "another client token"
         posted it in the last 10 min; no ids), checked against the registry
-        too after a restart; the master token's is accepted and leaves the
-        owner as it is.
+        too after a restart; the master token's is accepted and takes it
+        over. No client token's cap evicts an account the master token
+        ever wrote, and a takeover keeps the account's first sighting and
+        settings.
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true

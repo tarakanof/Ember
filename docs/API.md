@@ -23,7 +23,8 @@ token, not the `source` label): an account belongs to the writer (token) that cr
 over. Another writer's post updates it while it is stale (no post for 10
 min) or its owner's token was deleted, and then takes it over; while it is
 fresh a client token's post is 403 naming the owner's kind, and the master
-token's is accepted without taking it over. Sessions are keyed
+token's is accepted and takes it over. No client token's cap ever evicts
+an account the master token wrote. Sessions are keyed
 `source/tool/session`, so a bound token's status `tool`/`session` and a minted
 source may not contain `/` (400). Client tokens never pass the knob-only
 routes, now-playing control or `/admin/*`. Details: RUNBOOK "Integrating a

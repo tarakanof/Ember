@@ -78,6 +78,7 @@ type usageAccountSeen struct {
 	First     time.Time      `json:"first"`
 	Last      time.Time      `json:"last"`
 	Seq       int            `json:"seq,omitempty"`
+	Master    bool           `json:"master,omitempty"`
 	Report    *usageSnapshot `json:"report,omitempty"`
 }
 
@@ -217,6 +218,7 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 	if ok && prev.First.Before(now) {
 		next.First = prev.First
 	}
+	next.Master = prev.Master || principal == ""
 	if next.Seq = prev.Seq; !ok {
 		r.nextSeq++
 		next.Seq = r.nextSeq
@@ -237,15 +239,15 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 	return kv.PutSetting(usageAccountsSeenKey, string(b))
 }
 
-func (r *usageAccountRegistry) refuses(k usageKey, writer string, alive func(string) bool, now time.Time) (string, bool) {
+func (r *usageAccountRegistry) refuses(k usageKey, writer string, alive func(string) bool, now time.Time) (owner string, masterHeld, refused bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s, ok := r.seen[k.id()]
 	if !ok || now.Sub(s.Last) > usageAccountTTL {
-		return "", false
+		return "", false, false
 	}
 	owner, allowed := usageOwnerAfter(s.Principal, s.Last, writer, alive, now)
-	return owner, !allowed
+	return owner, s.Master, !allowed
 }
 
 func (r *usageAccountRegistry) persistedLocked() map[string]usageAccountSeen {
@@ -283,7 +285,7 @@ func (r *usageAccountRegistry) evictOwnOldestLocked(in func(usageAccountSeen) bo
 	for {
 		n, oldest := 0, ""
 		for id, s := range r.seen {
-			if !in(s) || s.Principal != principal {
+			if !in(s) || s.Principal != principal || (principal != "" && s.Master) {
 				continue
 			}
 			n++

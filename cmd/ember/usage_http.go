@@ -121,7 +121,8 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	clampUsageReport(&rep, now)
 	k := usageKey{req.Tool, req.AccountKey}
-	owner, refused := a.usageSeen.refuses(k, principal, a.usageWriterAlive, now)
+	owner, masterHeld, refused := a.usageSeen.refuses(k, principal, a.usageWriterAlive, now)
+	rep.MasterHeld = masterHeld
 	var err error
 	if !refused {
 		owner, err = a.usage.PutIfOwned(req.Tool, rep, a.usageWriterAlive, limit, now)

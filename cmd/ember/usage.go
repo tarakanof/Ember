@@ -23,14 +23,15 @@ type UsageWindow struct {
 }
 
 type ToolUsage struct {
-	FiveHour  *UsageWindow            `json:"five_hour,omitempty"`
-	SevenDay  *UsageWindow            `json:"seven_day,omitempty"`
-	Models    map[string]*UsageWindow `json:"models,omitempty"`
-	Source    string                  `json:"source,omitempty"`
-	Account   string                  `json:"account_key,omitempty"`
-	Plan      string                  `json:"plan,omitempty"`
-	UpdatedAt time.Time               `json:"updated_at"`
-	Principal string                  `json:"-"`
+	FiveHour   *UsageWindow            `json:"five_hour,omitempty"`
+	SevenDay   *UsageWindow            `json:"seven_day,omitempty"`
+	Models     map[string]*UsageWindow `json:"models,omitempty"`
+	Source     string                  `json:"source,omitempty"`
+	Account    string                  `json:"account_key,omitempty"`
+	Plan       string                  `json:"plan,omitempty"`
+	UpdatedAt  time.Time               `json:"updated_at"`
+	Principal  string                  `json:"-"`
+	MasterHeld bool                    `json:"-"`
 }
 
 type usageKey struct {
@@ -93,7 +94,7 @@ func (s *UsageStore) evictOwnOldestLocked(in func(usageKey) bool, principal stri
 	for {
 		n, oldest, found := 0, usageKey{}, false
 		for key, u := range s.byKey {
-			if !in(key) || u.Principal != principal {
+			if !in(key) || u.Principal != principal || (principal != "" && u.MasterHeld) {
 				continue
 			}
 			n++
@@ -110,10 +111,8 @@ func (s *UsageStore) evictOwnOldestLocked(in func(usageKey) bool, principal stri
 
 func usageOwnerAfter(owner string, lastAt time.Time, writer string, alive func(string) bool, now time.Time) (string, bool) {
 	switch {
-	case owner == writer, now.Sub(lastAt) > usageStaleTTL, alive != nil && !alive(owner):
+	case owner == writer, writer == "", now.Sub(lastAt) > usageStaleTTL, alive != nil && !alive(owner):
 		return writer, true
-	case writer == "":
-		return owner, true
 	}
 	return owner, false
 }
@@ -129,8 +128,9 @@ func (s *UsageStore) PutIfOwned(tool string, u ToolUsage, alive func(string) boo
 		if !allowed {
 			return owner, errUsageNotOwned
 		}
-		u.Principal = owner
+		u.Principal, u.MasterHeld = owner, u.MasterHeld || prev.MasterHeld
 	}
+	u.MasterHeld = u.MasterHeld || u.Principal == ""
 	return u.Principal, s.putLocked(tool, u, limit, now)
 }
 

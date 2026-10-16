@@ -814,8 +814,8 @@ func TestClientTakesOverTheMastersAccountOnceItIsStale(t *testing.T) {
 		t.Fatalf("registry = %+v, want the box as owner", s)
 	}
 	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":60}}`)
-	if u := app.usage.All()[usageKey{"claude", keyMaxA}]; u.FiveHour.UsedPercent != 60 || u.Principal != "client:"+box.ID {
-		t.Fatalf("entry = %+v, want the Mac's update kept and the box still owner while fresh", u)
+	if u := app.usage.All()[usageKey{"claude", keyMaxA}]; u.FiveHour.UsedPercent != 60 || u.Principal != "" {
+		t.Fatalf("entry = %+v, want the Mac's update and the Mac as owner again", u)
 	}
 }
 
@@ -856,18 +856,21 @@ func TestSecondKeylessTokenWinsOnceTheFirstIsStale(t *testing.T) {
 	}
 }
 
-func TestMasterUpdatesAFreshClientAccountWithoutTakingIt(t *testing.T) {
+func TestMasterTakesOverAFreshClientAccount(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintClient(t, srv, "open", "ingest")
 	if code := clientUsagePost(t, srv, m.Token, keyMaxA, 10); code != http.StatusNoContent {
 		t.Fatalf("client post = %d", code)
 	}
 	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":14}}`)
-	if u := app.usage.All()[usageKey{"claude", keyMaxA}]; u.FiveHour.UsedPercent != 14 || u.Principal != "client:"+m.ID {
-		t.Fatalf("entry = %+v, want the master's numbers, the client still owner", u)
+	if u := app.usage.All()[usageKey{"claude", keyMaxA}]; u.FiveHour.UsedPercent != 14 || u.Principal != "" {
+		t.Fatalf("entry = %+v, want the master's numbers and the master as owner", u)
 	}
-	if code := clientUsagePost(t, srv, m.Token, keyMaxA, 15); code != http.StatusNoContent {
-		t.Fatalf("client repost of its own account = %d, want 204", code)
+	if s := app.usageSeen.snapshot(time.Now())[idMaxA]; s.Principal != "" {
+		t.Fatalf("registry = %+v, want the master as owner", s)
+	}
+	if code := clientUsagePost(t, srv, m.Token, keyMaxA, 15); code != http.StatusForbidden {
+		t.Fatalf("client repost while the master's post is fresh = %d, want 403", code)
 	}
 }
 
@@ -894,5 +897,88 @@ func TestUsagePostClampsResetsAtToASaneRange(t *testing.T) {
 	}
 	if hi := now.Add(31 * 24 * time.Hour).Unix(); u.SevenDay.ResetsAt > hi || u.SevenDay.ResetsAt < now.Unix() {
 		t.Fatalf("seven_day resets_at = %d, want clamped to 30 days ahead", u.SevenDay.ResetsAt)
+	}
+}
+
+func TestTakeoverKeepsFirstSeenAndSettings(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","plan":"max"}`)
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxB+`","plan":"max"}`)
+	if resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+idMaxA+`":{"name":"Work"}}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put = %d %s", resp.StatusCode, b)
+	}
+	before := getAccounts(t, srv, testToken)
+	ageUsageAccount(t, app, usageKey{"claude", keyMaxA}, usageStaleTTL+time.Second)
+	box := mintClient(t, srv, "box", "ingest")
+	if resp, b := devReq(t, srv, "POST", "/v1/usage", box.Token, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","plan":"max"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("takeover = %d %s", resp.StatusCode, b)
+	}
+	after := getAccounts(t, srv, testToken)
+	if accountNames(after) != accountNames(before) || !after.Accounts[0].FirstSeen.Equal(before.Accounts[0].FirstSeen) {
+		t.Fatalf("after takeover = %s %v, want %s %v", accountNames(after), after.Accounts[0].FirstSeen, accountNames(before), before.Accounts[0].FirstSeen)
+	}
+}
+
+func TestClientCapNeverEvictsAnAccountTheMasterOwned(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`"}`)
+	ageUsageAccount(t, app, usageKey{"claude", keyMaxA}, usageStaleTTL+time.Second)
+	box := mintClient(t, srv, "box", "ingest")
+	if code := clientUsagePost(t, srv, box.Token, keyMaxA, 5); code != http.StatusNoContent {
+		t.Fatalf("takeover = %d", code)
+	}
+	for i := range usageAccountsPerTool + 2 {
+		if code := clientUsagePost(t, srv, box.Token, fmt.Sprintf("%016x", i+1), 5); code != http.StatusNoContent {
+			t.Fatalf("box post %d = %d", i, code)
+		}
+	}
+	if _, ok := app.usage.All()[usageKey{"claude", keyMaxA}]; !ok {
+		t.Fatal("the box's cap evicted an account the master owned from the store")
+	}
+	if _, ok := app.usageSeen.snapshot(time.Now())[idMaxA]; !ok {
+		t.Fatal("the box's cap evicted an account the master owned from the registry")
+	}
+	own := 0
+	for k := range app.usage.All() {
+		if k.Account != keyMaxA {
+			own++
+		}
+	}
+	if own != usageAccountsPerTool {
+		t.Fatalf("box accounts = %d, want its own capped at %d", own, usageAccountsPerTool)
+	}
+}
+
+func TestBoundClientUsagePostStillNeedsItsOwnSource(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintBoundClient(t, srv, "ci", []string{"ci"}, "ingest")
+	for _, src := range []string{"endpoint", ""} {
+		resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, `{"tool":"claude","source":"`+src+`","account_key":"`+keyMaxA+`"}`)
+		if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), "not bound to source") {
+			t.Fatalf("bound usage post as %q = %d %s, want the source 403", src, resp.StatusCode, b)
+		}
+	}
+	if resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, `{"tool":"claude","source":"ci","account_key":"`+keyMaxA+`"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("bound usage post as its own source = %d %s", resp.StatusCode, b)
+	}
+}
+
+func TestClientCapNeverEvictsAMasterAccountKnownOnlyToTheRegistry(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`"}`)
+	_ = app.store.Close()
+	app2, srv2 := newDevicesApp(t, db)
+	app2.loadUsageAccounts()
+	ageUsageAccount(t, app2, usageKey{"claude", keyMaxA}, usageStaleTTL+time.Second)
+	box := mintClient(t, srv2, "box", "ingest")
+	if code := clientUsagePost(t, srv2, box.Token, keyMaxA, 5); code != http.StatusNoContent {
+		t.Fatalf("takeover after restart = %d", code)
+	}
+	for i := range usageAccountsPerTool + 2 {
+		clientUsagePost(t, srv2, box.Token, fmt.Sprintf("%016x", i+1), 5)
+	}
+	if _, ok := app2.usage.All()[usageKey{"claude", keyMaxA}]; !ok {
+		t.Fatal("the box's cap evicted a master account it took over after a restart")
 	}
 }

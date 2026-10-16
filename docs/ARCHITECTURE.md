@@ -4762,10 +4762,17 @@ someone else's, a client token's post is 403 ("the master token" or
 "another client token posted it in the last 10 min", logged `usage post
 rejected reason=owned owner=master|client`, no ids), checked against the
 registry too, so a restart doesn't open a window; the master token is never
-refused and updates the numbers without taking the entry over. So a Mac on
-the master token and a box on a client token logged into one account both
-feed it: the box's posts are refused while the Mac's are fresh and take
-over once the Mac sleeps. The registry follows the same per-writer caps and skips a
+refused and always takes the entry over. So a Mac on the master token and a
+box on a client token logged into one account both feed it: the box's
+posts are refused while the Mac's are fresh and take over once the Mac
+sleeps. **Stale takeover is by design** (newest wins; several writers merge
+on one account, as the spec says), so its edges are fenced: a takeover
+moves only that entry's owner and never its first sighting, sequence or
+settings, so order and names don't move; an entry the master token ever
+wrote (`MasterHeld` in the store, `master` in the registry, carried from
+the registry into the store after a restart) counts toward no client
+token's cap and no client cap evicts it; and a bound token still passes
+`allowSource` for its labels before any of this. The registry follows the same per-writer caps and skips a
 new account at 64 instead of refusing. An account's
 id is `<tool>:<account_key>`, so one key on two tools stays two accounts; a
 keyless post is one account per tool, whose id is the bare tool name, which
