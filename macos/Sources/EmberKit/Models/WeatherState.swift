@@ -30,6 +30,8 @@ public struct WeatherState: Decodable, Sendable, Equatable {
         public var conditionCode: String?
         public var severe: Bool
         public var tempC: Double
+        public var todayMinC: Double?
+        public var todayMaxC: Double?
         public var hourly: [TempPoint]
 
         enum CodingKeys: String, CodingKey {
@@ -37,6 +39,8 @@ public struct WeatherState: Decodable, Sendable, Equatable {
             case fetchedAt = "fetched_at"
             case conditionCode = "condition_code"
             case tempC = "temp_c"
+            case todayMinC = "today_min_c"
+            case todayMaxC = "today_max_c"
         }
     }
 
