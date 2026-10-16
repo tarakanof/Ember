@@ -4786,7 +4786,10 @@ its old accounts this way), and then takes it over. While it is fresh and
 someone else's, a client token's post is 403 ("the master token" or
 "another client token posted it in the last 10 min", logged `usage post
 rejected reason=owned owner=master|client`, no ids), checked against the
-registry too, so a restart doesn't open a window; the master token is never
+registry too after a restart, as far as its hourly-throttled `last`
+reaches: an account that was fresh just before a restart can look stale
+right after it, so another client may take it over until the owner's next
+post (a master post takes it back); the master token is never
 refused and always takes the entry over. So a Mac on the master token and a
 box on a client token logged into one account both feed it: the box's
 posts are refused while the Mac's are fresh and take over once the Mac
@@ -4823,8 +4826,9 @@ knob can show: the 5h and 7d windows as `[pct, resets_at, window_minutes]`
 and the percents of up to 4 models with a name the view accepts, pct
 rounded to 0.1, no labels, no source. Its times are whole seconds in UTC,
 and `POST /v1/usage` clamps any `resets_at` into now − 1 day … now + 30
-days, so 64 worst-case accounts persist in at most 28 KiB
-(`TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize`; about 26 KB).
+days, so 64 worst-case accounts (each master-held and then taken over by
+a client token, the largest an entry gets) persist in about 28 KB, capped
+at 30 KiB by `TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize`.
 The snapshot is written with the entry, so
 after a restart an account with no post yet shows that snapshot as stale
 with its old `updated_at` (up to an hour behind the last post, the write

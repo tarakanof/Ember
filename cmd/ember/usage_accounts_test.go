@@ -699,12 +699,21 @@ func TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize(t *testing.T) {
 		rep := ToolUsage{FiveHour: win(), SevenDay: win(), Models: models, Source: strings.Repeat("s", 64),
 			Account: fmt.Sprintf("%016x", i), Plan: strings.Repeat("p", 24)}
 		clampUsageReport(&rep, now)
-		if err := r.observe(usageKey{tool, rep.Account}, rep, principal, now.Add(time.Duration(i)*time.Second)); err != nil {
-			t.Fatal(err)
+		at := now.Add(time.Duration(i) * time.Second)
+		for j, p := range []string{principal, "", principal} {
+			if err := r.observe(usageKey{tool, rep.Account}, rep, p, at.Add(time.Duration(j)*time.Hour)); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
-	if n := len(r.snapshot(now.Add(time.Hour))); n != usageAccountsTotal {
+	seen := r.snapshot(now.Add(3 * time.Hour))
+	if n := len(seen); n != usageAccountsTotal {
 		t.Fatalf("registry = %d, want %d", n, usageAccountsTotal)
+	}
+	for id, s := range seen {
+		if !s.Master || s.Principal == "" {
+			t.Fatalf("%s = %+v, want master-held and client-owned, the largest entry", id, s)
+		}
 	}
 	blob := kv.vals[usageAccountsSeenKey]
 	for _, leak := range []string{label, strings.Repeat("s", 64), "33.33", "123456", "+03:00", "-9223372036854775807"} {
@@ -715,8 +724,8 @@ func TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize(t *testing.T) {
 	if !strings.Contains(blob, `"`+strings.Repeat("m", 15)+`3"`) {
 		t.Fatal("persisted registry dropped a model the live view can show")
 	}
-	if len(blob) > 28<<10 {
-		t.Fatalf("persisted registry = %d B at 64 worst-case accounts, want at most 28 KiB", len(blob))
+	if len(blob) > 30<<10 {
+		t.Fatalf("persisted registry = %d B at 64 worst-case accounts, want at most 30 KiB", len(blob))
 	}
 }
 

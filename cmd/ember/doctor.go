@@ -223,7 +223,7 @@ func checkClientTokens(app *App) CheckResult {
 
 func checkUsageAccounts(app *App) CheckResult {
 	if err := app.usageSeen.loadError(); err != nil {
-		return CheckResult{Status: StatusFail, Detail: "registry load failed (kept in memory only, writes refused until restart): " + err.Error()}
+		return CheckResult{Status: StatusFail, Detail: "registry load failed (running from memory, stored value left untouched until restart): " + err.Error()}
 	}
 	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("accounts=%d", len(app.usageSeen.snapshot(time.Now())))}
 }

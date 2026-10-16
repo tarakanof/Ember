@@ -1148,8 +1148,9 @@ paths:
         while it is stale (no post for 10 min) or its owner's token was
         deleted, and then takes it over. While it is fresh, a client
         token's post is 403 ("the master token" or "another client token"
-        posted it in the last 10 min; no ids), checked against the registry
-        too after a restart; the master token's is accepted and takes it
+        posted it in the last 10 min; no ids), also checked against the
+        registry after a restart, whose last sighting can lag by up to an
+        hour; the master token's is accepted and takes it
         over. No client token's cap evicts an account the master token
         ever wrote, and a takeover keeps the account's first sighting and
         settings.
