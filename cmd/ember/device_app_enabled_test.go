@@ -420,3 +420,57 @@ func TestVersionAdvertisesDeviceAppEnabled(t *testing.T) {
 		t.Fatalf("features = %v, want %s", computeVersionInfo().Features, featureDeviceAppEnabled)
 	}
 }
+
+func TestAppEnabledRetriesThePerAppRouteAfterAReboot(t *testing.T) {
+	a, _, stub, put := newNGClockApp(t, "1.2.2")
+	stub.onStatus = http.StatusNotFound
+	mustPut(t, put, "one-off 404", "date", `{"enabled":false}`)
+	stub.mu.Lock()
+	stub.onStatus = 0
+	stub.mu.Unlock()
+	mustPut(t, put, "still marked", "date", `{"enabled":true}`)
+	if got := stub.appEnabledPuts(); len(got) != 1 {
+		t.Fatalf("per-app writes before the reboot = %v, want 1", got)
+	}
+	stub.mu.Lock()
+	stub.uptime = 5
+	stub.mu.Unlock()
+	if dev := a.probeClockHealthWithin(context.Background(), time.Now(), 0); dev == nil || !dev.Reachable {
+		t.Fatalf("probe failed: %+v", dev)
+	}
+	mustPut(t, put, "after the reboot", "date", `{"enabled":false}`)
+	if got := stub.appEnabledPuts(); len(got) != 2 || got[1] != "date=false" {
+		t.Fatalf("per-app writes = %v, want a fresh try once uptime dropped", got)
+	}
+	if len(stub.puts()) != 2 {
+		t.Fatalf("order writes = %v, want only the two while marked", stub.puts())
+	}
+}
+
+func TestAppEnabledRetriesThePerAppRouteAfterAnHour(t *testing.T) {
+	a, _, stub, put := newNGClockApp(t, "1.2.2")
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	a.appEnabled.mu.Lock()
+	a.appEnabled.now = func() time.Time { return now }
+	a.appEnabled.mu.Unlock()
+	stub.onStatus = http.StatusNotFound
+	mustPut(t, put, "one-off 404", "date", `{"enabled":false}`)
+	stub.mu.Lock()
+	stub.onStatus = 0
+	stub.mu.Unlock()
+	advance := func(d time.Duration) {
+		a.appEnabled.mu.Lock()
+		now = now.Add(d)
+		a.appEnabled.mu.Unlock()
+	}
+	advance(appEnabledRetryAfter - time.Minute)
+	mustPut(t, put, "within the hour", "date", `{"enabled":true}`)
+	if got := stub.appEnabledPuts(); len(got) != 1 {
+		t.Fatalf("per-app writes within the hour = %v, want 1", got)
+	}
+	advance(time.Minute)
+	mustPut(t, put, "after the hour", "date", `{"enabled":false}`)
+	if got := stub.appEnabledPuts(); len(got) != 2 || got[1] != "date=false" {
+		t.Fatalf("per-app writes = %v, want a fresh try after the hour", got)
+	}
+}

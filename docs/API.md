@@ -168,7 +168,7 @@ would switch every off app back on; the same holds for `rotation` in
 another app order change holds them past the 11 s deadline),
 `PUT /v1/device/apps/{name}/enabled` (`{"enabled":bool}`, switches one app
 and leaves the others: tries NG's per-app route, and on a 404/405 remembers
-the clock lacks it and reads the clock's list fresh to write the full order
+the clock lacks it (until a URL, firmware or uptime drop is seen, or an hour) and reads the clock's list fresh to write the full order
 with only that app changed; a name that isn't `[A-Za-z0-9_-]{1,32}`, is
 NG-reserved or names a module answers 400; NG's 507 (applied, not saved)
 is relayed as 507, a clock 404 as 502, 400/422 as is; same lock and 503 as

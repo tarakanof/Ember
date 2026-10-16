@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"sync"
+	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
@@ -20,20 +21,36 @@ var (
 	reservedAppNames     = map[string]bool{"active": true, "next": true, "previous": true, "order": true}
 )
 
+const appEnabledRetryAfter = time.Hour
+
 type clockIdentity struct {
 	base, uid, firmware string
 }
 
 type appEnabledRoute struct {
-	mu      sync.Mutex
-	seen    clockIdentity
-	lacking *clockIdentity
+	mu       sync.Mutex
+	now      func() time.Time
+	seen     clockIdentity
+	uptime   *int64
+	lacking  *clockIdentity
+	markedAt time.Time
 }
 
-func (p *appEnabledRoute) observe(base, uid, firmware string) {
+func (p *appEnabledRoute) clock() time.Time {
+	if p.now != nil {
+		return p.now()
+	}
+	return time.Now()
+}
+
+func (p *appEnabledRoute) observe(base, uid, firmware string, uptime *int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if uptime != nil && p.uptime != nil && p.seen.base == base && *uptime < *p.uptime {
+		p.lacking = nil
+	}
 	p.seen = clockIdentity{base: base, uid: uid, firmware: firmware}
+	p.uptime = uptime
 }
 
 func (p *appEnabledRoute) currentLocked(base string) clockIdentity {
@@ -43,17 +60,18 @@ func (p *appEnabledRoute) currentLocked(base string) clockIdentity {
 	return clockIdentity{base: base}
 }
 
-func (p *appEnabledRoute) worthTrying(base string) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.lacking == nil || *p.lacking != p.currentLocked(base)
-}
-
-func (p *appEnabledRoute) markLacking(base string) {
+func (p *appEnabledRoute) worthTrying(base string) (clockIdentity, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	id := p.currentLocked(base)
+	return id, p.lacking == nil || *p.lacking != id || p.clock().Sub(p.markedAt) >= appEnabledRetryAfter
+}
+
+func (p *appEnabledRoute) markLacking(id clockIdentity) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.lacking = &id
+	p.markedAt = p.clock()
 }
 
 func validAppName(name string) bool {
@@ -107,14 +125,14 @@ func (a *App) setClockAppEnabled(ctx context.Context, name string, on bool) erro
 		return errAppIsModule
 	}
 	base := a.cfg.Load().effectiveClockURL()
-	if a.appEnabled.worthTrying(base) {
+	if id, try := a.appEnabled.worthTrying(base); try {
 		_, err := a.clock.fetch(ctx, func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
 			return cl.RawPutAppEnabled(ctx, name, on)
 		})
 		if !clockLacksRoute(err) {
 			return err
 		}
-		a.appEnabled.markLacking(base)
+		a.appEnabled.markLacking(id)
 		a.logger.InfoContext(ctx, "clock has no per-app enabled route, writing the full app order",
 			"base_url", base, "err", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/tarakanof/ember/internal/awtrix"
+	"github.com/tarakanof/ember/internal/discovery"
 )
 
 func (a *App) refreshCapabilities(ctx context.Context) {
@@ -23,7 +24,11 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	}
 	if info, err := cl.DeviceInfo(ctx); err == nil {
 		a.deviceVersion.Store(info.Version)
-		a.appEnabled.observe(base, info.UID, info.Version)
+		uid := ""
+		if info.BoardType == discovery.NGBoardType {
+			uid = info.UID
+		}
+		a.appEnabled.observe(base, uid, info.Version, &info.UptimeSeconds)
 	}
 	caps, err := cl.Capabilities(ctx)
 	if err != nil {

@@ -42,6 +42,7 @@ type clockStub struct {
 	onStatus  int
 	onPuts    []string
 	orderCode int
+	uptime    int64
 }
 
 func newClockStub(t *testing.T) *clockStub {
@@ -94,12 +95,15 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 		if s.onDevice != nil {
 			s.onDevice()
 		}
-		version := s.version
+		version, uptime := s.version, s.uptime
 		if version == "" {
 			version = "1.0.13"
 		}
+		if uptime == 0 {
+			uptime = 42
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"uid": s.uid, "boardType": s.board, "version": version, "uptimeSeconds": 42,
+			"uid": s.uid, "boardType": s.board, "version": version, "uptimeSeconds": uptime,
 			"wifiRssi": -61, "ipAddress": "192.0.2.66",
 		})
 	case "GET /api/v1/apps":

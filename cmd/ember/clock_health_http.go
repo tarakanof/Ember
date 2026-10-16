@@ -320,7 +320,7 @@ func (a *App) probeClockHealthWithin(ctx context.Context, now time.Time, maxAge 
 			if raw.BoardType == discovery.NGBoardType {
 				dev.uid = raw.UID
 			}
-			a.appEnabled.observe(base, dev.uid, raw.Version)
+			a.appEnabled.observe(base, dev.uid, raw.Version, raw.Uptime)
 		}
 	}
 	c.mu.Lock()
