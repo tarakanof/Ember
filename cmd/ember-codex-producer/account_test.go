@@ -207,6 +207,14 @@ func rateLine(at time.Time, pct int, reset time.Time) string {
 	return `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":` + strconv.Itoa(pct) + `,"resets_at":` + strconv.FormatInt(reset.Unix(), 10) + `}}}}`
 }
 
+func eventAt(at time.Time, typ string) string {
+	return lineAt(at, "event_msg", typ)
+}
+
+func lineAt(at time.Time, rolloutType, typ string) string {
+	return `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"` + rolloutType + `","payload":{"type":"` + typ + `"}}`
+}
+
 func switchWatcher(t *testing.T, dir, home string, now *time.Time) *watcher {
 	t.Helper()
 	w := newTestWatcher(dir, *now)
@@ -390,7 +398,7 @@ func TestWatcherUsageFromASessionResumedUnderTheNewLogin(t *testing.T) {
 	if _, _, usages := w.tick(); len(usages) != 0 {
 		t.Fatalf("usages after the switch = %+v, want none", usages)
 	}
-	resumed := `{"timestamp":"` + t0.Add(15*time.Second).UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"task_started"}}`
+	resumed := eventAt(t0.Add(15*time.Second), "task_started")
 	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(20*time.Second), metaA, evStarted, old, resumed, rateLine(t0.Add(20*time.Second), 4, reset))
 	now = t0.Add(21 * time.Second)
 	_, _, usages := w.tick()
@@ -573,7 +581,7 @@ func TestWatcherUsageFromAQuickResumeUnderTheNewLogin(t *testing.T) {
 	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
 	now = t0.Add(10 * time.Second)
 	w.tick()
-	resumed := `{"timestamp":"` + t0.Add(60*time.Second).UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"task_started"}}`
+	resumed := eventAt(t0.Add(60*time.Second), "task_started")
 	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(70*time.Second), metaA, evStarted, old, resumed, rateLine(t0.Add(70*time.Second), 4, t0.Add(5*time.Hour)))
 	now = t0.Add(71 * time.Second)
 	_, _, usages := w.tick()
@@ -778,9 +786,6 @@ func TestWatcherUsageKeepsAnOldLoginProcessOffTheNewKeyOnItsNextTurn(t *testing.
 	home := t.TempDir()
 	t0 := time.Now().Truncate(time.Second)
 	reset := t0.Add(time.Hour)
-	ev := func(at time.Time, typ string) string {
-		return `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"` + typ + `"}}`
-	}
 	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
 	metaA := metaAt("u-a", t0.Add(-time.Hour))
 	lines := []string{metaA, evStarted, rateLine(t0.Add(-2*time.Second), 40, reset)}
@@ -791,8 +796,8 @@ func TestWatcherUsageKeepsAnOldLoginProcessOffTheNewKeyOnItsNextTurn(t *testing.
 	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
 	now = t0.Add(3 * time.Second)
 	w.tick()
-	lines = append(lines, rateLine(t0.Add(8*time.Second), 41, reset), ev(t0.Add(9*time.Second), "task_complete"),
-		ev(t0.Add(2*time.Minute), "task_started"), rateLine(t0.Add(2*time.Minute+time.Second), 42, reset))
+	lines = append(lines, rateLine(t0.Add(8*time.Second), 41, reset), eventAt(t0.Add(9*time.Second), "task_complete"),
+		eventAt(t0.Add(2*time.Minute), "task_started"), rateLine(t0.Add(2*time.Minute+time.Second), 42, reset))
 	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(2*time.Minute+time.Second), lines...)
 	now = t0.Add(2*time.Minute + 2*time.Second)
 	if _, _, usages := w.tick(); len(usages) != 0 {
@@ -815,7 +820,7 @@ func TestWatcherUsageFromAQuickResumeOnALegacyRollout(t *testing.T) {
 	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
 	now = t0.Add(10 * time.Second)
 	w.tick()
-	user := `{"timestamp":"` + t0.Add(60*time.Second).UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"user_message","message":"go on"}}`
+	user := eventAt(t0.Add(60*time.Second), "user_message")
 	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(70*time.Second), metaA, old, user, rateLine(t0.Add(70*time.Second), 4, reset))
 	now = t0.Add(71 * time.Second)
 	_, _, usages := w.tick()
@@ -842,5 +847,58 @@ func TestAppServerSnapshotIsReboundWhenTheFirstKeyArrives(t *testing.T) {
 	_, _, usages := cycle(w, as)
 	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-a") {
 		t.Fatalf("usages = %+v, want the snapshot rebound to the first real key", usages)
+	}
+}
+
+func TestWatcherUsageKeepsASteeredOldLoginTurnOffTheNewKey(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	reset := t0.Add(time.Hour)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	lines := []string{metaAt("u-a", t0.Add(-time.Hour)), evStarted, rateLine(t0.Add(-3*time.Second), 40, reset), lineAt(t0.Add(-2*time.Second), "response_item", "function_call")}
+	writeRollout(t, dir, "rollout-a.jsonl", t0, lines...)
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	w.tick()
+	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+	now = t0.Add(3 * time.Second)
+	w.tick()
+	lines = append(lines, lineAt(t0.Add(20*time.Second), "response_item", "function_call_output"), eventAt(t0.Add(21*time.Second), "user_message"),
+		rateLine(t0.Add(25*time.Second), 42, reset))
+	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(25*time.Second), lines...)
+	now = t0.Add(26 * time.Second)
+	if _, _, usages := w.tick(); len(usages) != 0 {
+		t.Fatalf("usages = %+v, want nothing from an old-login turn steered after the switch", usages)
+	}
+}
+
+func TestWatcherUsageEachTurnLineAfterTheSwitchKeepsTheOldLoginOff(t *testing.T) {
+	for name, line := range map[string]func(time.Time, time.Time) string{
+		"token_count":   func(at, reset time.Time) string { return rateLine(at, 41, reset) },
+		"task_complete": func(at, _ time.Time) string { return eventAt(at, "task_complete") },
+		"turn_aborted":  func(at, _ time.Time) string { return eventAt(at, "turn_aborted") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			home := t.TempDir()
+			t0 := time.Now().Truncate(time.Second)
+			reset := t0.Add(time.Hour)
+			writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+			lines := []string{metaAt("u-a", t0.Add(-time.Hour)), evStarted, lineAt(t0.Add(-2*time.Second), "response_item", "function_call")}
+			writeRollout(t, dir, "rollout-a.jsonl", t0, lines...)
+			now := t0
+			w := switchWatcher(t, dir, home, &now)
+			w.tick()
+			writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+			now = t0.Add(3 * time.Second)
+			w.tick()
+			lines = append(lines, line(t0.Add(8*time.Second), reset), eventAt(t0.Add(2*time.Minute), "task_started"), rateLine(t0.Add(2*time.Minute+time.Second), 42, reset))
+			writeRollout(t, dir, "rollout-a.jsonl", t0.Add(2*time.Minute+time.Second), lines...)
+			now = t0.Add(2*time.Minute + 2*time.Second)
+			if _, _, usages := w.tick(); len(usages) != 0 {
+				t.Fatalf("usages = %+v, want nothing from the old login's next turn", usages)
+			}
+		})
 	}
 }

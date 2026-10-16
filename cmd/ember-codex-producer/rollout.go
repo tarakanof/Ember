@@ -34,6 +34,7 @@ type derived struct {
 	segmentAt     time.Time
 	eraStarts     []time.Time
 	eraCrossed    bool
+	sawTurnStart  bool
 	planType      string
 }
 
@@ -186,6 +187,11 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 	}
 	switch p.Type {
 	case "task_started", "user_message":
+		if p.Type == "task_started" {
+			d.sawTurnStart = true
+		} else if d.sawTurnStart {
+			break
+		}
 		if d.eraCrossed && tsErr == nil {
 			d.segmentAt = ts
 		}
