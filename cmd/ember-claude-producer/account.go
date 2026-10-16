@@ -70,6 +70,8 @@ func claudePlan(raw ...string) string {
 	return ""
 }
 
+const missingConfigSig = "|-|-"
+
 func claudeConfigSig() (path, sig string) {
 	path = claudeGlobalConfigPath()
 	if path == "" {
@@ -77,15 +79,15 @@ func claudeConfigSig() (path, sig string) {
 	}
 	fi, err := os.Stat(path)
 	if err != nil {
-		return "", ""
+		return path, path + missingConfigSig
 	}
 	return path, path + "|" + strconv.FormatInt(fi.ModTime().UnixNano(), 10) + "|" + strconv.FormatInt(fi.Size(), 10)
 }
 
 func readClaudeAccount(prevSig string, prev claudeAccount) (claudeAccount, string) {
 	path, sig := claudeConfigSig()
-	if sig == "" {
-		return claudeAccount{}, ""
+	if sig == "" || strings.HasSuffix(sig, missingConfigSig) {
+		return claudeAccount{}, sig
 	}
 	if sig == prevSig {
 		return prev, sig

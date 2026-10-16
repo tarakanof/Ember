@@ -4737,7 +4737,9 @@ add `account_key` and `plan` to `POST /v1/usage`:
   marker written before the upgrade (no account fields at all) is taken
   to be from the daemon's config dir and left out once a keyed marker from
   that dir exists, so an upgrade doesn't show an extra fresh "Claude"
-  account. A marker whose last render (`statusline_at`, else its mtime) is
+  account. A session whose config file is missing records its path with
+  `|-|-` for mtime and size, so it isn't taken for a pre-upgrade marker
+  and stays posted keyless. A marker whose last render (`statusline_at`, else its mtime) is
   over 10 min old isn't relayed, so a dead session on an old login can't
   pass its old numbers off as fresh. The
   5-min endpoint poll reads the daemon's account before the fetch and
