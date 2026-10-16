@@ -4735,11 +4735,13 @@ add `account_key` and `plan` to `POST /v1/usage`:
   (`usage_account_pending_token`: the write's `UnixNano`, kept above any
   token it replaces). Only then is the config parsed, outside the lock,
   and a second write, under the lock again, stores the new account and
-  clears the token only if the marker still holds this render's token. If
-  a newer render has set its own, the second write skips the marker
-  entirely (not even `statusline_at` moves, so a stalled render can't make
-  expired figures fresh again): that render parses a config at least as
-  new and settles it. It prints once both are done: a render takes the
+  clears the token only if the marker still holds this render's token. It
+  stores nothing else: `statusline_at` and `statusline_changed_ms` keep the
+  first write's times, so a render whose parse stalls past the 10-min max
+  age doesn't make its figures look fresh. If the marker no longer holds
+  this render's token (a newer render set its own, or already settled it),
+  the second write skips the marker entirely: that render parsed, or is
+  parsing, a config at least as new. It prints once both are done: a render takes the
   longer of the two, a multi-MB `~/.claude.json` never holds the lock the
   daemon and hooks wait on, and neither a slow parse nor a slow wrapped
   command that Claude Code cancels on the next update can keep the figures

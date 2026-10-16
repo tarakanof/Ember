@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -173,7 +174,7 @@ func enrichAs(t *testing.T, h *usageRelayHarness, configDir, session string, fiv
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	defer t.Setenv("CLAUDE_CONFIG_DIR", "")
 	week := 10
-	if err := enrichMarker(h.sessionsDir(), session, &fiveHour, nil, nil, "", &week, nil, "", func(a markerAccount) (markerAccount, bool) { return sessionClaudeAccount(a), true }); err != nil {
+	if err := enrichMarker(h.sessionsDir(), session, &fiveHour, nil, nil, "", &week, nil, "", func(a markerAccount) markerAccount { return sessionClaudeAccount(a) }); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -711,7 +712,7 @@ func TestStatuslineOlderRenderKeepsANewerRendersPendingToken(t *testing.T) {
 			t.Fatalf("relayed 90 under %q while the newer render's account was still being parsed", key)
 		}
 	}
-	if err := enrichMarker(h.sessionsDir(), "s", nil, nil, nil, "", nil, nil, "", settlePending(token, markerAccount{UsageAccountKey: workKey})); err != nil {
+	if err := settleMarker(h.sessionsDir(), "s", token, markerAccount{UsageAccountKey: workKey}); err != nil {
 		t.Fatal(err)
 	}
 	h.usageBodies = nil
@@ -782,7 +783,7 @@ func TestStatuslineMismatchedSettleLeavesTheMarkerUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarker(sessions, "s", nil, nil, nil, "", nil, nil, "", settlePending(4, markerAccount{UsageAccountKey: workKey})); err != nil {
+	if err := settleMarker(sessions, "s", 4, markerAccount{UsageAccountKey: workKey}); err != nil {
 		t.Fatal(err)
 	}
 	after, err := readMarker(mp)
@@ -818,5 +819,54 @@ func TestHookViewIgnoresThePendingToken(t *testing.T) {
 	vb, _, okB := hookView([]byte(b))
 	if !okA || !okB || !bytes.Equal(va, vb) {
 		t.Fatalf("hook views differ on the pending token alone:\n%s\n%s", va, vb)
+	}
+}
+
+func TestStatuslineStalledParseKeepsTheFiguresWriteTime(t *testing.T) {
+	resetClaudeAccountCache(t)
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	cfgDir := filepath.Join(h.home, ".claude-work")
+	fifo := makeConfigFIFO(t, cfgDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	mp := writeMarkerFile(t, h.sessionsDir(), "s", "")
+	written := time.Now().Add(-statuslineUsageMaxAge - time.Minute).Unix()
+	var clock atomic.Int64
+	clock.Store(written)
+	orig := hookNow
+	hookNow = func() time.Time { return time.Unix(clock.Load(), 0) }
+	t.Cleanup(func() { hookNow = orig })
+	done := renderAsync(statuslineWithFiveHour(t, "s", 55))
+	fifo.waitReader(t, "the stalled render")
+	clock.Store(time.Now().Unix())
+	fifo.answer(t, fakeWorkClaudeJSON)
+	waitDone(t, done, "the stalled render")
+	if m := markerAt(t, mp); m.UsageAccountKey != workKey || m.pending() || m.StatuslineAt != written {
+		t.Fatalf("marker = key %q token %d statusline_at %d, want the parsed account settled and statusline_at kept at write 1 (%d)",
+			m.UsageAccountKey, m.UsageAccountPending, m.StatuslineAt, written)
+	}
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	for key, u := range relayed(t, h) {
+		if u.FiveHour != nil && u.FiveHour.UsedPercent == 55 {
+			t.Fatalf("relayed write 1's 55 under %q as fresh after its parse stalled past the max age", key)
+		}
+	}
+}
+
+func TestStatuslineFirstWriteConvertsTheLegacyPendingFlagToAToken(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	sessions := filepath.Join(home, "sessions")
+	mp := writeMarkerFile(t, sessions, "s", `,"usage_account_pending":true`)
+	var carried markerAccount
+	var token int64
+	if err := enrichMarker(sessions, "s", ratePtr(30), nil, nil, "", nil, nil, "", pendIfConfigMoved(&carried, &token)); err != nil {
+		t.Fatal(err)
+	}
+	if m := markerAt(t, mp); token == 0 || m.UsageAccountPending != token || m.UsageAccountLegacyPending {
+		t.Fatalf("marker = token %d legacy %v (render token %d), want the render's token and the legacy flag cleared",
+			m.UsageAccountPending, m.UsageAccountLegacyPending, token)
 	}
 }

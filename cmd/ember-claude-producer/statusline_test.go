@@ -609,7 +609,7 @@ func TestExtractRateResetLabel(t *testing.T) {
 	}
 }
 
-func keepAccount(a markerAccount) (markerAccount, bool) { return a, true }
+func keepAccount(a markerAccount) markerAccount { return a }
 
 func TestEnrichMarker_RefreshesAnAgedStatuslineAtDespiteAHookFreshMtime(t *testing.T) {
 	now := time.Now()

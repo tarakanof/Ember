@@ -516,8 +516,9 @@ nothing. `ember-*-producer discover` finds and caches the server on demand. From
 `systemctl --user daemon-reload`, `enable`, `restart` (so a rebuilt binary takes
 over). A binary replaced without `install` (a bare `go install`) leaves the old
 daemon running: restart it, since an old daemon drops marker fields a newer
-statusline writes (the Claude account's pending token). `uninstall` runs `disable --now`, removes the unit and reloads. `doctor`
-shows `is-active`/`is-enabled` and the linger state. User units stop when your
+statusline writes (the Claude account's pending token). `uninstall` runs
+`disable --now`, removes the unit and reloads. `doctor` shows
+`is-active`/`is-enabled` and the linger state. User units stop when your
 last session ends: on a box you SSH into, run `sudo loginctl enable-linger
 $USER` once so they start at boot and keep running. No user bus (a container,
 `su` without a login session) makes `install` fail with that hint; run
