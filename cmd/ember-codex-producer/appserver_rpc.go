@@ -34,7 +34,10 @@ type outbound struct {
 
 const lateReplyTTL = 10 * time.Minute
 
-var errConnLost = errors.New("connection lost")
+var (
+	errConnLost = errors.New("connection lost")
+	errEncode   = errors.New("encode request")
+)
 
 type lateHook struct {
 	fn func(error)
@@ -46,6 +49,7 @@ type rpcConn struct {
 	next     atomic.Int64
 	lastRead atomic.Int64
 	done     chan struct{}
+	now      func() time.Time
 
 	mu      sync.Mutex
 	pending map[int64]chan inbound
@@ -54,13 +58,13 @@ type rpcConn struct {
 }
 
 func newRPCConn(ws *wsConn) *rpcConn {
-	return &rpcConn{ws: ws, done: make(chan struct{}), pending: map[int64]chan inbound{}, late: map[int64]lateHook{}}
+	return &rpcConn{ws: ws, done: make(chan struct{}), now: time.Now, pending: map[int64]chan inbound{}, late: map[int64]lateHook{}}
 }
 
 func (c *rpcConn) send(m outbound) error {
 	b, err := json.Marshal(m)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errEncode, err)
 	}
 	return c.ws.WriteText(b)
 }
@@ -83,6 +87,9 @@ func (c *rpcConn) callLate(ctx context.Context, method string, params, out any, 
 		c.mu.Unlock()
 	}()
 	if err := c.send(outbound{ID: id, Method: method, Params: params}); err != nil {
+		if errors.Is(err, errEncode) {
+			return fmt.Errorf("%s: %w", method, err)
+		}
 		return fmt.Errorf("%s: %w: %w", method, errConnLost, err)
 	}
 	select {
@@ -100,8 +107,9 @@ func (c *rpcConn) callLate(ctx context.Context, method string, params, out any, 
 		default:
 		}
 		if onLate != nil {
-			c.pruneLateLocked(time.Now())
-			c.late[id] = lateHook{fn: onLate, at: time.Now()}
+			now := c.now()
+			c.pruneLateLocked(now)
+			c.late[id] = lateHook{fn: onLate, at: now}
 		}
 		c.mu.Unlock()
 		return fmt.Errorf("%s: %w", method, ctx.Err())
@@ -170,7 +178,7 @@ func (c *rpcConn) readLoop(onNotify func(method string, params json.RawMessage))
 			hook, late := c.late[id]
 			delete(c.late, id)
 			c.mu.Unlock()
-			if late {
+			if late && c.now().Sub(hook.at) <= lateReplyTTL {
 				hook.fn(decodeReply("", m, nil))
 			}
 		case m.Method != "" && len(m.ID) > 0:
