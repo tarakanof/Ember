@@ -224,7 +224,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `wx_moments` or not (cinder 0.9.65 sends it) | `effective_caps.features` lists it as reported; the config carries `bot.weather_moments` and `bot.weather_every_min` either way; Ember.app shows the Weather moments rows only with the token (no semver fallback: a server without `effective_caps` predates the keys) | `TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments` (`knob_weather_moments_test.go`); Ember.app `knobWeatherMomentsRowsNeedTheWxMomentsToken`; cinder host test: `wx_moments` in `FEATURES_AHEAD` |
 | new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`, `TestDemoPlayingReportDoesNotAnswerTheLongPoll`, `TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted`, `TestDemoLatePlayingReportForTheServedSceneRevivesIt`, `TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue`, `TestDemoOnTheWorstCaseViewFitsTheBuffer`, `TestDemoKnobRebootDropsTheDemoAndItsQueue`, `TestDemoViewWithoutAReportWhilePlayingMeansTheKnobRestarted`, `TestDemoDelayedUnreportedViewAfterPlayingKeepsTheDemo`, `TestDemoCheckinWithUnknownOrStaleUptimeKeepsTheDemo`, `TestDemoStartedAfterTheKnobBootedSurvivesAStaleLastCheckin`, `TestDemoSetBetweenBootAndFirstCheckinStaysPending`; cinder host test: every `demo/*.json` parses |
 | new | any, `stats.inv_areas`/`inv_px` sent or not (cinder#118) | the firmware must send totals for exactly the `period_ms` window (since the previous report, its own accumulator, not the 30 s serial log's take), counted at `LV_EVENT_RENDER_START` as in ARCHITECTURE "Knob diagnostics"; window totals become `invalidated_areas_per_sec`/`invalidated_px_per_sec` in the stats points (full diagnostics only); firmware without them gets nulls; an older server ignores the keys. No caps token: the stats keys are optional on both sides (ARCHITECTURE "Knob diagnostics") | `TestKnobStatsCheckinStoresSample`, `TestKnobStatsFirmwareWithoutInvalidatedAreasLeavesThemNull`, `TestKnobStatsInvalidatedAreasMergeAsPeriodWeightedRates`, `TestKnobStatsInvalidatedAreasWeighOnlyMeasuredWindows`, `TestKnobStatsBasicDropsFullOnlyFields`, `TestDeviceCheckinGolden` (`devices_stats_test.go`, `devices_golden_test.go`); cinder sends them since 0.9.72 (cinder#133), its `NOT_YET_SENT` list is empty |
-| new | new, `usage` or not | `usage` only with the token, after `nowplaying`, left out with no account to show; a caps knob without it and a legacy knob get the view byte-identical; dropped after `nowplaying` to fit `view_bytes`; the worst case (8 accounts, 24-character escaped names, both models) is 3.3 KB, the worst whole view with it 9.1 KB | `TestKnobViewUsageGolden` (`view_usage.json`), `TestKnobViewWithoutTheUsageCapGolden` (`view_usage_uncapped.json`), `TestKnobViewSendsUsageOnlyWithTheUsageFeature`, `TestKnobViewLeavesOutUsageWithNoAccounts`, `TestKnobViewUsageModelsFollowUsagePerModel`, `TestKnobViewUsageETagIgnoresAFreshAccountsUpdateTime`, `TestKnobViewUsageWorstCaseStaysSmall`, `TestLegacyFirmwareViewIsUnchanged` (`devices_view_usage_test.go`) |
+| new | new, `usage` or not | `usage` only with the token, after `nowplaying`, left out with no account to show; a caps knob without it and a legacy knob get the view byte-identical; dropped after `nowplaying` to fit `view_bytes`; the worst case (8 accounts, 24-character escaped names, both models) is 3.4 KB, the worst whole view with it 9.1 KB | `TestKnobViewUsageGolden` (`view_usage.json`), `TestKnobViewWithoutTheUsageCapGolden` (`view_usage_uncapped.json`), `TestKnobViewSendsUsageOnlyWithTheUsageFeature`, `TestKnobViewLeavesOutUsageWithNoAccounts`, `TestKnobViewUsageModelsFollowUsagePerModel`, `TestKnobViewUsageETagIgnoresAFreshAccountsUpdateTime`, `TestKnobViewUsageWorstCaseStaysSmall`, `TestLegacyFirmwareViewIsUnchanged` (`devices_view_usage_test.go`) |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Demo mode
@@ -387,15 +387,15 @@ order, hiding, staleness and the 5h window start. The block follows
 ```json
 "usage": {
   "accounts": [
-    {"id": "aaaaaaaaaaaaaaa1", "tool": "claude", "name": "Max 1",
+    {"id": "claude:aaaaaaaaaaaaaaa1", "tool": "claude", "name": "Max 1",
      "five_hour": {"pct": 64, "resets_at": 1782049680, "starts_at": 1782031680},
      "seven_day": {"pct": 41, "resets_at": 1782302400},
      "models": [{"name": "Opus", "pct": 38}, {"name": "Sonnet", "pct": 12}],
      "stale": false},
-    {"id": "bbbbbbbbbbbbbbb2", "tool": "claude", "name": "Max 2",
+    {"id": "claude:bbbbbbbbbbbbbbb2", "tool": "claude", "name": "Max 2",
      "five_hour": {"pct": 0}, "seven_day": {"pct": 77, "resets_at": 1782302400},
      "stale": true, "updated_at": 1782041400},
-    {"id": "ddddddddddddddd4", "tool": "codex", "name": "Plus",
+    {"id": "codex:ddddddddddddddd4", "tool": "codex", "name": "Plus",
      "five_hour": {"pct": 12, "resets_at": 1782057600, "starts_at": 1782039600},
      "seven_day": {"pct": 5, "resets_at": 1782302400}, "stale": false}
   ]
@@ -407,8 +407,8 @@ order, hiding, staleness and the 5h window start. The block follows
   most 8. Hidden accounts are left out, and so is an account with no
   snapshot since the server started. With nothing to show the whole block
   is left out, never `[]` or `null`.
-- **`id`**: opaque and stable (16 hex characters, or the tool name for a
-  producer that sends no account), for keeping the shown account across
+- **`id`**: opaque and stable (`<tool>:<16 hex>`, or the bare tool name for
+  a producer that sends no account), for keeping the shown account across
   view changes. Never an id or email of the account.
 - **`tool`**: `claude` or `codex` (the agent mark); the list is open, so
   draw a neutral mark for another value.
@@ -435,7 +435,7 @@ clock label ("back at 16:40", "Fri 09:00") needs `weather.utc_offset`
 The red bot hint (any non-stale account at 90 % or more) is the knob's to
 compute from this block. A long poll wakes on every accepted usage post and
 answers only when the bytes moved; `stale` flipping is caught by the 5 s
-recheck. **Size:** 160-250 B per account (the example block is 608 B), 3.3 KB worst case (8 accounts,
+recheck. **Size:** 170-260 B per account (the example block is 628 B), 3.4 KB worst case (8 accounts,
 24 escaped characters per name, both models); old firmware never sends the
 token, so it never gets the block.
 

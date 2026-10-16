@@ -16,7 +16,7 @@
   "usage": {
     "accounts": [
       {
-        "id": "aaaaaaaaaaaaaaa1",
+        "id": "claude:aaaaaaaaaaaaaaa1",
         "tool": "claude",
         "name": "Max 1",
         "five_hour": {
@@ -41,7 +41,7 @@
         "stale": false
       },
       {
-        "id": "bbbbbbbbbbbbbbb2",
+        "id": "claude:bbbbbbbbbbbbbbb2",
         "tool": "claude",
         "name": "Max 2",
         "five_hour": {
@@ -55,7 +55,7 @@
         "updated_at": 1782041400
       },
       {
-        "id": "ddddddddddddddd4",
+        "id": "codex:ddddddddddddddd4",
         "tool": "codex",
         "name": "Plus",
         "five_hour": {

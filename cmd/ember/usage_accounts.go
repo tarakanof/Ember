@@ -29,6 +29,7 @@ const (
 
 var (
 	accountKeyRe = regexp.MustCompile(`^[0-9a-f]{16}$`)
+	accountIDRe  = regexp.MustCompile(`^[a-z0-9_-]{1,32}(:[0-9a-f]{16})?$`)
 	planRe       = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
 
 	errUsageAccountsMasterOnly = errors.New("usage account settings need EMBER_TOKEN")
@@ -137,13 +138,21 @@ func (r *usageAccountRegistry) pruneLocked(now time.Time) {
 			delete(r.seen, id)
 		}
 	}
-	for len(r.seen) > usageAccountsMax {
+	perTool := map[string]int{}
+	for _, s := range r.seen {
+		perTool[s.Tool]++
+	}
+	for len(r.seen) > usageAccountsMax || slices.ContainsFunc(slices.Collect(maps.Values(perTool)), func(n int) bool { return n > usageAccountsPerTool }) {
 		oldest := ""
 		for id, s := range r.seen {
+			if len(r.seen) <= usageAccountsMax && perTool[s.Tool] <= usageAccountsPerTool {
+				continue
+			}
 			if o := r.seen[oldest]; oldest == "" || s.Last.Before(o.Last) || (s.Last.Equal(o.Last) && id < oldest) {
 				oldest = id
 			}
 		}
+		perTool[r.seen[oldest].Tool]--
 		delete(r.seen, oldest)
 	}
 }
@@ -181,8 +190,8 @@ func (p *usageAccountPrefs) UnmarshalJSON(b []byte) error {
 }
 
 func (p usageAccountPrefs) validate(id string) (usageAccountPrefs, error) {
-	if !toolNameRe.MatchString(id) {
-		return p, fmt.Errorf("account id %q must match ^[a-z0-9_-]{1,32}$", id)
+	if !accountIDRe.MatchString(id) {
+		return p, fmt.Errorf("account id %q must be a tool name, optionally followed by \":\" and its account_key", id)
 	}
 	p.Name = strings.TrimSpace(p.Name)
 	if !utf8.ValidString(p.Name) || utf8.RuneCountInString(p.Name) > usageAccountNameMax ||

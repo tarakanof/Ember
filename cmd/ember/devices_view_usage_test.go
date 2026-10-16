@@ -58,7 +58,7 @@ func usageViewScenario(t *testing.T, f *viewFixture) {
 		UpdatedAt: now.Add(-2 * time.Minute)})
 	f.app.updateConfig(func(c *Config) {
 		c.Pomodoro.Enabled, c.Weather.Enabled = false, false
-		c.UsageAccounts = map[string]usageAccountPrefs{keyPro: {Hidden: true}}
+		c.UsageAccounts = map[string]usageAccountPrefs{idPro: {Hidden: true}}
 	})
 }
 
@@ -172,7 +172,8 @@ func TestKnobViewUsageWorstCaseStaysSmall(t *testing.T) {
 	prefs := map[string]usageAccountPrefs{}
 	for i := range knobUsageMaxAccounts + 2 {
 		key := strings.Repeat(string(rune('a'+i)), 16)
-		f.app.usage.Put("claude", ToolUsage{Account: key, Plan: "enterprise",
+		tool := []string{"claude", "codex"}[i%2]
+		f.app.usage.Put(tool, ToolUsage{Account: key, Plan: "enterprise",
 			FiveHour: &UsageWindow{UsedPercent: 100, ResetsAt: now.Add(time.Hour).Unix()},
 			SevenDay: &UsageWindow{UsedPercent: 100, ResetsAt: now.Add(time.Hour).Unix()},
 			Models: map[string]*UsageWindow{
@@ -180,7 +181,7 @@ func TestKnobViewUsageWorstCaseStaysSmall(t *testing.T) {
 				strings.Repeat("m", 16): {UsedPercent: 100}, "<script>": {UsedPercent: 100},
 			},
 			UpdatedAt: now.Add(-time.Hour)})
-		prefs[key] = usageAccountPrefs{Name: strings.Repeat("<", usageAccountNameMax)}
+		prefs[tool+":"+key] = usageAccountPrefs{Name: strings.Repeat("<", usageAccountNameMax)}
 	}
 	f.app.updateConfig(func(c *Config) { c.UsageAccounts = prefs })
 	body := goldenView(t, f)

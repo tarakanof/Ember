@@ -3078,11 +3078,12 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   records load unbound) and kept across rotation; `requireAuth` puts the
   caller's id and sources in the request context and `allowSource` makes
   `POST`/`DELETE /v1/status` and `POST /v1/usage` 403 for any other
-  `source` after body validation. Usage is keyed by tool and account
-  (#535): `UsageStore.PutIfOwned` checks the stored entry's `Source`
-  against the caller's sources and writes under the same lock, so a bound
-  token can't overwrite another source's account entry (absent entry:
-  allowed). Session keys
+  `source` after body validation. Usage is stored per tool and account
+  (#535) but owned per tool: `UsageStore.PutIfOwned` checks the `Source`
+  of every stored entry of the tool against the caller's sources and
+  writes under the same lock, so a bound token can neither overwrite
+  another source's account nor add a new `account_key` to its tool
+  (absent tool: allowed). Session keys
   join `source/tool/session` with `/`, so `allowSessionKey` 400s a `/` in a
   bound caller's tool or session and mint rejects `/` in a source; otherwise
   `ci` + `lab` + `claude/1` would address `ci/lab`'s session. `boundSources` fails closed: an `ekc_` bearer with no caller in the
@@ -4726,9 +4727,13 @@ add `account_key` and `plan` to `POST /v1/usage`:
   server; an old producer's keyless post works unchanged.
 
 The store is keyed by (tool, account_key). The newest `updated_at` wins
-(the server stamps it on arrival; an older one never overwrites), so
-several Macs on one account share one entry. A keyless post is one
-account per tool, whose id is the tool name; once its tool has a keyed
+(the server stamps the receive time, so a client can't date a post into
+the future; an older one never overwrites), so several Macs on one account
+share one entry. A tool keeps at most 8 accounts and the store 64, the
+oldest evicted (the registry the same per tool, 32 in all). An account's
+id is `<tool>:<account_key>`, so one key on two tools stays two accounts; a
+keyless post is one account per tool, whose id is the bare tool name, which
+no keyed id can equal; once its tool has a keyed
 account, the keyless one is left out of the account list as soon as it is
 stale, so an upgraded fleet doesn't show a ghost. An entry is dropped 7
 days after its last post (`usageAccountTTL`; pruned on each post and
@@ -4738,8 +4743,8 @@ skipped by `state`); stale still means 10 min.
 per account id its tool, plan and first and last sighting, persisted so the
 default order and the 7-day expiry survive a restart. A post writes it only
 for a new account, a plan change, or when the last sighting is an hour old
-(at most one write per account per hour); entries past 7 days or beyond 32
-accounts (oldest first) are pruned. The snapshots themselves stay in memory.
+(at most one write per account per hour); entries past 7 days, beyond 8 per
+tool or beyond 32 accounts (oldest first) are pruned. The snapshots themselves stay in memory.
 
 **Settings** (`usage_accounts_json`, one `settingSpec`; `Config.UsageAccounts`):
 per account id `name`, `hidden` and `order`. `GET /v1/usage/accounts`

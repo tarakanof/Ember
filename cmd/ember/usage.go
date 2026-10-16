@@ -8,7 +8,11 @@ import (
 	"time"
 )
 
-const usageAccountTTL = 7 * 24 * time.Hour
+const (
+	usageAccountTTL      = 7 * 24 * time.Hour
+	usageAccountsPerTool = 8
+	usageAccountsTotal   = 64
+)
 
 type UsageWindow struct {
 	UsedPercent float64 `json:"used_percent"`
@@ -35,7 +39,7 @@ func (k usageKey) id() string {
 	if k.Account == "" {
 		return k.Tool
 	}
-	return k.Account
+	return k.Tool + ":" + k.Account
 }
 
 type UsageStore struct {
@@ -48,46 +52,80 @@ func newUsageStore() *UsageStore { return &UsageStore{byKey: map[usageKey]ToolUs
 func (s *UsageStore) Put(tool string, u ToolUsage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.putLocked(tool, u)
+	s.putLocked(tool, u, u.UpdatedAt)
 }
 
-func (s *UsageStore) putLocked(tool string, u ToolUsage) {
+func (s *UsageStore) putLocked(tool string, u ToolUsage, now time.Time) {
 	k := usageKey{tool, u.Account}
 	if prev, ok := s.byKey[k]; ok && u.UpdatedAt.Before(prev.UpdatedAt) {
 		return
 	}
 	s.byKey[k] = u
 	for key, other := range s.byKey {
-		if u.UpdatedAt.Sub(other.UpdatedAt) > usageAccountTTL {
+		if now.Sub(other.UpdatedAt) > usageAccountTTL {
 			delete(s.byKey, key)
 		}
 	}
+	s.evictOldestLocked(func(key usageKey) bool { return key.Tool == tool }, usageAccountsPerTool, k)
+	s.evictOldestLocked(func(usageKey) bool { return true }, usageAccountsTotal, k)
 }
 
+func (s *UsageStore) evictOldestLocked(in func(usageKey) bool, limit int, keep usageKey) {
+	for {
+		n, oldest, found := 0, usageKey{}, false
+		for key, u := range s.byKey {
+			if !in(key) {
+				continue
+			}
+			n++
+			if key == keep {
+				continue
+			}
+			if o := s.byKey[oldest]; !found || u.UpdatedAt.Before(o.UpdatedAt) {
+				oldest, found = key, true
+			}
+		}
+		if n <= limit || !found {
+			return
+		}
+		delete(s.byKey, oldest)
+	}
+}
+
+// PutIfOwned stamps u with the receive time, clamping a future UpdatedAt; ownership is per tool.
 func (s *UsageStore) PutIfOwned(tool string, u ToolUsage, sources []string) (string, bool) {
+	now := time.Now()
+	if u.UpdatedAt.IsZero() || u.UpdatedAt.After(now) {
+		u.UpdatedAt = now
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if prev, ok := s.byKey[usageKey{tool, u.Account}]; ok && len(sources) > 0 {
-		owner := strings.TrimSpace(prev.Source)
-		if !slices.Contains(sources, owner) {
-			return owner, false
+	if len(sources) > 0 {
+		for k, prev := range s.byKey {
+			if k.Tool != tool {
+				continue
+			}
+			if owner := strings.TrimSpace(prev.Source); !slices.Contains(sources, owner) {
+				return owner, false
+			}
 		}
 	}
-	s.putLocked(tool, u)
+	s.putLocked(tool, u, now)
 	return "", true
 }
 
 func (s *UsageStore) Get(tool string) (ToolUsage, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var best ToolUsage
-	found := false
+	now := time.Now()
+	var best usageToolState
 	for k, u := range s.byKey {
-		if k.Tool == tool && (!found || u.UpdatedAt.After(best.UpdatedAt)) {
-			best, found = u, true
+		a := usageAccountState{Key: k, Report: u, Fresh: usageFresh(u, now)}
+		if k.Tool == tool && (!best.HaveReport || usageOutranks(a, best)) {
+			best = usageToolState{Report: u, HaveReport: true, Fresh: a.Fresh}
 		}
 	}
-	return best, found
+	return best.Report, best.HaveReport
 }
 
 func (s *UsageStore) All() map[usageKey]ToolUsage {

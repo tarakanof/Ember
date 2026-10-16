@@ -18,9 +18,9 @@ settings GETs: apps, pomodoro/usage/display/brightness/quiet config,
 management). Wrong scope is 403. An optional `"sources":[…]` at mint (1-16,
 each ≤64 chars, needs `ingest`; 400 with `admin`, which could still `POST /v1/clear`) binds the token: `POST`/`DELETE
 /v1/status` and `POST /v1/usage` naming another `source` (usage: or none) are
-403; without it any source passes. Usage is keyed by tool and `account_key`,
-so a bound token's usage post is also 403 when that account's stored entry
-came from a source outside its list (no entry yet: accepted). Sessions are keyed
+403; without it any source passes. Usage ownership is per tool, so a bound
+token's usage post is also 403 when any of that tool's stored entries (any
+`account_key`) came from a source outside its list (no entry yet: accepted). Sessions are keyed
 `source/tool/session`, so a bound token's status `tool`/`session` and a minted
 source may not contain `/` (400). Client tokens never pass the knob-only
 routes, now-playing control or `/admin/*`. Details: RUNBOOK "Integrating a
@@ -97,11 +97,12 @@ ARCHITECTURE "Knob checkin", RUNBOOK "Decoding a knob core dump"), `GET /v1/cloc
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
 `POST /v1/usage` (optional `account_key`, 16 hex characters hashed on the
 Mac, and `plan`; one entry per tool and account, newest wins, dropped after 7
-days — ARCHITECTURE "Usage per account"), `GET/PUT /v1/usage/config`,
+days, at most 8 per tool — ARCHITECTURE "Usage per account"), `GET/PUT /v1/usage/config`,
 `GET /v1/usage/accounts` (owner or `admin`: `{"accounts":[{id, tool, plan,
 name, default_name, hidden, order, first_seen, updated_at, stale}]}` in display
 order) and `PUT /v1/usage/accounts` (master token only, every client token
-403: `{"<id>":{"name","hidden","order"}|null}`, merge by id, an unknown id
+403: `{"<id>":{"name","hidden","order"}|null}`, id `<tool>:<account_key>` or
+the bare tool name for a keyless account, merge by id, an unknown id
 400; the knob's `usage` block follows it — DEVICE-PROTOCOL "Usage"),
 `POST /v1/nowplaying` (a
 source's player report; a playing or paused report with no title and no

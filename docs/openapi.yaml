@@ -387,7 +387,7 @@ components:
       properties:
         id:
           type: string
-          description: The `account_key`, or the tool name for a keyless account.
+          description: '`<tool>:<account_key>`, or the bare tool name for a keyless account.'
         tool:
           type: string
         plan:
@@ -1121,11 +1121,13 @@ paths:
       description: |
         Usage is one entry per tool and `account_key` (no key: one keyless
         account per tool); the newest post wins, so several Macs on one
-        account share an entry. An entry is dropped 7 days after its last
-        post. A client token bound to `sources` gets 403 for any other
-        `source`, for none, and when the entry came from a source outside
-        its list; an entry not stored yet is accepted (the next unbound post
-        overwrites it).
+        account share an entry. The server stamps the receive time. An
+        entry is dropped 7 days after its last post, and a tool keeps at
+        most 8 accounts (64 in all), the oldest evicted. A client token
+        bound to `sources` gets 403 for any other `source`, for none, and
+        when any of the tool's stored entries came from a source outside
+        its list, whatever the `account_key`; a tool with no entry yet is
+        accepted (the next unbound post overwrites it).
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true
@@ -1640,7 +1642,7 @@ paths:
                   - $ref: "#/components/schemas/UsageAccountPrefs"
                   - type: "null"
             example:
-              3f9a1c0b7d2e4a65: {name: Work, order: 0}
+              "claude:3f9a1c0b7d2e4a65": {name: Work, order: 0}
               claude: null
       responses:
         "200":

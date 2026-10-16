@@ -15,6 +15,11 @@ const (
 	keyMaxB  = "bbbbbbbbbbbbbbb2"
 	keyPro   = "ccccccccccccccc3"
 	keyCodex = "ddddddddddddddd4"
+
+	idMaxA  = "claude:" + keyMaxA
+	idMaxB  = "claude:" + keyMaxB
+	idPro   = "claude:" + keyPro
+	idCodex = "codex:" + keyCodex
 )
 
 func postUsage(t *testing.T, srv *httptest.Server, body string) {
@@ -125,7 +130,7 @@ func TestUsageAccountDefaultsNameByPlanAndNumberTwinsInOrder(t *testing.T) {
 	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyPro+`","plan":"pro"}`)
 	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
 	out := getAccounts(t, srv, testToken)
-	want := keyMaxB + "=Max 1," + keyPro + "=Pro," + keyMaxA + "=Max 2," + keyCodex + "=Plus"
+	want := idMaxB + "=Max 1," + idPro + "=Pro," + idMaxA + "=Max 2," + idCodex + "=Plus"
 	if got := accountNames(out); got != want {
 		t.Fatalf("accounts = %s, want %s (Claude first, then by first seen)", got, want)
 	}
@@ -137,7 +142,7 @@ func TestUsageAccountsRouteAuth(t *testing.T) {
 	admin := mintClient(t, srv, "admin", "admin")
 	read := mintClient(t, srv, "read", "read")
 	ingest := mintClient(t, srv, "ingest", "ingest")
-	put := `{"` + keyMaxA + `":{"name":"Work"}}`
+	put := `{"` + idMaxA + `":{"name":"Work"}}`
 	cases := []struct {
 		method, token, body string
 		want                int
@@ -165,7 +170,7 @@ func TestUsageAccountsPutRenamesHidesAndReorders(t *testing.T) {
 	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxB+`","plan":"max"}`)
 	postUsage(t, srv, `{"tool":"codex","account_key":"`+keyCodex+`","plan":"plus"}`)
 	resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken,
-		`{"`+keyCodex+`":{"order":0},"`+keyMaxB+`":{"name":"  Work  ","order":1},"`+keyMaxA+`":{"hidden":true}}`)
+		`{"`+idCodex+`":{"order":0},"`+idMaxB+`":{"name":"  Work  ","order":1},"`+idMaxA+`":{"hidden":true}}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("put = %d %s", resp.StatusCode, b)
 	}
@@ -173,19 +178,19 @@ func TestUsageAccountsPutRenamesHidesAndReorders(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
 	}
-	want := keyCodex + "=Plus," + keyMaxB + "=Work," + keyMaxA + "=Max"
+	want := idCodex + "=Plus," + idMaxB + "=Work," + idMaxA + "=Max"
 	if got := accountNames(out); got != want {
 		t.Fatalf("accounts = %s, want %s", got, want)
 	}
 	if !out.Accounts[2].Hidden || out.Accounts[1].DefaultName != "Max 1" || *out.Accounts[0].Order != 0 {
 		t.Fatalf("accounts = %+v", out.Accounts)
 	}
-	resp, b = devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+keyMaxB+`":null}`)
+	resp, b = devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+idMaxB+`":null}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("reset put = %d %s", resp.StatusCode, b)
 	}
 	got := getAccounts(t, srv, testToken)
-	if names := accountNames(got); names != keyCodex+"=Plus,"+keyMaxA+"=Max 1,"+keyMaxB+"=Max 2" {
+	if names := accountNames(got); names != idCodex+"=Plus,"+idMaxA+"=Max 1,"+idMaxB+"=Max 2" {
 		t.Fatalf("after reset = %s", names)
 	}
 }
@@ -194,13 +199,13 @@ func TestUsageAccountsPutRejectsUnknownOrBadSettings(t *testing.T) {
 	_, srv := newDevicesApp(t, "")
 	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
 	for _, body := range []string{
-		`{"` + keyMaxB + `":{"name":"Ghost"}}`,
-		`{"` + keyMaxA + `":{"name":"` + strings.Repeat("x", 25) + `"}}`,
-		`{"` + keyMaxA + `":{"name":"a\u0007b"}}`,
-		`{"` + keyMaxA + `":{"order":-1}}`,
-		`{"` + keyMaxA + `":{"order":1000}}`,
-		`{"` + keyMaxA + `":{"colour":"red"}}`,
-		`{"` + keyMaxA + `":"Work"}`,
+		`{"` + idMaxB + `":{"name":"Ghost"}}`,
+		`{"` + idMaxA + `":{"name":"` + strings.Repeat("x", 25) + `"}}`,
+		`{"` + idMaxA + `":{"name":"a\u0007b"}}`,
+		`{"` + idMaxA + `":{"order":-1}}`,
+		`{"` + idMaxA + `":{"order":1000}}`,
+		`{"` + idMaxA + `":{"colour":"red"}}`,
+		`{"` + idMaxA + `":"Work"}`,
 		`[]`,
 	} {
 		if resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, body); resp.StatusCode != http.StatusBadRequest {
@@ -222,7 +227,7 @@ func TestStaleKeylessAccountLeavesOnceItsToolHasAKeyedOne(t *testing.T) {
 		t.Fatalf("while both are fresh = %+v, want two", both)
 	}
 	later := buildUsageAccounts(s.state(nil, now.Add(usageStaleTTL+time.Second)), nil, nil)
-	if len(later) != 1 || later[0].ID != keyMaxA {
+	if len(later) != 1 || later[0].ID != idMaxA {
 		t.Fatalf("after the keyless one went stale = %+v, want only the keyed account", later)
 	}
 }
@@ -232,7 +237,7 @@ func TestUsageAccountOrderAndNamesSurviveARestart(t *testing.T) {
 	app, srv := newDevicesApp(t, db)
 	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxB+`","plan":"max"}`)
 	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
-	if resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+keyMaxA+`":{"name":"Work"}}`); resp.StatusCode != http.StatusOK {
+	if resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+idMaxA+`":{"name":"Work"}}`); resp.StatusCode != http.StatusOK {
 		t.Fatalf("put = %d %s", resp.StatusCode, b)
 	}
 	_ = app.store.Close()
@@ -241,7 +246,7 @@ func TestUsageAccountOrderAndNamesSurviveARestart(t *testing.T) {
 	app2.reapplySettings()
 	postUsage(t, srv2, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
 	out := getAccounts(t, srv2, testToken)
-	if got := accountNames(out); got != keyMaxB+"=Max,"+keyMaxA+"=Work" {
+	if got := accountNames(out); got != idMaxB+"=Max,"+idMaxA+"=Work" {
 		t.Fatalf("after restart = %s, want first-seen order and the stored name", got)
 	}
 	if out.Accounts[0].UpdatedAt != nil || !out.Accounts[0].Stale {
@@ -274,7 +279,7 @@ func TestUsageAccountRegistryWritesOnlyOnChange(t *testing.T) {
 			t.Errorf("observe at %v plan %s wrote = %v, want %v", s.at, s.plan, wrote, s.write)
 		}
 	}
-	if got := r.snapshot(now.Add(2 * time.Hour))[keyMaxA]; !got.First.Equal(now) || got.Plan != "pro" {
+	if got := r.snapshot(now.Add(2 * time.Hour))[idMaxA]; !got.First.Equal(now) || got.Plan != "pro" {
 		t.Fatalf("seen = %+v, want the first sighting kept and the new plan", got)
 	}
 }
@@ -296,4 +301,87 @@ func (c *usageSeenKV) PutSetting(key, value string) error {
 	c.puts++
 	c.vals[key] = value
 	return nil
+}
+
+func TestBoundClientCannotAddAnAccountToAnotherSourcesTool(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintBoundClient(t, srv, "ci", []string{"ci"}, "ingest")
+	if resp, b := devReq(t, srv, "POST", "/v1/usage", testToken, `{"tool":"claude","source":"dt-mbp","account_key":"`+keyMaxA+`","five_hour":{"used_percent":14}}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("master usage = %d %s", resp.StatusCode, b)
+	}
+	for _, key := range []string{keyMaxB, ""} {
+		body := `{"tool":"claude","source":"ci","five_hour":{"used_percent":99}`
+		if key != "" {
+			body += `,"account_key":"` + key + `"`
+		}
+		if resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, body+`}`); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("bound post to dt-mbp's tool with key %q = %d %s, want 403", key, resp.StatusCode, b)
+		}
+	}
+	if n := len(app.usage.state(nil, time.Now()).Accounts); n != 1 {
+		t.Fatalf("accounts = %d, want only dt-mbp's", n)
+	}
+	if resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, `{"tool":"gha","source":"ci","account_key":"`+keyMaxB+`"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("bound post to a fresh tool = %d %s, want 204", resp.StatusCode, b)
+	}
+}
+
+func TestSameAccountKeyOnTwoToolsStaysTwoAccounts(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
+	postUsage(t, srv, `{"tool":"codex","account_key":"`+keyMaxA+`","plan":"plus"}`)
+	if resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"codex:`+keyMaxA+`":{"hidden":true}}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put = %d %s", resp.StatusCode, b)
+	}
+	out := getAccounts(t, srv, testToken)
+	if accountNames(out) != "claude:"+keyMaxA+"=Max,codex:"+keyMaxA+"=Plus" || out.Accounts[0].Hidden || !out.Accounts[1].Hidden {
+		t.Fatalf("accounts = %+v, want two distinct ids, only codex hidden", out.Accounts)
+	}
+	if resp, _ := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+keyMaxA+`":{"hidden":true}}`); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a bare key as id = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestUsageStoreCapsAccountsPerToolEvictingTheOldest(t *testing.T) {
+	s := newUsageStore()
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	for i := range usageAccountsPerTool + 2 {
+		key := strings.Repeat(string(rune('a'+i)), 16)
+		s.Put("claude", ToolUsage{Account: key, UpdatedAt: now.Add(time.Duration(i) * time.Minute)})
+	}
+	all := s.All()
+	if len(all) != usageAccountsPerTool {
+		t.Fatalf("accounts = %d, want %d", len(all), usageAccountsPerTool)
+	}
+	for _, gone := range []string{"aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"} {
+		if _, ok := all[usageKey{"claude", gone}]; ok {
+			t.Fatalf("oldest account %s kept", gone)
+		}
+	}
+}
+
+func TestUsagePostWithAFutureTimeCannotEvictOtherAccounts(t *testing.T) {
+	s := newUsageStore()
+	now := time.Now()
+	s.Put("claude", ToolUsage{Account: keyMaxA, UpdatedAt: now.Add(-time.Hour)})
+	if _, ok := s.PutIfOwned("codex", ToolUsage{Account: keyCodex, UpdatedAt: now.Add(30 * 24 * time.Hour)}, nil); !ok {
+		t.Fatal("put refused")
+	}
+	all := s.All()
+	if _, ok := all[usageKey{"claude", keyMaxA}]; !ok {
+		t.Fatal("a future-dated post evicted another account")
+	}
+	if got := all[usageKey{"codex", keyCodex}].UpdatedAt; got.After(time.Now()) {
+		t.Fatalf("stored updated_at %v is in the future, want the receive time", got)
+	}
+}
+
+func TestUsageStoreGetReturnsTheToolsHighestFiveHourAccount(t *testing.T) {
+	s := newUsageStore()
+	now := time.Now()
+	s.Put("claude", ToolUsage{Account: keyMaxA, FiveHour: &UsageWindow{UsedPercent: 90}, UpdatedAt: now.Add(-time.Minute)})
+	s.Put("claude", ToolUsage{Account: keyMaxB, FiveHour: &UsageWindow{UsedPercent: 20}, UpdatedAt: now})
+	if u, ok := s.Get("claude"); !ok || u.Account != keyMaxA {
+		t.Fatalf("Get = %+v, want the 90%% account", u)
+	}
 }
