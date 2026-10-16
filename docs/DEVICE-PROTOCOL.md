@@ -507,9 +507,10 @@ the knob's screen change the page (up = next, down = previous), per knob:
   before 0.9.15. Older firmware skips the unknown key. No caps token: the
   app gates its toggle on the reported `fw` (>= 0.9.15).
 - **App:** Ember.app shows "Swipe up or down to change pages" in the Knob
-  pane's Pages section for a knob on 0.9.15 or later.
+  pane's Pages section for a knob on 0.9.15 or later, and only when the
+  server's config carries the key (an older server would reject the PUT).
 - **Size:** the default config grows by 19 B (512 B) and the largest valid
-  one by 20 B (730 B), still under `CFG_SETTINGS_MAX`.
+  one by 20 B (731 B), still under `CFG_SETTINGS_MAX`.
 
 ## Bot weather moments
 
