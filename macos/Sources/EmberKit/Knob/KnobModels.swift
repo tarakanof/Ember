@@ -166,6 +166,7 @@ public struct KnobCaps: Codable, Equatable, Sendable {
     public static let nowPlayingPage = "nowplaying"
 
     static let legacyFeatureFloors: [String: [Int]] = [statsIntervals: [0, 7, 0]]
+    static let swipePagesFloor = [0, 9, 15]
     static let legacyPageFloors: [String: [Int]] = [nowPlayingPage: [0, 9, 0]]
 }
 
@@ -275,6 +276,8 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
         return !fw.dropFirst(core.count).hasPrefix("-")
     }
 
+    public var supportsSwipePages: Bool { Self.firmware(lastCheckin?.fw, atLeast: KnobCaps.swipePagesFloor) }
+
     public var configApplied: Bool { (lastCheckin?.appliedVersion ?? 0) >= configVersion }
 
     public static func current(in devices: [KnobDevice]) -> KnobDevice? {
@@ -373,6 +376,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public var brightness: Brightness
     public var pages: [Page]
     public var home: String
+    public var swipePages: Bool?
     public var pollMS: Int
     public var bot: Bot
     public var diagnostics: KnobDiagnostics
@@ -384,6 +388,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case brightness, pages, home, bot, diagnostics, display, quiet
         case pollMS = "poll_ms"
+        case swipePages = "swipe_pages"
         case statsIntervalS = "stats_interval_s"
         case liveIntervalS = "live_interval_s"
     }
@@ -400,6 +405,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         brightness = try c.decode(Brightness.self, forKey: .brightness)
         pages = try c.decode([Page].self, forKey: .pages)
         home = try c.decode(String.self, forKey: .home)
+        swipePages = try c.decodeIfPresent(Bool.self, forKey: .swipePages)
         pollMS = try c.decode(Int.self, forKey: .pollMS)
         bot = try c.decode(Bot.self, forKey: .bot)
         diagnostics = try c.decodeIfPresent(KnobDiagnostics.self, forKey: .diagnostics) ?? .off

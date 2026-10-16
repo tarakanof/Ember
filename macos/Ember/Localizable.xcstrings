@@ -1328,6 +1328,7 @@
     "Hold demo mood for" : {},
     "Hold keeps a single scene on the knob until Stop or 60 seconds. Play all ignores it." : {},
     "Hold the knob down and turn it to change pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes." : {},
+    "Hold the knob down and turn it, or swipe up or down, to change pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes." : {},
     "Home page" : {},
     "Hooks: none registered" : {},
     "Hooks: the ember@ember plugin" : {},
@@ -2197,6 +2198,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Swipe up or down to change pages" : {},
     "Switch apps automatically" : {},
     "T3 Code" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
