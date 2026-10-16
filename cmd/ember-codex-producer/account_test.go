@@ -179,3 +179,41 @@ func TestAppServerRateLimitsCarryTheWindowLengths(t *testing.T) {
 		t.Fatalf("usages = %+v, want window_minutes 300", usages)
 	}
 }
+
+func TestWatcherUsageNeverPostsTheOldAccountsRatesUnderTheNewOne(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	if err := os.Chtimes(filepath.Join(home, "auth.json"), t0.Add(-time.Hour), t0.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	reset := strconv.FormatInt(t0.Add(time.Hour).Unix(), 10)
+	tok := func(at time.Time, pct int) string {
+		return `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":` + strconv.Itoa(pct) + `,"resets_at":` + reset + `}}}}`
+	}
+	first := tok(t0.Add(-time.Minute), 30)
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaCLI, evStarted, first)
+	now := t0
+	w := newTestWatcher(dir, now)
+	w.now = func() time.Time { return now }
+	w.cfg.RatePctEnabled = true
+	w.cfg.CodexHome = home
+	if _, _, usages := w.tick(); len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-a") {
+		t.Fatalf("usages = %+v, want A's", usages)
+	}
+	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+	if err := os.Chtimes(filepath.Join(home, "auth.json"), t0, t0); err != nil {
+		t.Fatal(err)
+	}
+	now = t0.Add(10 * time.Second)
+	if _, _, usages := w.tick(); len(usages) != 0 {
+		t.Fatalf("usages after the switch = %+v, want A's cached rates dropped", usages)
+	}
+	writeRollout(t, dir, "rollout-a.jsonl", now, metaCLI, evStarted, first, tok(t0.Add(5*time.Second), 7))
+	now = t0.Add(20 * time.Second)
+	_, _, usages := w.tick()
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-b") || usages[0].FiveHour.UsedPercent != 7 {
+		t.Fatalf("usages = %+v, want B's own rates", usages)
+	}
+}

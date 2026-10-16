@@ -99,3 +99,12 @@ func (c *codexAccountCache) current(codexHome string) codexAccount {
 	c.path, c.mtime, c.size, c.acct = path, fi.ModTime(), fi.Size(), parseCodexAuth(b)
 	return c.acct
 }
+
+func (c *codexAccountCache) changedAt(codexHome string, now time.Time) time.Time {
+	if codexHome != "" {
+		if fi, err := os.Stat(filepath.Join(codexHome, "auth.json")); err == nil && !fi.ModTime().After(now) {
+			return fi.ModTime()
+		}
+	}
+	return now
+}

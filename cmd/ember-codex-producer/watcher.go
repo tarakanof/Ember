@@ -49,6 +49,9 @@ type watcher struct {
 	handedOver     []string
 	reads          int
 	accounts       codexAccountCache
+	usageAcct      codexAccount
+	usageAcctSeen  bool
+	usageSince     time.Time
 }
 
 func newWatcher(cfg Config) *watcher {
@@ -247,10 +250,15 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 }
 
 func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
+	acct := w.accounts.current(w.cfg.CodexHome)
+	if w.usageAcctSeen && acct != w.usageAcct {
+		w.usageSince = w.accounts.changedAt(w.cfg.CodexHome, now)
+	}
+	w.usageAcct, w.usageAcctSeen = acct, true
 	var newest *derived
 	for _, ss := range w.sessions {
 		d := &ss.derived
-		if d.rateResetAt == 0 && d.weeklyResetAt == 0 {
+		if d.rateResetAt == 0 && d.weeklyResetAt == 0 || !w.boundToAccount(d) {
 			continue
 		}
 		if now.Sub(ss.lastModified) > w.activityWindow {
@@ -260,7 +268,7 @@ func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 			newest = d
 		}
 	}
-	if x := w.rateExtra; x != nil && (newest == nil || x.rateAt.After(newest.rateAt)) {
+	if x := w.rateExtra; x != nil && w.boundToAccount(x) && (newest == nil || x.rateAt.After(newest.rateAt)) {
 		newest = x
 	}
 	if newest == nil {
@@ -270,7 +278,6 @@ func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 	if !ok {
 		return u, false
 	}
-	acct := w.accounts.current(w.cfg.CodexHome)
 	u.AccountKey, u.Plan = acct.key, acct.plan
 	if u.Plan == "" {
 		u.Plan = producer.Plan(newest.planType)
@@ -280,6 +287,10 @@ func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 		return producer.UsageRequest{}, false
 	}
 	return u, true
+}
+
+func (w *watcher) boundToAccount(d *derived) bool {
+	return w.usageSince.IsZero() || d.rateAt.After(w.usageSince)
 }
 
 func (w *watcher) posted(id string) bool {

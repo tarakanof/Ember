@@ -4718,7 +4718,12 @@ add `account_key` and `plan` to `POST /v1/usage`:
   `team`, `business`, `enterprise` and `edu`, where the account id is the
   workspace. The id_token's payload is base64-decoded locally, never
   verified against the network and never logged; only the three claims
-  are read. No `oauthAccount` or no `tokens` (an API key): no key.
+  are read. No `oauthAccount` or no `tokens` (an API key): no key. A
+  Codex rate-limit snapshot belongs to the account current when it
+  arrived: when the daemon sees the key change, it drops every cached
+  snapshot (rollouts and app server) dated before `auth.json` changed, so
+  after a switch it posts nothing until the new account's first rate
+  limits arrive.
 - A window may carry `window_minutes`, its length when the producer knows
   it (Codex: rollout `window_minutes`, app-server `windowDurationMins`);
   the knob's `five_hour.starts_at` is `resets_at` minus it, else minus 5 h.
