@@ -1461,6 +1461,9 @@ paths:
       description: >-
         Label but no coordinates; sun times rounded to 5 minutes. `model`
         names the Open-Meteo forecast model, absent under MET Norway.
+        `current.today_min_c` and `today_max_c` are today's forecast range
+        widened to the current temperature (the knob Temperature face's
+        gauge), null without a forecast day.
         `error` (absent otherwise, and while weather is off) gives the reason
         the chosen provider can't fetch,
         e.g. "weatherapi needs EMBER_WEATHERAPI_KEY on the server" when a
