@@ -125,6 +125,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             }
             public var dyPx, headYPx, headRadiusPx, tubeMidYPx, tubeHalfHPx, tubeHalfWPx: Double
             public var bulbYPx, bulbRadiusPx, strokePx: Double
+            public var strokeColor: RGB
             public var mercuryBottomPx, mercuryHalfWPx, mercuryBulbRadiusPx: Double
             public var mercuryTop: MercuryTop
             public var ticksPx, tickXPx: [Double]
@@ -146,9 +147,6 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             public var onColor, offColor: RGB
             public var faces: Int
         }
-        public struct Colors: Decodable, Sendable, Equatable {
-            public var cloud, rain, snow, bolt: RGB
-        }
         public var maxAgeS: Double
         public var stillColor: RGB
         public var scale: Scale
@@ -159,7 +157,6 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public var ends: Ends
         public var sub: Sub
         public var dots: Dots
-        public var colors: Colors
     }
 
     public var version: Int

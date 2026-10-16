@@ -73,14 +73,14 @@ enum KnobFaceRender {
         }
     }
 
-    static func label(_ s: String, _ px: Double, _ c: RGB, centerX: Double, anchor: Double = 0.5, tracking: Double = 0,
+    static func label(_ s: String, _ px: Double, _ c: RGB, centerX: Double, anchor: Double = 0.5,
                       top: Double, clip: Double? = nil, theme: KnobTheme, in ctx: inout GraphicsContext) {
         guard !s.isEmpty else { return }
         let m = theme.font.metrics(px)
         let font: Font = fontRegistered ? .custom(theme.font.family, fixedSize: px) : .system(size: px, weight: .medium)
-        let text = ctx.resolve(Text(verbatim: s).font(font).tracking(tracking).foregroundStyle(Color(c)))
+        let text = ctx.resolve(Text(verbatim: s).font(font).foregroundStyle(Color(c)))
         let size = text.measure(in: CGSize(width: 2000, height: 2000))
-        let width = size.width - tracking
+        let width = size.width
         let baseline = top + m.lineHeightPx - m.baselinePx
         let rect = CGRect(x: centerX - width * anchor, y: baseline - text.firstBaseline(in: size),
                           width: size.width, height: size.height)
@@ -368,7 +368,7 @@ enum KnobFaceRender {
                           width: 2 * th.tubeHalfWPx, height: 2 * th.tubeHalfHPx)
         let half = th.strokePx / 2
         for p in [disc(head, th.headRadiusPx), Path(tube), disc(bulb, th.bulbRadiusPx)] {
-            ctx.stroke(p, with: .color(Color(w.colors.cloud)), lineWidth: th.strokePx)
+            ctx.stroke(p, with: .color(Color(th.strokeColor)), lineWidth: th.strokePx)
         }
         for p in [disc(head, th.headRadiusPx - half), Path(tube.insetBy(dx: half, dy: half)), disc(bulb, th.bulbRadiusPx - half)] {
             ctx.fill(p, with: .color(.black))
@@ -400,8 +400,8 @@ enum KnobFaceRender {
         }
 
         let v = w.value
-        label(f.valueText(), v.fontPx, merc, centerX: c + degreeShift(v, theme), tracking: v.letterSpacePx, top: v.yPx,
-              theme: theme, in: &ctx)
+        spacedLabel(f.valueText(), v.fontPx, merc, centerX: c + degreeShift(v, theme), spacing: v.letterSpacePx, top: v.yPx,
+                    theme: theme, in: &ctx)
         if f.value != nil && f.hasRange {
             let e = w.ends, d = theme.screen.diameterPx
             label(KnobTempFace.degrees(f.lo), e.fontPx, KnobTempFace.color(Double(f.lo), w.scale), centerX: e.xPx, anchor: 0,
@@ -431,9 +431,32 @@ enum KnobFaceRender {
         return .conicGradient(Gradient(stops: stops), center: CGPoint(x: c, y: c), angle: .degrees(w.ring.fromDeg - 90))
     }
 
+    static func spacedLabel(_ s: String, _ px: Double, _ c: RGB, centerX: Double, spacing: Double, top: Double,
+                            theme: KnobTheme, in ctx: inout GraphicsContext) {
+        let m = theme.font.metrics(px)
+        let ct = CTFontCreateWithName(theme.font.family as CFString, px, nil)
+        let font: Font = fontRegistered ? .custom(theme.font.family, fixedSize: px) : .system(size: px, weight: .medium)
+        let chars = s.map(String.init)
+        let advances = chars.map { ch in
+            CTLineGetTypographicBounds(CTLineCreateWithAttributedString(NSAttributedString(string: ch, attributes: [.font: ct])),
+                                       nil, nil, nil).rounded()
+        }
+        let width = advances.reduce(0, +) + spacing * Double(max(chars.count - 1, 0))
+        var x = centerX - (width / 2).rounded(.down)
+        let baseline = top + m.lineHeightPx - m.baselinePx
+        for (ch, adv) in zip(chars, advances) {
+            let text = ctx.resolve(Text(verbatim: ch).font(font).foregroundStyle(Color(c)))
+            let size = text.measure(in: CGSize(width: 2000, height: 2000))
+            ctx.draw(text, in: CGRect(x: x, y: baseline - text.firstBaseline(in: size), width: size.width, height: size.height))
+            x += adv + spacing
+        }
+    }
+
     static func degreeShift(_ v: KnobTheme.Weather.Value, _ theme: KnobTheme) -> Double {
+        _ = fontRegistered
         let font = CTFontCreateWithName(theme.font.family as CFString, v.fontPx, nil)
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: "°", attributes: [.font: font]))
-        return (CTLineGetTypographicBounds(line, nil, nil, nil).rounded() + v.letterSpacePx) / 2
+        let deg = Int(CTLineGetTypographicBounds(line, nil, nil, nil).rounded()) + Int(v.letterSpacePx)
+        return Double(deg / 2)
     }
 }

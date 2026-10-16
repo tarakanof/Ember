@@ -152,7 +152,7 @@ private func pomo(_ phase: String, running: Bool = true, paused: Bool = false, r
     #expect(KnobWeatherLook(provider: "open-meteo", condition: "rain", code: "65", night: false)
             == .init(face: .rain, intensity: .heavy))
     #expect(KnobWeatherLook(provider: "open-meteo", condition: "clear", code: "0", night: true).face == .clearNight)
-    #expect(KnobWeatherLook(provider: "open-meteo", condition: "fog", code: "48", night: nil).rime)
+    #expect(KnobWeatherLook(provider: "open-meteo", condition: "fog", code: "48", night: nil) == .init(face: .fog))
     #expect(KnobWeatherLook(provider: "met-no", condition: "clouds", code: "partlycloudy_night", night: nil)
             == .init(face: .partlyCloudy, night: true))
     #expect(KnobWeatherLook(provider: "met-no", condition: "snow", code: "lightsnowshowers_day", night: nil)
@@ -266,7 +266,7 @@ private func save(_ img: CGImage, _ name: String) {
     #expect(near(pixel(img, Int(marker.x.rounded() + w.marker.ringRadiusPx), Int(marker.y.rounded())), w.marker.color, 40))
     let merc = KnobTempFace.color(14, w.scale)
     #expect(near(pixel(img, 233, Int(w.thermo.bulbYPx + w.thermo.dyPx)), merc, 30), "mercury bulb")
-    #expect(near(pixel(img, 233, Int(w.thermo.headYPx + w.thermo.dyPx - w.thermo.headRadiusPx)), w.colors.cloud, 40), "tube outline")
+    #expect(near(pixel(img, 233, Int(w.thermo.headYPx + w.thermo.dyPx - w.thermo.headRadiusPx)), w.thermo.strokeColor, 40), "tube outline")
     let valueRows = (200..<310).filter { y in (150..<330).contains { x in near(pixel(img, x, y), merc, 30) } }
     #expect(!valueRows.isEmpty && valueRows.first! >= 200 + 10 && valueRows.last! < Int(w.sub.yPx), "digits under the value top, above the sub-line")
     let subPixels = (302..<335).flatMap { y in (160..<306).map { x in pixel(img, x, y) } }
@@ -280,8 +280,41 @@ private func save(_ img: CGImage, _ name: String) {
         #expect(render(KnobFaceView(.weather(KnobTempFace(value: bad, todayMinC: bad, todayMaxC: bad)))) != nil)
         #expect(render(KnobFaceView(.weather(KnobTempFace(value: 1e300, todayMinC: -1e300, todayMaxC: bad)))) != nil)
     }
+    #expect(KnobFaceRender.fontRegistered, "Montserrat must be registered or the labels fall back")
+    let ct = CTFontCreateWithName(th.font.family as CFString, w.value.fontPx, nil)
+    #expect(CTFontCopyPostScriptName(ct) as String == th.font.family, "value font resolves to Montserrat")
+    #expect(KnobFaceRender.degreeShift(w.value, th) == 19, "deg / 2 of the 40 px degree glyph and -2 spacing")
+
+    let ink = (200..<Int(w.sub.yPx)).flatMap { y in (100..<366).filter { x in near(pixel(img, x, y), merc, 60) } }
+    let fontDigits96Left = 184, fontDigits96Right = 316
+    #expect(abs(ink.min()! - fontDigits96Left) <= 3 && abs(ink.max()! - fontDigits96Right) <= 3,
+            "\"14°\" spans \(ink.min()!)...\(ink.max()!), firmware glyph boxes \(fontDigits96Left)...\(fontDigits96Right)")
+
     let none = try #require(render(KnobFaceView(.weather(faces[5].1))))
     #expect(near(pixel(none, 233, Int(233 - rr)), w.ring.trackColor, 12), "no data: grey track")
+    let th0 = w.thermo
+    func thermoD(_ x: Double, _ y: Double) -> Double {
+        let top = hypot(x - 233, y - (th0.headYPx + th0.dyPx)) - th0.headRadiusPx
+        let bulb = hypot(x - 233, y - (th0.bulbYPx + th0.dyPx)) - th0.bulbRadiusPx
+        let qx = abs(x - 233) - th0.tubeHalfWPx, qy = abs(y - (th0.tubeMidYPx + th0.dyPx)) - th0.tubeHalfHPx
+        let rect = hypot(max(qx, 0), max(qy, 0)) + min(max(qx, qy), 0)
+        return min(top, bulb, rect)
+    }
+    var dark = 0, lit = 0
+    for y in 96..<196 {
+        for x in 208..<258 {
+            let fx = Double(x) + 0.5, fy = Double(y) + 0.5, d = thermoD(fx, fy)
+            let mercury = hypot(fx - 233, fy - (th0.bulbYPx + th0.dyPx)) < th0.mercuryBulbRadiusPx + 2
+            if d < -th0.strokePx / 2 - 0.6, !mercury {
+                dark += 1
+                #expect(near(pixel(none, x, y), .init(r: 0, g: 0, b: 0), 10), "no-data thermometer inside is black at \(x),\(y)")
+            } else if abs(d) < th0.strokePx / 2 - 0.6 {
+                lit += 1
+                #expect(near(pixel(none, x, y), th0.strokeColor, 50), "thermometer outline at \(x),\(y)")
+            }
+        }
+    }
+    #expect(dark > 300 && lit > 100)
 
     for dark in [true, false] {
         let framed = try #require(render(KnobScreen { KnobFaceView(.pomodoro(focus)) }, side: 240, dark: dark))

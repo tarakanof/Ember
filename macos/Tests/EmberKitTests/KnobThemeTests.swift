@@ -157,6 +157,7 @@ private let pinned: [String: String] = [
     "weather.thermo.bulb_y_px": "183",
     "weather.thermo.bulb_radius_px": "18",
     "weather.thermo.stroke_px": "4.5",
+    "weather.thermo.stroke_color": "#9AA4B0",
     "weather.thermo.mercury_bottom_px": "184",
     "weather.thermo.mercury_half_w_px": "4",
     "weather.thermo.mercury_bulb_radius_px": "10",
@@ -185,10 +186,6 @@ private let pinned: [String: String] = [
     "weather.dots.on_color": "#FFFFFF",
     "weather.dots.off_color": "#4A4A4A",
     "weather.dots.faces": "7",
-    "weather.colors.cloud": "#9AA4B0",
-    "weather.colors.rain": "#5C9CE0",
-    "weather.colors.snow": "#D0DCE8",
-    "weather.colors.bolt": "#F0D040",
     "nowplaying.backdrop_disk_radius_px": "188",
     "nowplaying.ring_radius_px": "198",
     "nowplaying.ring_width_px": "6",
@@ -472,7 +469,7 @@ private func allChecks() -> [Check] {
                      ("weather.thermo.tube_half_h_px", g(7))]),
         Check(file: wp, pattern: #"const uint16_t stroke = wx_rgb565\("# + hex + #"\);[^}]*?"#
                 + #"put\(im, y \* im->w \+ x, 0, cov\(d\)\);\s+put\(im, y \* im->w \+ x, stroke, cov\(fabsf\(d\) - "# + num + #"\)\);"#,
-              keys: [("weather.colors.cloud", g(1)), ("weather.thermo.stroke_px", twice(2))]),
+              keys: [("weather.thermo.stroke_color", g(1)), ("weather.thermo.stroke_px", twice(2))]),
         one(wth, #"#define WX_MERC_BOTTOM "# + num, "weather.thermo.mercury_bottom_px"),
         Check(file: wp, pattern: #"static const float TICKS\[3\] = \{([^}]*)\};"#, keys: [("weather.thermo.ticks_px", list(1))]),
         one(wp, #"grey = wx_rgb565\("# + hex + #"\);\s+im->x0 = WX_THERMO_X;"#, "weather.thermo.tick_color"),
@@ -512,10 +509,15 @@ private func allChecks() -> [Check] {
         Check(file: wfh, pattern: #"typedef enum \{ (WXF_TEMP(?:, WXF_[A-Z]+)*), WXF_N \} wx_face_id_t;"#,
               keys: [("weather.dots.faces", { String($0[1].split(separator: ",").count) })]),
         Check(file: wp, pattern: #"wx_paint_thermo\(&bg\);\s+wx_paint_face_dots\(&bg, t->face, WXF_N\);"#, keys: []),
-        one(tf, #"#define SNOW_RGB "# + hex, "weather.colors.snow"),
-        one(tf, #"#define BOLT_RGB "# + hex, "weather.colors.bolt"),
-        one(wch, #"#define WX_CAST_RGB "# + hex, "weather.colors.rain"),
-        one(wwh, #"#define WX_WIND_POLE_RGB "# + hex, "weather.colors.cloud"),
+        Check(file: wp, pattern: #"lut\[i\] = wx_rgb565\(grey \? 0x[0-9A-Fa-f]{6} : wx_temp_rgb\(\(float\)lo \+ \(float\)\(hi - lo\) \* i / RING_STEPS\)\);"#,
+              keys: []),
+        Check(file: wp, pattern: #"float d = top < bulb \? top : bulb;\s+return rect < d \? rect : d;"#, keys: []),
+        Check(file: wp, pattern: #"if \(kind & WX_BAKE_RING\) wx_paint_ring\(b->ring, t->lo, t->hi, !t->have, b->lut\);"#, keys: []),
+        Check(file: tf, pattern: #"static void end_label\([^)]*\)\s*\{[^}]*lv_obj_set_style_text_color\(l, lv_color_hex\(wx_temp_rgb\(\(float\)v\)\), 0\);"#,
+              keys: []),
+        Check(file: tf, pattern: #"if \(temp\) set_marker\(t->frac \* \(float\)a, t->have\);"#, keys: []),
+        Check(file: tf, pattern: #"int deg = lv_font_get_glyph_width\(&font_digits_96, 0x00B0, 0\) \+ VALUE_SPACE;\s+"#
+                + #"s_value = label\(s_root, &font_digits_96, LV_ALIGN_TOP_MID, deg / 2, VALUE_Y\);"#, keys: []),
     ]
     for (px, file) in [("96", "main/font_digits_96.c"), ("36", "main/font_face_36.c")] {
         c.append(Check(file: file, pattern: #"\.line_height = (\d+),\s+\.base_line = (\d+),"#,
@@ -659,4 +661,17 @@ func labelMoodsAndHostLineMatchCinder() throws {
     let sub = try cinderMatch(bv, #"const char \*sub = ([^?;]*) \? s_host\.sub : "";"#)
     let lined = try cinderMoods(sub, "s_rim_mood == ")
     #expect(lined == KnobMood.hostLineMoods)
+}
+
+@Test(.enabled(if: cinderDir != nil, "no cinder checkout next to this repo (set CINDER_DIR)"))
+func valueDegreeShiftMatchesFontDigits96() throws {
+    let src = try String(contentsOf: try #require(cinderDir).appendingPathComponent("firmware/main/font_digits_96.c"), encoding: .utf8)
+    let list = try cinderMatch("main/font_digits_96.c", #"font_digits_96_unicode_list\[\] = \{([^}]*)\}"#)
+    let offsets = list.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines).dropFirst(2), radix: 16) }
+    let index = try #require(offsets.firstIndex(of: 0xB0 - 32))
+    let rx = try NSRegularExpression(pattern: #"\.adv_w = (\d+),"#)
+    let advs = rx.matches(in: src, range: NSRange(src.startIndex..., in: src)).map { Int(src[Range($0.range(at: 1), in: src)!])! }
+    let theme = try KnobTheme.load()
+    let deg = (advs[index + 1] + 8) / 16 + Int(theme.weather.value.letterSpacePx)
+    #expect(KnobFaceRender.degreeShift(theme.weather.value, theme) == Double(deg / 2))
 }

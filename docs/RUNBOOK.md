@@ -344,8 +344,9 @@ The test checks only code the knob runs, and every theme key needs a check
 (the code-only keys and LVGL's built-in `font.metrics` sizes aside). The
 weather keys mirror the Temperature face (`temp_face.c`, `wx_temp.c`,
 `wx_paint.c`): the colour scale, gauge ring, marker, thermometer and
-mercury, value, end labels, sub-line and face dots; `weather.colors` pins
-the live `SNOW_RGB`, `BOLT_RGB`, `WX_CAST_RGB` and `WX_WIND_POLE_RGB`.
+mercury, value, end labels, sub-line and face dots, and structure checks
+pin the conditions the preview copies (ring span and grey track, end-label
+colour, marker gate, the `deg / 2` value shift).
 
 The app bundle now builds + signs the three producer helpers (`ember-claude-producer`,
 `ember-codex-producer`, `ember-t3-producer`) and their LaunchAgent plists

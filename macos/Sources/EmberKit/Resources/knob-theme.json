@@ -154,6 +154,7 @@
       "bulb_y_px": 183,
       "bulb_radius_px": 18,
       "stroke_px": 4.5,
+      "stroke_color": "#9AA4B0",
       "mercury_bottom_px": 184,
       "mercury_half_w_px": 4,
       "mercury_bulb_radius_px": 10,
@@ -166,8 +167,7 @@
     "value": { "font_px": 96, "y_px": 200, "letter_space_px": -2 },
     "ends": { "font_px": 36, "x_px": 96, "y_px": 362 },
     "sub": { "font_px": 30, "y_px": 302, "color": "#BDBDBD" },
-    "dots": { "radius_px": 206, "pitch_px": 16, "dot_radius_px": 4, "on_color": "#FFFFFF", "off_color": "#4A4A4A", "faces": 7 },
-    "colors": { "cloud": "#9AA4B0", "rain": "#5C9CE0", "snow": "#D0DCE8", "bolt": "#F0D040" }
+    "dots": { "radius_px": 206, "pitch_px": 16, "dot_radius_px": 4, "on_color": "#FFFFFF", "off_color": "#4A4A4A", "faces": 7 }
   },
   "nowplaying": {
     "backdrop_disk_radius_px": 188,

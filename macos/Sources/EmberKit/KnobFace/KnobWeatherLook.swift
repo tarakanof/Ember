@@ -10,14 +10,10 @@ public struct KnobWeatherLook: Equatable, Sendable {
     public var face: Face
     public var intensity: Intensity = .none
     public var night = false
-    public var rime = false
-    public var severe = false
     public var still = false
 
-    public init(face: Face, intensity: Intensity = .none, night: Bool = false, rime: Bool = false,
-                severe: Bool = false, still: Bool = false) {
-        self.face = face; self.intensity = intensity; self.night = night; self.rime = rime
-        self.severe = severe; self.still = still
+    public init(face: Face, intensity: Intensity = .none, night: Bool = false, still: Bool = false) {
+        self.face = face; self.intensity = intensity; self.night = night; self.still = still
     }
 
     public init(provider: String, condition: String, code: String?, night: Bool?) {
@@ -44,7 +40,6 @@ public struct KnobWeatherLook: Equatable, Sendable {
                                  set: Self.minute(sun.sunset, calendar))
         }
         self.init(provider: state.provider, condition: cur.condition, code: cur.conditionCode, night: night)
-        severe = cur.severe
         still = !state.enabled || cur.stale || now.timeIntervalSince(cur.fetchedAt) > maxAge
     }
 
@@ -74,8 +69,7 @@ public struct KnobWeatherLook: Equatable, Sendable {
         case 0: .init(face: .clearDay)
         case 1, 2: .init(face: .partlyCloudy)
         case 3: .init(face: .overcast)
-        case 45: .init(face: .fog)
-        case 48: .init(face: .fog, rime: true)
+        case 45, 48: .init(face: .fog)
         case 51, 53, 55, 56, 57: .init(face: .rain, intensity: .light)
         case 61, 63, 66, 80, 81: .init(face: .rain, intensity: .moderate)
         case 65, 67, 82: .init(face: .rain, intensity: .heavy)
