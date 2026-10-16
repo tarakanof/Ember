@@ -742,23 +742,34 @@ markers still get reaped.
   id, activity = thread title, tool `t3` ("T3" glyph, the 3 in the state
   colour). Mapping, aligned with T3's own `agentAwareness`: a pending runtime
   request other than `auth_refresh` → `waiting` (even on a settled thread:
-  Codex `user_input` requests outlive the turn); run status preparing /
-  starting / running / **waiting** → `running` (a run "waiting" is
-  post-turn drain such as checkpoint capture, not the user). Like T3's
-  `activityRunStatus ?? status`, the newest preparing/starting/running/
-  waiting run of any ordinal wins over the presented run, and a presented
-  `queued` run is not activity (→ DELETE). A `completed` run stays `running`
-  while background work that wakes the agent is open
-  (`backgroundWorkHoldsCompletion`: roster task of the active provider
+  Codex `user_input` requests outlive the turn). With no pending runtime
+  request of any kind (T3 ≥ 0.1.0), the newest `waiting` `secret_request` turn
+  item of a preparing/starting/running/waiting run is a pending `user_input` →
+  `waiting` "needs input", stamped `startedAt ?? updated_at`, unless that
+  newest item has no node; run status preparing / starting / running /
+  **waiting** → `running` (a run "waiting" is post-turn drain such as
+  checkpoint capture, not the user). Like T3's `activityRunStatus ?? status`,
+  the newest preparing/starting/running/waiting run of any ordinal wins over
+  the presented run, and a presented `queued` run is not activity (→ DELETE).
+  A `completed` run stays `running` while background work that wakes the agent
+  is open (`backgroundWorkHoldsCompletion`: roster task of the active provider
   thread with kind other than `command`, or an active subagent /
-  non-persistent dynamic_tool turn item outside a rolled-back run; dev-server
-  commands do not hold). That hold is a single-query SQL equivalent of T3's shell read plus
-  in-memory decode, not a copy of its code; the only known difference is that
-  it does not dedupe roster vs item by task id. The turn-item lookup repeats
-  the type/status lists of T3's partial `turn_items_recovery_idx` verbatim so
-  SQLite uses it (a scan of every item costs ~0.5 s per poll at 600k items). When a hold ends after the activity window, the watcher
-  times `done` from the moment it saw running → done, so it still shows. Deliberate difference: the `auth_refresh` filter
-  runs in the request query, so such a request never hides an older approval.
+  non-persistent dynamic_tool turn item outside a rolled-back run, or (T3 ≥
+  0.1.0) a thread `pullRequests` link with a `watch` and a source other than
+  `stack-dismissed`; dev-server commands do not hold). That hold is a
+  single-query SQL equivalent of T3's shell read plus in-memory decode, not a
+  copy of its code; the only known difference is that it does not dedupe
+  roster vs item by task id. The turn-item lookup repeats the type/status
+  lists of T3's partial `turn_items_recovery_idx` verbatim so SQLite uses it
+  (a scan of every item costs ~0.5 s per poll at 600k items). The secret
+  lookup runs once per poll, not per thread, and repeats the status list of
+  T3's partial `runs_recovery_idx` (then drops `queued`) for the same reason.
+  When a hold ends after the activity window, the watcher times `done` from
+  the moment it saw running → done, so it still shows. Deliberate difference:
+  the `auth_refresh` filter runs in the request query, so such a request never
+  hides an older approval. A pending `auth_refresh` still suppresses the
+  secret fallback, as in T3: with only an `auth_refresh` and a waiting secret
+  the thread maps from its run status (`running`), not `waiting`.
   failed → `error`
   with the failed root error item's message, else the newest bound provider
   session's `lastError`; completed → `done`; idle / interrupted / cancelled /
@@ -792,9 +803,9 @@ markers still get reaped.
   reuses `modernc.org/sqlite` (already the server's only dependency), needs no
   credentials, works whether T3 runs as the desktop app or `t3 serve`, and is
   testable with synthesised fixtures. Its cost is coupling to internal
-  projection tables that churn (56 migrations): the queries are reduced copies
+  projection tables that churn (62 migrations by v0.1.0): the queries are reduced copies
   of T3's own shell queries, the newest verified migration per schema is
-  pinned (`pinnedMigrations`: v1 54, v2 56) and a newer one is logged once and
+  pinned (`pinnedMigrations`: v1 54, v2 62) and a newer one is logged once and
   still read, and a missing table or column is a soft failure (log once a
   minute, back off to 60 s, never post or delete on a bad read).
 
