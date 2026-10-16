@@ -97,3 +97,17 @@ private let w = KnobTheme.standard.weather
     #expect(old.still && old.valueColor(w) == w.stillColor)
     #expect(KnobTempFace(state: nil, now: now) == KnobTempFace(value: nil, still: true))
 }
+
+@Test func captionPartsSurviveAHugeServerTemperature() throws {
+    for (temp, text) in [("1e300", "99°"), ("-1e300", "\u{2212}99°"), ("-3.6", "\u{2212}4°")] {
+        let json = #"{"generated_at":"2026-09-26T10:30:00+02:00","enabled":true,"provider":"open-meteo","units":"metric","#
+            + #""current":{"fetched_at":"2026-09-26T10:26:00+02:00","stale":false,"condition":"clear","condition_code":"0","#
+            + #""severe":false,"temp_c":"# + temp + #","today_min_c":-1e300,"today_max_c":1e300,"hourly":[]}}"#
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        let state = try d.decode(WeatherState.self, from: Data(json.utf8))
+        let f = KnobTempFace(state: state, now: try #require(ISO8601DateFormatter().date(from: "2026-09-26T08:30:00Z")))
+        #expect(f.valueText() == text && !f.still && (f.sub == "Sunny" || f.sub == "Clear"))
+        #expect(f.lo == -99 && f.hi == 99)
+    }
+}

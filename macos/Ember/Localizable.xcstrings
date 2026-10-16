@@ -372,13 +372,13 @@
         }
       }
     },
-    "%@, %@. Out of date, so the knob shows it in grey." : {
+    "%@, %@. Out of date, so the knob shows the temperature in grey." : {
       "comment" : "Knob weather preview: condition and temperature (\"Rain, 14°\") of a stale observation.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$@, %2$@. Out of date, so the knob shows it in grey."
+            "value" : "%1$@, %2$@. Out of date, so the knob shows the temperature in grey."
           }
         }
       }
@@ -844,7 +844,6 @@
     "Claude hooks are paused (~/.config/ember/claude-hooks.disabled), so Claude Code sessions don't report." : {},
     "Claude hooks are registered twice, by the ember@ember plugin and in settings.json, so every event is sent twice." : {},
     "Clear" : {},
-    "Clear night" : {},
     "Clear this failed update." : {},
     "Clock" : {},
     "Clock Agent Settings…" : {},
@@ -1785,7 +1784,6 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "Partly cloudy" : {},
     "Password" : {},
     "Pause" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
