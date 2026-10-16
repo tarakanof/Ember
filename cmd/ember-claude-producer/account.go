@@ -118,7 +118,13 @@ type markerAccount struct {
 	UsageAccountKey     string `json:"usage_account_key,omitempty"`
 	UsagePlan           string `json:"usage_plan,omitempty"`
 	UsageAccountSig     string `json:"usage_account_sig,omitempty"`
-	UsageAccountPending bool   `json:"usage_account_pending,omitempty"`
+	UsageAccountPending int64  `json:"usage_account_pending_token,omitempty"`
+
+	UsageAccountLegacyPending bool `json:"usage_account_pending,omitempty"`
+}
+
+func (m markerAccount) pending() bool {
+	return m.UsageAccountPending != 0 || m.UsageAccountLegacyPending
 }
 
 func (m markerAccount) account() claudeAccount {

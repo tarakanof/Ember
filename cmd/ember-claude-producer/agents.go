@@ -342,6 +342,7 @@ func hookView(body []byte) ([]byte, marker, bool) {
 	v.RateResetLabel, v.RateWeekResetLabel = "", ""
 	v.StatuslineChangedMs, v.StatuslineAt = 0, 0
 	v.WaitConfirmedAt = 0
+	v.UsageAccountPending, v.UsageAccountLegacyPending = 0, false
 	b, err := json.Marshal(v)
 	if err != nil {
 		return nil, m, false

@@ -514,7 +514,9 @@ nothing. `ember-*-producer discover` finds and caches the server on demand. From
 `~/.config/systemd/user/ember-{claude,codex,t3}-producer.service`
 (`ExecStart=<binary> run`, `Restart=always`, `Nice=10`), then
 `systemctl --user daemon-reload`, `enable`, `restart` (so a rebuilt binary takes
-over). `uninstall` runs `disable --now`, removes the unit and reloads. `doctor`
+over). A binary replaced without `install` (a bare `go install`) leaves the old
+daemon running: restart it, since an old daemon drops marker fields a newer
+statusline writes (the Claude account's pending token). `uninstall` runs `disable --now`, removes the unit and reloads. `doctor`
 shows `is-active`/`is-enabled` and the linger state. User units stop when your
 last session ends: on a box you SSH into, run `sudo loginctl enable-linger
 $USER` once so they start at boot and keep running. No user bus (a container,

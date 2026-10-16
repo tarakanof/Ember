@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -172,7 +173,7 @@ func enrichAs(t *testing.T, h *usageRelayHarness, configDir, session string, fiv
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	defer t.Setenv("CLAUDE_CONFIG_DIR", "")
 	week := 10
-	if err := enrichMarker(h.sessionsDir(), session, &fiveHour, nil, nil, "", &week, nil, "", sessionClaudeAccount); err != nil {
+	if err := enrichMarker(h.sessionsDir(), session, &fiveHour, nil, nil, "", &week, nil, "", func(a markerAccount) (markerAccount, bool) { return sessionClaudeAccount(a), true }); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -586,13 +587,13 @@ func TestStatuslineWritesTheMarkerBeforeParsingTheAccount(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	done := renderAsync(statuslineWithFiveHour(t, "s", 55))
 	fifo.waitReader(t, "the render")
-	if m := markerAt(t, mp); m.RateWindowPct == nil || *m.RateWindowPct != 55 || m.UsageAccountKey != "" || !m.UsageAccountPending {
+	if m := markerAt(t, mp); m.RateWindowPct == nil || *m.RateWindowPct != 55 || m.UsageAccountKey != "" || m.UsageAccountPending == 0 {
 		t.Fatalf("marker during the parse = pct %v key %q pending %v, want the figures written and the account pending",
 			m.RateWindowPct, m.UsageAccountKey, m.UsageAccountPending)
 	}
 	fifo.answer(t, fakeWorkClaudeJSON)
 	waitDone(t, done, "the render")
-	if m := markerAt(t, mp); m.UsageAccountKey != workKey || m.UsagePlan != "team" || m.UsageAccountSig == "" || m.UsageAccountPending {
+	if m := markerAt(t, mp); m.UsageAccountKey != workKey || m.UsagePlan != "team" || m.UsageAccountSig == "" || m.UsageAccountPending != 0 {
 		t.Fatalf("marker account = %q plan %q pending %v, want the parsed account and no pending flag", m.UsageAccountKey, m.UsagePlan, m.UsageAccountPending)
 	}
 }
@@ -674,5 +675,148 @@ func TestStatuslineSkipsTheAccountRewriteWhenTheConfigIsUnchanged(t *testing.T) 
 	_ = json.Unmarshal(raw, &m)
 	if m.UsageAccountKey != personalKey || *m.RateWindowPct != 31 {
 		t.Fatalf("marker = key %q pct %v, want the carried-over account and the new figure", m.UsageAccountKey, m.RateWindowPct)
+	}
+}
+
+func TestStatuslineOlderRenderKeepsANewerRendersPendingToken(t *testing.T) {
+	resetClaudeAccountCache(t)
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	cfgDir := filepath.Join(h.home, ".claude-alt")
+	writeClaudeJSON(t, cfgDir, fakeClaudeJSON)
+	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	mp := writeMarkerFile(t, h.sessionsDir(), "s", "")
+	enrichFromStatusline(statuslineWithFiveHour(t, "s", 20), nil)
+	fifo := makeConfigFIFO(t, cfgDir)
+	done := renderAsync(statuslineWithFiveHour(t, "s", 50))
+	fifo.waitReader(t, "the older render")
+	var carried markerAccount
+	var token int64
+	if err := enrichMarker(h.sessionsDir(), "s", ratePtr(90), nil, nil, "", nil, nil, "", pendIfConfigMoved(&carried, &token)); err != nil {
+		t.Fatal(err)
+	}
+	if token == 0 {
+		t.Fatal("the newer render did not set a pending token")
+	}
+	fifo.answer(t, fakeClaudeJSON)
+	waitDone(t, done, "the older render")
+	if m := markerAt(t, mp); m.UsageAccountPending != token {
+		t.Fatalf("pending token = %d, want the newer render's %d kept", m.UsageAccountPending, token)
+	}
+	cfg, _ := loadConfig()
+	h.usageBodies = nil
+	dispatchTick(context.Background(), cfg)
+	for key, u := range relayed(t, h) {
+		if u.FiveHour != nil && u.FiveHour.UsedPercent == 90 {
+			t.Fatalf("relayed 90 under %q while the newer render's account was still being parsed", key)
+		}
+	}
+	if err := enrichMarker(h.sessionsDir(), "s", nil, nil, nil, "", nil, nil, "", settlePending(token, markerAccount{UsageAccountKey: workKey})); err != nil {
+		t.Fatal(err)
+	}
+	h.usageBodies = nil
+	dispatchTick(context.Background(), cfg)
+	if got := relayed(t, h); got[workKey].FiveHour == nil || got[workKey].FiveHour.UsedPercent != 90 || got[personalKey].FiveHour != nil {
+		t.Fatalf("relayed = %+v, want 90 under the work account only", got)
+	}
+}
+
+func rewriteMarkerFields(t *testing.T, path string, fields map[string]any) {
+	t.Helper()
+	raw, err := readMarker(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range fields {
+		m[k] = v
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMarker(path, out); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStatuslineLegacyPendingFlagHoldsTheSnapshotUntilARenderSettles(t *testing.T) {
+	resetClaudeAccountCache(t)
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	cfgDir := filepath.Join(h.home, ".claude-alt")
+	writeClaudeJSON(t, cfgDir, fakeClaudeJSON)
+	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	mp := writeMarkerFile(t, h.sessionsDir(), "s", "")
+	enrichFromStatusline(statuslineWithFiveHour(t, "s", 20), nil)
+	rewriteMarkerFields(t, mp, map[string]any{"usage_account_pending": true, "rate_window_pct": 90})
+	cfg, _ := loadConfig()
+	h.usageBodies = nil
+	dispatchTick(context.Background(), cfg)
+	for key, u := range relayed(t, h) {
+		if u.FiveHour != nil && u.FiveHour.UsedPercent == 90 {
+			t.Fatalf("relayed 90 under %q while a pre-upgrade render still held the account pending", key)
+		}
+	}
+	enrichFromStatusline(statuslineWithFiveHour(t, "s", 91), nil)
+	if m := markerAt(t, mp); m.pending() || m.UsageAccountKey != personalKey {
+		t.Fatalf("marker = key %q token %d legacy %v, want the account re-parsed and settled",
+			m.UsageAccountKey, m.UsageAccountPending, m.UsageAccountLegacyPending)
+	}
+	h.usageBodies = nil
+	dispatchTick(context.Background(), cfg)
+	if got := relayed(t, h); got[personalKey].FiveHour == nil || got[personalKey].FiveHour.UsedPercent != 91 {
+		t.Fatalf("relayed = %+v, want 91 under the settled account", got)
+	}
+}
+
+func TestStatuslineMismatchedSettleLeavesTheMarkerUntouched(t *testing.T) {
+	home := t.TempDir()
+	sessions := filepath.Join(home, "sessions")
+	aged := time.Now().Add(-11 * time.Minute).Unix()
+	mp := writeMarkerFile(t, sessions, "s", fmt.Sprintf(`,"rate_window_pct":40,"statusline_at":%d,"usage_account_key":%q,"usage_account_pending_token":5`, aged, personalKey))
+	before, err := readMarker(mp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enrichMarker(sessions, "s", nil, nil, nil, "", nil, nil, "", settlePending(4, markerAccount{UsageAccountKey: workKey})); err != nil {
+		t.Fatal(err)
+	}
+	after, err := readMarker(mp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("a stale render's settle rewrote the marker:\n%s\nwant it untouched:\n%s", after, before)
+	}
+}
+
+func TestStatuslinePendingTokenStaysAboveTheTokenItReplaces(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	sessions := filepath.Join(home, "sessions")
+	ahead := time.Now().Add(time.Hour).UnixNano()
+	mp := writeMarkerFile(t, sessions, "s", fmt.Sprintf(`,"usage_account_pending_token":%d`, ahead))
+	var carried markerAccount
+	var token int64
+	if err := enrichMarker(sessions, "s", ratePtr(30), nil, nil, "", nil, nil, "", pendIfConfigMoved(&carried, &token)); err != nil {
+		t.Fatal(err)
+	}
+	if token != ahead+1 || markerAt(t, mp).UsageAccountPending != token {
+		t.Fatalf("token = %d (marker %d), want %d: one above the token it replaces", token, markerAt(t, mp).UsageAccountPending, ahead+1)
+	}
+}
+
+func TestHookViewIgnoresThePendingToken(t *testing.T) {
+	a := `{"source":"test-mbp","tool":"claude","session":"s","state":"running","usage_account_pending_token":1}`
+	b := `{"source":"test-mbp","tool":"claude","session":"s","state":"running","usage_account_pending_token":2,"usage_account_pending":true}`
+	va, _, okA := hookView([]byte(a))
+	vb, _, okB := hookView([]byte(b))
+	if !okA || !okB || !bytes.Equal(va, vb) {
+		t.Fatalf("hook views differ on the pending token alone:\n%s\n%s", va, vb)
 	}
 }

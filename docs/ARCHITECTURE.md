@@ -4723,35 +4723,53 @@ add `account_key` and `plan` to `POST /v1/usage`:
   any) in the background and meanwhile writes the marker twice (#543).
   The first write stores the figures with the carried-over account; under
   the marker lock it also stats the config, and if the mtime or size
-  moved it sets `usage_account_pending`. Only then is the config parsed,
-  outside the lock, and a second write stores the new account and clears
-  the flag. It prints once both are done: a render takes the longer of
-  the two, a multi-MB `~/.claude.json` never holds the lock the daemon
-  and hooks wait on, and neither a slow parse nor a slow wrapped command
-  that Claude Code cancels on the next update can keep the figures from
-  being written. The account can lag behind the figures: while the flag
-  is set (the parse is running, or Claude Code cancelled it) the daemon
-  doesn't relay that marker's snapshot, so after a `/login` the new
-  login's figures never go out under the old key; the next render that
-  finishes its parse releases them. The daemon's tick never reads the
-  config; only the 5-min endpoint poll does, through a cache keyed by
-  path, mtime and size (#539). An unchanged render rewrites the marker
-  once a minute, judged by `statusline_at` (hooks carry it over and bump
-  the file's mtime, so the mtime can't tell). The daemon relays the
-  freshest snapshot per account, each under its marker's key; a marker
-  without one is posted keyless, never under the daemon's account. A
-  marker written before the upgrade (no account fields at all) is taken
-  to be from the daemon's config dir and left out once a keyed marker from
-  that dir exists, so an upgrade doesn't show an extra fresh "Claude"
-  account. A session whose config file is missing records its path with
-  `|-|-` for mtime and size, so it isn't taken for a pre-upgrade marker
-  and stays posted keyless. A marker whose last render (`statusline_at`, else its mtime) is
-  over 10 min old isn't relayed, so a dead session on an old login can't
-  pass its old numbers off as fresh. The
-  5-min endpoint poll reads the daemon's account before the fetch and
-  drops the response if it changed by the time the fetch returns; its
-  per-model windows are cached per account and joined only to that
-  account's statusline posts. Codex:
+  moved, or a token is already set, it sets a new pending token
+  (`usage_account_pending_token`: the write's `UnixNano`, kept above any
+  token it replaces). Only then is the config parsed, outside the lock,
+  and a second write, under the lock again, stores the new account and
+  clears the token only if the marker still holds this render's token. If
+  a newer render has set its own, the second write skips the marker
+  entirely (not even `statusline_at` moves, so a stalled render can't make
+  expired figures fresh again): that render parses a config at least as
+  new and settles it. It prints once both are done: a render takes the
+  longer of the two, a multi-MB `~/.claude.json` never holds the lock the
+  daemon and hooks wait on, and neither a slow parse nor a slow wrapped
+  command that Claude Code cancels on the next update can keep the figures
+  from being written. The account can lag behind the figures: while a
+  token is set the daemon doesn't relay that marker's snapshot. Only the
+  render holding the current token clears it, and that render's write 1
+  came after every earlier render's. So a snapshot is relayed only under
+  an account parsed from the config as it stood at its figures' write 1 or
+  later: once `/login` has moved the config, the new login's figures don't
+  go out under the old key. The token has no time bound: it stays set
+  until a render's second write lands (every later render re-parses while
+  it is set), so a session whose renders are all cancelled relays no
+  statusline snapshot. The 5-min endpoint poll still covers the daemon's
+  account meanwhile, and status POSTs still carry `rate_window_pct`. The
+  agents watcher's view ignores the token, so re-minting it on each render
+  doesn't restart its debounce. A marker from before the token
+  (`usage_account_pending: true`) counts as pending, and the next render
+  converts it to a token. An old daemon still running after an upgrade
+  doesn't know the token and drops it when it rewrites a marker, so
+  restart the producers after upgrading (the app does, and so does
+  `install` on Linux). The daemon's tick never reads the config; only the
+  5-min endpoint poll does, through a cache keyed by path, mtime and size
+  (#539). An unchanged render rewrites the marker once a minute, judged by
+  `statusline_at` (hooks carry it over and bump the file's mtime, so the
+  mtime can't tell). The daemon relays the freshest snapshot per account,
+  each under its marker's key; a marker without one is posted keyless,
+  never under the daemon's account. A marker written before the upgrade
+  (no account fields at all) is taken to be from the daemon's config dir
+  and left out once a keyed marker from that dir exists, so an upgrade
+  doesn't show an extra fresh "Claude" account. A session whose config
+  file is missing records its path with `|-|-` for mtime and size, so it
+  isn't taken for a pre-upgrade marker and stays posted keyless. A marker
+  whose last render (`statusline_at`, else its mtime) is over 10 min old
+  isn't relayed, so a dead session on an old login can't pass its old
+  numbers off as fresh. The 5-min endpoint poll reads the daemon's account
+  before the fetch and drops the response if it changed by the time the
+  fetch returns; its per-model windows are cached per account and joined
+  only to that account's statusline posts. Codex:
   `$CODEX_HOME/auth.json` `tokens.account_id` (else the id_token's
   `chatgpt_account_id`), plus `chatgpt_user_id` for the workspace plans
   `team`, `business`, `enterprise` and `edu`, where the account id is the
@@ -4785,11 +4803,12 @@ add `account_key` and `plan` to `POST /v1/usage`:
   start is the `session_meta` timestamp, moved to a later line in two cases.
   `codex resume` appends to the old rollout and writes no new `session_meta`
   or other marker, so: the first line after no rollout line for 30 min or
-  more; and the first turn start (`task_started`; `user_message` only while
-  the rollout has shown no `task_started`, for Codex before 0.100, which
-  doesn't persist it, since newer Codex also writes `user_message` for a
-  mid-turn steer) after two consecutive lines whose gap holds an era start,
-  with no `token_count`, `task_complete` or `turn_aborted` in between. That
+  more; and the first turn start after two consecutive lines whose gap
+  holds an era start, with no `token_count`, `task_complete` or
+  `turn_aborted` in between. A turn start is `task_started`. Codex before
+  0.100 doesn't persist `task_started`, so `user_message` also counts, but
+  only on a rollout with no `task_started`: newer Codex also writes
+  `user_message` for a mid-turn steer. The turn-start rule
   covers a resume right after a switch: a resumed process writes none of
   those before its first turn, while a process still running on the old
   login does, so it stays unbound. A rate line or `session_meta` with no

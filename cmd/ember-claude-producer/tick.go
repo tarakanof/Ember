@@ -208,7 +208,7 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 	if m.StatuslineAt != 0 {
 		seenAt = time.Unix(m.StatuslineAt, 0)
 	}
-	if (req.RateWindowPct != nil || req.RateWeekPct != nil) && time.Since(seenAt) <= statuslineUsageMaxAge && !m.UsageAccountPending {
+	if (req.RateWindowPct != nil || req.RateWeekPct != nil) && time.Since(seenAt) <= statuslineUsageMaxAge && !m.markerAccount.pending() {
 		snap = &statuslineUsageSnapshot{
 			fiveHourPct:        req.RateWindowPct,
 			fiveHourResetAt:    req.RateResetAt,
