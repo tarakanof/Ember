@@ -106,7 +106,8 @@ public final class SettingsModels {
         async let e: Void = quiet.load()
         async let f: Void = display.load()
         async let g: Void = controls.load()
-        _ = await (a, b, c, d, e, f, g)
+        async let h: Void = usageAccounts.load()
+        _ = await (a, b, c, d, e, f, g, h)
     }
 
     public func clockMark() -> ClockLegacyMark {

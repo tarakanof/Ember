@@ -14,10 +14,11 @@ struct UsageAccountsSection: View {
             }
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 UsageAccountRowView(row: row,
-                                    rename: { name in model.draft.rename(row.id, to: name) },
+                                    rename: { name in
+                                        model.draft.rename(row.id, to: name)
+                                        model.scheduleSave()
+                                    },
                                     setHidden: { hidden in model.draft.setHidden(row.id, hidden) })
-                    .contentShape(Rectangle())
-                    .draggable(UsageAccountDrag(id: row.id))
                     .reorderDrop(UsageAccountDrag.self) { drop in model.draft.move(drop.id, to: row.id) }
                     .contextMenu {
                         Button("Move Up") { model.draft.move(row.id, by: -1) }.disabled(index == 0)
@@ -31,7 +32,7 @@ struct UsageAccountsSection: View {
         } header: {
             Text("Accounts")
         } footer: {
-            SectionFooter(text: "The knob shows one usage screen per account, in this order. Clear a name to use the default. Drag to reorder, or Control-click an account. Server-wide.",
+            SectionFooter(text: "The knob shows one usage screen per account, in this order. Clear a name to use the default. Drag a row by its handle to reorder, or Control-click it. Server-wide.",
                           error: model.saveError ?? (model.isLoaded ? nil : model.loadError))
         }
         .disabled(!model.isLoaded)
@@ -56,6 +57,8 @@ private struct UsageAccountRowView: View {
                     .foregroundStyle(row.hidden ? .secondary : .primary)
                     .focused($focused)
                     .onSubmit(commit)
+                    .accessibilityLabel(Text("Name of \(row.displayName)",
+                                             comment: "Settings › Agents › Accounts: accessibility label of an account's name field; the name is the account's."))
                 detail
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -71,12 +74,16 @@ private struct UsageAccountRowView: View {
             .help("Show on the knob")
             Image(systemName: "line.3.horizontal")
                 .foregroundStyle(.tertiary)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+                .draggable(UsageAccountDrag(id: row.id))
                 .accessibilityHidden(true)
                 .help("Drag to reorder")
         }
         .onAppear { name = row.customName }
         .onChange(of: row.customName) { _, new in if !focused { name = new } }
         .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
+        .onDisappear(perform: commit)
     }
 
     private func commit() {
@@ -84,20 +91,28 @@ private struct UsageAccountRowView: View {
         rename(name)
     }
 
-    private var detail: some View {
-        HStack(spacing: 0) {
-            if let plan = row.planLabel { Text(verbatim: plan + " · ") }
-            if let seen = row.updatedAt {
-                if row.stale {
-                    Text("Stale, updated \(Text(seen, format: .relative(presentation: .named)))",
-                         comment: "Settings › Agents › Accounts: no usage report for 10 min; the time is relative, e.g. \"2 hours ago\".")
-                } else {
-                    Text("Updated \(Text(seen, format: .relative(presentation: .named)))",
-                         comment: "Settings › Agents › Accounts: the last usage report; the time is relative, e.g. \"5 min ago\".")
-                }
-            } else {
-                Text("No usage reported yet")
-            }
+    private var detail: Text {
+        let plan = row.planLabel
+        guard let seen = row.updatedAt else {
+            return plan.map {
+                Text("\($0) · No usage reported yet",
+                     comment: "Settings › Agents › Accounts: the plan as the server and knob name it (\"Max\", \"Pro\"; not translated), and no usage report yet.")
+            } ?? Text("No usage reported yet")
+        }
+        let when = Text(seen, format: .relative(presentation: .named))
+        switch (plan, row.stale) {
+        case (let plan?, true):
+            return Text("\(plan) · Stale, updated \(when)",
+                        comment: "Settings › Agents › Accounts: the plan as the server and knob name it (\"Max\"; not translated), then no usage report for 10 min; the time is relative (\"2 hours ago\").")
+        case (let plan?, false):
+            return Text("\(plan) · Updated \(when)",
+                        comment: "Settings › Agents › Accounts: the plan as the server and knob name it (\"Max\"; not translated), then the last usage report; the time is relative (\"5 min ago\").")
+        case (nil, true):
+            return Text("Stale, updated \(when)",
+                        comment: "Settings › Agents › Accounts: no usage report for 10 min; the time is relative, e.g. \"2 hours ago\".")
+        case (nil, false):
+            return Text("Updated \(when)",
+                        comment: "Settings › Agents › Accounts: the last usage report; the time is relative, e.g. \"5 min ago\".")
         }
     }
 }

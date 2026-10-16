@@ -67,8 +67,16 @@ public struct UsageAccountRow: Sendable, Equatable, Identifiable {
     }
 
     public func normalizedName(_ name: String) -> String {
-        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maxNameLength))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var scalars = String.UnicodeScalarView()
+        scalars.append(contentsOf: name.unicodeScalars.filter { $0.properties.generalCategory != .control })
+        var kept = ""
+        var count = 0
+        for character in String(scalars).trimmingCharacters(in: .whitespacesAndNewlines) {
+            count += character.unicodeScalars.count
+            if count > Self.maxNameLength { break }
+            kept.append(character)
+        }
+        let trimmed = kept.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed == defaultName ? "" : trimmed
     }
 
@@ -139,18 +147,36 @@ public struct UsageAccounts: Sendable, Equatable {
     }
 
     @MainActor public static func model(client: APIClient) -> ConfigModel<UsageAccounts> {
-        let model = ConfigModel<UsageAccounts>(
+        ConfigModel<UsageAccounts>(
             initial: UsageAccounts(),
             load: { UsageAccounts(try await client.get(path) as UsageAccountList) },
-            saveChange: { value, previous in
-                let body = value.changes(since: previous)
-                guard !body.isEmpty else { return }
-                try await client.put(path, body: body)
-            },
+            saveReturning: { value, previous in try await save(value, previous: previous, client: client) },
             debounce: .milliseconds(300), savedHold: .seconds(2), sleep: { try await Task.sleep(for: $0) })
-        model.onSaved = { [weak model] _, _ in
-            Task { await model?.load() }
+    }
+
+    private static func save(_ value: UsageAccounts, previous: UsageAccounts?,
+                             client: APIClient) async throws -> UsageAccounts? {
+        let listed = Set((previous ?? value).rows.map(\.id))
+        let body = value.changes(since: previous).filter { listed.contains($0.key) }
+        guard !body.isEmpty else { return nil }
+        do {
+            return try await put(body, client: client)
+        } catch let error as APIError {
+            guard case .http(let status, _) = error, status == 400 || status == 403 else { throw error }
+            let fresh = try? await client.get(path) as UsageAccountList
+            let current = fresh.map(UsageAccounts.init) ?? previous ?? UsageAccounts()
+            if status == 400, fresh != nil {
+                let live = Set(current.rows.map(\.id))
+                let retry = body.filter { live.contains($0.key) }
+                if !retry.isEmpty, retry.count < body.count, let reply = try? await put(retry, client: client) {
+                    return reply
+                }
+            }
+            throw SaveRecovered(current: current, cause: FeedError(error)) { _, _ in current }
         }
-        return model
+    }
+
+    private static func put(_ body: [String: UsageAccountPrefs?], client: APIClient) async throws -> UsageAccounts {
+        UsageAccounts(try await client.request("PUT", path, body: body) as UsageAccountList)
     }
 }

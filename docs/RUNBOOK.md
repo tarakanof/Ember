@@ -1115,10 +1115,11 @@ Ember.app lists every Claude and Codex account the server saw in the last 7
 days (`GET /v1/usage/accounts`): its mark, plan, name, a switch to show it on
 the knob and when it last reported ("Stale" after 10 min without one). Edit
 the name and press Return or leave the field; clear it to get the default
-back ("Max", "Max 2"). Drag rows, or Control-click › Move Up/Down, to set the
-knob's screen order. Changes save at once through `PUT /v1/usage/accounts`,
-which needs the master token: an app on a client token shows the 403 under
-the section (an `admin` token can still read the list). Hiding only
+back ("Max", "Max 2"); names are capped at 24 code points. Drag a row by its
+handle, or Control-click › Move Up/Down, to set the knob's screen order.
+Changes save at once through `PUT /v1/usage/accounts`, which needs the master
+token: on an `admin` client token the list loads, but an edit snaps back to
+the server's list with the 403 under the section. Hiding only
 affects the knob; the clock keeps one usage card per tool.
 
 **5h limit-reset alarm.** When a tool's 5h window reaches ≥99.5% with a known

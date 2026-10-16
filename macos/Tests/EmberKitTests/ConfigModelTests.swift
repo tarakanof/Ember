@@ -375,6 +375,7 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
     #expect(Set(seen.paths) == [
         "GET /v1/pomodoro/config", "GET /v1/weather/config", "GET /v1/meetings/config",
         "GET /v1/usage/config", "GET /v1/quiet/config", "GET /v1/display/config", "GET /v1/controls/config",
+        "GET /v1/usage/accounts",
     ])
     s.pomodoro.draft.focusMinutes = 30
     await s.pomodoro.saveNow()
