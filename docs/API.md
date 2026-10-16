@@ -64,8 +64,8 @@ server logs),
 (channel; 409 while targeted, indexed or not, unless the target is parked
 after that version failed or rolled back; DELETE removes the version's
 directory and any `.old-<version>-*` copy a replace left, also when the store
-does not index it (404); once they are gone it drops the version from every
-knob's OTA `blocked` list, which the OTA `available` field skips, and
+does not index it (404); once they are renamed away it drops the version from
+every knob's OTA `blocked` list, which the OTA `available` field skips, and
 makes every knob outside an active attempt forget it (a target naming it
 cleared, a record whose last attempt it was reset unless done; eviction
 does the same), so no Retry points at a missing image; a removal

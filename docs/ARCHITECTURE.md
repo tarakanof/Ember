@@ -3877,10 +3877,12 @@ hex, the knob's `fw_build`). A new version is written into a
 `.tmp-<version>-*` directory and renamed into place; a replace moves the
 old directory aside to `.old-<version>-*` first and deletes it after the
 rename, so a failed write keeps the old version, and a crash between the
-two renames is undone at boot (an `.old-` directory whose version is
-missing is moved back). If the new directory cannot be moved in, the old
-one is moved back; if that fails too, the version leaves the index until
-boot restores it. Once the new directory is in place the replace is done
+two renames is undone at boot (invalid version dirs are swept first,
+then an `.old-` directory whose version is missing is moved back and
+loaded; while an invalid `<version>/` cannot be removed, the aside is
+kept). If the new directory cannot be moved in, the old one is moved
+back; if that fails too, the version leaves the index until boot
+restores it. Once the new directory is in place the replace is done
 (index, SHA and unblock follow it, also on a retry after such a hidden
 version) even if deleting the `.old-` copy fails: the upload answers 201,
 the server logs the leftover, and boot deletes it. A DELETE, an eviction
@@ -3890,14 +3892,16 @@ first and `<version>/` last, and stop at the first rename that fails. A
 failed rename has touched nothing: an indexed version stays indexed,
 whole and blocked, and the call can be retried. Once `<version>/` is
 renamed away the version is gone (index entry dropped, block cleared)
-and the retired dirs are deleted best effort; a leftover is logged and
-swept at boot, which never restores a `.tmp-` dir. So the index never
-holds a half-removed version, and a failure never leaves the pre-replace
-bytes as the only copy for boot to restore without their block. A
-dev-seed build (cinder's local default with
-`sdkconfig.secrets`) has the Wi-Fi password and the master token compiled
-in, so an image or ELF containing the server's own `EMBER_TOKEN` or the
-marker `CINDER-DEV-SEED-BUILD` is refused (`dev_seed_build`); the ELF is
+and the retired dirs are deleted best effort; a leftover is logged,
+retried each time the store next deletes a dir, and swept at boot, which
+never restores a `.tmp-` dir. Until it is gone the doctor's `bytes`
+counts it, since it still takes disk. So the index never holds a
+half-removed version, and a failure never leaves the pre-replace bytes
+as the only copy for boot to restore without their block. A dev-seed
+build (cinder's local default with `sdkconfig.secrets`) has the Wi-Fi
+password and the master token compiled in, so an image or ELF
+containing the server's own `EMBER_TOKEN` or the marker
+`CINDER-DEV-SEED-BUILD` is refused (`dev_seed_build`); the ELF is
 streamed to a temp file through SHA-256 and the same scanner (a needle
 split across reads is still found). The ELF is stored only when its
 SHA-256 equals `app_elf_sha256` (`elf_mismatch`). Same version, same bytes:
@@ -3920,8 +3924,8 @@ knob's list when it is replaced with `?replace=1`, evicted by retention or
 deleted (204, or 404 for a stale entry, whose leftover `<version>` or
 `.old-<version>-*` directories are removed first; 409 for a knob's
 target either way, unless that target is parked after the version failed
-or rolled back), only once its files are gone, and under the store
-lock so no upload or block can slip in between), `phase`, `error`,
+or rolled back), only once `<version>/` is renamed away, and under the
+store lock so no upload or block can slip in between), `phase`, `error`,
 `from`, and the offered `version`/`build`/`size`/`auto`, the `attempt`
 id and `started_at`/`finished_at`. It is
 written only when it changes (never per progress tick): the checkin
