@@ -132,6 +132,12 @@ func legacyUnicastBrowse(ctx context.Context) ([]EmberServer, error) {
 	if !ok {
 		deadline = time.Now().Add(3 * time.Second)
 	}
+	return readEmberReplies(ctx, conn, deadline, ids, send)
+}
+
+func readEmberReplies(ctx context.Context, conn *net.UDPConn, deadline time.Time, ids map[uint16]bool, send func(name string, qtype uint16)) ([]EmberServer, error) {
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetReadDeadline(time.Now()) })
+	defer stop()
 	resend := time.Now().Add(time.Second)
 	var msgs []*dns.Msg
 	askedA := map[string]bool{}
@@ -142,10 +148,13 @@ func legacyUnicastBrowse(ctx context.Context) ([]EmberServer, error) {
 			next = resend
 		}
 		_ = conn.SetReadDeadline(next)
+		if ctx.Err() != nil {
+			break
+		}
 		n, _, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				if !resend.IsZero() && time.Now().Before(deadline) {
+				if ctx.Err() == nil && !resend.IsZero() && time.Now().Before(deadline) {
 					send(emberBrowseName, dns.TypePTR)
 					resend = time.Time{}
 					continue

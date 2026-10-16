@@ -244,3 +244,19 @@ func TestRediscoverClock_RecordsSupersededWhenTheURLMovedDuringBrowse(t *testing
 		t.Fatalf("lastRediscoverResult=%v want superseded", got)
 	}
 }
+
+func TestRediscoverClock_RecordsReachableWhenTheURLMovedToTheDiscoveredClock(t *testing.T) {
+	a := newTestApp(t)
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
+	a.lastRediscoverResult.Store("no-device")
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+		a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:11" })
+		return []discovery.Candidate{{BaseURL: "http://127.0.0.1:11/", UID: "u"}}, nil
+	}
+	if a.rediscoverClock(context.Background()) {
+		t.Fatal("a rediscovery whose URL moved during the browse must not swap")
+	}
+	if got := a.lastRediscoverResult.Load(); got != "reachable" {
+		t.Fatalf("lastRediscoverResult=%v want reachable: the clock already sits at the discovered URL", got)
+	}
+}

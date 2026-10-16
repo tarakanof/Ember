@@ -277,6 +277,9 @@ func WaitForServer(ctx context.Context, a *AutoServer, logf func(err error, retr
 		if err == nil {
 			return u, nil
 		}
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		if logf != nil {
 			logf(err, backoff)
 		}

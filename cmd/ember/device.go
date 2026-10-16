@@ -85,6 +85,10 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 		return false
 	}
 	if !a.swapDiscoveredClock(cur, base) {
+		if sameDeviceURL(base, a.cfg.Load().effectiveClockURL()) {
+			a.lastRediscoverResult.Store("reachable")
+			return false
+		}
 		a.lastRediscoverResult.Store("superseded")
 		a.logger.Info("clock discovery result dropped: clock URL changed during the browse", "configured", cur, "discovered", base)
 		return false

@@ -399,7 +399,6 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 		now := hookNow()
 		old := m.markerAccount
 		next := account(old)
-		m.UsageAccountKey, m.UsagePlan = next.UsageAccountKey, next.UsagePlan
 		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) {
 			if now.Sub(time.Unix(m.StatuslineAt, 0)) < statuslineRefresh && next == old {
 				return nil

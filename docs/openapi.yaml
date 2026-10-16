@@ -3409,6 +3409,9 @@ paths:
       tags: [clock]
       operationId: clockDiscover
       summary: Find awtrix-ng clocks on the LAN
+      description: Browses mDNS for 3 s, then UDP for 3 s if mDNS found
+        nothing, then probes each reply for up to 1.5 s (about 7.5 s at
+        worst). A client that hangs up mid-browse gets no response.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
@@ -3418,6 +3421,19 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "502":
+          description: The browse failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: The clock is disabled (`EMBER_CLOCK=off`, code
+            `clock_disabled`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/device/config:
     get:
       tags: [clock]

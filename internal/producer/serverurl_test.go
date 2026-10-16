@@ -348,3 +348,18 @@ func TestAutoServerReportDoesNotBlockOnBrowse(t *testing.T) {
 		t.Fatalf("URL = %s after the browse, want %s", a.URL(), srvB.URL)
 	}
 }
+
+func TestWaitForServerDoesNotLogABrowseCutShortByShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	browse := func(ctx context.Context, _ time.Duration) ([]DiscoveredServer, error) {
+		cancel()
+		return nil, ctx.Err()
+	}
+	a := NewAutoServer(&ServerLocator{Browse: browse}, "")
+	logged := 0
+	_, err := WaitForServer(ctx, a, func(error, time.Duration) { logged++ })
+	if !errors.Is(err, context.Canceled) || logged != 0 {
+		t.Fatalf("WaitForServer = %v with %d log lines, want context.Canceled and none", err, logged)
+	}
+}

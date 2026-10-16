@@ -334,8 +334,9 @@ The aggregator and the only writer to the device.
     that needs candidates stubs `browseFn`. A cancelled browse has one
     outcome: `BrowseAWTRIX` (after mDNS, after the UDP find, after the
     probes) and `BrowseEmber` return `ctx.Err()` and no results, never a
-    partial list. The UDP read ends on cancel, so a shutdown or a client
-    hang-up never waits out the 3 s clock browse. `rediscoverClock` then
+    partial list. The UDP reads (the clock's `FIND_AWTRIXNG` and the
+    `_ember._tcp` legacy unicast query) end on cancel, so a shutdown or a
+    client hang-up never waits out a 3 s browse. `rediscoverClock` then
     records `cancelled`, not `no-device`, and `/v1/device/discover` writes
     no response to a client that went away.
   - **`systemLock`.** `/api/v1/system` holds Wi-Fi credentials, sensor offsets
@@ -4744,17 +4745,18 @@ add `account_key` and `plan` to `POST /v1/usage`:
   age doesn't make its figures look fresh. If the marker no longer holds
   this render's token (a newer render set its own, or already settled it),
   the second write skips the marker entirely: that render parsed, or is
-  parsing, a config at least as new. It prints once both are done: a render takes the
-  longer of the two, a multi-MB `~/.claude.json` never holds the lock the
-  daemon and hooks wait on, and neither a slow parse nor a slow wrapped
-  command that Claude Code cancels on the next update can keep the figures
-  from being written. The account can lag behind the figures: while a
-  token is set the daemon doesn't relay that marker's snapshot. Only the
-  render holding the current token clears it, and that render's write 1
-  came after every earlier render's. So a snapshot is relayed only under
-  an account parsed from the config as it stood at its figures' write 1 or
-  later: once `/login` has moved the config, the new login's figures don't
-  go out under the old key. The token has no time bound: it stays set
+  parsing, a config at least as new. It prints once both are done: a
+  render takes the longer of the two, a multi-MB `~/.claude.json` never
+  holds the lock the daemon and hooks wait on, and neither a slow parse
+  nor a slow wrapped command that Claude Code cancels on the next update
+  can keep the figures from being written. The account can lag behind
+  the figures: while a token is set the daemon doesn't relay that
+  marker's snapshot. Only the render holding the current token clears it,
+  and that render's write 1 came after every earlier render's. So a
+  snapshot is relayed only under an account parsed from the config as it
+  stood at its figures' write 1 or later: once `/login` has moved the
+  config, the new login's figures don't go out under the old key.
+  The token has no time bound: it stays set
   until a render's second write lands (every later render re-parses while
   it is set), so a session whose renders are all cancelled relays no
   statusline snapshot. The 5-min endpoint poll still covers the daemon's

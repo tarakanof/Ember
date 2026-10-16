@@ -174,7 +174,7 @@ func enrichAs(t *testing.T, h *usageRelayHarness, configDir, session string, fiv
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	defer t.Setenv("CLAUDE_CONFIG_DIR", "")
 	week := 10
-	if err := enrichMarker(h.sessionsDir(), session, &fiveHour, nil, nil, "", &week, nil, "", func(a markerAccount) markerAccount { return sessionClaudeAccount(a) }); err != nil {
+	if err := enrichMarker(h.sessionsDir(), session, &fiveHour, nil, nil, "", &week, nil, "", sessionClaudeAccount); err != nil {
 		t.Fatal(err)
 	}
 }

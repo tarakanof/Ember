@@ -145,3 +145,27 @@ func TestBrowseEmberReturnsCtxErrWhenCancelledMidBrowse(t *testing.T) {
 		t.Fatalf("browseEmber cancelled mid-browse = (%+v, %v), want (none, context.Canceled)", got, err)
 	}
 }
+
+func TestReadEmberRepliesStopsWhenContextCancelled(t *testing.T) {
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := readEmberReplies(ctx, conn, time.Now().Add(3*time.Second), map[uint16]bool{}, func(string, uint16) {})
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("readEmberReplies after cancel = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("readEmberReplies kept reading after ctx cancel")
+	}
+}
