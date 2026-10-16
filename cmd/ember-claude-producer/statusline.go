@@ -290,16 +290,19 @@ func enrichFromStatusline(in statuslineInput, env map[string]string) {
 	}
 	session := sanitizeSessionID(in.SessionID, in.Cwd)
 	var carried markerAccount
-	seen := false
+	pending := false
 	_ = enrichMarker(dir, session, ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel,
-		func(a markerAccount) markerAccount { carried, seen = a, true; return a })
-	if !seen {
+		func(a markerAccount) markerAccount {
+			carried = a
+			if _, sig := claudeConfigSig(); sig != a.UsageAccountSig || a.UsageAccountPending {
+				a.UsageAccountPending, pending = true, true
+			}
+			return a
+		})
+	if !pending {
 		return
 	}
 	next := sessionClaudeAccount(carried)
-	if next.UsageAccountSig == carried.UsageAccountSig {
-		return
-	}
 	_ = enrichMarker(dir, session, nil, nil, nil, "", nil, nil, "",
 		func(markerAccount) markerAccount { return next })
 }
@@ -343,17 +346,17 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 			m.RateWeekResetLabel = weekResetLabel
 		}
 		now := hookNow()
-		next, oldSig := account(m.markerAccount), m.UsageAccountSig
-		m.markerAccount = next
-		m.UsageAccountSig = oldSig
+		old := m.markerAccount
+		next := account(old)
+		m.UsageAccountKey, m.UsagePlan = next.UsageAccountKey, next.UsagePlan
 		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) {
-			if now.Sub(time.Unix(m.StatuslineAt, 0)) < statuslineRefresh && next.UsageAccountSig == oldSig {
+			if now.Sub(time.Unix(m.StatuslineAt, 0)) < statuslineRefresh && next == old {
 				return nil
 			}
 		} else {
 			m.StatuslineChangedMs = now.UnixMilli()
 		}
-		m.UsageAccountSig = next.UsageAccountSig
+		m.markerAccount = next
 		m.StatuslineAt = now.Unix()
 		out, err := json.Marshal(m)
 		if err != nil {

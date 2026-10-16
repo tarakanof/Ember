@@ -113,9 +113,10 @@ func (c *claudeAccountCache) current() claudeAccount {
 }
 
 type markerAccount struct {
-	UsageAccountKey string `json:"usage_account_key,omitempty"`
-	UsagePlan       string `json:"usage_plan,omitempty"`
-	UsageAccountSig string `json:"usage_account_sig,omitempty"`
+	UsageAccountKey     string `json:"usage_account_key,omitempty"`
+	UsagePlan           string `json:"usage_plan,omitempty"`
+	UsageAccountSig     string `json:"usage_account_sig,omitempty"`
+	UsageAccountPending bool   `json:"usage_account_pending,omitempty"`
 }
 
 func (m markerAccount) account() claudeAccount {

@@ -4715,19 +4715,24 @@ add `account_key` and `plan` to `POST /v1/usage`:
   into the session marker (`usage_account_key`, `usage_plan`, plus the
   config file's path, mtime and size so an unchanged file isn't re-parsed;
   hooks carry them over). It starts the wrapped status line command (if
-  any) in the background, meanwhile writes the marker's figures with the
-  carried-over account, then stats the config and, only when the mtime or
-  size moved, parses it outside the marker lock and rewrites the marker
-  with the new account (#543). It prints once both are done: a render
-  takes the longer of the two, a multi-MB `~/.claude.json` never holds
-  the lock the daemon and hooks wait on, and neither a slow parse nor a
-  slow wrapped command that Claude Code cancels on the next update can
-  keep the figures from being written. The daemon's tick never reads the
+  any) in the background and meanwhile writes the marker twice (#543).
+  The first write stores the figures with the carried-over account; under
+  the marker lock it also stats the config, and if the mtime or size
+  moved it sets `usage_account_pending`. Only then is the config parsed,
+  outside the lock, and a second write stores the new account and clears
+  the flag. It prints once both are done: a render takes the longer of
+  the two, a multi-MB `~/.claude.json` never holds the lock the daemon
+  and hooks wait on, and neither a slow parse nor a slow wrapped command
+  that Claude Code cancels on the next update can keep the figures from
+  being written. The account can lag behind the figures: while the flag
+  is set (the parse is running, or Claude Code cancelled it) the daemon
+  doesn't relay that marker's snapshot, so after a `/login` the new
+  login's figures never go out under the old key; the next render that
+  finishes its parse releases them. The daemon's tick never reads the
   config; only the 5-min endpoint poll does, through a cache keyed by
-  path, mtime and size (#539). An unchanged
-  render rewrites the marker once a minute, judged by `statusline_at`
-  (hooks carry it over and bump the file's mtime, so the mtime can't
-  tell). The daemon relays the
+  path, mtime and size (#539). An unchanged render rewrites the marker
+  once a minute, judged by `statusline_at` (hooks carry it over and bump
+  the file's mtime, so the mtime can't tell). The daemon relays the
   freshest snapshot per account, each under its marker's key; a marker
   without one is posted keyless, never under the daemon's account. A
   marker written before the upgrade (no account fields at all) is taken
