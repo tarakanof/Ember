@@ -3,8 +3,10 @@ import Foundation
 public enum ClockHealthReadout {
     public static let weakRSSI = -80
 
+    public static let disabledText: LocalizedStringResource = "Clock disabled on this server"
+
     public static func disabledNotice(_ health: Loadable<ClockHealth>) -> LocalizedStringResource? {
-        health.value?.isDisabled == true ? "Clock disabled on this server" : nil
+        health.value?.isDisabled == true ? disabledText : nil
     }
 
     public static func wifi(rssi: Int) -> (strength: Double, weak: Bool) {

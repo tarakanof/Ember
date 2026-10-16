@@ -15,3 +15,10 @@ import Testing
     let old = #"{"binary":"ember","revision":"6ad0339abc","dirty":true}"#
     #expect(try JSONDecoder().decode(VersionInfo.self, from: Data(old.utf8)).short == "ember @ 6ad0339-dirty")
 }
+
+@Test func versionInfoCarriesClockDisabledAndDefaultsToOn() throws {
+    let off = #"{"binary":"ember","version":"0.66.0","clock_disabled":true}"#
+    #expect(try JSONDecoder().decode(VersionInfo.self, from: Data(off.utf8)).isClockDisabled)
+    let old = #"{"binary":"ember","version":"0.65.0"}"#
+    #expect(try !JSONDecoder().decode(VersionInfo.self, from: Data(old.utf8)).isClockDisabled)
+}

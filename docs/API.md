@@ -40,7 +40,8 @@ only; a pre-#340 server also lists clients there, `kind: client`; each knob
 carries `effective_caps`, its reported or legacy capabilities, #341,
 DEVICE-PROTOCOL "Capabilities"),
 `GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340), `GET/PUT
-/v1/devices/{id}/config` (same merge; includes `quiet{calm, dim_level}` and
+/v1/devices/{id}/config` (same merge; includes `swipe_pages` (bool, default
+true), `quiet{calm, dim_level}` and
 `display{fast_link, rotation 0|90|180|270}`;
 a knob that reported `caps` gets a 400 for turning on a page outside them,
 a `display.rotation` outside `caps.rotations` or a config over its `config_bytes`; for the
@@ -64,8 +65,8 @@ server logs),
 (channel; 409 while targeted, indexed or not, unless the target is parked
 after that version failed or rolled back; DELETE removes the version's
 directory and any `.old-<version>-*` copy a replace left, also when the store
-does not index it (404); once they are gone it drops the version from every
-knob's OTA `blocked` list, which the OTA `available` field skips, and
+does not index it (404); once they are renamed away it drops the version from
+every knob's OTA `blocked` list, which the OTA `available` field skips, and
 makes every knob outside an active attempt forget it (a target naming it
 cleared, a record whose last attempt it was reset unless done; eviction
 does the same), so no Retry points at a missing image; a removal
@@ -203,7 +204,8 @@ units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
 `-update`) are also EmberKit's decode fixtures. Operator: `/admin/doctor`, `/admin/reload`,
 `/version` (`binary`, `version`, `revision`, `dirty`, `go_version`,
 `features`: server capabilities clients gate on, today
-`firmware_delete_keep` and `device_app_enabled`), `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
+`firmware_delete_keep` and `device_app_enabled`; `clock_disabled: true` under `EMBER_CLOCK=off`, omitted
+otherwise, read without clock I/O), `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
 `GET /v1/devices/self/config`, `PUT /v1/devices/self/coredump?id=<dump>`
 (the core dump a checkin asked for: `application/octet-stream`, ≤128 KiB or
 413, CRC-checked or 400, 409 while another upload of this knob runs, 204 when

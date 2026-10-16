@@ -493,6 +493,25 @@ knob view. The knob has no speaker, so on the knob quiet is display only:
 - **Size:** the default config grows by 13 B (447 B) and the largest valid
   one by 15 B (663 B), still under `CFG_SETTINGS_MAX`.
 
+## Swipe pages
+
+`swipe_pages` (#315, cinder#57, firmware 0.9.15) lets a vertical swipe on
+the knob's screen change the page (up = next, down = previous), per knob:
+
+- **Config:** a top-level `"swipe_pages": bool` next to `pages` and `home`,
+  default `true`. Absent or `null` reads as `true`, so a record stored
+  before #315 keeps swipes on with no config push; it is always sent. A
+  non-boolean is a 400 on the owner PUT.
+- **Knob:** absent = on, a non-boolean is ignored (stays on), `false` turns
+  swipes off. With swipes off a tap counts as a push on press again, as
+  before 0.9.15. Older firmware skips the unknown key. No caps token: the
+  app gates its toggle on the reported `fw` (>= 0.9.15).
+- **App:** Ember.app shows "Swipe up or down to change pages" in the Knob
+  pane's Pages section for a knob on 0.9.15 or later, and only when the
+  server's config carries the key (an older server would reject the PUT).
+- **Size:** the default config grows by 19 B (512 B) and the largest valid
+  one by 20 B (731 B), still under `CFG_SETTINGS_MAX`.
+
 ## Bot weather moments
 
 `bot.weather_moments` and `bot.weather_every_min` (#443, cinder#90, firmware
@@ -849,9 +868,9 @@ Indented JSON; key order is the wire order.
 | `checkin_reply_rotation.json` | `new_token` from a real rotation, the token replaced by a dummy of the same length |
 | `pomodoro_action.json` | A Pomodoro action reply (pause during a short break) |
 | `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |
-| `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30 |
+| `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
-| `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5, `display.rotation` 180, `bot.weather_moments` false and `weather_every_min` 0), plus an unknown page id the knob must keep |
+| `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5, `display.rotation` 180, `bot.weather_moments` false and `weather_every_min` 0, `swipe_pages` false), plus an unknown page id the knob must keep |
 
 The test also compares what the server stores for `checkin_req_full.json`
 (the checkin record and the stats sample) with every value sent, so a request

@@ -104,7 +104,7 @@ func TestReadSnapshotV2(t *testing.T) {
 	home := t.TempDir()
 	makeDB(t, home, "state.sqlite", "schema_v1.sql")
 	makeDB(t, home, "statev2.sqlite", "schema_v2.sql",
-		`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (55, 'OrchestrationV2'), (56, 'RemoveRedundantProjectionIndexes')`,
+		`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (55, 'OrchestrationV2'), (56, 'RemoveRedundantProjectionIndexes'), (62, 'ThreadFailureLookupIndex')`,
 		`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, archived_at, deleted_at, payload_json, provider_instance_id) VALUES
 		 ('t-run', 'p', 'Add dark mode', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-05T09:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-wait', 'p', 'Ship it', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
@@ -129,6 +129,19 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('t-bg-unk', 'p', 'Roster unknown kind', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
 		 ('t-bg-noid', 'p', 'Roster empty id', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
 		 ('t-bg-failed', 'p', 'Failed with open work', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
+		 ('t-secret', 'p', 'Needs a secret', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-secret-done', 'p', 'Secret left after run', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-secret-nonode', 'p', 'Secret without node', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-pr-watch', 'p', 'Watching PR', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"pullRequests":[{"number":7,"source":"manual","watch":{}}]}', 'codex'),
+		 ('t-pr-dismissed', 'p', 'Dismissed PR watch', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"pullRequests":[{"number":8,"source":"stack-dismissed","watch":{}}]}', 'codex'),
+		 ('t-pr-nowatch', 'p', 'Linked PR, no watch', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"pullRequests":[{"number":9,"source":"manual"}]}', 'codex'),
+		 ('t-secret-req', 'p', 'Secret behind approval', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-secret-auth', 'p', 'Secret behind auth refresh', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-secret-multi', 'p', 'Newest secret has no node', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-secret-upd', 'p', 'Secret without startedAt', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-secret-wait', 'p', 'Secret in waiting run', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-secret-prep', 'p', 'Secret in preparing run', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-pr-failed', 'p', 'Failed while watching PR', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"pullRequests":[{"number":10,"source":"manual","watch":{}}]}', 'codex'),
 		 ('t-del', 'p', 'Deleted', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, '2026-10-02T10:00:00.000Z', '{}', 'codex')`,
 		`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, completed_at, payload_json) VALUES
 		 ('r1', 't-run', 1, 'codex', 'completed', '2026-10-02T10:01:00.000Z', '2026-10-02T10:02:00.000Z', '{}'),
@@ -154,7 +167,20 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('r20', 't-bg-nokind', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
 		 ('r21', 't-bg-unk', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
 		 ('r22', 't-bg-noid', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
-		 ('r23', 't-bg-failed', 1, 'claudeAgent', 'failed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}')`,
+		 ('r23', 't-bg-failed', 1, 'claudeAgent', 'failed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r24', 't-secret', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r25', 't-secret-done', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r26', 't-secret-nonode', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r27', 't-pr-watch', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r28', 't-pr-dismissed', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r29', 't-pr-nowatch', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r30', 't-secret-req', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r31', 't-secret-auth', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r32', 't-secret-multi', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r33', 't-secret-upd', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r34', 't-secret-wait', 1, 'codex', 'waiting', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r35', 't-secret-prep', 1, 'codex', 'preparing', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r36', 't-pr-failed', 1, 'codex', 'failed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}')`,
 		`INSERT INTO orchestration_v2_projection_provider_threads (provider_thread_id, thread_id, provider, status, updated_at, payload_json) VALUES
 		 ('pt-a', 't-bg-roster', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"m1","kind":"monitor"}]}'),
 		 ('pt-b', 't-bg-other', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[]}'),
@@ -174,12 +200,24 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('q1', 't-done-ask', 'n', 'user_input', 'pending', '2026-10-02T10:04:30.000Z', '{}'),
 		 ('q2', 't-run', 'n', 'command', 'resolved', '2026-10-02T10:03:30.000Z', '{}'),
 		 ('q3', 't-auth', 'n', 'command', 'pending', '2026-10-02T10:03:10.000Z', '{}'),
-		 ('q4', 't-auth', 'n', 'auth_refresh', 'pending', '2026-10-02T10:03:20.000Z', '{}')`,
+		 ('q4', 't-auth', 'n', 'auth_refresh', 'pending', '2026-10-02T10:03:20.000Z', '{}'),
+		 ('q5', 't-secret-req', 'n', 'command', 'pending', '2026-10-02T10:03:20.000Z', '{}'),
+		 ('q6', 't-secret-auth', 'n', 'auth_refresh', 'pending', '2026-10-02T10:03:20.000Z', '{}')`,
 		`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, run_id, node_id, ordinal, type, status, updated_at, payload_json) VALUES
 		 ('i-child', 't-fail', 'r5', 'child', 1, 'error', 'failed', '2026-10-02T10:03:59.000Z', '{"failure":{"message":"subagent failed"}}'),
 		 ('i-root', 't-fail', 'r5', 'root-5', 2, 'error', 'failed', '2026-10-02T10:03:58.000Z', '{"failure":{"message":"usage limit reached"}}'),
 		 -- T3 shows sessionError ?? failure.message: the session's text must win here.
-		 ('i-root-b', 't-fail-sess', 'r5b', 'root-5b', 1, 'error', 'failed', '2026-10-02T10:03:58.000Z', '{"failure":{"message":"item loses"}}')`,
+		 ('i-root-b', 't-fail-sess', 'r5b', 'root-5b', 1, 'error', 'failed', '2026-10-02T10:03:58.000Z', '{"failure":{"message":"item loses"}}'),
+		 ('sec-1', 't-secret', 'r24', 'n-24', 1, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{"startedAt":"2026-10-02T10:03:40.000Z"}'),
+		 ('sec-old', 't-secret-done', 'r25', 'n-25', 1, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{}'),
+		 ('sec-nonode', 't-secret-nonode', 'r26', NULL, 1, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{}'),
+		 ('sec-req', 't-secret-req', 'r30', 'n-30', 1, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{"startedAt":"2026-10-02T10:03:40.000Z"}'),
+		 ('sec-auth', 't-secret-auth', 'r31', 'n-31', 1, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{"startedAt":"2026-10-02T10:03:40.000Z"}'),
+		 ('sec-multi-old', 't-secret-multi', 'r32', 'n-32', 1, 'secret_request', 'waiting', '2026-10-02T10:03:30.000Z', '{}'),
+		 ('sec-multi-new', 't-secret-multi', 'r32', NULL, 2, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{}'),
+		 ('sec-upd', 't-secret-upd', 'r33', 'n-33', 1, 'secret_request', 'waiting', '2026-10-02T10:03:45.000Z', '{}'),
+		 ('sec-wait', 't-secret-wait', 'r34', 'n-34', 1, 'secret_request', 'waiting', '2026-10-02T10:03:45.000Z', '{}'),
+		 ('sec-prep', 't-secret-prep', 'r35', 'n-35', 1, 'secret_request', 'waiting', '2026-10-02T10:03:45.000Z', '{}')`,
 		`INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, provider, status, updated_at, payload_json, provider_instance_id) VALUES
 		 ('s-fail', 't-fail', 'codex', 'error', '2026-10-02T10:04:00.000Z', '{}', 'codex'),
 		 ('s-old', 't-fail-sess', 'codex', 'error', '2026-10-02T10:00:00.000Z', '{"lastError":"stale"}', 'codex'),
@@ -194,8 +232,8 @@ func TestReadSnapshotV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Schema != 2 || snap.Migration != 56 {
-		t.Fatalf("schema/migration = %d/%d, want 2/56", snap.Schema, snap.Migration)
+	if snap.Schema != 2 || snap.Migration != 62 {
+		t.Fatalf("schema/migration = %d/%d, want 2/62", snap.Schema, snap.Migration)
 	}
 	got := byID(snap.Threads)
 	for _, id := range []string{"t-del", "t-sub"} {
@@ -215,28 +253,41 @@ func TestReadSnapshotV2(t *testing.T) {
 		holds, archived                  bool
 		changed                          time.Time
 	}{
-		"t-run":        {status: "running", active: "running", changed: at("10:03:00")},
-		"t-wait":       {status: "waiting", active: "waiting", changed: at("10:03:00")},
-		"t-done-ask":   {status: "completed", pending: "user_input", changed: at("10:04:30")},
-		"t-fail":       {status: "failed", lastErr: "usage limit reached", changed: at("10:04:00")},
-		"t-fail-sess":  {status: "failed", lastErr: "rate limited", changed: at("10:04:00")},
-		"t-held":       {status: "completed", changed: at("10:04:00")},
-		"t-arch":       {archived: true},
-		"t-idle":       {},
-		"t-auth":       {status: "running", active: "running", pending: "command", changed: at("10:03:10")},
-		"t-settled":    {status: "completed", changed: at("10:04:00")},
-		"t-fork":       {},
-		"t-q":          {status: "queued", active: "running", changed: at("10:04:00")},
-		"t-bg-roster":  {status: "completed", holds: true, changed: at("10:04:00")},
-		"t-bg-other":   {status: "completed", changed: at("10:04:00")},
-		"t-bg-cmd":     {status: "completed", changed: at("10:04:00")},
-		"t-bg-sub":     {status: "completed", holds: true, changed: at("10:04:00")},
-		"t-bg-persist": {status: "completed", changed: at("10:04:00")},
-		"t-bg-nokind":  {status: "completed", holds: true, changed: at("10:04:00")},
-		"t-bg-unk":     {status: "completed", holds: true, changed: at("10:04:00")},
-		"t-bg-noid":    {status: "completed", changed: at("10:04:00")},
-		"t-bg-failed":  {status: "failed", changed: at("10:04:00")},
-		"t-bg-rolled":  {status: "completed", changed: at("10:06:00")},
+		"t-run":           {status: "running", active: "running", changed: at("10:03:00")},
+		"t-wait":          {status: "waiting", active: "waiting", changed: at("10:03:00")},
+		"t-done-ask":      {status: "completed", pending: "user_input", changed: at("10:04:30")},
+		"t-fail":          {status: "failed", lastErr: "usage limit reached", changed: at("10:04:00")},
+		"t-fail-sess":     {status: "failed", lastErr: "rate limited", changed: at("10:04:00")},
+		"t-held":          {status: "completed", changed: at("10:04:00")},
+		"t-arch":          {archived: true},
+		"t-idle":          {},
+		"t-auth":          {status: "running", active: "running", pending: "command", changed: at("10:03:10")},
+		"t-settled":       {status: "completed", changed: at("10:04:00")},
+		"t-fork":          {},
+		"t-q":             {status: "queued", active: "running", changed: at("10:04:00")},
+		"t-bg-roster":     {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-other":      {status: "completed", changed: at("10:04:00")},
+		"t-bg-cmd":        {status: "completed", changed: at("10:04:00")},
+		"t-bg-sub":        {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-persist":    {status: "completed", changed: at("10:04:00")},
+		"t-bg-nokind":     {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-unk":        {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-noid":       {status: "completed", changed: at("10:04:00")},
+		"t-bg-failed":     {status: "failed", changed: at("10:04:00")},
+		"t-bg-rolled":     {status: "completed", changed: at("10:06:00")},
+		"t-secret":        {status: "running", active: "running", pending: "user_input", changed: at("10:03:40")},
+		"t-secret-done":   {status: "completed", changed: at("10:04:00")},
+		"t-secret-nonode": {status: "running", active: "running", changed: at("10:03:00")},
+		"t-pr-watch":      {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-pr-dismissed":  {status: "completed", changed: at("10:04:00")},
+		"t-pr-nowatch":    {status: "completed", changed: at("10:04:00")},
+		"t-pr-failed":     {status: "failed", changed: at("10:04:00")},
+		"t-secret-req":    {status: "running", active: "running", pending: "command", changed: at("10:03:20")},
+		"t-secret-auth":   {status: "running", active: "running", changed: at("10:03:00")},
+		"t-secret-multi":  {status: "running", active: "running", changed: at("10:03:00")},
+		"t-secret-upd":    {status: "running", active: "running", pending: "user_input", changed: at("10:03:45")},
+		"t-secret-wait":   {status: "waiting", active: "waiting", pending: "user_input", changed: at("10:03:45")},
+		"t-secret-prep":   {status: "preparing", active: "preparing", pending: "user_input", changed: at("10:03:45")},
 	}
 	for id, want := range cases {
 		th, ok := got[id]
@@ -380,8 +431,14 @@ func TestQueryV2UsesRecoveryIndex(t *testing.T) {
 		}
 		plan.WriteString(detail + "\n")
 	}
-	if !strings.Contains(plan.String(), "orchestration_v2_projection_turn_items_recovery_idx") {
-		t.Fatalf("turn-item lookup no longer uses the recovery index:\n%s", plan.String())
+	for _, idx := range []string{
+		"orchestration_v2_projection_turn_items_recovery_idx",
+		"orchestration_v2_projection_runs_recovery_idx",
+		"orchestration_v2_projection_turn_items_thread_run_idx",
+	} {
+		if !strings.Contains(plan.String(), idx) {
+			t.Errorf("plan no longer uses %s:\n%s", idx, plan.String())
+		}
 	}
 }
 

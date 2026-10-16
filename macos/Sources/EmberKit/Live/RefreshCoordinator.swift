@@ -60,6 +60,7 @@ final class RefreshCoordinator {
     private var pacing: [Feed: FeedPacing] = [:]
     private var floors: [Feed: Duration] = [:]
     private var lastTick: [Feed: Duration] = [:]
+    private var rateLimitedUntil: [Feed: Duration] = [:]
     private var inFlight: [Feed: (id: Int, task: Task<FeedTick, Never>)] = [:]
     private var nextFetchID = 0
 
@@ -127,6 +128,7 @@ final class RefreshCoordinator {
         lastTick.removeAll()
         pacing.removeAll()
         floors.removeAll()
+        rateLimitedUntil.removeAll()
         reconcileAll()
     }
 
@@ -151,6 +153,7 @@ final class RefreshCoordinator {
         let candidates = feeds.isEmpty ? activeFeeds : Set(feeds)
         let due = candidates.filter { f in
             if f.tier == .c && holdCount(f) == 0 { return false }
+            if let until = rateLimitedUntil[f], now() < until { return false }
             guard let age, let t = lastTick[f] else { return true }
             return now() - t >= age
         }
@@ -168,7 +171,9 @@ final class RefreshCoordinator {
             guard self.inFlight[feed]?.id == id else { return result }
             self.inFlight[feed] = nil
             self.lastTick[feed] = self.now()
-            self.floors[feed] = self.pacing[feed, default: FeedPacing()].record(result, tier: feed.tier)
+            let floor = self.pacing[feed, default: FeedPacing()].record(result, tier: feed.tier)
+            self.floors[feed] = floor
+            self.rateLimitedUntil[feed] = result.error == .rateLimited ? self.now() + floor : nil
             return result
         }
         inFlight[feed] = (id, task)

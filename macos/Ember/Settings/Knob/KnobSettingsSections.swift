@@ -131,11 +131,21 @@ struct KnobPagesSection: View {
             Picker("Home page", selection: knob.binding(\.home)) {
                 ForEach(pages.filter(\.on)) { p in Text(knobPageTitle(p.id)).tag(p.id) }
             }
+            if knob.settings.draft.showsSwipeToggle(for: knob.knob) {
+                Toggle("Swipe up or down to change pages", isOn: Binding(
+                    get: { knob.settings.draft.swipePages ?? true },
+                    set: { v in knob.edit { $0.swipePages = v } }))
+            }
         } header: {
             Text("Pages")
         } footer: {
-            SectionFooter(text: "Hold the knob down and turn it to change pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes.",
-                          error: knob.settings.saveError)
+            if knob.settings.draft.showsSwipeFooter(for: knob.knob) {
+                SectionFooter(text: "Hold the knob down and turn it, or swipe up or down, to change pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes.",
+                              error: knob.settings.saveError)
+            } else {
+                SectionFooter(text: "Hold the knob down and turn it to change pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes.",
+                              error: knob.settings.saveError)
+            }
         }
     }
 

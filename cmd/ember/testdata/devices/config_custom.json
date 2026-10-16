@@ -30,6 +30,7 @@
       }
     ],
     "home": "pomodoro",
+    "swipe_pages": false,
     "poll_ms": 3000,
     "bot": {
       "sleepy_after_s": 600,

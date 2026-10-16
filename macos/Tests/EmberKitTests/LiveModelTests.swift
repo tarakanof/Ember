@@ -426,3 +426,15 @@ private func timedModel(_ now: Box<Date>) -> LiveModel {
         "/v1/activity/summary?days=7", "/v1/pomodoro/workhours?days=14", "/v1/pomodoro/heatmap?days=84",
     ])
 }
+
+@MainActor @Test func openingTheMenuReadsNoClockHealth() async {
+    let seen = LockedBox()
+    let client = stubbedClient { req in
+        seen.add(req.url!.path)
+        return (okResponse(req.url!, status: 404), Data())
+    }
+    let m = makeModel()
+    m.configure(client: client)
+    await m.refreshMenuFeeds()
+    #expect(Set(seen.paths) == ["/v1/pomodoro/stats", "/v1/meetings/state", "/v1/usage"])
+}

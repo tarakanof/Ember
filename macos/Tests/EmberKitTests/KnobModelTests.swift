@@ -420,3 +420,31 @@ final class CountingOpener: KnobLinkOpener, @unchecked Sendable {
     await m.didSetUp(m.knob!, replacing: old)
     #expect(fake.log.contains { $0.0 == "DELETE" && $0.1 == "/v1/devices/knob-old" })
 }
+
+@Test func knobSwipePagesDecodesAbsentTrueAndFalse() throws {
+    let base = #""brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true}],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20}"#
+    let absent = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + "}").utf8))
+    #expect(absent.swipePages == nil)
+    #expect(!String(decoding: try JSONEncoder().encode(absent), as: UTF8.self).contains("swipe_pages"))
+    let on = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + #","swipe_pages":true}"#).utf8))
+    #expect(on.swipePages == true)
+    let off = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + #","swipe_pages":false}"#).utf8))
+    #expect(off.swipePages == false)
+    var edited = on
+    edited.swipePages = false
+    #expect(edited.patch(from: on) == ["swipe_pages": .bool(false)])
+}
+
+@MainActor
+@Test func knobModelSavesSwipePagesAlone() async throws {
+    let fake = FakeRegistry()
+    fake.config = String(fake.config.dropLast()) + #","swipe_pages":true}"#
+    let m = model(fake)
+    await m.load()
+    #expect(m.settings.draft.swipePages == true)
+    m.edit { $0.swipePages = false }
+    await m.settings.saveNow()
+    let put = try #require(fake.log.last { $0.0 == "PUT" })
+    #expect(put.1 == "/v1/devices/knob-61fc8c/config")
+    #expect(put.2 == #"{"swipe_pages":false}"#)
+}

@@ -742,23 +742,34 @@ markers still get reaped.
   id, activity = thread title, tool `t3` ("T3" glyph, the 3 in the state
   colour). Mapping, aligned with T3's own `agentAwareness`: a pending runtime
   request other than `auth_refresh` → `waiting` (even on a settled thread:
-  Codex `user_input` requests outlive the turn); run status preparing /
-  starting / running / **waiting** → `running` (a run "waiting" is
-  post-turn drain such as checkpoint capture, not the user). Like T3's
-  `activityRunStatus ?? status`, the newest preparing/starting/running/
-  waiting run of any ordinal wins over the presented run, and a presented
-  `queued` run is not activity (→ DELETE). A `completed` run stays `running`
-  while background work that wakes the agent is open
-  (`backgroundWorkHoldsCompletion`: roster task of the active provider
+  Codex `user_input` requests outlive the turn). With no pending runtime
+  request of any kind (T3 ≥ 0.1.0), the newest `waiting` `secret_request` turn
+  item of a preparing/starting/running/waiting run is a pending `user_input` →
+  `waiting` "needs input", stamped `startedAt ?? updated_at`, unless that
+  newest item has no node; run status preparing / starting / running /
+  **waiting** → `running` (a run "waiting" is post-turn drain such as
+  checkpoint capture, not the user). Like T3's `activityRunStatus ?? status`,
+  the newest preparing/starting/running/waiting run of any ordinal wins over
+  the presented run, and a presented `queued` run is not activity (→ DELETE).
+  A `completed` run stays `running` while background work that wakes the agent
+  is open (`backgroundWorkHoldsCompletion`: roster task of the active provider
   thread with kind other than `command`, or an active subagent /
-  non-persistent dynamic_tool turn item outside a rolled-back run; dev-server
-  commands do not hold). That hold is a single-query SQL equivalent of T3's shell read plus
-  in-memory decode, not a copy of its code; the only known difference is that
-  it does not dedupe roster vs item by task id. The turn-item lookup repeats
-  the type/status lists of T3's partial `turn_items_recovery_idx` verbatim so
-  SQLite uses it (a scan of every item costs ~0.5 s per poll at 600k items). When a hold ends after the activity window, the watcher
-  times `done` from the moment it saw running → done, so it still shows. Deliberate difference: the `auth_refresh` filter
-  runs in the request query, so such a request never hides an older approval.
+  non-persistent dynamic_tool turn item outside a rolled-back run, or (T3 ≥
+  0.1.0) a thread `pullRequests` link with a `watch` and a source other than
+  `stack-dismissed`; dev-server commands do not hold). That hold is a
+  single-query SQL equivalent of T3's shell read plus in-memory decode, not a
+  copy of its code; the only known difference is that it does not dedupe
+  roster vs item by task id. The turn-item lookup repeats the type/status
+  lists of T3's partial `turn_items_recovery_idx` verbatim so SQLite uses it
+  (a scan of every item costs ~0.5 s per poll at 600k items). The secret
+  lookup runs once per poll, not per thread, and repeats the status list of
+  T3's partial `runs_recovery_idx` (then drops `queued`) for the same reason.
+  When a hold ends after the activity window, the watcher times `done` from
+  the moment it saw running → done, so it still shows. Deliberate difference:
+  the `auth_refresh` filter runs in the request query, so such a request never
+  hides an older approval. A pending `auth_refresh` still suppresses the
+  secret fallback, as in T3: with only an `auth_refresh` and a waiting secret
+  the thread maps from its run status (`running`), not `waiting`.
   failed → `error`
   with the failed root error item's message, else the newest bound provider
   session's `lastError`; completed → `done`; idle / interrupted / cancelled /
@@ -792,20 +803,53 @@ markers still get reaped.
   reuses `modernc.org/sqlite` (already the server's only dependency), needs no
   credentials, works whether T3 runs as the desktop app or `t3 serve`, and is
   testable with synthesised fixtures. Its cost is coupling to internal
-  projection tables that churn (56 migrations): the queries are reduced copies
+  projection tables that churn (62 migrations by v0.1.0): the queries are reduced copies
   of T3's own shell queries, the newest verified migration per schema is
-  pinned (`pinnedMigrations`: v1 54, v2 56) and a newer one is logged once and
+  pinned (`pinnedMigrations`: v1 54, v2 62) and a newer one is logged once and
   still read, and a missing table or column is a soft failure (log once a
   minute, back off to 60 s, never post or delete on a bad read).
 
-  *Double sessions.* T3's Claude provider loads the user's Claude settings, so
-  the Ember Claude hooks fire for T3 Claude threads too and the same work shows
-  as a `t3` and a `claude` session. The hook payload carries no T3 marker
-  (T3 sets neither `CLAUDE_AGENT_SDK_CLIENT_APP` nor any T3 env var), so the
-  producer cannot tell them apart cheaply; the RUNBOOK documents the
-  separate-`CLAUDE_CONFIG_DIR` workaround. A dedupe in the Claude hook (walk
-  the ancestry to the pid in T3's `server-runtime.json`) is possible but adds
-  `ps` calls to the 500 ms hook budget; left for after a live check.
+  *Double sessions (#216).* T3's Claude provider loads the user's Claude
+  settings, so the Ember Claude hooks fire for T3 Claude threads too. The
+  Claude hook skips them, so each T3 thread shows once, as `t3` (`t3.go`,
+  checked in `dispatchHookFrom` right after decoding: no POST, no new
+  marker). T3 sets no env var of its own on the Claude child (v0.1.0 81493ef,
+  nightly 0.1.1 e58a485: the SDK `env` is the server's `process.env` plus an
+  optional `CLAUDE_CONFIG_DIR`, `makeClaudeEnvironment` in
+  `provider/Drivers/ClaudeHome.ts`; no `CLAUDE_AGENT_SDK_CLIENT_APP`). The
+  Agent SDK sets `CLAUDE_CODE_ENTRYPOINT=sdk-ts` and
+  `CLAUDE_AGENT_SDK_VERSION` when unset (SDK 0.3.276 `sdk.mjs`); either one is
+  the gate (the version too, since a T3 started from a Claude shell inherits
+  `cli`), so interactive sessions pay nothing. For an SDK session the hook
+  walks past shells to its owner (`claude`), then past shells from the
+  owner's parent to the process that launched it (the server spawns the CLI
+  directly; on Linux `AgentScope` `exec`s through `sh`/`systemd-run`), and
+  reads that launcher's real argv (`/proc/<pid>/cmdline`; darwin
+  `sysctl kern.procargs2`). It is a T3 server when:
+  - `argv[0]` is named `t3`: the `t3@0.1.0` npm launcher `bin/t3.js`
+    `spawnSync`s `@t3code/t3-<platform>/t3`, and the boot service runs
+    `<T3 home>/runtime/versions/<v>/t3 serve` (`serviceLauncher.ts`);
+  - an argument ends `/app.asar/apps/server/dist/bin.mjs` and is followed by
+    `--bootstrap-fd`: the desktop app runs `<app> --require …
+    app.asar/apps/server/dist/bin.mjs --bootstrap-fd 3`
+    (`DesktopBackendConfiguration.ts`);
+  - under `node`/`bun`, the first non-option argument is named `t3` or ends
+    `/node_modules/t3/dist/bin.mjs` (the 0.0.x npm package).
+  Whole arguments are compared, so an unrelated `apps/server/dist/bin.mjs`,
+  a `bin.mjs.backup` or an option value does not match. All lookups share a
+  250 ms context (`ps` via `exec.CommandContext`); a timeout or failed
+  lookup reports the session. When the probe says T3 but a marker exists
+  (an upgrade mid-session, or an earlier hook whose lookup failed), the hook
+  removes it and DELETEs the `claude` row, so no frozen row is re-posted by
+  the heartbeat. Cost: 3 `ps` calls plus one sysctl on darwin, SDK sessions
+  only. Rejected signals: `T3CODE_CLI_PATH` exists only since v0.1.0
+  desktop and leaks into T3's integrated terminal; `ELECTRON_RUN_AS_NODE` is
+  set by any Electron host; a cwd under `~/.t3/worktrees` misses local-mode
+  threads; the pid in `server-runtime.json` means reading T3's home.
+  Checking the direct launcher, not any ancestor, keeps an SDK script started
+  from a T3 terminal reported. Not recognised, so still doubled: a dev or
+  checkout server (`node --watch src/bin.ts`, `node dist/bin.mjs`) and an
+  unpackaged desktop build.
 
 Claude producer constraints:
 - **Hook timeout.** The hook path uses the short `HookTimeoutMs` (default
@@ -1062,9 +1106,15 @@ only follows a live snapshot. The one read that isn't a feed is
 only changes when the server restarts, so it's read once each time the
 connection comes up (first answer, a new server, back from offline, where an
 upgrade shows), off the `/state` loop; a lost read retries on the next good
-`/state`. The menu adds no polling: opening it catches up
-`stats`/`meetings`/`usage` only if they're over 60 s old, and every fetch pushes
-the next poll back, so stats stay at one request a minute. Actions (Pomodoro,
+`/state`. The same `/version` read carries `clock_disabled` (`EMBER_CLOCK=off`,
+fixed for the server's lifetime), so `LiveModel.isClockDisabled` is known
+before the menu first opens, is re-read after a reconnect, and costs no clock
+I/O (a `/v1/clock/health` read can probe the TC001). While it's set the Clock
+submenu shows only "Clock disabled on this server": no Next/Previous/Dismiss,
+display power or Show on Clock. The menu adds no polling: opening it catches up
+`stats`/`meetings`/`usage` (`LiveModel.menuFeeds`) only if they're over 60 s
+old, every fetch pushes the next poll back, so stats stay at one request a
+minute. No explicit refresh fetches a feed inside a 429's Retry-After window. Actions (Pomodoro,
 clock, app visibility) go through `ActionRunner`, from every surface (Settings
 restarts the clock and switches the display through it too), which keeps the
 last failure for 10 s and refreshes the feeds the action touched (stats follow
@@ -3145,7 +3195,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `pomodoro`, `weather` on and `nowplaying` off; a stored or PUT list missing a known
   id gets it appended off (at most 8 pages, the firmware's KS_MAX_PAGES), #284; any id matching `^[a-z][a-z0-9_-]{0,15}$` is kept, so
   firmware can add pages without a server release; order = page order; no
-  duplicates), `home` (must name a page that is on), `poll_ms` 1000-10000,
+  duplicates), `home` (must name a page that is on), `swipe_pages` (#315,
+  cinder#57, firmware 0.9.15: a vertical swipe changes the page; absent or
+  null = true like the bot flags; see DEVICE-PROTOCOL "Swipe pages"),
+  `poll_ms` 1000-10000,
   `bot{sleepy_after_s 0-86400 (0 = never), demo_hold_s 1-600, source_label,
   working_ring}` (the two booleans, cinder#42: the curved host label and the
   glint orbiting the outline while working; absent or null = true, so a
@@ -3907,27 +3960,33 @@ hex, the knob's `fw_build`). A new version is written into a
 `.tmp-<version>-*` directory and renamed into place; a replace moves the
 old directory aside to `.old-<version>-*` first and deletes it after the
 rename, so a failed write keeps the old version, and a crash between the
-two renames is undone at boot (an `.old-` directory whose version is
-missing is moved back). If the new directory cannot be moved in, the old
-one is moved back; if that fails too, the version leaves the index until
-boot restores it. Once the new directory is in place the replace is done
-(index, SHA and unblock follow it, also on a retry after such a hidden
-version) even if deleting the `.old-` copy fails: the upload answers 201,
-the server logs the leftover, and boot deletes it. A DELETE, an eviction
-and an upload of a version the index does not hold retire the version's
-copies by renaming each to a `.tmp-<version>-*` name, `.old-` copies
-first and `<version>/` last, and stop at the first rename that fails. A
-failed rename has touched nothing: an indexed version stays indexed,
-whole and blocked, and the call can be retried. Once `<version>/` is
-renamed away the version is gone (index entry dropped, block cleared)
-and the retired dirs are deleted best effort; a leftover is logged and
-swept at boot, which never restores a `.tmp-` dir. So the index never
-holds a half-removed version, and a failure never leaves the pre-replace
-bytes as the only copy for boot to restore without their block. A
-dev-seed build (cinder's local default with
-`sdkconfig.secrets`) has the Wi-Fi password and the master token compiled
-in, so an image or ELF containing the server's own `EMBER_TOKEN` or the
-marker `CINDER-DEV-SEED-BUILD` is refused (`dev_seed_build`); the ELF is
+two renames is undone at boot (invalid version dirs are swept first,
+then an `.old-` directory whose version is missing is moved back and
+loaded; while an invalid `<version>/` or a file of that name is in the
+way, the aside is kept and boot reports it). If the new directory cannot
+be moved in, the old one is moved back; if that fails too, the version
+leaves the index until boot restores it. Once the new directory is in
+place the replace is done (index, SHA and unblock follow it, also on a
+retry after such a hidden version) even if deleting the `.old-` copy
+fails: the upload answers 201, and the leftover is retried like the
+`.tmp-` ones below. A DELETE, an eviction and an upload of a version the
+index does not hold retire the version's copies by renaming each to a
+`.tmp-<version>-*` name, `.old-` copies first and `<version>/` last, and
+stop at the first rename that fails. A failed rename has touched
+nothing: an indexed version stays indexed, whole and blocked, and the
+call can be retried. Once `<version>/` is renamed away the version is
+gone (index entry dropped, block cleared) and the retired dirs are
+deleted best effort; a leftover (also a stuck `.old-` copy, a failed
+upload's temp dir and one boot could not remove) is logged once, retried
+each time the store next deletes a dir, and swept at boot, which never
+restores a `.tmp-` dir. Until it is gone the doctor's `bytes` counts it,
+since it still takes disk. So the index never holds a half-removed
+version, and a failure never leaves the pre-replace bytes as the only
+copy for boot to restore without their block. A dev-seed
+build (cinder's local default with `sdkconfig.secrets`) has the Wi-Fi
+password and the master token compiled in, so an image or ELF
+containing the server's own `EMBER_TOKEN` or the marker
+`CINDER-DEV-SEED-BUILD` is refused (`dev_seed_build`); the ELF is
 streamed to a temp file through SHA-256 and the same scanner (a needle
 split across reads is still found). The ELF is stored only when its
 SHA-256 equals `app_elf_sha256` (`elf_mismatch`). Same version, same bytes:
@@ -3950,8 +4009,8 @@ knob's list when it is replaced with `?replace=1`, evicted by retention or
 deleted (204, or 404 for a stale entry, whose leftover `<version>` or
 `.old-<version>-*` directories are removed first; 409 for a knob's
 target either way, unless that target is parked after the version failed
-or rolled back), only once its files are gone, and under the store
-lock so no upload or block can slip in between), `phase`, `error`,
+or rolled back), only once `<version>/` is renamed away, and under the
+store lock so no upload or block can slip in between), `phase`, `error`,
 `from`, and the offered `version`/`build`/`size`/`auto`, the `attempt`
 id and `started_at`/`finished_at`. It is
 written only when it changes (never per progress tick): the checkin

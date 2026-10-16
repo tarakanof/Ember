@@ -809,3 +809,31 @@ func TestAdminReload_FileClockURLChangeApplies(t *testing.T) {
 		t.Errorf("clock URL after unrelated edit = %q, want the discovered http://5.6.7.8", got)
 	}
 }
+
+func TestVersionHandler_ReportsClockDisabled(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	t.Setenv("EMBER_CLOCK", "off")
+	if !fetchVersion(t, srv).ClockDisabled {
+		t.Error("clock_disabled = false under EMBER_CLOCK=off, want true")
+	}
+
+	t.Setenv("EMBER_CLOCK", "")
+	resp, err := srv.Client().Get(srv.URL + "/version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, ok := body["clock_disabled"]; ok {
+		t.Errorf("clock_disabled present with the clock on: %#v", body)
+	}
+}

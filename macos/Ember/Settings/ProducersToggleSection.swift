@@ -21,7 +21,7 @@ struct ProducersToggleSection: View {
                 ForEach(snapshot.agents, id: \.agent) { row in
                     agentRow(row.agent, state: row.state, snapshot: snapshot)
                     if snapshot.showsSettings(for: row.agent) {
-                        AgentTuningRows(agent: row.agent, reporting: row.state != .off,
+                        AgentTuningRows(agent: row.agent, reporting: row.state.isMeantToReport,
                                         tuning: tuning, overrides: overrides)
                     }
                 }
@@ -83,7 +83,7 @@ struct ProducersToggleSection: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if agent == .claude, let hooks = snapshot.claudeHooks {
-                    claudeHooksCaption(hooks, reportingOn: state != .off)
+                    claudeHooksCaption(hooks, reportingOn: state.isMeantToReport)
                 }
             }
         }

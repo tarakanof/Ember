@@ -21,6 +21,8 @@ type versionInfo struct {
 	Dirty     bool     `json:"dirty"`
 	GoVersion string   `json:"go_version"`
 	Features  []string `json:"features"`
+
+	ClockDisabled bool `json:"clock_disabled,omitempty"`
 }
 
 const (
@@ -46,8 +48,10 @@ func computeVersionInfo() versionInfo {
 
 func handleVersion(info versionInfo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		out := info
+		out.ClockDisabled = clockDisabled()
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(info)
+		_ = json.NewEncoder(w).Encode(out)
 	}
 }
 
