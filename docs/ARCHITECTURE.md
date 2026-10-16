@@ -1243,8 +1243,20 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
 - **Apple Music pusher (#226).** Settings › Sources › Music toggles it
   (per Mac, `UserDefaults` `musicNowPlaying.enabled`, off by default).
   `MusicNowPlayingWatcher` observes the `com.apple.Music.playerInfo`
-  distributed notification only while it is on: no timers, no polling
-  (a knob skip re-reads briefly instead, see "Now playing" › Music).
+  distributed notification only while it is on (a knob skip re-reads
+  briefly, see "Now playing" › Music). Music posts no `playerInfo` for a
+  seek or a restart of the same track (cinder#230), so while the last
+  report is playing (and Automation is granted, checked once per watch) the
+  pusher reads `player position` every 2 s (`AppleMusicPusher.seekPoll`,
+  a `core/getd` of `pPos` sent to Music's PID with a 1 s timeout, so it
+  can't relaunch a quitting Music). When the read is more than 3 s off the
+  report's position extrapolated to now (the server's seek tolerance), it
+  pushes a fresh snapshot, unless a newer notification arrived meanwhile.
+  The anchor moves on every report attempt, so a failed POST isn't retried
+  each poll. A paused or stopped report (delivered or not), a read that
+  finds Music gone (reported as stopped) or turning the toggle off ends
+  the watch, so a paused or idle Music costs no wake-ups; a scrub
+  while paused shows on resume, whose notification re-reads the position.
   EmberKit's `AppleMusicPusher` coalesces bursts to the latest state, POSTs
   `/v1/nowplaying` (`source:"music"`, `player` = the Connection pane's
   source name, else the computer name, `track_id` = Music's persistent ID
@@ -2320,7 +2332,8 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     show (`next` + `previous` that Music applies in one go, a `previous`
     that restarts the track, a skip in a stopped or one-track queue), or
     Music coalesces two `next` into one change. The registry lives in server
-    memory and the Music pusher is event-driven, so the long-poll doubles as
+    memory and the Music pusher reports on events (the seek watch only
+    re-reports a position jump, and never retries), so the long-poll doubles as
     the reconnect signal: its first successful round after a failure (a
     server restart) re-pushes the Music snapshot
     (`AppleMusicPusher.pushSnapshot`, #497). It reports the outcome of the
@@ -2328,7 +2341,7 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     into the snapshot. Later rounds retry it only after a transport error or
     a 5xx, and after a 429 not before its `Retry-After`, which a long-poll
     failure doesn't cut short; any other failure (400, 413, an encoding
-    error) waits for the next long-poll failure. There is no timer. Commands
+    error) waits for the next long-poll failure. There is no retry timer. Commands
     age from when the poll returned, so a slow snapshot push can't make a
     queued command look younger than it is. The `playerInfo` userInfo keys
     are undocumented by Apple; the ones read have been stable since iTunes.

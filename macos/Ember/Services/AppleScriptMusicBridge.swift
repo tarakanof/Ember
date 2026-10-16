@@ -9,14 +9,14 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.ember.Ember.music-applescript", qos: .utility)
     private var compiled: [String: NSAppleScript] = [:]
+    private var loggedDenied = false
 
     func isRunning() async -> Bool {
         !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).isEmpty
     }
 
     func position() async -> Double? {
-        guard await isRunning(), let d = await run(Self.positionScript), d.descriptorType != typeNull else { return nil }
-        return d.doubleValue
+        await onQueue { self.readPosition() }
     }
 
     func artwork() async -> (trackID: String, data: Data)? {
@@ -87,30 +87,38 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
 
     private static func hook(_ id: String) -> Event { Event(cls: fourCC("hook"), id: fourCC(id)) }
 
-    private static var volumeProperty: NSAppleEventDescriptor {
+    private static func property(_ code: String) -> NSAppleEventDescriptor {
         let spec = NSAppleEventDescriptor.record().coerce(toDescriptorType: DescType(typeObjectSpecifier))!
         spec.setDescriptor(NSAppleEventDescriptor.null(), forKeyword: AEKeyword(keyAEContainer))
         spec.setDescriptor(NSAppleEventDescriptor(enumCode: DescType(formPropertyID)), forKeyword: AEKeyword(keyAEKeyForm))
-        spec.setDescriptor(NSAppleEventDescriptor(typeCode: fourCC("pVol")), forKeyword: AEKeyword(keyAEKeyData))
+        spec.setDescriptor(NSAppleEventDescriptor(typeCode: fourCC(code)), forKeyword: AEKeyword(keyAEKeyData))
         spec.setDescriptor(NSAppleEventDescriptor(typeCode: DescType(cProperty)), forKeyword: AEKeyword(keyAEDesiredClass))
         return spec
     }
 
+    private func readPosition() -> Double? {
+        var e = Event(cls: AEEventClass(kAECoreSuite), id: AEEventID(kAEGetData))
+        e.params = [(AEKeyword(keyDirectObject), Self.property("pPos"))]
+        guard let reply = send(e, timeout: 1), let v = reply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)),
+              let real = v.coerce(toDescriptorType: DescType(typeIEEE64BitFloatingPoint)) else { return nil }
+        return real.doubleValue
+    }
+
     private func readVolume() -> Int? {
         var e = Event(cls: AEEventClass(kAECoreSuite), id: AEEventID(kAEGetData))
-        e.params = [(AEKeyword(keyDirectObject), Self.volumeProperty)]
+        e.params = [(AEKeyword(keyDirectObject), Self.property("pVol"))]
         guard let reply = send(e), let v = reply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)) else { return nil }
         return Int(v.int32Value)
     }
 
     private func writeVolume(_ v: Int) -> Bool {
         var e = Event(cls: AEEventClass(kAECoreSuite), id: AEEventID(kAESetData))
-        e.params = [(AEKeyword(keyDirectObject), Self.volumeProperty),
+        e.params = [(AEKeyword(keyDirectObject), Self.property("pVol")),
                     (AEKeyword(keyAEData), NSAppleEventDescriptor(int32: Int32(v)))]
         return send(e) != nil
     }
 
-    private func send(_ e: Event) -> NSAppleEventDescriptor? {
+    private func send(_ e: Event, timeout: TimeInterval = 3) -> NSAppleEventDescriptor? {
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).first else { return nil }
         let target = NSAppleEventDescriptor(processIdentifier: app.processIdentifier)
         let event = NSAppleEventDescriptor.appleEvent(withEventClass: e.cls, eventID: e.id, targetDescriptor: target,
@@ -118,10 +126,16 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
                                                       transactionID: AETransactionID(kAnyTransactionID))
         for (k, d) in e.params { event.setParam(d, forKeyword: k) }
         do {
-            return try event.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+            let reply = try event.sendEvent(options: [.waitForReply, .neverInteract], timeout: timeout)
+            loggedDenied = false
+            return reply
         } catch {
             let code = (error as NSError).code
-            if code != Self.noSuchObject { Self.log.notice("Music event failed: \(code, privacy: .public)") }
+            let denied = code == Int(errAEEventNotPermitted)
+            if code != Self.noSuchObject, !(denied && loggedDenied) {
+                Self.log.notice("Music event failed: \(code, privacy: .public)")
+            }
+            if denied { loggedDenied = true }
             return nil
         }
     }
@@ -167,7 +181,6 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
 
     private static let noSuchObject = -1728
 
-    private static let positionScript = #"tell application id "com.apple.Music" to get player position"#
     private static let artworkScript = #"""
     tell application id "com.apple.Music"
         set t to current track

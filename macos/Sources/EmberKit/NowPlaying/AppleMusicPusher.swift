@@ -56,6 +56,21 @@ extension NowPlayingClient: NowPlayingCommandSource {
 @Observable
 public final class AppleMusicPusher {
     public static let source = "music"
+    public static let seekPoll: Duration = .seconds(2)
+    static let seekTolerance: Int64 = 3000
+
+    public typealias Sleep = @Sendable (Duration) async throws -> Void
+    public typealias Now = @Sendable () -> ContinuousClock.Instant
+
+    struct Anchor: Equatable {
+        let positionMs: Int64
+        let at: ContinuousClock.Instant
+
+        func expected(at now: ContinuousClock.Instant) -> Int64 {
+            let (s, a) = (now - at).components
+            return positionMs + s * 1000 + a / 1_000_000_000_000_000
+        }
+    }
 
     public private(set) var lastError: String?
     public private(set) var lastSent: NowPlayingReport?
@@ -66,11 +81,22 @@ public final class AppleMusicPusher {
     @ObservationIgnored private var latest: MusicPlayerInfo?
     @ObservationIgnored private var worker: Task<Void, Never>?
     @ObservationIgnored private var reportError: Error?
+    @ObservationIgnored private(set) var anchor: Anchor?
+    @ObservationIgnored private var seekWatch: Task<Void, Never>?
+    @ObservationIgnored private var submits = 0
+    @ObservationIgnored private let seekEvery: Duration?
+    @ObservationIgnored private let sleep: Sleep
+    @ObservationIgnored private let now: Now
 
-    public init(bridge: MusicBridge, sink: NowPlayingSink, player: String) {
+    public init(bridge: MusicBridge, sink: NowPlayingSink, player: String, seekPoll: Duration? = nil,
+                sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
+                now: @escaping Now = { ContinuousClock.now }) {
         self.bridge = bridge
         self.sink = sink
         self.player = player
+        seekEvery = seekPoll
+        self.sleep = sleep
+        self.now = now
     }
 
     public func configure(sink: NowPlayingSink, player: String) async {
@@ -83,6 +109,7 @@ public final class AppleMusicPusher {
     }
 
     public func submit(_ info: MusicPlayerInfo) {
+        submits += 1
         latest = info
         guard worker == nil else { return }
         worker = Task { [weak self] in
@@ -103,9 +130,13 @@ public final class AppleMusicPusher {
     }
 
     public func stop() async {
+        endSeekWatch()
         await drain()
-        guard let last = lastSent, last.state != .stopped else { return }
-        await send(MusicPlayerInfo(state: .stopped).report(source: Self.source, player: player))
+        if let last = lastSent, last.state != .stopped {
+            await send(MusicPlayerInfo(state: .stopped).report(source: Self.source, player: player))
+        }
+        anchor = nil
+        endSeekWatch()
     }
 
     public func drain() async {
@@ -131,8 +162,54 @@ public final class AppleMusicPusher {
         }
     }
 
+    func checkSeek() async {
+        let gen = submits
+        guard worker == nil, let before = anchor else { return }
+        guard let pos = await bridge.position() else {
+            if !(await bridge.isRunning()), current(gen, before) { submit(MusicPlayerInfo(state: .stopped)) }
+            return
+        }
+        let at = now()
+        guard current(gen, before),
+              abs(Int64(max(pos, 0) * 1000) - before.expected(at: at)) > Self.seekTolerance,
+              let info = await bridge.snapshot(), current(gen, before) else { return }
+        submit(info)
+    }
+
+    var isWatchingSeeks: Bool { seekWatch != nil }
+
+    private func current(_ gen: Int, _ before: Anchor) -> Bool {
+        !Task.isCancelled && worker == nil && submits == gen && anchor == before
+    }
+
+    private func watchSeeks() {
+        guard let every = seekEvery, seekWatch == nil else { return }
+        seekWatch = Task { [weak self, sleep, bridge] in
+            if await bridge.canControl() {
+                while !Task.isCancelled {
+                    do { try await sleep(every) } catch { return }
+                    guard let self else { return }
+                    await self.checkSeek()
+                }
+            }
+            if !Task.isCancelled { self?.seekWatch = nil }
+        }
+    }
+
+    private func endSeekWatch() {
+        seekWatch?.cancel()
+        seekWatch = nil
+    }
+
     @discardableResult
     private func send(_ report: NowPlayingReport) async -> NowPlayingAck? {
+        if report.state == .playing {
+            anchor = Anchor(positionMs: report.positionMs, at: now())
+            watchSeeks()
+        } else {
+            anchor = nil
+            endSeekWatch()
+        }
         do {
             let ack = try await sink.report(report)
             lastSent = report

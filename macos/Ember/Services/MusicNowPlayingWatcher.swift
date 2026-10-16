@@ -31,7 +31,8 @@ final class MusicNowPlayingWatcher {
         enabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
         let bridge = AppleScriptMusicBridge()
         self.bridge = bridge
-        pusher = AppleMusicPusher(bridge: bridge, sink: NowPlayingClient(client: client), player: Self.computerName)
+        pusher = AppleMusicPusher(bridge: bridge, sink: NowPlayingClient(client: client), player: Self.computerName,
+                                  seekPoll: AppleMusicPusher.seekPoll)
         commands = MusicCommandListener(bridge: bridge, pusher: pusher)
     }
 
