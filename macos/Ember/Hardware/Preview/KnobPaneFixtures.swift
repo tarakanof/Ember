@@ -40,7 +40,7 @@ enum KnobPaneFixtures {
          {"id":"5eed5eed","size":4096,"fw":"0.9.14","received_at":"\#(iso(now.addingTimeInterval(-172_800)))","reason":"int_wdt","task":"IDLE0","pc":"0x40380f1c","elf":"feedface"}]
         """#
         let config = #"""
-        {"home":"bot","poll_ms":2000,"diagnostics":"full","stats_interval_s":60,"live_interval_s":5,"display":{"fast_link":true},
+        {"home":"bot","swipe_pages":true,"poll_ms":2000,"diagnostics":"full","stats_interval_s":60,"live_interval_s":5,"display":{"fast_link":true},
          "brightness":{"follow_ember":false,"level":153,"floor":10,"startup":156},
          "pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":false}],
          "bot":{"sleepy_after_s":600,"demo_hold_s":15,"source_label":true,"working_ring":true}}

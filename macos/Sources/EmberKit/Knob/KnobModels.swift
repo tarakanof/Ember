@@ -481,6 +481,14 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         return s
     }
 
+    public func showsSwipeToggle(for knob: KnobDevice?) -> Bool {
+        swipePages != nil && knob?.supportsSwipePages == true
+    }
+
+    public func showsSwipeFooter(for knob: KnobDevice?) -> Bool {
+        showsSwipeToggle(for: knob) && swipePages == true
+    }
+
     public func isLastPageOn(_ id: String) -> Bool {
         pages.filter(\.on).map(\.id) == [id]
     }
