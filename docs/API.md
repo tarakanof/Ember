@@ -40,7 +40,8 @@ only; a pre-#340 server also lists clients there, `kind: client`; each knob
 carries `effective_caps`, its reported or legacy capabilities, #341,
 DEVICE-PROTOCOL "Capabilities"),
 `GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340), `GET/PUT
-/v1/devices/{id}/config` (same merge; includes `quiet{calm, dim_level}` and
+/v1/devices/{id}/config` (same merge; includes `swipe_pages` (bool, default
+true), `quiet{calm, dim_level}` and
 `display{fast_link, rotation 0|90|180|270}`;
 a knob that reported `caps` gets a 400 for turning on a page outside them,
 a `display.rotation` outside `caps.rotations` or a config over its `config_bytes`; for the

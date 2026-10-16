@@ -24,6 +24,7 @@ const customKnobConfig = `{
 	"pages": [{"id": "pomodoro", "on": true}, {"id": "bot", "on": true}, {"id": "nowplaying", "on": true},
 		{"id": "weather", "on": false}, {"id": "future-page", "on": false}],
 	"home": "pomodoro",
+	"swipe_pages": false,
 	"poll_ms": 3000,
 	"bot": {"sleepy_after_s": 600, "demo_hold_s": 30, "source_label": false, "working_ring": false,
 		"weather_moments": false, "weather_every_min": 0},

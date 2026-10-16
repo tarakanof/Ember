@@ -134,3 +134,33 @@ private func degrees(_ c: [KnobRotationChoice]) -> [Int] { c.map(\.degrees) }
     #expect(!without.supports(feature: KnobCaps.wxMoments), "0.9.61-0.9.64 apply moments but don't report the token")
     #expect(!knob(fw: "0.9.65").supports(feature: KnobCaps.wxMoments), "no semver fallback for a server without effective_caps")
 }
+
+@Test func knobSwipePagesGateIsFirmware0915() {
+    #expect(knob(fw: "0.9.15").supportsSwipePages)
+    #expect(knob(fw: "0.9.92").supportsSwipePages)
+    #expect(knob(fw: "0.10.0").supportsSwipePages)
+    #expect(!knob(fw: "0.9.14").supportsSwipePages)
+    #expect(!knob(fw: "0.9.15-rc.1").supportsSwipePages)
+    #expect(!knob(fw: nil).supportsSwipePages)
+    #expect(knob(fw: "0.9.41", caps: KnobCaps(pages: ["bot"], features: [])).supportsSwipePages,
+            "caps list no swipe token, so the firmware version decides")
+}
+
+@Test func knobSwipeToggleNeedsFirmwareAndTheServerKey() throws {
+    let base = #""brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true}],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20}"#
+    let decode = { (extra: String) in try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + extra + "}").utf8)) }
+    let oldServer = try decode("")
+    let on = try decode(#","swipe_pages":true"#)
+    let off = try decode(#","swipe_pages":false"#)
+    let newFW = knob(fw: "0.9.15"), oldFW = knob(fw: "0.9.14")
+
+    #expect(!oldServer.showsSwipeToggle(for: newFW), "a server without the key would 400 the PUT")
+    #expect(!oldServer.showsSwipeFooter(for: newFW))
+    #expect(on.showsSwipeToggle(for: newFW))
+    #expect(on.showsSwipeFooter(for: newFW))
+    #expect(off.showsSwipeToggle(for: newFW))
+    #expect(!off.showsSwipeFooter(for: newFW))
+    #expect(!on.showsSwipeToggle(for: oldFW))
+    #expect(!on.showsSwipeFooter(for: oldFW))
+    #expect(!on.showsSwipeToggle(for: nil))
+}
