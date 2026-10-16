@@ -234,6 +234,9 @@ func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.W
 	if err := a.devices.flush(); err != nil {
 		a.logger.Warn("device registry flush failed", "err", err)
 	}
+	if err := a.usageSeen.flush(); err != nil {
+		a.logger.Warn("usage account registry flush failed", "err", err)
+	}
 	if a.store != nil {
 		if err := a.store.Close(); err != nil {
 			a.logger.Warn("pomodoro store close failed", "err", err)

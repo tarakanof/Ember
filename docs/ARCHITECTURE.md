@@ -884,7 +884,13 @@ Claude producer constraints:
   killed and the session's last good output
   (`~/.local/state/ember/statusline/<session>.out`, pruned after a day) is
   shown instead. A command that exits 0 but leaves a background child holding
-  stdout still has its output shown.
+  stdout still has its output shown. A producer stopped by SIGTERM, SIGINT
+  or SIGHUP kills that process group before it exits with 128 + the
+  signal number (143, 130, 129), a normal exit rather than death by
+  signal; a SIGHUP or SIGINT ignored at start (nohup, `cmd &`) stays
+  ignored (the Go runtime always takes SIGTERM, so an inherited ignore of
+  it never held). A SIGKILL can't be caught, so a command started then
+  can outlive it until its own end.
 - **`claude agents --json` cross-check** (#266, `agents.go`,
   `EMBER_CLAUDE_AGENTS_POLL`, default on). Hooks miss three transitions: an
   approved permission dialog stays `waiting` until the tool finishes (no hook
@@ -4737,7 +4743,9 @@ add `account_key` and `plan` to `POST /v1/usage`:
   marker written before the upgrade (no account fields at all) is taken
   to be from the daemon's config dir and left out once a keyed marker from
   that dir exists, so an upgrade doesn't show an extra fresh "Claude"
-  account. A marker whose last render (`statusline_at`, else its mtime) is
+  account. A session whose config file is missing records its path with
+  `|-|-` for mtime and size, so it isn't taken for a pre-upgrade marker
+  and stays posted keyless. A marker whose last render (`statusline_at`, else its mtime) is
   over 10 min old isn't relayed, so a dead session on an old login can't
   pass its old numbers off as fresh. The
   5-min endpoint poll reads the daemon's account before the fetch and
@@ -4809,7 +4817,9 @@ wrote (`MasterHeld` in the store, `master` in the registry, carried from
 the registry into the store after a restart) counts toward no client
 token's cap and no client cap evicts it; and a bound token still passes
 `allowSource` for its labels before any of this. The registry follows the same per-writer caps and skips a
-new account at 64 instead of refusing. An account's
+new account at 64 instead of refusing; the store keeps such an account's
+first post time, so its first sighting and place don't move with each
+post (until a restart, which forgets it). An account's
 id is `<tool>:<account_key>`, so one key on two tools stays two accounts; a
 keyless post is one account per tool, whose id is the bare tool name, which
 no keyed id can equal; once its tool has a keyed
@@ -4821,8 +4831,9 @@ skipped by `state`); stale still means 10 min.
 **Registry** (`usageAccountRegistry`, store key `usage_accounts_seen`):
 per account id its tool, writer, plan and first and last sighting, persisted so the
 default order and the 7-day expiry survive a restart. Memory follows every
-post; the store is written only for a new account, a plan change, or when
-the account's last write is an hour old (at most one write per account per
+post; the store is written only for a new account, a plan change, when
+the account's last write is an hour old, or on graceful shutdown if any
+newer sighting is still unwritten (at most one write per account per
 hour, plus one per plan or owner change, so a master takeover and the
 master-held mark reach the store at once; owners change at most once per
 10-min staleness, and the post's `source` plays no part, so one
@@ -4835,12 +4846,14 @@ and the percents of up to 4 models with a name the view accepts, pct
 rounded to 0.1, no labels, no source. Its times are whole seconds in UTC,
 and `POST /v1/usage` clamps any `resets_at` into now − 1 day … now + 30
 days, so 64 worst-case accounts (each master-held and then taken over by
-a client token, the largest an entry gets) persist in about 28 KB, capped
+a client token, the largest an entry gets, with 19-digit sequence
+numbers) persist in about 29 KB, capped
 at 30 KiB by `TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize`.
 The snapshot is written with the entry, so
 after a restart an account with no post yet shows that snapshot as stale
-with its old `updated_at` (up to an hour behind the last post, the write
-throttle) instead of vanishing from the knob; the first post replaces it.
+with its old `updated_at` (the last post after a graceful shutdown, up to
+an hour behind it after a crash, the write throttle) instead of vanishing
+from the knob; the first post replaces it.
 
 **Settings** (`usage_accounts_json`, one `settingSpec`; `Config.UsageAccounts`):
 per account id `name`, `hidden` and `order`. `GET /v1/usage/accounts`

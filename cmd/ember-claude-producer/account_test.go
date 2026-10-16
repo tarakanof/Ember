@@ -22,6 +22,9 @@ import (
 
 func TestMain(m *testing.M) {
 	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	if os.Getenv("EMBER_TEST_STATUSLINE_CHILD") == "1" {
+		runStatusline()
+	}
 	os.Exit(m.Run())
 }
 
@@ -366,6 +369,27 @@ func TestStatuslineRelayDropsPreUpgradeKeylessMarkersOnceTheConfigDirIsKeyed(t *
 	got := relayed(t, h)
 	if _, keyless := got[""]; keyless || len(got) != 1 || got[personalKey].FiveHour.UsedPercent != 20 {
 		t.Fatalf("relayed = %+v, want only the keyed account", got)
+	}
+}
+
+func TestStatuslineRelayKeepsAKeylessSessionWhoseConfigIsMissing(t *testing.T) {
+	resetClaudeAccountCache(t)
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	writeClaudeJSON(t, h.home, fakeClaudeJSON)
+	empty := filepath.Join(h.home, ".claude-empty")
+	if err := os.MkdirAll(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeMarkerFile(t, h.sessionsDir(), "nocfg", "")
+	writeMarkerFile(t, h.sessionsDir(), "keyed", "")
+	enrichAs(t, h, empty, "nocfg", 40)
+	enrichAs(t, h, "", "keyed", 20)
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	got := relayed(t, h)
+	if len(got) != 2 || got[""].FiveHour == nil || got[""].FiveHour.UsedPercent != 40 || got[personalKey].FiveHour.UsedPercent != 20 {
+		t.Fatalf("relayed = %+v, want the keyless session kept beside the keyed one", got)
 	}
 }
 

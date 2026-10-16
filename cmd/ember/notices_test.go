@@ -144,7 +144,7 @@ func noticeScenarios() []noticeScenario {
 		{name: "usage_alarm", run: func(t *testing.T, app *App) {
 			c := app.coord
 			t0 := time.Unix(1_700_000_000, 0)
-			app.usage.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 100, ResetsAt: t0.Unix() + 90}, UpdatedAt: t0})
+			putUsage(t, app.usage, "claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 100, ResetsAt: t0.Unix() + 90}, UpdatedAt: t0})
 			c.checkLimitAlarms(t0, Snapshot{})
 			c.checkLimitAlarms(t0.Add(160*time.Second), Snapshot{})
 		}},

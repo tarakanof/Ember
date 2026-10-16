@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -161,11 +163,36 @@ func runWrapped(command string, stdin []byte, timeout time.Duration) ([]byte, er
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 500 * time.Millisecond
-	out, err := cmd.Output()
-	if err != nil && ctx.Err() == context.DeadlineExceeded {
-		return out, errWrappedTimeout
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Start(); err != nil {
+		return nil, err
 	}
-	return out, err
+	wrappedGroup.Store(int64(cmd.Process.Pid))
+	err := cmd.Wait()
+	wrappedGroup.Store(0)
+	if err != nil && ctx.Err() == context.DeadlineExceeded {
+		return out.Bytes(), errWrappedTimeout
+	}
+	return out.Bytes(), err
+}
+
+var wrappedGroup atomic.Int64
+
+func killWrappedOnSignal() {
+	sigs := make(chan os.Signal, 1)
+	for _, sig := range []os.Signal{syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP} {
+		if !signal.Ignored(sig) {
+			signal.Notify(sigs, sig)
+		}
+	}
+	go func() {
+		sig := <-sigs
+		if pgid := wrappedGroup.Load(); pgid > 0 {
+			_ = syscall.Kill(-int(pgid), syscall.SIGKILL)
+		}
+		os.Exit(128 + int(sig.(syscall.Signal)))
+	}()
 }
 
 func wrappedOutput(command string, stdin []byte, timeout time.Duration, cachePath string) []byte {
@@ -225,6 +252,7 @@ func statusLineIsOurs(v any) bool {
 }
 
 func runStatusline() {
+	killWrappedOnSignal()
 	buf, _ := io.ReadAll(os.Stdin)
 	statuslineMain(buf, os.Stdout)
 	os.Exit(0)

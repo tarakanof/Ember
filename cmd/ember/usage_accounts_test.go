@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -58,8 +60,8 @@ func accountNames(out usageAccountsOut) string {
 func TestUsageStoreKeepsTwoAccountsOfOneToolApart(t *testing.T) {
 	s := newUsageStore()
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	s.Put("claude", ToolUsage{Account: keyMaxA, FiveHour: &UsageWindow{UsedPercent: 20}, UpdatedAt: now})
-	s.Put("claude", ToolUsage{Account: keyMaxB, FiveHour: &UsageWindow{UsedPercent: 70}, UpdatedAt: now.Add(time.Second)})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, FiveHour: &UsageWindow{UsedPercent: 20}, UpdatedAt: now})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxB, FiveHour: &UsageWindow{UsedPercent: 70}, UpdatedAt: now.Add(time.Second)})
 	st := s.state(nil, now.Add(time.Minute))
 	if len(st.Accounts) != 2 {
 		t.Fatalf("accounts = %+v, want two", st.Accounts)
@@ -72,13 +74,13 @@ func TestUsageStoreKeepsTwoAccountsOfOneToolApart(t *testing.T) {
 func TestUsageStoreMergesTwoMacsOnOneAccountNewestWins(t *testing.T) {
 	s := newUsageStore()
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	s.Put("claude", ToolUsage{Account: keyMaxA, Source: "m4", FiveHour: &UsageWindow{UsedPercent: 30}, UpdatedAt: now.Add(time.Minute)})
-	s.Put("claude", ToolUsage{Account: keyMaxA, Source: "m5", FiveHour: &UsageWindow{UsedPercent: 10}, UpdatedAt: now})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, Source: "m4", FiveHour: &UsageWindow{UsedPercent: 30}, UpdatedAt: now.Add(time.Minute)})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, Source: "m5", FiveHour: &UsageWindow{UsedPercent: 10}, UpdatedAt: now})
 	st := s.state(nil, now.Add(2*time.Minute))
 	if len(st.Accounts) != 1 || st.Accounts[0].Report.Source != "m4" || st.Accounts[0].Report.FiveHour.UsedPercent != 30 {
 		t.Fatalf("accounts = %+v, want one entry holding the newer m4 post", st.Accounts)
 	}
-	s.Put("claude", ToolUsage{Account: keyMaxA, Source: "m5", FiveHour: &UsageWindow{UsedPercent: 35}, UpdatedAt: now.Add(3 * time.Minute)})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, Source: "m5", FiveHour: &UsageWindow{UsedPercent: 35}, UpdatedAt: now.Add(3 * time.Minute)})
 	if got := s.state(nil, now.Add(4*time.Minute)).Accounts; len(got) != 1 || got[0].Report.Source != "m5" {
 		t.Fatalf("accounts = %+v, want m5's newer post", got)
 	}
@@ -87,14 +89,14 @@ func TestUsageStoreMergesTwoMacsOnOneAccountNewestWins(t *testing.T) {
 func TestUsageStoreDropsAnAccountSevenDaysAfterItsLastPost(t *testing.T) {
 	s := newUsageStore()
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	s.Put("claude", ToolUsage{Account: keyMaxA, UpdatedAt: now})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, UpdatedAt: now})
 	if got := s.state(nil, now.Add(usageAccountTTL)).Accounts; len(got) != 1 || got[0].Fresh {
 		t.Fatalf("at 7 days = %+v, want one stale account", got)
 	}
 	if got := s.state(nil, now.Add(usageAccountTTL+time.Second)).Accounts; len(got) != 0 {
 		t.Fatalf("past 7 days = %+v, want none", got)
 	}
-	s.Put("codex", ToolUsage{UpdatedAt: now.Add(usageAccountTTL + time.Hour)})
+	putUsage(t, s, "codex", ToolUsage{UpdatedAt: now.Add(usageAccountTTL + time.Hour)})
 	if _, ok := s.All()[usageKey{"claude", keyMaxA}]; ok {
 		t.Fatal("a post past the TTL did not prune the expired account")
 	}
@@ -108,7 +110,7 @@ func TestLegacyKeylessUsagePostIsOneAccountPerTool(t *testing.T) {
 	if accountNames(out) != "claude=Claude" || out.Accounts[0].Plan != nil || out.Accounts[0].Stale {
 		t.Fatalf("accounts = %+v, want one fresh keyless Claude", out)
 	}
-	if u, ok := app.usage.Get("claude"); !ok || u.FiveHour.UsedPercent != 45 {
+	if u, ok := toolUsage(app.usage, "claude", time.Now()); !ok || u.FiveHour.UsedPercent != 45 {
 		t.Fatalf("claude usage = %+v", u)
 	}
 }
@@ -271,8 +273,8 @@ func TestUsageAccountsPutRejectsUnknownOrBadSettings(t *testing.T) {
 func TestStaleKeylessAccountLeavesOnceItsToolHasAKeyedOne(t *testing.T) {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	s := newUsageStore()
-	s.Put("claude", ToolUsage{UpdatedAt: now})
-	s.Put("claude", ToolUsage{Account: keyMaxA, Plan: "max", UpdatedAt: now.Add(time.Minute)})
+	putUsage(t, s, "claude", ToolUsage{UpdatedAt: now})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, Plan: "max", UpdatedAt: now.Add(time.Minute)})
 	both := buildUsageAccounts(s.state(nil, now.Add(2*time.Minute)), nil, nil)
 	if len(both) != 2 {
 		t.Fatalf("while both are fresh = %+v, want two", both)
@@ -400,7 +402,7 @@ func TestUsageStoreCapsAccountsPerToolEvictingTheOldest(t *testing.T) {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	for i := range usageAccountsPerTool + 2 {
 		key := strings.Repeat(string(rune('a'+i)), 16)
-		s.Put("claude", ToolUsage{Account: key, UpdatedAt: now.Add(time.Duration(i) * time.Minute)})
+		putUsage(t, s, "claude", ToolUsage{Account: key, UpdatedAt: now.Add(time.Duration(i) * time.Minute)})
 	}
 	all := s.All()
 	if len(all) != usageAccountsPerTool {
@@ -417,7 +419,7 @@ func TestUsagePostIsStampedWithTheReceiveTime(t *testing.T) {
 	now := time.Now()
 	for _, sent := range []time.Time{now.Add(30 * 24 * time.Hour), now.Add(-6 * 24 * time.Hour), {}} {
 		s := newUsageStore()
-		s.Put("claude", ToolUsage{Account: keyMaxA, UpdatedAt: now.Add(-time.Hour)})
+		putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, UpdatedAt: now.Add(-time.Hour)})
 		if _, err := s.PutIfOwned("codex", ToolUsage{Account: keyCodex, UpdatedAt: sent}, nil, usageAccountsTotal, now); err != nil {
 			t.Fatal(err)
 		}
@@ -583,7 +585,7 @@ func TestClientOnASharedSourceCannotEvictTheMastersAccounts(t *testing.T) {
 
 func TestStaleEntryFromAnotherSourceDoesNotLockOutTheMasterToken(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
-	app.usage.Put("claude", ToolUsage{Account: keyMaxA, Source: "ci", UpdatedAt: time.Now().Add(-time.Hour)})
+	putUsage(t, app.usage, "claude", ToolUsage{Account: keyMaxA, Source: "ci", UpdatedAt: time.Now().Add(-time.Hour)})
 	postUsage(t, srv, `{"tool":"claude","source":"dt-mbp","account_key":"`+keyMaxB+`"}`)
 	postUsage(t, srv, `{"tool":"claude","source":"dt-mbp","account_key":"`+keyMaxA+`"}`)
 	if u := app.usage.All()[usageKey{"claude", keyMaxA}]; u.Source != "dt-mbp" {
@@ -591,13 +593,13 @@ func TestStaleEntryFromAnotherSourceDoesNotLockOutTheMasterToken(t *testing.T) {
 	}
 }
 
-func TestUsageStoreGetReturnsTheToolsHighestFiveHourAccount(t *testing.T) {
+func TestUsageStateRepresentsAToolByItsHighestFiveHourAccount(t *testing.T) {
 	s := newUsageStore()
 	now := time.Now()
-	s.Put("claude", ToolUsage{Account: keyMaxA, FiveHour: &UsageWindow{UsedPercent: 90}, UpdatedAt: now.Add(-time.Minute)})
-	s.Put("claude", ToolUsage{Account: keyMaxB, FiveHour: &UsageWindow{UsedPercent: 20}, UpdatedAt: now})
-	if u, ok := s.Get("claude"); !ok || u.Account != keyMaxA {
-		t.Fatalf("Get = %+v, want the 90%% account", u)
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, FiveHour: &UsageWindow{UsedPercent: 90}, UpdatedAt: now.Add(-time.Minute)})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxB, FiveHour: &UsageWindow{UsedPercent: 20}, UpdatedAt: now})
+	if u, ok := toolUsage(s, "claude", time.Now()); !ok || u.Account != keyMaxA {
+		t.Fatalf("tool usage = %+v, want the 90%% account", u)
 	}
 }
 
@@ -732,6 +734,7 @@ func TestUsagePostRejectsOversizedModelsAndLabels(t *testing.T) {
 func TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize(t *testing.T) {
 	kv := &usageSeenKV{}
 	r := newUsageAccountRegistry(func() settingsKV { return kv })
+	r.nextSeq = math.MaxInt - usageAccountsTotal
 	loc := time.FixedZone("x", 3*3600)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 123456789, loc)
 	label := strings.Repeat("L", 32)
@@ -1109,5 +1112,63 @@ func TestMasterTakeoverOfAClientAccountSurvivesARestart(t *testing.T) {
 	app2.loadUsageAccounts()
 	if s := app2.usageSeen.snapshot(time.Now())[idMaxA]; !s.Master || s.Principal != "" {
 		t.Fatalf("reloaded entry = %+v, want it master-held and the master's", s)
+	}
+}
+
+func TestUnregisteredAccountKeepsItsFirstSeenAndPlace(t *testing.T) {
+	s := newUsageStore()
+	t0 := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, Plan: "max", UpdatedAt: t0})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxB, Plan: "max", UpdatedAt: t0.Add(time.Minute)})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, Plan: "max", UpdatedAt: t0.Add(time.Hour)})
+	accs := buildUsageAccounts(s.state(nil, t0.Add(time.Hour)), nil, nil)
+	if len(accs) != 2 || accs[0].ID != idMaxA || accs[1].ID != idMaxB {
+		t.Fatalf("order = %+v, want first-seen order with no registry entry", accs)
+	}
+	if !accs[0].FirstSeen.Equal(t0) {
+		t.Fatalf("first_seen = %v, want %v kept across posts", accs[0].FirstSeen, t0)
+	}
+}
+
+func TestUsageAccountsOutsideAFullRegistryKeepTheirOrder(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	now := time.Now()
+	for i := range usageAccountsTotal {
+		k := usageKey{fmt.Sprintf("tool%02d", i/usageAccountsPerTool), fmt.Sprintf("%016x", i)}
+		principal := fmt.Sprintf("client:c%d", i/usageAccountsPerWriter)
+		if err := app.usageSeen.observe(k, ToolUsage{}, principal, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxB+`","plan":"max"}`)
+	if _, registered := app.usageSeen.snapshot(time.Now())[idMaxA]; registered {
+		t.Fatal("registry took a 65th account")
+	}
+	ageUsageAccount(t, app, usageKey{"claude", keyMaxA}, time.Hour)
+	ageUsageAccount(t, app, usageKey{"claude", keyMaxB}, time.Hour-time.Minute)
+	before := getAccounts(t, srv, testToken)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
+	after := getAccounts(t, srv, testToken)
+	if accountNames(after) != accountNames(before) || !after.Accounts[0].FirstSeen.Equal(before.Accounts[0].FirstSeen) {
+		t.Fatalf("after a post = %s %v, want %s %v", accountNames(after), after.Accounts[0].FirstSeen,
+			accountNames(before), before.Accounts[0].FirstSeen)
+	}
+}
+
+func TestUsageAccountSnapshotsAreFlushedOnShutdown(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max","five_hour":{"used_percent":10}}`)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max","five_hour":{"used_percent":64}}`)
+	srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	app.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
+	app2, _ := newDevicesApp(t, db)
+	app2.loadUsageAccounts()
+	got := app2.knobUsage(time.Now())
+	if got == nil || len(got.Accounts) != 1 || got.Accounts[0].FiveHour == nil || got.Accounts[0].FiveHour.Pct != 64 {
+		t.Fatalf("knob usage after a restart = %+v, want the last snapshot before shutdown", got)
 	}
 }

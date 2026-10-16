@@ -19,7 +19,7 @@ func TestUsageHTTPStoresPayload(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	u, ok := app.usage.Get("claude")
+	u, ok := toolUsage(app.usage, "claude", time.Now())
 	if !ok || u.FiveHour == nil || u.FiveHour.ResetLabel != "14:25" || u.SevenDay.UsedPercent != 58 {
 		t.Errorf("stored = %+v ok=%v", u, ok)
 	}
@@ -115,7 +115,7 @@ func TestUsageHTTP_ClampsOutOfRangeUsedPercent(t *testing.T) {
 		t.Fatalf("status = %d, want 204 (out-of-range percents clamp, not reject)", resp.StatusCode)
 	}
 
-	u, ok := app.usage.Get("claude")
+	u, ok := toolUsage(app.usage, "claude", time.Now())
 	if !ok {
 		t.Fatal("usage not stored")
 	}
