@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/tarakanof/ember/internal/discovery"
@@ -36,6 +37,17 @@ func (a *App) initDeviceDiscovery(ctx context.Context) {
 	a.provisionClockInBackground()
 }
 
+type browseFunc func(context.Context, time.Duration) ([]discovery.Candidate, error)
+
+func defaultBrowse() browseFunc {
+	if testing.Testing() {
+		return func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+			panic("test reached the real clock browse; stub App.browseFn")
+		}
+	}
+	return discovery.BrowseAWTRIX
+}
+
 func (a *App) rediscoverClock(ctx context.Context) bool {
 	if clockDisabled() {
 		a.lastRediscoverResult.Store("disabled")
@@ -56,14 +68,15 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 		}
 	}
 	if ctx.Err() != nil {
+		a.lastRediscoverResult.Store("cancelled")
 		return false
 	}
 
-	browse := a.browseFn
-	if browse == nil {
-		browse = discovery.BrowseAWTRIX
+	cands, err := a.browseFn(ctx, 3*time.Second)
+	if ctx.Err() != nil {
+		a.lastRediscoverResult.Store("cancelled")
+		return false
 	}
-	cands, err := browse(ctx, 3*time.Second)
 	if err != nil || len(cands) == 0 {
 		a.lastRediscoverResult.Store("no-device")
 		a.logger.Info("clock discovery found no device", "configured", cur)
@@ -147,9 +160,6 @@ func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if ctx.Err() != nil {
-				return
-			}
 			if a.rediscoverClock(ctx) {
 				last = deviceProbe{}
 				a.clockMoved("clock_rediscovered")
@@ -255,11 +265,7 @@ func (a *App) handleDeviceDiscover(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": errClockDisabled.Error(), "code": "clock_disabled"})
 		return
 	}
-	browse := a.browseFn
-	if browse == nil {
-		browse = discovery.BrowseAWTRIX
-	}
-	cands, err := browse(r.Context(), 3*time.Second)
+	cands, err := a.browseFn(r.Context(), 3*time.Second)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return

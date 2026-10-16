@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
-	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/sessions"
 )
@@ -114,7 +113,7 @@ type App struct {
 	clockGen  uint64
 
 	republish republishGate
-	browseFn  func(context.Context, time.Duration) ([]discovery.Candidate, error)
+	browseFn  browseFunc
 
 	deviceRediscoverMu   sync.Mutex
 	lastRediscoverAt     atomic.Int64
@@ -142,7 +141,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		usage:        newUsageStore(),
 		weather:      newWeatherStore(),
 		activityLast: make(map[string]activityMark),
-		browseFn:     discovery.BrowseAWTRIX,
+		browseFn:     defaultBrowse(),
 	}
 	a.weatherFetcher = newWeatherFetcher()
 	a.meetings = newMeetingsStore()

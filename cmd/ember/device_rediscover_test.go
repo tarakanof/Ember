@@ -68,6 +68,33 @@ func TestRediscoverClock_SkipsBrowseWhenContextCancelled(t *testing.T) {
 	if a.rediscoverClock(ctx) || browsed {
 		t.Fatalf("cancelled rediscover must not browse: browsed=%v", browsed)
 	}
+	if got := a.lastRediscoverResult.Load(); got != "cancelled" {
+		t.Fatalf("lastRediscoverResult=%v want cancelled", got)
+	}
+}
+
+func TestRediscoverClock_CancelDuringBrowseIsNotNoDevice(t *testing.T) {
+	a := newTestApp(t)
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) { cancel(); return nil, nil }
+	if a.rediscoverClock(ctx) {
+		t.Fatalf("cancelled browse must not swap")
+	}
+	if got := a.lastRediscoverResult.Load(); got != "cancelled" {
+		t.Fatalf("lastRediscoverResult=%v want cancelled", got)
+	}
+}
+
+func TestNewApp_RealBrowseIsGuardedInTests(t *testing.T) {
+	a := NewApp(defaultConfig(), &recordingPublisher{}, discardLogger())
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewApp's default browse ran in a test binary; it must panic instead of reaching the LAN")
+		}
+	}()
+	_, _ = a.browseFn(context.Background(), time.Millisecond)
 }
 
 func TestRediscoverClock_NoDeviceFound(t *testing.T) {

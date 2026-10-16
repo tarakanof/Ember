@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/discovery"
 )
 
 func newAppForDoctor(t *testing.T, awtrixURL string) *App {
@@ -24,6 +26,7 @@ func newAppForDoctor(t *testing.T, awtrixURL string) *App {
 	cfg.Auth.StatusToken = "tok"
 	cfg.applyDefaults()
 	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) { return nil, nil }
 	app.configPath = "/tmp/cfg.json"
 	app.configSource = "flag"
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
