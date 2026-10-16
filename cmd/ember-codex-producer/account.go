@@ -101,25 +101,28 @@ func (c *codexAccountCache) current(codexHome string) codexAccount {
 	return c.acct
 }
 
-var statFile, lstatFile = os.Stat, os.Lstat
-
 func authBoundary(codexHome string) (time.Time, bool) {
 	if codexHome == "" {
 		return time.Time{}, false
 	}
 	path := filepath.Join(codexHome, "auth.json")
-	fi, err := statFile(path)
+	fi, err := os.Stat(path)
 	if err != nil {
 		return time.Time{}, false
 	}
+	li, _ := os.Lstat(path)
+	return boundaryOf(fi, li), true
+}
+
+func boundaryOf(fi, li os.FileInfo) time.Time {
 	at := fi.ModTime()
 	if c := changeTime(fi); c.After(at) {
 		at = c
 	}
-	if li, err := lstatFile(path); err == nil && li.ModTime().After(at) {
+	if li != nil && li.ModTime().After(at) {
 		at = li.ModTime()
 	}
-	return at, true
+	return at
 }
 
 const (

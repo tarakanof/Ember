@@ -579,7 +579,7 @@ cache and Linux logs follow an absolute `$XDG_STATE_HOME`
 history `…/ember/codex-accounts.json`, `…/ember/logs/<producer>.log`, default
 `~/.local/state`; macOS logs stay in `~/Library/Logs`). `install` copies
 `XDG_STATE_HOME` into the systemd unit so the daemon and the hooks agree.
-`uninstall` leaves `producer.env`, the cache and the logs in place.
+`uninstall` leaves `producer.env`, the cache, `codex-accounts.json` and the logs in place.
 
 **Liveness on Linux** reads `/proc/<pid>/stat` instead of `ps` (BusyBox `ps`
 on Alpine has no `-p`/`lstart`): the Claude session owner walk and its start

@@ -184,8 +184,14 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 	if json.Unmarshal(rl.Payload, &p) != nil {
 		return
 	}
-	if p.Type == "task_started" && d.eraCrossed && tsErr == nil {
-		d.segmentAt, d.eraCrossed = ts, false
+	switch p.Type {
+	case "task_started", "user_message":
+		if d.eraCrossed && tsErr == nil {
+			d.segmentAt = ts
+		}
+		d.eraCrossed = false
+	case "token_count", "task_complete", "turn_aborted":
+		d.eraCrossed = false
 	}
 	switch {
 	case p.Type == "token_count":

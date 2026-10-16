@@ -4771,17 +4771,21 @@ add `account_key` and `plan` to `POST /v1/usage`:
   timestamp, moved to a later line in two cases. `codex resume` appends
   to the old rollout and writes no new `session_meta` or other marker, so:
   the first line after no rollout line for 30 min or more; and the first
-  `task_started` after two consecutive lines whose gap holds an era
-  start, which covers a resume right after a switch. A turn already
-  running on the old login when the switch lands stays unbound until its
-  next turn. A rate line or `session_meta` with no timestamp is bound to
+  turn start (`task_started`, or `user_message` for Codex before 0.100,
+  which doesn't persist `task_started`) after two consecutive lines whose
+  gap holds an era start, with no `token_count`, `task_complete` or
+  `turn_aborted` in between. That covers a resume right after a switch: a
+  resumed process writes none of those before its first turn, while a
+  process still running on the old login does, so it stays unbound. A
+  rate line or `session_meta` with no timestamp is bound to
   nothing (the latter logged at debug). An app-server snapshot is bound
   by its arrival time. On a key change, before the usage is picked, the
   app server's merged windows that arrived before the new era are
   cleared, so the new login's first snapshot stays and a null window
-  can't carry the old login's value. Limits: an old-login session that
-  wrote nothing across the switch, or for 30 min, posts under the new key
-  from its next turn; after a switch made while the daemon was down, the
+  can't carry the old login's value. Limits: an old-login process that
+  sat idle across the switch (its last turn ended before it, its next one
+  starts after it) or wrote no line for 30 min posts under the new key
+  from its next turn, since that looks like a resume; after a switch made while the daemon was down, the
   era starts at the latest `auth.json` write, so if the new login's own
   refresh or any ctime change came later, its sessions started before
   that wait for one of those segment starts; the shared app-server daemon
