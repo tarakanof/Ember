@@ -3,13 +3,19 @@
 package main
 
 import (
-	"os/exec"
+	"context"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 func procParentComm(pid int) (int, string, bool) {
-	out, err := exec.Command("ps", "-o", "ppid=,comm=", "-p", strconv.Itoa(pid)).Output()
+	return procParentCommCtx(context.Background(), pid)
+}
+
+func procParentCommCtx(ctx context.Context, pid int) (int, string, bool) {
+	out, err := psOutput(ctx, "-o", "ppid=,comm=", "-p", strconv.Itoa(pid))
 	if err != nil {
 		return 0, "", false
 	}
@@ -25,7 +31,7 @@ func procParentComm(pid int) (int, string, bool) {
 }
 
 func procStart(pid int) (string, bool) {
-	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
+	out, err := psOutput(context.Background(), "-o", "lstart=", "-p", strconv.Itoa(pid))
 	if err != nil {
 		return "", false
 	}
@@ -36,10 +42,13 @@ func procStart(pid int) (string, bool) {
 	return s, true
 }
 
-func procArgs(pid int) (string, bool) {
-	out, err := exec.Command("ps", "-ww", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return "", false
+func procArgv(ctx context.Context, pid int) ([]string, bool) {
+	if ctx.Err() != nil {
+		return nil, false
 	}
-	return strings.TrimSpace(string(out)), true
+	b, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil {
+		return nil, false
+	}
+	return parseProcArgs2(b)
 }

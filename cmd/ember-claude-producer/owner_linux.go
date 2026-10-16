@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -24,10 +25,20 @@ func procStart(pid int) (string, bool) {
 	return strconv.FormatUint(st.StartTicks, 10), true
 }
 
-func procArgs(pid int) (string, bool) {
+func procParentCommCtx(ctx context.Context, pid int) (int, string, bool) {
+	if ctx.Err() != nil {
+		return 0, "", false
+	}
+	return procParentComm(pid)
+}
+
+func procArgv(ctx context.Context, pid int) ([]string, bool) {
+	if ctx.Err() != nil {
+		return nil, false
+	}
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
 	if err != nil || len(b) == 0 {
-		return "", false
+		return nil, false
 	}
-	return strings.TrimSpace(strings.ReplaceAll(string(b), "\x00", " ")), true
+	return strings.Split(strings.TrimSuffix(string(b), "\x00"), "\x00"), true
 }

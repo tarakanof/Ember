@@ -180,13 +180,15 @@ read.
 
 *No double sessions with Claude (#216).* T3's Claude provider runs the Agent
 SDK with the user's settings, so Ember's Claude hooks fire for T3 Claude
-threads too. The Claude hook skips a session whose `CLAUDE_CODE_ENTRYPOINT`
-is `sdk-ts` and whose `claude` was launched by a T3 server process (argv
-ending `apps/server/dist/bin.mjs` or `t3/dist/bin.mjs`, or the `t3` binary),
-so each T3 thread shows once, as `t3`. Other Agent SDK apps and interactive
-`claude` (also inside T3's terminal) are reported as before. A T3 dev server
-(`node --watch src/bin.ts`) is not recognised and still doubles; untick one
-tool in Show on Clock for that.
+threads too. The Claude hook skips an Agent SDK session (`CLAUDE_CODE_ENTRYPOINT=sdk-ts`
+or `CLAUDE_AGENT_SDK_VERSION` set) whose `claude` was launched by a T3
+server: the desktop app, the `t3` binary (npm `t3@0.1`, `~/.t3/runtime/versions/<v>/t3 serve`)
+or the 0.0.x npm `t3` script. Each T3 thread then shows once, as `t3`. A
+`claude` row left from before the upgrade is deleted at that thread's next
+hook. Other Agent SDK apps and interactive `claude` (also inside T3's
+terminal) are reported as before. A dev or checkout T3 server (`node --watch
+src/bin.ts`, `node dist/bin.mjs`) is not recognised and still doubles; untick
+one tool in Show on Clock for that.
 Codex threads should not be doubled: T3 drives `codex app-server`, and the
 Codex producer only follows rollouts with `session_meta.source == "cli"`
 (confirm in the live check below).
