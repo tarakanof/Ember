@@ -21,6 +21,9 @@ public final class LiveModel {
     public private(set) var workhours: Loadable<WorkHours> = .loading
     public private(set) var heatmap: Loadable<Heatmap> = .loading
     public private(set) var serverVersion: String?
+    private var versionSaysClockDisabled = false
+
+    public var isClockDisabled: Bool { versionSaysClockDisabled || clockHealth.value?.isDisabled == true }
 
     public var winningSession: Session? {
         guard case .loaded(let snap, _) = snapshot else { return nil }
@@ -169,6 +172,12 @@ public final class LiveModel {
         await coordinator.refreshNow(feeds, ifOlderThan: age)
     }
 
+    public static let menuFeeds: [Feed] = [.stats, .meetings, .usage]
+
+    public func refreshMenuFeeds() async {
+        await coordinator.refreshNow(Self.menuFeeds, ifOlderThan: .seconds(60))
+    }
+
     public func isTracked(_ feed: Feed) -> Bool { coordinator.holdCount(feed) > 0 }
 
     public func lastFetched(_ feed: Feed) -> Date? { fetchedAt[feed] }
@@ -188,6 +197,7 @@ public final class LiveModel {
         heatmap = .loading
         reportedPower = nil
         serverVersion = nil
+        versionSaysClockDisabled = false
         versionDue = false
         versionFetch?.cancel()
         versionFetch = nil
@@ -289,6 +299,7 @@ public final class LiveModel {
                 let info: VersionInfo = try await c.get("/version")
                 guard gen == generation else { return }
                 serverVersion = info.release
+                versionSaysClockDisabled = info.isClockDisabled
                 versionDue = false
             } catch {
                 guard gen == generation else { return }
@@ -296,6 +307,7 @@ public final class LiveModel {
                 case .offline, .timedOut, .localNetworkDenied, .rateLimited: break
                 default:
                     serverVersion = nil
+                    versionSaysClockDisabled = false
                     versionDue = false
                 }
             }
