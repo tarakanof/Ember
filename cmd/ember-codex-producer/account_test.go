@@ -208,10 +208,10 @@ func rateLine(at time.Time, pct int, reset time.Time) string {
 }
 
 func eventAt(at time.Time, typ string) string {
-	return lineAt(at, "event_msg", typ)
+	return rolloutLineAt(at, "event_msg", typ)
 }
 
-func lineAt(at time.Time, rolloutType, typ string) string {
+func rolloutLineAt(at time.Time, rolloutType, typ string) string {
 	return `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"` + rolloutType + `","payload":{"type":"` + typ + `"}}`
 }
 
@@ -856,7 +856,7 @@ func TestWatcherUsageKeepsASteeredOldLoginTurnOffTheNewKey(t *testing.T) {
 	t0 := time.Now().Truncate(time.Second)
 	reset := t0.Add(time.Hour)
 	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
-	lines := []string{metaAt("u-a", t0.Add(-time.Hour)), evStarted, rateLine(t0.Add(-3*time.Second), 40, reset), lineAt(t0.Add(-2*time.Second), "response_item", "function_call")}
+	lines := []string{metaAt("u-a", t0.Add(-time.Hour)), evStarted, rateLine(t0.Add(-3*time.Second), 40, reset), rolloutLineAt(t0.Add(-2*time.Second), "response_item", "function_call")}
 	writeRollout(t, dir, "rollout-a.jsonl", t0, lines...)
 	now := t0
 	w := switchWatcher(t, dir, home, &now)
@@ -864,7 +864,7 @@ func TestWatcherUsageKeepsASteeredOldLoginTurnOffTheNewKey(t *testing.T) {
 	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
 	now = t0.Add(3 * time.Second)
 	w.tick()
-	lines = append(lines, lineAt(t0.Add(20*time.Second), "response_item", "function_call_output"), eventAt(t0.Add(21*time.Second), "user_message"),
+	lines = append(lines, rolloutLineAt(t0.Add(20*time.Second), "response_item", "function_call_output"), eventAt(t0.Add(21*time.Second), "user_message"),
 		rateLine(t0.Add(25*time.Second), 42, reset))
 	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(25*time.Second), lines...)
 	now = t0.Add(26 * time.Second)
@@ -885,7 +885,7 @@ func TestWatcherUsageEachTurnLineAfterTheSwitchKeepsTheOldLoginOff(t *testing.T)
 			t0 := time.Now().Truncate(time.Second)
 			reset := t0.Add(time.Hour)
 			writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
-			lines := []string{metaAt("u-a", t0.Add(-time.Hour)), evStarted, lineAt(t0.Add(-2*time.Second), "response_item", "function_call")}
+			lines := []string{metaAt("u-a", t0.Add(-time.Hour)), evStarted, rolloutLineAt(t0.Add(-2*time.Second), "response_item", "function_call")}
 			writeRollout(t, dir, "rollout-a.jsonl", t0, lines...)
 			now := t0
 			w := switchWatcher(t, dir, home, &now)

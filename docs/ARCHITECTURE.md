@@ -4797,11 +4797,12 @@ add `account_key` and `plan` to `POST /v1/usage`:
   start is the `session_meta` timestamp, moved to a later line in two cases.
   `codex resume` appends to the old rollout and writes no new `session_meta`
   or other marker, so: the first line after no rollout line for 30 min or
-  more; and the first turn start (`task_started`; `user_message` only while
-  the rollout has shown no `task_started`, for Codex before 0.100, which
-  doesn't persist it, since newer Codex also writes `user_message` for a
-  mid-turn steer) after two consecutive lines whose gap holds an era start,
-  with no `token_count`, `task_complete` or `turn_aborted` in between. That
+  more; and the first turn start after two consecutive lines whose gap
+  holds an era start, with no `token_count`, `task_complete` or
+  `turn_aborted` in between. A turn start is `task_started`. Codex before
+  0.100 doesn't persist `task_started`, so `user_message` also counts, but
+  only on a rollout with no `task_started`: newer Codex also writes
+  `user_message` for a mid-turn steer. The turn-start rule
   covers a resume right after a switch: a resumed process writes none of
   those before its first turn, while a process still running on the old
   login does, so it stays unbound. A rate line or `session_meta` with no
