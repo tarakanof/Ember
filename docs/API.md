@@ -165,6 +165,11 @@ would switch every off app back on; the same holds for `rotation` in
 `PUT /v1/devices/{id}/config`; these and the clock's
 `GET/PUT /v1/devices/{id}/config` run one at a time and answer 503 when
 another app order change holds them past the 11 s deadline),
+`PUT /v1/device/apps/{name}/enabled` (`{"enabled":bool}`, switches one app
+and leaves the others: NG ≥1.2's per-app route, else a fresh read of the
+clock's list and a full order write with only that app changed; clock
+refusals other than 404/405 are relayed; same lock and 503 as above;
+listed as `device_app_enabled` in `/version` `features`),
 `GET/PUT /v1/device/sensors` (system
 `tempOffset`/`humOffset` via read-merge-PUT of `/api/v1/system`; applies live,
 no reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons` (read-merge-PUT
@@ -196,7 +201,7 @@ units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
 `-update`) are also EmberKit's decode fixtures. Operator: `/admin/doctor`, `/admin/reload`,
 `/version` (`binary`, `version`, `revision`, `dirty`, `go_version`,
 `features`: server capabilities clients gate on, today
-`firmware_delete_keep`), `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
+`firmware_delete_keep` and `device_app_enabled`), `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
 `GET /v1/devices/self/config`, `PUT /v1/devices/self/coredump?id=<dump>`
 (the core dump a checkin asked for: `application/octet-stream`, ≤128 KiB or
 413, CRC-checked or 400, 409 while another upload of this knob runs, 204 when

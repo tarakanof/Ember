@@ -87,6 +87,7 @@ type clockListedApp struct {
 	Enabled bool   `json:"enabled"`
 	Origin  string `json:"origin"`
 	Slot    *int   `json:"slot"`
+	Present *bool  `json:"present"`
 }
 
 func composeClockApps(c Config, hidden []string) clockApps {

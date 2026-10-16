@@ -971,7 +971,7 @@ paths:
                     type: string
                   features:
                     type: array
-                    description: Capabilities clients gate on. `firmware_delete_keep` means `DELETE /v1/firmware/{version}` takes `?keep=protected`.
+                    description: Capabilities clients gate on. `firmware_delete_keep` means `DELETE /v1/firmware/{version}` takes `?keep=protected`; `device_app_enabled` means `PUT /v1/device/apps/{name}/enabled` exists.
                     items:
                       type: string
   /state:
@@ -3631,6 +3631,65 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          description: Another clock app order change held the lock until
+            this request's 11 s deadline (nothing changed), or the clock
+            itself answered 503.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/device/apps/{name}/enabled:
+    put:
+      tags: [clock]
+      operationId: putClockAppEnabled
+      summary: Switch one clock app on or off
+      description: Leaves every other app as it is. On awtrix-ng 1.2.0 or
+        newer (firmware cached from the last probe) the server sends
+        NG's per-app `PUT /api/v1/apps/{name}/enabled`; on older or unknown
+        firmware, or when the clock answers 404 or 405 to it, the server
+        reads the clock's app list and writes the full order with only
+        this app changed. Advertised as `device_app_enabled` in `/version`
+        `features`. Runs one at a time with `PUT /v1/device/apps` and the
+        clock's `PUT /v1/devices/{id}/config`.
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The clock app's name, as in `GET /v1/device/apps`.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+                  description: Missing or null answers 400.
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: The clock refused the change (relayed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "502":
           $ref: "#/components/responses/BadGateway"
         "503":

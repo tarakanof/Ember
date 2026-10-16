@@ -2653,6 +2653,18 @@ forwarding `null` or guessing `[]`, which would switch every off app on
 (#449). After a
 successful order write the PUT reads the list back (2 s budget) to update the
 clock record's version, and both routes run one at a time with the façade;
+the same holds for `PUT /v1/device/apps/{name}/enabled`, which switches one
+app and leaves the rest as they are (#447). NG has no capability flag for
+it, so the server gates on the firmware version cached at the last probe
+(`clock_firmware.go`, the one place a clock version is named): 1.2.0 or
+newer sends NG's per-app `PUT /api/v1/apps/{name}/enabled` (body `true` or
+`false`, added in NG 1.2). Older or unknown firmware, or a 404 or 405 to
+the per-app call (NG downgraded since the probe), falls back to reading
+`GET /api/v1/apps` and writing the full order with only that app changed,
+using the same rules as the app's `NativeAppsPlan` (modules left out, an
+unlisted name switched off by naming it in `disabled`). The read is fresh,
+under the app-order lock, so it is never older than the write;
+other clock refusals (400 `invalidName`, 422, 507) are relayed, not retried;
 see "One operation at a time" and "Rotation cache" under the clock config
 façade.
 The ambient weather overlay is a separate concern, `PATCH /api/v1/display`
@@ -3568,7 +3580,13 @@ migration) the same config is a façade over the overlay slices, as in #230.
   model stays dirty and saves again with the new values, so a whole-body
   `PUT` that landed after the façade one is corrected. In the other direction,
   an old-endpoint save of usage, Pomodoro, weather or meetings reloads the
-  façade. The Rotation page's app toggles and reorders send
+  façade. On a server whose `/version` `features` lists
+  `device_app_enabled` (read once per server), an app toggle sends only
+  that app, `PUT /v1/device/apps/{name}/enabled {"enabled":bool}`, so
+  apps switched on or off meanwhile in NG's web UI or by Ember on another
+  Mac stay as they are (#447); a 404 from that route (an older server)
+  falls back to the full write below and stops trying it. Reorders, and
+  toggles on an older server, send
   `{"rotation":{"order","disabled"}}` (the same body as `PUT
   /v1/device/apps`) through the façade, built by `NativeAppsPlan` from the
   whole list after the change: `order` names every app, switched-off ones

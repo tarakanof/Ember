@@ -23,11 +23,14 @@ type versionInfo struct {
 	Features  []string `json:"features"`
 }
 
-const featureFirmwareDeleteKeep = "firmware_delete_keep"
+const (
+	featureFirmwareDeleteKeep = "firmware_delete_keep"
+	featureDeviceAppEnabled   = "device_app_enabled"
+)
 
 func computeVersionInfo() versionInfo {
 	info := versionInfo{Binary: "ember", Version: version, GoVersion: runtime.Version(),
-		Features: []string{featureFirmwareDeleteKeep}}
+		Features: []string{featureFirmwareDeleteKeep, featureDeviceAppEnabled}}
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		for _, s := range bi.Settings {
 			switch s.Key {

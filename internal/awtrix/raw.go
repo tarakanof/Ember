@@ -70,6 +70,14 @@ func (c *Client) RawPutAppOrder(ctx context.Context, body []byte) (Reply, error)
 	return c.raw(ctx, http.MethodPut, "/api/v1/apps/order", body)
 }
 
+func (c *Client) RawPutAppEnabled(ctx context.Context, name string, enabled bool) (Reply, error) {
+	body := []byte("false")
+	if enabled {
+		body = []byte("true")
+	}
+	return c.raw(ctx, http.MethodPut, "/api/v1/apps/"+url.PathEscape(name)+"/enabled", body)
+}
+
 func (c *Client) RawNextApp(ctx context.Context) (Reply, error) {
 	return c.raw(ctx, http.MethodPost, "/api/v1/apps/next", nil)
 }

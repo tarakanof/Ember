@@ -121,6 +121,7 @@ func (a *App) routeTable() (http.Handler, []string) {
 	writeMux.Handle("GET /v1/device/audio/melodies", http.HandlerFunc(a.handleDeviceAudioMelodies))
 	writeMux.Handle("GET /v1/device/apps", http.HandlerFunc(a.handleDeviceAppsGet))
 	writeMux.Handle("PUT /v1/device/apps", http.HandlerFunc(a.handleDeviceAppsPut))
+	writeMux.Handle("PUT /v1/device/apps/{name}/enabled", http.HandlerFunc(a.handleDeviceAppEnabledPut))
 	writeMux.Handle("GET /v1/device/stats", http.HandlerFunc(a.handleDeviceStats))
 	writeMux.Handle("GET /v1/clock/stats", http.HandlerFunc(a.handleClockStats))
 	writeMux.Handle("GET /v1/device/capabilities", http.HandlerFunc(a.handleDeviceCapabilities))
