@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -382,7 +384,8 @@ func TestRunWrapped(t *testing.T) {
 	}
 }
 
-func TestKilledStatuslineTakesItsWrappedCommandDown(t *testing.T) {
+func startStatuslineChild(t *testing.T, ignoreHUP bool) (*exec.Cmd, int) {
+	t.Helper()
 	home := t.TempDir()
 	pidFile := filepath.Join(home, "child.pid")
 	cmd, _ := json.Marshal(`sleep 30 & echo $! > '` + pidFile + `'; wait`)
@@ -392,7 +395,11 @@ func TestKilledStatuslineTakesItsWrappedCommandDown(t *testing.T) {
 	if err := os.WriteFile(wrappedStatuslinePath(home), cmd, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	p := exec.Command(os.Args[0], "-test.run=^$")
+	trap := ""
+	if ignoreHUP {
+		trap = `trap "" HUP; `
+	}
+	p := exec.Command("sh", "-c", trap+`exec "$0" -test.run='^$'`, os.Args[0])
 	p.Env = append(os.Environ(), "EMBER_TEST_STATUSLINE_CHILD=1", "HOME="+home, "EMBER_STATUSLINE_TIMEOUT_MS=30000")
 	p.Stdin = strings.NewReader(`{}`)
 	if err := p.Start(); err != nil {
@@ -409,14 +416,49 @@ func TestKilledStatuslineTakesItsWrappedCommandDown(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
-	if err := p.Process.Signal(syscall.SIGTERM); err != nil {
+	return p, pid
+}
+
+func processRunning(pid int) bool {
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return true
+	}
+	i := bytes.LastIndexByte(stat, ')')
+	return i < 0 || !bytes.HasPrefix(bytes.TrimSpace(stat[i+1:]), []byte("Z"))
+}
+
+func stopStatuslineChild(t *testing.T, p *exec.Cmd, sig syscall.Signal) int {
+	t.Helper()
+	if err := p.Process.Signal(sig); err != nil {
 		t.Fatal(err)
 	}
 	_ = p.Wait()
-	for deadline := time.Now().Add(3 * time.Second); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
+	return p.ProcessState.ExitCode()
+}
+
+func TestKilledStatuslineTakesItsWrappedCommandDown(t *testing.T) {
+	p, pid := startStatuslineChild(t, false)
+	if code := stopStatuslineChild(t, p, syscall.SIGTERM); code != 128+int(syscall.SIGTERM) {
+		t.Fatalf("exit code = %d, want %d", code, 128+int(syscall.SIGTERM))
+	}
+	for deadline := time.Now().Add(3 * time.Second); processRunning(pid); time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the wrapped command outlived the killed status line")
 		}
+	}
+}
+
+func TestStatuslineKeepsAnInheritedSignalIgnore(t *testing.T) {
+	p, _ := startStatuslineChild(t, true)
+	if err := p.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	if code := stopStatuslineChild(t, p, syscall.SIGTERM); code != 128+int(syscall.SIGTERM) {
+		t.Fatalf("exit code = %d, want %d: an ignored SIGHUP stopped the status line", code, 128+int(syscall.SIGTERM))
 	}
 }
 

@@ -181,7 +181,11 @@ var wrappedGroup atomic.Int64
 
 func killWrappedOnSignal() {
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	for _, sig := range []os.Signal{syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP} {
+		if !signal.Ignored(sig) {
+			signal.Notify(sigs, sig)
+		}
+	}
 	go func() {
 		sig := <-sigs
 		if pgid := wrappedGroup.Load(); pgid > 0 {
