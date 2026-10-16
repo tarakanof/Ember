@@ -3879,25 +3879,27 @@ old directory aside to `.old-<version>-*` first and deletes it after the
 rename, so a failed write keeps the old version, and a crash between the
 two renames is undone at boot (invalid version dirs are swept first,
 then an `.old-` directory whose version is missing is moved back and
-loaded; while an invalid `<version>/` cannot be removed, the aside is
-kept). If the new directory cannot be moved in, the old one is moved
-back; if that fails too, the version leaves the index until boot
-restores it. Once the new directory is in place the replace is done
-(index, SHA and unblock follow it, also on a retry after such a hidden
-version) even if deleting the `.old-` copy fails: the upload answers 201,
-the server logs the leftover, and boot deletes it. A DELETE, an eviction
-and an upload of a version the index does not hold retire the version's
-copies by renaming each to a `.tmp-<version>-*` name, `.old-` copies
-first and `<version>/` last, and stop at the first rename that fails. A
-failed rename has touched nothing: an indexed version stays indexed,
-whole and blocked, and the call can be retried. Once `<version>/` is
-renamed away the version is gone (index entry dropped, block cleared)
-and the retired dirs are deleted best effort; a leftover is logged,
-retried each time the store next deletes a dir, and swept at boot, which
-never restores a `.tmp-` dir. Until it is gone the doctor's `bytes`
-counts it, since it still takes disk. So the index never holds a
-half-removed version, and a failure never leaves the pre-replace bytes
-as the only copy for boot to restore without their block. A dev-seed
+loaded; while an invalid `<version>/` or a file of that name is in the
+way, the aside is kept and boot reports it). If the new directory cannot
+be moved in, the old one is moved back; if that fails too, the version
+leaves the index until boot restores it. Once the new directory is in
+place the replace is done (index, SHA and unblock follow it, also on a
+retry after such a hidden version) even if deleting the `.old-` copy
+fails: the upload answers 201, and the leftover is retried like the
+`.tmp-` ones below. A DELETE, an eviction and an upload of a version the
+index does not hold retire the version's copies by renaming each to a
+`.tmp-<version>-*` name, `.old-` copies first and `<version>/` last, and
+stop at the first rename that fails. A failed rename has touched
+nothing: an indexed version stays indexed, whole and blocked, and the
+call can be retried. Once `<version>/` is renamed away the version is
+gone (index entry dropped, block cleared) and the retired dirs are
+deleted best effort; a leftover (also a stuck `.old-` copy, a failed
+upload's temp dir and one boot could not remove) is logged once, retried
+each time the store next deletes a dir, and swept at boot, which never
+restores a `.tmp-` dir. Until it is gone the doctor's `bytes` counts it,
+since it still takes disk. So the index never holds a half-removed
+version, and a failure never leaves the pre-replace bytes as the only
+copy for boot to restore without their block. A dev-seed
 build (cinder's local default with `sdkconfig.secrets`) has the Wi-Fi
 password and the master token compiled in, so an image or ELF
 containing the server's own `EMBER_TOKEN` or the marker
