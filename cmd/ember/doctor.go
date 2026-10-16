@@ -111,8 +111,10 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 
 	if app == nil {
 		res.Checks["client_tokens"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
+		res.Checks["usage_accounts"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["client_tokens"] = checkClientTokens(app)
+		res.Checks["usage_accounts"] = checkUsageAccounts(app)
 	}
 
 	if app == nil {
@@ -217,6 +219,13 @@ func checkClientTokens(app *App) CheckResult {
 		return CheckResult{Status: StatusFail, Detail: "store load failed (writes refused until restart): " + err.Error()}
 	}
 	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("count=%d", len(app.clients.list()))}
+}
+
+func checkUsageAccounts(app *App) CheckResult {
+	if err := app.usageSeen.loadError(); err != nil {
+		return CheckResult{Status: StatusFail, Detail: "registry load failed (kept in memory only, writes refused until restart): " + err.Error()}
+	}
+	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("accounts=%d", len(app.usageSeen.snapshot(time.Now())))}
 }
 
 func checkDevices(app *App) CheckResult {

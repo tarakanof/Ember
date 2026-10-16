@@ -4827,7 +4827,11 @@ account's settings go with it: the next accepted post resets the settings
 of every id that neither the store nor the registry holds (gone 7 days
 after its last post, or replaced under its writer's cap, in whichever
 order the two drop it), so churn can't fill the 64-entry settings cap.
-Nothing is pruned while the registry failed to load.
+Nothing is pruned while the registry failed to load. A registry whose
+stored value can't be read or parsed fails closed, like the device
+registry: it runs from memory until restart, never writes over the stored
+value (which keeps every first sighting and snapshot for a fix), and
+`ember doctor` reports `usage_accounts` FAIL.
 Order: accounts with an `order` first, ascending; then Claude, Codex, other
 tools by name, each by first seen. Names: the set one, else the plan's
 label ("Max", "Pro", "Team", "Plus"; no plan: "Claude", "Codex"). Two or

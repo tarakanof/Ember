@@ -1006,3 +1006,34 @@ func TestUsageAccountSettingsArePrunedOnceNeitherStoreNorRegistryHoldsIt(t *test
 		t.Fatalf("settings = %+v, want the account's pruned once neither holds it", prefs)
 	}
 }
+
+func TestCorruptUsageRegistryIsNeverOverwrittenAndPrefsSurvive(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
+	if resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+idMaxA+`":{"name":"Work"}}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put = %d %s", resp.StatusCode, b)
+	}
+	const corrupt = `{"claude:aaaa`
+	if err := app.store.PutSetting(usageAccountsSeenKey, corrupt); err != nil {
+		t.Fatal(err)
+	}
+	_ = app.store.Close()
+	app2, srv2 := newDevicesApp(t, db)
+	app2.loadUsageAccounts()
+	app2.reapplySettings()
+	postUsage(t, srv2, `{"tool":"claude","account_key":"`+keyMaxB+`","plan":"max"}`)
+	postUsage(t, srv2, `{"tool":"codex","account_key":"`+keyCodex+`","plan":"plus"}`)
+	if blob, _, _ := app2.store.GetSetting(usageAccountsSeenKey); blob != corrupt {
+		t.Fatalf("stored registry = %q, want the corrupt value left alone", blob)
+	}
+	if p := app2.cfg.Load().UsageAccounts[idMaxA]; p.Name != "Work" {
+		t.Fatalf("settings = %+v, want the name kept", app2.cfg.Load().UsageAccounts)
+	}
+	if res := checkUsageAccounts(app2); res.Status != StatusFail {
+		t.Fatalf("doctor usage_accounts = %+v, want fail", res)
+	}
+	if res := checkUsageAccounts(app); res.Status != StatusOK {
+		t.Fatalf("doctor usage_accounts on a healthy registry = %+v, want ok", res)
+	}
+}

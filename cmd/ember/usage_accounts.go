@@ -164,7 +164,7 @@ type usageAccountRegistry struct {
 	mu      sync.Mutex
 	seen    map[string]usageAccountSeen
 	written map[string]time.Time
-	broken  bool
+	loadErr error
 	nextSeq int
 	kv      func() settingsKV
 }
@@ -179,15 +179,22 @@ func (r *usageAccountRegistry) load() error {
 		return nil
 	}
 	blob, ok, err := kv.GetSetting(usageAccountsSeenKey)
-	if err != nil || !ok {
-		return err
+	if err == nil && !ok {
+		return nil
 	}
 	seen := map[string]usageAccountSeen{}
-	if err := json.Unmarshal([]byte(blob), &seen); err != nil {
+	if err == nil {
+		if err = json.Unmarshal([]byte(blob), &seen); err != nil {
+			err = fmt.Errorf("parse %s: %w", usageAccountsSeenKey, err)
+		}
+	} else {
+		err = fmt.Errorf("read %s: %w", usageAccountsSeenKey, err)
+	}
+	if err != nil {
 		r.mu.Lock()
-		r.broken = true
+		r.loadErr = err
 		r.mu.Unlock()
-		return fmt.Errorf("parse %s: %w", usageAccountsSeenKey, err)
+		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -232,7 +239,7 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 	}
 	r.written[id] = now
 	kv := r.kv()
-	if kv == nil {
+	if kv == nil || r.loadErr != nil {
 		return nil
 	}
 	b, err := json.Marshal(r.persistedLocked())
@@ -282,7 +289,13 @@ func (r *usageAccountRegistry) ids() (map[string]bool, bool) {
 	for id := range r.seen {
 		out[id] = true
 	}
-	return out, !r.broken
+	return out, r.loadErr == nil
+}
+
+func (r *usageAccountRegistry) loadError() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.loadErr
 }
 
 func (r *usageAccountRegistry) evictOwnOldestLocked(in func(usageAccountSeen) bool, principal string, max int) {
