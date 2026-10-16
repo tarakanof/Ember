@@ -409,7 +409,7 @@ components:
         updated_at:
           type: [string, "null"]
           format: date-time
-          description: The newest snapshot; `null` when none has arrived since the server started.
+          description: The newest snapshot (after a restart, the last stored one); `null` with none.
         stale:
           type: boolean
     UsageAccounts:

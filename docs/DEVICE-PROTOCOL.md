@@ -405,7 +405,8 @@ order, hiding, staleness and the 5h window start. The block follows
 - **`accounts`**: in display order (Ember.app's order; by default Claude
   accounts first, then Codex, each in the order Ember first saw them), at
   most 8. Hidden accounts are left out, and so is an account with no
-  snapshot since the server started. With nothing to show the whole block
+  snapshot. After a server restart an account keeps its last stored
+  snapshot, `stale` with its old `updated_at`, until it posts again. With nothing to show the whole block
   is left out, never `[]` or `null`.
 - **`id`**: opaque and stable (`<tool>:<16 hex>`, or the bare tool name for
   a producer that sends no account), for keeping the shown account across

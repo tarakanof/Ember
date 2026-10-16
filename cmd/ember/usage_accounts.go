@@ -71,11 +71,12 @@ func usageToolRank(tool string) int {
 }
 
 type usageAccountSeen struct {
-	Tool      string    `json:"tool"`
-	Principal string    `json:"principal,omitempty"`
-	Plan      string    `json:"plan,omitempty"`
-	First     time.Time `json:"first"`
-	Last      time.Time `json:"last"`
+	Tool      string     `json:"tool"`
+	Principal string     `json:"principal,omitempty"`
+	Plan      string     `json:"plan,omitempty"`
+	First     time.Time  `json:"first"`
+	Last      time.Time  `json:"last"`
+	Report    *ToolUsage `json:"report,omitempty"`
 }
 
 type usageAccountRegistry struct {
@@ -112,7 +113,7 @@ func (r *usageAccountRegistry) load() error {
 	return nil
 }
 
-func (r *usageAccountRegistry) observe(k usageKey, plan, principal string, now time.Time) error {
+func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal string, now time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.expireLocked(now)
@@ -128,7 +129,9 @@ func (r *usageAccountRegistry) observe(k usageKey, plan, principal string, now t
 			return nil
 		}
 	}
-	next := usageAccountSeen{Tool: k.Tool, Principal: principal, Plan: plan, First: now, Last: now}
+	plan := rep.Plan
+	rep.UpdatedAt, rep.Principal = now, ""
+	next := usageAccountSeen{Tool: k.Tool, Principal: principal, Plan: plan, First: now, Last: now, Report: &rep}
 	if ok && prev.First.Before(now) {
 		next.First = prev.First
 	}
@@ -303,7 +306,12 @@ func buildUsageAccounts(state usageState, seen map[string]usageAccountSeen, pref
 	for id, s := range seen {
 		acc, ok := byID[id]
 		if !ok {
-			byID[id] = &usageAccount{ID: id, Tool: s.Tool, Plan: s.Plan, FirstSeen: s.First}
+			acc = &usageAccount{ID: id, Tool: s.Tool, Plan: s.Plan, FirstSeen: s.First}
+			if s.Report != nil {
+				rep := *s.Report
+				acc.Report = &rep
+			}
+			byID[id] = acc
 			continue
 		}
 		if s.First.Before(acc.FirstSeen) {

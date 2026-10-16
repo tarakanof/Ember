@@ -72,7 +72,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		limit, principal = usageAccountsTotal, "client:"+c.id
 	}
 	now := time.Now()
-	owner, err := a.usage.PutIfOwned(req.Tool, ToolUsage{
+	rep := ToolUsage{
 		FiveHour:  req.FiveHour,
 		SevenDay:  req.SevenDay,
 		Models:    req.Models,
@@ -80,7 +80,8 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		Account:   req.AccountKey,
 		Plan:      req.Plan,
 		Principal: principal,
-	}, sources, limit, now)
+	}
+	owner, err := a.usage.PutIfOwned(req.Tool, rep, sources, limit, now)
 	switch {
 	case errors.Is(err, errUsageNotOwned):
 		a.denySource(w, r, owner)
@@ -90,7 +91,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInsufficientStorage, err)
 		return
 	}
-	if err := a.usageSeen.observe(usageKey{req.Tool, req.AccountKey}, req.Plan, principal, now); err != nil {
+	if err := a.usageSeen.observe(usageKey{req.Tool, req.AccountKey}, rep, principal, now); err != nil {
 		a.logger.Warn("usage account persist failed", "tool", req.Tool, "err", err)
 	}
 	a.changes.notify(topicUsage)

@@ -251,8 +251,33 @@ func TestUsageAccountOrderAndNamesSurviveARestart(t *testing.T) {
 	if got := accountNames(out); got != idMaxB+"=Max,"+idMaxA+"=Work" {
 		t.Fatalf("after restart = %s, want first-seen order and the stored name", got)
 	}
-	if out.Accounts[0].UpdatedAt != nil || !out.Accounts[0].Stale {
-		t.Fatalf("an account with no post since the restart = %+v, want no updated_at and stale", out.Accounts[0])
+	if out.Accounts[0].UpdatedAt == nil || !out.Accounts[0].Stale {
+		t.Fatalf("an account with no post since the restart = %+v, want its stored updated_at and stale", out.Accounts[0])
+	}
+}
+
+func TestUsageAccountRestartedFromTheRegistryShowsItsLastSnapshotStale(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","plan":"max","five_hour":{"used_percent":64,"resets_at":4102444800},"seven_day":{"used_percent":41}}`)
+	postUsage(t, srv, `{"tool":"codex","source":"codex_stream","account_key":"`+keyCodex+`","plan":"plus","seven_day":{"used_percent":5}}`)
+	posted := app.usage.All()[usageKey{"claude", keyMaxA}].UpdatedAt
+	_ = app.store.Close()
+	app2, _ := newDevicesApp(t, db)
+	app2.loadUsageAccounts()
+	if n := len(app2.usage.All()); n != 0 {
+		t.Fatalf("store after restart = %d entries, want empty", n)
+	}
+	got := app2.knobUsage(time.Now())
+	if got == nil || len(got.Accounts) != 2 {
+		t.Fatalf("knob usage after restart = %+v, want both accounts", got)
+	}
+	a := got.Accounts[0]
+	if a.ID != idMaxA || !a.Stale || a.UpdatedAt != posted.Unix() || a.FiveHour == nil || a.FiveHour.Pct != 64 || a.SevenDay == nil || a.SevenDay.Pct != 41 {
+		t.Fatalf("claude after restart = %+v, want its last snapshot, stale, updated_at %d", a, posted.Unix())
+	}
+	if c := got.Accounts[1]; c.ID != idCodex || !c.Stale || c.SevenDay == nil || c.SevenDay.Pct != 5 {
+		t.Fatalf("codex after restart = %+v, want its last snapshot, stale", c)
 	}
 }
 
@@ -274,7 +299,7 @@ func TestUsageAccountRegistryWritesOnlyOnChange(t *testing.T) {
 	}
 	for _, s := range steps {
 		before := kv.puts
-		if err := r.observe(k, s.plan, "endpoint", now.Add(s.at)); err != nil {
+		if err := r.observe(k, ToolUsage{Plan: s.plan}, "", now.Add(s.at)); err != nil {
 			t.Fatal(err)
 		}
 		if wrote := kv.puts > before; wrote != s.write {
@@ -490,7 +515,7 @@ func TestUsageRegistryCapsEachWriter(t *testing.T) {
 	now := time.Now()
 	for i := range 40 {
 		k := usageKey{fmt.Sprintf("t%d", i/usageAccountsPerTool), fmt.Sprintf("%016x", i)}
-		if err := r.observe(k, "", "ci", now.Add(time.Duration(i)*time.Second)); err != nil {
+		if err := r.observe(k, ToolUsage{}, "client:ci", now.Add(time.Duration(i)*time.Second)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -590,10 +615,10 @@ func TestUsageRegistryRejectsAnObservationOlderThanItsLast(t *testing.T) {
 	r := newUsageAccountRegistry(func() settingsKV { return kv })
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	k := usageKey{"claude", keyMaxA}
-	if err := r.observe(k, "pro", "", now.Add(time.Minute)); err != nil {
+	if err := r.observe(k, ToolUsage{Plan: "pro"}, "", now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.observe(k, "max", "client:ci", now); err != nil {
+	if err := r.observe(k, ToolUsage{Plan: "max"}, "client:ci", now); err != nil {
 		t.Fatal(err)
 	}
 	got := r.snapshot(now.Add(2 * time.Minute))[idMaxA]

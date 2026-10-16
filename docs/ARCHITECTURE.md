@@ -4569,8 +4569,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
   cinder#168; the threshold's derivation is in DEVICE-PROTOCOL). Every other view keeps its bytes.
   **Usage (#535):** a knob whose caps list `usage` gets a `usage` block
   after `nowplaying` (`devices_view_usage.go`): the accounts of "Usage per
-  account" in display order, hidden ones and ones with no snapshot since
-  the server started left out, at most 8, the block left out when none
+  account" in display order, hidden ones and ones with no snapshot
+  left out (after a restart an account has its last stored snapshot,
+  stale), at most 8, the block left out when none
   is left. Shape and rules in DEVICE-PROTOCOL.md "Usage". Fresh accounts
   carry no time that moves on a repost, so the ETag moves only when a
   value does; going stale is caught by the 5 s recheck.
@@ -4759,13 +4760,17 @@ the account's last write is an hour old (at most one write per account per
 hour, plus one per plan change; the post's `source` plays no part, so one
 account alternating between `statusline` and `endpoint` doesn't rewrite
 it). A post older than the account's last sighting changes nothing, so two
-racing posts can't move it back in time; entries past 7 days are pruned. The snapshots themselves stay in memory.
+racing posts can't move it back in time; entries past 7 days are pruned.
+Each entry also keeps the account's last snapshot, written with it, so
+after a restart an account with no post yet shows that snapshot as stale
+with its old `updated_at` (up to an hour behind the last post, the write
+throttle) instead of vanishing from the knob; the first post replaces it.
 
 **Settings** (`usage_accounts_json`, one `settingSpec`; `Config.UsageAccounts`):
 per account id `name`, `hidden` and `order`. `GET /v1/usage/accounts`
 (owner or `admin`) lists the accounts in display order with
 `name`, `default_name`, `plan`, `hidden`, `order`, `first_seen`,
-`updated_at` (null with no snapshot since the restart) and `stale`;
+`updated_at` (null with no snapshot, live or stored) and `stale`;
 `PUT` (master token only) merges by id: an id's object replaces its
 settings, `null` resets them, an id the server doesn't list is a 400.
 Order: accounts with an `order` first, ascending; then Claude, Codex, other
