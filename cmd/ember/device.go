@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/tarakanof/ember/internal/discovery"
@@ -37,15 +37,12 @@ func (a *App) initDeviceDiscovery(ctx context.Context) {
 	a.provisionClockInBackground()
 }
 
+var errBrowseNotWired = errors.New("clock browse not wired")
+
 type browseFunc func(context.Context, time.Duration) ([]discovery.Candidate, error)
 
-func defaultBrowse() browseFunc {
-	if testing.Testing() {
-		return func(context.Context, time.Duration) ([]discovery.Candidate, error) {
-			panic("test reached the real clock browse; stub App.browseFn")
-		}
-	}
-	return discovery.BrowseAWTRIX
+func browseNotWired(context.Context, time.Duration) ([]discovery.Candidate, error) {
+	return nil, errBrowseNotWired
 }
 
 func (a *App) rediscoverClock(ctx context.Context) bool {

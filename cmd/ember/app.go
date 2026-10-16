@@ -141,7 +141,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		usage:        newUsageStore(),
 		weather:      newWeatherStore(),
 		activityLast: make(map[string]activityMark),
-		browseFn:     defaultBrowse(),
+		browseFn:     browseNotWired,
 	}
 	a.weatherFetcher = newWeatherFetcher()
 	a.meetings = newMeetingsStore()

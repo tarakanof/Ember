@@ -59,6 +59,7 @@ func main() {
 	}
 
 	app := NewApp(cfg, nil, logger)
+	app.browseFn = discovery.BrowseAWTRIX
 	app.weatherFetcher.tomorrowKey = strings.TrimSpace(os.Getenv(tomorrowKeyEnv))
 	app.weatherFetcher.weatherAPIKey = strings.TrimSpace(os.Getenv(weatherAPIKeyEnv))
 	for _, p := range weatherProviders {

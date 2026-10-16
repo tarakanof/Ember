@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -87,14 +88,12 @@ func TestRediscoverClock_CancelDuringBrowseIsNotNoDevice(t *testing.T) {
 	}
 }
 
-func TestNewApp_RealBrowseIsGuardedInTests(t *testing.T) {
+func TestNewApp_DefaultBrowseNeverReachesLAN(t *testing.T) {
 	a := NewApp(defaultConfig(), &recordingPublisher{}, discardLogger())
-	defer func() {
-		if recover() == nil {
-			t.Fatal("NewApp's default browse ran in a test binary; it must panic instead of reaching the LAN")
-		}
-	}()
-	_, _ = a.browseFn(context.Background(), time.Millisecond)
+	got, err := a.browseFn(context.Background(), time.Millisecond)
+	if !errors.Is(err, errBrowseNotWired) || len(got) != 0 {
+		t.Fatalf("default browseFn = (%+v, %v), want (none, errBrowseNotWired)", got, err)
+	}
 }
 
 func TestRediscoverClock_NoDeviceFound(t *testing.T) {
