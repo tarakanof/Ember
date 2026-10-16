@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"regexp"
 	"slices"
@@ -76,13 +77,39 @@ type usageAccountSeen struct {
 	Plan      string         `json:"plan,omitempty"`
 	First     time.Time      `json:"first"`
 	Last      time.Time      `json:"last"`
+	Seq       int            `json:"seq,omitempty"`
 	Report    *usageSnapshot `json:"report,omitempty"`
 }
 
 type usageSnapshotWindow struct {
-	Pct           float64 `json:"pct"`
-	ResetsAt      int64   `json:"resets_at,omitempty"`
-	WindowMinutes int64   `json:"window_minutes,omitempty"`
+	Pct           float64
+	ResetsAt      int64
+	WindowMinutes int64
+}
+
+func (w usageSnapshotWindow) MarshalJSON() ([]byte, error) {
+	return json.Marshal([3]any{w.Pct, w.ResetsAt, w.WindowMinutes})
+}
+
+func (w *usageSnapshotWindow) UnmarshalJSON(b []byte) error {
+	var v [3]json.Number
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	pct, err := v[0].Float64()
+	if err != nil {
+		return err
+	}
+	at, err := v[1].Int64()
+	if err != nil {
+		return err
+	}
+	mins, err := v[2].Int64()
+	if err != nil {
+		return err
+	}
+	*w = usageSnapshotWindow{Pct: pct, ResetsAt: at, WindowMinutes: mins}
+	return nil
 }
 
 type usageSnapshot struct {
@@ -91,22 +118,25 @@ type usageSnapshot struct {
 	Models   map[string]float64   `json:"models,omitempty"`
 }
 
+func snapshotPct(p float64) float64 { return math.Round(p*10) / 10 }
+
 func snapshotWindow(w *UsageWindow) *usageSnapshotWindow {
 	if w == nil {
 		return nil
 	}
-	return &usageSnapshotWindow{Pct: w.UsedPercent, ResetsAt: w.ResetsAt, WindowMinutes: w.WindowMinutes}
+	return &usageSnapshotWindow{Pct: snapshotPct(w.UsedPercent), ResetsAt: w.ResetsAt, WindowMinutes: w.WindowMinutes}
 }
 
 func newUsageSnapshot(u ToolUsage) *usageSnapshot {
 	s := &usageSnapshot{FiveHour: snapshotWindow(u.FiveHour), SevenDay: snapshotWindow(u.SevenDay)}
-	for name := range knobUsageModelOrder {
-		if w := u.Models[name]; w != nil {
-			if s.Models == nil {
-				s.Models = map[string]float64{}
-			}
-			s.Models[name] = w.UsedPercent
+	for name, w := range u.Models {
+		if w == nil || !knobUsageModelRe.MatchString(name) || len(s.Models) == usageModelsMax {
+			continue
 		}
+		if s.Models == nil {
+			s.Models = map[string]float64{}
+		}
+		s.Models[name] = snapshotPct(w.UsedPercent)
 	}
 	return s
 }
@@ -134,6 +164,7 @@ type usageAccountRegistry struct {
 	seen    map[string]usageAccountSeen
 	written map[string]time.Time
 	removed []string
+	nextSeq int
 	kv      func() settingsKV
 }
 
@@ -160,6 +191,7 @@ func (r *usageAccountRegistry) load() error {
 	r.written = make(map[string]time.Time, len(seen))
 	for id, s := range seen {
 		r.written[id] = s.Last
+		r.nextSeq = max(r.nextSeq, s.Seq)
 	}
 	return nil
 }
@@ -185,6 +217,10 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 	if ok && prev.First.Before(now) {
 		next.First = prev.First
 	}
+	if next.Seq = prev.Seq; !ok {
+		r.nextSeq++
+		next.Seq = r.nextSeq
+	}
 	r.seen[id] = next
 	if ok && prev.Tool == k.Tool && prev.Plan == plan && now.Sub(r.written[id]) < usageAccountSeenEvery {
 		return nil
@@ -194,7 +230,7 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 	if kv == nil {
 		return nil
 	}
-	b, err := json.Marshal(r.seen)
+	b, err := json.Marshal(r.persistedLocked())
 	if err != nil {
 		return err
 	}
@@ -210,6 +246,15 @@ func (r *usageAccountRegistry) refuses(k usageKey, writer string, alive func(str
 	}
 	owner, allowed := usageOwnerAfter(s.Principal, s.Last, writer, alive, now)
 	return owner, !allowed
+}
+
+func (r *usageAccountRegistry) persistedLocked() map[string]usageAccountSeen {
+	out := make(map[string]usageAccountSeen, len(r.seen))
+	for id, s := range r.seen {
+		s.First, s.Last = s.First.Truncate(time.Second).UTC(), s.Last.Truncate(time.Second).UTC()
+		out[id] = s
+	}
+	return out
 }
 
 func (r *usageAccountRegistry) expireLocked(now time.Time) {
@@ -363,6 +408,7 @@ type usageAccount struct {
 	Hidden      bool
 	Order       *int
 	FirstSeen   time.Time
+	Seq         int
 	Report      *ToolUsage
 	Fresh       bool
 }
@@ -376,7 +422,7 @@ func buildUsageAccounts(state usageState, seen map[string]usageAccountSeen, pref
 	for id, s := range seen {
 		acc, ok := byID[id]
 		if !ok {
-			acc = &usageAccount{ID: id, Tool: s.Tool, Plan: s.Plan, FirstSeen: s.First}
+			acc = &usageAccount{ID: id, Tool: s.Tool, Plan: s.Plan, FirstSeen: s.First, Seq: s.Seq}
 			if s.Report != nil {
 				rep := s.Report.usage(s.Plan, s.Last)
 				acc.Report = &rep
@@ -384,6 +430,7 @@ func buildUsageAccounts(state usageState, seen map[string]usageAccountSeen, pref
 			byID[id] = acc
 			continue
 		}
+		acc.Seq = s.Seq
 		if s.First.Before(acc.FirstSeen) {
 			acc.FirstSeen = s.First
 		}
@@ -416,7 +463,8 @@ func buildUsageAccounts(state usageState, seen map[string]usageAccountSeen, pref
 			return 1
 		}
 		return cmp.Or(cmp.Compare(usageToolRank(x.Tool), usageToolRank(y.Tool)), cmp.Compare(x.Tool, y.Tool),
-			x.FirstSeen.Compare(y.FirstSeen), cmp.Compare(x.ID, y.ID))
+			x.FirstSeen.Truncate(time.Second).Compare(y.FirstSeen.Truncate(time.Second)),
+			cmp.Compare(seqOrLast(x.Seq), seqOrLast(y.Seq)), cmp.Compare(x.ID, y.ID))
 	})
 	for i := range out {
 		acc := &out[i]
@@ -442,6 +490,13 @@ func buildUsageAccounts(state usageState, seen map[string]usageAccountSeen, pref
 		}
 	}
 	return out
+}
+
+func seqOrLast(seq int) int {
+	if seq == 0 {
+		return math.MaxInt
+	}
+	return seq
 }
 
 func (a *App) usageAccounts(now time.Time) []usageAccount {

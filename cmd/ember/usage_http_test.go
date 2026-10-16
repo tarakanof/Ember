@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestUsageHTTPStoresPayload(t *testing.T) {
@@ -145,7 +146,7 @@ func TestUsageHTTP_NaNUsedPercent(t *testing.T) {
 	}
 
 	win := &UsageWindow{UsedPercent: math.NaN()}
-	clampUsageWindow(win)
+	clampUsageWindow(win, time.Now())
 	if win.UsedPercent != 0 {
 		t.Errorf("clampUsageWindow(NaN) = %v, want 0", win.UsedPercent)
 	}

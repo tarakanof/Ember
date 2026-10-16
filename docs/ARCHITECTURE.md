@@ -4785,9 +4785,13 @@ account alternating between `statusline` and `endpoint` doesn't rewrite
 it). A post older than the account's last sighting changes nothing, so two
 racing posts can't move it back in time; entries past 7 days are pruned.
 Each entry also keeps the account's last snapshot, trimmed to what the
-knob shows (5h and 7d `pct`, `resets_at`, `window_minutes`; Opus and Sonnet
-percents; no labels, no source; about 27 KB for 64 worst-case accounts),
-written with it, so
+knob can show: the 5h and 7d windows as `[pct, resets_at, window_minutes]`
+and the percents of up to 4 models with a name the view accepts, pct
+rounded to 0.1, no labels, no source. Its times are whole seconds in UTC,
+and `POST /v1/usage` clamps any `resets_at` into now − 1 day … now + 30
+days, so 64 worst-case accounts persist in at most 28 KiB
+(`TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize`; about 26 KB).
+The snapshot is written with the entry, so
 after a restart an account with no post yet shows that snapshot as stale
 with its old `updated_at` (up to an hour behind the last post, the write
 throttle) instead of vanishing from the knob; the first post replaces it.

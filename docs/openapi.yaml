@@ -331,7 +331,7 @@ components:
         resets_at:
           type: integer
           format: int64
-          description: Unix seconds.
+          description: Unix seconds; clamped into now − 1 day … now + 30 days.
         reset_label:
           type: string
           maxLength: 32

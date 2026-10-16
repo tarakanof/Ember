@@ -14,6 +14,8 @@ const (
 	usageModelsMax        = 4
 	usageResetLabelMax    = 32
 	usageWindowMinutesMax = 31 * 24 * 60
+	usageResetsAtPast     = 24 * time.Hour
+	usageResetsAtAhead    = 30 * 24 * time.Hour
 )
 
 var (
@@ -37,9 +39,20 @@ func usageLabelOK(w *UsageWindow) bool {
 	return w == nil || len(w.ResetLabel) <= usageResetLabelMax
 }
 
-func clampUsageWindow(win *UsageWindow) {
+func clampUsageReport(u *ToolUsage, now time.Time) {
+	clampUsageWindow(u.FiveHour, now)
+	clampUsageWindow(u.SevenDay, now)
+	for _, win := range u.Models {
+		clampUsageWindow(win, now)
+	}
+}
+
+func clampUsageWindow(win *UsageWindow, now time.Time) {
 	if win == nil {
 		return
+	}
+	if win.ResetsAt != 0 {
+		win.ResetsAt = min(max(win.ResetsAt, now.Add(-usageResetsAtPast).Unix()), now.Add(usageResetsAtAhead).Unix())
 	}
 	if win.WindowMinutes < 0 || win.WindowMinutes > usageWindowMinutesMax {
 		win.WindowMinutes = 0
@@ -92,11 +105,6 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if !a.allowSource(w, r, req.Source) {
 		return
 	}
-	clampUsageWindow(req.FiveHour)
-	clampUsageWindow(req.SevenDay)
-	for _, win := range req.Models {
-		clampUsageWindow(win)
-	}
 	limit, principal := 0, ""
 	if c, isClient := r.Context().Value(clientCallerKey{}).(clientCaller); isClient {
 		limit, principal = usageAccountsTotal, "client:"+c.id
@@ -111,6 +119,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		Plan:      req.Plan,
 		Principal: principal,
 	}
+	clampUsageReport(&rep, now)
 	k := usageKey{req.Tool, req.AccountKey}
 	owner, refused := a.usageSeen.refuses(k, principal, a.usageWriterAlive, now)
 	var err error

@@ -683,20 +683,22 @@ func TestUsagePostRejectsOversizedModelsAndLabels(t *testing.T) {
 func TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize(t *testing.T) {
 	kv := &usageSeenKV{}
 	r := newUsageAccountRegistry(func() settingsKV { return kv })
-	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	loc := time.FixedZone("x", 3*3600)
+	now := time.Date(2026, 10, 16, 12, 0, 0, 123456789, loc)
 	label := strings.Repeat("L", 32)
 	win := func() *UsageWindow {
-		return &UsageWindow{UsedPercent: 100, ResetsAt: 1782049680, ResetLabel: label, WindowMinutes: 10080}
+		return &UsageWindow{UsedPercent: 33.333333333333336, ResetsAt: -9223372036854775807, ResetLabel: label, WindowMinutes: 44640}
 	}
 	for i := range usageAccountsTotal {
-		principal := fmt.Sprintf("client:%s-%02d", strings.Repeat("p", 20), i/usageAccountsPerWriter)
+		principal := fmt.Sprintf("client:client-%08x", i/usageAccountsPerWriter)
 		tool := fmt.Sprintf("%s%02d", strings.Repeat("t", 30), i/usageAccountsPerTool)
-		models := map[string]*UsageWindow{"opus": win(), "sonnet": win()}
-		for j := range 2 {
-			models[fmt.Sprintf("%s%d", strings.Repeat("m", 23), j)] = win()
+		models := map[string]*UsageWindow{}
+		for j := range usageModelsMax {
+			models[fmt.Sprintf("%s%d", strings.Repeat("m", 15), j)] = win()
 		}
 		rep := ToolUsage{FiveHour: win(), SevenDay: win(), Models: models, Source: strings.Repeat("s", 64),
 			Account: fmt.Sprintf("%016x", i), Plan: strings.Repeat("p", 24)}
+		clampUsageReport(&rep, now)
 		if err := r.observe(usageKey{tool, rep.Account}, rep, principal, now.Add(time.Duration(i)*time.Second)); err != nil {
 			t.Fatal(err)
 		}
@@ -705,16 +707,16 @@ func TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize(t *testing.T) {
 		t.Fatalf("registry = %d, want %d", n, usageAccountsTotal)
 	}
 	blob := kv.vals[usageAccountsSeenKey]
-	for _, leak := range []string{label, strings.Repeat("s", 64), strings.Repeat("m", 23)} {
+	for _, leak := range []string{label, strings.Repeat("s", 64), "33.33", "123456", "+03:00", "-9223372036854775807"} {
 		if strings.Contains(blob, leak) {
-			t.Fatalf("persisted registry keeps %q", leak[:8])
+			t.Fatalf("persisted registry keeps %q", leak)
 		}
 	}
-	if !strings.Contains(blob, `"opus"`) || !strings.Contains(blob, `"sonnet"`) {
-		t.Fatal("persisted registry dropped the models the knob shows")
+	if !strings.Contains(blob, `"`+strings.Repeat("m", 15)+`3"`) {
+		t.Fatal("persisted registry dropped a model the live view can show")
 	}
-	if len(blob) > 32<<10 {
-		t.Fatalf("persisted registry = %d B at 64 worst-case accounts, want at most 32 KiB", len(blob))
+	if len(blob) > 28<<10 {
+		t.Fatalf("persisted registry = %d B at 64 worst-case accounts, want at most 28 KiB", len(blob))
 	}
 }
 
@@ -879,5 +881,18 @@ func TestUsageRefusalNamesTheOwnerKind(t *testing.T) {
 		if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(body), c.want) || strings.Contains(string(body), a.ID) {
 			t.Fatalf("refusal = %d %s, want 403 naming the %s and no id", resp.StatusCode, body, c.want)
 		}
+	}
+}
+
+func TestUsagePostClampsResetsAtToASaneRange(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	now := time.Now()
+	postUsage(t, srv, `{"tool":"claude","five_hour":{"used_percent":1,"resets_at":-9223372036854775807},"seven_day":{"used_percent":1,"resets_at":9223372036854775807}}`)
+	u := app.usage.All()[usageKey{"claude", ""}]
+	if lo := now.Add(-25 * time.Hour).Unix(); u.FiveHour.ResetsAt < lo || u.FiveHour.ResetsAt > now.Unix() {
+		t.Fatalf("five_hour resets_at = %d, want clamped to a day ago", u.FiveHour.ResetsAt)
+	}
+	if hi := now.Add(31 * 24 * time.Hour).Unix(); u.SevenDay.ResetsAt > hi || u.SevenDay.ResetsAt < now.Unix() {
+		t.Fatalf("seven_day resets_at = %d, want clamped to 30 days ahead", u.SevenDay.ResetsAt)
 	}
 }
