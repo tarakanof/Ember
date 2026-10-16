@@ -3646,12 +3646,13 @@ paths:
       tags: [clock]
       operationId: putClockAppEnabled
       summary: Switch one clock app on or off
-      description: Leaves every other app as it is. On awtrix-ng 1.2.0 or
-        newer (firmware cached from the last probe) the server sends
-        NG's per-app `PUT /api/v1/apps/{name}/enabled`; on older or unknown
-        firmware, or when the clock answers 404 or 405 to it, the server
-        reads the clock's app list and writes the full order with only
-        this app changed. Advertised as `device_app_enabled` in `/version`
+      description: Leaves every other app as it is. The server tries
+        awtrix-ng's per-app `PUT /api/v1/apps/{name}/enabled` first (NG
+        1.2 and newer). On a 404 or 405 it remembers that this clock (URL,
+        uid and firmware as last seen) lacks the route, reads the clock's
+        app list and writes the full order with only this app changed.
+        A URL swap or a firmware change seen by a later probe tries the
+        route again. Advertised as `device_app_enabled` in `/version`
         `features`. Runs one at a time with `PUT /v1/device/apps` and the
         clock's `PUT /v1/devices/{id}/config`.
       x-internal: true
@@ -3661,8 +3662,11 @@ paths:
           in: path
           required: true
           description: The clock app's name, as in `GET /v1/device/apps`.
+            Not `active`, `next`, `previous` or `order`, and not a script
+            module (400).
           schema:
             type: string
+            pattern: "^[A-Za-z0-9_-]{1,32}$"
       requestBody:
         required: true
         content:
@@ -3696,6 +3700,14 @@ paths:
           description: Another clock app order change held the lock until
             this request's 11 s deadline (nothing changed), or the clock
             itself answered 503.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "507":
+          description: The clock applied the change but could not save it
+            (NG `applied, not saved yet`); it is lost at the next restart.
+            The server reads the list back as after a success.
           content:
             application/json:
               schema:

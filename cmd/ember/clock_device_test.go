@@ -41,6 +41,7 @@ type clockStub struct {
 	version   string
 	onStatus  int
 	onPuts    []string
+	orderCode int
 }
 
 func newClockStub(t *testing.T) *clockStub {
@@ -122,6 +123,11 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"error":"boom"}`))
 			return
 		}
+		if s.orderCode != 0 {
+			w.WriteHeader(s.orderCode)
+			_, _ = w.Write([]byte(`{"error":"stubbed"}`))
+			return
+		}
 		if !s.applyOrderLocked(b) {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"error":"invalidJson"}`))
@@ -144,7 +150,7 @@ func (s *clockStub) serveAppEnabledLocked(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	if s.onStatus != 0 {
+	if s.onStatus != 0 && s.onStatus != http.StatusInsufficientStorage {
 		w.WriteHeader(s.onStatus)
 		_, _ = w.Write([]byte(`{"error":"stubbed"}`))
 		return
@@ -159,6 +165,11 @@ func (s *clockStub) serveAppEnabledLocked(w http.ResponseWriter, r *http.Request
 		if a["name"] == name {
 			a["enabled"] = on
 		}
+	}
+	if s.onStatus == http.StatusInsufficientStorage {
+		w.WriteHeader(s.onStatus)
+		_, _ = w.Write([]byte(`{"error":"insufficientStorage","message":"applied, not saved yet"}`))
+		return
 	}
 	_, _ = w.Write([]byte(`{"ok":true}`))
 }

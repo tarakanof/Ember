@@ -23,6 +23,7 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	}
 	if info, err := cl.DeviceInfo(ctx); err == nil {
 		a.deviceVersion.Store(info.Version)
+		a.appEnabled.observe(base, info.UID, info.Version)
 	}
 	caps, err := cl.Capabilities(ctx)
 	if err != nil {

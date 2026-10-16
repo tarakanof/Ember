@@ -166,10 +166,12 @@ would switch every off app back on; the same holds for `rotation` in
 `GET/PUT /v1/devices/{id}/config` run one at a time and answer 503 when
 another app order change holds them past the 11 s deadline),
 `PUT /v1/device/apps/{name}/enabled` (`{"enabled":bool}`, switches one app
-and leaves the others: NG ≥1.2's per-app route, else a fresh read of the
-clock's list and a full order write with only that app changed; clock
-refusals other than 404/405 are relayed; same lock and 503 as above;
-listed as `device_app_enabled` in `/version` `features`),
+and leaves the others: tries NG's per-app route, and on a 404/405 remembers
+the clock lacks it and reads the clock's list fresh to write the full order
+with only that app changed; a name that isn't `[A-Za-z0-9_-]{1,32}`, is
+NG-reserved or names a module answers 400; NG's 507 (applied, not saved)
+is relayed as 507, a clock 404 as 502, 400/422 as is; same lock and 503 as
+above; listed as `device_app_enabled` in `/version` `features`),
 `GET/PUT /v1/device/sensors` (system
 `tempOffset`/`humOffset` via read-merge-PUT of `/api/v1/system`; applies live,
 no reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons` (read-merge-PUT

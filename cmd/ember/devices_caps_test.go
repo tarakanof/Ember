@@ -188,8 +188,8 @@ func TestVersionLiteralsOnlyInTheLegacyCapsTable(t *testing.T) {
 				return true
 			}
 			s, err := strconv.Unquote(lit.Value)
-			if err == nil && versionLiteral.MatchString(s) && path != "devices_caps.go" && path != "clock_firmware.go" {
-				t.Errorf("%s: version literal %q; behaviour keys on caps, and only the knob's legacy caps table and the clock firmware table may name a firmware version", fset.Position(lit.Pos()), s)
+			if err == nil && versionLiteral.MatchString(s) && path != "devices_caps.go" {
+				t.Errorf("%s: version literal %q; behaviour keys on caps, and only the legacy caps table may name a firmware version", fset.Position(lit.Pos()), s)
 			}
 			return true
 		})
