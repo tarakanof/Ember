@@ -340,16 +340,12 @@ its own commit, `test(theme): sync parity to cinder <tag>`, together with any
 theme or pattern change it needs, after that cinder release is out. Locally
 the tests read `../cinder` or `CINDER_DIR`, whatever it has checked out, so
 they can differ from CI when that checkout isn't at the pinned tag.
-The test checks only code the knob runs. Keys the firmware no longer has
-are exempt (`goneFromFirmware`): `weather.temp.color` and
-`weather.temp.font_px`, gone since cinder aaddf88 replaced the
-sky-and-label weather page with the Temperature face (temperature colour
-scale, `font_digits_96`), and everything under `weather.sky.`,
-`weather.scene.` and `weather.colors.`: cinder 98b82cc dropped
-`weather_scene.c` from the firmware build (only its host tests compile
-it). The app's weather preview still draws the old sky page with these
-keys (#430). The test fails if an exempt key gets a firmware check again,
-an exempt key or prefix leaves the theme, or any other key has no check.
+The test checks only code the knob runs, and every theme key needs a check
+(the code-only keys and LVGL's built-in `font.metrics` sizes aside). The
+weather keys mirror the Temperature face (`temp_face.c`, `wx_temp.c`,
+`wx_paint.c`): the colour scale, gauge ring, marker, thermometer and
+mercury, value, end labels, sub-line and face dots; `weather.colors` pins
+the live `SNOW_RGB`, `BOLT_RGB`, `WX_CAST_RGB` and `WX_WIND_POLE_RGB`.
 
 The app bundle now builds + signs the three producer helpers (`ember-claude-producer`,
 `ember-codex-producer`, `ember-t3-producer`) and their LaunchAgent plists

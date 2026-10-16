@@ -106,70 +106,60 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
     }
 
     public struct Weather: Decodable, Sendable, Equatable {
-        public struct Sky: Decodable, Sendable, Equatable {
-            public var widthPx, heightPx, yPx: Double
+        public struct Scale: Decodable, Sendable, Equatable {
+            public var loC, hiC: Double
+            public var stopsC: [Double]
+            public var colors: [RGB]
         }
-        public struct Temp: Decodable, Sendable, Equatable {
-            public var fontPx: Double
-            public var color, stillColor: RGB
+        public struct Ring: Decodable, Sendable, Equatable {
+            public var radiusPx, widthPx, fromDeg, sweepDeg: Double
+            public var trackColor: RGB
+        }
+        public struct Marker: Decodable, Sendable, Equatable {
+            public var discRadiusPx, ringRadiusPx, ringWidthPx: Double
+            public var color: RGB
+        }
+        public struct Thermo: Decodable, Sendable, Equatable {
+            public struct MercuryTop: Decodable, Sendable, Equatable {
+                public var refC, refPx, risePx, perC, minPx, maxPx: Double
+            }
+            public var dyPx, headYPx, headRadiusPx, tubeMidYPx, tubeHalfHPx, tubeHalfWPx: Double
+            public var bulbYPx, bulbRadiusPx, strokePx: Double
+            public var mercuryBottomPx, mercuryHalfWPx, mercuryBulbRadiusPx: Double
+            public var mercuryTop: MercuryTop
+            public var ticksPx, tickXPx: [Double]
+            public var tickWidthPx: Double
+            public var tickColor: RGB
+        }
+        public struct Value: Decodable, Sendable, Equatable {
+            public var fontPx, yPx, letterSpacePx: Double
+        }
+        public struct Ends: Decodable, Sendable, Equatable {
+            public var fontPx, xPx, yPx: Double
+        }
+        public struct Sub: Decodable, Sendable, Equatable {
+            public var fontPx, yPx: Double
+            public var color: RGB
+        }
+        public struct Dots: Decodable, Sendable, Equatable {
+            public var radiusPx, pitchPx, dotRadiusPx: Double
+            public var onColor, offColor: RGB
+            public var faces: Int
         }
         public struct Colors: Decodable, Sendable, Equatable {
-            public var sun, rays, moon, star, cloud, rainCloud, stormCloud, litCloud, snowCloud: RGB
-            public var rain, snow, bolt, fog, rime, still: RGB
+            public var cloud, rain, snow, bolt: RGB
         }
-        public struct Scene: Decodable, Sendable, Equatable {
-            public struct FPS: Decodable, Sendable, Equatable { public var rain, snow, other: Double }
-            public struct Drops: Decodable, Sendable, Equatable { public var rain, storm, snow: [Int] }
-            public struct DropAlpha: Decodable, Sendable, Equatable {
-                public var rain: [Double]
-                public var snow: Double
-            }
-            public struct Rain: Decodable, Sendable, Equatable {
-                public var top, speed, speedSpread, respawnBand: Double
-                public var x, slant: [Double]
-            }
-            public struct Snow: Decodable, Sendable, Equatable {
-                public var x, amp, freq, speed: [Double]
-                public var largeShare: Double
-            }
-            public struct Stars: Decodable, Sendable, Equatable {
-                public var x, y, twinkleS: [Double]
-                public var jitter, alpha, twinkleAlpha, firstTwinkleS: Double
-            }
-            public struct Bolt: Decodable, Sendable, Equatable {
-                public var firstS, gapS, secondS, x: [Double]
-                public var onS, doubleChance, y: Double
-            }
-            public struct Drift: Decodable, Sendable, Equatable {
-                public var x, y, amp, periodS, phase, alpha: Double
-            }
-            public struct Fog: Decodable, Sendable, Equatable {
-                public var x, y, step: Double
-                public var amp, periodS, phase, alpha: [Double]
-            }
-            public struct Layout: Decodable, Sendable, Equatable {
-                public var clearSun, nightMoon, partlyMoon, partlySun: [Double]
-                public var partlyCloud, overcastBack, overcastFront, precipCloud: Drift
-                public var fog: Fog
-            }
-            public var fps: FPS
-            public var maxStepS: Double
-            public var sprites: [String: [Double]]
-            public var rayFrames: Int
-            public var rayStepsPerS: Double
-            public var drops: Drops
-            public var dropAlpha: DropAlpha
-            public var rain: Rain
-            public var snow: Snow
-            public var stars: Stars
-            public var bolt: Bolt
-            public var layout: Layout
-        }
-        public var sky: Sky
-        public var temp: Temp
         public var maxAgeS: Double
+        public var stillColor: RGB
+        public var scale: Scale
+        public var ring: Ring
+        public var marker: Marker
+        public var thermo: Thermo
+        public var value: Value
+        public var ends: Ends
+        public var sub: Sub
+        public var dots: Dots
         public var colors: Colors
-        public var scene: Scene
     }
 
     public var version: Int

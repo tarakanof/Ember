@@ -6,7 +6,7 @@ public enum KnobFace: Sendable, Equatable {
     case bot(pose: BotPose, mood: KnobMood, glint: Double? = nil)
     case pomodoro(KnobPomoFace)
     case nowPlaying(KnobNowPlayingFace)
-    case weather(look: KnobWeatherLook, draws: [KnobWeatherScene.Draw], tempC: Double?)
+    case weather(KnobTempFace)
 }
 
 public struct KnobFaceView: View, Equatable {
@@ -32,7 +32,7 @@ public struct KnobFaceView: View, Equatable {
             case .bot(let pose, let mood, let glint): KnobFaceRender.bot(pose, mood, glint: glint, theme, in: &ctx)
             case .pomodoro(let p): KnobFaceRender.pomodoro(p, theme, in: &ctx)
             case .nowPlaying(let n): KnobFaceRender.nowPlaying(n, theme, in: &ctx)
-            case .weather(let look, let draws, let temp): KnobFaceRender.weather(look, draws, temp, theme, in: &ctx)
+            case .weather(let t): KnobFaceRender.weather(t, theme, in: &ctx)
             }
             let dim = (1 - min(max(brightness, 0), 1)) * 0.6
             if dim > 0 { ctx.fill(disc, with: .color(.black.opacity(dim))) }
@@ -73,15 +73,16 @@ enum KnobFaceRender {
         }
     }
 
-    static func label(_ s: String, _ px: Double, _ c: RGB, centerX: Double, top: Double, clip: Double? = nil,
-                      theme: KnobTheme, in ctx: inout GraphicsContext) {
+    static func label(_ s: String, _ px: Double, _ c: RGB, centerX: Double, anchor: Double = 0.5, tracking: Double = 0,
+                      top: Double, clip: Double? = nil, theme: KnobTheme, in ctx: inout GraphicsContext) {
         guard !s.isEmpty else { return }
         let m = theme.font.metrics(px)
         let font: Font = fontRegistered ? .custom(theme.font.family, fixedSize: px) : .system(size: px, weight: .medium)
-        let text = ctx.resolve(Text(verbatim: s).font(font).foregroundStyle(Color(c)))
+        let text = ctx.resolve(Text(verbatim: s).font(font).tracking(tracking).foregroundStyle(Color(c)))
         let size = text.measure(in: CGSize(width: 2000, height: 2000))
+        let width = size.width - tracking
         let baseline = top + m.lineHeightPx - m.baselinePx
-        let rect = CGRect(x: centerX - size.width / 2, y: baseline - text.firstBaseline(in: size),
+        let rect = CGRect(x: centerX - width * anchor, y: baseline - text.firstBaseline(in: size),
                           width: size.width, height: size.height)
         var c2 = ctx
         if let clip { c2.clip(to: Path(CGRect(x: centerX - clip / 2, y: top, width: clip, height: m.lineHeightPx))) }
@@ -352,36 +353,87 @@ enum KnobFaceRender {
         }
     }
 
-    static func weather(_ look: KnobWeatherLook, _ draws: [KnobWeatherScene.Draw], _ tempC: Double?,
-                        _ theme: KnobTheme, in ctx: inout GraphicsContext) {
-        let w = theme.weather
+    static func weather(_ f: KnobTempFace, _ theme: KnobTheme, in ctx: inout GraphicsContext) {
+        let w = theme.weather, th = w.thermo
         let c = theme.screen.diameterPx / 2
-        let sky = CGRect(x: c - w.sky.widthPx / 2, y: w.sky.yPx, width: w.sky.widthPx, height: w.sky.heightPx)
-        ctx.drawLayer { s in
-            s.clip(to: Path(sky))
-            s.translateBy(x: sky.minX, y: sky.minY)
-            for d in draws { sprite(d, rayFrames: w.scene.rayFrames, in: &s) }
+        func disc(_ p: CGPoint, _ r: Double) -> Path { Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)) }
+
+        for k in 0..<w.dots.faces {
+            ctx.fill(disc(KnobTempFace.dotPoint(k, w.dots, center: c), w.dots.dotRadiusPx),
+                     with: .color(Color(k == 0 ? w.dots.onColor : w.dots.offColor)))
         }
-        let text = tempC.map { "\(Int($0.rounded()))°" } ?? "--°"
-        label(text, w.temp.fontPx, look.still ? w.temp.stillColor : w.temp.color, centerX: c, top: sky.maxY,
-              clip: w.sky.widthPx, theme: theme, in: &ctx)
+
+        let head = CGPoint(x: c, y: th.headYPx + th.dyPx), bulb = CGPoint(x: c, y: th.bulbYPx + th.dyPx)
+        let tube = CGRect(x: c - th.tubeHalfWPx, y: th.tubeMidYPx - th.tubeHalfHPx + th.dyPx,
+                          width: 2 * th.tubeHalfWPx, height: 2 * th.tubeHalfHPx)
+        let half = th.strokePx / 2
+        for p in [disc(head, th.headRadiusPx), Path(tube), disc(bulb, th.bulbRadiusPx)] {
+            ctx.stroke(p, with: .color(Color(w.colors.cloud)), lineWidth: th.strokePx)
+        }
+        for p in [disc(head, th.headRadiusPx - half), Path(tube.insetBy(dx: half, dy: half)), disc(bulb, th.bulbRadiusPx - half)] {
+            ctx.fill(p, with: .color(.black))
+        }
+
+        var arc = Path()
+        arc.addArc(center: CGPoint(x: c, y: c), radius: w.ring.radiusPx, startAngle: .degrees(w.ring.fromDeg - 90),
+                   endAngle: .degrees(w.ring.fromDeg - 90 + w.ring.sweepDeg), clockwise: false)
+        let ringStyle = StrokeStyle(lineWidth: w.ring.widthPx, lineCap: .round)
+        if f.value == nil {
+            ctx.stroke(arc, with: .color(Color(w.ring.trackColor)), style: ringStyle)
+        } else {
+            ctx.stroke(arc, with: ringShading(f, w, center: c), style: ringStyle)
+        }
+
+        let merc = f.valueColor(w)
+        let top = f.value.map { KnobTempFace.mercuryTop(Double($0), th) } ?? th.mercuryBottomPx
+        let hh = (th.mercuryBottomPx - top) / 2, mid = (top + th.mercuryBottomPx) / 2 + th.dyPx
+        let reach = max(hh - th.mercuryHalfWPx, 0) + th.mercuryHalfWPx
+        ctx.fill(Path(roundedRect: CGRect(x: c - th.mercuryHalfWPx, y: mid - reach, width: 2 * th.mercuryHalfWPx, height: 2 * reach),
+                      cornerRadius: th.mercuryHalfWPx), with: .color(Color(merc)))
+        ctx.fill(disc(bulb, th.mercuryBulbRadiusPx), with: .color(Color(merc)))
+        for tick in th.ticksPx {
+            var p = Path()
+            p.move(to: CGPoint(x: th.tickXPx[0], y: tick + th.dyPx))
+            p.addLine(to: CGPoint(x: th.tickXPx[1], y: tick + th.dyPx))
+            ctx.stroke(p, with: .color(Color(top <= tick ? merc : th.tickColor)),
+                       style: StrokeStyle(lineWidth: th.tickWidthPx, lineCap: .round))
+        }
+
+        let v = w.value
+        label(f.valueText(), v.fontPx, merc, centerX: c + degreeShift(v, theme), tracking: v.letterSpacePx, top: v.yPx,
+              theme: theme, in: &ctx)
+        if f.value != nil && f.hasRange {
+            let e = w.ends, d = theme.screen.diameterPx
+            label(KnobTempFace.degrees(f.lo), e.fontPx, KnobTempFace.color(Double(f.lo), w.scale), centerX: e.xPx, anchor: 0,
+                  top: e.yPx, theme: theme, in: &ctx)
+            label(KnobTempFace.degrees(f.hi), e.fontPx, KnobTempFace.color(Double(f.hi), w.scale), centerX: d - e.xPx, anchor: 1,
+                  top: e.yPx, theme: theme, in: &ctx)
+        }
+        label(f.sub, w.sub.fontPx, w.sub.color, centerX: c, top: w.sub.yPx, theme: theme, in: &ctx)
+
+        if f.value != nil {
+            let p = KnobTempFace.gaugePoint(f.fraction, w, center: c)
+            let at = CGPoint(x: p.x.rounded(), y: p.y.rounded())
+            ctx.fill(disc(at, w.marker.discRadiusPx), with: .color(.black))
+            ctx.stroke(disc(at, w.marker.ringRadiusPx), with: .color(Color(w.marker.color)), lineWidth: w.marker.ringWidthPx)
+        }
     }
 
-    static func sprite(_ d: KnobWeatherScene.Draw, rayFrames: Int, in ctx: inout GraphicsContext) {
-        let shape = KnobWeatherScene.shape(d.sprite, frame: d.frame, rayFrames: rayFrames)
-        var c = ctx
-        c.translateBy(x: d.x, y: d.y)
-        guard let rgb = d.color else {
-            var solid = Path()
-            for (p, r) in shape.fillCircles { solid.addEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)) }
-            if let rect = shape.fillRect { solid.addRect(rect) }
-            c.fill(solid, with: .color(.black))
-            return
+    static func ringShading(_ f: KnobTempFace, _ w: KnobTheme.Weather, center c: Double) -> GraphicsContext.Shading {
+        let sweep = w.ring.sweepDeg, lo = Double(f.lo), hi = Double(f.hi)
+        var stops = stride(from: 0.0, through: sweep, by: 2).map { s in
+            Gradient.Stop(color: Color(KnobTempFace.color(lo + (hi - lo) * s / sweep, w.scale)), location: s / 360)
         }
-        var path = Path()
-        for s in shape.strokes { path.addPath(polyline(s)) }
-        c.opacity = d.alpha
-        c.stroke(path, with: .color(Color(rgb)),
-                 style: StrokeStyle(lineWidth: 2 * shape.halfWidth, lineCap: .round, lineJoin: .round))
+        let gap = (sweep + 360) / 2 / 360
+        stops += [.init(color: Color(KnobTempFace.color(hi, w.scale)), location: gap),
+                  .init(color: Color(KnobTempFace.color(lo, w.scale)), location: gap),
+                  .init(color: Color(KnobTempFace.color(lo, w.scale)), location: 1)]
+        return .conicGradient(Gradient(stops: stops), center: CGPoint(x: c, y: c), angle: .degrees(w.ring.fromDeg - 90))
+    }
+
+    static func degreeShift(_ v: KnobTheme.Weather.Value, _ theme: KnobTheme) -> Double {
+        let font = CTFontCreateWithName(theme.font.family as CFString, v.fontPx, nil)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: "°", attributes: [.font: font]))
+        return (CTLineGetTypographicBounds(line, nil, nil, nil).rounded() + v.letterSpacePx) / 2
     }
 }

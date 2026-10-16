@@ -224,42 +224,22 @@ public struct KnobWeatherLive: View {
     let animated: Bool
     let theme: KnobTheme
     let brightness: Double
-    @State private var driver = KnobWeatherDriver()
-    @State private var visible = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(state: WeatherState?, animated: Bool = true, theme: KnobTheme = .standard, brightness: Double = 1) {
         self.state = state; self.animated = animated; self.theme = theme; self.brightness = brightness
     }
 
     public var body: some View {
-        let look = KnobWeatherLook(state: state, now: .now, maxAge: theme.weather.maxAgeS)
-        let period = KnobWeatherScene.period(look)
-        let moving = animated && !reduceMotion && period > 0
-        TimelineView(.animation(minimumInterval: max(period, 0.05), paused: !moving || !visible)) { tl in
-            let draws = driver.draws(look: look, at: moving ? tl.date : nil, colors: theme.weather.colors)
-            KnobFaceView(.weather(look: look, draws: draws, tempC: state?.current?.tempC),
-                         theme: theme, brightness: brightness)
-        }
-        .onAppear { visible = true }
-        .onDisappear { visible = false }
-    }
-}
-
-@MainActor
-final class KnobWeatherDriver {
-    private var scene = KnobWeatherScene()
-    private var last: Date?
-
-    func draws(look: KnobWeatherLook, at date: Date?, colors: KnobTheme.Weather.Colors) -> [KnobWeatherScene.Draw] {
-        scene.setLook(look)
-        if let date {
-            if let last { scene.step(date.timeIntervalSince(last)) }
-            last = date
+        if animated {
+            TimelineView(.periodic(from: .now, by: 60)) { tl in face(at: tl.date) }
         } else {
-            last = nil
+            face(at: .now)
         }
-        return scene.draws(colors: colors)
+    }
+
+    private func face(at now: Date) -> some View {
+        KnobFaceView(.weather(KnobTempFace(state: state, now: now, theme: theme.weather)), theme: theme, brightness: brightness)
+            .equatable()
     }
 }
 
