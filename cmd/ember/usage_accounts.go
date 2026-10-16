@@ -424,6 +424,7 @@ type usageAccount struct {
 	Tool        string
 	Plan        string
 	Name        string
+	NameSet     bool
 	DefaultName string
 	Hidden      bool
 	Order       *int
@@ -505,7 +506,8 @@ func buildUsageAccounts(state usageState, seen map[string]usageAccountSeen, pref
 		}
 	}
 	for i := range out {
-		if out[i].Name == "" {
+		out[i].NameSet = out[i].Name != ""
+		if !out[i].NameSet {
 			out[i].Name = out[i].DefaultName
 		}
 	}
@@ -564,6 +566,7 @@ type usageAccountOut struct {
 	Tool        string     `json:"tool"`
 	Plan        *string    `json:"plan"`
 	Name        string     `json:"name"`
+	NameSet     bool       `json:"name_set"`
 	DefaultName string     `json:"default_name"`
 	Hidden      bool       `json:"hidden"`
 	Order       *int       `json:"order"`
@@ -582,7 +585,7 @@ func (a *App) usageAccountsAnswer(now time.Time) usageAccountsOut {
 	out := usageAccountsOut{Accounts: make([]usageAccountOut, 0, len(accs))}
 	for _, acc := range accs {
 		o := usageAccountOut{
-			ID: acc.ID, Tool: acc.Tool, Plan: optString(acc.Plan), Name: acc.Name, DefaultName: acc.DefaultName,
+			ID: acc.ID, Tool: acc.Tool, Plan: optString(acc.Plan), Name: acc.Name, NameSet: acc.NameSet, DefaultName: acc.DefaultName,
 			Hidden: acc.Hidden, Order: acc.Order, FirstSeen: wireTime(acc.FirstSeen, loc), Stale: !acc.Fresh,
 		}
 		if acc.Report != nil {
