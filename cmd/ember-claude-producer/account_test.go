@@ -281,3 +281,68 @@ func TestEndpointPollDropsAResponseWhenTheAccountSwitchesDuringTheFetch(t *testi
 		t.Fatalf("relayed = %+v, want the next poll under the new account", got)
 	}
 }
+
+type markerCheckingWriter struct {
+	t       *testing.T
+	marker  string
+	written bool
+	keyed   bool
+}
+
+func (w *markerCheckingWriter) Write(p []byte) (int, error) {
+	raw, _ := os.ReadFile(w.marker)
+	w.written, w.keyed = true, strings.Contains(string(raw), "usage_account_key")
+	return len(p), nil
+}
+
+func TestStatuslinePrintsBeforeItReadsTheAccount(t *testing.T) {
+	resetClaudeAccountCache(t)
+	h := newUsageRelayHarness(t)
+	writeClaudeJSON(t, h.home, fakeClaudeJSON)
+	if err := os.WriteFile(wrappedStatuslinePath(h.home), []byte(`"printf hi"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	marker := writeMarkerFile(t, h.sessionsDir(), "s1", "")
+	out := &markerCheckingWriter{t: t, marker: marker}
+	statuslineMain([]byte(`{"session_id":"s1","rate_limits":{"five_hour":{"used_percent":20,"resets_at":1782049500}}}`), out)
+	if !out.written || out.keyed {
+		t.Fatalf("written %v, marker keyed before the output %v; want the output first", out.written, out.keyed)
+	}
+	raw, _ := os.ReadFile(marker)
+	if !strings.Contains(string(raw), personalKey) {
+		t.Fatalf("marker = %s, want the account written after the output", raw)
+	}
+}
+
+func TestStatuslineReparsesTheConfigOnlyWhenItsMtimeOrSizeMoves(t *testing.T) {
+	resetClaudeAccountCache(t)
+	h := newUsageRelayHarness(t)
+	writeClaudeJSON(t, h.home, fakeClaudeJSON)
+	cfgPath := filepath.Join(h.home, ".claude.json")
+	fi, err := os.Stat(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := writeMarkerFile(t, h.sessionsDir(), "s1", "")
+	in := []byte(`{"session_id":"s1","rate_limits":{"five_hour":{"used_percent":20,"resets_at":1782049500}}}`)
+	statuslineMain(in, io.Discard)
+	garbage := strings.Repeat(" ", int(fi.Size()))
+	if err := os.WriteFile(cfgPath, []byte(garbage), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(cfgPath, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	statuslineMain([]byte(`{"session_id":"s1","rate_limits":{"five_hour":{"used_percent":21,"resets_at":1782049500}}}`), io.Discard)
+	if raw, _ := os.ReadFile(marker); !strings.Contains(string(raw), personalKey) {
+		t.Fatalf("marker = %s, want the cached account kept while mtime and size hold", raw)
+	}
+	later := fi.ModTime().Add(time.Second)
+	if err := os.Chtimes(cfgPath, later, later); err != nil {
+		t.Fatal(err)
+	}
+	statuslineMain([]byte(`{"session_id":"s1","rate_limits":{"five_hour":{"used_percent":22,"resets_at":1782049500}}}`), io.Discard)
+	if raw, _ := os.ReadFile(marker); strings.Contains(string(raw), personalKey) {
+		t.Fatalf("marker = %s, want a re-parse once the mtime moved", raw)
+	}
+}

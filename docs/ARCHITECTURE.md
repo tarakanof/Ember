@@ -4709,8 +4709,21 @@ add `account_key` and `plan` to `POST /v1/usage`:
   `oauthAccount.accountUuid` and `organizationUuid` from the global config
   (`$CLAUDE_CONFIG_DIR/.claude.json`, else `~/.claude.json`; a legacy
   `.config.json` beside it wins, as in Claude Code), re-read when its
-  mtime or size moves; the daemon reads it with its own environment, so
-  the statusline relay carries the daemon's account. Codex:
+  mtime or size moves. The account travels with the snapshot: the
+  statusline hook runs in the session's own environment, so it computes
+  the key and plan from that session's `CLAUDE_CONFIG_DIR` and writes them
+  into the session marker (`usage_account_key`, `usage_plan`, plus the
+  config file's path, mtime and size so an unchanged file isn't re-parsed;
+  hooks carry them over). It prints its output first, then stats the
+  config and parses it only when the mtime or size moved, outside the
+  marker lock, so a multi-MB `~/.claude.json` never delays a render or
+  holds the lock the daemon and hooks wait on. The daemon relays the
+  freshest snapshot per account, each under its marker's key; a marker
+  without one is posted keyless, never under the daemon's account. The
+  5-min endpoint poll reads the daemon's account before the fetch and
+  drops the response if it changed by the time the fetch returns; its
+  per-model windows are cached per account and joined only to that
+  account's statusline posts. Codex:
   `$CODEX_HOME/auth.json` `tokens.account_id` (else the id_token's
   `chatgpt_account_id`), plus `chatgpt_user_id` for the workspace plans
   `team`, `business`, `enterprise` and `edu`, where the account id is the

@@ -226,53 +226,71 @@ func statusLineIsOurs(v any) bool {
 
 func runStatusline() {
 	buf, _ := io.ReadAll(os.Stdin)
+	statuslineMain(buf, os.Stdout)
+	os.Exit(0)
+}
+
+func statuslineMain(buf []byte, stdout io.Writer) {
 	env := statuslineEnv()
 	in, parsed := parseStatusline(buf)
-	if parsed {
-		var ratePct, ctxPct, weekPct *int
-		var resetAt, weekResetAt *int64
-		var resetLabel, weekResetLabel string
-		if p, ok := extractRatePct(in); ok {
-			ratePct = p
-		}
-		if r, ok := extractRateResetAt(in); ok {
-			resetAt = &r
-		}
-		if l, ok := extractRateResetLabel(in); ok {
-			resetLabel = l
-		}
-		if p, ok := extractWeekPct(in); ok {
-			weekPct = p
-		}
-		if r, ok := extractWeekResetAt(in); ok {
-			weekResetAt = &r
-		}
-		if l, ok := extractWeekResetLabel(in); ok {
-			weekResetLabel = l
-		}
-		if contextPctEnabled(env) {
-			if p, ok := extractContextPct(in); ok {
-				ctxPct = p
-			}
-		}
-		if ratePct != nil || ctxPct != nil || resetAt != nil || resetLabel != "" ||
-			weekPct != nil || weekResetAt != nil || weekResetLabel != "" {
-			if dir, err := stateDir(); err == nil {
-				_ = enrichMarker(dir, sanitizeSessionID(in.SessionID, in.Cwd),
-					ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel, sessionClaudeAccount)
-			}
-		}
-	}
 	if home, err := os.UserHomeDir(); err == nil {
 		if cmd, ok := readWrappedCommand(wrappedStatuslinePath(home)); ok {
 			cache := ""
 			if parsed {
 				cache = statuslineCachePath(sanitizeSessionID(in.SessionID, in.Cwd))
 			}
-			_, _ = os.Stdout.Write(wrappedOutput(cmd, buf, wrappedTimeout(env), cache))
+			_, _ = stdout.Write(wrappedOutput(cmd, buf, wrappedTimeout(env), cache))
 		}
 	}
-	os.Exit(0)
+	if !parsed {
+		return
+	}
+	var ratePct, ctxPct, weekPct *int
+	var resetAt, weekResetAt *int64
+	var resetLabel, weekResetLabel string
+	if p, ok := extractRatePct(in); ok {
+		ratePct = p
+	}
+	if r, ok := extractRateResetAt(in); ok {
+		resetAt = &r
+	}
+	if l, ok := extractRateResetLabel(in); ok {
+		resetLabel = l
+	}
+	if p, ok := extractWeekPct(in); ok {
+		weekPct = p
+	}
+	if r, ok := extractWeekResetAt(in); ok {
+		weekResetAt = &r
+	}
+	if l, ok := extractWeekResetLabel(in); ok {
+		weekResetLabel = l
+	}
+	if contextPctEnabled(env) {
+		if p, ok := extractContextPct(in); ok {
+			ctxPct = p
+		}
+	}
+	if ratePct == nil && ctxPct == nil && resetAt == nil && resetLabel == "" &&
+		weekPct == nil && weekResetAt == nil && weekResetLabel == "" {
+		return
+	}
+	dir, err := stateDir()
+	if err != nil {
+		return
+	}
+	session := sanitizeSessionID(in.SessionID, in.Cwd)
+	acct := sessionClaudeAccount(markerAccountAt(markerPath(dir, session)))
+	_ = enrichMarker(dir, session, ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel,
+		func(markerAccount) markerAccount { return acct })
+}
+
+func markerAccountAt(path string) markerAccount {
+	var m marker
+	if body, err := readMarker(path); err == nil {
+		_ = json.Unmarshal(body, &m)
+	}
+	return m.markerAccount
 }
 
 const statuslineLockWait = 250 * time.Millisecond
