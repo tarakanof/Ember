@@ -974,6 +974,9 @@ paths:
                     description: Capabilities clients gate on. `firmware_delete_keep` means `DELETE /v1/firmware/{version}` takes `?keep=protected`.
                     items:
                       type: string
+                  clock_disabled:
+                    type: boolean
+                    description: True when the server runs with `EMBER_CLOCK=off` (no clock I/O); omitted otherwise. Answering it touches no clock.
   /state:
     get:
       tags: [read]
