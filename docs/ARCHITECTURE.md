@@ -4730,13 +4730,18 @@ The store is keyed by (tool, account_key). The newest `updated_at` wins
 (the server stamps every post with its receive time and ignores any time a
 client sends, so ranking, staleness and expiry can't be forged; an older
 one never overwrites), so several Macs on one account share one entry.
-Caps never evict another writer's entry. `source` is trimmed once on
-arrival, before `allowSource`, and only the trimmed value is stored and
-compared. A source keeps at most 8 accounts per tool and 16 across tools,
-a new one replacing that source's own oldest, so no single source reaches
-the 64-account limit; past it a client token's new account is refused
-(507, logged `usage post rejected reason=account_limit`), while the master
-token's never is. The registry follows the same per-source caps and skips a
+`source` is trimmed once on arrival, before `allowSource`, and only the
+trimmed value is stored and compared. Here `source` is a path label
+(`endpoint`, `statusline`, `codex_stream`), not a host, so the caps don't
+use it: they count per writer, the authenticated principal (each client
+token by its id; the master token is one writer of its own). A writer
+keeps at most 8 accounts per tool and 16 across tools, a new one replacing
+that writer's own oldest, never the master's or another token's entry, so
+no single client token reaches the 64-account limit; past it a client
+token's new account is refused (507, logged `usage post rejected
+reason=account_limit`), while the master token's never is. Every Mac on the
+master token shares its 8 per tool. An entry belongs to the writer that
+posted it last. The registry follows the same per-writer caps and skips a
 new account at 64 instead of refusing. An account's
 id is `<tool>:<account_key>`, so one key on two tools stays two accounts; a
 keyless post is one account per tool, whose id is the bare tool name, which
@@ -4747,7 +4752,7 @@ days after its last post (`usageAccountTTL`; pruned on each post and
 skipped by `state`); stale still means 10 min.
 
 **Registry** (`usageAccountRegistry`, store key `usage_accounts_seen`):
-per account id its tool, source, plan and first and last sighting, persisted so the
+per account id its tool, writer, plan and first and last sighting, persisted so the
 default order and the 7-day expiry survive a restart. A post writes it only
 for a new account, a plan change, or when the last sighting is an hour old
 (at most one write per account per hour); entries past 7 days are pruned. The snapshots themselves stay in memory.

@@ -390,16 +390,16 @@ func TestUsageCapEvictsOnlyTheWritersOwnAccounts(t *testing.T) {
 	}
 	for i := range usageAccountsPerTool + 3 {
 		key := strings.Repeat(string(rune('k'+i)), 16)
-		if _, err := s.PutIfOwned("claude", ToolUsage{Account: key, Source: "noisy"}, nil, usageAccountsTotal, now.Add(time.Minute+time.Duration(i)*time.Second)); err != nil {
+		if _, err := s.PutIfOwned("claude", ToolUsage{Account: key, Source: "endpoint", Principal: "client:noisy"}, nil, usageAccountsTotal, now.Add(time.Minute+time.Duration(i)*time.Second)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	own, noisy := 0, 0
 	for k, u := range s.All() {
 		switch {
-		case u.Source == "endpoint":
+		case u.Principal == "":
 			own++
-		case u.Source == "noisy":
+		case u.Principal == "client:noisy":
 			noisy++
 			if k.Account == strings.Repeat("k", 16) {
 				t.Fatal("the noisy source's oldest account was kept past its cap")
@@ -407,7 +407,7 @@ func TestUsageCapEvictsOnlyTheWritersOwnAccounts(t *testing.T) {
 		}
 	}
 	if own != 3 || noisy != usageAccountsPerTool {
-		t.Fatalf("endpoint %d, noisy %d; want 3 untouched and the noisy source capped at %d", own, noisy, usageAccountsPerTool)
+		t.Fatalf("master %d, noisy %d; want 3 untouched and the noisy writer capped at %d", own, noisy, usageAccountsPerTool)
 	}
 }
 
@@ -433,8 +433,8 @@ func TestOneSourceCannotFillTheStoreAcrossMadeUpTools(t *testing.T) {
 	if r := postBoundUsage(t, srv, m.Token, "ci", usageAccountsTotal); r != 0 {
 		t.Fatalf("%d rejected, want the source's own oldest replaced instead", r)
 	}
-	if n := len(app.usage.All()); n != usageAccountsPerSource {
-		t.Fatalf("stored = %d, want the source capped at %d", n, usageAccountsPerSource)
+	if n := len(app.usage.All()); n != usageAccountsPerWriter {
+		t.Fatalf("stored = %d, want the source capped at %d", n, usageAccountsPerWriter)
 	}
 	if resp, b := devReq(t, srv, "POST", "/v1/usage", testToken, `{"tool":"claude","source":"dt-mbp","account_key":"`+keyMaxA+`"}`); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("master after the flood = %d %s", resp.StatusCode, b)
@@ -444,10 +444,10 @@ func TestOneSourceCannotFillTheStoreAcrossMadeUpTools(t *testing.T) {
 func TestUsageHardLimitRejectsScopedWritersButNeverTheMaster(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	postUsage(t, srv, `{"tool":"claude","source":"dt-mbp","account_key":"`+keyMaxA+`"}`)
-	for i := range usageAccountsTotal / usageAccountsPerSource {
+	for i := range usageAccountsTotal / usageAccountsPerWriter {
 		src := fmt.Sprintf("ci%d", i)
 		m := mintBoundClient(t, srv, src, []string{src}, "ingest")
-		postBoundUsage(t, srv, m.Token, src, usageAccountsPerSource)
+		postBoundUsage(t, srv, m.Token, src, usageAccountsPerWriter)
 	}
 	late := mintBoundClient(t, srv, "late", []string{"late"}, "ingest")
 	if r := postBoundUsage(t, srv, late.Token, "late", 1); r != 1 {
@@ -461,7 +461,7 @@ func TestUsageHardLimitRejectsScopedWritersButNeverTheMaster(t *testing.T) {
 	}
 }
 
-func TestPaddedSourceNamesShareOneCap(t *testing.T) {
+func TestPaddedSourceNamesAreStoredTrimmed(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	for i := range 3 * usageAccountsPerTool {
 		src := []string{"ci", "ci ", " ci"}[i%3]
@@ -472,7 +472,7 @@ func TestPaddedSourceNamesShareOneCap(t *testing.T) {
 	}
 	all := app.usage.All()
 	if len(all) != usageAccountsPerTool {
-		t.Fatalf("stored = %d, want one cap of %d for ci however it is padded", len(all), usageAccountsPerTool)
+		t.Fatalf("stored = %d, want the master's one cap of %d", len(all), usageAccountsPerTool)
 	}
 	for _, u := range all {
 		if u.Source != "ci" {
@@ -484,7 +484,7 @@ func TestPaddedSourceNamesShareOneCap(t *testing.T) {
 	}
 }
 
-func TestUsageRegistryCapsEachSource(t *testing.T) {
+func TestUsageRegistryCapsEachWriter(t *testing.T) {
 	r := newUsageAccountRegistry(func() settingsKV { return nil })
 	now := time.Now()
 	for i := range 40 {
@@ -493,8 +493,39 @@ func TestUsageRegistryCapsEachSource(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if n := len(r.snapshot(now.Add(time.Hour))); n != usageAccountsPerSource {
-		t.Fatalf("registry = %d, want one source capped at %d", n, usageAccountsPerSource)
+	if n := len(r.snapshot(now.Add(time.Hour))); n != usageAccountsPerWriter {
+		t.Fatalf("registry = %d, want one writer capped at %d", n, usageAccountsPerWriter)
+	}
+}
+
+func TestClientOnASharedSourceCannotEvictTheMastersAccounts(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","plan":"max"}`)
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxB+`","plan":"max"}`)
+	first := getAccounts(t, srv, testToken)
+	m := mintBoundClient(t, srv, "ci", []string{"endpoint"}, "ingest")
+	for i := range usageAccountsPerTool + 2 {
+		body := fmt.Sprintf(`{"tool":"claude","source":"endpoint","account_key":"%016x"}`, i+1)
+		if resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, body); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("%s = %d %s", body, resp.StatusCode, b)
+		}
+	}
+	all := app.usage.All()
+	seen := app.usageSeen.snapshot(time.Now())
+	for _, k := range []string{keyMaxA, keyMaxB} {
+		if _, ok := all[usageKey{"claude", k}]; !ok {
+			t.Fatalf("the master's account %s was evicted from the store", k)
+		}
+		if _, ok := seen["claude:"+k]; !ok {
+			t.Fatalf("the master's account %s was evicted from the registry", k)
+		}
+	}
+	if len(all) != 2+usageAccountsPerTool {
+		t.Fatalf("stored = %d, want the master's 2 and the client's own %d", len(all), usageAccountsPerTool)
+	}
+	after := getAccounts(t, srv, testToken)
+	if after.Accounts[0].ID != first.Accounts[0].ID || !after.Accounts[0].FirstSeen.Equal(first.Accounts[0].FirstSeen) {
+		t.Fatalf("first account %+v, want %+v unchanged", after.Accounts[0], first.Accounts[0])
 	}
 }
 

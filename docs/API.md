@@ -97,8 +97,9 @@ ARCHITECTURE "Knob checkin", RUNBOOK "Decoding a knob core dump"), `GET /v1/cloc
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
 `POST /v1/usage` (optional `account_key`, 16 hex characters hashed on the
 Mac, and `plan`; one entry per tool and account, newest wins, dropped after 7
-days; a source keeps 8 per tool and 16 in all, and a client token's new
-account past 64 in all is a 507, never the master's —
+days; each writer, a client token or the master token, keeps 8 per tool
+and 16 in all and evicts only its own, and a client token's new account
+past 64 in all is a 507, never the master's —
 ARCHITECTURE "Usage per account"), `GET/PUT /v1/usage/config`,
 `GET /v1/usage/accounts` (owner or `admin`: `{"accounts":[{id, tool, plan,
 name, default_name, hidden, order, first_seen, updated_at, stale}]}` in display

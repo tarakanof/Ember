@@ -1123,11 +1123,13 @@ paths:
         account per tool); the newest post wins, so several Macs on one
         account share an entry. The server stamps every post with its
         receive time, whatever the body says. An entry is dropped 7 days
-        after its last post. `source` is trimmed. A source keeps at most 8
-        accounts per tool and 16 in all, a new one replacing that source's
-        own oldest; for a client token, past 64 accounts in all a new
-        account is a 507 and nothing is evicted (the master token is never
-        refused). A client token
+        after its last post. `source` is trimmed; it labels the path
+        (`endpoint`, `statusline`, `codex_stream`) and plays no part in the
+        caps. Each writer (a client token, or the master token) keeps at
+        most 8 accounts per tool and 16 in all, a new one replacing that
+        writer's own oldest, never another writer's; for a client token,
+        past 64 accounts in all a new account is a 507 and nothing is
+        evicted (the master token is never refused). A client token
         bound to `sources` gets 403 for any other `source`, for none, and
         when any of the tool's stored entries came from a source outside
         its list, whatever the `account_key`; a tool with no entry yet is
@@ -1573,7 +1575,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "507":
-          description: Client tokens only. 64 accounts are stored; a new account is refused rather than evicting another source's.
+          description: Client tokens only. 64 accounts are stored; a new account is refused rather than evicting another writer's.
           content:
             application/json:
               schema:

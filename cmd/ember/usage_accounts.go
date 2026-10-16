@@ -71,11 +71,11 @@ func usageToolRank(tool string) int {
 }
 
 type usageAccountSeen struct {
-	Tool   string    `json:"tool"`
-	Source string    `json:"source,omitempty"`
-	Plan   string    `json:"plan,omitempty"`
-	First  time.Time `json:"first"`
-	Last   time.Time `json:"last"`
+	Tool      string    `json:"tool"`
+	Principal string    `json:"principal,omitempty"`
+	Plan      string    `json:"plan,omitempty"`
+	First     time.Time `json:"first"`
+	Last      time.Time `json:"last"`
 }
 
 type usageAccountRegistry struct {
@@ -107,23 +107,23 @@ func (r *usageAccountRegistry) load() error {
 	return nil
 }
 
-func (r *usageAccountRegistry) observe(k usageKey, plan, source string, now time.Time) error {
+func (r *usageAccountRegistry) observe(k usageKey, plan, principal string, now time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.expireLocked(now)
 	id := k.id()
 	prev, ok := r.seen[id]
-	if ok && prev.Tool == k.Tool && prev.Plan == plan && prev.Source == source && now.Sub(prev.Last) < usageAccountSeenEvery && !now.Before(prev.Last) {
+	if ok && prev.Tool == k.Tool && prev.Plan == plan && prev.Principal == principal && now.Sub(prev.Last) < usageAccountSeenEvery && !now.Before(prev.Last) {
 		return nil
 	}
 	if !ok {
-		r.evictOwnOldestLocked(func(s usageAccountSeen) bool { return s.Tool == k.Tool }, source, usageAccountsPerTool)
-		r.evictOwnOldestLocked(func(usageAccountSeen) bool { return true }, source, usageAccountsPerSource)
+		r.evictOwnOldestLocked(func(s usageAccountSeen) bool { return s.Tool == k.Tool }, principal, usageAccountsPerTool)
+		r.evictOwnOldestLocked(func(usageAccountSeen) bool { return true }, principal, usageAccountsPerWriter)
 		if len(r.seen) >= usageAccountsTotal {
 			return nil
 		}
 	}
-	next := usageAccountSeen{Tool: k.Tool, Source: source, Plan: plan, First: now, Last: now}
+	next := usageAccountSeen{Tool: k.Tool, Principal: principal, Plan: plan, First: now, Last: now}
 	if ok && prev.First.Before(now) {
 		next.First = prev.First
 	}
@@ -147,11 +147,11 @@ func (r *usageAccountRegistry) expireLocked(now time.Time) {
 	}
 }
 
-func (r *usageAccountRegistry) evictOwnOldestLocked(in func(usageAccountSeen) bool, source string, max int) {
+func (r *usageAccountRegistry) evictOwnOldestLocked(in func(usageAccountSeen) bool, principal string, max int) {
 	for {
 		n, oldest := 0, ""
 		for id, s := range r.seen {
-			if !in(s) || s.Source != source {
+			if !in(s) || s.Principal != principal {
 				continue
 			}
 			n++

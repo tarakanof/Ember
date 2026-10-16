@@ -12,14 +12,15 @@ import (
 const (
 	usageAccountTTL        = 7 * 24 * time.Hour
 	usageAccountsPerTool   = 8
-	usageAccountsPerSource = 16
+	usageAccountsPerWriter = 16
 	usageAccountsTotal     = 64
 )
 
 type UsageWindow struct {
-	UsedPercent float64 `json:"used_percent"`
-	ResetsAt    int64   `json:"resets_at,omitempty"`
-	ResetLabel  string  `json:"reset_label,omitempty"`
+	UsedPercent   float64 `json:"used_percent"`
+	ResetsAt      int64   `json:"resets_at,omitempty"`
+	ResetLabel    string  `json:"reset_label,omitempty"`
+	WindowMinutes int64   `json:"window_minutes,omitempty"`
 }
 
 type ToolUsage struct {
@@ -30,6 +31,7 @@ type ToolUsage struct {
 	Account   string                  `json:"account_key,omitempty"`
 	Plan      string                  `json:"plan,omitempty"`
 	UpdatedAt time.Time               `json:"updated_at"`
+	Principal string                  `json:"-"`
 }
 
 type usageKey struct {
@@ -78,8 +80,8 @@ func (s *UsageStore) putLocked(tool string, u ToolUsage, limit int, now time.Tim
 		return nil
 	}
 	if !exists {
-		s.evictOwnOldestLocked(func(k usageKey) bool { return k.Tool == tool }, u.Source, usageAccountsPerTool)
-		s.evictOwnOldestLocked(func(usageKey) bool { return true }, u.Source, usageAccountsPerSource)
+		s.evictOwnOldestLocked(func(k usageKey) bool { return k.Tool == tool }, u.Principal, usageAccountsPerTool)
+		s.evictOwnOldestLocked(func(usageKey) bool { return true }, u.Principal, usageAccountsPerWriter)
 		if limit > 0 && len(s.byKey) >= limit {
 			return errUsageFull
 		}
@@ -88,11 +90,11 @@ func (s *UsageStore) putLocked(tool string, u ToolUsage, limit int, now time.Tim
 	return nil
 }
 
-func (s *UsageStore) evictOwnOldestLocked(in func(usageKey) bool, source string, max int) {
+func (s *UsageStore) evictOwnOldestLocked(in func(usageKey) bool, principal string, max int) {
 	for {
 		n, oldest, found := 0, usageKey{}, false
 		for key, u := range s.byKey {
-			if !in(key) || u.Source != source {
+			if !in(key) || u.Principal != principal {
 				continue
 			}
 			n++
