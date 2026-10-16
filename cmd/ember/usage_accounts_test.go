@@ -1037,3 +1037,19 @@ func TestCorruptUsageRegistryIsNeverOverwrittenAndPrefsSurvive(t *testing.T) {
 		t.Fatalf("doctor usage_accounts on a healthy registry = %+v, want ok", res)
 	}
 }
+
+func TestMasterTakeoverOfAClientAccountSurvivesARestart(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	box := mintClient(t, srv, "box", "ingest")
+	if code := clientUsagePost(t, srv, box.Token, keyMaxA, 5); code != http.StatusNoContent {
+		t.Fatalf("box post = %d", code)
+	}
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":6}}`)
+	_ = app.store.Close()
+	app2, _ := newDevicesApp(t, db)
+	app2.loadUsageAccounts()
+	if s := app2.usageSeen.snapshot(time.Now())[idMaxA]; !s.Master || s.Principal != "" {
+		t.Fatalf("reloaded entry = %+v, want it master-held and the master's", s)
+	}
+}

@@ -234,7 +234,8 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 		next.Seq = r.nextSeq
 	}
 	r.seen[id] = next
-	if ok && prev.Tool == k.Tool && prev.Plan == plan && now.Sub(r.written[id]) < usageAccountSeenEvery {
+	if ok && prev.Tool == k.Tool && prev.Plan == plan && prev.Principal == next.Principal && prev.Master == next.Master &&
+		now.Sub(r.written[id]) < usageAccountSeenEvery {
 		return nil
 	}
 	r.written[id] = now

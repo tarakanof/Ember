@@ -4812,7 +4812,9 @@ per account id its tool, writer, plan and first and last sighting, persisted so 
 default order and the 7-day expiry survive a restart. Memory follows every
 post; the store is written only for a new account, a plan change, or when
 the account's last write is an hour old (at most one write per account per
-hour, plus one per plan change; the post's `source` plays no part, so one
+hour, plus one per plan or owner change, so a master takeover and the
+master-held mark reach the store at once; owners change at most once per
+10-min staleness, and the post's `source` plays no part, so one
 account alternating between `statusline` and `endpoint` doesn't rewrite
 it). A post older than the account's last sighting changes nothing, so two
 racing posts can't move it back in time; entries past 7 days are pruned.
