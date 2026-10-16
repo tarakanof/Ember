@@ -233,18 +233,27 @@ func runStatusline() {
 func statuslineMain(buf []byte, stdout io.Writer) {
 	env := statuslineEnv()
 	in, parsed := parseStatusline(buf)
+	wrapped := make(chan []byte, 1)
 	if home, err := os.UserHomeDir(); err == nil {
 		if cmd, ok := readWrappedCommand(wrappedStatuslinePath(home)); ok {
 			cache := ""
 			if parsed {
 				cache = statuslineCachePath(sanitizeSessionID(in.SessionID, in.Cwd))
 			}
-			_, _ = stdout.Write(wrappedOutput(cmd, buf, wrappedTimeout(env), cache))
+			go func() { wrapped <- wrappedOutput(cmd, buf, wrappedTimeout(env), cache) }()
+		} else {
+			wrapped <- nil
 		}
+	} else {
+		wrapped <- nil
 	}
-	if !parsed {
-		return
+	if parsed {
+		enrichFromStatusline(in, env)
 	}
+	_, _ = stdout.Write(<-wrapped)
+}
+
+func enrichFromStatusline(in statuslineInput, env map[string]string) {
 	var ratePct, ctxPct, weekPct *int
 	var resetAt, weekResetAt *int64
 	var resetLabel, weekResetLabel string

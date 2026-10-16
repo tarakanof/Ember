@@ -4714,10 +4714,16 @@ add `account_key` and `plan` to `POST /v1/usage`:
   the key and plan from that session's `CLAUDE_CONFIG_DIR` and writes them
   into the session marker (`usage_account_key`, `usage_plan`, plus the
   config file's path, mtime and size so an unchanged file isn't re-parsed;
-  hooks carry them over). It prints its output first, then stats the
-  config and parses it only when the mtime or size moved, outside the
-  marker lock, so a multi-MB `~/.claude.json` never delays a render or
-  holds the lock the daemon and hooks wait on. The daemon relays the
+  hooks carry them over). It starts the wrapped status line command (if
+  any) in the background, meanwhile updates the marker, stats the config
+  and parses it only when the mtime or size moved, outside the marker
+  lock, and prints once both are done: a render takes the longer of the
+  two, a multi-MB `~/.claude.json` never holds the lock the daemon and
+  hooks wait on, and a slow wrapped command that Claude Code cancels on
+  the next update can't keep the marker from being written. An unchanged
+  render rewrites the marker once a minute, judged by `statusline_at`
+  (hooks carry it over and bump the file's mtime, so the mtime can't
+  tell). The daemon relays the
   freshest snapshot per account, each under its marker's key; a marker
   without one is posted keyless, never under the daemon's account. A
   marker written before the upgrade (no account fields at all) is taken
