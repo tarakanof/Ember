@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -25,6 +26,15 @@ type derived struct {
 	primaryMins   int64
 	weeklyMins    int64
 	rateAt        time.Time
+	rateSeq       int
+	rateStart     time.Time
+	rateKey       string
+	rateBound     bool
+	lineAt        time.Time
+	segmentAt     time.Time
+	eraStarts     []time.Time
+	eraCrossed    bool
+	sawTurnStart  bool
 	planType      string
 }
 
@@ -42,9 +52,13 @@ type sessionMeta struct {
 	source     string
 	originator string
 	cwd        string
+	started    time.Time
 }
 
-const claudeOriginator = "Claude Code"
+const (
+	claudeOriginator = "Claude Code"
+	resumeGap        = 30 * time.Minute
+)
 
 type rolloutLine struct {
 	Timestamp string          `json:"timestamp"`
@@ -57,6 +71,7 @@ type metaPayload struct {
 	Originator string          `json:"originator"`
 	Source     json.RawMessage `json:"source"`
 	Cwd        string          `json:"cwd"`
+	Timestamp  string          `json:"timestamp"`
 }
 
 type tokenInfo struct {
@@ -103,7 +118,13 @@ func parseSessionMeta(line []byte) (sessionMeta, bool) {
 	if json.Unmarshal(rl.Payload, &p) != nil || p.ID == "" {
 		return sessionMeta{}, false
 	}
-	return sessionMeta{id: p.ID, source: sourceKind(p.Source), originator: p.Originator, cwd: p.Cwd}, true
+	started, err := time.Parse(time.RFC3339Nano, rl.Timestamp)
+	if err != nil {
+		if started, err = time.Parse(time.RFC3339Nano, p.Timestamp); err != nil {
+			slog.Debug("codex session_meta has no timestamp; its rate limits are not posted", "session", p.ID)
+		}
+	}
+	return sessionMeta{id: p.ID, source: sourceKind(p.Source), originator: p.Originator, cwd: p.Cwd, started: started}, true
 }
 
 func sourceKind(raw json.RawMessage) string {
@@ -130,14 +151,53 @@ func isRunningEvent(t string) bool {
 	return false
 }
 
+func (d *derived) crossesEra(from, to time.Time) bool {
+	for _, s := range d.eraStarts {
+		if s.After(from) && !s.After(to) {
+			return true
+		}
+	}
+	return false
+}
+
 func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trailEnabled bool) {
 	var rl rolloutLine
-	if json.Unmarshal(line, &rl) != nil || rl.Type != "event_msg" {
+	if json.Unmarshal(line, &rl) != nil {
+		return
+	}
+	ts, tsErr := time.Parse(time.RFC3339Nano, rl.Timestamp)
+	if tsErr == nil {
+		switch {
+		case d.lineAt.IsZero():
+		case ts.Sub(d.lineAt) >= resumeGap:
+			d.segmentAt, d.eraCrossed = ts, false
+		case d.crossesEra(d.lineAt, ts):
+			d.eraCrossed = true
+		}
+		if ts.After(d.lineAt) {
+			d.lineAt = ts
+		}
+	}
+	if rl.Type != "event_msg" {
 		return
 	}
 	var p eventPayload
 	if json.Unmarshal(rl.Payload, &p) != nil {
 		return
+	}
+	switch p.Type {
+	case "task_started", "user_message":
+		if p.Type == "task_started" {
+			d.sawTurnStart = true
+		} else if d.sawTurnStart {
+			break
+		}
+		if d.eraCrossed && tsErr == nil {
+			d.segmentAt = ts
+		}
+		d.eraCrossed = false
+	case "token_count", "task_complete", "turn_aborted":
+		d.eraCrossed = false
 	}
 	switch {
 	case p.Type == "token_count":
@@ -158,9 +218,12 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 				d.weeklyResetAt = w.ResetsAt
 				d.weeklyRaw, d.weeklyMins = w.UsedPercent, w.WindowMinutes
 			}
-			if ts, err := time.Parse(time.RFC3339Nano, rl.Timestamp); err == nil {
-				d.rateAt = ts
+			d.rateAt = ts
+			if tsErr != nil {
+				d.rateAt = time.Time{}
 			}
+			d.rateStart = d.segmentAt
+			d.rateSeq++
 			if lim.PlanType != "" {
 				d.planType = lim.PlanType
 			}

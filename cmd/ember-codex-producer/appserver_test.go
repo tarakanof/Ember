@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -1352,6 +1353,34 @@ func TestRPCConn_PrunesLateHooksPastTheirTTL(t *testing.T) {
 	c.pruneLateLocked(now)
 	if _, old := c.late[1]; old || len(c.late) != 1 {
 		t.Errorf("late hooks after prune: %v, want only the fresh one", c.late)
+	}
+}
+
+func TestRPCConn_IgnoresALateReplyPastTheTTL(t *testing.T) {
+	ws, srv := pipeClient(t)
+	c := newRPCConn(ws)
+	t0 := time.Now()
+	c.now = func() time.Time { return t0 }
+	fired := map[int64]bool{}
+	c.late[7] = lateHook{fn: func(error) { fired[7] = true }, at: t0.Add(-lateReplyTTL - time.Second)}
+	c.late[8] = lateHook{fn: func(error) { fired[8] = true }, at: t0.Add(-time.Minute)}
+	go func() {
+		_, _ = srv.Write(frame(true, opText, []byte(`{"id":7,"result":{}}`)))
+		_, _ = srv.Write(frame(true, opText, []byte(`{"id":8,"result":{}}`)))
+		_ = srv.Close()
+	}()
+	c.readLoop(func(string, json.RawMessage) {})
+	if fired[7] || !fired[8] {
+		t.Errorf("late hooks fired = %v, want only the one inside the TTL", fired)
+	}
+}
+
+func TestRPCConn_AnUnencodableRequestIsNotAConnectionLoss(t *testing.T) {
+	ws, _ := pipeClient(t)
+	c := newRPCConn(ws)
+	err := c.call(context.Background(), "thread/read", map[string]any{"bad": make(chan int)}, nil)
+	if err == nil || errors.Is(err, errConnLost) || !errors.Is(err, errEncode) {
+		t.Fatalf("err = %v, want an encode error that isn't errConnLost", err)
 	}
 }
 

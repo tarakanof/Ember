@@ -48,27 +48,36 @@ func runDaemon() {
 		runOnce(ctx, w, as, client)
 		select {
 		case <-ctx.Done():
-			for _, ss := range w.sessions {
-				_ = removeMarker(cfg.StateDir, ss.uuid)
-			}
-			if as != nil {
-				for id := range as.tick().owned {
-					_ = removeMarker(cfg.StateDir, id)
-				}
-			}
+			shutdown(w, as)
 			return
 		case <-ticker.C:
 		}
 	}
 }
 
+func shutdown(w *watcher, as *appServer) {
+	w.history.save(w.now())
+	for _, ss := range w.sessions {
+		_ = removeMarker(w.cfg.StateDir, ss.uuid)
+	}
+	if as != nil {
+		for id := range as.tick().owned {
+			_ = removeMarker(w.cfg.StateDir, id)
+		}
+	}
+}
+
 func cycle(w *watcher, as *appServer) (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
+	acct, since, switched := w.observeAccount(w.now())
 	var ap apTick
 	if as != nil {
+		if switched {
+			as.dropRateBefore(since)
+		}
 		ap = as.tick()
 	}
 	w.owned, w.pending, w.rateExtra = ap.owned, ap.pending, ap.rate
-	posts, deletes, usages = w.tick()
+	posts, deletes, usages = w.tickWith(acct)
 	posts = append(ap.posts, posts...)
 	deletes = append(deletes, ap.deletes...)
 	for _, id := range ap.released {

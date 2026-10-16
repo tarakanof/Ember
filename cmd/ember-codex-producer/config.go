@@ -26,6 +26,7 @@ type Config struct {
 	ActivityWindowSeconds int
 	SessionsDir           string
 	StateDir              string
+	AccountsFile          string
 	Sources               map[string]bool
 	IncludeClaude         bool
 	AppServerEnabled      bool
@@ -100,6 +101,7 @@ func loadConfig() (Config, error) {
 		PollIntervalMs:        defaultPollIntervalMs,
 		ActivityWindowSeconds: defaultActivityWindowSeconds,
 		StateDir:              filepath.Join(home, ".local", "state", "ember", "sessions"),
+		AccountsFile:          filepath.Join(producer.StateHome(home), "ember", accountHistoryFile),
 	}
 	var sessionsDir, envCodexHome string
 	data, err := producer.ReadEnvFile(producer.EnvFilePath(home))

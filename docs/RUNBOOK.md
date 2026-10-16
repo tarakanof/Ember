@@ -575,10 +575,11 @@ OAuth token from `~/.claude/.credentials.json` (no Keychain on Linux).
 **Paths**: config `~/.config/ember/producer.env` (0600); session markers
 `~/.local/state/ember/sessions/` (fixed: shared with Ember.app); the server
 cache and Linux logs follow an absolute `$XDG_STATE_HOME`
-(`$XDG_STATE_HOME/ember/server.json`, `…/ember/logs/<producer>.log`, default
+(`$XDG_STATE_HOME/ember/server.json`, the Codex producer's hashed account
+history `…/ember/codex-accounts.json`, `…/ember/logs/<producer>.log`, default
 `~/.local/state`; macOS logs stay in `~/Library/Logs`). `install` copies
 `XDG_STATE_HOME` into the systemd unit so the daemon and the hooks agree.
-`uninstall` leaves `producer.env`, the cache and the logs in place.
+`uninstall` leaves `producer.env`, the cache, `codex-accounts.json` and the logs in place.
 
 **Liveness on Linux** reads `/proc/<pid>/stat` instead of `ps` (BusyBox `ps`
 on Alpine has no `-p`/`lstart`): the Claude session owner walk and its start

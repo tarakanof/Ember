@@ -4758,11 +4758,57 @@ add `account_key` and `plan` to `POST /v1/usage`:
   workspace. The id_token's payload is base64-decoded locally, never
   verified against the network and never logged; only the three claims
   are read. No `oauthAccount` or no `tokens` (an API key): no key. A
-  Codex rate-limit snapshot belongs to the account current when it
-  arrived: when the daemon sees the key change, it drops every cached
-  snapshot (rollouts and app server) dated before `auth.json` changed, so
-  after a switch it posts nothing until the new account's first rate
-  limits arrive.
+  Codex rate-limit snapshot is bound, when it is captured, to the account
+  key it was captured under, and only snapshots bound to the current key are
+  posted (#542). The daemon reads the account once per poll cycle and keeps
+  the last 8 account eras, each a hashed key and the time it took over, in
+  `$XDG_STATE_HOME/ember/codex-accounts.json` (default `~/.local/state`;
+  0600, written atomically on a change, every 10 min and on shutdown, with
+  the last check time). On the first run there is no file: one era covers
+  all time, so existing sessions keep posting. A first observation with no
+  key (no `auth.json`, or a half-written one) isn't saved, and the first
+  real key takes over that era. A later start with the same key keeps the
+  stored eras, so a token refresh while the daemon was down changes nothing.
+  A different key opens an era at the later of the stored last check and
+  `auth.json`'s write time. That write time is the latest of the file's
+  mtime, its ctime (macOS and Linux only; other platforms use mtime and the
+  link) and the symlink's own mtime, so a switcher that renames or links a
+  saved file in still dates the switch. A live switch opens an era at that
+  write time, or at the previous check if the write time is older, clamped
+  to now. A timestamp equal to an era's start belongs to that era. A token
+  refresh rewrites `auth.json` but keeps the key, so it starts no era. An
+  empty key after a non-empty one (Codex truncates and rewrites `auth.json`
+  in place, so a read can catch it half-written; or a logout) is not a
+  switch, and the last key stays current meanwhile. A rollout snapshot is
+  bound only when its line timestamp and its session's start fall in eras of
+  the same key, because a Codex process keeps the login it started with. The
+  start is the `session_meta` timestamp, moved to a later line in two cases.
+  `codex resume` appends to the old rollout and writes no new `session_meta`
+  or other marker, so: the first line after no rollout line for 30 min or
+  more; and the first turn start (`task_started`; `user_message` only while
+  the rollout has shown no `task_started`, for Codex before 0.100, which
+  doesn't persist it, since newer Codex also writes `user_message` for a
+  mid-turn steer) after two consecutive lines whose gap holds an era start,
+  with no `token_count`, `task_complete` or `turn_aborted` in between. That
+  covers a resume right after a switch: a resumed process writes none of
+  those before its first turn, while a process still running on the old
+  login does, so it stays unbound. A rate line or `session_meta` with no
+  timestamp is bound to nothing (the latter logged at debug). An app-server
+  snapshot is bound by its arrival time. On a key change, before the usage
+  is picked, the app server's merged windows that arrived before the new era
+  are cleared, so the new login's first snapshot stays and a null window
+  can't carry the old login's value. Limits: an old-login process that sat
+  idle across the switch (its last turn ended before it, its next one starts
+  after it) or wrote no line for 30 min posts under the new key from its
+  next turn, since that looks like a resume; after a switch made while the
+  daemon was down, the era starts at the latest `auth.json` write, so if the
+  new login's own refresh or any ctime change came later, its sessions
+  started before that wait for one of those segment starts; on a pre-0.100
+  rollout, a steer in an old-login turn that spans the switch, before its
+  next `token_count`, opens a segment; the shared app-server daemon outlives
+  its sessions and its wire carries no account id, so if it kept the old
+  login after a `codex login` from another process, its rate limits are
+  posted under the new key.
 - A window may carry `window_minutes`, its length when the producer knows
   it (Codex: rollout `window_minutes`, app-server `windowDurationMins`);
   the knob's `five_hour.starts_at` is `resets_at` minus it, else minus 5 h.
