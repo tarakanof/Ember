@@ -20,13 +20,13 @@ public struct KnobTempFace: Equatable, Sendable {
             self.sub = ""
             return
         }
-        let v = Int(min(max(value, -99), 99).rounded())
+        let v = Self.whole(value)
         self.value = v
         self.sub = sub
         if let mn = todayMinC, let mx = todayMaxC, mn.isFinite, mx.isFinite {
             hasRange = true
-            lo = min(Int(mn.rounded()), v)
-            hi = max(Int(mx.rounded()), v)
+            lo = min(Self.whole(mn), v)
+            hi = max(Self.whole(mx), v)
             if lo == hi {
                 lo -= 1
                 hi += 1
@@ -41,6 +41,8 @@ public struct KnobTempFace: Equatable, Sendable {
         self.init(value: cur?.tempC, still: look.still, todayMinC: cur?.todayMinC, todayMaxC: cur?.todayMaxC,
                   sub: Self.sky(look), scale: theme.scale)
     }
+
+    static func whole(_ c: Double) -> Int { Int(min(max(c, -99), 99).rounded()) }
 
     public var fraction: Double {
         guard let value, hi > lo else { return 0 }

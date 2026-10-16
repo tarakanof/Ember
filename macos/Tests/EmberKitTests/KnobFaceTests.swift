@@ -276,6 +276,10 @@ private func save(_ img: CGImage, _ name: String) {
     let dot = KnobTempFace.dotPoint(0, w.dots, center: 233)
     #expect(near(pixel(img, Int(dot.x), Int(dot.y)), w.dots.onColor, 40))
 
+    for bad in [Double.nan, .infinity, -.infinity, 1e300] {
+        #expect(render(KnobFaceView(.weather(KnobTempFace(value: bad, todayMinC: bad, todayMaxC: bad)))) != nil)
+        #expect(render(KnobFaceView(.weather(KnobTempFace(value: 1e300, todayMinC: -1e300, todayMaxC: bad)))) != nil)
+    }
     let none = try #require(render(KnobFaceView(.weather(faces[5].1))))
     #expect(near(pixel(none, 233, Int(233 - rr)), w.ring.trackColor, 12), "no data: grey track")
 

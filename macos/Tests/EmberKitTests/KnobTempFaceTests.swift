@@ -35,6 +35,19 @@ private let w = KnobTheme.standard.weather
     #expect(KnobTempFace(value: 140).value == 99 && KnobTempFace(value: -2.5).value == -3)
 }
 
+@Test func tempFaceSurvivesNonFiniteAndHugeTemperatures() {
+    for bad in [Double.nan, .infinity, -.infinity, 1e300, -1e300] {
+        let f = KnobTempFace(value: bad, todayMinC: bad, todayMaxC: bad)
+        #expect(f.fraction.isFinite)
+        _ = KnobTempFace.color(bad, w.scale)
+        _ = KnobTempFace.mercuryTop(bad, w.thermo)
+        let g = KnobTempFace(value: 12, todayMinC: bad, todayMaxC: bad)
+        #expect(g.value == 12 && g.lo <= 12 && g.hi >= 12 && g.lo >= -99 && g.hi <= 99)
+    }
+    let huge = KnobTempFace(value: 1e300, todayMinC: -1e300, todayMaxC: 1e300)
+    #expect(huge.value == 99 && huge.lo == -99 && huge.hi == 99)
+}
+
 @Test func gaugeSweepsFromSevenThirtyClockwiseToFourThirty() {
     let start = KnobTempFace.gaugePoint(0, w, center: 233), top = KnobTempFace.gaugePoint(0.5, w, center: 233)
     let end = KnobTempFace.gaugePoint(1, w, center: 233), r = 222 / 2.0.squareRoot()
