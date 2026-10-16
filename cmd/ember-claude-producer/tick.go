@@ -97,6 +97,22 @@ type statuslineUsageSnapshot struct {
 	updatedAt          time.Time
 	mtime              time.Time
 	account            claudeAccount
+	configPath         string
+	legacy             bool
+}
+
+const statuslineUsageMaxAge = 10 * time.Minute
+
+func dropLegacyKeyless(snaps map[string]*statuslineUsageSnapshot, configPath string) {
+	if s := snaps[""]; s == nil || !s.legacy {
+		return
+	}
+	for key, s := range snaps {
+		if key != "" && s.configPath == configPath {
+			delete(snaps, "")
+			return
+		}
+	}
 }
 
 func dispatchTick(ctx context.Context, cfg Config) {
@@ -126,6 +142,7 @@ func dispatchTick(ctx context.Context, cfg Config) {
 			}
 		}
 	}
+	dropLegacyKeyless(best, claudeGlobalConfigPath())
 	for _, key := range slices.Sorted(maps.Keys(best)) {
 		postStatuslineUsage(ctx, client, *best[key])
 	}
@@ -187,7 +204,11 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 	}
 	req := m.StatusRequest
 	var snap *statuslineUsageSnapshot
-	if req.RateWindowPct != nil || req.RateWeekPct != nil {
+	seenAt := info.ModTime()
+	if m.StatuslineAt != 0 {
+		seenAt = time.Unix(m.StatuslineAt, 0)
+	}
+	if (req.RateWindowPct != nil || req.RateWeekPct != nil) && time.Since(seenAt) <= statuslineUsageMaxAge {
 		snap = &statuslineUsageSnapshot{
 			fiveHourPct:        req.RateWindowPct,
 			fiveHourResetAt:    req.RateResetAt,
@@ -198,6 +219,8 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			updatedAt:          m.usageSeenAt(info.ModTime()),
 			mtime:              info.ModTime(),
 			account:            m.markerAccount.account(),
+			configPath:         m.markerAccount.configPath(),
+			legacy:             m.markerAccount == (markerAccount{}),
 		}
 	}
 	if !heartbeatDue(cfg, m, info.ModTime(), time.Now()) {

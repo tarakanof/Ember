@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -344,5 +345,36 @@ func TestStatuslineReparsesTheConfigOnlyWhenItsMtimeOrSizeMoves(t *testing.T) {
 	statuslineMain([]byte(`{"session_id":"s1","rate_limits":{"five_hour":{"used_percent":22,"resets_at":1782049500}}}`), io.Discard)
 	if raw, _ := os.ReadFile(marker); strings.Contains(string(raw), personalKey) {
 		t.Fatalf("marker = %s, want a re-parse once the mtime moved", raw)
+	}
+}
+
+func TestStatuslineRelayDropsPreUpgradeKeylessMarkersOnceTheConfigDirIsKeyed(t *testing.T) {
+	resetClaudeAccountCache(t)
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	writeClaudeJSON(t, h.home, fakeClaudeJSON)
+	writeMarkerFile(t, h.sessionsDir(), "legacy", `,"rate_window_pct":40`)
+	writeMarkerFile(t, h.sessionsDir(), "keyed", "")
+	enrichAs(t, h, "", "keyed", 20)
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	got := relayed(t, h)
+	if _, keyless := got[""]; keyless || len(got) != 1 || got[personalKey].FiveHour.UsedPercent != 20 {
+		t.Fatalf("relayed = %+v, want only the keyed account", got)
+	}
+}
+
+func TestStatuslineRelaySkipsAMarkerWhoseSnapshotIsOld(t *testing.T) {
+	resetClaudeAccountCache(t)
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	old := time.Now().Add(-statuslineUsageMaxAge - time.Minute).Unix()
+	writeMarkerFile(t, h.sessionsDir(), "dead", fmt.Sprintf(`,"rate_window_pct":40,"statusline_at":%d,"usage_account_key":"%s","usage_account_sig":"x|1|2"`, old, workKey))
+	writeMarkerFile(t, h.sessionsDir(), "live", fmt.Sprintf(`,"rate_window_pct":20,"statusline_at":%d,"usage_account_key":"%s","usage_account_sig":"x|1|2"`, time.Now().Unix(), personalKey))
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	got := relayed(t, h)
+	if _, ok := got[workKey]; ok || got[personalKey].FiveHour == nil {
+		t.Fatalf("relayed = %+v, want the old login's stale snapshot left out", got)
 	}
 }

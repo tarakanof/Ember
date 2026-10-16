@@ -122,6 +122,18 @@ func (m markerAccount) account() claudeAccount {
 	return claudeAccount{key: m.UsageAccountKey, plan: m.UsagePlan}
 }
 
+func (m markerAccount) configPath() string {
+	sig := m.UsageAccountSig
+	for range 2 {
+		i := strings.LastIndexByte(sig, '|')
+		if i < 0 {
+			return ""
+		}
+		sig = sig[:i]
+	}
+	return sig
+}
+
 func sessionClaudeAccount(prev markerAccount) markerAccount {
 	a, sig := readClaudeAccount(prev.UsageAccountSig, prev.account())
 	return markerAccount{UsageAccountKey: a.key, UsagePlan: a.plan, UsageAccountSig: sig}
