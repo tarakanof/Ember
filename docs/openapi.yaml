@@ -334,6 +334,7 @@ components:
           description: Unix seconds.
         reset_label:
           type: string
+          maxLength: 32
     UsageRequest:
       type: object
       additionalProperties: false
@@ -363,6 +364,9 @@ components:
           $ref: "#/components/schemas/UsageWindow"
         models:
           type: object
+          maxProperties: 4
+          propertyNames:
+            pattern: "^[a-z0-9_-]{1,24}$"
           additionalProperties:
             $ref: "#/components/schemas/UsageWindow"
     UsageAccountPrefs:
@@ -1133,7 +1137,13 @@ paths:
         bound to `sources` gets 403 for any other `source`, for none, and
         when any of the tool's stored entries came from a source outside
         its list, whatever the `account_key`; a tool with no entry yet is
-        accepted (the next unbound post overwrites it).
+        accepted (the next unbound post overwrites it). Ownership goes by
+        the writer, not the `source`: a client token posting an account
+        another writer created (the master token or another client token),
+        live or known only from the registry, is 403, and so, when the token
+        is bound, is any post to a tool another writer has an entry in. The
+        master token may post to any account and then owns it, so no client
+        token's cap can evict it.
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true

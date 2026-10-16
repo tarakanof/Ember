@@ -71,12 +71,62 @@ func usageToolRank(tool string) int {
 }
 
 type usageAccountSeen struct {
-	Tool      string     `json:"tool"`
-	Principal string     `json:"principal,omitempty"`
-	Plan      string     `json:"plan,omitempty"`
-	First     time.Time  `json:"first"`
-	Last      time.Time  `json:"last"`
-	Report    *ToolUsage `json:"report,omitempty"`
+	Tool      string         `json:"tool"`
+	Principal string         `json:"principal,omitempty"`
+	Plan      string         `json:"plan,omitempty"`
+	First     time.Time      `json:"first"`
+	Last      time.Time      `json:"last"`
+	Report    *usageSnapshot `json:"report,omitempty"`
+}
+
+type usageSnapshotWindow struct {
+	Pct           float64 `json:"pct"`
+	ResetsAt      int64   `json:"resets_at,omitempty"`
+	WindowMinutes int64   `json:"window_minutes,omitempty"`
+}
+
+type usageSnapshot struct {
+	FiveHour *usageSnapshotWindow `json:"five_hour,omitempty"`
+	SevenDay *usageSnapshotWindow `json:"seven_day,omitempty"`
+	Models   map[string]float64   `json:"models,omitempty"`
+}
+
+func snapshotWindow(w *UsageWindow) *usageSnapshotWindow {
+	if w == nil {
+		return nil
+	}
+	return &usageSnapshotWindow{Pct: w.UsedPercent, ResetsAt: w.ResetsAt, WindowMinutes: w.WindowMinutes}
+}
+
+func newUsageSnapshot(u ToolUsage) *usageSnapshot {
+	s := &usageSnapshot{FiveHour: snapshotWindow(u.FiveHour), SevenDay: snapshotWindow(u.SevenDay)}
+	for name := range knobUsageModelOrder {
+		if w := u.Models[name]; w != nil {
+			if s.Models == nil {
+				s.Models = map[string]float64{}
+			}
+			s.Models[name] = w.UsedPercent
+		}
+	}
+	return s
+}
+
+func (w *usageSnapshotWindow) usage() *UsageWindow {
+	if w == nil {
+		return nil
+	}
+	return &UsageWindow{UsedPercent: w.Pct, ResetsAt: w.ResetsAt, WindowMinutes: w.WindowMinutes}
+}
+
+func (s *usageSnapshot) usage(plan string, at time.Time) ToolUsage {
+	u := ToolUsage{FiveHour: s.FiveHour.usage(), SevenDay: s.SevenDay.usage(), Plan: plan, UpdatedAt: at}
+	for name, pct := range s.Models {
+		if u.Models == nil {
+			u.Models = map[string]*UsageWindow{}
+		}
+		u.Models[name] = &UsageWindow{UsedPercent: pct}
+	}
+	return u
 }
 
 type usageAccountRegistry struct {
@@ -130,8 +180,10 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 		}
 	}
 	plan := rep.Plan
-	rep.UpdatedAt, rep.Principal = now, ""
-	next := usageAccountSeen{Tool: k.Tool, Principal: principal, Plan: plan, First: now, Last: now, Report: &rep}
+	if ok && principal != "" {
+		principal = prev.Principal
+	}
+	next := usageAccountSeen{Tool: k.Tool, Principal: principal, Plan: plan, First: now, Last: now, Report: newUsageSnapshot(rep)}
 	if ok && prev.First.Before(now) {
 		next.First = prev.First
 	}
@@ -149,6 +201,13 @@ func (r *usageAccountRegistry) observe(k usageKey, rep ToolUsage, principal stri
 		return err
 	}
 	return kv.PutSetting(usageAccountsSeenKey, string(b))
+}
+
+func (r *usageAccountRegistry) ownedByAnother(k usageKey, principal string, now time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.seen[k.id()]
+	return ok && principal != "" && s.Principal != principal && now.Sub(s.Last) <= usageAccountTTL
 }
 
 func (r *usageAccountRegistry) expireLocked(now time.Time) {
@@ -308,7 +367,7 @@ func buildUsageAccounts(state usageState, seen map[string]usageAccountSeen, pref
 		if !ok {
 			acc = &usageAccount{ID: id, Tool: s.Tool, Plan: s.Plan, FirstSeen: s.First}
 			if s.Report != nil {
-				rep := *s.Report
+				rep := s.Report.usage(s.Plan, s.Last)
 				acc.Report = &rep
 			}
 			byID[id] = acc

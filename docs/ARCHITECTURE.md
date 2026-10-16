@@ -3079,11 +3079,12 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   caller's id and sources in the request context and `allowSource` makes
   `POST`/`DELETE /v1/status` and `POST /v1/usage` 403 for any other
   `source` after body validation. Usage is stored per tool and account
-  (#535) but owned per tool: `UsageStore.PutIfOwned` checks the `Source`
-  of every stored entry of the tool against the caller's sources and
-  writes under the same lock, so a bound token can neither overwrite
-  another source's account nor add a new `account_key` to its tool
-  (absent tool: allowed). Session keys
+  (#535) and owned by the writer that created the entry (the client
+  token's id; the master token is its own writer), never by its
+  self-declared `source`: `UsageStore.PutIfOwned` checks the stored
+  entries' writer and writes under the same lock, so a client token can't
+  overwrite another writer's account and a bound one can't add a new
+  `account_key` to a tool another writer has (absent tool: allowed). Session keys
   join `source/tool/session` with `/`, so `allowSessionKey` 400s a `/` in a
   bound caller's tool or session and mint rejects `/` in a source; otherwise
   `ci` + `lab` + `claude/1` would address `ci/lab`'s session. `boundSources` fails closed: an `ekc_` bearer with no caller in the
@@ -4718,6 +4719,8 @@ add `account_key` and `plan` to `POST /v1/usage`:
   workspace. The id_token's payload is base64-decoded locally, never
   verified against the network and never logged; only the three claims
   are read. No `oauthAccount` or no `tokens` (an API key): no key.
+- `models` takes at most 4 names matching `^[a-z0-9_-]{1,24}$` and every
+  `reset_label` at most 32 bytes; anything else is a 400.
 - `plan` (`^[a-z0-9_]{1,24}$`): Claude from `organizationType` /
   `organizationRateLimitTier` (`max`, `pro`, `team`, `enterprise`, `free`),
   Codex from the id_token's `chatgpt_plan_type`, else the rate-limit
@@ -4742,7 +4745,12 @@ no single client token reaches the 64-account limit; past it a client
 token's new account is refused (507, logged `usage post rejected
 reason=account_limit`), while the master token's never is. Every Mac on the
 master token shares its 8 per tool. An entry belongs to the writer that
-posted it last. The registry follows the same per-writer caps and skips a
+created it, and stays with it: a client token posting an account another
+writer owns (live in the store or only in the registry) is refused with
+403, like `allowSource`, so it can neither take the entry over nor evict
+it through its own cap; a bound token is also refused for a tool another
+writer has an entry in. The master token may post to any account and then
+owns it. The registry follows the same per-writer caps and skips a
 new account at 64 instead of refusing. An account's
 id is `<tool>:<account_key>`, so one key on two tools stays two accounts; a
 keyless post is one account per tool, whose id is the bare tool name, which
@@ -4761,7 +4769,10 @@ hour, plus one per plan change; the post's `source` plays no part, so one
 account alternating between `statusline` and `endpoint` doesn't rewrite
 it). A post older than the account's last sighting changes nothing, so two
 racing posts can't move it back in time; entries past 7 days are pruned.
-Each entry also keeps the account's last snapshot, written with it, so
+Each entry also keeps the account's last snapshot, trimmed to what the
+knob shows (5h and 7d `pct`, `resets_at`, `window_minutes`; Opus and Sonnet
+percents; no labels, no source; about 27 KB for 64 worst-case accounts),
+written with it, so
 after a restart an account with no post yet shows that snapshot as stale
 with its old `updated_at` (up to an hour behind the last post, the write
 throttle) instead of vanishing from the knob; the first post replaces it.

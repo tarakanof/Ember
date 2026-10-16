@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"maps"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -79,6 +78,9 @@ func (s *UsageStore) putLocked(tool string, u ToolUsage, limit int, now time.Tim
 	if exists && u.UpdatedAt.Before(prev.UpdatedAt) {
 		return nil
 	}
+	if exists && u.Principal != "" {
+		u.Principal = prev.Principal
+	}
 	if !exists {
 		s.evictOwnOldestLocked(func(k usageKey) bool { return k.Tool == tool }, u.Principal, usageAccountsPerTool)
 		s.evictOwnOldestLocked(func(usageKey) bool { return true }, u.Principal, usageAccountsPerWriter)
@@ -115,12 +117,12 @@ func (s *UsageStore) PutIfOwned(tool string, u ToolUsage, sources []string, limi
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.expireLocked(now)
-	if len(sources) > 0 {
+	if u.Principal != "" {
 		for k, prev := range s.byKey {
-			if k.Tool != tool {
+			if k.Tool != tool || prev.Principal == u.Principal {
 				continue
 			}
-			if !slices.Contains(sources, prev.Source) {
+			if len(sources) > 0 || k.Account == u.Account {
 				return prev.Source, errUsageNotOwned
 			}
 		}

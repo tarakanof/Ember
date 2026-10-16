@@ -9,7 +9,31 @@ import (
 	"time"
 )
 
-var toolNameRe = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+const (
+	usageModelsMax     = 4
+	usageResetLabelMax = 32
+)
+
+var (
+	toolNameRe   = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+	usageModelRe = regexp.MustCompile(`^[a-z0-9_-]{1,24}$`)
+)
+
+func usageModelsOK(models map[string]*UsageWindow) bool {
+	if len(models) > usageModelsMax {
+		return false
+	}
+	for name, w := range models {
+		if !usageModelRe.MatchString(name) || !usageLabelOK(w) {
+			return false
+		}
+	}
+	return true
+}
+
+func usageLabelOK(w *UsageWindow) bool {
+	return w == nil || len(w.ResetLabel) <= usageResetLabelMax
+}
 
 func clampUsageWindow(win *UsageWindow) {
 	if win == nil {
@@ -44,6 +68,8 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		{"tool", req.Tool, toolNameRe.MatchString(req.Tool), "tool must match ^[a-z0-9_-]{1,32}$"},
 		{"account_key", req.AccountKey, req.AccountKey == "" || accountKeyRe.MatchString(req.AccountKey), "account_key must be 16 lower-case hex characters"},
 		{"plan", req.Plan, req.Plan == "" || planRe.MatchString(req.Plan), "plan must match ^[a-z0-9_]{1,24}$"},
+		{"models", "", usageModelsOK(req.Models), "models: at most 4, each name matching ^[a-z0-9_-]{1,24}$"},
+		{"reset_label", "", usageLabelOK(req.FiveHour) && usageLabelOK(req.SevenDay), "reset_label must be at most 32 bytes"},
 	} {
 		if f.ok {
 			continue
@@ -80,6 +106,10 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		Account:   req.AccountKey,
 		Plan:      req.Plan,
 		Principal: principal,
+	}
+	if k := (usageKey{req.Tool, req.AccountKey}); a.usageSeen.ownedByAnother(k, principal, now) {
+		a.denySource(w, r, a.usage.All()[k].Source)
+		return
 	}
 	owner, err := a.usage.PutIfOwned(req.Tool, rep, sources, limit, now)
 	switch {

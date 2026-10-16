@@ -529,7 +529,7 @@ func TestClientOnASharedSourceCannotEvictTheMastersAccounts(t *testing.T) {
 	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","plan":"max"}`)
 	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxB+`","plan":"max"}`)
 	first := getAccounts(t, srv, testToken)
-	m := mintBoundClient(t, srv, "ci", []string{"endpoint"}, "ingest")
+	m := mintClient(t, srv, "ci", "ingest")
 	for i := range usageAccountsPerTool + 2 {
 		body := fmt.Sprintf(`{"tool":"claude","source":"endpoint","account_key":"%016x"}`, i+1)
 		if resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, body); resp.StatusCode != http.StatusNoContent {
@@ -627,5 +627,136 @@ func TestUsageRegistryRejectsAnObservationOlderThanItsLast(t *testing.T) {
 	}
 	if kv.puts != 1 || strings.Contains(kv.vals[usageAccountsSeenKey], `"max"`) {
 		t.Fatalf("persisted %d times: %s, want only the newer one", kv.puts, kv.vals[usageAccountsSeenKey])
+	}
+}
+
+func clientUsagePost(t *testing.T, srv *httptest.Server, token, key string, pct int) int {
+	t.Helper()
+	body := fmt.Sprintf(`{"tool":"claude","source":"endpoint","account_key":"%s","five_hour":{"used_percent":%d}}`, key, pct)
+	resp, _ := devReq(t, srv, "POST", "/v1/usage", token, body)
+	return resp.StatusCode
+}
+
+func TestClientRepostingTheMastersAccountIsRefused(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":14}}`)
+	for _, m := range []clientMint{mintClient(t, srv, "open", "ingest"), mintBoundClient(t, srv, "ci", []string{"endpoint"}, "ingest")} {
+		if code := clientUsagePost(t, srv, m.Token, keyMaxA, 99); code != http.StatusForbidden {
+			t.Fatalf("client repost of the master's account = %d, want 403", code)
+		}
+	}
+	u, ok := app.usage.All()[usageKey{"claude", keyMaxA}]
+	if !ok || u.FiveHour.UsedPercent != 14 || u.Principal != "" {
+		t.Fatalf("master entry = %+v, want it untouched and still the master's", u)
+	}
+	if s := app.usageSeen.snapshot(time.Now())[idMaxA]; s.Principal != "" {
+		t.Fatalf("registry entry = %+v, want it still the master's", s)
+	}
+}
+
+func TestClientAtItsCapNeverEvictsAMasterAccountItReposted(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":14}}`)
+	m := mintClient(t, srv, "open", "ingest")
+	clientUsagePost(t, srv, m.Token, keyMaxA, 99)
+	for i := range usageAccountsPerTool + 2 {
+		if code := clientUsagePost(t, srv, m.Token, fmt.Sprintf("%016x", i+1), 5); code != http.StatusNoContent {
+			t.Fatalf("client post %d = %d", i, code)
+		}
+	}
+	if _, ok := app.usage.All()[usageKey{"claude", keyMaxA}]; !ok {
+		t.Fatal("the client's cap evicted the master's account from the store")
+	}
+	if _, ok := app.usageSeen.snapshot(time.Now())[idMaxA]; !ok {
+		t.Fatal("the client's cap evicted the master's account from the registry")
+	}
+}
+
+func TestMasterPostingAClientsAccountTakesItOutOfTheClientsCap(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintClient(t, srv, "open", "ingest")
+	if code := clientUsagePost(t, srv, m.Token, keyMaxA, 10); code != http.StatusNoContent {
+		t.Fatalf("client post = %d", code)
+	}
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`","five_hour":{"used_percent":14}}`)
+	for i := range usageAccountsPerTool + 2 {
+		if code := clientUsagePost(t, srv, m.Token, fmt.Sprintf("%016x", i+1), 5); code != http.StatusNoContent {
+			t.Fatalf("client post %d = %d", i, code)
+		}
+	}
+	if u, ok := app.usage.All()[usageKey{"claude", keyMaxA}]; !ok || u.FiveHour.UsedPercent != 14 {
+		t.Fatalf("entry = %+v %v, want the master's post kept past the client's cap", u, ok)
+	}
+	if code := clientUsagePost(t, srv, m.Token, keyMaxA, 99); code != http.StatusForbidden {
+		t.Fatalf("client repost after the master took it = %d, want 403", code)
+	}
+}
+
+func TestClientRepostingAnAccountKnownOnlyToTheRegistryIsRefused(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	postUsage(t, srv, `{"tool":"claude","source":"endpoint","account_key":"`+keyMaxA+`"}`)
+	_ = app.store.Close()
+	app2, srv2 := newDevicesApp(t, db)
+	app2.loadUsageAccounts()
+	m := mintClient(t, srv2, "open", "ingest")
+	if code := clientUsagePost(t, srv2, m.Token, keyMaxA, 99); code != http.StatusForbidden {
+		t.Fatalf("client post of the master's account after a restart = %d, want 403", code)
+	}
+}
+
+func TestUsagePostRejectsOversizedModelsAndLabels(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	long := strings.Repeat("x", 33)
+	for _, body := range []string{
+		`{"tool":"claude","models":{"a":{"used_percent":1},"b":{"used_percent":1},"c":{"used_percent":1},"d":{"used_percent":1},"e":{"used_percent":1}}}`,
+		`{"tool":"claude","models":{"Opus 4":{"used_percent":1}}}`,
+		`{"tool":"claude","models":{"` + strings.Repeat("o", 25) + `":{"used_percent":1}}}`,
+		`{"tool":"claude","five_hour":{"used_percent":1,"reset_label":"` + long + `"}}`,
+		`{"tool":"claude","seven_day":{"used_percent":1,"reset_label":"` + long + `"}}`,
+		`{"tool":"claude","models":{"opus":{"used_percent":1,"reset_label":"` + long + `"}}}`,
+	} {
+		if resp, b := devReq(t, srv, "POST", "/v1/usage", testToken, body); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s = %d %s, want 400", body, resp.StatusCode, b)
+		}
+	}
+	postUsage(t, srv, `{"tool":"claude","five_hour":{"used_percent":1,"reset_label":"`+strings.Repeat("x", 32)+`"},"models":{"opus":{"used_percent":1},"sonnet":{"used_percent":1},"haiku-4_5":{"used_percent":1},"x":null}}`)
+}
+
+func TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize(t *testing.T) {
+	kv := &usageSeenKV{}
+	r := newUsageAccountRegistry(func() settingsKV { return kv })
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	label := strings.Repeat("L", 32)
+	win := func() *UsageWindow {
+		return &UsageWindow{UsedPercent: 100, ResetsAt: 1782049680, ResetLabel: label, WindowMinutes: 10080}
+	}
+	for i := range usageAccountsTotal {
+		principal := fmt.Sprintf("client:%s-%02d", strings.Repeat("p", 20), i/usageAccountsPerWriter)
+		tool := fmt.Sprintf("%s%02d", strings.Repeat("t", 30), i/usageAccountsPerTool)
+		models := map[string]*UsageWindow{"opus": win(), "sonnet": win()}
+		for j := range 2 {
+			models[fmt.Sprintf("%s%d", strings.Repeat("m", 23), j)] = win()
+		}
+		rep := ToolUsage{FiveHour: win(), SevenDay: win(), Models: models, Source: strings.Repeat("s", 64),
+			Account: fmt.Sprintf("%016x", i), Plan: strings.Repeat("p", 24)}
+		if err := r.observe(usageKey{tool, rep.Account}, rep, principal, now.Add(time.Duration(i)*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(r.snapshot(now.Add(time.Hour))); n != usageAccountsTotal {
+		t.Fatalf("registry = %d, want %d", n, usageAccountsTotal)
+	}
+	blob := kv.vals[usageAccountsSeenKey]
+	for _, leak := range []string{label, strings.Repeat("s", 64), strings.Repeat("m", 23)} {
+		if strings.Contains(blob, leak) {
+			t.Fatalf("persisted registry keeps %q", leak[:8])
+		}
+	}
+	if !strings.Contains(blob, `"opus"`) || !strings.Contains(blob, `"sonnet"`) {
+		t.Fatal("persisted registry dropped the models the knob shows")
+	}
+	if len(blob) > 32<<10 {
+		t.Fatalf("persisted registry = %d B at 64 worst-case accounts, want at most 32 KiB", len(blob))
 	}
 }
