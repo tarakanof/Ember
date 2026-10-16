@@ -37,16 +37,17 @@ type settingsOverlay struct {
 
 type appSettings struct {
 	*settingsOverlay
-	clockApps  *setting[clockStoredConfig]
-	pomodoro   *setting[pomodoroSettingsDTO]
-	weather    *setting[WeatherConfig]
-	meetings   *setting[MeetingsConfig]
-	usage      *setting[usageConfigDTO]
-	display    *setting[displayConfigDTO]
-	quiet      *setting[quietConfigDTO]
-	brightness *setting[BrightnessConfig]
-	clock      *setting[clockConfigDTO]
-	controls   *setting[ControlsConfig]
+	clockApps     *setting[clockStoredConfig]
+	pomodoro      *setting[pomodoroSettingsDTO]
+	weather       *setting[WeatherConfig]
+	meetings      *setting[MeetingsConfig]
+	usage         *setting[usageConfigDTO]
+	usageAccounts *setting[usageAccountsDTO]
+	display       *setting[displayConfigDTO]
+	quiet         *setting[quietConfigDTO]
+	brightness    *setting[BrightnessConfig]
+	clock         *setting[clockConfigDTO]
+	controls      *setting[ControlsConfig]
 }
 
 func newAppSettings(a *App) appSettings {
@@ -69,6 +70,7 @@ func newAppSettings(a *App) appSettings {
 		weather:         register(o, a.weatherSettingSpec()),
 		meetings:        register(o, a.meetingsSettingSpec()),
 		usage:           register(o, a.usageSettingSpec()),
+		usageAccounts:   register(o, a.usageAccountsSettingSpec()),
 		display:         register(o, displaySettingSpec()),
 		quiet:           register(o, quietSettingSpec()),
 		brightness:      register(o, brightnessSettingSpec()),

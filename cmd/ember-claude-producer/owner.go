@@ -26,6 +26,7 @@ type marker struct {
 	// unix s.
 	HookAt int64 `json:"hook_at,omitempty"`
 	ToolTrack
+	markerAccount
 }
 
 func (m marker) usageSeenAt(mtime time.Time) time.Time {

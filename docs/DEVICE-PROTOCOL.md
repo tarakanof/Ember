@@ -17,7 +17,7 @@ Every route the knob calls, all with its device token (`ekd_…`):
 | Route | What |
 |---|---|
 | `POST /v1/devices/self/checkin` | Health report in, optionally with `caps` ("Capabilities" below); reply carries `config_version`, `caps_ack` when the caps were accepted, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
-| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `diag_live_until` (live mode only) and `demo` (with the `demo` feature while a demo is set, "Demo mode"). `?demo_id=&demo_state=` report on the demo. Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
+| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `usage` (with the `usage` feature while an account has a snapshot, "Usage"), `diag_live_until` (live mode only) and `demo` (with the `demo` feature while a demo is set, "Demo mode"). `?demo_id=&demo_state=` report on the demo. Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
 | `GET /v1/devices/self/config` | `{config_version, config}`, the same pair a stale checkin carries. |
 | `PUT /v1/devices/self/coredump?id=` | The core dump a checkin asked for. |
 | `GET /v1/devices/self/firmware/{version}` | The image the checkin's `ota` offer names. |
@@ -203,6 +203,7 @@ pre-releases the same way):
 | `np_cover` | Shows the prepared cover (`kind=cover`) and `accent` ("Prepared cover") | `nowplaying.accent`, `nowplaying.cover_version` and `nowplaying.cover_light` only with this token |
 | `wx_moments` | Applies `bot.weather_moments` and `bot.weather_every_min` from its config ("Bot weather moments") | Ember.app shows the Weather moments rows only with this token; the server sends both keys to every knob |
 | `demo` | Plays the view's `demo` block and reports `demo_id`/`demo_state` ("Demo mode") | `demo` is sent only with this token; `POST …/demo` is 409 without it; Ember.app's Demo page needs it |
+| `usage` | Parses the view's `usage` block and shows the usage screens ("Usage") | `usage` is sent only with this token |
 
 Page ids in `caps.pages` need no registry: they are the config's page ids;
 Ember.app lists a knob app only when its page is in `effective_caps.pages`.
@@ -223,6 +224,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `wx_moments` or not (cinder 0.9.65 sends it) | `effective_caps.features` lists it as reported; the config carries `bot.weather_moments` and `bot.weather_every_min` either way; Ember.app shows the Weather moments rows only with the token (no semver fallback: a server without `effective_caps` predates the keys) | `TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments` (`knob_weather_moments_test.go`); Ember.app `knobWeatherMomentsRowsNeedTheWxMomentsToken`; cinder host test: `wx_moments` in `FEATURES_AHEAD` |
 | new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`, `TestDemoPlayingReportDoesNotAnswerTheLongPoll`, `TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted`, `TestDemoLatePlayingReportForTheServedSceneRevivesIt`, `TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue`, `TestDemoOnTheWorstCaseViewFitsTheBuffer`, `TestDemoKnobRebootDropsTheDemoAndItsQueue`, `TestDemoViewWithoutAReportWhilePlayingMeansTheKnobRestarted`, `TestDemoDelayedUnreportedViewAfterPlayingKeepsTheDemo`, `TestDemoCheckinWithUnknownOrStaleUptimeKeepsTheDemo`, `TestDemoStartedAfterTheKnobBootedSurvivesAStaleLastCheckin`, `TestDemoSetBetweenBootAndFirstCheckinStaysPending`; cinder host test: every `demo/*.json` parses |
 | new | any, `stats.inv_areas`/`inv_px` sent or not (cinder#118) | the firmware must send totals for exactly the `period_ms` window (since the previous report, its own accumulator, not the 30 s serial log's take), counted at `LV_EVENT_RENDER_START` as in ARCHITECTURE "Knob diagnostics"; window totals become `invalidated_areas_per_sec`/`invalidated_px_per_sec` in the stats points (full diagnostics only); firmware without them gets nulls; an older server ignores the keys. No caps token: the stats keys are optional on both sides (ARCHITECTURE "Knob diagnostics") | `TestKnobStatsCheckinStoresSample`, `TestKnobStatsFirmwareWithoutInvalidatedAreasLeavesThemNull`, `TestKnobStatsInvalidatedAreasMergeAsPeriodWeightedRates`, `TestKnobStatsInvalidatedAreasWeighOnlyMeasuredWindows`, `TestKnobStatsBasicDropsFullOnlyFields`, `TestDeviceCheckinGolden` (`devices_stats_test.go`, `devices_golden_test.go`); cinder sends them since 0.9.72 (cinder#133), its `NOT_YET_SENT` list is empty |
+| new | new, `usage` or not | `usage` only with the token, after `nowplaying`, left out with no account to show; a caps knob without it and a legacy knob get the view byte-identical; dropped after `nowplaying` to fit `view_bytes`; the worst case (8 accounts, 24-character escaped names, both models) is 3.4 KB, the worst whole view with it 9.1 KB | `TestKnobViewUsageGolden` (`view_usage.json`), `TestKnobViewWithoutTheUsageCapGolden` (`view_usage_uncapped.json`), `TestKnobViewSendsUsageOnlyWithTheUsageFeature`, `TestKnobViewLeavesOutUsageWithNoAccounts`, `TestKnobViewUsageModelsFollowUsagePerModel`, `TestKnobViewUsageETagIgnoresAFreshAccountsUpdateTime`, `TestKnobViewUsageWorstCaseStaysSmall`, `TestLegacyFirmwareViewIsUnchanged` (`devices_view_usage_test.go`) |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Demo mode
@@ -372,6 +374,72 @@ at its recheck.
   cream line-art cover with `cover_light`), paused, nothing, offline.
 
 OTA, reset, setup and join screens are not scenes.
+
+## Usage
+
+With `usage` in its caps (#535, cinder side next), the view carries one
+entry per Claude or Codex account, for the usage screens on the bot page.
+The server does the cheap work: account identity and merging (several Macs
+on one account are one entry), names with their numbering, the display
+order, hiding, staleness and the 5h window start. The block follows
+`nowplaying`:
+
+```json
+"usage": {
+  "accounts": [
+    {"id": "claude:aaaaaaaaaaaaaaa1", "tool": "claude", "name": "Max 1",
+     "five_hour": {"pct": 64, "resets_at": 1782049680, "starts_at": 1782031680},
+     "seven_day": {"pct": 41, "resets_at": 1782302400},
+     "models": [{"name": "Opus", "pct": 38}, {"name": "Sonnet", "pct": 12}],
+     "stale": false},
+    {"id": "claude:bbbbbbbbbbbbbbb2", "tool": "claude", "name": "Max 2",
+     "five_hour": {"pct": 0}, "seven_day": {"pct": 77, "resets_at": 1782302400},
+     "stale": true, "updated_at": 1782041400},
+    {"id": "codex:ddddddddddddddd4", "tool": "codex", "name": "Plus",
+     "five_hour": {"pct": 12, "resets_at": 1782057600, "starts_at": 1782039600},
+     "seven_day": {"pct": 5, "resets_at": 1782302400}, "stale": false}
+  ]
+}
+```
+
+- **`accounts`**: in display order (Ember.app's order; by default Claude
+  accounts first, then Codex, each in the order Ember first saw them), at
+  most 8. Hidden accounts are left out, and so is an account with no
+  snapshot. After a server restart an account keeps its last stored
+  snapshot, `stale` with its old `updated_at`, until it posts again. With nothing to show the whole block
+  is left out, never `[]` or `null`.
+- **`id`**: opaque and stable (`<tool>:<16 hex>`, or the bare tool name for
+  a producer that sends no account), for keeping the shown account across
+  view changes. Never an id or email of the account.
+- **`tool`**: `claude` or `codex` (the agent mark); the list is open, so
+  draw a neutral mark for another value.
+- **`name`**: what the user called it in Ember.app, else the plan
+  ("Max", "Pro", "Team", "Plus"; "Claude" or "Codex" without one), two
+  shown on one plan numbered ("Max 1", "Max 2"); hidden ones don't count. At most 24 characters, any Unicode.
+- **`five_hour`**, **`seven_day`**: `pct` an integer 0-100; `resets_at`
+  Unix seconds; `five_hour.starts_at` = `resets_at` minus the window length
+  the producer reported (Codex sends it), else 5 h: the window start for
+  the pace tick (elapsed fraction = (now − `starts_at`) / (`resets_at` −
+  `starts_at`), with now from `X-Ember-Now`). A window the producer didn't send is left out.
+  A window whose reset has passed comes as `{"pct": 0}` with no times: it
+  reset, and no newer snapshot says otherwise.
+- **`models`**: only while Ember's `usage_per_model` is on and the account
+  reported per-model windows (Claude): at most 2, Opus then Sonnet, `name`
+  the label to draw. Absent otherwise.
+- **`stale`**: no snapshot for 10 min. Only a stale account carries
+  **`updated_at`** (Unix seconds of its last snapshot, for "no update for N
+  min"), so a fresh account's bytes, and the ETag, move only with its
+  values. An account is dropped 7 days after its last snapshot.
+
+Times are Unix seconds like `ends_at`; the knob has no time zone, so a
+clock label ("back at 16:40", "Fri 09:00") needs `weather.utc_offset`
+(the `wx_faces` detail) and should fall back to a relative time without it.
+The red bot hint (any non-stale account at 90 % or more) is the knob's to
+compute from this block. A long poll wakes on every accepted usage post and
+answers only when the bytes moved; `stale` flipping is caught by the 5 s
+recheck. **Size:** 170-260 B per account (the example block is 628 B), 3.4 KB worst case (8 accounts,
+24 escaped characters per name, both models); old firmware never sends the
+token, so it never gets the block.
 
 ## Quiet hours
 
@@ -765,6 +833,8 @@ Indented JSON; key order is the wire order.
 | `view_faces.json` | A `wx_faces` knob (caps `bot`, `weather`), Open-Meteo through a stub provider: every detail key, two spells (one ongoing moderate rain, one snow), `until`, three days, all six twilight crossings, the moon up with `rise` in the past, `aqi`, `utc_offset` from Open-Meteo |
 | `view_faces_met.json` | The same knob on MET Norway (non-Nordic: no `gust_kmh`, no `pop`), air off (no `aqi`, `utc_offset` the longitude's 0), 1-h spells, dry now (`now.rain` 0, no `until`), days from MET symbols |
 | `view_faces_polar_dry.json` | Longyearbyen on 1 September: `"spells": []`, only the golden-hour crossings (the sun never gets to −4°), the moon up with no `set` within 36 h |
+| `view_usage.json` | A `usage` knob (caps `bot`): Claude "Max 1" fresh with models, "Max 2" stale past its 5h reset (`{"pct": 0}`, `updated_at`), Codex "Plus" fresh; a hidden Claude "Pro" left out; Pomodoro and weather off |
+| `view_usage_uncapped.json` | The same accounts for a caps knob without `usage`: no block |
 | `view_np_cover.json` | An `np_cover` knob (caps `bot`, `nowplaying`): playing with an album picture, `accent` lightened from a dark violet to 3:1 on black, `cover_version`, no `cover_light` (a dark cover) |
 | `view_np_cover_light.json` | The same knob with a light cover: `accent` the `#F4F4F2` fallback, `cover_version`, then `"cover_light": true` as the last key |
 | `view_single_host_paused.json` | One host: `source` set, `lead`/`hosts` left out; paused `pomo` with `remaining_sec`; `weather` without a location (`sunrise`/`sunset` `null`) and without a provider observation time (`observed_at` absent) |

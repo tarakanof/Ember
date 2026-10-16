@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type clientMint struct {
@@ -367,7 +369,7 @@ func TestBoundClientCannotOverwriteAnotherSourcesUsage(t *testing.T) {
 		t.Fatalf("master usage = %d %s", resp.StatusCode, b)
 	}
 	resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, `{"tool":"claude","source":"ci","five_hour":{"used_percent":99}}`)
-	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), `\"dt-mbp\"`) {
+	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), "the master token") {
 		t.Fatalf("bound overwrite of dt-mbp usage = %d %s, want 403", resp.StatusCode, b)
 	}
 	u, ok := app.usage.Get("claude")
@@ -386,14 +388,15 @@ func TestBoundClientCannotOverwriteAnotherSourcesUsage(t *testing.T) {
 
 func TestUsagePutIfOwnedIsAtomic(t *testing.T) {
 	s := newUsageStore()
-	s.Put("claude", ToolUsage{Source: "dt-mbp"})
-	if owner, ok := s.PutIfOwned("claude", ToolUsage{Source: "ci"}, []string{"ci"}); ok || owner != "dt-mbp" {
-		t.Fatalf("PutIfOwned over dt-mbp = %q %v, want refused", owner, ok)
+	now := time.Now()
+	s.Put("claude", ToolUsage{Source: "dt-mbp", UpdatedAt: now})
+	if owner, err := s.PutIfOwned("claude", ToolUsage{Source: "ci", Principal: "client:ci"}, nil, usageAccountsTotal, now); !errors.Is(err, errUsageNotOwned) || owner != "" {
+		t.Fatalf("PutIfOwned over dt-mbp = %q %v, want refused", owner, err)
 	}
-	if _, ok := s.PutIfOwned("claude", ToolUsage{Source: "dt-mbp"}, nil); !ok {
+	if _, err := s.PutIfOwned("claude", ToolUsage{Source: "dt-mbp"}, nil, usageAccountsTotal, now); err != nil {
 		t.Fatal("unbound PutIfOwned refused")
 	}
-	if _, ok := s.PutIfOwned("codex", ToolUsage{Source: "ci"}, []string{"ci"}); !ok {
+	if _, err := s.PutIfOwned("codex", ToolUsage{Source: "ci", Principal: "client:ci"}, nil, usageAccountsTotal, now); err != nil {
 		t.Fatal("bound PutIfOwned on an absent tool refused")
 	}
 	var wg sync.WaitGroup
@@ -402,7 +405,7 @@ func TestUsagePutIfOwnedIsAtomic(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, ok := s.PutIfOwned("race", ToolUsage{Source: src}, []string{src}); ok {
+			if _, err := s.PutIfOwned("race", ToolUsage{Source: src, Principal: "client:" + src}, nil, usageAccountsTotal, now); err == nil {
 				wins <- src
 			}
 		}()

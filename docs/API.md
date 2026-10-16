@@ -18,9 +18,13 @@ settings GETs: apps, pomodoro/usage/display/brightness/quiet config,
 management). Wrong scope is 403. An optional `"sources":[…]` at mint (1-16,
 each ≤64 chars, needs `ingest`; 400 with `admin`, which could still `POST /v1/clear`) binds the token: `POST`/`DELETE
 /v1/status` and `POST /v1/usage` naming another `source` (usage: or none) are
-403; without it any source passes. Usage stays keyed by tool, so a bound
-token's usage post is also 403 when that tool's stored entry came from a
-source outside its list (no entry yet: accepted). Sessions are keyed
+403; without it any source passes. Usage ownership goes by writer (the
+token, not the `source` label): an account belongs to the writer (token) that created it or last took it
+over. Another writer's post updates it while it is stale (no post for 10
+min) or its owner's token was deleted, and then takes it over; while it is
+fresh a client token's post is 403 naming the owner's kind, and the master
+token's is accepted and takes it over. No client token's cap ever evicts
+an account the master token wrote. Sessions are keyed
 `source/tool/session`, so a bound token's status `tool`/`session` and a minted
 source may not contain `/` (400). Client tokens never pass the knob-only
 routes, now-playing control or `/admin/*`. Details: RUNBOOK "Integrating a
@@ -95,7 +99,19 @@ ARCHITECTURE "Knob diagnostics"), `GET /v1/devices/{id}/coredumps`
 ARCHITECTURE "Knob checkin", RUNBOOK "Decoding a knob core dump"), `GET /v1/clock/stats?range=15m|1h|24h`
 (clock probe history, memory only — ARCHITECTURE "Clock stats"),
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
-`POST /v1/usage`, `GET/PUT /v1/usage/config`, `POST /v1/nowplaying` (a
+`POST /v1/usage` (optional `account_key`, 16 hex characters hashed on the
+Mac, and `plan`; one entry per tool and account, newest wins, dropped after 7
+days; each writer, a client token or the master token, keeps 8 per tool
+and 16 in all and evicts only its own, and a client token's new account
+past 64 in all is a 507, never the master's —
+ARCHITECTURE "Usage per account"), `GET/PUT /v1/usage/config`,
+`GET /v1/usage/accounts` (owner or `admin`: `{"accounts":[{id, tool, plan,
+name, default_name, hidden, order, first_seen, updated_at, stale}]}` in display
+order) and `PUT /v1/usage/accounts` (master token only, every client token
+403: `{"<id>":{"name","hidden","order"}|null}`, id `<tool>:<account_key>` or
+the bare tool name for a keyless account, merge by id, an unknown id
+400; the knob's `usage` block follows it — DEVICE-PROTOCOL "Usage"),
+`POST /v1/nowplaying` (a
 source's player report; a playing or paused report with no title and no
 `track_id` counts as stopped and drops the entry), `GET /v1/nowplaying/commands?player=&wait=` (Ember.app's
 long-poll for Music commands; master token only, every client token 403) and `PUT /v1/nowplaying/art?source=&player=&kind=album|artist&track_id=`

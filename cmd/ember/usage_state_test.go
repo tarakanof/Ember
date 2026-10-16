@@ -21,7 +21,7 @@ func TestUsageStateFreshness(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newUsageState(map[string]ToolUsage{"claude": {UpdatedAt: now.Add(-tc.age)}}, nil, now)
+			s := newUsageState(map[usageKey]ToolUsage{{Tool: "claude"}: {UpdatedAt: now.Add(-tc.age)}}, nil, now)
 			got := s.Tools["claude"]
 			if !got.HaveReport || got.Fresh != tc.fresh {
 				t.Fatalf("claude = %+v, want fresh %v", got, tc.fresh)
@@ -37,13 +37,13 @@ func TestUsageStateFiveHour(t *testing.T) {
 	newer := render.Session{Tool: "claude", RateWindowPct: pct(70), RateResetAt: 222, RateResetLabel: "13:00", UpdatedAt: now}
 	labelOnly := render.Session{Tool: "claude", RateResetLabel: "15:00", UpdatedAt: now.Add(time.Second)}
 	other := render.Session{Tool: "codex", RateWindowPct: pct(90), RateResetAt: 333, UpdatedAt: now}
-	report := func(age time.Duration, fh *UsageWindow) map[string]ToolUsage {
-		return map[string]ToolUsage{"claude": {FiveHour: fh, UpdatedAt: now.Add(-age)}}
+	report := func(age time.Duration, fh *UsageWindow) map[usageKey]ToolUsage {
+		return map[usageKey]ToolUsage{{Tool: "claude"}: {FiveHour: fh, UpdatedAt: now.Add(-age)}}
 	}
 	window := &UsageWindow{UsedPercent: 87.4, ResetsAt: 999, ResetLabel: "17:30"}
 	cases := []struct {
 		name     string
-		reports  map[string]ToolUsage
+		reports  map[usageKey]ToolUsage
 		sessions []render.Session
 		want     usageToolState
 	}{
@@ -70,7 +70,7 @@ func TestUsageStateFiveHour(t *testing.T) {
 
 func TestUsageStateKeepsUntrackedReports(t *testing.T) {
 	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
-	s := newUsageState(map[string]ToolUsage{"gemini": {FiveHour: &UsageWindow{UsedPercent: 50}, UpdatedAt: now}}, nil, now)
+	s := newUsageState(map[usageKey]ToolUsage{{Tool: "gemini"}: {FiveHour: &UsageWindow{UsedPercent: 50}, UpdatedAt: now}}, nil, now)
 	g := s.Tools["gemini"]
 	if !g.HaveReport || !g.Fresh || g.HaveFiveHour {
 		t.Fatalf("gemini = %+v, want a fresh report without derived 5h", g)

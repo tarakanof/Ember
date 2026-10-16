@@ -896,6 +896,13 @@ producers"). **Not on a Mac with Ember.app:** the app reads `EMBER_TOKEN` from
 the same `producer.env` for settings, the knob registry and the clock proxy,
 which need the master token.
 
+Usage merges per account: when a box and a Mac (or two boxes) are logged
+into the same Claude or Codex account, whoever posted it in the last 10 min
+owns it and the other's usage posts are 403 ("… posted it in the last 10
+min") until it goes stale; the master token is never refused. Deleting a
+box's token and minting a new one lets the new token take its accounts over
+at once.
+
 ```sh
 # ~/.config/ember/producer.env (0600)
 EMBER_SOURCE=build-box

@@ -89,6 +89,8 @@ func (a *App) routeTable() (http.Handler, []string) {
 	writeMux.Handle("POST /v1/usage", http.HandlerFunc(a.handleUsage))
 	writeMux.Handle("GET /v1/usage/config", http.HandlerFunc(a.handleUsageConfigGet))
 	writeMux.Handle("PUT /v1/usage/config", http.HandlerFunc(a.handleUsageConfigPut))
+	writeMux.Handle("GET /v1/usage/accounts", http.HandlerFunc(a.handleUsageAccountsGet))
+	writeMux.Handle("PUT /v1/usage/accounts", http.HandlerFunc(a.handleUsageAccountsPut))
 	writeMux.Handle("GET /v1/display/config", http.HandlerFunc(a.handleDisplayConfigGet))
 	writeMux.Handle("PUT /v1/display/config", http.HandlerFunc(a.handleDisplayConfigPut))
 	writeMux.Handle("GET /v1/brightness/config", http.HandlerFunc(a.handleBrightnessConfigGet))

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,6 +20,8 @@ const usagePollInterval = 5 * time.Minute
 const defaultClaudeVersion = "2.1.0"
 
 const usageClientTimeout = 30 * time.Second
+
+var errNoClaudeCreds = errors.New("no Claude credentials")
 
 var usageHTTPClient = &http.Client{Timeout: usageClientTimeout}
 
@@ -92,35 +95,47 @@ func win(w usageWindow, loc *time.Location, label func(time.Time, *time.Location
 }
 
 type usageModelsCache struct {
-	mu     sync.Mutex
-	models map[string]*producer.UsageWindow
+	mu        sync.Mutex
+	byAccount map[string]map[string]*producer.UsageWindow
 }
 
 var usageModels = &usageModelsCache{}
 
-func (c *usageModelsCache) set(m map[string]*producer.UsageWindow) {
+func (c *usageModelsCache) set(account string, m map[string]*producer.UsageWindow) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.models = m
+	if c.byAccount == nil {
+		c.byAccount = map[string]map[string]*producer.UsageWindow{}
+	}
+	c.byAccount[account] = m
 }
 
-func (c *usageModelsCache) get() map[string]*producer.UsageWindow {
+func (c *usageModelsCache) get(account string) map[string]*producer.UsageWindow {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.models
+	return c.byAccount[account]
 }
 
 func (c *usageModelsCache) reset() {
-	c.set(nil)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.byAccount = nil
 }
 
 func usagePollOnce(ctx context.Context, cfg Config, client *Client) {
-	creds, err := readClaudeCreds()
-	if err != nil || creds.AccessToken == "" {
-		return
-	}
-	u, code, err := fetchUsage(ctx, creds.AccessToken)
-	if err != nil || code != http.StatusOK {
+	pollUsage(ctx, client, func(ctx context.Context) (usageResponse, int, error) {
+		creds, err := readClaudeCreds()
+		if err != nil || creds.AccessToken == "" {
+			return usageResponse{}, 0, errNoClaudeCreds
+		}
+		return fetchUsage(ctx, creds.AccessToken)
+	})
+}
+
+func pollUsage(ctx context.Context, client *Client, fetch func(context.Context) (usageResponse, int, error)) {
+	acct := claudeAccounts.current()
+	u, code, err := fetch(ctx)
+	if err != nil || code != http.StatusOK || claudeAccounts.current() != acct {
 		return
 	}
 	loc := time.Now().Location()
@@ -134,7 +149,8 @@ func usagePollOnce(ctx context.Context, cfg Config, client *Client) {
 			"sonnet": win(u.SevenDaySonnet, loc, dayLabel),
 		},
 	}
-	usageModels.set(req.Models)
+	acct.apply(&req)
+	usageModels.set(acct.key, req.Models)
 	if err := client.Usage(ctx, req); err != nil {
 		tickFailLog.Warn(slog.Default(), "claude_usage", "usage POST failed", "err", err)
 	}
@@ -144,7 +160,7 @@ func postStatuslineUsage(ctx context.Context, client *Client, snap statuslineUsa
 	req := producer.UsageRequest{
 		Tool:   "claude",
 		Source: "statusline",
-		Models: usageModels.get(),
+		Models: usageModels.get(snap.account.key),
 	}
 	if snap.fiveHourPct != nil {
 		req.FiveHour = &producer.UsageWindow{
@@ -163,6 +179,7 @@ func postStatuslineUsage(ctx context.Context, client *Client, snap statuslineUsa
 	if req.FiveHour == nil && req.SevenDay == nil {
 		return
 	}
+	snap.account.apply(&req)
 	if err := client.Usage(ctx, req); err != nil {
 		tickFailLog.Warn(slog.Default(), "claude_usage_statusline", "usage POST failed", "err", err)
 	}

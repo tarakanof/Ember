@@ -24,20 +24,40 @@ func unknownField(err error) (string, bool) {
 	return m[1], true
 }
 
-type fieldDropper struct {
+type fieldDropper[T any] struct {
 	mu      sync.Mutex
 	until   map[string]time.Time
-	zeroers map[string]func(*StatusRequest)
+	zeroers map[string]func(*T)
 }
 
-var optionalFields = &fieldDropper{
+var optionalFields = &fieldDropper[StatusRequest]{
 	until: map[string]time.Time{},
 	zeroers: map[string]func(*StatusRequest){
 		"project": func(r *StatusRequest) { r.Project = "" },
 	},
 }
 
-func (d *fieldDropper) drop(field string, now time.Time) bool {
+var optionalUsageFields = &fieldDropper[UsageRequest]{
+	until: map[string]time.Time{},
+	zeroers: map[string]func(*UsageRequest){
+		"account_key": func(r *UsageRequest) { r.AccountKey = "" },
+		"plan":        func(r *UsageRequest) { r.Plan = "" },
+		"window_minutes": func(r *UsageRequest) {
+			r.FiveHour, r.SevenDay = withoutWindowMinutes(r.FiveHour), withoutWindowMinutes(r.SevenDay)
+		},
+	},
+}
+
+func withoutWindowMinutes(w *UsageWindow) *UsageWindow {
+	if w == nil || w.WindowMinutes == 0 {
+		return w
+	}
+	c := *w
+	c.WindowMinutes = 0
+	return &c
+}
+
+func (d *fieldDropper[T]) drop(field string, now time.Time) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if _, known := d.zeroers[field]; !known {
@@ -49,7 +69,7 @@ func (d *fieldDropper) drop(field string, now time.Time) bool {
 	return true
 }
 
-func (d *fieldDropper) strip(req StatusRequest, now time.Time) StatusRequest {
+func (d *fieldDropper[T]) strip(req T, now time.Time) T {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for field, until := range d.until {

@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -94,6 +96,23 @@ type statuslineUsageSnapshot struct {
 	sevenDayResetLabel string
 	updatedAt          time.Time
 	mtime              time.Time
+	account            claudeAccount
+	configPath         string
+	legacy             bool
+}
+
+const statuslineUsageMaxAge = 10 * time.Minute
+
+func dropLegacyKeyless(snaps map[string]*statuslineUsageSnapshot, configPath string) {
+	if s := snaps[""]; s == nil || !s.legacy {
+		return
+	}
+	for key, s := range snaps {
+		if key != "" && s.configPath == configPath {
+			delete(snaps, "")
+			return
+		}
+	}
 }
 
 func dispatchTick(ctx context.Context, cfg Config) {
@@ -107,7 +126,7 @@ func dispatchTick(ctx context.Context, cfg Config) {
 	}
 	client := NewDaemonClient(cfg)
 	staleThreshold := time.Now().Add(-time.Duration(cfg.HeartbeatTTLHours) * time.Hour)
-	var best *statuslineUsageSnapshot
+	best := map[string]*statuslineUsageSnapshot{}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -116,14 +135,16 @@ func dispatchTick(ctx context.Context, cfg Config) {
 		markerP := filepath.Join(dir, e.Name())
 		lockP := filepath.Join(dir, sessionID+".lock")
 		if snap := processOneMarker(ctx, cfg, client, markerP, lockP, staleThreshold); snap != nil {
-			if best == nil || snap.updatedAt.After(best.updatedAt) ||
-				(snap.updatedAt.Equal(best.updatedAt) && snap.mtime.After(best.mtime)) {
-				best = snap
+			cur := best[snap.account.key]
+			if cur == nil || snap.updatedAt.After(cur.updatedAt) ||
+				(snap.updatedAt.Equal(cur.updatedAt) && snap.mtime.After(cur.mtime)) {
+				best[snap.account.key] = snap
 			}
 		}
 	}
-	if best != nil {
-		postStatuslineUsage(ctx, client, *best)
+	dropLegacyKeyless(best, claudeGlobalConfigPath())
+	for _, key := range slices.Sorted(maps.Keys(best)) {
+		postStatuslineUsage(ctx, client, *best[key])
 	}
 }
 
@@ -183,7 +204,11 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 	}
 	req := m.StatusRequest
 	var snap *statuslineUsageSnapshot
-	if req.RateWindowPct != nil || req.RateWeekPct != nil {
+	seenAt := info.ModTime()
+	if m.StatuslineAt != 0 {
+		seenAt = time.Unix(m.StatuslineAt, 0)
+	}
+	if (req.RateWindowPct != nil || req.RateWeekPct != nil) && time.Since(seenAt) <= statuslineUsageMaxAge {
 		snap = &statuslineUsageSnapshot{
 			fiveHourPct:        req.RateWindowPct,
 			fiveHourResetAt:    req.RateResetAt,
@@ -193,6 +218,9 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			sevenDayResetLabel: req.RateWeekResetLabel,
 			updatedAt:          m.usageSeenAt(info.ModTime()),
 			mtime:              info.ModTime(),
+			account:            m.markerAccount.account(),
+			configPath:         m.markerAccount.configPath(),
+			legacy:             m.markerAccount == (markerAccount{}),
 		}
 	}
 	if !heartbeatDue(cfg, m, info.ModTime(), time.Now()) {

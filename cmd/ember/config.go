@@ -179,21 +179,22 @@ func (a AuthConfig) LogValue() slog.Value {
 }
 
 type Config struct {
-	HTTP              HTTPConfig       `json:"http"`
-	AWTRIX            AWTRIXConfig     `json:"awtrix"`
-	Auth              AuthConfig       `json:"auth"`
-	Display           DisplayConfig    `json:"display"`
-	RateLimit         RateLimitConfig  `json:"rate_limit"`
-	Pomodoro          PomodoroConfig   `json:"pomodoro"`
-	Weather           WeatherConfig    `json:"weather"`
-	Meetings          MeetingsConfig   `json:"meetings"`
-	UsageWidget       *bool            `json:"usage_widget,omitempty"`
-	UsagePerModel     *bool            `json:"usage_per_model,omitempty"`
-	LimitAlarm        *bool            `json:"limit_alarm,omitempty"`
-	UsageThresholdPct *int             `json:"usage_threshold_pct,omitempty"`
-	QuietHours        QuietHoursConfig `json:"quiet_hours"`
-	Brightness        BrightnessConfig `json:"brightness"`
-	Controls          ControlsConfig   `json:"controls"`
+	HTTP              HTTPConfig                   `json:"http"`
+	AWTRIX            AWTRIXConfig                 `json:"awtrix"`
+	Auth              AuthConfig                   `json:"auth"`
+	Display           DisplayConfig                `json:"display"`
+	RateLimit         RateLimitConfig              `json:"rate_limit"`
+	Pomodoro          PomodoroConfig               `json:"pomodoro"`
+	Weather           WeatherConfig                `json:"weather"`
+	Meetings          MeetingsConfig               `json:"meetings"`
+	UsageWidget       *bool                        `json:"usage_widget,omitempty"`
+	UsagePerModel     *bool                        `json:"usage_per_model,omitempty"`
+	LimitAlarm        *bool                        `json:"limit_alarm,omitempty"`
+	UsageThresholdPct *int                         `json:"usage_threshold_pct,omitempty"`
+	QuietHours        QuietHoursConfig             `json:"quiet_hours"`
+	Brightness        BrightnessConfig             `json:"brightness"`
+	Controls          ControlsConfig               `json:"controls"`
+	UsageAccounts     map[string]usageAccountPrefs `json:"usage_accounts,omitempty"`
 
 	clockPresentation *clockStoredConfig
 }

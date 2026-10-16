@@ -102,6 +102,9 @@ func TestChangeSourcesNotify(t *testing.T) {
 		}, func(t *testing.T, f *viewFixture) {
 			devReq(t, f.srv, "POST", "/v1/devices/"+f.m.ID+"/stats/live", testToken, `{"seconds":60}`)
 		}},
+		{"usage post", topicUsage, nil, func(t *testing.T, f *viewFixture) {
+			devReq(t, f.srv, "POST", "/v1/usage", testToken, `{"tool":"claude","account_key":"aaaaaaaaaaaaaaa1","five_hour":{"used_percent":10}}`)
+		}},
 		{"config", topicConfig, nil, func(t *testing.T, f *viewFixture) {
 			f.app.updateConfig(func(c *Config) { c.Display.IdleText = "zzz" })
 		}},

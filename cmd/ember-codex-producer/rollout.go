@@ -22,15 +22,18 @@ type derived struct {
 	weeklyResetAt int64
 	weeklyRaw     float64
 	primaryRaw    float64
+	primaryMins   int64
+	weeklyMins    int64
 	rateAt        time.Time
+	planType      string
 }
 
 func (d *derived) expireWindows(now time.Time) {
 	if d.rateResetAt != 0 && d.rateResetAt < now.Unix() {
-		d.rateWindowPct, d.rateResetAt, d.primaryRaw = nil, 0, 0
+		d.rateWindowPct, d.rateResetAt, d.primaryRaw, d.primaryMins = nil, 0, 0, 0
 	}
 	if d.weeklyResetAt != 0 && d.weeklyResetAt < now.Unix() {
-		d.weeklyPct, d.weeklyResetAt, d.weeklyRaw = nil, 0, 0
+		d.weeklyPct, d.weeklyResetAt, d.weeklyRaw, d.weeklyMins = nil, 0, 0, 0
 	}
 }
 
@@ -64,8 +67,9 @@ type tokenInfo struct {
 }
 
 type rateWindow struct {
-	UsedPercent float64 `json:"used_percent"`
-	ResetsAt    int64   `json:"resets_at"`
+	UsedPercent   float64 `json:"used_percent"`
+	WindowMinutes int64   `json:"window_minutes"`
+	ResetsAt      int64   `json:"resets_at"`
 }
 
 type eventPayload struct {
@@ -76,6 +80,7 @@ type eventPayload struct {
 		LimitID   string      `json:"limit_id"`
 		Primary   *rateWindow `json:"primary"`
 		Secondary *rateWindow `json:"secondary"`
+		PlanType  string      `json:"plan_type"`
 	} `json:"rate_limits"`
 	Reason           string                     `json:"reason,omitempty"`
 	LastAgentMessage string                     `json:"last_agent_message,omitempty"`
@@ -145,16 +150,19 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 				r := producer.Pct(w.UsedPercent)
 				d.rateWindowPct = &r
 				d.rateResetAt = w.ResetsAt
-				d.primaryRaw = w.UsedPercent
+				d.primaryRaw, d.primaryMins = w.UsedPercent, w.WindowMinutes
 			}
 			if w := lim.Secondary; w != nil {
 				wk := producer.Pct(w.UsedPercent)
 				d.weeklyPct = &wk
 				d.weeklyResetAt = w.ResetsAt
-				d.weeklyRaw = w.UsedPercent
+				d.weeklyRaw, d.weeklyMins = w.UsedPercent, w.WindowMinutes
 			}
 			if ts, err := time.Parse(time.RFC3339Nano, rl.Timestamp); err == nil {
 				d.rateAt = ts
+			}
+			if lim.PlanType != "" {
+				d.planType = lim.PlanType
 			}
 		}
 	case p.Type == "task_complete":

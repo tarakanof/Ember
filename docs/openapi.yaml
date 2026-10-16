@@ -331,9 +331,17 @@ components:
         resets_at:
           type: integer
           format: int64
-          description: Unix seconds.
+          description: Unix seconds; clamped into now − 1 day … now + 30 days.
         reset_label:
           type: string
+          maxLength: 32
+        window_minutes:
+          type: integer
+          format: int64
+          description: >-
+            The window's length when the producer knows it (Codex); the
+            knob's 5h `starts_at` uses it, else 5 h. Outside 1 to 44640 it
+            is ignored.
     UsageRequest:
       type: object
       additionalProperties: false
@@ -344,14 +352,85 @@ components:
           pattern: "^[a-z0-9_-]{1,32}$"
         source:
           type: string
+        account_key:
+          type: string
+          pattern: "^[0-9a-f]{16}$"
+          description: >-
+            The account the windows belong to: the first 8 bytes, in hex, of
+            sha256 over the tool and the account's ids, computed on the Mac
+            (ARCHITECTURE "Usage per account"). Never a raw id or an email.
+            Omitted by producers that can't read an account: one keyless
+            account per tool.
+        plan:
+          type: string
+          pattern: "^[a-z0-9_]{1,24}$"
+          description: The account's plan (`max`, `pro`, `team`, `plus`, …); the default account name.
         five_hour:
           $ref: "#/components/schemas/UsageWindow"
         seven_day:
           $ref: "#/components/schemas/UsageWindow"
         models:
           type: object
+          maxProperties: 4
+          propertyNames:
+            pattern: "^[a-z0-9_-]{1,24}$"
           additionalProperties:
             $ref: "#/components/schemas/UsageWindow"
+    UsageAccountPrefs:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 24
+          description: Trimmed; empty means the default name.
+        hidden:
+          type: boolean
+          description: Left out of the knob's `usage` block.
+        order:
+          type: integer
+          minimum: 0
+          maximum: 999
+          description: Sort key; accounts with one come first, ascending.
+    UsageAccount:
+      type: object
+      required: [id, tool, plan, name, default_name, hidden, order, first_seen, updated_at, stale]
+      properties:
+        id:
+          type: string
+          description: '`<tool>:<account_key>`, or the bare tool name for a keyless account.'
+        tool:
+          type: string
+        plan:
+          type: [string, "null"]
+        name:
+          type: string
+          description: The set name, else `default_name`.
+        default_name:
+          type: string
+          description: The plan ("Max"), else the tool ("Claude"); numbered ("Max 1", "Max 2") when a tool has two on one plan.
+        hidden:
+          type: boolean
+        order:
+          type: [integer, "null"]
+          description: The stored sort key, `null` when unset. The array is already in display order.
+        first_seen:
+          type: string
+          format: date-time
+        updated_at:
+          type: [string, "null"]
+          format: date-time
+          description: The newest snapshot (after a restart, the last stored one); `null` with none.
+        stale:
+          type: boolean
+    UsageAccounts:
+      type: object
+      required: [accounts]
+      properties:
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageAccount"
     NotifyRequest:
       type: object
       additionalProperties: false
@@ -1051,10 +1130,30 @@ paths:
       operationId: postUsage
       summary: Report a tool's account usage windows
       description: |
-        Usage is one entry per tool. A client token bound to `sources` gets
-        403 for any other `source`, for none, and when the tool's stored entry
-        came from a source outside its list; a tool with no entry yet is
-        accepted (the next unbound post overwrites it).
+        Usage is one entry per tool and `account_key` (no key: one keyless
+        account per tool); the newest post wins, so several Macs on one
+        account share an entry. The server stamps every post with its
+        receive time, whatever the body says. An entry is dropped 7 days
+        after its last post. `source` is trimmed; it labels the path
+        (`endpoint`, `statusline`, `codex_stream`) and plays no part in the
+        caps. Each writer (a client token, or the master token) keeps at
+        most 8 accounts per tool and 16 in all, a new one replacing that
+        writer's own oldest, never another writer's; for a client token,
+        past 64 accounts in all a new account is a 507 and nothing is
+        evicted (the master token is never refused). A client token
+        bound to `sources` gets 403 for any other `source` and for none.
+        Ownership goes by the writer, not the `source`: an account belongs
+        to the token that created it or last took it over, and only that
+        writer's cap counts or evicts it. Another writer's post updates it
+        while it is stale (no post for 10 min) or its owner's token was
+        deleted, and then takes it over. While it is fresh, a client
+        token's post is 403 ("the master token" or "another client token"
+        posted it in the last 10 min; no ids), also checked against the
+        registry after a restart, whose last sighting can lag by up to an
+        hour; the master token's is accepted and takes it
+        over. No client token's cap evicts an account the master token
+        ever wrote, and a takeover keeps the account's first sighting and
+        settings.
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true
@@ -1495,6 +1594,12 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "507":
+          description: Client tokens only. 64 accounts are stored; a new account is refused rather than evicting another writer's.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/usage/config:
     get:
       tags: [settings]
@@ -1523,6 +1628,63 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/usage/accounts:
+    get:
+      tags: [settings]
+      operationId: getUsageAccounts
+      summary: Usage accounts in display order, with their names and settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: Every account seen in the last 7 days.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageAccounts"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putUsageAccounts
+      summary: Set account names, hiding and order (merge by account id)
+      description: |
+        Master token only; every client token, `admin` included, gets 403.
+        The body maps account ids to their settings; an id's object replaces
+        that account's settings, `null` or `{}` resets them, and ids left out
+        keep theirs. An id the server doesn't list is a 400. The reply is
+        the GET shape.
+      x-internal: true
+      x-master-only: true
+      security: [{ownerToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                oneOf:
+                  - $ref: "#/components/schemas/UsageAccountPrefs"
+                  - type: "null"
+            example:
+              "claude:3f9a1c0b7d2e4a65": {name: Work, order: 0}
+              claude: null
+      responses:
+        "200":
+          description: The accounts after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageAccounts"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3008,6 +3170,8 @@ paths:
                   externalValue: ../cmd/ember/testdata/devices/view_faces_met.json
                 view_faces_polar_dry:
                   externalValue: ../cmd/ember/testdata/devices/view_faces_polar_dry.json
+                view_usage:
+                  externalValue: ../cmd/ember/testdata/devices/view_usage.json
                 demo_storm:
                   externalValue: ../cmd/ember/testdata/devices/demo/moment.storm.full.json
         "304":

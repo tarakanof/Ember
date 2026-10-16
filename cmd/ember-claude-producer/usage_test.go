@@ -39,17 +39,17 @@ func TestResetLabels(t *testing.T) {
 
 func TestUsageModelsCache_SetGetReset(t *testing.T) {
 	t.Cleanup(usageModels.reset)
-	if got := usageModels.get(); got != nil {
+	if got := usageModels.get(""); got != nil {
 		t.Fatalf("fresh cache should be nil, got %v", got)
 	}
 	models := map[string]*producer.UsageWindow{"opus": {UsedPercent: 82}}
-	usageModels.set(models)
-	got := usageModels.get()
+	usageModels.set("", models)
+	got := usageModels.get("")
 	if got["opus"] == nil || got["opus"].UsedPercent != 82 {
 		t.Errorf("get() = %v, want opus=82", got)
 	}
 	usageModels.reset()
-	if got := usageModels.get(); got != nil {
+	if got := usageModels.get(""); got != nil {
 		t.Errorf("reset() should clear the cache, got %v", got)
 	}
 }

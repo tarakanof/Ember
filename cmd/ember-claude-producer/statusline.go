@@ -226,53 +226,80 @@ func statusLineIsOurs(v any) bool {
 
 func runStatusline() {
 	buf, _ := io.ReadAll(os.Stdin)
+	statuslineMain(buf, os.Stdout)
+	os.Exit(0)
+}
+
+func statuslineMain(buf []byte, stdout io.Writer) {
 	env := statuslineEnv()
 	in, parsed := parseStatusline(buf)
-	if parsed {
-		var ratePct, ctxPct, weekPct *int
-		var resetAt, weekResetAt *int64
-		var resetLabel, weekResetLabel string
-		if p, ok := extractRatePct(in); ok {
-			ratePct = p
-		}
-		if r, ok := extractRateResetAt(in); ok {
-			resetAt = &r
-		}
-		if l, ok := extractRateResetLabel(in); ok {
-			resetLabel = l
-		}
-		if p, ok := extractWeekPct(in); ok {
-			weekPct = p
-		}
-		if r, ok := extractWeekResetAt(in); ok {
-			weekResetAt = &r
-		}
-		if l, ok := extractWeekResetLabel(in); ok {
-			weekResetLabel = l
-		}
-		if contextPctEnabled(env) {
-			if p, ok := extractContextPct(in); ok {
-				ctxPct = p
-			}
-		}
-		if ratePct != nil || ctxPct != nil || resetAt != nil || resetLabel != "" ||
-			weekPct != nil || weekResetAt != nil || weekResetLabel != "" {
-			if dir, err := stateDir(); err == nil {
-				_ = enrichMarker(dir, sanitizeSessionID(in.SessionID, in.Cwd),
-					ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel)
-			}
-		}
-	}
+	wrapped := make(chan []byte, 1)
 	if home, err := os.UserHomeDir(); err == nil {
 		if cmd, ok := readWrappedCommand(wrappedStatuslinePath(home)); ok {
 			cache := ""
 			if parsed {
 				cache = statuslineCachePath(sanitizeSessionID(in.SessionID, in.Cwd))
 			}
-			_, _ = os.Stdout.Write(wrappedOutput(cmd, buf, wrappedTimeout(env), cache))
+			go func() { wrapped <- wrappedOutput(cmd, buf, wrappedTimeout(env), cache) }()
+		} else {
+			wrapped <- nil
+		}
+	} else {
+		wrapped <- nil
+	}
+	if parsed {
+		enrichFromStatusline(in, env)
+	}
+	_, _ = stdout.Write(<-wrapped)
+}
+
+func enrichFromStatusline(in statuslineInput, env map[string]string) {
+	var ratePct, ctxPct, weekPct *int
+	var resetAt, weekResetAt *int64
+	var resetLabel, weekResetLabel string
+	if p, ok := extractRatePct(in); ok {
+		ratePct = p
+	}
+	if r, ok := extractRateResetAt(in); ok {
+		resetAt = &r
+	}
+	if l, ok := extractRateResetLabel(in); ok {
+		resetLabel = l
+	}
+	if p, ok := extractWeekPct(in); ok {
+		weekPct = p
+	}
+	if r, ok := extractWeekResetAt(in); ok {
+		weekResetAt = &r
+	}
+	if l, ok := extractWeekResetLabel(in); ok {
+		weekResetLabel = l
+	}
+	if contextPctEnabled(env) {
+		if p, ok := extractContextPct(in); ok {
+			ctxPct = p
 		}
 	}
-	os.Exit(0)
+	if ratePct == nil && ctxPct == nil && resetAt == nil && resetLabel == "" &&
+		weekPct == nil && weekResetAt == nil && weekResetLabel == "" {
+		return
+	}
+	dir, err := stateDir()
+	if err != nil {
+		return
+	}
+	session := sanitizeSessionID(in.SessionID, in.Cwd)
+	acct := sessionClaudeAccount(markerAccountAt(markerPath(dir, session)))
+	_ = enrichMarker(dir, session, ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel,
+		func(markerAccount) markerAccount { return acct })
+}
+
+func markerAccountAt(path string) markerAccount {
+	var m marker
+	if body, err := readMarker(path); err == nil {
+		_ = json.Unmarshal(body, &m)
+	}
+	return m.markerAccount
 }
 
 const statuslineLockWait = 250 * time.Millisecond
@@ -280,7 +307,7 @@ const statuslineLockWait = 250 * time.Millisecond
 const statuslineRefresh = time.Minute
 
 func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string,
-	weekPct *int, weekResetAt *int64, weekResetLabel string) error {
+	weekPct *int, weekResetAt *int64, weekResetLabel string, account func(markerAccount) markerAccount) error {
 	mp := markerPath(stateDir, sessionID)
 	lp := lockPath(stateDir, sessionID)
 	return withLockExWait(lp, statuslineLockWait, func() error {
@@ -314,13 +341,17 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 			m.RateWeekResetLabel = weekResetLabel
 		}
 		now := hookNow()
+		next, oldSig := account(m.markerAccount), m.UsageAccountSig
+		m.markerAccount = next
+		m.UsageAccountSig = oldSig
 		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) {
-			if fi, err := os.Stat(mp); err == nil && now.Sub(fi.ModTime()) < statuslineRefresh {
+			if now.Sub(time.Unix(m.StatuslineAt, 0)) < statuslineRefresh && next.UsageAccountSig == oldSig {
 				return nil
 			}
 		} else {
 			m.StatuslineChangedMs = now.UnixMilli()
 		}
+		m.UsageAccountSig = next.UsageAccountSig
 		m.StatuslineAt = now.Unix()
 		out, err := json.Marshal(m)
 		if err != nil {

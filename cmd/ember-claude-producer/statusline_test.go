@@ -170,7 +170,7 @@ func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	handleUpsert(context.Background(), cfg, NewClient(cfg), "sess1", "running", "m", "", markerP, lockP)
 	ra := int64(1778614633)
 	wra := int64(1778700000)
-	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, &ra, "14:25", ratePtr(30), &wra, "MON"); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, &ra, "14:25", ratePtr(30), &wra, "MON", keepAccount); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := readMarker(markerP)
@@ -215,7 +215,7 @@ func TestEnrichMarker_PreservesOwner(t *testing.T) {
 	if err := os.WriteFile(mp, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, nil, "", nil, nil, ""); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, nil, "", nil, nil, "", keepAccount); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := readMarker(mp)
@@ -263,7 +263,7 @@ func TestEnrichMarker(t *testing.T) {
 	if err := os.WriteFile(mp, []byte(`{"source":"mbp","tool":"claude","session":"sess1","state":"running","message":"Bash"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarker(dir, "sess1", ratePtr(73), ratePtr(54), nil, "", nil, nil, ""); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(73), ratePtr(54), nil, "", nil, nil, "", keepAccount); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(mp)
@@ -281,7 +281,7 @@ func TestEnrichMarker(t *testing.T) {
 		t.Errorf("hook fields not preserved: %+v", req)
 	}
 
-	if err := enrichMarker(dir, "sess1", ratePtr(80), nil, nil, "", nil, nil, ""); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(80), nil, nil, "", nil, nil, "", keepAccount); err != nil {
 		t.Fatal(err)
 	}
 	body, _ = os.ReadFile(mp)
@@ -294,7 +294,7 @@ func TestEnrichMarker(t *testing.T) {
 		t.Errorf("rate should update to 80, got %v", req.RateWindowPct)
 	}
 
-	if err := enrichMarker(dir, "ghost", ratePtr(50), ratePtr(50), nil, "", nil, nil, ""); err != nil {
+	if err := enrichMarker(dir, "ghost", ratePtr(50), ratePtr(50), nil, "", nil, nil, "", keepAccount); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(markerPath(dir, "ghost")); !os.IsNotExist(err) {
@@ -305,7 +305,7 @@ func TestEnrichMarker(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarker(dir, "bad", ratePtr(50), ratePtr(50), nil, "", nil, nil, ""); err != nil {
+	if err := enrichMarker(dir, "bad", ratePtr(50), ratePtr(50), nil, "", nil, nil, "", keepAccount); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(bad); string(got) != "not json" {
@@ -320,7 +320,7 @@ func TestEnrichMarker_Week(t *testing.T) {
 		t.Fatal(err)
 	}
 	wra := int64(1778700000)
-	if err := enrichMarker(dir, "sess1", nil, nil, nil, "", ratePtr(35), &wra, "MON"); err != nil {
+	if err := enrichMarker(dir, "sess1", nil, nil, nil, "", ratePtr(35), &wra, "MON", keepAccount); err != nil {
 		t.Fatal(err)
 	}
 	var req StatusRequest
@@ -336,7 +336,7 @@ func TestEnrichMarker_Week(t *testing.T) {
 		t.Errorf("rate_week_reset_label = %q, want MON", req.RateWeekResetLabel)
 	}
 
-	if err := enrichMarker(dir, "sess1", ratePtr(10), nil, nil, "", nil, nil, ""); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(10), nil, nil, "", nil, nil, "", keepAccount); err != nil {
 		t.Fatal(err)
 	}
 	req = StatusRequest{}
@@ -463,7 +463,7 @@ func TestEnrichMarker_SkipsUnchangedRewrite(t *testing.T) {
 	}
 	enrich := func(pct int) os.FileInfo {
 		t.Helper()
-		if err := enrichMarker(dir, "s", ratePtr(pct), nil, nil, "", nil, nil, ""); err != nil {
+		if err := enrichMarker(dir, "s", ratePtr(pct), nil, nil, "", nil, nil, "", keepAccount); err != nil {
 			t.Fatal(err)
 		}
 		fi, err := os.Stat(mp)
@@ -500,7 +500,7 @@ func TestHookKeepsStatuslineChanged(t *testing.T) {
 	mp, lp := markerPath(dir, "s"), lockPath(dir, "s")
 	cfg := Config{Common: producer.Common{Source: "mbp", ServerURL: "http://127.0.0.1:1"}, HookTimeoutMs: 50}
 	handleUpsert(context.Background(), cfg, NewClient(cfg), "s", "running", "m", "", mp, lp)
-	if err := enrichMarker(dir, "s", ratePtr(50), nil, nil, "", nil, nil, ""); err != nil {
+	if err := enrichMarker(dir, "s", ratePtr(50), nil, nil, "", nil, nil, "", keepAccount); err != nil {
 		t.Fatal(err)
 	}
 	var before, after marker
@@ -522,5 +522,31 @@ func TestExtractRateResetLabel(t *testing.T) {
 	}
 	if _, ok := extractRateResetLabel(statuslineInput{}); ok {
 		t.Fatal("no rate limits must report ok=false")
+	}
+}
+
+func keepAccount(a markerAccount) markerAccount { return a }
+
+func TestEnrichMarker_RefreshesAnAgedStatuslineAtDespiteAHookFreshMtime(t *testing.T) {
+	now := time.Now()
+	defer func(f func() time.Time) { hookNow = f }(hookNow)
+	hookNow = func() time.Time { return now }
+	dir := t.TempDir()
+	mp := markerPath(dir, "s")
+	pct := 40
+	old := now.Add(-11 * time.Minute)
+	body, _ := json.Marshal(marker{StatusRequest: StatusRequest{Source: "mbp", Tool: "claude", Session: "s", State: "running", RateWindowPct: &pct},
+		StatuslineAt: old.Unix(), StatuslineChangedMs: old.UnixMilli()})
+	if err := os.WriteFile(mp, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := enrichMarker(dir, "s", ratePtr(40), nil, nil, "", nil, nil, "", keepAccount); err != nil {
+		t.Fatal(err)
+	}
+	var m marker
+	raw, _ := readMarker(mp)
+	_ = json.Unmarshal(raw, &m)
+	if m.StatuslineAt != now.Unix() || m.StatuslineChangedMs != old.UnixMilli() {
+		t.Fatalf("statusline_at = %d changed_ms = %d, want the render time and the old change time", m.StatuslineAt, m.StatuslineChangedMs)
 	}
 }
