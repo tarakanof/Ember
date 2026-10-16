@@ -169,6 +169,12 @@ public final class LiveModel {
         await coordinator.refreshNow(feeds, ifOlderThan: age)
     }
 
+    public static let menuFeeds: [Feed] = [.stats, .meetings, .usage, .clockHealth]
+
+    public func refreshMenuFeeds() async {
+        await coordinator.refreshNow(Self.menuFeeds, ifOlderThan: .seconds(60), includingUnheld: true)
+    }
+
     public func isTracked(_ feed: Feed) -> Bool { coordinator.holdCount(feed) > 0 }
 
     public func lastFetched(_ feed: Feed) -> Date? { fetchedAt[feed] }

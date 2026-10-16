@@ -8,7 +8,7 @@ struct MenuBarContentView: View {
 	var body: some View {
 		Group { items }
 			.onAppear {
-				Task { await env.live.refreshNow([.stats, .meetings, .usage], ifOlderThan: .seconds(60)) }
+				Task { await env.live.refreshMenuFeeds() }
 			}
 	}
 
@@ -99,23 +99,28 @@ struct MenuBarContentView: View {
 	@ViewBuilder
 	private func clockMenu(_ live: LiveModel) -> some View {
 		let matrixPower = live.isTracked(.clockHealth) ? live.displayPower : nil
-		let power = MenuRows.displayPower(usage: live.usage, clockHealth: live.clockHealth, matrixPower: matrixPower)
-		let apps = MenuRows.showOnClock(live.apps)
+		let clock = MenuRows.clockMenu(usage: live.usage, clockHealth: live.clockHealth, apps: live.apps,
+		                               matrixPower: matrixPower)
 
 		Menu("Clock") {
-			Button("Next App") { run(.clock(.next)) }
-			Button("Previous App") { run(.clock(.previous)) }
-			Button("Dismiss Notification") { run(.clock(.dismiss)) }
-			if !power.isEmpty {
+			if let notice = clock.disabledNotice {
+				Text(notice)
+			}
+			if clock.showsActions {
+				Button("Next App") { run(.clock(.next)) }
+				Button("Previous App") { run(.clock(.previous)) }
+				Button("Dismiss Notification") { run(.clock(.dismiss)) }
+			}
+			if !clock.power.isEmpty {
 				Divider()
-				ForEach(power) { item in
+				ForEach(clock.power) { item in
 					Button { run(.clock(.power(item.on))) } label: { Text(item.title) }
 				}
 			}
-			if !apps.isEmpty {
+			if !clock.apps.isEmpty {
 				Divider()
 				Menu("Show on Clock") {
-					ForEach(apps) { app in
+					ForEach(clock.apps) { app in
 						Toggle(isOn: Binding(
 							get: { app.enabled },
 							set: { on in run(.setApp(app.name, enabled: on)) }

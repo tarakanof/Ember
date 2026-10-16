@@ -72,6 +72,7 @@ private func menuStrings() throws -> [LocalizedStringResource] {
 
     let usage = Loadable<UsageSnapshot>.loaded(UsageSnapshot(generatedAt: now, staleAfterSec: 1, tools: []), at: now)
     out += MenuRows.displayPower(usage: usage, clockHealth: .loading, matrixPower: nil).map(\.title)
+    out.append(ClockHealthReadout.disabledText)
     return out
 }
 

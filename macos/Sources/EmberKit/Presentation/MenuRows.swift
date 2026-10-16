@@ -313,6 +313,23 @@ public enum MenuRows {
         }
     }
 
+    public struct ClockMenu: Sendable {
+        public let disabledNotice: LocalizedStringResource?
+        public let power: [PowerItem]
+        public let apps: [AppRow]
+        public var showsActions: Bool { disabledNotice == nil }
+    }
+
+    public static func clockMenu(usage: Loadable<UsageSnapshot>, clockHealth: Loadable<ClockHealth>,
+                                 apps: Loadable<[AppToggle]>, matrixPower: Bool?) -> ClockMenu {
+        if let notice = ClockHealthReadout.disabledNotice(clockHealth) {
+            return ClockMenu(disabledNotice: notice, power: [], apps: [])
+        }
+        return ClockMenu(disabledNotice: nil,
+                         power: displayPower(usage: usage, clockHealth: clockHealth, matrixPower: matrixPower),
+                         apps: showOnClock(apps))
+    }
+
     public struct AppRow: Identifiable, Sendable {
         public let name: String
         public let title: LocalizedStringResource

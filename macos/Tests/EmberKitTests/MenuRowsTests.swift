@@ -414,3 +414,13 @@ private func project(_ tool: String, source: String, state: String, id: String, 
     let none = try project("claude", source: "m4", state: "running", id: "c", project: nil)
     #expect(SessionPresentation(none).displayName(multiHost: true) == nil)
 }
+
+@Test func clockMenuOffersEveryActionWhileTheClockIsEnabled() {
+    let usage = Loadable<UsageSnapshot>.loaded(usageSnapshot([]), at: now)
+    let apps = Loadable<[AppToggle]>.loaded([AppToggle(name: "claude", enabled: true)], at: now)
+    let menu = MenuRows.clockMenu(usage: usage, clockHealth: .loading, apps: apps, matrixPower: true)
+    #expect(menu.showsActions)
+    #expect(menu.disabledNotice == nil)
+    #expect(menu.power.map(\.on) == [false])
+    #expect(menu.apps.map(\.name) == ["claude"])
+}

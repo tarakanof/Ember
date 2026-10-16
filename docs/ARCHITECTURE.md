@@ -1063,8 +1063,11 @@ only changes when the server restarts, so it's read once each time the
 connection comes up (first answer, a new server, back from offline, where an
 upgrade shows), off the `/state` loop; a lost read retries on the next good
 `/state`. The menu adds no polling: opening it catches up
-`stats`/`meetings`/`usage` only if they're over 60 s old, and every fetch pushes
-the next poll back, so stats stay at one request a minute. Actions (Pomodoro,
+`stats`/`meetings`/`usage` and `clockHealth` (`LiveModel.menuFeeds`) only if
+they're over 60 s old, `clockHealth` even though nothing holds it, and every
+fetch pushes the next poll back, so stats stay at one request a minute. While
+clock health says `disabled` the Clock submenu shows only "Clock disabled on
+this server": no Next/Previous/Dismiss, display power or Show on Clock. Actions (Pomodoro,
 clock, app visibility) go through `ActionRunner`, from every surface (Settings
 restarts the clock and switches the display through it too), which keeps the
 last failure for 10 s and refreshes the feeds the action touched (stats follow
