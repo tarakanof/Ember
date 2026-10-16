@@ -1190,7 +1190,10 @@ fingerprint doesn't exist on NG). The server advertises itself as
   republishes less than 10s apart coalesce, so a `clock reboot detected` log
   line on a lossy link now means a real reboot.
   `/admin/doctor`'s `clock` check reports `base_url`/`source`/`reachable` plus
-  `last_rediscover_at`/`last_rediscover_result`.
+  `last_rediscover_at`/`last_rediscover_result`. The result is one of
+  `reachable` (configured clock answered), `no-device` (browse found
+  nothing), `swapped` (moved to a discovered clock), `cancelled` (ctx ended
+  mid-rediscovery, normally shutdown) or `disabled` (`EMBER_CLOCK=off`).
 - `EMBER_CLOCK=off` (also `0`/`false`/`no`/`disabled`; unset = clock on) runs the
   server with **no clock I/O at all**: no AWTRIX HTTP (publishes, probes, the
   `/v1/device/*` proxy), no mDNS browse or UDP find, no auto-rediscover or sampler,
