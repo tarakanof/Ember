@@ -68,3 +68,64 @@ import Foundation
     #expect(svc.agentState(.claude) == .error("Not installed: the app is missing its launch agent."))
     #expect(svc.toggleState() == .error)
 }
+
+private func notFoundService(_ sm: FakeSMAppService, runner: FakeRunner = FakeRunner(),
+                             existing: Set<String>) -> ProducerInstallService {
+    ProducerInstallService(sm: sm, runner: runner,
+        bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
+        fileExists: { existing.contains($0) })
+}
+
+private let bundledT3 = "/A/Contents/Library/LaunchAgents/com.ember.t3.plist"
+private let cliT3 = "/Users/x/Library/LaunchAgents/com.ember.t3.plist"
+
+@MainActor @Test func notFoundWithBundledPlistIsOff() {
+    let sm = FakeSMAppService()
+    sm.statuses["com.ember.t3.plist"] = .notFound
+    #expect(notFoundService(sm, existing: [bundledT3]).agentState(.t3) == .off)
+}
+
+@MainActor @Test func notFoundWithBundledAndCLIPlistIsCLIInstalled() {
+    let sm = FakeSMAppService()
+    sm.statuses["com.ember.t3.plist"] = .notFound
+    #expect(notFoundService(sm, existing: [bundledT3, cliT3]).agentState(.t3) == .cliInstalled)
+}
+
+@MainActor @Test func notFoundWithoutBundledPlistIsError() {
+    let sm = FakeSMAppService()
+    sm.statuses["com.ember.t3.plist"] = .notFound
+    #expect(notFoundService(sm, existing: [cliT3]).agentState(.t3)
+        == .error("Not installed: the app is missing its launch agent."))
+}
+
+@MainActor @Test func toggleIsNotErrorWhenTheNotFoundAgentIsBundled() {
+    let sm = FakeSMAppService()
+    sm.statuses = ["com.ember.heartbeat.plist": .enabled, "com.ember.t3.plist": .notFound]
+    let svc = notFoundService(sm, existing: [bundledT3, "/Users/x/.t3"])
+    #expect(svc.toggleState() == .partial)
+}
+
+@MainActor @Test func turningOnABundledNotFoundAgentRegistersIt() async {
+    let sm = FakeSMAppService()
+    sm.statuses["com.ember.t3.plist"] = .notFound
+    let outcomes = await notFoundService(sm, existing: [bundledT3]).setEnabled(.t3, true)
+    #expect(outcomes.allSatisfy { $0.error == nil })
+    #expect(sm.registered == ["com.ember.t3.plist"])
+}
+
+@MainActor @Test func turningOnABundledNotFoundAgentWithACLICopyRefusesToRegister() async {
+    let sm = FakeSMAppService()
+    sm.statuses["com.ember.t3.plist"] = .notFound
+    let outcomes = await notFoundService(sm, existing: [bundledT3, cliT3]).setEnabled(.t3, true)
+    #expect(outcomes.map { $0.error as? ProducerInstallError } == [.cliInstalled])
+    #expect(sm.registered.isEmpty)
+}
+
+@Test func switchIsOnOnlyForOnLikeStates() {
+    #expect(AgentState.on.isSwitchOn)
+    #expect(AgentState.notRunning.isSwitchOn)
+    #expect(AgentState.needsApproval.isSwitchOn)
+    #expect(!AgentState.off.isSwitchOn)
+    #expect(!AgentState.cliInstalled.isSwitchOn)
+    #expect(!AgentState.error("x").isSwitchOn)
+}
