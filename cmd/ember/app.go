@@ -114,7 +114,7 @@ type App struct {
 	clockGen  uint64
 
 	republish republishGate
-	browseFn  func(context.Context, time.Duration) ([]discovery.Candidate, error)
+	browseFn  browseFunc
 
 	deviceRediscoverMu   sync.Mutex
 	lastRediscoverAt     atomic.Int64
@@ -133,6 +133,12 @@ type App struct {
 	bootPingMu sync.Mutex
 }
 
+func newServerApp(cfg Config, logger *slog.Logger) *App {
+	app := NewApp(cfg, nil, logger)
+	app.browseFn = discovery.BrowseAWTRIX
+	return app
+}
+
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a := &App{
 		publisher:    publisher,
@@ -142,7 +148,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		usage:        newUsageStore(),
 		weather:      newWeatherStore(),
 		activityLast: make(map[string]activityMark),
-		browseFn:     discovery.BrowseAWTRIX,
+		browseFn:     browseNotWired,
 	}
 	a.weatherFetcher = newWeatherFetcher()
 	a.meetings = newMeetingsStore()

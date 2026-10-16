@@ -326,7 +326,15 @@ The aggregator and the only writer to the device.
     parallel: `swapDefaultTransport` calls `t.Setenv`, which panics in a
     parallel test. The guard sees only clients on `DefaultTransport`; a client
     with its own `Transport` bypasses it, and mDNS (UDP) is covered by the
-    stubbed `browseFn`, not the guard.
+    stubbed `browseFn`, not the guard. `NewApp` defaults `browseFn` to a
+    no-LAN browse that returns `errBrowseNotWired`. `newServerApp`, which
+    `main` calls, is the one place that wires `discovery.BrowseAWTRIX`
+    (pinned by `TestNewServerApp_WiresRealClockBrowse`), so a test that
+    builds its App with `NewApp` cannot reach the LAN through it. A test
+    that needs candidates stubs `browseFn`. `BrowseAWTRIX` returns
+    `ctx.Err()` when ctx is cancelled after the mDNS step, and the UDP read
+    ends on cancel, so a shutdown or a client hang-up never waits out the
+    3 s browse. `rediscoverClock` then records `cancelled`, not `no-device`.
   - **`systemLock`.** `/api/v1/system` holds Wi-Fi credentials, sensor offsets
     and the button callback, and NG only offers a full replace, so two
     unserialised writers lose a write. The lock is a `ctxLock` (a channel-of-1

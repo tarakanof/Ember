@@ -114,13 +114,15 @@ func udpBrowse(ctx context.Context, timeout time.Duration) []service {
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
-	return collectUDPReplies(conn, deadline)
+	return collectUDPReplies(ctx, conn, deadline)
 }
 
-func collectUDPReplies(conn *net.UDPConn, deadline time.Time) []service {
+func collectUDPReplies(ctx context.Context, conn *net.UDPConn, deadline time.Time) []service {
 	if err := conn.SetReadDeadline(deadline); err != nil {
 		return nil
 	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetReadDeadline(time.Now()) })
+	defer stop()
 	seen := map[string]service{}
 	buf := make([]byte, 512)
 	for {
@@ -195,7 +197,16 @@ func broadcastAddrs() []net.IP {
 	return out
 }
 
+type (
+	mdnsLookup func(ctx context.Context, service string, add dnssd.AddFunc, rmv dnssd.RmvFunc) error
+	udpLookup  func(ctx context.Context, timeout time.Duration) []service
+)
+
 func BrowseAWTRIX(ctx context.Context, timeout time.Duration) ([]Candidate, error) {
+	return browseAWTRIX(ctx, timeout, dnssd.LookupType, udpBrowse)
+}
+
+func browseAWTRIX(ctx context.Context, timeout time.Duration, lookupMDNS mdnsLookup, browseUDP udpLookup) ([]Candidate, error) {
 	bctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -209,14 +220,17 @@ func BrowseAWTRIX(ctx context.Context, timeout time.Duration) ([]Candidate, erro
 			seen[e.Host] = service{host: e.Host, baseURL: b}
 		}
 	}
-	_ = dnssd.LookupType(bctx, awtrixServiceType, func(e dnssd.BrowseEntry) { add(e) }, func(e dnssd.BrowseEntry) {})
+	_ = lookupMDNS(bctx, awtrixServiceType, func(e dnssd.BrowseEntry) { add(e) }, func(e dnssd.BrowseEntry) {})
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	svcs := make([]service, 0, len(seen))
 	for _, s := range seen {
 		svcs = append(svcs, s)
 	}
 	if len(svcs) == 0 {
-		svcs = udpBrowse(ctx, timeout)
+		svcs = browseUDP(ctx, timeout)
 	}
 	pctx, pcancel := context.WithTimeout(ctx, 2*time.Second)
 	defer pcancel()

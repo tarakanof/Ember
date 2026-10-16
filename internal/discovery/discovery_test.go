@@ -2,11 +2,14 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/brutella/dnssd"
 )
 
 func ngDeviceServer(t *testing.T, body string) *httptest.Server {
@@ -133,7 +136,7 @@ func TestCollectUDPRepliesUsesSourceIP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := collectUDPReplies(collector, time.Now().Add(500*time.Millisecond))
+	got := collectUDPReplies(context.Background(), collector, time.Now().Add(500*time.Millisecond))
 	wantBase := "http://" + net.JoinHostPort("127.0.0.1", "80")
 	if len(got) != 1 || got[0].host != "Awtrix" || got[0].baseURL != wantBase {
 		t.Fatalf("collectUDPReplies = %+v, want one {host:Awtrix baseURL:%s}", got, wantBase)
@@ -154,8 +157,43 @@ func TestCollectUDPRepliesHonoursReplyPort(t *testing.T) {
 	if _, err := device.WriteToUDP([]byte("Awtrix:8080"), collector.LocalAddr().(*net.UDPAddr)); err != nil {
 		t.Fatal(err)
 	}
-	got := collectUDPReplies(collector, time.Now().Add(500*time.Millisecond))
+	got := collectUDPReplies(context.Background(), collector, time.Now().Add(500*time.Millisecond))
 	if len(got) != 1 || got[0].baseURL != "http://127.0.0.1:8080" {
 		t.Fatalf("collectUDPReplies = %+v, want baseURL http://127.0.0.1:8080", got)
+	}
+}
+
+func TestCollectUDPRepliesStopsWhenContextCancelled(t *testing.T) {
+	collector, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer collector.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan []service, 1)
+	go func() { done <- collectUDPReplies(ctx, collector, time.Now().Add(3*time.Second)) }()
+	cancel()
+	select {
+	case got := <-done:
+		if len(got) != 0 {
+			t.Fatalf("collectUDPReplies after cancel = %+v, want none", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("collectUDPReplies kept reading after ctx cancel")
+	}
+}
+
+func TestBrowseAWTRIXSkipsUDPWhenCancelledDuringLookup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	lookup := func(ctx context.Context, _ string, _ dnssd.AddFunc, _ dnssd.RmvFunc) error {
+		cancel()
+		return ctx.Err()
+	}
+	udp := false
+	browseUDP := func(context.Context, time.Duration) []service { udp = true; return nil }
+	got, err := browseAWTRIX(ctx, 3*time.Second, lookup, browseUDP)
+	if udp || !errors.Is(err, context.Canceled) || len(got) != 0 {
+		t.Fatalf("browseAWTRIX after cancel = (%+v, %v), udp=%v; want (none, context.Canceled), no udp", got, err, udp)
 	}
 }

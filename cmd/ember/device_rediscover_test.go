@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -55,6 +57,50 @@ func TestRediscoverClock_NoopWhenReachable(t *testing.T) {
 	}
 	if got := a.lastRediscoverResult.Load(); got != "reachable" {
 		t.Fatalf("lastRediscoverResult=%v want reachable", got)
+	}
+}
+
+func TestRediscoverClock_SkipsBrowseWhenContextCancelled(t *testing.T) {
+	a := newTestApp(t)
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
+	browsed := false
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) { browsed = true; return nil, nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if a.rediscoverClock(ctx) || browsed {
+		t.Fatalf("cancelled rediscover must not browse: browsed=%v", browsed)
+	}
+	if got := a.lastRediscoverResult.Load(); got != "cancelled" {
+		t.Fatalf("lastRediscoverResult=%v want cancelled", got)
+	}
+}
+
+func TestRediscoverClock_CancelDuringBrowseIsNotNoDevice(t *testing.T) {
+	a := newTestApp(t)
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) { cancel(); return nil, nil }
+	if a.rediscoverClock(ctx) {
+		t.Fatalf("cancelled browse must not swap")
+	}
+	if got := a.lastRediscoverResult.Load(); got != "cancelled" {
+		t.Fatalf("lastRediscoverResult=%v want cancelled", got)
+	}
+}
+
+func TestNewServerApp_WiresRealClockBrowse(t *testing.T) {
+	a := newServerApp(defaultConfig(), discardLogger())
+	if reflect.ValueOf(a.browseFn).Pointer() != reflect.ValueOf(discovery.BrowseAWTRIX).Pointer() {
+		t.Fatal("server app must browse with discovery.BrowseAWTRIX")
+	}
+}
+
+func TestNewApp_DefaultBrowseNeverReachesLAN(t *testing.T) {
+	a := NewApp(defaultConfig(), &recordingPublisher{}, discardLogger())
+	got, err := a.browseFn(context.Background(), time.Millisecond)
+	if !errors.Is(err, errBrowseNotWired) || len(got) != 0 {
+		t.Fatalf("default browseFn = (%+v, %v), want (none, errBrowseNotWired)", got, err)
 	}
 }
 

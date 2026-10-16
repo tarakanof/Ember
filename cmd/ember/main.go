@@ -58,7 +58,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := NewApp(cfg, nil, logger)
+	app := newServerApp(cfg, logger)
 	app.weatherFetcher.tomorrowKey = strings.TrimSpace(os.Getenv(tomorrowKeyEnv))
 	app.weatherFetcher.weatherAPIKey = strings.TrimSpace(os.Getenv(weatherAPIKeyEnv))
 	for _, p := range weatherProviders {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -36,6 +37,14 @@ func (a *App) initDeviceDiscovery(ctx context.Context) {
 	a.provisionClockInBackground()
 }
 
+var errBrowseNotWired = errors.New("clock browse not wired")
+
+type browseFunc func(context.Context, time.Duration) ([]discovery.Candidate, error)
+
+func browseNotWired(context.Context, time.Duration) ([]discovery.Candidate, error) {
+	return nil, errBrowseNotWired
+}
+
 func (a *App) rediscoverClock(ctx context.Context) bool {
 	if clockDisabled() {
 		a.lastRediscoverResult.Store("disabled")
@@ -55,15 +64,19 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 			}
 		}
 	}
-
-	browse := a.browseFn
-	if browse == nil {
-		browse = discovery.BrowseAWTRIX
+	if ctx.Err() != nil {
+		a.lastRediscoverResult.Store("cancelled")
+		return false
 	}
-	cands, err := browse(ctx, 3*time.Second)
+
+	cands, err := a.browseFn(ctx, 3*time.Second)
+	if ctx.Err() != nil {
+		a.lastRediscoverResult.Store("cancelled")
+		return false
+	}
 	if err != nil || len(cands) == 0 {
 		a.lastRediscoverResult.Store("no-device")
-		a.logger.Info("clock discovery found no device", "configured", cur)
+		a.logger.Info("clock discovery found no device", "configured", cur, "err", err)
 		return false
 	}
 	base := cands[0].BaseURL
@@ -249,11 +262,7 @@ func (a *App) handleDeviceDiscover(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": errClockDisabled.Error(), "code": "clock_disabled"})
 		return
 	}
-	browse := a.browseFn
-	if browse == nil {
-		browse = discovery.BrowseAWTRIX
-	}
-	cands, err := browse(r.Context(), 3*time.Second)
+	cands, err := a.browseFn(r.Context(), 3*time.Second)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
