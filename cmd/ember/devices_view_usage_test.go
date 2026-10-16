@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -196,5 +197,20 @@ func TestKnobViewUsageWorstCaseStaysSmall(t *testing.T) {
 	}
 	if _, ok := viewKeys(t, body)["nowplaying"]; !ok || len(body) >= 12288 {
 		t.Fatalf("worst-case view with usage is %d B (nowplaying kept: %v), want every block under 12 KB", len(body), ok)
+	}
+}
+
+func TestKnobUsageFiveHourStartFollowsTheReportedWindowLength(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	reset := time.Now().Add(time.Hour).Unix()
+	postUsage(t, srv, fmt.Sprintf(`{"tool":"codex","account_key":"%s","five_hour":{"used_percent":12,"resets_at":%d,"window_minutes":240}}`, keyCodex, reset))
+	postUsage(t, srv, fmt.Sprintf(`{"tool":"claude","account_key":"%s","five_hour":{"used_percent":12,"resets_at":%d}}`, keyMaxA, reset))
+	postUsage(t, srv, fmt.Sprintf(`{"tool":"claude","account_key":"%s","five_hour":{"used_percent":12,"resets_at":%d,"window_minutes":-5}}`, keyMaxB, reset))
+	got := map[string]int64{}
+	for _, a := range app.knobUsage(time.Now()).Accounts {
+		got[a.ID] = a.FiveHour.ResetsAt - a.FiveHour.StartsAt
+	}
+	if got[idCodex] != 4*3600 || got[idMaxA] != 5*3600 || got[idMaxB] != 5*3600 {
+		t.Fatalf("window lengths = %v, want codex 4h from window_minutes, the rest the 5h fallback", got)
 	}
 }

@@ -55,12 +55,18 @@ func TestPlanNormalisesOrDrops(t *testing.T) {
 	}
 }
 
+type strictWindow struct {
+	UsedPercent float64 `json:"used_percent"`
+	ResetsAt    int64   `json:"resets_at"`
+	ResetLabel  string  `json:"reset_label"`
+}
+
 type strictUsage struct {
-	Tool     string                  `json:"tool"`
-	Source   string                  `json:"source"`
-	FiveHour *UsageWindow            `json:"five_hour"`
-	SevenDay *UsageWindow            `json:"seven_day"`
-	Models   map[string]*UsageWindow `json:"models"`
+	Tool     string                   `json:"tool"`
+	Source   string                   `json:"source"`
+	FiveHour *strictWindow            `json:"five_hour"`
+	SevenDay *strictWindow            `json:"seven_day"`
+	Models   map[string]*strictWindow `json:"models"`
 }
 
 func resetOptionalUsageFields(t *testing.T) {
@@ -108,5 +114,46 @@ func TestUsageResendsWithoutAccountFieldsToAStrictOldServer(t *testing.T) {
 	defer mu.Unlock()
 	if strings.Join(seen, ",") != "400,400,204,204" {
 		t.Fatalf("requests = %v, want two 400s (one per new field), then 204s with both remembered", seen)
+	}
+}
+
+func TestUsageResendsWithoutWindowMinutesToAnOldServer(t *testing.T) {
+	resetOptionalUsageFields(t)
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		var u struct {
+			strictUsage
+			AccountKey string `json:"account_key"`
+			Plan       string `json:"plan"`
+		}
+		err := dec.Decode(&u)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			seen = append(seen, "400")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		seen = append(seen, "204")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	five := &UsageWindow{UsedPercent: 10, ResetsAt: 1782049680, WindowMinutes: 240}
+	req := UsageRequest{Tool: "codex", Source: "codex_stream", FiveHour: five,
+		SevenDay: &UsageWindow{UsedPercent: 3, WindowMinutes: 10080}}
+	if err := NewClient(srv.URL, "", time.Second).Usage(context.Background(), req); err != nil {
+		t.Fatalf("usage: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(seen, ",") != "400,204" {
+		t.Fatalf("requests = %v, want one 400 then a 204 without window_minutes", seen)
+	}
+	if five.WindowMinutes != 240 {
+		t.Fatal("dropping the field changed the caller's window")
 	}
 }

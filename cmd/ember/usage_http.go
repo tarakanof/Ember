@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	usageModelsMax     = 4
-	usageResetLabelMax = 32
+	usageModelsMax        = 4
+	usageResetLabelMax    = 32
+	usageWindowMinutesMax = 31 * 24 * 60
 )
 
 var (
@@ -38,6 +39,9 @@ func usageLabelOK(w *UsageWindow) bool {
 func clampUsageWindow(win *UsageWindow) {
 	if win == nil {
 		return
+	}
+	if win.WindowMinutes < 0 || win.WindowMinutes > usageWindowMinutesMax {
+		win.WindowMinutes = 0
 	}
 	switch {
 	case math.IsNaN(win.UsedPercent), win.UsedPercent < 0:

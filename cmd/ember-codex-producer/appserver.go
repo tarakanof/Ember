@@ -688,8 +688,16 @@ type wireThreadItem struct {
 }
 
 type rateLimitWindow struct {
-	UsedPercent float64 `json:"usedPercent"`
-	ResetsAt    *int64  `json:"resetsAt"`
+	UsedPercent        float64 `json:"usedPercent"`
+	WindowDurationMins *int64  `json:"windowDurationMins"`
+	ResetsAt           *int64  `json:"resetsAt"`
+}
+
+func (w rateLimitWindow) minutes() int64 {
+	if w.WindowDurationMins == nil {
+		return 0
+	}
+	return *w.WindowDurationMins
 }
 
 func (w rateLimitWindow) resetsAt() int64 {
@@ -845,11 +853,13 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 		if w := lim.Primary; w != nil {
 			r := producer.Pct(w.UsedPercent)
 			as.rate.rateWindowPct, as.rate.rateResetAt, as.rate.primaryRaw = &r, w.resetsAt(), w.UsedPercent
+			as.rate.primaryMins = w.minutes()
 			as.hasRate = true
 		}
 		if w := lim.Secondary; w != nil {
 			wk := producer.Pct(w.UsedPercent)
 			as.rate.weeklyPct, as.rate.weeklyResetAt, as.rate.weeklyRaw = &wk, w.resetsAt(), w.UsedPercent
+			as.rate.weeklyMins = w.minutes()
 			as.hasRate = true
 		}
 		if lim.PlanType != nil && *lim.PlanType != "" {

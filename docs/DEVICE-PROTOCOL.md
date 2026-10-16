@@ -417,9 +417,10 @@ order, hiding, staleness and the 5h window start. The block follows
   ("Max", "Pro", "Team", "Plus"; "Claude" or "Codex" without one), two
   shown on one plan numbered ("Max 1", "Max 2"); hidden ones don't count. At most 24 characters, any Unicode.
 - **`five_hour`**, **`seven_day`**: `pct` an integer 0-100; `resets_at`
-  Unix seconds; `five_hour.starts_at` = `resets_at` − 5 h, the window start
-  for the pace tick (elapsed fraction = (now − `starts_at`) / 5 h, with
-  now from `X-Ember-Now`). A window the producer didn't send is left out.
+  Unix seconds; `five_hour.starts_at` = `resets_at` minus the window length
+  the producer reported (Codex sends it), else 5 h: the window start for
+  the pace tick (elapsed fraction = (now − `starts_at`) / (`resets_at` −
+  `starts_at`), with now from `X-Ember-Now`). A window the producer didn't send is left out.
   A window whose reset has passed comes as `{"pct": 0}` with no times: it
   reset, and no newer snapshot says otherwise.
 - **`models`**: only while Ember's `usage_per_model` is on and the account

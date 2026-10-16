@@ -4719,6 +4719,11 @@ add `account_key` and `plan` to `POST /v1/usage`:
   workspace. The id_token's payload is base64-decoded locally, never
   verified against the network and never logged; only the three claims
   are read. No `oauthAccount` or no `tokens` (an API key): no key.
+- A window may carry `window_minutes`, its length when the producer knows
+  it (Codex: rollout `window_minutes`, app-server `windowDurationMins`);
+  the knob's `five_hour.starts_at` is `resets_at` minus it, else minus 5 h.
+  Producers drop it for an hour on an old server's `unknown field`, like
+  the account fields.
 - `models` takes at most 4 names matching `^[a-z0-9_-]{1,24}$` and every
   `reset_label` at most 32 bytes; anything else is a 400.
 - `plan` (`^[a-z0-9_]{1,24}$`): Claude from `organizationType` /

@@ -42,7 +42,19 @@ var optionalUsageFields = &fieldDropper[UsageRequest]{
 	zeroers: map[string]func(*UsageRequest){
 		"account_key": func(r *UsageRequest) { r.AccountKey = "" },
 		"plan":        func(r *UsageRequest) { r.Plan = "" },
+		"window_minutes": func(r *UsageRequest) {
+			r.FiveHour, r.SevenDay = withoutWindowMinutes(r.FiveHour), withoutWindowMinutes(r.SevenDay)
+		},
 	},
+}
+
+func withoutWindowMinutes(w *UsageWindow) *UsageWindow {
+	if w == nil || w.WindowMinutes == 0 {
+		return w
+	}
+	c := *w
+	c.WindowMinutes = 0
+	return &c
 }
 
 func (d *fieldDropper[T]) drop(field string, now time.Time) bool {

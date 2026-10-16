@@ -151,3 +151,31 @@ func TestAppServerRateLimitsCarryThePlanType(t *testing.T) {
 		t.Fatalf("usages = %+v, want plan plus", usages)
 	}
 }
+
+func TestWatcherUsageCarriesTheRolloutWindowLengths(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	reset := strconv.FormatInt(now.Add(time.Hour).Unix(), 10)
+	tok := `{"timestamp":"2026-10-05T08:00:10Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":30,"window_minutes":240,"resets_at":` + reset + `},"secondary":{"used_percent":5,"window_minutes":10080,"resets_at":` + reset + `}}}}`
+	writeRollout(t, dir, "rollout-a.jsonl", now, metaCLI, evStarted, tok)
+	w := newTestWatcher(dir, now)
+	w.cfg.RatePctEnabled = true
+	_, _, usages := w.tick()
+	if len(usages) != 1 || usages[0].FiveHour == nil || usages[0].FiveHour.WindowMinutes != 240 || usages[0].SevenDay.WindowMinutes != 10080 {
+		t.Fatalf("usages = %+v, want the rollout's window lengths", usages)
+	}
+}
+
+func TestAppServerRateLimitsCarryTheWindowLengths(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	w := newTestWatcher(dir, now)
+	w.cfg.RatePctEnabled = true
+	as := connectedAppServer(w.cfg, "t1", wireStatus{Type: "active"})
+	reset := strconv.FormatInt(now.Add(time.Hour).Unix(), 10)
+	as.onNotification("account/rateLimits/updated", json.RawMessage(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":55,"windowDurationMins":300,"resetsAt":`+reset+`}}}`))
+	_, _, usages := cycle(w, as)
+	if len(usages) != 1 || usages[0].FiveHour == nil || usages[0].FiveHour.WindowMinutes != 300 {
+		t.Fatalf("usages = %+v, want window_minutes 300", usages)
+	}
+}

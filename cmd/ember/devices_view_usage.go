@@ -57,6 +57,13 @@ func knobWindow(w *UsageWindow, length int64, now time.Time) *knobUsageWindow {
 	return out
 }
 
+func fiveHourSecs(w *UsageWindow) int64 {
+	if w != nil && w.WindowMinutes > 0 {
+		return w.WindowMinutes * 60
+	}
+	return knobUsageFiveHourSecs
+}
+
 func knobModels(models map[string]*UsageWindow, now time.Time) []knobUsageModel {
 	names := make([]string, 0, len(models))
 	for name, w := range models {
@@ -90,7 +97,7 @@ func (a *App) knobUsage(now time.Time) *knobUsage {
 			ID:       acc.ID,
 			Tool:     acc.Tool,
 			Name:     acc.Name,
-			FiveHour: knobWindow(u.FiveHour, knobUsageFiveHourSecs, now),
+			FiveHour: knobWindow(u.FiveHour, fiveHourSecs(u.FiveHour), now),
 			SevenDay: knobWindow(u.SevenDay, 0, now),
 			Stale:    !acc.Fresh,
 		}

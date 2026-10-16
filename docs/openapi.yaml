@@ -335,6 +335,13 @@ components:
         reset_label:
           type: string
           maxLength: 32
+        window_minutes:
+          type: integer
+          format: int64
+          description: >-
+            The window's length when the producer knows it (Codex); the
+            knob's 5h `starts_at` uses it, else 5 h. Outside 1 to 44640 it
+            is ignored.
     UsageRequest:
       type: object
       additionalProperties: false

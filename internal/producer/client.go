@@ -91,9 +91,10 @@ func (c *Client) Delete(ctx context.Context, req DeleteRequest) error {
 }
 
 type UsageWindow struct {
-	UsedPercent float64 `json:"used_percent"`
-	ResetsAt    int64   `json:"resets_at,omitempty"`
-	ResetLabel  string  `json:"reset_label,omitempty"`
+	UsedPercent   float64 `json:"used_percent"`
+	ResetsAt      int64   `json:"resets_at,omitempty"`
+	ResetLabel    string  `json:"reset_label,omitempty"`
+	WindowMinutes int64   `json:"window_minutes,omitempty"`
 }
 
 type UsageRequest struct {

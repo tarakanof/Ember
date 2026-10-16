@@ -125,11 +125,11 @@ func buildUsageRequest(d derived) (producer.UsageRequest, bool) {
 	loc := time.Now().Location()
 	req := producer.UsageRequest{Tool: "codex", Source: "codex_stream"}
 	if d.rateResetAt != 0 {
-		req.FiveHour = &producer.UsageWindow{UsedPercent: d.primaryRaw, ResetsAt: d.rateResetAt,
+		req.FiveHour = &producer.UsageWindow{UsedPercent: d.primaryRaw, ResetsAt: d.rateResetAt, WindowMinutes: d.primaryMins,
 			ResetLabel: time.Unix(d.rateResetAt, 0).In(loc).Format("15:04")}
 	}
 	if d.weeklyResetAt != 0 {
-		req.SevenDay = &producer.UsageWindow{UsedPercent: d.weeklyRaw, ResetsAt: d.weeklyResetAt,
+		req.SevenDay = &producer.UsageWindow{UsedPercent: d.weeklyRaw, ResetsAt: d.weeklyResetAt, WindowMinutes: d.weeklyMins,
 			ResetLabel: strings.ToUpper(time.Unix(d.weeklyResetAt, 0).In(loc).Format("Mon"))}
 	}
 	return req, true
