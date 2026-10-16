@@ -212,9 +212,16 @@ SELECT
   t.thread_id,
   t.title,
   presented.status,
-  (SELECT q.kind FROM orchestration_v2_projection_runtime_requests q
-    WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'
-    ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1),
+  COALESCE(
+    (SELECT q.kind FROM orchestration_v2_projection_runtime_requests q
+      WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'
+      ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1),
+    (SELECT 'user_input' FROM orchestration_v2_projection_runs r
+      CROSS JOIN orchestration_v2_projection_turn_items s
+      WHERE r.thread_id = t.thread_id AND r.status IN ('preparing', 'starting', 'running', 'waiting')
+        AND s.thread_id = t.thread_id AND s.run_id = r.run_id
+        AND s.type = 'secret_request' AND s.status = 'waiting' AND s.node_id IS NOT NULL
+      LIMIT 1)),
   COALESCE(
     (SELECT json_extract(ps.payload_json, '$.lastError') FROM orchestration_v2_projection_provider_sessions ps
       INNER JOIN orchestration_v2_projection_provider_session_bindings b
@@ -229,8 +236,16 @@ SELECT
   COALESCE(t.archived_at, json_extract(t.payload_json, '$.archivedAt')),
   presented.requested_at,
   presented.completed_at,
-  (SELECT max(q.created_at) FROM orchestration_v2_projection_runtime_requests q
-    WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'),
+  COALESCE(
+    (SELECT max(q.created_at) FROM orchestration_v2_projection_runtime_requests q
+      WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'),
+    (SELECT COALESCE(json_extract(s.payload_json, '$.startedAt'), s.updated_at)
+      FROM orchestration_v2_projection_runs r
+      CROSS JOIN orchestration_v2_projection_turn_items s
+      WHERE r.thread_id = t.thread_id AND r.status IN ('preparing', 'starting', 'running', 'waiting')
+        AND s.thread_id = t.thread_id AND s.run_id = r.run_id
+        AND s.type = 'secret_request' AND s.status = 'waiting' AND s.node_id IS NOT NULL
+      ORDER BY s.updated_at DESC, s.turn_item_id DESC LIMIT 1)),
   (SELECT a.status FROM orchestration_v2_projection_runs a
     WHERE a.thread_id = t.thread_id AND a.status IN ('preparing', 'starting', 'running', 'waiting')
     ORDER BY a.ordinal DESC, a.run_id DESC LIMIT 1),
@@ -255,6 +270,9 @@ SELECT
         AND i.status IN ('pending', 'running', 'waiting')
         AND NOT (i.type = 'dynamic_tool' AND json_type(i.payload_json, '$.input.persistent') = 'true')
         AND (i.run_id IS NULL OR ir.status <> 'rolled_back'))
+    OR EXISTS (SELECT 1 FROM json_each(t.payload_json, '$.pullRequests') pr
+      WHERE json_extract(pr.value, '$.watch') IS NOT NULL
+        AND json_extract(pr.value, '$.source') IS NOT 'stack-dismissed')
   ) THEN 1 ELSE 0 END
 FROM orchestration_v2_projection_threads t
 LEFT JOIN orchestration_v2_projection_runs presented ON presented.run_id = (
