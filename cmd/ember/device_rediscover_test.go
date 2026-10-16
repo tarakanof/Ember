@@ -225,3 +225,22 @@ func TestStartDeviceWatch_SwapsOnUnreachableCurrent(t *testing.T) {
 		t.Fatalf("StartDeviceWatch did not return promptly after ctx cancel")
 	}
 }
+
+func TestRediscoverClock_RecordsSupersededWhenTheURLMovedDuringBrowse(t *testing.T) {
+	a := newTestApp(t)
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
+	a.lastRediscoverResult.Store("no-device")
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+		a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:10" })
+		return []discovery.Candidate{{BaseURL: "http://127.0.0.1:11", UID: "u"}}, nil
+	}
+	if a.rediscoverClock(context.Background()) {
+		t.Fatal("a rediscovery whose URL moved during the browse must not swap")
+	}
+	if got := a.cfg.Load().effectiveClockURL(); got != "http://127.0.0.1:10" {
+		t.Fatalf("effective URL = %s, want the URL set during the browse", got)
+	}
+	if got := a.lastRediscoverResult.Load(); got != "superseded" {
+		t.Fatalf("lastRediscoverResult=%v want superseded", got)
+	}
+}

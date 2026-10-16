@@ -25,6 +25,12 @@ const emberBrowseName = emberServiceType + ".local."
 var mdnsGroup = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 
 func BrowseEmber(ctx context.Context, timeout time.Duration) ([]EmberServer, error) {
+	return browseEmber(ctx, timeout, legacyUnicastBrowse, dnssd.LookupType)
+}
+
+type unicastLookup func(ctx context.Context) ([]EmberServer, error)
+
+func browseEmber(ctx context.Context, timeout time.Duration, lookupUnicast unicastLookup, lookupMDNS mdnsLookup) ([]EmberServer, error) {
 	bctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -49,14 +55,14 @@ func BrowseEmber(ctx context.Context, timeout time.Duration) ([]EmberServer, err
 	go func() {
 		defer wg.Done()
 		var found []EmberServer
-		found, unicastErr = legacyUnicastBrowse(bctx)
+		found, unicastErr = lookupUnicast(bctx)
 		for _, s := range found {
 			add(s)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		err := dnssd.LookupType(bctx, emberBrowseName, func(e dnssd.BrowseEntry) {
+		err := lookupMDNS(bctx, emberBrowseName, func(e dnssd.BrowseEntry) {
 			if s, ok := emberServerFrom(e); ok {
 				add(s)
 			}
@@ -66,6 +72,9 @@ func BrowseEmber(ctx context.Context, timeout time.Duration) ([]EmberServer, err
 		}
 	}()
 	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if len(order) == 0 && unicastErr != nil && multicastErr != nil {
 		return nil, fmt.Errorf("unicast: %v; multicast: %v", unicastErr, multicastErr)

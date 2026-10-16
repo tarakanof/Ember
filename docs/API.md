@@ -140,7 +140,10 @@ URL is a 400; GET answers the effective URL and its `source` — see
 `clock_url.go`; a PUT that changes the effective URL republishes and, in the
 background, provisions icons on the new clock and installs or removes the
 boot-ping script there, following `awtrix.boot_ping`),
-`GET /v1/device/discover`, `GET/PUT /v1/device/settings` (whitelisted
+`GET /v1/device/discover` (a ~3 s browse: 200 with `candidates`,
+`effective` and `source`, 502 when the browse fails; a client that hangs
+up mid-browse gets no response, the browse stops and nothing is logged as
+a 502), `GET/PUT /v1/device/settings` (whitelisted
 `PATCH /api/v1/settings` keys — see `device_settings.go`; during a Pomodoro
 takeover `autoTransition`/`blockNavigation` read and write the saved prior,
 flagged by an `X-Ember-Deferred-Keys` response header),
