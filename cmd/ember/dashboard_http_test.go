@@ -168,6 +168,7 @@ func goldenApp(t *testing.T) *App {
 	app.weather.obs = weatherObservation{
 		Condition: "rain", ConditionCode: "61", TempC: 11.5, FetchedAt: fetched,
 		Hourly: []float64{11.5, 12, 12.5}, HourlyStart: time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC),
+		Days: []weatherDay{{Start: time.Date(2026, 9, 26, 0, 0, 0, 0, goldenZone), MinC: new(8.4), MaxC: new(16.6)}},
 	}
 	app.weather.have = true
 	app.weather.source = app.cfg.Load().Weather.source()
@@ -346,6 +347,34 @@ func TestWeatherStateRoundsSunTimes(t *testing.T) {
 		if v.Unix()%int64(sunRounding/time.Second) != 0 {
 			t.Errorf("%s = %v, want a multiple of %v", name, v, sunRounding)
 		}
+	}
+}
+
+func TestWeatherStateTodayRangeIsTheKnobsRange(t *testing.T) {
+	out := goldenApp(t).buildWeatherState(goldenNow)
+	if out.Current == nil || out.Current.TodayMinC == nil || out.Current.TodayMaxC == nil {
+		t.Fatalf("today range = %+v, want the forecast day's min and max", out.Current)
+	}
+	if *out.Current.TodayMinC != 8.4 || *out.Current.TodayMaxC != 16.6 {
+		t.Errorf("today = %v..%v, want 8.4..16.6", *out.Current.TodayMinC, *out.Current.TodayMaxC)
+	}
+
+	app := newPomodoroApp(t)
+	app.weather.mu.Lock()
+	app.weather.obs = weatherObservation{Condition: "clear", TempC: 21, FetchedAt: goldenNow,
+		Days: []weatherDay{{Start: goldenNow.Add(-time.Hour), MinC: new(9.0), MaxC: new(18.0)}}}
+	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.mu.Unlock()
+	cur := app.buildWeatherState(goldenNow).Current
+	if cur == nil || cur.TodayMaxC == nil || *cur.TodayMaxC != 21 {
+		t.Errorf("today max = %+v, want the current 21 C above the forecast max", cur)
+	}
+	app.weather.mu.Lock()
+	app.weather.obs.Days = nil
+	app.weather.mu.Unlock()
+	if cur := app.buildWeatherState(goldenNow).Current; cur == nil || cur.TodayMinC != nil || cur.TodayMaxC != nil {
+		t.Errorf("today = %+v, want null without a forecast day", cur)
 	}
 }
 

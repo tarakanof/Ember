@@ -152,7 +152,7 @@ private func pomo(_ phase: String, running: Bool = true, paused: Bool = false, r
     #expect(KnobWeatherLook(provider: "open-meteo", condition: "rain", code: "65", night: false)
             == .init(face: .rain, intensity: .heavy))
     #expect(KnobWeatherLook(provider: "open-meteo", condition: "clear", code: "0", night: true).face == .clearNight)
-    #expect(KnobWeatherLook(provider: "open-meteo", condition: "fog", code: "48", night: nil).rime)
+    #expect(KnobWeatherLook(provider: "open-meteo", condition: "fog", code: "48", night: nil) == .init(face: .fog))
     #expect(KnobWeatherLook(provider: "met-no", condition: "clouds", code: "partlycloudy_night", night: nil)
             == .init(face: .partlyCloudy, night: true))
     #expect(KnobWeatherLook(provider: "met-no", condition: "snow", code: "lightsnowshowers_day", night: nil)
@@ -161,24 +161,6 @@ private func pomo(_ phase: String, running: Bool = true, paused: Bool = false, r
     #expect(KnobWeatherLook.isNight(now: 23 * 60, rise: 6 * 60, set: 20 * 60))
     #expect(!KnobWeatherLook.isNight(now: 12 * 60, rise: 6 * 60, set: 20 * 60))
     #expect(KnobWeatherLook(state: nil, now: .now, maxAge: 1800) == .init(face: .overcast, still: true))
-}
-
-@Test func knobWeatherSceneIsDeterministicAndStaysInTheSky() {
-    var a = KnobWeatherScene(), b = KnobWeatherScene()
-    let look = KnobWeatherLook(face: .storm, intensity: .heavy)
-    a.setLook(look); b.setLook(look)
-    var flashed = false
-    for _ in 0..<(12 * 20) {
-        a.step(1.0 / 12); b.step(1.0 / 12)
-        flashed = flashed || a.flash
-        let d = a.draws(colors: KnobTheme.standard.weather.colors)
-        #expect(d == b.draws(colors: KnobTheme.standard.weather.colors))
-        for x in d where x.sprite == .rain {
-            #expect(x.y >= 49 && x.y + 18 <= 141)
-        }
-    }
-    #expect(flashed)
-    #expect(KnobWeatherScene.period(.init(face: .clearDay, still: true)) == 0)
 }
 
 @MainActor
@@ -257,23 +239,82 @@ private func save(_ img: CGImage, _ name: String) {
         save(img, name)
     }
 
-    for look in [KnobWeatherLook(face: .clearDay), .init(face: .clearNight), .init(face: .partlyCloudy),
-                 .init(face: .overcast), .init(face: .fog), .init(face: .rain, intensity: .moderate),
-                 .init(face: .snow, intensity: .heavy), .init(face: .storm, intensity: .heavy),
-                 .init(face: .rain, intensity: .moderate, still: true)] {
-        var scene = KnobWeatherScene()
-        scene.setLook(look)
-        for _ in 0..<30 { scene.step(0.1) }
-        let img = try #require(render(KnobFaceView(.weather(look: look, draws: scene.draws(colors: th.weather.colors),
-                                                            tempC: look.still ? nil : 14.4))))
-        save(img, "weather-\(look.face.rawValue)\(look.still ? "-stale" : "")")
-        if look.face == .clearDay {
-            #expect(near(pixel(img, 233, 96 + 70 - 13), th.weather.colors.sun, 60))
-            let rows = (236..<300).filter { y in (200..<266).contains { x in pixel(img, x, y).r > 60 } }
-            let mid = Double(rows.first! + rows.last!) / 2
-            #expect(abs(mid - 262) <= 2, "temperature digits centred at \(mid), firmware ~262")
+    let w = th.weather
+    let faces: [(String, KnobTempFace)] = [
+        ("weather-temp", KnobTempFace(value: 14.4, todayMinC: 8.4, todayMaxC: 19.2, sub: "Partly cloudy")),
+        ("weather-temp-frost", KnobTempFace(value: -6, todayMinC: -9, todayMaxC: -1, sub: "Light snow")),
+        ("weather-temp-hot", KnobTempFace(value: 33, todayMinC: 21, todayMaxC: 34, sub: "Sunny")),
+        ("weather-temp-no-range", KnobTempFace(value: 14.4, sub: "Overcast")),
+        ("weather-temp-stale", KnobTempFace(value: 14.4, still: true, todayMinC: 8.4, todayMaxC: 19.2, sub: "Rain")),
+        ("weather-temp-no-data", KnobTempFace(value: nil, still: true)),
+    ]
+    for (name, f) in faces {
+        let img = try #require(render(KnobFaceView(.weather(f))))
+        save(img, name)
+    }
+    let day = faces[0].1
+    let img = try #require(render(KnobFaceView(.weather(day))))
+    let rr = w.ring.radiusPx
+    #expect(near(pixel(img, 233, Int(233 - rr)), KnobTempFace.color(Double(day.lo) + Double(day.hi - day.lo) / 2, w.scale), 40),
+            "ring top is the range's middle colour")
+    let start = KnobTempFace.gaugePoint(0.02, w, center: 233), end = KnobTempFace.gaugePoint(0.98, w, center: 233)
+    #expect(near(pixel(img, Int(start.x), Int(start.y)), KnobTempFace.color(Double(day.lo), w.scale), 40))
+    #expect(near(pixel(img, Int(end.x), Int(end.y)), KnobTempFace.color(Double(day.hi), w.scale), 40))
+    #expect(near(pixel(img, 233, Int(233 + rr)), .init(r: 0, g: 0, b: 0), 8), "no ring in the bottom gap")
+    let marker = KnobTempFace.gaugePoint(day.fraction, w, center: 233)
+    #expect(near(pixel(img, Int(marker.x.rounded()), Int(marker.y.rounded())), .init(r: 0, g: 0, b: 0), 8), "marker hole")
+    #expect(near(pixel(img, Int(marker.x.rounded() + w.marker.ringRadiusPx), Int(marker.y.rounded())), w.marker.color, 40))
+    let merc = KnobTempFace.color(14, w.scale)
+    #expect(near(pixel(img, 233, Int(w.thermo.bulbYPx + w.thermo.dyPx)), merc, 30), "mercury bulb")
+    #expect(near(pixel(img, 233, Int(w.thermo.headYPx + w.thermo.dyPx - w.thermo.headRadiusPx)), w.thermo.strokeColor, 40), "tube outline")
+    let valueRows = (200..<310).filter { y in (150..<330).contains { x in near(pixel(img, x, y), merc, 30) } }
+    #expect(!valueRows.isEmpty && valueRows.first! >= 200 + 10 && valueRows.last! < Int(w.sub.yPx), "digits under the value top, above the sub-line")
+    let subPixels = (302..<335).flatMap { y in (160..<306).map { x in pixel(img, x, y) } }
+    #expect(subPixels.contains { near($0, w.sub.color, 30) }, "sub-line in its grey")
+    let loPixels = (362..<402).flatMap { y in (96..<170).map { x in pixel(img, x, y) } }
+    #expect(loPixels.contains { near($0, KnobTempFace.color(8, w.scale), 30) }, "low end label in its scale colour")
+    let dot = KnobTempFace.dotPoint(0, w.dots, center: 233)
+    #expect(near(pixel(img, Int(dot.x), Int(dot.y)), w.dots.onColor, 40))
+
+    for bad in [Double.nan, .infinity, -.infinity, 1e300] {
+        #expect(render(KnobFaceView(.weather(KnobTempFace(value: bad, todayMinC: bad, todayMaxC: bad)))) != nil)
+        #expect(render(KnobFaceView(.weather(KnobTempFace(value: 1e300, todayMinC: -1e300, todayMaxC: bad)))) != nil)
+    }
+    #expect(KnobFaceRender.fontRegistered, "Montserrat must be registered or the labels fall back")
+    let ct = CTFontCreateWithName(th.font.family as CFString, w.value.fontPx, nil)
+    #expect(CTFontCopyPostScriptName(ct) as String == th.font.family, "value font resolves to Montserrat")
+    #expect(KnobFaceRender.degreeShift(w.value, th) == 19, "deg / 2 of the 40 px degree glyph and -2 spacing")
+
+    let ink = (200..<Int(w.sub.yPx)).flatMap { y in (100..<366).filter { x in near(pixel(img, x, y), merc, 60) } }
+    let fontDigits96Left = 184, fontDigits96Right = 316
+    #expect(abs(ink.min()! - fontDigits96Left) <= 3 && abs(ink.max()! - fontDigits96Right) <= 3,
+            "\"14°\" spans \(ink.min()!)...\(ink.max()!), firmware glyph boxes \(fontDigits96Left)...\(fontDigits96Right)")
+
+    let none = try #require(render(KnobFaceView(.weather(faces[5].1))))
+    #expect(near(pixel(none, 233, Int(233 - rr)), w.ring.trackColor, 12), "no data: grey track")
+    let th0 = w.thermo
+    func thermoD(_ x: Double, _ y: Double) -> Double {
+        let top = hypot(x - 233, y - (th0.headYPx + th0.dyPx)) - th0.headRadiusPx
+        let bulb = hypot(x - 233, y - (th0.bulbYPx + th0.dyPx)) - th0.bulbRadiusPx
+        let qx = abs(x - 233) - th0.tubeHalfWPx, qy = abs(y - (th0.tubeMidYPx + th0.dyPx)) - th0.tubeHalfHPx
+        let rect = hypot(max(qx, 0), max(qy, 0)) + min(max(qx, qy), 0)
+        return min(top, bulb, rect)
+    }
+    var dark = 0, lit = 0
+    for y in 96..<196 {
+        for x in 208..<258 {
+            let fx = Double(x) + 0.5, fy = Double(y) + 0.5, d = thermoD(fx, fy)
+            let mercury = hypot(fx - 233, fy - (th0.bulbYPx + th0.dyPx)) < th0.mercuryBulbRadiusPx + 2
+            if d < -th0.strokePx / 2 - 0.6, !mercury {
+                dark += 1
+                #expect(near(pixel(none, x, y), .init(r: 0, g: 0, b: 0), 10), "no-data thermometer inside is black at \(x),\(y)")
+            } else if abs(d) < th0.strokePx / 2 - 0.6 {
+                lit += 1
+                #expect(near(pixel(none, x, y), th0.strokeColor, 50), "thermometer outline at \(x),\(y)")
+            }
         }
     }
+    #expect(dark > 300 && lit > 100)
 
     for dark in [true, false] {
         let framed = try #require(render(KnobScreen { KnobFaceView(.pomodoro(focus)) }, side: 240, dark: dark))
@@ -423,12 +464,6 @@ private extension Double { var asInt: Int { Int(self) } }
                                   fetchArt: { k, s, _ in calls.art.append("\(k)/\(s)"); return pngData(s) })
     await feed.refresh()
     #expect(calls.art == ["album/120", "artist/64"] && feed.pictures.backdrop == nil && feed.pictures.album != nil)
-}
-
-@Test func rainSpriteSlantsByTheThemeSlant() throws {
-    let slant = try KnobTheme.load().weather.scene.rain.slant
-    let end = try #require(KnobWeatherScene.shape(.rain, frame: 0).strokes.first?.last)
-    #expect(abs(end.x - (6 + 14 * slant[0] / slant[1])) < 1e-9)
 }
 
 @Test func knobLabelShowsOnlyOnALabelMoodWithAHost() {

@@ -3320,7 +3320,13 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   (`bot_shape.c`, `bot_view.c` Head style with its plain 9 px outline and
   squash variants picked by sy/sx so the pop only pulses the eyes, the eye
   lid as a clip line from the top (`bot_lid_line_y`),
-  `pomo_view.c`, `weather_face.c`, `weather_scene.c`, and `nowplaying_view.c`
+  `pomo_view.c`, the weather page's Temperature face (`temp_face.c`,
+  `wx_temp.c`, `wx_paint.c`, #430: colour-scale gauge ring with its
+  marker, thermometer and mercury, value, today's low and high, sky
+  sub-line, face dots; today's range is `current.today_min_c`/`today_max_c`
+  of `/v1/weather/state`; the sky, clouds, hero, count-up arrival, drift
+  and burn-in shift are not drawn, and the sub-line has no cloud cover or
+  UV advice, so it is the condition's word), and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three
@@ -3330,9 +3336,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   error shake, huff and gaze split (`bot.error`). `knob-theme.json`
   (`macos/Sources/EmberKit/Resources/`) holds the numbers the renderers
   share with the firmware: geometry, palette, label layout and LVGL font
-  metrics, eye geometry, and the weather scene's sprite sizes, layout,
-  particles and timing. The sprite outlines themselves (cloud, moon, rays…)
-  and the hop squash curve stay in code on both sides. `KnobThemeTests` pins
+  metrics, eye geometry, and the Temperature face's scale, ring, thermometer
+  and label layout. Shape formulas and the hop squash curve stay in code on
+  both sides. `KnobThemeTests` pins
   every key; with a cinder checkout next to this repo (or `CINDER_DIR`) it
   also parses the firmware source and checks each key against the constant
   it mirrors. tarakanof/cinder#34 tracks generating the C side from a copy.
@@ -3340,10 +3346,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `Montserrat-OFL.txt` next to it), the font LVGL's built-in sizes are made
   from, placed by LVGL's line box (top, line height, baseline). The bot
   redraws only when its pose changes: 20 fps while `BotBehavior.isAnimating`,
-  otherwise the next frame is scheduled at `nextEventAt`. Weather runs at the
-  firmware's frame rate, the Pomodoro ticks once a second, and only while
-  the pane is on screen; Reduce Motion keeps blinks only and holds the sky
-  still. The Pages overview has no timers: it redraws when the polled data
+  otherwise the next frame is scheduled at `nextEventAt`. Weather redraws
+  once a minute (staleness), the Pomodoro ticks once a second, and only while
+  the pane is on screen; Reduce Motion keeps blinks only. The Pages overview has no timers: it redraws when the polled data
   changes. `KNOB_SNAPSHOT_DIR=… swift test --filter knobFaces` writes PNGs
   of every face.
 

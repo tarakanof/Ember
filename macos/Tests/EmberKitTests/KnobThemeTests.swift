@@ -17,7 +17,11 @@ private let pinned: [String: String] = [
     "font.metrics.30.line_height_px": "33",
     "font.metrics.30.baseline_px": "6",
     "font.metrics.48.line_height_px": "52",
+    "font.metrics.36.line_height_px": "40",
+    "font.metrics.36.baseline_px": "7",
     "font.metrics.48.baseline_px": "9",
+    "font.metrics.96.line_height_px": "107",
+    "font.metrics.96.baseline_px": "19",
     "mood_colors.idle": "#888888",
     "mood_colors.working": "#2EE85E",
     "mood_colors.waiting": "#FFC14D",
@@ -129,110 +133,59 @@ private let pinned: [String: String] = [
     "pomodoro.round.font_px": "14",
     "pomodoro.round.dy_px": "-54",
     "pomodoro.round.width_px": "200",
-    "weather.sky.width_px": "200",
-    "weather.sky.height_px": "140",
-    "weather.sky.y_px": "96",
-    "weather.temp.font_px": "48",
-    "weather.temp.color": "#8C8C8C",
-    "weather.temp.still_color": "#5A5A5A",
     "weather.max_age_s": "1800",
-    "weather.colors.sun": "#E0A030",
-    "weather.colors.rays": "#C08828",
-    "weather.colors.moon": "#D8D0B0",
-    "weather.colors.star": "#C8D0E0",
-    "weather.colors.cloud": "#9AA4B0",
-    "weather.colors.rain_cloud": "#7C8694",
-    "weather.colors.storm_cloud": "#6A7280",
-    "weather.colors.lit_cloud": "#C8CCD8",
-    "weather.colors.snow_cloud": "#A8B0BC",
-    "weather.colors.rain": "#5C9CE0",
-    "weather.colors.snow": "#D0DCE8",
-    "weather.colors.bolt": "#F0D040",
-    "weather.colors.fog": "#8890A0",
-    "weather.colors.rime": "#90C8E0",
-    "weather.colors.still": "#5A5A5A",
-    "weather.scene.fps.rain": "12",
-    "weather.scene.fps.snow": "10",
-    "weather.scene.fps.other": "4",
-    "weather.scene.max_step_s": "0.5",
-    "weather.scene.sprites.rain": "[8,18]",
-    "weather.scene.sprites.flake_s": "[6,6]",
-    "weather.scene.sprites.flake_l": "[14,14]",
-    "weather.scene.sprites.cloud_l": "[110,56]",
-    "weather.scene.sprites.cloud_s": "[68,36]",
-    "weather.scene.sprites.bolt": "[20,40]",
-    "weather.scene.sprites.moon": "[40,40]",
-    "weather.scene.sprites.star": "[10,10]",
-    "weather.scene.sprites.sun": "[36,36]",
-    "weather.scene.sprites.rays": "[60,60]",
-    "weather.scene.sprites.fog": "[128,10]",
-    "weather.scene.ray_frames": "16",
-    "weather.scene.ray_steps_per_s": "4",
-    "weather.scene.drops.rain": "[5,10,16]",
-    "weather.scene.drops.storm": "[10,10,14]",
-    "weather.scene.drops.snow": "[6,9,12]",
-    "weather.scene.drop_alpha.rain": "[170,210,255]",
-    "weather.scene.drop_alpha.snow": "230",
-    "weather.scene.rain.top": "50",
-    "weather.scene.rain.x": "[58,154]",
-    "weather.scene.rain.speed": "150",
-    "weather.scene.rain.speed_spread": "0.2",
-    "weather.scene.rain.slant": "[-4,14]",
-    "weather.scene.rain.respawn_band": "6",
-    "weather.scene.snow.x": "[40,160]",
-    "weather.scene.snow.amp": "[4,4]",
-    "weather.scene.snow.freq": "[0.5,0.4]",
-    "weather.scene.snow.speed": "[18,14]",
-    "weather.scene.snow.large_share": "0.4",
-    "weather.scene.stars.x": "[28,158,44,150,178,14]",
-    "weather.scene.stars.y": "[26,18,98,104,60,62]",
-    "weather.scene.stars.jitter": "8",
-    "weather.scene.stars.alpha": "90",
-    "weather.scene.stars.twinkle_alpha": "165",
-    "weather.scene.stars.first_twinkle_s": "1",
-    "weather.scene.stars.twinkle_s": "[0.8,0.8]",
-    "weather.scene.bolt.first_s": "[2,3]",
-    "weather.scene.bolt.gap_s": "[4,6]",
-    "weather.scene.bolt.on_s": "0.25",
-    "weather.scene.bolt.double_chance": "0.5",
-    "weather.scene.bolt.second_s": "[0.4,0.6]",
-    "weather.scene.bolt.x": "[60,70]",
-    "weather.scene.bolt.y": "50",
-    "weather.scene.layout.clear_sun": "[100,70]",
-    "weather.scene.layout.night_moon": "[80,46]",
-    "weather.scene.layout.partly_moon": "[48,30]",
-    "weather.scene.layout.partly_sun": "[70,52]",
-    "weather.scene.layout.partly_cloud.x": "74",
-    "weather.scene.layout.partly_cloud.y": "62",
-    "weather.scene.layout.partly_cloud.amp": "14",
-    "weather.scene.layout.partly_cloud.period_s": "40",
-    "weather.scene.layout.partly_cloud.phase": "0",
-    "weather.scene.layout.partly_cloud.alpha": "255",
-    "weather.scene.layout.overcast_back.x": "22",
-    "weather.scene.layout.overcast_back.y": "24",
-    "weather.scene.layout.overcast_back.amp": "10",
-    "weather.scene.layout.overcast_back.period_s": "50",
-    "weather.scene.layout.overcast_back.phase": "1",
-    "weather.scene.layout.overcast_back.alpha": "150",
-    "weather.scene.layout.overcast_front.x": "66",
-    "weather.scene.layout.overcast_front.y": "52",
-    "weather.scene.layout.overcast_front.amp": "16",
-    "weather.scene.layout.overcast_front.period_s": "36",
-    "weather.scene.layout.overcast_front.phase": "0",
-    "weather.scene.layout.overcast_front.alpha": "255",
-    "weather.scene.layout.precip_cloud.x": "45",
-    "weather.scene.layout.precip_cloud.y": "4",
-    "weather.scene.layout.precip_cloud.amp": "6",
-    "weather.scene.layout.precip_cloud.period_s": "30",
-    "weather.scene.layout.precip_cloud.phase": "0",
-    "weather.scene.layout.precip_cloud.alpha": "255",
-    "weather.scene.layout.fog.x": "36",
-    "weather.scene.layout.fog.y": "30",
-    "weather.scene.layout.fog.step": "22",
-    "weather.scene.layout.fog.amp": "[28,22,30,18]",
-    "weather.scene.layout.fog.period_s": "[23,31,19,27]",
-    "weather.scene.layout.fog.phase": "[0,2.1,4,1.2]",
-    "weather.scene.layout.fog.alpha": "[210,140]",
+    "weather.still_color": "#5A5A5A",
+    "weather.scale.lo_c": "-20",
+    "weather.scale.hi_c": "40",
+    "weather.scale.stops_c": "[-20,-12,-6,-2,0,4,8,8.545455,9.090909,9.636364,10.181818,10.727273,11.272727,12,12.363636,12.909091,13.454545,14,15,25,35,40]",
+    "weather.scale.colors": "[#B070E0,#7060E8,#4C84F0,#5CB0F0,#66C2EC,#52C6D2,#4AC5B9,#4BC8AA,#4CCAA2,#4CCB9A,#5CCC92,#6BCD8A,#7BCE82,#8ACF7A,#9AD072,#AAD06A,#BAD162,#C9D25A,#E8D44A,#F08A3A,#FF5050,#E0306A]",
+    "weather.ring.radius_px": "222",
+    "weather.ring.width_px": "12",
+    "weather.ring.from_deg": "225",
+    "weather.ring.sweep_deg": "270",
+    "weather.ring.track_color": "#262626",
+    "weather.marker.disc_radius_px": "17",
+    "weather.marker.ring_radius_px": "10",
+    "weather.marker.ring_width_px": "5",
+    "weather.marker.color": "#F4F4F2",
+    "weather.thermo.dy_px": "-14",
+    "weather.thermo.head_y_px": "127",
+    "weather.thermo.head_radius_px": "11",
+    "weather.thermo.tube_mid_y_px": "147.875",
+    "weather.thermo.tube_half_h_px": "20.875",
+    "weather.thermo.tube_half_w_px": "11",
+    "weather.thermo.bulb_y_px": "183",
+    "weather.thermo.bulb_radius_px": "18",
+    "weather.thermo.stroke_px": "4.5",
+    "weather.thermo.stroke_color": "#9AA4B0",
+    "weather.thermo.mercury_bottom_px": "184",
+    "weather.thermo.mercury_half_w_px": "4",
+    "weather.thermo.mercury_bulb_radius_px": "10",
+    "weather.thermo.mercury_top.ref_c": "12",
+    "weather.thermo.mercury_top.ref_px": "144",
+    "weather.thermo.mercury_top.rise_px": "22",
+    "weather.thermo.mercury_top.per_c": "19",
+    "weather.thermo.mercury_top.min_px": "122",
+    "weather.thermo.mercury_top.max_px": "178",
+    "weather.thermo.ticks_px": "[160,147,134]",
+    "weather.thermo.tick_x_px": "[253,261]",
+    "weather.thermo.tick_width_px": "3",
+    "weather.thermo.tick_color": "#8A8A8A",
+    "weather.value.font_px": "96",
+    "weather.value.y_px": "200",
+    "weather.value.letter_space_px": "-2",
+    "weather.ends.font_px": "36",
+    "weather.ends.x_px": "96",
+    "weather.ends.y_px": "362",
+    "weather.sub.font_px": "30",
+    "weather.sub.y_px": "302",
+    "weather.sub.color": "#BDBDBD",
+    "weather.dots.radius_px": "206",
+    "weather.dots.pitch_px": "16",
+    "weather.dots.dot_radius_px": "4",
+    "weather.dots.on_color": "#FFFFFF",
+    "weather.dots.off_color": "#4A4A4A",
+    "weather.dots.faces": "7",
     "nowplaying.backdrop_disk_radius_px": "188",
     "nowplaying.ring_radius_px": "198",
     "nowplaying.ring_width_px": "6",
@@ -293,11 +246,9 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
     for key in Set(flat.keys).union(pinned.keys).sorted() {
         #expect(flat[key] == pinned[key], "knob-theme.json \(key)")
     }
-    let t = try KnobTheme.load()
-    for s in KnobWeatherScene.Sprite.allCases {
-        #expect(t.weather.scene.sprites[s.rawValue]?.count == 2, "sprite size for \(s)")
-    }
-    #expect(t.weather.scene.rain.slant[0] / t.weather.scene.rain.slant[1] == KnobWeatherScene.rainSlant)
+    let scale = try KnobTheme.load().weather.scale
+    #expect(scale.stopsC.count == scale.colors.count)
+    #expect(scale.stopsC == scale.stopsC.sorted() && scale.stopsC.first == scale.loC && scale.stopsC.last == scale.hiC)
     #expect(KnobTheme.fontURL != nil)
 }
 
@@ -311,7 +262,12 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
     guard let env = ProcessInfo.processInfo.environment["CINDER_DIR"] else { return }
     let root = URL(fileURLWithPath: env)
     for file in ["firmware/main/bot_view.c", "firmware/components/ember_host/include/ember_host.h", "firmware/components/bot/tool_marks.c", "firmware/components/nowplaying/np.c", "firmware/test/host/test_np.c",
-                 "firmware/components/bot/bot_behavior.c"] {
+                 "firmware/components/bot/bot_behavior.c",
+                 "firmware/main/temp_face.c", "firmware/main/font_digits_96.c", "firmware/main/font_face_36.c",
+                 "firmware/components/weather/wx_temp.c", "firmware/components/weather/wx_paint.c",
+                 "firmware/components/weather/include/wx_temp.h", "firmware/components/weather/include/wx_paint.h",
+                 "firmware/components/weather/include/wx_faces.h", "firmware/components/weather/include/wx_cast.h",
+                 "firmware/components/weather/include/wx_wind.h"] {
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path), "CINDER_DIR has no \(file)")
     }
 }
@@ -352,6 +308,18 @@ private let bv = "main/bot_view.c", bs = "components/bot/bot_shape.c", bb = "com
 private let bbh = "components/bot/include/bot_behavior.h", bsh = "components/bot/include/bot_shape.h"
 private let nv = "main/nowplaying_view.c", nc = "main/nowplaying_client.c", nh = "components/nowplaying/include/np.h"
 private let pv = "main/pomo_view.c", tf = "main/temp_face.c"
+private let wt = "components/weather/wx_temp.c", wth = "components/weather/include/wx_temp.h"
+private let wp = "components/weather/wx_paint.c", wph = "components/weather/include/wx_paint.h"
+private let wfh = "components/weather/include/wx_faces.h", wch = "components/weather/include/wx_cast.h"
+private let wwh = "components/weather/include/wx_wind.h"
+private func twice(_ i: Int) -> ([String]) -> String { { n(String(2 * (Double(n($0[i])) ?? .nan))) } }
+private func pairs(_ re: String, _ i: Int) -> ([String]) -> String {
+    { c in
+        let body = c[1], rx = try! NSRegularExpression(pattern: re)
+        let ms = rx.matches(in: body, range: NSRange(body.startIndex..., in: body))
+        return "[" + ms.map { n(String(body[Range($0.range(at: i), in: body)!])) }.joined(separator: ",") + "]"
+    }
+}
 
 private func allChecks() -> [Check] {
     var c: [Check] = [
@@ -463,9 +431,98 @@ private func allChecks() -> [Check] {
         one(pv, #"#define PAUSED_GAIN "# + num, "pomodoro.paused_gain"),
         Check(file: pv, pattern: #"\.r = (\d+), \.hw = (\d+)"#,
               keys: [("pomodoro.ring_radius_px", g(1)), ("pomodoro.ring_width_px", { n(String(2 * (Int($0[2]) ?? 0))) })]),
-        one(tf, #"#define GREY_RGB "# + hex, "weather.temp.still_color"),
+        one(tf, #"#define GREY_RGB "# + hex, "weather.still_color"),
         one("components/weather/include/weather_face.h", #"#define WX_MAX_AGE_S "# + num, "weather.max_age_s"),
+        one(wth, #"#define WX_SCALE_LO \((-?\d+)\)"#, "weather.scale.lo_c"),
+        one(wth, #"#define WX_SCALE_HI (\d+)"#, "weather.scale.hi_c"),
+        Check(file: wt, pattern: #"static const stop_t SCALE\[\] = \{(.*?)\};"#,
+              keys: [("weather.scale.stops_c", pairs(#"\{(-?[\d.]+f?), (0x[0-9A-Fa-f]{6})\}"#, 1)),
+                     ("weather.scale.colors", pairs(#"\{(-?[\d.]+f?), (0x[0-9A-Fa-f]{6})\}"#, 2))]),
+        Check(file: wt, pattern: #"uint32_t wx_temp_rgb\(float c\)\s*\{\s*if \(!\(c > SCALE\[0\]\.t\)\) return SCALE\[0\]\.rgb;\s*"#
+                + #"if \(c >= SCALE\[N_SCALE - 1\]\.t\) return SCALE\[N_SCALE - 1\]\.rgb;[^}]*?"#
+                + #"int v = \(int\)lroundf\(ca \+ \(cb - ca\) \* f\);"#, keys: []),
+        one(wth, #"#define WX_RING_R "# + num, "weather.ring.radius_px"),
+        Check(file: wth, pattern: #"#define WX_RING_HW "# + num, keys: [("weather.ring.width_px", twice(1))]),
+        Check(file: wt, pattern: #"float a = \("# + num + #" \+ "# + num + #" \* frac\) \* \(float\)M_PI / 180\.0f;\s+"#
+                + #"\*x = WX_FACE_C \+ WX_RING_R \* sinf\(a\);\s+\*y = WX_FACE_C - WX_RING_R \* cosf\(a\);"#,
+              keys: [("weather.ring.from_deg", g(1)), ("weather.ring.sweep_deg", g(2))]),
+        one(wp, #"lut\[i\] = wx_rgb565\(grey \? "# + hex + #" : wx_temp_rgb\("#, "weather.ring.track_color"),
+        Check(file: wt, pattern: #"float f = \(float\)\(t->value - t->lo\) / \(float\)\(t->hi - t->lo\);\s+"#
+                + #"t->frac = f < 0 \? 0 : f > 1 \? 1 : f;"#, keys: []),
+        Check(file: wt, pattern: #"t->lo = WX_SCALE_LO;\s+t->hi = WX_SCALE_HI;\s+t->sub_rgb = "# + hex,
+              keys: [("weather.sub.color", g(1))]),
+        Check(file: wt, pattern: #"t->lo = o->min_c < t->value \? o->min_c : t->value;\s+"#
+                + #"t->hi = o->max_c > t->value \? o->max_c : t->value;\s+if \(t->lo == t->hi\) \{\s+t->lo--;\s+t->hi\+\+;"#,
+              keys: []),
+        Check(file: wp, pattern: #"put\(im, i, 0, cov\(d - "# + num + #"\)\);\s+put\(im, i, ring, cov\(fabsf\(d - "# + num
+                + #"\) - "# + num + #"\)\);"#,
+              keys: [("weather.marker.disc_radius_px", g(1)), ("weather.marker.ring_radius_px", g(2)),
+                     ("weather.marker.ring_width_px", twice(3))]),
+        one(wp, #"const uint16_t ring = wx_rgb565\("# + hex + #"\);"#, "weather.marker.color"),
+        one(wth, #"#define WX_THERMO_DY \((-?[\d.]+f?)\)"#, "weather.thermo.dy_px"),
+        Check(file: wp, pattern: #"float top = hypotf\(x - 233, y - \("# + num + #" \+ dy\)\) - "# + num + #";\s+"#
+                + #"float bulb = hypotf\(x - 233, y - \("# + num + #" \+ dy\)\) - "# + num + #";\s+"#
+                + #"float qx = fabsf\(x - 233\) - "# + num + #", qy = fabsf\(y - \("# + num + #" \+ dy\)\) - "# + num + ";",
+              keys: [("weather.thermo.head_y_px", g(1)), ("weather.thermo.head_radius_px", g(2)),
+                     ("weather.thermo.bulb_y_px", g(3)), ("weather.thermo.bulb_radius_px", g(4)),
+                     ("weather.thermo.tube_half_w_px", g(5)), ("weather.thermo.tube_mid_y_px", g(6)),
+                     ("weather.thermo.tube_half_h_px", g(7))]),
+        Check(file: wp, pattern: #"const uint16_t stroke = wx_rgb565\("# + hex + #"\);[^}]*?"#
+                + #"put\(im, y \* im->w \+ x, 0, cov\(d\)\);\s+put\(im, y \* im->w \+ x, stroke, cov\(fabsf\(d\) - "# + num + #"\)\);"#,
+              keys: [("weather.thermo.stroke_color", g(1)), ("weather.thermo.stroke_px", twice(2))]),
+        one(wth, #"#define WX_MERC_BOTTOM "# + num, "weather.thermo.mercury_bottom_px"),
+        Check(file: wp, pattern: #"static const float TICKS\[3\] = \{([^}]*)\};"#, keys: [("weather.thermo.ticks_px", list(1))]),
+        one(wp, #"grey = wx_rgb565\("# + hex + #"\);\s+im->x0 = WX_THERMO_X;"#, "weather.thermo.tick_color"),
+        Check(file: wp, pattern: #"qy = fabsf\(fy - cy\) - \(hh - "# + num + #" > 0 \? hh - \1 : 0\);\s+"#
+                + #"float rr = \(qy > 0 \? hypotf\(qx, qy\) : qx\) - \1;\s+"#
+                + #"float bulb = hypotf\(fx - 233, fy - \(183 \+ dy\)\) - "# + num + #";"#,
+              keys: [("weather.thermo.mercury_half_w_px", g(1)), ("weather.thermo.mercury_bulb_radius_px", g(2))]),
+        Check(file: wp, pattern: #"put\(im, i, top <= TICKS\[t\] \? c : grey, cov\(capsule\(fx, fy, "# + num + ", " + num
+                + #", TICKS\[t\] \+ dy\) - "# + num + #"\)\);"#,
+              keys: [("weather.thermo.tick_x_px", arr(1, 2)), ("weather.thermo.tick_width_px", twice(3))]),
+        Check(file: wp, pattern: #"float cy = \(top \+ WX_MERC_BOTTOM\) / 2 \+ dy, hh = \(WX_MERC_BOTTOM - top\) / 2;"#, keys: []),
+        Check(file: wt, pattern: #"float top = "# + num + #" - \(c - "# + num + #"\) \* "# + num + " / " + num + #";\s+"#
+                + #"return top < "# + num + #" \? \5 : top > "# + num + #" \? \6 : top;"#,
+              keys: [("weather.thermo.mercury_top.ref_px", g(1)), ("weather.thermo.mercury_top.ref_c", g(2)),
+                     ("weather.thermo.mercury_top.rise_px", g(3)), ("weather.thermo.mercury_top.per_c", g(4)),
+                     ("weather.thermo.mercury_top.min_px", g(5)), ("weather.thermo.mercury_top.max_px", g(6))]),
+        Check(file: tf, pattern: #"uint32_t rgb = t->still \? GREY_RGB : wx_temp_rgb\(\(float\)v\);\s+deg_text\(txt, sizeof txt, v\);\s+"#
+                + #"set_value\(txt, rgb\);\s+float top = WX_MERC_BOTTOM - \(WX_MERC_BOTTOM - wx_merc_top\(\(float\)t->value\)\) \* \(float\)a;\s+"#
+                + #"set_mercury\(top, rgb\);\s+\} else \{\s+set_value\("--\\xC2\\xB0", GREY_RGB\);\s+set_mercury\(WX_MERC_BOTTOM, GREY_RGB\);"#,
+              keys: []),
+        one(tf, #"#define VALUE_Y (\d+)"#, "weather.value.y_px"),
+        one(tf, #"#define VALUE_SPACE \((-?\d+)\)"#, "weather.value.letter_space_px"),
+        one(tf, #"s_value = label\(s_root, &font_digits_(\d+), LV_ALIGN_TOP_MID, deg / 2, VALUE_Y\);"#, "weather.value.font_px"),
+        one(tf, #"#define END_X (\d+)"#, "weather.ends.x_px"),
+        one(tf, #"#define END_Y (\d+)"#, "weather.ends.y_px"),
+        one(tf, #"s_lo = label\(s_root, &font_face_(\d+), LV_ALIGN_TOP_LEFT, END_X, END_Y\);\s+"#
+            + #"s_hi = label\(s_root, &font_face_\1, LV_ALIGN_TOP_RIGHT, -END_X, END_Y\);"#, "weather.ends.font_px"),
+        Check(file: tf, pattern: #"end_label\(s_lo, s_lo_txt, sizeof s_lo_txt, t->have && t->has_range, t->lo\);\s+"#
+                + #"end_label\(s_hi, s_hi_txt, sizeof s_hi_txt, t->have && t->has_range, t->hi\);"#, keys: []),
+        one(tf, #"s_sub = label\(s_root, &lv_font_montserrat_(\d+), LV_ALIGN_TOP_MID, 0, SUB_Y\);"#, "weather.sub.font_px"),
+        one(wch, #"#define WX_SUB_Y (\d+)"#, "weather.sub.y_px"),
+        one(wfh, #"#define WXF_DOT_R "# + num, "weather.dots.radius_px"),
+        one(wfh, #"#define WXF_DOT_PITCH "# + num, "weather.dots.pitch_px"),
+        one(wph, #"#define WX_DOT_R "# + num, "weather.dots.dot_radius_px"),
+        one(wph, #"#define WX_DOT_ON "# + hex, "weather.dots.on_color"),
+        one(wph, #"#define WX_DOT_OFF "# + hex, "weather.dots.off_color"),
+        Check(file: wfh, pattern: #"typedef enum \{ (WXF_TEMP(?:, WXF_[A-Z]+)*), WXF_N \} wx_face_id_t;"#,
+              keys: [("weather.dots.faces", { String($0[1].split(separator: ",").count) })]),
+        Check(file: wp, pattern: #"wx_paint_thermo\(&bg\);\s+wx_paint_face_dots\(&bg, t->face, WXF_N\);"#, keys: []),
+        Check(file: wp, pattern: #"lut\[i\] = wx_rgb565\(grey \? 0x[0-9A-Fa-f]{6} : wx_temp_rgb\(\(float\)lo \+ \(float\)\(hi - lo\) \* i / RING_STEPS\)\);"#,
+              keys: []),
+        Check(file: wp, pattern: #"float d = top < bulb \? top : bulb;\s+return rect < d \? rect : d;"#, keys: []),
+        Check(file: wp, pattern: #"if \(kind & WX_BAKE_RING\) wx_paint_ring\(b->ring, t->lo, t->hi, !t->have, b->lut\);"#, keys: []),
+        Check(file: tf, pattern: #"static void end_label\([^)]*\)\s*\{[^}]*lv_obj_set_style_text_color\(l, lv_color_hex\(wx_temp_rgb\(\(float\)v\)\), 0\);"#,
+              keys: []),
+        Check(file: tf, pattern: #"if \(temp\) set_marker\(t->frac \* \(float\)a, t->have\);"#, keys: []),
+        Check(file: tf, pattern: #"int deg = lv_font_get_glyph_width\(&font_digits_96, 0x00B0, 0\) \+ VALUE_SPACE;\s+"#
+                + #"s_value = label\(s_root, &font_digits_96, LV_ALIGN_TOP_MID, deg / 2, VALUE_Y\);"#, keys: []),
     ]
+    for (px, file) in [("96", "main/font_digits_96.c"), ("36", "main/font_face_36.c")] {
+        c.append(Check(file: file, pattern: #"\.line_height = (\d+),\s+\.base_line = (\d+),"#,
+                       keys: [("font.metrics.\(px).line_height_px", g(1)), ("font.metrics.\(px).baseline_px", g(2))]))
+    }
     for (key, def) in [("focus", "FOCUS"), ("break", "BREAK"), ("other", "OTHER"), ("idle_track", "IDLE_TRACK"),
                        ("text", "TEXT"), ("text_dim", "TEXT_DIM"), ("note", "NOTE")] {
         c.append(one(pv, "#define COL_\(def) " + hex, "pomodoro.colors.\(key)"))
@@ -529,18 +586,8 @@ func themeMatchesCinderSource() throws {
         }
     }
     let codeOnly: Set<String> = ["version", "screen.diameter_px", "font.family", "font.file", "bot.body_color"]
-    let goneKeys: Set<String> = ["weather.temp.color", "weather.temp.font_px"]
-    let gonePrefixes = ["weather.sky.", "weather.scene.", "weather.colors."]
-    let goneFromFirmware = goneKeys.union(flat.keys.filter { k in gonePrefixes.contains { k.hasPrefix($0) } })
-    let missing = goneKeys.subtracting(flat.keys)
-    #expect(missing.isEmpty, "goneFromFirmware keys left the theme, drop them from the exemption: \(missing.sorted())")
-    for prefix in gonePrefixes {
-        #expect(flat.keys.contains { $0.hasPrefix(prefix) }, "no theme key starts with goneFromFirmware prefix \(prefix), drop it")
-    }
-    let rechecked = goneFromFirmware.intersection(covered)
-    #expect(rechecked.isEmpty, "goneFromFirmware keys have a firmware check again, drop them from the exemption: \(rechecked.sorted())")
-    let uncovered = Set(flat.keys).subtracting(covered).subtracting(codeOnly).subtracting(goneFromFirmware)
-        .filter { !$0.hasPrefix("font.metrics") }
+    let uncovered = Set(flat.keys).subtracting(covered).subtracting(codeOnly)
+        .filter { !$0.hasPrefix("font.metrics") || $0.hasPrefix("font.metrics.36.") || $0.hasPrefix("font.metrics.96.") }
     #expect(uncovered.isEmpty, "theme keys with no firmware check: \(uncovered.sorted())")
 }
 
@@ -614,4 +661,17 @@ func labelMoodsAndHostLineMatchCinder() throws {
     let sub = try cinderMatch(bv, #"const char \*sub = ([^?;]*) \? s_host\.sub : "";"#)
     let lined = try cinderMoods(sub, "s_rim_mood == ")
     #expect(lined == KnobMood.hostLineMoods)
+}
+
+@Test(.enabled(if: cinderDir != nil, "no cinder checkout next to this repo (set CINDER_DIR)"))
+func valueDegreeShiftMatchesFontDigits96() throws {
+    let src = try String(contentsOf: try #require(cinderDir).appendingPathComponent("firmware/main/font_digits_96.c"), encoding: .utf8)
+    let list = try cinderMatch("main/font_digits_96.c", #"font_digits_96_unicode_list\[\] = \{([^}]*)\}"#)
+    let offsets = list.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines).dropFirst(2), radix: 16) }
+    let index = try #require(offsets.firstIndex(of: 0xB0 - 32))
+    let rx = try NSRegularExpression(pattern: #"\.adv_w = (\d+),"#)
+    let advs = rx.matches(in: src, range: NSRange(src.startIndex..., in: src)).map { Int(src[Range($0.range(at: 1), in: src)!])! }
+    let theme = try KnobTheme.load()
+    let deg = (advs[index + 1] + 8) / 16 + Int(theme.weather.value.letterSpacePx)
+    #expect(KnobFaceRender.degreeShift(theme.weather.value, theme) == Double(deg / 2))
 }

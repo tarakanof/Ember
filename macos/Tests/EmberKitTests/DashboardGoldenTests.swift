@@ -65,6 +65,7 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(cur.condition == "rain")
     #expect(cur.conditionCode == "61")
     #expect(cur.tempC == 11.5)
+    #expect(cur.todayMinC == 8.4 && cur.todayMaxC == 16.6)
     #expect(cur.hourly.count == 3)
     #expect(cur.hourly[0].time == iso("2026-09-26T10:00:00+02:00"))
     #expect(cur.hourly[1].time.timeIntervalSince(cur.hourly[0].time) == 3600)

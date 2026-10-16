@@ -314,6 +314,8 @@ type weatherCurrentOut struct {
 	ConditionCode *string     `json:"condition_code"`
 	Severe        bool        `json:"severe"`
 	TempC         float64     `json:"temp_c"`
+	TodayMinC     *float64    `json:"today_min_c"`
+	TodayMaxC     *float64    `json:"today_max_c"`
 	Hourly        []tempPoint `json:"hourly"`
 }
 
@@ -368,6 +370,9 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 			Severe:        obs.Severe,
 			TempC:         obs.TempC,
 			Hourly:        []tempPoint{},
+		}
+		if today, _ := faceDays(obs, now); today != nil {
+			cur.TodayMinC, cur.TodayMaxC = today.MinC, today.MaxC
 		}
 		if !obs.HourlyStart.IsZero() {
 			for i, v := range obs.Hourly {
