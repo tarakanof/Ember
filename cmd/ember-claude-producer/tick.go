@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -94,6 +96,7 @@ type statuslineUsageSnapshot struct {
 	sevenDayResetLabel string
 	updatedAt          time.Time
 	mtime              time.Time
+	account            claudeAccount
 }
 
 func dispatchTick(ctx context.Context, cfg Config) {
@@ -107,7 +110,7 @@ func dispatchTick(ctx context.Context, cfg Config) {
 	}
 	client := NewDaemonClient(cfg)
 	staleThreshold := time.Now().Add(-time.Duration(cfg.HeartbeatTTLHours) * time.Hour)
-	var best *statuslineUsageSnapshot
+	best := map[string]*statuslineUsageSnapshot{}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -116,14 +119,15 @@ func dispatchTick(ctx context.Context, cfg Config) {
 		markerP := filepath.Join(dir, e.Name())
 		lockP := filepath.Join(dir, sessionID+".lock")
 		if snap := processOneMarker(ctx, cfg, client, markerP, lockP, staleThreshold); snap != nil {
-			if best == nil || snap.updatedAt.After(best.updatedAt) ||
-				(snap.updatedAt.Equal(best.updatedAt) && snap.mtime.After(best.mtime)) {
-				best = snap
+			cur := best[snap.account.key]
+			if cur == nil || snap.updatedAt.After(cur.updatedAt) ||
+				(snap.updatedAt.Equal(cur.updatedAt) && snap.mtime.After(cur.mtime)) {
+				best[snap.account.key] = snap
 			}
 		}
 	}
-	if best != nil {
-		postStatuslineUsage(ctx, client, *best)
+	for _, key := range slices.Sorted(maps.Keys(best)) {
+		postStatuslineUsage(ctx, client, *best[key])
 	}
 }
 
@@ -193,6 +197,7 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			sevenDayResetLabel: req.RateWeekResetLabel,
 			updatedAt:          m.usageSeenAt(info.ModTime()),
 			mtime:              info.ModTime(),
+			account:            m.markerAccount.account(),
 		}
 	}
 	if !heartbeatDue(cfg, m, info.ModTime(), time.Now()) {

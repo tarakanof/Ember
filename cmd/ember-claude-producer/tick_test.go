@@ -595,7 +595,7 @@ func TestDispatchTick_PicksFreshestMarkerAcrossSessions(t *testing.T) {
 func TestDispatchTick_UsagePost_MergesModelsCache(t *testing.T) {
 	usageModels.reset()
 	t.Cleanup(usageModels.reset)
-	usageModels.set(map[string]*producer.UsageWindow{
+	usageModels.set("", map[string]*producer.UsageWindow{
 		"opus":   {UsedPercent: 82},
 		"sonnet": {UsedPercent: 12},
 	})

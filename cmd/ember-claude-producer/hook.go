@@ -203,6 +203,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 		var ownerStart string
 		var statuslineChanged, statuslineAt int64
 		var track ToolTrack
+		var acct markerAccount
 		changedAt := hookNow().Unix()
 		if old, err := readMarker(markerP); err == nil {
 			var prev marker
@@ -210,7 +211,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 				if x.skip != nil && x.skip(prev) {
 					return nil
 				}
-				track = prev.ToolTrack
+				track, acct = prev.ToolTrack, prev.markerAccount
 				req.RateWindowPct = prev.RateWindowPct
 				req.RateResetAt = prev.RateResetAt
 				req.RateResetLabel = prev.RateResetLabel
@@ -255,7 +256,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 			ownerPID, ownerStart = detectOwner()
 		}
 		m := marker{StatusRequest: req, Cwd: cwd, OwnerPID: ownerPID, OwnerStart: ownerStart, StateChangedAt: changedAt,
-			StatuslineChangedMs: statuslineChanged, StatuslineAt: statuslineAt, HookAt: hookNow().Unix(), ToolTrack: track}
+			StatuslineChangedMs: statuslineChanged, StatuslineAt: statuslineAt, HookAt: hookNow().Unix(), ToolTrack: track, markerAccount: acct}
 		b, err := json.Marshal(m)
 		if err != nil || writeMarker(markerP, b) != nil {
 			return nil

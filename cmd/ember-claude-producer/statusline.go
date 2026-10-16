@@ -259,7 +259,7 @@ func runStatusline() {
 			weekPct != nil || weekResetAt != nil || weekResetLabel != "" {
 			if dir, err := stateDir(); err == nil {
 				_ = enrichMarker(dir, sanitizeSessionID(in.SessionID, in.Cwd),
-					ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel)
+					ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel, sessionClaudeAccount)
 			}
 		}
 	}
@@ -280,7 +280,7 @@ const statuslineLockWait = 250 * time.Millisecond
 const statuslineRefresh = time.Minute
 
 func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string,
-	weekPct *int, weekResetAt *int64, weekResetLabel string) error {
+	weekPct *int, weekResetAt *int64, weekResetLabel string, account func(markerAccount) markerAccount) error {
 	mp := markerPath(stateDir, sessionID)
 	lp := lockPath(stateDir, sessionID)
 	return withLockExWait(lp, statuslineLockWait, func() error {
@@ -314,13 +314,17 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 			m.RateWeekResetLabel = weekResetLabel
 		}
 		now := hookNow()
+		next, oldSig := account(m.markerAccount), m.UsageAccountSig
+		m.markerAccount = next
+		m.UsageAccountSig = oldSig
 		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) {
-			if fi, err := os.Stat(mp); err == nil && now.Sub(fi.ModTime()) < statuslineRefresh {
+			if fi, err := os.Stat(mp); err == nil && now.Sub(fi.ModTime()) < statuslineRefresh && next.UsageAccountSig == oldSig {
 				return nil
 			}
 		} else {
 			m.StatuslineChangedMs = now.UnixMilli()
 		}
+		m.UsageAccountSig = next.UsageAccountSig
 		m.StatuslineAt = now.Unix()
 		out, err := json.Marshal(m)
 		if err != nil {

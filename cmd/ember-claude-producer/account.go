@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -70,33 +70,61 @@ func claudePlan(raw ...string) string {
 	return ""
 }
 
+func claudeConfigSig() (path, sig string) {
+	path = claudeGlobalConfigPath()
+	if path == "" {
+		return "", ""
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", ""
+	}
+	return path, path + "|" + strconv.FormatInt(fi.ModTime().UnixNano(), 10) + "|" + strconv.FormatInt(fi.Size(), 10)
+}
+
+func readClaudeAccount(prevSig string, prev claudeAccount) (claudeAccount, string) {
+	path, sig := claudeConfigSig()
+	if sig == "" {
+		return claudeAccount{}, ""
+	}
+	if sig == prevSig {
+		return prev, sig
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return claudeAccount{}, ""
+	}
+	return parseClaudeAccount(b), sig
+}
+
 type claudeAccountCache struct {
-	mu    sync.Mutex
-	path  string
-	mtime time.Time
-	size  int64
-	acct  claudeAccount
+	mu   sync.Mutex
+	sig  string
+	acct claudeAccount
 }
 
 var claudeAccounts = &claudeAccountCache{}
 
 func (c *claudeAccountCache) current() claudeAccount {
-	path := claudeGlobalConfigPath()
-	fi, err := os.Stat(path)
-	if path == "" || err != nil {
-		return claudeAccount{}
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if path == c.path && fi.ModTime().Equal(c.mtime) && fi.Size() == c.size {
-		return c.acct
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return claudeAccount{}
-	}
-	c.path, c.mtime, c.size, c.acct = path, fi.ModTime(), fi.Size(), parseClaudeAccount(b)
+	c.acct, c.sig = readClaudeAccount(c.sig, c.acct)
 	return c.acct
+}
+
+type markerAccount struct {
+	UsageAccountKey string `json:"usage_account_key,omitempty"`
+	UsagePlan       string `json:"usage_plan,omitempty"`
+	UsageAccountSig string `json:"usage_account_sig,omitempty"`
+}
+
+func (m markerAccount) account() claudeAccount {
+	return claudeAccount{key: m.UsageAccountKey, plan: m.UsagePlan}
+}
+
+func sessionClaudeAccount(prev markerAccount) markerAccount {
+	a, sig := readClaudeAccount(prev.UsageAccountSig, prev.account())
+	return markerAccount{UsageAccountKey: a.key, UsagePlan: a.plan, UsageAccountSig: sig}
 }
 
 func (a claudeAccount) apply(req *producer.UsageRequest) {
