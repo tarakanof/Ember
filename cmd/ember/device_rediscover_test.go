@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -85,6 +86,13 @@ func TestRediscoverClock_CancelDuringBrowseIsNotNoDevice(t *testing.T) {
 	}
 	if got := a.lastRediscoverResult.Load(); got != "cancelled" {
 		t.Fatalf("lastRediscoverResult=%v want cancelled", got)
+	}
+}
+
+func TestNewServerApp_WiresRealClockBrowse(t *testing.T) {
+	a := newServerApp(defaultConfig(), discardLogger())
+	if reflect.ValueOf(a.browseFn).Pointer() != reflect.ValueOf(discovery.BrowseAWTRIX).Pointer() {
+		t.Fatal("server app must browse with discovery.BrowseAWTRIX")
 	}
 }
 

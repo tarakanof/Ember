@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
+	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/sessions"
 )
@@ -130,6 +131,12 @@ type App struct {
 	sourceColors  sourceColorMemo
 
 	bootPingMu sync.Mutex
+}
+
+func newServerApp(cfg Config, logger *slog.Logger) *App {
+	app := NewApp(cfg, nil, logger)
+	app.browseFn = discovery.BrowseAWTRIX
+	return app
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {

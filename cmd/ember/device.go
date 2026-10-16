@@ -76,7 +76,7 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	}
 	if err != nil || len(cands) == 0 {
 		a.lastRediscoverResult.Store("no-device")
-		a.logger.Info("clock discovery found no device", "configured", cur)
+		a.logger.Info("clock discovery found no device", "configured", cur, "err", err)
 		return false
 	}
 	base := cands[0].BaseURL
