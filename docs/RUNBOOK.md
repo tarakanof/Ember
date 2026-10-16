@@ -147,8 +147,9 @@ producers"), token, `EMBER_SOURCE_COLOR`, and the `EMBER_*` toggles
 SQLite state read-only and reports each thread (session = T3 thread id,
 activity = thread title). Verified against T3 Code **v0.0.45** (`state.sqlite`,
 migration 54), **v0.0.46-preview.20261002.2598** (`statev2.sqlite`,
-migration 56) and **v0.1.0** (`statev2.sqlite`, migration 62). No pairing or token for T3 is needed: it reads files the T3
-server writes under `~/.t3/userdata/`.
+migration 56) and **v0.1.0** (`statev2.sqlite`, migration 62). No pairing or
+token for T3 is needed: it reads files the T3 server writes under
+`~/.t3/userdata/`.
 
 ```sh
 go install ./cmd/ember-t3-producer
