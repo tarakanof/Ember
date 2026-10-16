@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -195,6 +197,53 @@ func TestUsageAccountsPutRenamesHidesAndReorders(t *testing.T) {
 	if names := accountNames(got); names != idCodex+"=Plus,"+idMaxA+"=Max 1,"+idMaxB+"=Max" {
 		t.Fatalf("after reset = %s", names)
 	}
+}
+
+func TestUsageAccountNameEqualToItsDefaultIsReportedAsSet(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxB+`","plan":"max"}`)
+	before := getAccounts(t, srv, testToken)
+	if before.Accounts[1].ID != idMaxB || before.Accounts[1].NameSet {
+		t.Fatalf("accounts = %+v", before.Accounts)
+	}
+	reply := putAccounts(t, srv, `{"`+idMaxB+`":{"name":"Max 2"}}`)
+	for _, got := range []usageAccountsOut{reply, getAccounts(t, srv, testToken)} {
+		if a, b := got.Accounts[0], got.Accounts[1]; a.NameSet || !b.NameSet || b.Name != "Max 2" || b.DefaultName != "Max 2" {
+			t.Fatalf("accounts = %+v, want the named one set and the other not", got.Accounts)
+		}
+	}
+	reset := putAccounts(t, srv, `{"`+idMaxB+`":null}`)
+	for _, got := range []usageAccountsOut{reset, getAccounts(t, srv, testToken)} {
+		if got.Accounts[1].ID != idMaxB || got.Accounts[1].NameSet {
+			t.Fatalf("after reset = %+v, want name_set false", got.Accounts)
+		}
+	}
+}
+
+func putAccounts(t *testing.T, srv *httptest.Server, body string) usageAccountsOut {
+	t.Helper()
+	resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("put %s = %d %s", body, resp.StatusCode, b)
+	}
+	var out usageAccountsOut
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestUsagePlanLabelsMatchTheGolden(t *testing.T) {
+	labels := map[string]string{}
+	for _, plan := range append(slices.Collect(maps.Keys(usagePlanLabels)), "self_serve") {
+		labels[plan] = usageBaseName("claude", plan)
+	}
+	got, err := json.MarshalIndent(labels, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compareGolden(t, filepath.Join("testdata", "usage", "plan_labels.json"), append(got, '\n'))
 }
 
 func TestUsageAccountsPutRejectsUnknownOrBadSettings(t *testing.T) {

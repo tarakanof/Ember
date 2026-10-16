@@ -4836,8 +4836,10 @@ throttle) instead of vanishing from the knob; the first post replaces it.
 **Settings** (`usage_accounts_json`, one `settingSpec`; `Config.UsageAccounts`):
 per account id `name`, `hidden` and `order`. `GET /v1/usage/accounts`
 (owner or `admin`) lists the accounts in display order with
-`name`, `default_name`, `plan`, `hidden`, `order`, `first_seen`,
-`updated_at` (null with no snapshot, live or stored) and `stale`;
+`name`, `name_set` (true when the name is the account's own, even
+one equal to `default_name`, so a client can keep it), `default_name`,
+`plan`, `hidden`, `order`, `first_seen`, `updated_at` (null with no
+snapshot, live or stored) and `stale`;
 `PUT` (master token only) merges by id: an id's object replaces its
 settings, `null` resets them, an id the server doesn't list is a 400. An
 account's settings go with it: the next accepted post resets the settings
@@ -4865,14 +4867,26 @@ with the knob's tool mark, the plan label, the name (an empty field means
 `default_name`), a show-on-knob switch and a drag handle (or Control-click)
 to reorder. No id or email is shown. Names are trimmed, stripped of control
 characters and cut to 24 code points (whole characters), as the server
-counts them. A reorder writes `order` 0…n-1 on every row; a save PUTs only
-the rows whose settings changed and that the last server list holds, each
-with its whole object (`null` when it is back to defaults), and takes the
-reply as the new list, so renumbered `default_name`s show. A 400 or 403
-reverts the list to the server's (re-read) and keeps the error under the
-section; nothing is resent. One 400 exception: when the re-read list lost
-an account the body named (expired, evicted, or the stale keyless one
-dropped), the PUT is retried once without it.
+counts them. A typed name is kept as typed, even when it equals the
+default; a row's own name comes from `name_set` (an older server without
+it: a name different from `default_name`). The plan labels are checked
+against the server's table through the golden
+`cmd/ember/testdata/usage/plan_labels.json`. A reorder writes `order`
+0…n-1 on every row; a save PUTs only the rows whose settings changed and
+that the last server list holds, each with its whole object (`null` when
+it is back to defaults), and takes the reply as the new list, so
+renumbered `default_name`s show. A 400 or 403 reverts the list to the
+server's (re-read) and keeps the error under the section; nothing is
+resent. On a 400, an edit made while the PUT and the re-read were in
+flight is re-applied onto the server's list and saved next (a 403 drops
+it, since every edit would fail): a name or switch per row, while an
+order change takes the draft's order of the ids the server still lists,
+appends any others and renumbers them all, so the list shows the order
+the user last saw. One 400 exception:
+when the re-read list lost an account the body named (expired, evicted,
+or the stale keyless one dropped), the PUT is retried once without it,
+and if the retry fails its own error is shown. A focused name field that
+still shows the rejected name takes the row's name back on the error.
 
 **Idle usage frame.** When all sessions expire and a tool is over threshold,
 the coordinator publishes a **dimmed usage frame** (the same usage card content

@@ -394,7 +394,7 @@ components:
           description: Sort key; accounts with one come first, ascending.
     UsageAccount:
       type: object
-      required: [id, tool, plan, name, default_name, hidden, order, first_seen, updated_at, stale]
+      required: [id, tool, plan, name, name_set, default_name, hidden, order, first_seen, updated_at, stale]
       properties:
         id:
           type: string
@@ -406,6 +406,9 @@ components:
         name:
           type: string
           description: The set name, else `default_name`.
+        name_set:
+          type: boolean
+          description: True when `name` is the account's own, even one equal to `default_name`.
         default_name:
           type: string
           description: The plan ("Max"), else the tool ("Claude"); numbered ("Max 1", "Max 2") when a tool has two on one plan.

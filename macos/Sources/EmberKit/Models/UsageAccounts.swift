@@ -5,6 +5,7 @@ public struct UsageAccount: Codable, Sendable, Equatable {
     public var tool: String
     public var plan: String?
     public var name: String
+    public var nameSet: Bool?
     public var defaultName: String
     public var hidden: Bool
     public var order: Int?
@@ -14,6 +15,7 @@ public struct UsageAccount: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, tool, plan, name, hidden, order, stale
+        case nameSet = "name_set"
         case defaultName = "default_name"
         case firstSeen = "first_seen"
         case updatedAt = "updated_at"
@@ -59,7 +61,8 @@ public struct UsageAccountRow: Sendable, Equatable, Identifiable {
         tool = account.tool
         plan = account.plan
         defaultName = account.defaultName
-        customName = account.name == account.defaultName ? "" : account.name
+        let named = account.nameSet ?? (account.name != account.defaultName)
+        customName = named ? account.name : ""
         hidden = account.hidden
         order = account.order
         updatedAt = account.updatedAt
@@ -76,8 +79,7 @@ public struct UsageAccountRow: Sendable, Equatable, Identifiable {
             if count > Self.maxNameLength { break }
             kept.append(character)
         }
-        let trimmed = kept.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed == defaultName ? "" : trimmed
+        return kept.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     public var displayName: String { customName.isEmpty ? defaultName : customName }
@@ -136,6 +138,24 @@ public struct UsageAccounts: Sendable, Equatable {
         for i in rows.indices { rows[i].order = i }
     }
 
+    public func rebased(onto current: UsageAccounts, from sent: UsageAccounts) -> UsageAccounts {
+        var out = current
+        var reordered = false
+        for row in rows {
+            let old = sent.rows.first(where: { $0.id == row.id })
+            if row.order != old?.order { reordered = true }
+            guard let i = out.rows.firstIndex(where: { $0.id == row.id }) else { continue }
+            if row.customName != old?.customName { out.rows[i].customName = row.customName }
+            if row.hidden != old?.hidden { out.rows[i].hidden = row.hidden }
+        }
+        guard reordered else { return out }
+        let ids = Set(rows.map(\.id))
+        let held = rows.compactMap { row in out.rows.first { $0.id == row.id } }
+        out.rows = held + out.rows.filter { !ids.contains($0.id) }
+        out.renumber()
+        return out
+    }
+
     public func changes(since previous: UsageAccounts?) -> [String: UsageAccountPrefs?] {
         var out: [String: UsageAccountPrefs?] = [:]
         for row in rows {
@@ -165,14 +185,18 @@ public struct UsageAccounts: Sendable, Equatable {
             guard case .http(let status, _) = error, status == 400 || status == 403 else { throw error }
             let fresh = try? await client.get(path) as UsageAccountList
             let current = fresh.map(UsageAccounts.init) ?? previous ?? UsageAccounts()
+            var failure: Error = error
             if status == 400, fresh != nil {
                 let live = Set(current.rows.map(\.id))
                 let retry = body.filter { live.contains($0.key) }
-                if !retry.isEmpty, retry.count < body.count, let reply = try? await put(retry, client: client) {
-                    return reply
+                if !retry.isEmpty, retry.count < body.count {
+                    do { return try await put(retry, client: client) } catch { failure = error }
                 }
             }
-            throw SaveRecovered(current: current, cause: FeedError(error)) { _, _ in current }
+            let rejected = (failure as? APIError)?.isBadRequest ?? false
+            throw SaveRecovered(current: current, cause: FeedError(failure)) { sent, draft in
+                rejected ? draft.rebased(onto: current, from: sent) : current
+            }
         }
     }
 

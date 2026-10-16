@@ -13,7 +13,7 @@ struct UsageAccountsSection: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                UsageAccountRowView(row: row,
+                UsageAccountRowView(row: row, saveStatus: model.status,
                                     rename: { name in
                                         model.draft.rename(row.id, to: name)
                                         model.scheduleSave()
@@ -41,9 +41,11 @@ struct UsageAccountsSection: View {
 
 private struct UsageAccountRowView: View {
     let row: UsageAccountRow
+    let saveStatus: SaveState
     let rename: (String) -> Void
     let setHidden: (Bool) -> Void
     @State private var name = ""
+    @State private var committed: String?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -82,12 +84,16 @@ private struct UsageAccountRowView: View {
         }
         .onAppear { name = row.customName }
         .onChange(of: row.customName) { _, new in if !focused { name = new } }
+        .onChange(of: saveStatus) { _, new in
+            if case .error = new, name == committed { name = row.customName }
+        }
         .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
         .onDisappear(perform: commit)
     }
 
     private func commit() {
         name = row.normalizedName(name)
+        committed = name
         rename(name)
     }
 

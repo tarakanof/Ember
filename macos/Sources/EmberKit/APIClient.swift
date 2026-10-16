@@ -16,6 +16,11 @@ public enum APIError: Error, Equatable, Sendable {
         return false
     }
 
+    public var isBadRequest: Bool {
+        if case .http(400, _) = self { return true }
+        return false
+    }
+
     public var isRateLimited: Bool {
         if case .rateLimited = self { return true }
         return false

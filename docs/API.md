@@ -106,11 +106,12 @@ and 16 in all and evicts only its own, and a client token's new account
 past 64 in all is a 507, never the master's —
 ARCHITECTURE "Usage per account"), `GET/PUT /v1/usage/config`,
 `GET /v1/usage/accounts` (owner or `admin`: `{"accounts":[{id, tool, plan,
-name, default_name, hidden, order, first_seen, updated_at, stale}]}` in display
-order) and `PUT /v1/usage/accounts` (master token only, every client token
-403: `{"<id>":{"name","hidden","order"}|null}`, id `<tool>:<account_key>` or
-the bare tool name for a keyless account, merge by id, an unknown id
-400; the knob's `usage` block follows it — DEVICE-PROTOCOL "Usage"),
+name, name_set, default_name, hidden, order, first_seen, updated_at,
+stale}]}` in display order) and `PUT /v1/usage/accounts` (master token
+only, every client token 403: `{"<id>":{"name","hidden","order"}|null}`,
+id `<tool>:<account_key>` or the bare tool name for a keyless account,
+merge by id, an unknown id 400; the knob's `usage` block follows it —
+DEVICE-PROTOCOL "Usage"),
 `POST /v1/nowplaying` (a
 source's player report; a playing or paused report with no title and no
 `track_id` counts as stopped and drops the entry), `GET /v1/nowplaying/commands?player=&wait=` (Ember.app's
