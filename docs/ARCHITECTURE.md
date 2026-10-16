@@ -4783,7 +4783,11 @@ per account id `name`, `hidden` and `order`. `GET /v1/usage/accounts`
 `name`, `default_name`, `plan`, `hidden`, `order`, `first_seen`,
 `updated_at` (null with no snapshot, live or stored) and `stale`;
 `PUT` (master token only) merges by id: an id's object replaces its
-settings, `null` resets them, an id the server doesn't list is a 400.
+settings, `null` resets them, an id the server doesn't list is a 400. An
+account's settings go with it: when the registry drops it (7 days without
+a post, or replaced under its writer's cap) and the store has no entry,
+the next accepted post resets them, so churn can't fill the 64-entry
+settings cap.
 Order: accounts with an `order` first, ascending; then Claude, Codex, other
 tools by name, each by first seen. Names: the set one, else the plan's
 label ("Max", "Pro", "Team", "Plus"; no plan: "Claude", "Codex"). Two or

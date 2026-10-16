@@ -775,3 +775,35 @@ func TestUsageTwinNumberingIgnoresHiddenAccounts(t *testing.T) {
 		t.Fatalf("with Max 1 hidden = %s, want the visible one unnumbered", got)
 	}
 }
+
+func TestUsageAccountSettingsArePrunedWhenTheAccountExpires(t *testing.T) {
+	app, srv := newDevicesApp(t, filepath.Join(t.TempDir(), "s.db"))
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxB+`","plan":"max"}`)
+	if resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+idMaxA+`":{"name":"Old"},"`+idMaxB+`":{"name":"Kept"}}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put = %d %s", resp.StatusCode, b)
+	}
+	old := time.Now().Add(-usageAccountTTL - time.Hour)
+	app.usage.mu.Lock()
+	u := app.usage.byKey[usageKey{"claude", keyMaxA}]
+	u.UpdatedAt = old
+	app.usage.byKey[usageKey{"claude", keyMaxA}] = u
+	app.usage.mu.Unlock()
+	app.usageSeen.mu.Lock()
+	s := app.usageSeen.seen[idMaxA]
+	s.Last = old
+	app.usageSeen.seen[idMaxA] = s
+	app.usageSeen.mu.Unlock()
+	postUsage(t, srv, `{"tool":"codex","account_key":"`+keyCodex+`"}`)
+	prefs := app.cfg.Load().UsageAccounts
+	if _, ok := prefs[idMaxA]; ok {
+		t.Fatalf("settings = %+v, want the expired account's pruned", prefs)
+	}
+	if prefs[idMaxB].Name != "Kept" {
+		t.Fatalf("settings = %+v, want the live account's kept", prefs)
+	}
+	blob, _, _ := app.usageSeen.kv().GetSetting(usageAccountsSettingsKey)
+	if strings.Contains(blob, keyMaxA) {
+		t.Fatalf("stored settings %s still hold the expired account", blob)
+	}
+}

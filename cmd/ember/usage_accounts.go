@@ -133,6 +133,7 @@ type usageAccountRegistry struct {
 	mu      sync.Mutex
 	seen    map[string]usageAccountSeen
 	written map[string]time.Time
+	removed []string
 	kv      func() settingsKV
 }
 
@@ -221,6 +222,15 @@ func (r *usageAccountRegistry) expireLocked(now time.Time) {
 func (r *usageAccountRegistry) dropLocked(id string) {
 	delete(r.seen, id)
 	delete(r.written, id)
+	r.removed = append(r.removed, id)
+}
+
+func (r *usageAccountRegistry) drainRemoved() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := r.removed
+	r.removed = nil
+	return out
 }
 
 func (r *usageAccountRegistry) evictOwnOldestLocked(in func(usageAccountSeen) bool, principal string, max int) {
@@ -435,6 +445,32 @@ func buildUsageAccounts(state usageState, seen map[string]usageAccountSeen, pref
 
 func (a *App) usageAccounts(now time.Time) []usageAccount {
 	return buildUsageAccounts(a.usage.state(nil, now), a.usageSeen.snapshot(now), a.cfg.Load().UsageAccounts)
+}
+
+func (a *App) pruneUsageAccountPrefs(removed []string) {
+	if len(removed) == 0 {
+		return
+	}
+	prefs, live := a.cfg.Load().UsageAccounts, map[string]bool{}
+	for k := range a.usage.All() {
+		live[k.id()] = true
+	}
+	patch := map[string]any{}
+	for _, id := range removed {
+		if _, ok := prefs[id]; ok && !live[id] {
+			patch[id] = nil
+		}
+	}
+	if len(patch) == 0 {
+		return
+	}
+	b, err := json.Marshal(patch)
+	if err == nil {
+		_, err = a.settings.usageAccounts.put(b)
+	}
+	if err != nil {
+		a.logger.Warn("usage account settings prune failed", "err", err)
+	}
 }
 
 func (a *App) loadUsageAccounts() {

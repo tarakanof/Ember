@@ -124,6 +124,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if err := a.usageSeen.observe(usageKey{req.Tool, req.AccountKey}, rep, principal, now); err != nil {
 		a.logger.Warn("usage account persist failed", "tool", req.Tool, "err", err)
 	}
+	a.pruneUsageAccountPrefs(a.usageSeen.drainRemoved())
 	a.changes.notify(topicUsage)
 	w.WriteHeader(http.StatusNoContent)
 }
