@@ -975,3 +975,108 @@ func TestFirmwareStoreBootNeverRestoresARetiredCopy(t *testing.T) {
 		t.Fatalf("entries after restart = %v, want none", names)
 	}
 }
+
+func TestFirmwareStoreNextRemovalRetriesAStuckLeftover(t *testing.T) {
+	s := newFWStore(t)
+	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "release")
+	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.15"}), "release")
+	s.removeAll = func(string) error { return errors.New("injected failure") }
+	if err := s.remove("0.9.14", nil, nil); err != nil {
+		t.Fatalf("remove = %v", err)
+	}
+	s.removeAll = os.RemoveAll
+	if err := s.remove("0.9.15", nil, nil); err != nil {
+		t.Fatalf("remove = %v", err)
+	}
+	if names := dirNames(t, s.dir); names != "" {
+		t.Fatalf("entries = %v, want the stuck leftover swept", names)
+	}
+}
+
+func TestFirmwareStoreNextUploadRetriesAStuckLeftover(t *testing.T) {
+	s := newFWStore(t)
+	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "release")
+	s.removeAll = func(string) error { return errors.New("injected failure") }
+	if err := s.remove("0.9.14", nil, nil); err != nil {
+		t.Fatalf("remove = %v", err)
+	}
+	s.removeAll = os.RemoveAll
+	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.16"}), "release")
+	if names := dirNames(t, s.dir); names != "0.9.16" {
+		t.Fatalf("entries = %v, want only 0.9.16", names)
+	}
+	if _, f, err := s.open("0.9.16", firmwareBinName); err != nil {
+		t.Fatalf("open = %v", err)
+	} else {
+		_ = f.Close()
+	}
+}
+
+func TestFirmwareStoreRetriesALeftoverBootCouldNotRemove(t *testing.T) {
+	s := newFWStore(t)
+	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "release")
+	if err := os.MkdirAll(filepath.Join(s.dir, firmwareTempPrefix+"0.9.13-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	again := newFirmwareStore(s.dir, discardLogger())
+	again.removeAll = failOnBase(firmwareTempPrefix, os.RemoveAll)
+	if err := again.load(); err == nil {
+		t.Fatal("load = nil, want the removal error")
+	}
+	again.removeAll = os.RemoveAll
+	if err := again.remove("0.9.14", nil, nil); err != nil {
+		t.Fatalf("remove = %v", err)
+	}
+	if names := dirNames(t, s.dir); names != "" {
+		t.Fatalf("entries = %v, want the boot leftover swept", names)
+	}
+}
+
+func breakVersionMeta(t *testing.T, s *firmwareStore, version string) {
+	t.Helper()
+	if err := os.Rename(s.versionDir(version), filepath.Join(s.dir, firmwareAsidePrefix+version+"-123")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(s.versionDir(version), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.versionDir(version), firmwareBinName), []byte("junk"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFirmwareStoreBootRestoresTheAsideOverAnInvalidVersion(t *testing.T) {
+	s := newFWStore(t)
+	old, _ := putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "release")
+	breakVersionMeta(t, s, "0.9.14")
+	again := reloadFW(t, s)
+	if m, ok := again.get("0.9.14"); !ok || m.SHA256 != old.SHA256 {
+		t.Fatalf("0.9.14 = %+v %v, want the aside restored", m, ok)
+	}
+	if got := binSHA(t, again, "0.9.14"); got != old.SHA256 {
+		t.Fatalf("bin sha = %s, want %s", got, old.SHA256)
+	}
+	if names := dirNames(t, s.dir); names != "0.9.14" {
+		t.Fatalf("entries = %v", names)
+	}
+}
+
+func TestFirmwareStoreBootKeepsTheAsideWhenTheInvalidVersionStays(t *testing.T) {
+	s := newFWStore(t)
+	old, _ := putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "release")
+	breakVersionMeta(t, s, "0.9.14")
+	stuck := newFirmwareStore(s.dir, discardLogger())
+	stuck.removeAll = failOnBase("0.9.14", os.RemoveAll)
+	if err := stuck.load(); err == nil {
+		t.Fatal("load = nil, want the removal error")
+	}
+	if _, ok := stuck.get("0.9.14"); ok {
+		t.Fatal("invalid version indexed")
+	}
+	if names := dirNames(t, s.dir); names != firmwareAsidePrefix+"0.9.14-123,0.9.14" {
+		t.Fatalf("entries = %v, want the aside kept", names)
+	}
+	if m, ok := reloadFW(t, s).get("0.9.14"); !ok || m.SHA256 != old.SHA256 {
+		t.Fatalf("next boot 0.9.14 = %+v %v, want the aside restored", m, ok)
+	}
+}
