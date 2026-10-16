@@ -278,6 +278,10 @@ func writeDeviceError(w http.ResponseWriter, status int, body []byte) {
 }
 
 func writeDeviceAPIError(w http.ResponseWriter, apiErr *awtrix.APIError) {
+	writeDeviceAPIErrorStatus(w, apiErr, deviceProxyStatus(apiErr.StatusCode))
+}
+
+func writeDeviceAPIErrorStatus(w http.ResponseWriter, apiErr *awtrix.APIError, reply int) {
 	status := apiErr.StatusCode
 	msg := fmt.Sprintf("clock returned %d", status)
 	if detail := apiErr.Message; detail != "" {
@@ -296,7 +300,7 @@ func writeDeviceAPIError(w http.ResponseWriter, apiErr *awtrix.APIError) {
 	if apiErr.Field != "" {
 		out["field"] = apiErr.Field
 	}
-	writeJSON(w, deviceProxyStatus(status), out)
+	writeJSON(w, reply, out)
 }
 
 const (

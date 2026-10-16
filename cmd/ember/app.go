@@ -122,6 +122,7 @@ type App struct {
 
 	caps          atomic.Pointer[awtrix.Capabilities]
 	deviceVersion atomic.Value
+	appEnabled    appEnabledRoute
 
 	lastButtonAt atomic.Int64
 

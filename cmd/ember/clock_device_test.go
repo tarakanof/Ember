@@ -38,6 +38,11 @@ type clockStub struct {
 	appsBody  string
 	appsDelay time.Duration
 	appsSlow  []time.Duration
+	version   string
+	onStatus  int
+	onPuts    []string
+	orderCode int
+	uptime    int64
 }
 
 func newClockStub(t *testing.T) *clockStub {
@@ -90,8 +95,15 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 		if s.onDevice != nil {
 			s.onDevice()
 		}
+		version, uptime := s.version, s.uptime
+		if version == "" {
+			version = "1.0.13"
+		}
+		if uptime == 0 {
+			uptime = 42
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"uid": s.uid, "boardType": s.board, "version": "1.0.13", "uptimeSeconds": 42,
+			"uid": s.uid, "boardType": s.board, "version": version, "uptimeSeconds": uptime,
 			"wifiRssi": -61, "ipAddress": "192.0.2.66",
 		})
 	case "GET /api/v1/apps":
@@ -115,6 +127,11 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"error":"boom"}`))
 			return
 		}
+		if s.orderCode != 0 {
+			w.WriteHeader(s.orderCode)
+			_, _ = w.Write([]byte(`{"error":"stubbed"}`))
+			return
+		}
 		if !s.applyOrderLocked(b) {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"error":"invalidJson"}`))
@@ -122,8 +139,59 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = w.Write([]byte(`{}`))
 	default:
+		if name, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/apps/"), "/enabled"); ok && r.Method == http.MethodPut {
+			s.serveAppEnabledLocked(w, r, name)
+			return
+		}
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+func (s *clockStub) serveAppEnabledLocked(w http.ResponseWriter, r *http.Request, name string) {
+	b, _ := io.ReadAll(r.Body)
+	s.onPuts = append(s.onPuts, name+"="+string(b))
+	if newer, ok := versionNewer("1.2.0", s.version); !ok || newer {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if s.onStatus != 0 && s.onStatus != http.StatusInsufficientStorage {
+		w.WriteHeader(s.onStatus)
+		_, _ = w.Write([]byte(`{"error":"stubbed"}`))
+		return
+	}
+	var on bool
+	if err := json.Unmarshal(b, &on); err != nil {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error":"validationFailed","message":"must be true or false"}`))
+		return
+	}
+	for _, a := range s.apps {
+		if a["name"] == name {
+			a["enabled"] = on
+		}
+	}
+	if s.onStatus == http.StatusInsufficientStorage {
+		w.WriteHeader(s.onStatus)
+		_, _ = w.Write([]byte(`{"error":"insufficientStorage","message":"applied, not saved yet"}`))
+		return
+	}
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+func (s *clockStub) appEnabledPuts() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.onPuts...)
+}
+
+func (s *clockStub) enabledByName() map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]any{}
+	for _, a := range s.apps {
+		out[a["name"].(string)] = a["enabled"]
+	}
+	return out
 }
 
 func (s *clockStub) applyOrderLocked(b []byte) bool {

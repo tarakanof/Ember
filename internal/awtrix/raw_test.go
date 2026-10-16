@@ -31,6 +31,8 @@ func TestRawCalls(t *testing.T) {
 		{"capabilities", func(c *Client) (Reply, error) { return c.RawCapabilities(ctx) }, "GET", "/api/v1/capabilities", "", ""},
 		{"apps", func(c *Client) (Reply, error) { return c.RawApps(ctx) }, "GET", "/api/v1/apps", "", ""},
 		{"app order", func(c *Client) (Reply, error) { return c.RawPutAppOrder(ctx, body) }, "PUT", "/api/v1/apps/order", "application/json", `{"k":1}`},
+		{"app on", func(c *Client) (Reply, error) { return c.RawPutAppEnabled(ctx, "Battery", true) }, "PUT", "/api/v1/apps/Battery/enabled", "application/json", "true"},
+		{"app off", func(c *Client) (Reply, error) { return c.RawPutAppEnabled(ctx, "Battery", false) }, "PUT", "/api/v1/apps/Battery/enabled", "application/json", "false"},
 		{"next app", func(c *Client) (Reply, error) { return c.RawNextApp(ctx) }, "POST", "/api/v1/apps/next", "", ""},
 		{"previous app", func(c *Client) (Reply, error) { return c.RawPreviousApp(ctx) }, "POST", "/api/v1/apps/previous", "", ""},
 		{"delete app", func(c *Client) (Reply, error) { return c.RawDeleteApp(ctx, "ember-boot-ping") }, "DELETE", "/api/v1/apps/ember-boot-ping", "", ""},

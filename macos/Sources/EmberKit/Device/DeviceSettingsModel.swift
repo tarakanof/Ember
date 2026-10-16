@@ -97,6 +97,7 @@ public final class DeviceSettingsModel {
     @ObservationIgnored private var appsFailed = false
     @ObservationIgnored private var appsSent: AppsUpdate?
     @ObservationIgnored private var appEdits: [String: Int] = [:]
+    @ObservationIgnored private var appEnabledRoute = false
     @ObservationIgnored private weak var live: LiveModel?
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let debounce: Duration
@@ -131,7 +132,7 @@ public final class DeviceSettingsModel {
         melodies = []; audio = .unknown; discovered = nil
         actionErrors = [:]; lastFullLoad = nil; appsSeq += 1
         appsGeneration += 1; appsTail = nil; appsPending = 0; appsFailed = false; appsSent = nil
-        appEdits = [:]
+        appEdits = [:]; appEnabledRoute = false
         writes.clear()
         Task { await load(force: true) }
     }
@@ -235,9 +236,15 @@ public final class DeviceSettingsModel {
 
     private func sendApps(revert: AppRevert?, generation gen: Int) async {
         guard gen == appsGeneration else { return }
+        let perApp = revert != nil ? await usesAppEnabledRoute() : false
+        guard gen == appsGeneration else { return }
         let update = NativeAppsPlan.update(for: apps)
+        var sent: AppsUpdate? = update
         let error: FeedError?
-        if update == appsSent {
+        if perApp, let name = revert?.name, let on = apps.first(where: { $0.name == name })?.enabled {
+            sent = nil
+            error = await writes.run { try await self.putApp(name, enabled: on) }
+        } else if update == appsSent {
             error = nil
         } else {
             error = await writes.run { try await self.putApps(update) }
@@ -253,7 +260,7 @@ public final class DeviceSettingsModel {
             appsFailed = true
             appsSent = nil
         } else {
-            appsSent = update
+            appsSent = sent
             if !appsFailed { actionErrors[.apps] = nil }
         }
         guard appsPending == 0, appsFailed else { return }
@@ -262,6 +269,26 @@ public final class DeviceSettingsModel {
         let seq = appsSeq
         guard let current = try? await service.apps(), seq == appsSeq, gen == appsGeneration, appsPending == 0 else { return }
         apps = current
+    }
+
+    private func usesAppEnabledRoute() async -> Bool {
+        if appEnabledRoute { return true }
+        let svc = service
+        guard let info = try? await svc.serverVersion(), svc == service else { return false }
+        appEnabledRoute = info.supports(VersionInfo.deviceAppEnabled)
+        return appEnabledRoute
+    }
+
+    private func putApp(_ name: String, enabled: Bool) async throws {
+        let svc = service
+        let gen = appsGeneration
+        do {
+            try await svc.setAppEnabled(name, enabled: enabled)
+        } catch let error as APIError {
+            guard case .http(404, _) = error, svc == service, gen == appsGeneration else { throw error }
+            appEnabledRoute = false
+            try await putApps(NativeAppsPlan.update(for: apps))
+        }
     }
 
     private func putApps(_ update: AppsUpdate) async throws {

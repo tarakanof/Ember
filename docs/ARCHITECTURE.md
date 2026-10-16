@@ -2716,6 +2716,29 @@ forwarding `null` or guessing `[]`, which would switch every off app on
 (#449). After a
 successful order write the PUT reads the list back (2 s budget) to update the
 clock record's version, and both routes run one at a time with the façade;
+the same holds for `PUT /v1/device/apps/{name}/enabled`, which switches one
+app and leaves the rest as they are (#447). The name must be NG's
+`[A-Za-z0-9_-]{1,32}`, not `active`/`next`/`previous`/`order`, and not a
+script module (checked against the cached list, and the fresh one on the
+fallback): 400 otherwise. NG has no capability flag for its per-app
+`PUT /api/v1/apps/{name}/enabled` (body `true` or `false`, added in NG
+1.2), so the server probes: it tries the per-app call first, and a 404 or
+405 means this clock lacks it. The server then remembers "no per-app
+route" for that clock identity (URL, uid and firmware as last seen by the
+capability refresh or the `/v1/clock/health` probe, the uid only from an
+awtrix-ng board), so a URL swap or a firmware update seen by either tries
+the route again. So does a reboot (uptime lower than last seen) or an hour
+since the mark, so a one-off 404 (another host briefly on the address, a
+web server not up yet) doesn't keep the clock on the fallback. Without it, the
+server reads `GET /api/v1/apps` and writes the full order with only that
+app changed, using the rules of the app's `NativeAppsPlan` (modules left
+out, a missing `enabled` read as on, an unlisted name switched off by
+naming it in `disabled`). The read is fresh, under the app-order lock, so
+it is never older than the write. A 507 (`applied, not saved yet`) is
+relayed as 507, but the change is live, so the list is read back as after
+a success. A clock 404 on the fallback becomes 502, so a 404 from this
+route only ever means a server without it. Other refusals (400
+`invalidName`, 422) are relayed and not retried;
 see "One operation at a time" and "Rotation cache" under the clock config
 façade.
 The ambient weather overlay is a separate concern, `PATCH /api/v1/display`
@@ -3639,7 +3662,17 @@ migration) the same config is a façade over the overlay slices, as in #230.
   model stays dirty and saves again with the new values, so a whole-body
   `PUT` that landed after the façade one is corrected. In the other direction,
   an old-endpoint save of usage, Pomodoro, weather or meetings reloads the
-  façade. The Rotation page's app toggles and reorders send
+  façade. On a server whose `/version` `features` lists
+  `device_app_enabled` (only a yes is kept; a no or a failed read is
+  asked again on the next toggle, so a server upgraded at the same URL is
+  picked up), an app toggle sends only
+  that app, `PUT /v1/device/apps/{name}/enabled {"enabled":bool}`, so
+  apps switched on or off meanwhile in NG's web UI or by Ember on another
+  Mac stay as they are (#447). A 404 from that route (an older server)
+  falls back to the full write below and drops the kept yes, unless the
+  server or app list generation changed while it was in flight, in which
+  case nothing more is sent. Reorders, and
+  toggles on an older server, send
   `{"rotation":{"order","disabled"}}` (the same body as `PUT
   /v1/device/apps`) through the façade, built by `NativeAppsPlan` from the
   whole list after the change: `order` names every app, switched-off ones

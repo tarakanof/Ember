@@ -166,6 +166,13 @@ would switch every off app back on; the same holds for `rotation` in
 `PUT /v1/devices/{id}/config`; these and the clock's
 `GET/PUT /v1/devices/{id}/config` run one at a time and answer 503 when
 another app order change holds them past the 11 s deadline),
+`PUT /v1/device/apps/{name}/enabled` (`{"enabled":bool}`, switches one app
+and leaves the others: tries NG's per-app route, and on a 404/405 remembers
+the clock lacks it (until a URL, firmware or uptime drop is seen, or an hour) and reads the clock's list fresh to write the full order
+with only that app changed; a name that isn't `[A-Za-z0-9_-]{1,32}`, is
+NG-reserved or names a module answers 400; NG's 507 (applied, not saved)
+is relayed as 507, a clock 404 as 502, 400/422 as is; same lock and 503 as
+above; listed as `device_app_enabled` in `/version` `features`),
 `GET/PUT /v1/device/sensors` (system
 `tempOffset`/`humOffset` via read-merge-PUT of `/api/v1/system`; applies live,
 no reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons` (read-merge-PUT
@@ -200,7 +207,7 @@ units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
 `-update`) are also EmberKit's decode fixtures. Operator: `/admin/doctor`, `/admin/reload`,
 `/version` (`binary`, `version`, `revision`, `dirty`, `go_version`,
 `features`: server capabilities clients gate on, today
-`firmware_delete_keep`; `clock_disabled: true` under `EMBER_CLOCK=off`, omitted
+`firmware_delete_keep` and `device_app_enabled`; `clock_disabled: true` under `EMBER_CLOCK=off`, omitted
 otherwise, read without clock I/O), `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
 `GET /v1/devices/self/config`, `PUT /v1/devices/self/coredump?id=<dump>`
 (the core dump a checkin asked for: `application/octet-stream`, ≤128 KiB or

@@ -45,6 +45,13 @@ public struct DeviceService: Sendable, Equatable {
     public func updateApps(_ patch: AppsUpdate) async throws {
         try await client.put("/v1/device/apps", body: patch, budget: .clock)
     }
+    public func setAppEnabled(_ name: String, enabled: Bool) async throws {
+        try await client.put("/v1/device/apps/\(KnobService.escape(name))/enabled",
+                             body: AppEnabledUpdate(enabled: enabled), budget: .clock)
+    }
+    public func serverVersion() async throws -> VersionInfo {
+        try await client.get("/version")
+    }
     public func capabilities() async throws -> DeviceCapabilities {
         try await client.get("/v1/device/capabilities", budget: .clock)
     }

@@ -374,6 +374,11 @@ public struct ButtonsUpdate: Codable, Equatable, Sendable {
     public init(enabled: Bool) { self.enabled = enabled }
 }
 
+public struct AppEnabledUpdate: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    public init(enabled: Bool) { self.enabled = enabled }
+}
+
 public struct DisplayPowerUpdate: Codable, Equatable, Sendable {
     public var power: Bool
     public init(power: Bool) { self.power = power }

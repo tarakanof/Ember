@@ -99,6 +99,7 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 		{"PUT", "/v1/device/display/power", `{"power":true}`},
 		{"GET", "/v1/device/apps", ""},
 		{"PUT", "/v1/device/apps", `{}`},
+		{"PUT", "/v1/device/apps/time/enabled", `{"enabled":true}`},
 		{"POST", "/v1/device/audio/test", ""},
 		{"POST", "/v1/device/audio/stop", ""},
 		{"GET", "/v1/device/audio/melodies", ""},
