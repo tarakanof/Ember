@@ -121,6 +121,13 @@ public enum AgentState: Sendable, Equatable {
     case notRunning
     case cliInstalled
     case error(String)
+
+    public var isSwitchOn: Bool {
+        switch self {
+        case .on, .notRunning, .needsApproval: true
+        case .off, .cliInstalled, .error: false
+        }
+    }
 }
 
 public enum ToggleState: Sendable, Equatable {
@@ -206,7 +213,20 @@ public final class ProducerInstallService: Sendable {
     }
 
     private func isCLIInstalled(_ agent: ProducerAgent) -> Bool {
-        sm.status(plistName: agent.plistName) == .notRegistered && fileExists(cliPlistPath(agent))
+        isUnregistered(agent) && fileExists(cliPlistPath(agent))
+    }
+
+    private func isBundled(_ agent: ProducerAgent) -> Bool {
+        fileExists(bundleMacOSDir.deletingLastPathComponent()
+            .appendingPathComponent("Library/LaunchAgents/\(agent.plistName)").path)
+    }
+
+    private func isUnregistered(_ agent: ProducerAgent) -> Bool {
+        switch sm.status(plistName: agent.plistName) {
+        case .notRegistered: true
+        case .notFound: isBundled(agent)
+        case .enabled, .requiresApproval: false
+        }
     }
 
     @concurrent
@@ -310,6 +330,8 @@ public final class ProducerInstallService: Sendable {
         case .requiresApproval:
             return .needsApproval
         case .notRegistered:
+            return fileExists(cliPlistPath(agent)) ? .cliInstalled : .off
+        case .notFound where isBundled(agent):
             return fileExists(cliPlistPath(agent)) ? .cliInstalled : .off
         case .notFound:
             return .error(String(localized: "Not installed: the app is missing its launch agent.",

@@ -67,7 +67,7 @@ struct ProducersToggleSection: View {
                 stateView(state, agent: agent)
                 if state != .cliInstalled {
                     Toggle(agentName(agent), isOn: Binding(
-                        get: { state != .off },
+                        get: { state.isSwitchOn },
                         set: { on in Task { await model.setEnabled(agent, on) } }))
                         .labelsHidden()
                         .toggleStyle(.switch)
