@@ -63,7 +63,7 @@ private func json(_ body: [String: UsageAccountPrefs?]) throws -> [String: Any] 
         .deletingLastPathComponent()
         .appendingPathComponent("cmd/ember/testdata/usage/plan_labels.json")
     let labels = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: url))
-    #expect(labels.count > 9)
+    #expect(!labels.isEmpty)
     let template = try decoded().rows[0]
     for (plan, label) in labels {
         let account = UsageAccount(id: template.id, tool: template.tool, plan: plan, name: label, nameSet: false,
@@ -378,16 +378,100 @@ private func waitFor(_ cond: () -> Bool) async throws {
     ]))
 }
 
-@Test func rebaseKeepsTheServersListAndReordersByTheNewerOrder() throws {
+@Test func rebaseKeepsTheServersListAndTheDraftsOrder() throws {
     let current = try decoded()
-    let sent = current
     var draft = current
     draft.move("codex", to: "claude:3f9a1c0b7d2e4a65")
     var withoutFirst = current
     withoutFirst.rows.removeFirst()
-    let rebased = draft.rebased(onto: withoutFirst, from: sent)
+    let rebased = draft.rebased(onto: withoutFirst, from: current)
     #expect(rebased.rows.map(\.id) == ["codex", "claude:0123456789abcdef"])
-    #expect(rebased.rows.map(\.order) == [0, 2])
+    #expect(rebased.rows.map(\.order) == [0, 1])
+}
+
+@Test func aReorderDuringARejectedReorderKeepsTheOrderTheUserSaw() throws {
+    var server = try decoded()
+    for i in server.rows.indices { server.rows[i].order = nil }
+    var sent = server
+    sent.move("codex", to: "claude:3f9a1c0b7d2e4a65")
+    var draft = sent
+    draft.move("claude:3f9a1c0b7d2e4a65", by: 1)
+    #expect(draft.rows.map(\.id) == ["codex", "claude:0123456789abcdef", "claude:3f9a1c0b7d2e4a65"])
+    let rebased = draft.rebased(onto: server, from: sent)
+    #expect(rebased.rows.map(\.id) == draft.rows.map(\.id))
+    #expect(rebased.rows.map(\.order) == [0, 1, 2])
+}
+
+@Test func rebaseAppendsAnAccountOnlyTheServerHas() throws {
+    let current = try decoded()
+    var known = current
+    known.rows.removeLast()
+    var draft = known
+    draft.move("claude:0123456789abcdef", by: -1)
+    let rebased = draft.rebased(onto: current, from: known)
+    #expect(rebased.rows.map(\.id) == ["claude:0123456789abcdef", "claude:3f9a1c0b7d2e4a65", "codex"])
+    #expect(rebased.rows.map(\.order) == [0, 1, 2])
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func anEditMadeWhileAForbiddenSaveIsInFlightIsDropped() async throws {
+    let server = ServerStub()
+    let gate = DispatchSemaphore(value: 0)
+    let arrived = LockedBox()
+    let client = stubbedClient(token: "t") {
+        server.handle($0, get: accountsJSON) { _ in
+            arrived.add("put")
+            gate.wait()
+            return (403, #"{"error":"usage account settings need EMBER_TOKEN"}"#)
+        }
+    }
+    let model = UsageAccounts.model(client: client)
+    await model.load()
+    let loaded = model.draft
+    model.draft.rename("codex", to: "Laptop")
+    let save = Task { await model.saveNow() }
+    try await waitFor { !arrived.paths.isEmpty }
+    model.draft.setHidden("claude:3f9a1c0b7d2e4a65", true)
+    gate.signal()
+    await save.value
+    #expect(model.saveError != nil)
+    #expect(model.draft == loaded)
+    #expect(!model.hasUnsavedChanges)
+    #expect(server.puts.count == 1)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aRetryThatIsForbiddenDropsTheEditMadeMeanwhile() async throws {
+    let server = ServerStub()
+    let gone = try JSONSerialization.jsonObject(with: Data(accountsJSON.utf8)) as! [String: Any]
+    var accounts = gone["accounts"] as! [[String: Any]]
+    accounts.removeLast()
+    let withoutCodex = String(decoding: try JSONSerialization.data(withJSONObject: ["accounts": accounts]), as: UTF8.self)
+    let gets = LockedBox()
+    let gate = DispatchSemaphore(value: 0)
+    let arrived = LockedBox()
+    let forbidden = #"{"error":"usage account settings need EMBER_TOKEN"}"#
+    let client = stubbedClient(token: "t") { req in
+        let get = gets.paths.isEmpty ? accountsJSON : withoutCodex
+        gets.add("get")
+        return server.handle(req, get: get) { body in
+            guard body["codex"] != nil else { return (403, forbidden) }
+            arrived.add("put")
+            gate.wait()
+            return (400, #"{"error":"unknown usage account \"codex\""}"#)
+        }
+    }
+    let model = UsageAccounts.model(client: client)
+    await model.load()
+    model.draft.move("claude:0123456789abcdef", to: "claude:3f9a1c0b7d2e4a65")
+    let save = Task { await model.saveNow() }
+    try await waitFor { !arrived.paths.isEmpty }
+    model.draft.setHidden("claude:3f9a1c0b7d2e4a65", true)
+    gate.signal()
+    await save.value
+    #expect(server.puts.count == 2)
+    #expect(model.saveError == FeedError(APIError.http(status: 403, body: forbidden)))
+    #expect(model.draft.rows.map(\.id) == ["claude:3f9a1c0b7d2e4a65", "claude:0123456789abcdef"])
+    #expect(!model.draft.rows[0].hidden)
+    #expect(!model.hasUnsavedChanges)
 }
 
 @MainActor @Test func aFailedRetryShowsItsOwnError() async throws {

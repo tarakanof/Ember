@@ -207,13 +207,31 @@ func TestUsageAccountNameEqualToItsDefaultIsReportedAsSet(t *testing.T) {
 	if before.Accounts[1].ID != idMaxB || before.Accounts[1].NameSet {
 		t.Fatalf("accounts = %+v", before.Accounts)
 	}
-	if resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+idMaxB+`":{"name":"Max 2"}}`); resp.StatusCode != http.StatusOK {
-		t.Fatalf("put = %d %s", resp.StatusCode, b)
+	reply := putAccounts(t, srv, `{"`+idMaxB+`":{"name":"Max 2"}}`)
+	for _, got := range []usageAccountsOut{reply, getAccounts(t, srv, testToken)} {
+		if a, b := got.Accounts[0], got.Accounts[1]; a.NameSet || !b.NameSet || b.Name != "Max 2" || b.DefaultName != "Max 2" {
+			t.Fatalf("accounts = %+v, want the named one set and the other not", got.Accounts)
+		}
 	}
-	got := getAccounts(t, srv, testToken)
-	if a, b := got.Accounts[0], got.Accounts[1]; a.NameSet || !b.NameSet || b.Name != "Max 2" || b.DefaultName != "Max 2" {
-		t.Fatalf("accounts = %+v, want the named one set and the other not", got.Accounts)
+	reset := putAccounts(t, srv, `{"`+idMaxB+`":null}`)
+	for _, got := range []usageAccountsOut{reset, getAccounts(t, srv, testToken)} {
+		if got.Accounts[1].ID != idMaxB || got.Accounts[1].NameSet {
+			t.Fatalf("after reset = %+v, want name_set false", got.Accounts)
+		}
 	}
+}
+
+func putAccounts(t *testing.T, srv *httptest.Server, body string) usageAccountsOut {
+	t.Helper()
+	resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("put %s = %d %s", body, resp.StatusCode, b)
+	}
+	var out usageAccountsOut
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func TestUsagePlanLabelsMatchTheGolden(t *testing.T) {

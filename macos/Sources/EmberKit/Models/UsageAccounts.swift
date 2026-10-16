@@ -140,22 +140,19 @@ public struct UsageAccounts: Sendable, Equatable {
 
     public func rebased(onto current: UsageAccounts, from sent: UsageAccounts) -> UsageAccounts {
         var out = current
+        var reordered = false
         for row in rows {
-            guard let i = out.rows.firstIndex(where: { $0.id == row.id }) else { continue }
             let old = sent.rows.first(where: { $0.id == row.id })
+            if row.order != old?.order { reordered = true }
+            guard let i = out.rows.firstIndex(where: { $0.id == row.id }) else { continue }
             if row.customName != old?.customName { out.rows[i].customName = row.customName }
             if row.hidden != old?.hidden { out.rows[i].hidden = row.hidden }
-            if row.order != old?.order { out.rows[i].order = row.order }
         }
-        let position = Dictionary(uniqueKeysWithValues: out.rows.enumerated().map { ($1.id, $0) })
-        out.rows.sort { a, b in
-            switch (a.order, b.order) {
-            case let (x?, y?) where x != y: return x < y
-            case (.some, nil): return true
-            case (nil, .some): return false
-            default: return position[a.id, default: 0] < position[b.id, default: 0]
-            }
-        }
+        guard reordered else { return out }
+        let ids = Set(rows.map(\.id))
+        let held = rows.compactMap { row in out.rows.first { $0.id == row.id } }
+        out.rows = held + out.rows.filter { !ids.contains($0.id) }
+        out.renumber()
         return out
     }
 
@@ -196,7 +193,7 @@ public struct UsageAccounts: Sendable, Equatable {
                     do { return try await put(retry, client: client) } catch { failure = error }
                 }
             }
-            let rejected = (failure as? APIError).map { if case .http(400, _) = $0 { true } else { false } } ?? false
+            let rejected = (failure as? APIError)?.isBadRequest ?? false
             throw SaveRecovered(current: current, cause: FeedError(failure)) { sent, draft in
                 rejected ? draft.rebased(onto: current, from: sent) : current
             }

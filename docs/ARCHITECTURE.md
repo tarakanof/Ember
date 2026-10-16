@@ -4874,12 +4874,16 @@ it: a name different from `default_name`). The plan labels are checked
 against the server's table through the golden
 `cmd/ember/testdata/usage/plan_labels.json`. A reorder writes `order`
 0…n-1 on every row; a save PUTs only the rows whose settings changed and
-that the last server list holds, each with its whole object (`null` when it is back to defaults), and takes the
-reply as the new list, so renumbered `default_name`s show. A 400 or 403
-reverts the list to the server's (re-read) and keeps the error under the
-section; nothing is resent. On a 400, an edit made while the PUT and the
-re-read were in flight is re-applied onto the server's list and saved
-next (a 403 drops it, since every edit would fail). One 400 exception:
+that the last server list holds, each with its whole object (`null` when
+it is back to defaults), and takes the reply as the new list, so
+renumbered `default_name`s show. A 400 or 403 reverts the list to the
+server's (re-read) and keeps the error under the section; nothing is
+resent. On a 400, an edit made while the PUT and the re-read were in
+flight is re-applied onto the server's list and saved next (a 403 drops
+it, since every edit would fail): a name or switch per row, while an
+order change takes the draft's order of the ids the server still lists,
+appends any others and renumbers them all, so the list shows the order
+the user last saw. One 400 exception:
 when the re-read list lost an account the body named (expired, evicted,
 or the stale keyless one dropped), the PUT is retried once without it,
 and if the retry fails its own error is shown. A focused name field that
