@@ -240,6 +240,20 @@
         }
       }
     },
+    "%@ · No usage reported yet" : {
+      "comment" : "Settings › Agents › Accounts: the plan as the server and knob name it (\"Max\", \"Pro\"; not translated), and no usage report yet."
+    },
+    "%@ · Stale, updated %@" : {
+      "comment" : "Settings › Agents › Accounts: the plan as the server and knob name it (\"Max\"; not translated), then no usage report for 10 min; the time is relative (\"2 hours ago\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · Stale, updated %2$@"
+          }
+        }
+      }
+    },
     "%@ · Update to %@ available" : {
       "comment" : "Settings › Knob Firmware & updates header while collapsed: the running firmware, then the newer version stored on Ember (\"0.9.15 · Update to 0.9.16 available\").",
       "localizations" : {
@@ -258,6 +272,17 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ · Update to %2$@ failed"
+          }
+        }
+      }
+    },
+    "%@ · Updated %@" : {
+      "comment" : "Settings › Agents › Accounts: the plan as the server and knob name it (\"Max\"; not translated), then the last usage report; the time is relative (\"5 min ago\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · Updated %2$@"
           }
         }
       }
@@ -578,6 +603,7 @@
     "Access point %@" : {
       "comment" : "Settings › Knob: tooltip on the Wi-Fi row naming the access point the knob uses (\"Access point 78:45:58:4b:c2:cd\")."
     },
+    "Accounts" : {},
     "Active days to aim for in the last 7" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1539,6 +1565,9 @@
     "Mute sounds at night" : {},
     "Mutes every chime and alarm from the server during these hours, in the server's time zone. Popups still show." : {},
     "Name" : {},
+    "Name of %@" : {
+      "comment" : "Settings › Agents › Accounts: accessibility label of an account's name field; the name is the account's."
+    },
     "Name on the knob" : {},
     "Native Icon IDs" : {},
     "Native animated icon" : {},
@@ -1588,6 +1617,7 @@
       "comment" : "Settings › Knob Firmware & updates image row badge (warning): Ember has no ELF for this build, so its crash dumps can't be decoded."
     },
     "No Pomodoro data from Ember." : {},
+    "No accounts yet. Claude Code and Codex add theirs when they report usage." : {},
     "No active sessions" : {},
     "No agent activity this week" : {},
     "No calendar feeds. Set EMBER_MEETINGS_ICS_URLS on the server; the URLs are secrets and never leave it." : {},
@@ -1606,6 +1636,7 @@
     "No observation yet" : {},
     "No server URL" : {},
     "No server found?" : {},
+    "No usage reported yet" : {},
     "No usage reported yet — agents report it as they run" : {},
     "No weather from Ember yet." : {},
     "No work" : {},
@@ -2050,6 +2081,9 @@
     "Show %@" : {
       "comment" : "Button that opens a Settings pane, e.g. Show Weather"
     },
+    "Show %@ on the knob" : {
+      "comment" : "Settings › Agents › Accounts: accessibility label of an account's switch; the name is the account's."
+    },
     "Show AM/PM" : {},
     "Show Hardware" : {},
     "Show developer tools" : {},
@@ -2114,6 +2148,9 @@
     "Stale" : {},
     "Stale · %@" : {
       "comment" : "A card chip: the data couldn't be refreshed; the argument is how long ago it was loaded (\"2 min\")."
+    },
+    "Stale, updated %@" : {
+      "comment" : "Settings › Agents › Accounts: no usage report for 10 min; the time is relative, e.g. \"2 hours ago\"."
     },
     "Start" : {},
     "Start Focus" : {
@@ -2331,6 +2368,7 @@
     "The knob saved a crash dump in flash. It uploads the dump to Ember and erases it once Ember has it; older firmware reports it on every check-in until it is erased over USB (idf.py coredump-erase or a reflash)." : {},
     "The knob sends hardware stats every minute, and every 5 seconds while this page is open. It needs firmware with diagnostics." : {},
     "The knob sends no hardware stats." : {},
+    "The knob shows one usage screen per account, in this order. Clear a name to use the default. Drag a row by its handle to reorder, or Control-click it. Server-wide." : {},
     "The knob stays at this brightness. It never goes below the minimum, except during quiet hours. Set the hours in Sounds & Alerts." : {},
     "The knob stopped answering. Check that it's plugged in and try again." : {},
     "The knob was disconnected. Plug it back in and try again." : {},
@@ -2535,6 +2573,9 @@
       "comment" : "Settings › Knob Firmware row button; the argument is the newer firmware version stored on Ember (\"Update to 0.9.14\")."
     },
     "Updated" : {},
+    "Updated %@" : {
+      "comment" : "Settings › Agents › Accounts: the last usage report; the time is relative, e.g. \"5 min ago\"."
+    },
     "Updated %@." : {
       "comment" : "Settings › Calendar: when the server last fetched the calendar, relative (\"5 minutes ago\")."
     },

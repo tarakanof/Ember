@@ -34,12 +34,14 @@ public final class SettingsModels {
     public private(set) var quiet: ServerConfigModel<QuietConfig>
     public private(set) var display: ServerConfigModel<DisplayConfig>
     public private(set) var controls: ServerConfigModel<ControlsConfig>
+    public private(set) var usageAccounts: ServerConfigModel<UsageAccounts>
     public let agentsEnv: EnvConfigModel<DisplaySettings>
     public let connectionEnv: EnvConfigModel<ConnectionSettings>
     public let producerTuning: EnvConfigModel<ProducerTuning>
 
     public var all: [any SaveStatusReporting] {
-        [pomodoro, weather, meetings, usage, quiet, display, controls, agentsEnv, connectionEnv, producerTuning]
+        [pomodoro, weather, meetings, usage, quiet, display, controls, usageAccounts, agentsEnv, connectionEnv,
+         producerTuning]
     }
 
     public var aggregateStatus: AggregateSaveStatus {
@@ -52,6 +54,7 @@ public final class SettingsModels {
     public init(client: APIClient, envStore: EnvFileStore) {
         server = ServerIdentity(client)
         (pomodoro, weather, meetings, usage, quiet, display, controls) = Self.serverModels(client)
+        usageAccounts = UsageAccounts.model(client: client)
         agentsEnv = EnvConfigModel(
             env: envStore, initial: DisplaySettings(reading: EnvFile(parsing: "")),
             read: { DisplaySettings(reading: $0) },
@@ -84,10 +87,12 @@ public final class SettingsModels {
         let next = ServerIdentity(client)
         guard next != server else { return false }
         server = next
-        for m in [pomodoro, weather, meetings, usage, quiet, display, controls] as [any PendingSaveCancelling] {
+        for m in [pomodoro, weather, meetings, usage, quiet, display, controls, usageAccounts]
+            as [any PendingSaveCancelling] {
             m.cancelPendingSave()
         }
         (pomodoro, weather, meetings, usage, quiet, display, controls) = Self.serverModels(client)
+        usageAccounts = UsageAccounts.model(client: client)
         watchClockSources()
         Task { await self.loadServerModels() }
         return true
@@ -101,7 +106,8 @@ public final class SettingsModels {
         async let e: Void = quiet.load()
         async let f: Void = display.load()
         async let g: Void = controls.load()
-        _ = await (a, b, c, d, e, f, g)
+        async let h: Void = usageAccounts.load()
+        _ = await (a, b, c, d, e, f, g, h)
     }
 
     public func clockMark() -> ClockLegacyMark {

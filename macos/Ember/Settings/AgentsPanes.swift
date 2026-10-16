@@ -30,6 +30,8 @@ struct AgentsSourcePane: View {
             }
             .disabled(!usage.isLoaded)
 
+            UsageAccountsSection(model: env.settings.usageAccounts)
+
             Section {
                 StepperRow(title: "Hide when idle", value: $behavior.draft.idleHideMinutes, range: 0...60) { m in
                     m == 0 ? Text("At once") : Text("After \(m) min")
@@ -48,6 +50,7 @@ struct AgentsSourcePane: View {
         }
         .formStyle(.grouped)
         .autosaves(usage)
+        .autosaves(env.settings.usageAccounts)
         .autosaves(behavior)
         .autosaves(env.settings.producerTuning)
         .onAppear { if producers == nil { producers = ProducerInstallModel(service: env.producers) } }
@@ -56,7 +59,8 @@ struct AgentsSourcePane: View {
             async let a: Void = s.producerTuning.load()
             async let b: Void = s.usage.load()
             async let c: Void = s.display.load()
-            _ = await (a, b, c)
+            async let d: Void = s.usageAccounts.load()
+            _ = await (a, b, c, d)
         }
     }
 }

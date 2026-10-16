@@ -22,7 +22,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     @ObservationIgnored public var onSaved: (@MainActor (_ saved: T, _ previous: T?) -> Void)?
 
     @ObservationIgnored private let loader: @Sendable () async throws -> T
-    @ObservationIgnored private let saver: @Sendable (T, T?) async throws -> Void
+    @ObservationIgnored private let saver: @Sendable (T, T?) async throws -> T?
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let savedHold: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
@@ -55,9 +55,21 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
                   debounce: debounce, savedHold: savedHold, sleep: sleep)
     }
 
+    convenience init(initial: T,
+                     load: @escaping @Sendable () async throws -> T,
+                     saveChange save: @escaping @Sendable (T, T?) async throws -> Void,
+                     debounce: Duration,
+                     savedHold: Duration,
+                     sleep: @escaping @Sendable (Duration) async throws -> Void) {
+        self.init(initial: initial, load: load, saveReturning: { value, previous in
+            try await save(value, previous)
+            return nil
+        }, debounce: debounce, savedHold: savedHold, sleep: sleep)
+    }
+
     init(initial: T,
          load: @escaping @Sendable () async throws -> T,
-         saveChange save: @escaping @Sendable (T, T?) async throws -> Void,
+         saveReturning save: @escaping @Sendable (T, T?) async throws -> T?,
          debounce: Duration,
          savedHold: Duration,
          sleep: @escaping @Sendable (Duration) async throws -> Void) {
@@ -131,11 +143,13 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         status = .saving
         for attempt in 1...Self.rateLimitAttempts {
             do {
-                try await saver(sent, previous)
-                applied = sent
+                let reply = try await saver(sent, previous)
+                let saved = reply ?? sent
+                applied = saved
+                if draft == sent { draft = saved }
                 saveError = nil
                 status = .saved
-                onSaved?(sent, previous)
+                onSaved?(saved, previous)
                 holdSaved()
                 break
             } catch let recovered as SaveRecovered<T> {
