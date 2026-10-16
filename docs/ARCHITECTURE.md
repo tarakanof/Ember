@@ -2250,20 +2250,19 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     wait happens only when fewer track changes show than skips ran: none
     show (`next` + `previous` that Music applies in one go, a `previous`
     that restarts the track, a skip in a stopped or one-track queue), or
-    Music coalesces two `next` into one change. The
-    registry lives in server memory and the Music pusher is event-driven, so
-    the long-poll doubles as the reconnect signal: its first successful round
-    after a failure (a server restart) re-pushes the Music snapshot
+    Music coalesces two `next` into one change. The registry lives in server
+    memory and the Music pusher is event-driven, so the long-poll doubles as
+    the reconnect signal: its first successful round after a failure (a
+    server restart) re-pushes the Music snapshot
     (`AppleMusicPusher.pushSnapshot`, #497). It reports the outcome of the
     latest report the pusher sent, which can be a newer Music update merged
     into the snapshot. Later rounds retry it only after a transport error or
     a 5xx, and after a 429 not before its `Retry-After`, which a long-poll
     failure doesn't cut short; any other failure (400, 413, an encoding
-    error) waits for the next long-poll failure. There is no timer.
-    Commands age from when the poll returned, so a slow snapshot push can't
-    make a queued command look younger than it is. The `playerInfo`
-    userInfo keys are undocumented by Apple; the ones read have been stable
-    since iTunes.
+    error) waits for the next long-poll failure. There is no timer. Commands
+    age from when the poll returned, so a slow snapshot push can't make a
+    queued command look younger than it is. The `playerInfo` userInfo keys
+    are undocumented by Apple; the ones read have been stable since iTunes.
 - **Not built yet:** iTunes album fallback, Plex websocket.
 
 ### Knob controls — `cmd/ember/controls*.go`, `macos/Sources/EmberKit/Controls`, `macos/Ember/Services/*Controls*` (#515)
