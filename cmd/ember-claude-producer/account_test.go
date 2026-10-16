@@ -24,6 +24,7 @@ import (
 
 func TestMain(m *testing.M) {
 	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	newT3Probe = func() t3Probe { return t3Probe{getenv: func(string) string { return "" }} }
 	if os.Getenv("EMBER_TEST_STATUSLINE_CHILD") == "1" {
 		runStatusline()
 	}

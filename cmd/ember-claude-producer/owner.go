@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -70,19 +72,32 @@ var detectOwner = func() (int, string) {
 }
 
 func resolveOwner(startPID int, info func(int) (ppid int, comm string, ok bool)) int {
+	pid, _ := walkPastShells(startPID, info)
+	return pid
+}
+
+func walkPastShells(startPID int, info func(int) (ppid int, comm string, ok bool)) (pid, ppid int) {
 	cur := startPID
 	for i := 0; i < 12 && cur > 1; i++ {
-		ppid, comm, ok := info(cur)
+		next, comm, ok := info(cur)
 		if !ok {
-			return 0
+			return 0, 0
 		}
 		base := filepath.Base(strings.TrimPrefix(comm, "-"))
 		if !shellComms[base] && base != "ember-claude-producer" && base != producerCommLinux {
-			return cur
+			return cur, next
 		}
-		cur = ppid
+		cur = next
 	}
-	return 0
+	return 0, 0
+}
+
+var psBin = "ps"
+
+func psOutput(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, psBin, args...)
+	cmd.WaitDelay = 100 * time.Millisecond
+	return cmd.Output()
 }
 
 var ownerAlive = func(pid int, start string) bool {

@@ -809,14 +809,47 @@ markers still get reaped.
   still read, and a missing table or column is a soft failure (log once a
   minute, back off to 60 s, never post or delete on a bad read).
 
-  *Double sessions.* T3's Claude provider loads the user's Claude settings, so
-  the Ember Claude hooks fire for T3 Claude threads too and the same work shows
-  as a `t3` and a `claude` session. The hook payload carries no T3 marker
-  (T3 sets neither `CLAUDE_AGENT_SDK_CLIENT_APP` nor any T3 env var), so the
-  producer cannot tell them apart cheaply; the RUNBOOK documents the
-  separate-`CLAUDE_CONFIG_DIR` workaround. A dedupe in the Claude hook (walk
-  the ancestry to the pid in T3's `server-runtime.json`) is possible but adds
-  `ps` calls to the 500 ms hook budget; left for after a live check.
+  *Double sessions (#216).* T3's Claude provider loads the user's Claude
+  settings, so the Ember Claude hooks fire for T3 Claude threads too. The
+  Claude hook skips them, so each T3 thread shows once, as `t3` (`t3.go`,
+  checked in `dispatchHookFrom` right after decoding: no POST, no new
+  marker). T3 sets no env var of its own on the Claude child (v0.1.0 81493ef,
+  nightly 0.1.1 e58a485: the SDK `env` is the server's `process.env` plus an
+  optional `CLAUDE_CONFIG_DIR`, `makeClaudeEnvironment` in
+  `provider/Drivers/ClaudeHome.ts`; no `CLAUDE_AGENT_SDK_CLIENT_APP`). The
+  Agent SDK sets `CLAUDE_CODE_ENTRYPOINT=sdk-ts` and
+  `CLAUDE_AGENT_SDK_VERSION` when unset (SDK 0.3.276 `sdk.mjs`); either one is
+  the gate (the version too, since a T3 started from a Claude shell inherits
+  `cli`), so interactive sessions pay nothing. For an SDK session the hook
+  walks past shells to its owner (`claude`), then past shells from the
+  owner's parent to the process that launched it (the server spawns the CLI
+  directly; on Linux `AgentScope` `exec`s through `sh`/`systemd-run`), and
+  reads that launcher's real argv (`/proc/<pid>/cmdline`; darwin
+  `sysctl kern.procargs2`). It is a T3 server when:
+  - `argv[0]` is named `t3`: the `t3@0.1.0` npm launcher `bin/t3.js`
+    `spawnSync`s `@t3code/t3-<platform>/t3`, and the boot service runs
+    `<T3 home>/runtime/versions/<v>/t3 serve` (`serviceLauncher.ts`);
+  - an argument ends `/app.asar/apps/server/dist/bin.mjs` and is followed by
+    `--bootstrap-fd`: the desktop app runs `<app> --require …
+    app.asar/apps/server/dist/bin.mjs --bootstrap-fd 3`
+    (`DesktopBackendConfiguration.ts`);
+  - under `node`/`bun`, the first non-option argument is named `t3` or ends
+    `/node_modules/t3/dist/bin.mjs` (the 0.0.x npm package).
+  Whole arguments are compared, so an unrelated `apps/server/dist/bin.mjs`,
+  a `bin.mjs.backup` or an option value does not match. All lookups share a
+  250 ms context (`ps` via `exec.CommandContext`); a timeout or failed
+  lookup reports the session. When the probe says T3 but a marker exists
+  (an upgrade mid-session, or an earlier hook whose lookup failed), the hook
+  removes it and DELETEs the `claude` row, so no frozen row is re-posted by
+  the heartbeat. Cost: 3 `ps` calls plus one sysctl on darwin, SDK sessions
+  only. Rejected signals: `T3CODE_CLI_PATH` exists only since v0.1.0
+  desktop and leaks into T3's integrated terminal; `ELECTRON_RUN_AS_NODE` is
+  set by any Electron host; a cwd under `~/.t3/worktrees` misses local-mode
+  threads; the pid in `server-runtime.json` means reading T3's home.
+  Checking the direct launcher, not any ancestor, keeps an SDK script started
+  from a T3 terminal reported. Not recognised, so still doubled: a dev or
+  checkout server (`node --watch src/bin.ts`, `node dist/bin.mjs`) and an
+  unpackaged desktop build.
 
 Claude producer constraints:
 - **Hook timeout.** The hook path uses the short `HookTimeoutMs` (default

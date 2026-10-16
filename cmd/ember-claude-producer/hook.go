@@ -110,6 +110,10 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 		return
 	}
 	sessionID := sanitizeSessionID(in.SessionID, in.CWD)
+	if newT3Probe().spawnedByT3(ctx) {
+		reapT3Session(ctx, cfg, sessionID)
+		return
+	}
 	dir, err := stateDir()
 	if err != nil {
 		return
