@@ -4730,11 +4730,14 @@ The store is keyed by (tool, account_key). The newest `updated_at` wins
 (the server stamps every post with its receive time and ignores any time a
 client sends, so ranking, staleness and expiry can't be forged; an older
 one never overwrites), so several Macs on one account share one entry.
-Caps never evict another writer's entry: a `source` keeps at most 8
-accounts per tool, a new one replacing that source's own oldest, and past
-64 accounts in all a new account is refused (507, logged `usage post
-rejected reason=account_limit`). The registry follows the same rules,
-skipping a new account at 64 instead of refusing. An account's
+Caps never evict another writer's entry. `source` is trimmed once on
+arrival, before `allowSource`, and only the trimmed value is stored and
+compared. A source keeps at most 8 accounts per tool and 16 across tools,
+a new one replacing that source's own oldest, so no single source reaches
+the 64-account limit; past it a client token's new account is refused
+(507, logged `usage post rejected reason=account_limit`), while the master
+token's never is. The registry follows the same per-source caps and skips a
+new account at 64 instead of refusing. An account's
 id is `<tool>:<account_key>`, so one key on two tools stays two accounts; a
 keyless post is one account per tool, whose id is the bare tool name, which
 no keyed id can equal; once its tool has a keyed

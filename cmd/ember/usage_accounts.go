@@ -117,7 +117,8 @@ func (r *usageAccountRegistry) observe(k usageKey, plan, source string, now time
 		return nil
 	}
 	if !ok {
-		r.evictOwnOldestLocked(k.Tool, source)
+		r.evictOwnOldestLocked(func(s usageAccountSeen) bool { return s.Tool == k.Tool }, source, usageAccountsPerTool)
+		r.evictOwnOldestLocked(func(usageAccountSeen) bool { return true }, source, usageAccountsPerSource)
 		if len(r.seen) >= usageAccountsTotal {
 			return nil
 		}
@@ -146,11 +147,11 @@ func (r *usageAccountRegistry) expireLocked(now time.Time) {
 	}
 }
 
-func (r *usageAccountRegistry) evictOwnOldestLocked(tool, source string) {
+func (r *usageAccountRegistry) evictOwnOldestLocked(in func(usageAccountSeen) bool, source string, max int) {
 	for {
 		n, oldest := 0, ""
 		for id, s := range r.seen {
-			if s.Tool != tool || s.Source != source {
+			if !in(s) || s.Source != source {
 				continue
 			}
 			n++
@@ -158,7 +159,7 @@ func (r *usageAccountRegistry) evictOwnOldestLocked(tool, source string) {
 				oldest = id
 			}
 		}
-		if n < usageAccountsPerTool {
+		if n < max {
 			return
 		}
 		delete(r.seen, oldest)

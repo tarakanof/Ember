@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	usageAccountTTL      = 7 * 24 * time.Hour
-	usageAccountsPerTool = 8
-	usageAccountsTotal   = 64
+	usageAccountTTL        = 7 * 24 * time.Hour
+	usageAccountsPerTool   = 8
+	usageAccountsPerSource = 16
+	usageAccountsTotal     = 64
 )
 
 type UsageWindow struct {
@@ -58,7 +59,7 @@ var (
 func (s *UsageStore) Put(tool string, u ToolUsage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.putLocked(tool, u, u.UpdatedAt)
+	_ = s.putLocked(tool, u, 0, u.UpdatedAt)
 }
 
 func (s *UsageStore) expireLocked(now time.Time) {
@@ -69,7 +70,7 @@ func (s *UsageStore) expireLocked(now time.Time) {
 	}
 }
 
-func (s *UsageStore) putLocked(tool string, u ToolUsage, now time.Time) error {
+func (s *UsageStore) putLocked(tool string, u ToolUsage, limit int, now time.Time) error {
 	s.expireLocked(now)
 	k := usageKey{tool, u.Account}
 	prev, exists := s.byKey[k]
@@ -77,8 +78,9 @@ func (s *UsageStore) putLocked(tool string, u ToolUsage, now time.Time) error {
 		return nil
 	}
 	if !exists {
-		s.evictOwnOldestLocked(tool, u.Source)
-		if len(s.byKey) >= usageAccountsTotal {
+		s.evictOwnOldestLocked(func(k usageKey) bool { return k.Tool == tool }, u.Source, usageAccountsPerTool)
+		s.evictOwnOldestLocked(func(usageKey) bool { return true }, u.Source, usageAccountsPerSource)
+		if limit > 0 && len(s.byKey) >= limit {
 			return errUsageFull
 		}
 	}
@@ -86,11 +88,11 @@ func (s *UsageStore) putLocked(tool string, u ToolUsage, now time.Time) error {
 	return nil
 }
 
-func (s *UsageStore) evictOwnOldestLocked(tool, source string) {
+func (s *UsageStore) evictOwnOldestLocked(in func(usageKey) bool, source string, max int) {
 	for {
 		n, oldest, found := 0, usageKey{}, false
 		for key, u := range s.byKey {
-			if key.Tool != tool || u.Source != source {
+			if !in(key) || u.Source != source {
 				continue
 			}
 			n++
@@ -98,15 +100,16 @@ func (s *UsageStore) evictOwnOldestLocked(tool, source string) {
 				oldest, found = key, true
 			}
 		}
-		if n < usageAccountsPerTool {
+		if n < max {
 			return
 		}
 		delete(s.byKey, oldest)
 	}
 }
 
-func (s *UsageStore) PutIfOwned(tool string, u ToolUsage, sources []string, now time.Time) (string, error) {
+func (s *UsageStore) PutIfOwned(tool string, u ToolUsage, sources []string, limit int, now time.Time) (string, error) {
 	u.UpdatedAt = now
+	u.Source = strings.TrimSpace(u.Source)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.expireLocked(now)
@@ -115,12 +118,12 @@ func (s *UsageStore) PutIfOwned(tool string, u ToolUsage, sources []string, now 
 			if k.Tool != tool {
 				continue
 			}
-			if owner := strings.TrimSpace(prev.Source); !slices.Contains(sources, owner) {
-				return owner, errUsageNotOwned
+			if !slices.Contains(sources, prev.Source) {
+				return prev.Source, errUsageNotOwned
 			}
 		}
 	}
-	return "", s.putLocked(tool, u, now)
+	return "", s.putLocked(tool, u, limit, now)
 }
 
 func (s *UsageStore) Get(tool string) (ToolUsage, bool) {

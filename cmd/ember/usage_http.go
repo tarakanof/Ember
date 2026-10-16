@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -56,6 +57,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New(f.msg))
 		return
 	}
+	req.Source = strings.TrimSpace(req.Source)
 	if !a.allowSource(w, r, req.Source) {
 		return
 	}
@@ -65,6 +67,10 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		clampUsageWindow(win)
 	}
 	sources, _ := boundSources(r)
+	limit := 0
+	if _, isClient := r.Context().Value(clientCallerKey{}).(clientCaller); isClient {
+		limit = usageAccountsTotal
+	}
 	now := time.Now()
 	owner, err := a.usage.PutIfOwned(req.Tool, ToolUsage{
 		FiveHour: req.FiveHour,
@@ -73,7 +79,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		Source:   req.Source,
 		Account:  req.AccountKey,
 		Plan:     req.Plan,
-	}, sources, now)
+	}, sources, limit, now)
 	switch {
 	case errors.Is(err, errUsageNotOwned):
 		a.denySource(w, r, owner)
