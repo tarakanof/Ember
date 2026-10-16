@@ -417,6 +417,8 @@ func makeConfigFIFO(t *testing.T, dir string) *configFIFO {
 			}
 			select {
 			case body := <-c.bodies:
+				_ = os.Remove(p)
+				_ = syscall.Mkfifo(p, 0o600)
 				_, _ = f.WriteString(body)
 				_ = f.Close()
 			case <-stop:
