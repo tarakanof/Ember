@@ -131,14 +131,14 @@ func goldenApp(t *testing.T) *App {
 		c.Weather.Latitude, c.Weather.Longitude = 52.37, 4.9
 	})
 
-	app.usage.Put("claude", ToolUsage{
+	putUsage(t, app.usage, "claude", ToolUsage{
 		Source:    "m4",
 		FiveHour:  &UsageWindow{UsedPercent: 14, ResetsAt: goldenNow.Add(2 * time.Hour).Unix(), ResetLabel: "12:30"},
 		SevenDay:  &UsageWindow{UsedPercent: 37.5},
 		Models:    map[string]*UsageWindow{"opus": {UsedPercent: 5}, "sonnet": {UsedPercent: 20.5}},
 		UpdatedAt: goldenNow.Add(-2 * time.Minute),
 	})
-	app.usage.Put("codex", ToolUsage{
+	putUsage(t, app.usage, "codex", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 3},
 		UpdatedAt: goldenNow.Add(-20 * time.Minute),
 	})

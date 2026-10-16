@@ -17,7 +17,7 @@ var knobCapsUsage = map[string]any{
 
 func putUsageAt(t *testing.T, f *viewFixture, tool string, u ToolUsage) {
 	t.Helper()
-	f.app.usage.Put(tool, u)
+	putUsage(t, f.app.usage, tool, u)
 	if err := f.app.usageSeen.observe(usageKey{tool, u.Account}, u, u.Principal, u.UpdatedAt); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func usageViewScenario(t *testing.T, f *viewFixture) {
 		FiveHour:  &UsageWindow{UsedPercent: 12.4, ResetsAt: now.Add(4 * time.Hour).Unix()},
 		SevenDay:  &UsageWindow{UsedPercent: 5, ResetsAt: week},
 		UpdatedAt: now.Add(-time.Minute)})
-	f.app.usage.Put("claude", ToolUsage{Account: keyMaxA, Plan: "max", Source: "endpoint",
+	putUsage(t, f.app.usage, "claude", ToolUsage{Account: keyMaxA, Plan: "max", Source: "endpoint",
 		FiveHour: &UsageWindow{UsedPercent: 64.4, ResetsAt: reset5h, ResetLabel: "13:48"},
 		SevenDay: &UsageWindow{UsedPercent: 41, ResetsAt: week, ResetLabel: "WED"},
 		Models: map[string]*UsageWindow{
@@ -149,13 +149,13 @@ func TestKnobViewUsageETagIgnoresAFreshAccountsUpdateTime(t *testing.T) {
 	postCapsCheckin(t, f, "0.10.0", knobCapsUsage)
 	now := f.clk.Now()
 	u := ToolUsage{Account: keyMaxA, Plan: "max", FiveHour: &UsageWindow{UsedPercent: 20, ResetsAt: now.Add(time.Hour).Unix()}, UpdatedAt: now}
-	f.app.usage.Put("claude", u)
+	putUsage(t, f.app.usage, "claude", u)
 	_, etag, err := f.app.knobView(f.m.ID, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	u.UpdatedAt = now.Add(time.Minute)
-	f.app.usage.Put("claude", u)
+	putUsage(t, f.app.usage, "claude", u)
 	if _, etag2, _ := f.app.knobView(f.m.ID, now.Add(time.Minute)); etag2 != etag {
 		t.Fatal("an unchanged snapshot posted again moved the ETag")
 	}
@@ -174,7 +174,7 @@ func TestKnobViewUsageWorstCaseStaysSmall(t *testing.T) {
 	for i := range knobUsageMaxAccounts + 2 {
 		key := strings.Repeat(string(rune('a'+i)), 16)
 		tool := []string{"claude", "codex"}[i%2]
-		f.app.usage.Put(tool, ToolUsage{Account: key, Plan: "enterprise",
+		putUsage(t, f.app.usage, tool, ToolUsage{Account: key, Plan: "enterprise",
 			FiveHour: &UsageWindow{UsedPercent: 100, ResetsAt: now.Add(time.Hour).Unix()},
 			SevenDay: &UsageWindow{UsedPercent: 100, ResetsAt: now.Add(time.Hour).Unix()},
 			Models: map[string]*UsageWindow{

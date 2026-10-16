@@ -27,12 +27,12 @@ func TestUsageViewsThresholdGate(t *testing.T) {
 	c, st, _, clk := makeAlarmCoord(t)
 	now := clk.Now()
 
-	st.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 30, ResetLabel: "14:25"}, UpdatedAt: now})
+	putUsage(t, st, "claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 30, ResetLabel: "14:25"}, UpdatedAt: now})
 	if v := c.usageViews(now, Snapshot{}); v["claude"] != nil {
 		t.Fatalf("30%% < 60%%: want no view, got %+v", v["claude"])
 	}
 
-	st.Put("claude", ToolUsage{
+	putUsage(t, st, "claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 87, ResetLabel: "17:30"},
 		SevenDay:  &UsageWindow{UsedPercent: 42},
 		Models:    map[string]*UsageWindow{"opus": {UsedPercent: 51}},
@@ -71,7 +71,7 @@ func TestUsageViewsStatuslineFallback(t *testing.T) {
 func TestUsageViewsWidgetOffYieldsNil(t *testing.T) {
 	c, st, _, clk := makeAlarmCoord(t)
 	now := clk.Now()
-	st.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 99, ResetLabel: "17:30"}, UpdatedAt: now})
+	putUsage(t, st, "claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 99, ResetLabel: "17:30"}, UpdatedAt: now})
 	cfg := *c.loadCfg()
 	off := false
 	cfg.UsageWidget = &off
@@ -84,7 +84,7 @@ func TestUsageViewsWidgetOffYieldsNil(t *testing.T) {
 func TestUsageViewsHiddenTool(t *testing.T) {
 	c, st, _, clk := makeAlarmCoord(t)
 	now := clk.Now()
-	st.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 99, ResetLabel: "17:30"}, UpdatedAt: now})
+	putUsage(t, st, "claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 99, ResetLabel: "17:30"}, UpdatedAt: now})
 	c.hiddenApps = func() map[string]bool { return map[string]bool{"claude": true} }
 	if v := c.usageViews(now, Snapshot{})["claude"]; v != nil {
 		t.Fatalf("hidden tool: want no view, got %+v", v)
@@ -98,7 +98,7 @@ func TestIdleOverThresholdPublishesUsageFrame(t *testing.T) {
 	c.loadCfg = func() *Config { return &cfg }
 
 	now := clk.Now()
-	st.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 87, ResetLabel: "17:30"}, UpdatedAt: now})
+	putUsage(t, st, "claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 87, ResetLabel: "17:30"}, UpdatedAt: now})
 	c.snapshot = func() Snapshot { return Snapshot{Now: clk.Now()} }
 
 	c.onTick()
@@ -117,7 +117,7 @@ func TestIdleUnderThresholdStopsPublishing(t *testing.T) {
 	c.loadCfg = func() *Config { return &cfg }
 
 	now := clk.Now()
-	st.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 30, ResetLabel: "17:30"}, UpdatedAt: now})
+	putUsage(t, st, "claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 30, ResetLabel: "17:30"}, UpdatedAt: now})
 	c.snapshot = func() Snapshot { return Snapshot{Now: clk.Now()} }
 
 	c.onTick()
@@ -136,7 +136,7 @@ func TestIdleCardCursorAdvancesOnEmptyKeys(t *testing.T) {
 	c.loadCfg = func() *Config { return &cfg }
 
 	now := clk.Now()
-	st.Put("claude", ToolUsage{
+	putUsage(t, st, "claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 87, ResetLabel: "17:30"},
 		SevenDay:  &UsageWindow{UsedPercent: 55, ResetLabel: "MON"},
 		UpdatedAt: now,
@@ -162,11 +162,11 @@ func TestIdleCardCursorAdvancesOnEmptyKeys(t *testing.T) {
 func TestUsageViewsShowTheToolsHighestFiveHourAccount(t *testing.T) {
 	c, st, _, clk := makeAlarmCoord(t)
 	now := clk.Now()
-	st.Put("claude", ToolUsage{Account: "aaaaaaaaaaaaaaa1", FiveHour: &UsageWindow{UsedPercent: 95, ResetLabel: "13:00"},
+	putUsage(t, st, "claude", ToolUsage{Account: "aaaaaaaaaaaaaaa1", FiveHour: &UsageWindow{UsedPercent: 95, ResetLabel: "13:00"},
 		SevenDay: &UsageWindow{UsedPercent: 20}, UpdatedAt: now.Add(-time.Minute)})
-	st.Put("claude", ToolUsage{Account: "bbbbbbbbbbbbbbb2", FiveHour: &UsageWindow{UsedPercent: 70, ResetLabel: "15:00"},
+	putUsage(t, st, "claude", ToolUsage{Account: "bbbbbbbbbbbbbbb2", FiveHour: &UsageWindow{UsedPercent: 70, ResetLabel: "15:00"},
 		SevenDay: &UsageWindow{UsedPercent: 80}, UpdatedAt: now})
-	st.Put("claude", ToolUsage{Account: "ccccccccccccccc3", FiveHour: &UsageWindow{UsedPercent: 99}, UpdatedAt: now.Add(-time.Hour)})
+	putUsage(t, st, "claude", ToolUsage{Account: "ccccccccccccccc3", FiveHour: &UsageWindow{UsedPercent: 99}, UpdatedAt: now.Add(-time.Hour)})
 	v := c.usageViews(now, Snapshot{})["claude"]
 	if v == nil || v.FiveHourPct != 95 || v.ResetLabel != "13:00" || v.SevenDayPct == nil || *v.SevenDayPct != 20 {
 		t.Fatalf("view = %+v, want the fresh 95%% account with its own 7d (the stale 99%% one ignored)", v)

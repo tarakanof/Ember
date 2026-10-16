@@ -24,7 +24,7 @@ func TestUsageConsumersAgreeOnFreshness(t *testing.T) {
 			c, st, _, clk := makeAlarmCoord(t)
 			now := clk.Now()
 			storeReset := now.Add(time.Hour).Unix()
-			st.Put("claude", ToolUsage{
+			putUsage(t, st, "claude", ToolUsage{
 				FiveHour:  &UsageWindow{UsedPercent: 99.8, ResetsAt: storeReset, ResetLabel: "17:30"},
 				SevenDay:  &UsageWindow{UsedPercent: 42},
 				Source:    "m4",

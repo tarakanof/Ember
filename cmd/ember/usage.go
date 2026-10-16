@@ -58,12 +58,6 @@ var (
 	errUsageFull     = errors.New("usage account limit reached")
 )
 
-func (s *UsageStore) Put(tool string, u ToolUsage) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_ = s.putLocked(tool, u, 0, u.UpdatedAt)
-}
-
 func (s *UsageStore) expireLocked(now time.Time) {
 	for key, other := range s.byKey {
 		if now.Sub(other.UpdatedAt) > usageAccountTTL {
@@ -132,20 +126,6 @@ func (s *UsageStore) PutIfOwned(tool string, u ToolUsage, alive func(string) boo
 	}
 	u.MasterHeld = u.MasterHeld || u.Principal == ""
 	return u.Principal, s.putLocked(tool, u, limit, now)
-}
-
-func (s *UsageStore) Get(tool string) (ToolUsage, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	now := time.Now()
-	var best usageToolState
-	for k, u := range s.byKey {
-		a := usageAccountState{Key: k, Report: u, Fresh: usageFresh(u, now)}
-		if k.Tool == tool && (!best.HaveReport || usageOutranks(a, best)) {
-			best = usageToolState{Report: u, HaveReport: true, Fresh: a.Fresh}
-		}
-	}
-	return best.Report, best.HaveReport
 }
 
 func (s *UsageStore) All() map[usageKey]ToolUsage {

@@ -24,7 +24,7 @@ func TestLimitAlarmArmsFiresOnce(t *testing.T) {
 	t0 := clk.Now()
 
 	resetAt := t0.Unix() + 90
-	st.Put("claude", ToolUsage{
+	putUsage(t, st, "claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 100, ResetsAt: resetAt},
 		UpdatedAt: t0,
 	})
@@ -76,7 +76,7 @@ func TestLimitAlarmReArmsOnDriftedReset(t *testing.T) {
 	t0 := clk.Now()
 
 	resetAt1 := t0.Unix() + 90
-	st.Put("claude", ToolUsage{
+	putUsage(t, st, "claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 100, ResetsAt: resetAt1},
 		UpdatedAt: t0,
 	})
@@ -86,7 +86,7 @@ func TestLimitAlarmReArmsOnDriftedReset(t *testing.T) {
 
 	clk.Advance(160 * time.Second)
 	resetAt2 := t0.Unix() + 400
-	st.Put("claude", ToolUsage{
+	putUsage(t, st, "claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 100, ResetsAt: resetAt2},
 		UpdatedAt: clk.Now(),
 	})
@@ -99,7 +99,7 @@ func TestLimitAlarmReArmsOnDriftedReset(t *testing.T) {
 	}
 
 	clk.Advance(301 * time.Second)
-	st.Put("claude", ToolUsage{
+	putUsage(t, st, "claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 10, ResetsAt: resetAt2},
 		UpdatedAt: clk.Now(),
 	})
@@ -141,7 +141,7 @@ func TestLimitAlarmRespectsToggle(t *testing.T) {
 
 	t0 := clk.Now()
 	resetAt := t0.Unix() + 90
-	st.Put("claude", ToolUsage{
+	putUsage(t, st, "claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 100, ResetsAt: resetAt},
 		UpdatedAt: t0,
 	})
@@ -165,7 +165,7 @@ func TestLimitAlarmNotifyFailureRetries(t *testing.T) {
 	t0 := clk.Now()
 
 	resetAt := t0.Unix() + 90
-	st.Put("claude", ToolUsage{
+	putUsage(t, st, "claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 100, ResetsAt: resetAt},
 		UpdatedAt: t0,
 	})

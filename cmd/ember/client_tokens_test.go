@@ -372,7 +372,7 @@ func TestBoundClientCannotOverwriteAnotherSourcesUsage(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), "the master token") {
 		t.Fatalf("bound overwrite of dt-mbp usage = %d %s, want 403", resp.StatusCode, b)
 	}
-	u, ok := app.usage.Get("claude")
+	u, ok := toolUsage(app.usage, "claude", time.Now())
 	if !ok || u.Source != "dt-mbp" || u.FiveHour == nil || u.FiveHour.UsedPercent != 14 {
 		t.Fatalf("claude usage changed: %+v", u)
 	}
@@ -389,7 +389,7 @@ func TestBoundClientCannotOverwriteAnotherSourcesUsage(t *testing.T) {
 func TestUsagePutIfOwnedIsAtomic(t *testing.T) {
 	s := newUsageStore()
 	now := time.Now()
-	s.Put("claude", ToolUsage{Source: "dt-mbp", UpdatedAt: now})
+	putUsage(t, s, "claude", ToolUsage{Source: "dt-mbp", UpdatedAt: now})
 	if owner, err := s.PutIfOwned("claude", ToolUsage{Source: "ci", Principal: "client:ci"}, nil, usageAccountsTotal, now); !errors.Is(err, errUsageNotOwned) || owner != "" {
 		t.Fatalf("PutIfOwned over dt-mbp = %q %v, want refused", owner, err)
 	}
