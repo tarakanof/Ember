@@ -178,15 +178,15 @@ stays). `EMBER_ACTIVITY_TRAIL_ENABLED=false` hides thread titles. A T3 dev
 server (`--dev-url`) keeps its state under `dev/`, not `userdata/`, and is not
 read.
 
-*Double sessions with Claude.* T3's Claude provider runs the Agent SDK with
-the user's settings (`settingSources` includes `"user"` in v0.0.45; the SDK
-default loads them in v0.0.46), so the Ember Claude hooks in
-`~/.claude/settings.json` fire too: one T3 Claude thread shows as a `t3` and a
-`claude` session. To avoid it, point T3's Claude provider at its own config dir
-(the Claude provider instance's home path in T3's provider settings, which
-T3 exports as `CLAUDE_CONFIG_DIR`; it needs its own `claude` login)
-without Ember's hooks, or untick one of the two tools in the menu's Show on Clock list (`t3` is
-listed there even before a T3 session exists).
+*No double sessions with Claude (#216).* T3's Claude provider runs the Agent
+SDK with the user's settings, so Ember's Claude hooks fire for T3 Claude
+threads too. The Claude hook skips a session whose `CLAUDE_CODE_ENTRYPOINT`
+is `sdk-ts` and whose `claude` was launched by a T3 server process (argv
+ending `apps/server/dist/bin.mjs` or `t3/dist/bin.mjs`, or the `t3` binary),
+so each T3 thread shows once, as `t3`. Other Agent SDK apps and interactive
+`claude` (also inside T3's terminal) are reported as before. A T3 dev server
+(`node --watch src/bin.ts`) is not recognised and still doubles; untick one
+tool in Show on Clock for that.
 Codex threads should not be doubled: T3 drives `codex app-server`, and the
 Codex producer only follows rollouts with `session_meta.source == "cli"`
 (confirm in the live check below).
@@ -202,9 +202,8 @@ Codex producer only follows rollouts with `session_meta.source == "cli"`
    add extra `t3` sessions.
 4. Archive the thread → DELETE at the next poll; quit T3 → every `t3` session
    is deleted within one poll.
-5. With a Codex thread running in T3, `GET /state` must show no extra
-   `codex` session for it; with a Claude thread, expect the `claude` double
-   described above unless T3's Claude home path is separate.
+5. With a Codex or Claude thread running in T3, `GET /state` must show no
+   extra `codex` or `claude` session for it.
 6. Check the log for `T3 Code schema is newer than the verified one` after T3
    updates; bump `pinnedMigrations` once the mapping is re-verified.
 

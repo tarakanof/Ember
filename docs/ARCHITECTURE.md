@@ -798,14 +798,32 @@ markers still get reaped.
   still read, and a missing table or column is a soft failure (log once a
   minute, back off to 60 s, never post or delete on a bad read).
 
-  *Double sessions.* T3's Claude provider loads the user's Claude settings, so
-  the Ember Claude hooks fire for T3 Claude threads too and the same work shows
-  as a `t3` and a `claude` session. The hook payload carries no T3 marker
-  (T3 sets neither `CLAUDE_AGENT_SDK_CLIENT_APP` nor any T3 env var), so the
-  producer cannot tell them apart cheaply; the RUNBOOK documents the
-  separate-`CLAUDE_CONFIG_DIR` workaround. A dedupe in the Claude hook (walk
-  the ancestry to the pid in T3's `server-runtime.json`) is possible but adds
-  `ps` calls to the 500 ms hook budget; left for after a live check.
+  *Double sessions (#216).* T3's Claude provider loads the user's Claude
+  settings, so the Ember Claude hooks fire for T3 Claude threads too. The
+  Claude hook skips them, so each T3 thread shows once, as `t3`
+  (`t3.go`, checked first in `dispatchHookFrom`: no marker, no POST, so the
+  heartbeat daemon never sees the session). T3 sets no env var of its own on
+  the Claude child (v0.1.0 81493ef, nightly 0.1.1 e58a485: the SDK `env` is
+  the server's `process.env` plus an optional `CLAUDE_CONFIG_DIR`,
+  `makeClaudeEnvironment` in `provider/Drivers/ClaudeHome.ts`; no
+  `CLAUDE_AGENT_SDK_CLIENT_APP`). The Agent SDK sets
+  `CLAUDE_CODE_ENTRYPOINT=sdk-ts` when unset (SDK 0.3.276 `sdk.mjs`), so that
+  is the gate: interactive sessions (`cli`) pay nothing. For an SDK session
+  the hook walks past shells to its owner (`claude`), then past shells from
+  the owner's parent to the process that launched it, and skips only when
+  that launcher's argv is a T3 server: `…/apps/server/dist/bin.mjs` (the
+  desktop app runs the server as `<app> --require … app.asar/apps/server/dist/bin.mjs
+  --bootstrap-fd 3`, `DesktopBackendConfiguration.ts`; a checkout build),
+  `…/node_modules/t3/dist/bin.mjs`, or a first or second argv word named `t3`
+  (the npm `t3` bin, the standalone binary). Measured ~13 ms on darwin
+  (5 `ps` calls), SDK sessions only. Rejected signals: `T3CODE_CLI_PATH`
+  exists only since v0.1.0 desktop and leaks into T3's integrated terminal;
+  `ELECTRON_RUN_AS_NODE` is set by any Electron host; a cwd under
+  `~/.t3/worktrees` misses local-mode threads; the pid in
+  `server-runtime.json` means reading T3's home. Checking the direct
+  launcher, not any ancestor, keeps an SDK script started from a T3 terminal
+  reported. Not skipped: a T3 dev server (`node --watch src/bin.ts`), which
+  doubles as before.
 
 Claude producer constraints:
 - **Hook timeout.** The hook path uses the short `HookTimeoutMs` (default

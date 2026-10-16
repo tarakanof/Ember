@@ -105,6 +105,9 @@ func skipJSONValue(dec *json.Decoder) error {
 }
 
 func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config) {
+	if newT3Probe().spawnedByT3() {
+		return
+	}
 	in, err := decodeHookInput(r)
 	if err != nil {
 		return

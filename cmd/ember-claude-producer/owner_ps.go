@@ -35,3 +35,11 @@ func procStart(pid int) (string, bool) {
 	}
 	return s, true
 }
+
+func procArgs(pid int) (string, bool) {
+	out, err := exec.Command("ps", "-ww", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(out)), true
+}
