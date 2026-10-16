@@ -102,7 +102,7 @@ private let cliT3 = "/Users/x/Library/LaunchAgents/com.ember.t3.plist"
     let sm = FakeSMAppService()
     sm.statuses = ["com.ember.heartbeat.plist": .enabled, "com.ember.t3.plist": .notFound]
     let svc = notFoundService(sm, existing: [bundledT3, "/Users/x/.t3"])
-    #expect(svc.toggleState() != .error)
+    #expect(svc.toggleState() == .partial)
 }
 
 @MainActor @Test func turningOnABundledNotFoundAgentRegistersIt() async {
@@ -111,6 +111,14 @@ private let cliT3 = "/Users/x/Library/LaunchAgents/com.ember.t3.plist"
     let outcomes = await notFoundService(sm, existing: [bundledT3]).setEnabled(.t3, true)
     #expect(outcomes.allSatisfy { $0.error == nil })
     #expect(sm.registered == ["com.ember.t3.plist"])
+}
+
+@MainActor @Test func turningOnABundledNotFoundAgentWithACLICopyRefusesToRegister() async {
+    let sm = FakeSMAppService()
+    sm.statuses["com.ember.t3.plist"] = .notFound
+    let outcomes = await notFoundService(sm, existing: [bundledT3, cliT3]).setEnabled(.t3, true)
+    #expect(outcomes.map { $0.error as? ProducerInstallError } == [.cliInstalled])
+    #expect(sm.registered.isEmpty)
 }
 
 @Test func switchIsOnOnlyForOnLikeStates() {

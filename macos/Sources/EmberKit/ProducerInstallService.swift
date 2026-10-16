@@ -329,9 +329,7 @@ public final class ProducerInstallService: Sendable {
             return liveness(agent) == .running ? .on : .notRunning
         case .requiresApproval:
             return .needsApproval
-        case .notRegistered:
-            return fileExists(cliPlistPath(agent)) ? .cliInstalled : .off
-        case .notFound where isBundled(agent):
+        case .notRegistered, .notFound where isBundled(agent):
             return fileExists(cliPlistPath(agent)) ? .cliInstalled : .off
         case .notFound:
             return .error(String(localized: "Not installed: the app is missing its launch agent.",
