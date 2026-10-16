@@ -4723,17 +4723,29 @@ add `account_key` and `plan` to `POST /v1/usage`:
   any) in the background and meanwhile writes the marker twice (#543).
   The first write stores the figures with the carried-over account; under
   the marker lock it also stats the config, and if the mtime or size
-  moved it sets `usage_account_pending`. Only then is the config parsed,
-  outside the lock, and a second write stores the new account and clears
-  the flag. It prints once both are done: a render takes the longer of
-  the two, a multi-MB `~/.claude.json` never holds the lock the daemon
-  and hooks wait on, and neither a slow parse nor a slow wrapped command
-  that Claude Code cancels on the next update can keep the figures from
-  being written. The account can lag behind the figures: while the flag
-  is set (the parse is running, or Claude Code cancelled it) the daemon
-  doesn't relay that marker's snapshot, so after a `/login` the new
-  login's figures never go out under the old key; the next render that
-  finishes its parse releases them. The daemon's tick never reads the
+  moved, or a token is already set, it sets a new pending token
+  (`usage_account_pending_token`: the write's `UnixNano`, kept above the
+  previous token). Only then is the config parsed, outside the lock, and
+  a second write, under the lock again, stores the new account and clears
+  the token only if the marker still holds this render's token. If a
+  newer render has set its own, the second write changes nothing: that
+  render parses a config at least as new and settles it. It prints once
+  both are done: a render takes the longer of the two, a multi-MB
+  `~/.claude.json` never holds the lock the daemon and hooks wait on, and
+  neither a slow parse nor a slow wrapped command that Claude Code
+  cancels on the next update can keep the figures from being written.
+  The account can lag behind the figures: while a token is set the daemon
+  doesn't relay that marker's snapshot. Only the render holding the
+  current token clears it, and that render's write 1 came after every
+  earlier render's. So a snapshot is relayed only under an account parsed
+  from the config as it stood at its figures' write 1 or later: once
+  `/login` has moved the config, the new login's figures don't go out
+  under the old key. The token has no time bound: it stays set until a
+  render finishes its parse (every later render re-parses while it is
+  set), so a session whose renders are all cancelled relays no
+  statusline snapshot. The 5-min endpoint poll still covers the daemon's
+  account meanwhile, and status POSTs still carry `rate_window_pct`.
+  The daemon's tick never reads the
   config; only the 5-min endpoint poll does, through a cache keyed by
   path, mtime and size (#539). An unchanged render rewrites the marker
   once a minute, judged by `statusline_at` (hooks carry it over and bump

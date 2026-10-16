@@ -318,21 +318,34 @@ func enrichFromStatusline(in statuslineInput, env map[string]string) {
 	}
 	session := sanitizeSessionID(in.SessionID, in.Cwd)
 	var carried markerAccount
-	pending := false
+	var token int64
 	_ = enrichMarker(dir, session, ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel,
-		func(a markerAccount) markerAccount {
-			carried = a
-			if _, sig := claudeConfigSig(); sig != a.UsageAccountSig || a.UsageAccountPending {
-				a.UsageAccountPending, pending = true, true
-			}
-			return a
-		})
-	if !pending {
+		pendIfConfigMoved(&carried, &token))
+	if token == 0 {
 		return
 	}
-	next := sessionClaudeAccount(carried)
 	_ = enrichMarker(dir, session, nil, nil, nil, "", nil, nil, "",
-		func(markerAccount) markerAccount { return next })
+		settlePending(token, sessionClaudeAccount(carried)))
+}
+
+func pendIfConfigMoved(carried *markerAccount, token *int64) func(markerAccount) markerAccount {
+	return func(a markerAccount) markerAccount {
+		*carried = a
+		if _, sig := claudeConfigSig(); sig != a.UsageAccountSig || a.UsageAccountPending != 0 {
+			*token = max(time.Now().UnixNano(), a.UsageAccountPending+1)
+			a.UsageAccountPending = *token
+		}
+		return a
+	}
+}
+
+func settlePending(token int64, next markerAccount) func(markerAccount) markerAccount {
+	return func(a markerAccount) markerAccount {
+		if a.UsageAccountPending != token {
+			return a
+		}
+		return next
+	}
 }
 
 const statuslineLockWait = 250 * time.Millisecond
