@@ -85,6 +85,12 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 		return false
 	}
 	if !a.swapDiscoveredClock(cur, base) {
+		if sameDeviceURL(base, a.cfg.Load().effectiveClockURL()) {
+			a.lastRediscoverResult.Store("reachable")
+			return false
+		}
+		a.lastRediscoverResult.Store("superseded")
+		a.logger.Info("clock discovery result dropped: clock URL changed during the browse", "configured", cur, "discovered", base)
 		return false
 	}
 	a.lastRediscoverResult.Store("swapped")
@@ -263,6 +269,10 @@ func (a *App) handleDeviceDiscover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cands, err := a.browseFn(r.Context(), 3*time.Second)
+	if r.Context().Err() != nil {
+		a.logger.InfoContext(r.Context(), "clock discover request dropped: client went away during the browse")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return

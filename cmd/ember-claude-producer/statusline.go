@@ -324,25 +324,38 @@ func enrichFromStatusline(in statuslineInput, env map[string]string) {
 	if token == 0 {
 		return
 	}
-	_ = enrichMarker(dir, session, nil, nil, nil, "", nil, nil, "",
-		settlePending(token, sessionClaudeAccount(carried)))
+	_ = settleMarker(dir, session, token, sessionClaudeAccount(carried))
 }
 
-func pendIfConfigMoved(carried *markerAccount, token *int64) func(markerAccount) (markerAccount, bool) {
-	return func(a markerAccount) (markerAccount, bool) {
+func pendIfConfigMoved(carried *markerAccount, token *int64) func(markerAccount) markerAccount {
+	return func(a markerAccount) markerAccount {
 		*carried = a
 		if _, sig := claudeConfigSig(); sig != a.UsageAccountSig || a.pending() {
 			*token = max(time.Now().UnixNano(), a.UsageAccountPending+1)
 			a.UsageAccountPending, a.UsageAccountLegacyPending = *token, false
 		}
-		return a, true
+		return a
 	}
 }
 
-func settlePending(token int64, next markerAccount) func(markerAccount) (markerAccount, bool) {
-	return func(a markerAccount) (markerAccount, bool) {
-		return next, a.UsageAccountPending == token
-	}
+func settleMarker(stateDir, sessionID string, token int64, next markerAccount) error {
+	mp := markerPath(stateDir, sessionID)
+	return withLockExWait(lockPath(stateDir, sessionID), statuslineLockWait, func() error {
+		body, err := readMarker(mp)
+		if err != nil {
+			return nil
+		}
+		var m marker
+		if json.Unmarshal(body, &m) != nil || m.UsageAccountPending != token {
+			return nil
+		}
+		m.markerAccount = next
+		out, err := json.Marshal(m)
+		if err != nil {
+			return nil
+		}
+		return writeMarker(mp, out)
+	})
 }
 
 const statuslineLockWait = 250 * time.Millisecond
@@ -350,7 +363,7 @@ const statuslineLockWait = 250 * time.Millisecond
 const statuslineRefresh = time.Minute
 
 func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string,
-	weekPct *int, weekResetAt *int64, weekResetLabel string, account func(markerAccount) (markerAccount, bool)) error {
+	weekPct *int, weekResetAt *int64, weekResetLabel string, account func(markerAccount) markerAccount) error {
 	mp := markerPath(stateDir, sessionID)
 	lp := lockPath(stateDir, sessionID)
 	return withLockExWait(lp, statuslineLockWait, func() error {
@@ -385,11 +398,7 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 		}
 		now := hookNow()
 		old := m.markerAccount
-		next, ok := account(old)
-		if !ok {
-			return nil
-		}
-		m.UsageAccountKey, m.UsagePlan = next.UsageAccountKey, next.UsagePlan
+		next := account(old)
 		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) {
 			if now.Sub(time.Unix(m.StatuslineAt, 0)) < statuslineRefresh && next == old {
 				return nil

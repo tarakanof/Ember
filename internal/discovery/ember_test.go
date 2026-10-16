@@ -1,8 +1,11 @@
 package discovery
 
 import (
+	"context"
+	"errors"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/brutella/dnssd"
 	"github.com/miekg/dns"
@@ -123,5 +126,46 @@ func TestAcceptReplyNeedsResponseBitAndOurID(t *testing.T) {
 	}
 	if acceptReply(&dns.Msg{MsgHdr: dns.MsgHdr{Id: 7, Response: true}}, ids) {
 		t.Error("reply to someone else's query accepted")
+	}
+}
+
+func TestBrowseEmberReturnsCtxErrWhenCancelledMidBrowse(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	unicast := func(context.Context) ([]EmberServer, error) {
+		cancel()
+		return []EmberServer{{Name: "Ember", URL: "http://127.0.0.1:3627"}}, nil
+	}
+	multicast := func(ctx context.Context, _ string, _ dnssd.AddFunc, _ dnssd.RmvFunc) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	got, err := browseEmber(ctx, 3*time.Second, unicast, multicast)
+	if !errors.Is(err, context.Canceled) || len(got) != 0 {
+		t.Fatalf("browseEmber cancelled mid-browse = (%+v, %v), want (none, context.Canceled)", got, err)
+	}
+}
+
+func TestReadEmberRepliesStopsWhenContextCancelled(t *testing.T) {
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := readEmberReplies(ctx, conn, time.Now().Add(3*time.Second), map[uint16]bool{}, func(string, uint16) {})
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("readEmberReplies after cancel = %v, want nil", err)
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("readEmberReplies kept reading after ctx cancel")
 	}
 }

@@ -516,8 +516,9 @@ nothing. `ember-*-producer discover` finds and caches the server on demand. From
 `systemctl --user daemon-reload`, `enable`, `restart` (so a rebuilt binary takes
 over). A binary replaced without `install` (a bare `go install`) leaves the old
 daemon running: restart it, since an old daemon drops marker fields a newer
-statusline writes (the Claude account's pending token). `uninstall` runs `disable --now`, removes the unit and reloads. `doctor`
-shows `is-active`/`is-enabled` and the linger state. User units stop when your
+statusline writes (the Claude account's pending token). `uninstall` runs
+`disable --now`, removes the unit and reloads. `doctor` shows
+`is-active`/`is-enabled` and the linger state. User units stop when your
 last session ends: on a box you SSH into, run `sudo loginctl enable-linger
 $USER` once so they start at boot and keep running. No user bus (a container,
 `su` without a login session) makes `install` fail with that hint; run
@@ -1193,12 +1194,14 @@ fingerprint doesn't exist on NG). The server advertises itself as
   line on a lossy link now means a real reboot.
   `/admin/doctor`'s `clock` check reports `base_url`/`source`/`reachable` plus
   `last_rediscover_at`/`last_rediscover_result`. The result is empty until
-  the first rediscovery, then one of `reachable` (configured clock
-  answered), `no-device` (browse found nothing or failed; the
+  the first rediscovery, then one of `reachable` (the configured clock
+  answered a probe, or the probes failed but the browse found the clock at
+  the configured URL), `no-device` (browse found nothing or failed; the
   `clock discovery found no device` log carries the error), `swapped`
-  (moved to a discovered clock), `cancelled` (ctx ended mid-rediscovery,
-  normally shutdown) or `disabled` (`EMBER_CLOCK=off`). A discovered clock
-  that cannot be swapped in keeps the previous value.
+  (moved to a discovered clock), `superseded` (the clock URL changed during
+  the browse, so the discovered clock was not swapped in; logged as `clock
+  discovery result dropped`), `cancelled` (ctx ended mid-rediscovery,
+  normally shutdown) or `disabled` (`EMBER_CLOCK=off`).
 - `EMBER_CLOCK=off` (also `0`/`false`/`no`/`disabled`; unset = clock on) runs the
   server with **no clock I/O at all**: no AWTRIX HTTP (publishes, probes, the
   `/v1/device/*` proxy), no mDNS browse or UDP find, no auto-rediscover or sampler,

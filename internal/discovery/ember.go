@@ -25,6 +25,12 @@ const emberBrowseName = emberServiceType + ".local."
 var mdnsGroup = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 
 func BrowseEmber(ctx context.Context, timeout time.Duration) ([]EmberServer, error) {
+	return browseEmber(ctx, timeout, legacyUnicastBrowse, dnssd.LookupType)
+}
+
+type unicastLookup func(ctx context.Context) ([]EmberServer, error)
+
+func browseEmber(ctx context.Context, timeout time.Duration, lookupUnicast unicastLookup, lookupMDNS mdnsLookup) ([]EmberServer, error) {
 	bctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -49,14 +55,14 @@ func BrowseEmber(ctx context.Context, timeout time.Duration) ([]EmberServer, err
 	go func() {
 		defer wg.Done()
 		var found []EmberServer
-		found, unicastErr = legacyUnicastBrowse(bctx)
+		found, unicastErr = lookupUnicast(bctx)
 		for _, s := range found {
 			add(s)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		err := dnssd.LookupType(bctx, emberBrowseName, func(e dnssd.BrowseEntry) {
+		err := lookupMDNS(bctx, emberBrowseName, func(e dnssd.BrowseEntry) {
 			if s, ok := emberServerFrom(e); ok {
 				add(s)
 			}
@@ -66,6 +72,9 @@ func BrowseEmber(ctx context.Context, timeout time.Duration) ([]EmberServer, err
 		}
 	}()
 	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if len(order) == 0 && unicastErr != nil && multicastErr != nil {
 		return nil, fmt.Errorf("unicast: %v; multicast: %v", unicastErr, multicastErr)
@@ -123,6 +132,12 @@ func legacyUnicastBrowse(ctx context.Context) ([]EmberServer, error) {
 	if !ok {
 		deadline = time.Now().Add(3 * time.Second)
 	}
+	return readEmberReplies(ctx, conn, deadline, ids, send)
+}
+
+func readEmberReplies(ctx context.Context, conn *net.UDPConn, deadline time.Time, ids map[uint16]bool, send func(name string, qtype uint16)) ([]EmberServer, error) {
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetReadDeadline(time.Now()) })
+	defer stop()
 	resend := time.Now().Add(time.Second)
 	var msgs []*dns.Msg
 	askedA := map[string]bool{}
@@ -133,10 +148,13 @@ func legacyUnicastBrowse(ctx context.Context) ([]EmberServer, error) {
 			next = resend
 		}
 		_ = conn.SetReadDeadline(next)
+		if ctx.Err() != nil {
+			break
+		}
 		n, _, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				if !resend.IsZero() && time.Now().Before(deadline) {
+				if ctx.Err() == nil && !resend.IsZero() && time.Now().Before(deadline) {
 					send(emberBrowseName, dns.TypePTR)
 					resend = time.Time{}
 					continue

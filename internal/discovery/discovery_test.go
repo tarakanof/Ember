@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -195,5 +196,43 @@ func TestBrowseAWTRIXSkipsUDPWhenCancelledDuringLookup(t *testing.T) {
 	got, err := browseAWTRIX(ctx, 3*time.Second, lookup, browseUDP)
 	if udp || !errors.Is(err, context.Canceled) || len(got) != 0 {
 		t.Fatalf("browseAWTRIX after cancel = (%+v, %v), udp=%v; want (none, context.Canceled), no udp", got, err, udp)
+	}
+}
+
+func noMDNS(context.Context, string, dnssd.AddFunc, dnssd.RmvFunc) error { return nil }
+
+func TestBrowseAWTRIXReturnsCtxErrWhenCancelledDuringUDP(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var probed atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probed.Store(true)
+		_, _ = w.Write([]byte(`{"version":"1.0.13","uid":"u1","boardType":"awtrixng"}`))
+	}))
+	t.Cleanup(srv.Close)
+	browseUDP := func(context.Context, time.Duration) []service {
+		cancel()
+		return []service{{host: "Awtrix", baseURL: srv.URL}}
+	}
+	got, err := browseAWTRIX(ctx, 3*time.Second, noMDNS, browseUDP)
+	if !errors.Is(err, context.Canceled) || len(got) != 0 || probed.Load() {
+		t.Fatalf("browseAWTRIX cancelled during UDP = (%+v, %v), probed=%v; want (none, context.Canceled), no probe", got, err, probed.Load())
+	}
+}
+
+func TestBrowseAWTRIXReturnsCtxErrWhenCancelledDuringProbe(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancel()
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	browseUDP := func(context.Context, time.Duration) []service {
+		return []service{{host: "Awtrix", baseURL: srv.URL}}
+	}
+	got, err := browseAWTRIX(ctx, 3*time.Second, noMDNS, browseUDP)
+	if !errors.Is(err, context.Canceled) || len(got) != 0 {
+		t.Fatalf("browseAWTRIX cancelled during the probe = (%+v, %v), want (none, context.Canceled)", got, err)
 	}
 }

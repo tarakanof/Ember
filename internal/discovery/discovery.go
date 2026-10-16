@@ -234,5 +234,9 @@ func browseAWTRIX(ctx context.Context, timeout time.Duration, lookupMDNS mdnsLoo
 	}
 	pctx, pcancel := context.WithTimeout(ctx, 2*time.Second)
 	defer pcancel()
-	return filterCandidates(pctx, defaultProbeTimeout, svcs), nil
+	cands := filterCandidates(pctx, defaultProbeTimeout, svcs)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return cands, nil
 }

@@ -129,3 +129,32 @@ func TestDeviceDiscoverUsesInjectedBrowse(t *testing.T) {
 		t.Fatalf("discover: code=%d body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestDeviceDiscoverWritesNothingWhenTheClientHangsUp(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		cands []discovery.Candidate
+		err   bool
+	}{
+		{"browse returns ctx err", nil, true},
+		{"browse returns candidates", []discovery.Candidate{{BaseURL: "http://10.0.0.9", UID: "u"}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newTestAppWithStore(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			a.browseFn = func(ctx context.Context, _ time.Duration) ([]discovery.Candidate, error) {
+				cancel()
+				if tc.err {
+					return nil, ctx.Err()
+				}
+				return tc.cands, nil
+			}
+			r := httptest.NewRequest("GET", "/v1/device/discover", nil).WithContext(ctx)
+			w := httptest.NewRecorder()
+			a.handleDeviceDiscover(w, r)
+			if w.Body.Len() != 0 || w.Code != http.StatusOK {
+				t.Fatalf("discover after hang-up: code=%d body=%s, want nothing written", w.Code, w.Body.String())
+			}
+		})
+	}
+}

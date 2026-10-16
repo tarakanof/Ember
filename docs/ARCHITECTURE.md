@@ -331,10 +331,15 @@ The aggregator and the only writer to the device.
     `main` calls, is the one place that wires `discovery.BrowseAWTRIX`
     (pinned by `TestNewServerApp_WiresRealClockBrowse`), so a test that
     builds its App with `NewApp` cannot reach the LAN through it. A test
-    that needs candidates stubs `browseFn`. `BrowseAWTRIX` returns
-    `ctx.Err()` when ctx is cancelled after the mDNS step, and the UDP read
-    ends on cancel, so a shutdown or a client hang-up never waits out the
-    3 s browse. `rediscoverClock` then records `cancelled`, not `no-device`.
+    that needs candidates stubs `browseFn`. A cancelled browse has one
+    outcome: `BrowseAWTRIX` (after mDNS and after the probes; a probe on a
+    cancelled ctx sends nothing) and `BrowseEmber` return `ctx.Err()` and
+    no results, never a partial list. The UDP reads (the clock's
+    `FIND_AWTRIXNG` and the `_ember._tcp` legacy unicast query) end on
+    cancel, so a shutdown or a client hang-up never waits out a 3 s
+    browse. `rediscoverClock` then records `cancelled`, not `no-device`,
+    and `/v1/device/discover` writes no response to a client that went
+    away.
   - **`systemLock`.** `/api/v1/system` holds Wi-Fi credentials, sensor offsets
     and the button callback, and NG only offers a full replace, so two
     unserialised writers lose a write. The lock is a `ctxLock` (a channel-of-1
@@ -4735,21 +4740,24 @@ add `account_key` and `plan` to `POST /v1/usage`:
   (`usage_account_pending_token`: the write's `UnixNano`, kept above any
   token it replaces). Only then is the config parsed, outside the lock,
   and a second write, under the lock again, stores the new account and
-  clears the token only if the marker still holds this render's token. If
-  a newer render has set its own, the second write skips the marker
-  entirely (not even `statusline_at` moves, so a stalled render can't make
-  expired figures fresh again): that render parses a config at least as
-  new and settles it. It prints once both are done: a render takes the
-  longer of the two, a multi-MB `~/.claude.json` never holds the lock the
-  daemon and hooks wait on, and neither a slow parse nor a slow wrapped
-  command that Claude Code cancels on the next update can keep the figures
-  from being written. The account can lag behind the figures: while a
-  token is set the daemon doesn't relay that marker's snapshot. Only the
-  render holding the current token clears it, and that render's write 1
-  came after every earlier render's. So a snapshot is relayed only under
-  an account parsed from the config as it stood at its figures' write 1 or
-  later: once `/login` has moved the config, the new login's figures don't
-  go out under the old key. The token has no time bound: it stays set
+  clears the token only if the marker still holds this render's token. It
+  stores nothing else: `statusline_at` and `statusline_changed_ms` keep the
+  first write's times, so a render whose parse stalls past the 10-min max
+  age doesn't make its figures look fresh. If the marker no longer holds
+  this render's token (a newer render set its own, or already settled it),
+  the second write skips the marker entirely: that render parsed, or is
+  parsing, a config at least as new. It prints once both are done: a
+  render takes the longer of the two, a multi-MB `~/.claude.json` never
+  holds the lock the daemon and hooks wait on, and neither a slow parse
+  nor a slow wrapped command that Claude Code cancels on the next update
+  can keep the figures from being written. The account can lag behind
+  the figures: while a token is set the daemon doesn't relay that
+  marker's snapshot. Only the render holding the current token clears it,
+  and that render's write 1 came after every earlier render's. So a
+  snapshot is relayed only under an account parsed from the config as it
+  stood at its figures' write 1 or later: once `/login` has moved the
+  config, the new login's figures don't go out under the old key.
+  The token has no time bound: it stays set
   until a render's second write lands (every later render re-parses while
   it is set), so a session whose renders are all cancelled relays no
   statusline snapshot. The 5-min endpoint poll still covers the daemon's
