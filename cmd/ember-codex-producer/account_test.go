@@ -188,6 +188,17 @@ func setAuthTime(t *testing.T, home string, at time.Time) {
 	}
 }
 
+func writeHistory(t *testing.T, dir string, doc accountHistoryDoc) {
+	t.Helper()
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, accountHistoryFile), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func metaAt(id string, at time.Time) string {
 	return `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"session_meta","payload":{"id":"` + id + `","source":"cli","originator":"codex-tui"}}`
 }
@@ -244,6 +255,7 @@ func TestWatcherUsageSkipsOldLoginRatesAfterASwitchWhileTheDaemonWasDown(t *test
 	home := t.TempDir()
 	t0 := time.Now().Truncate(time.Second)
 	reset := t0.Add(time.Hour)
+	writeHistory(t, dir, accountHistoryDoc{Eras: []accountEra{{Key: producer.AccountKey("codex", "acct-a")}}, CheckedAt: t0.Add(-time.Hour)})
 	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
 	setAuthTime(t, home, t0.Add(-10*time.Second))
 	metaA := metaAt("u-a", t0.Add(-30*time.Minute))
@@ -319,5 +331,229 @@ func TestAppServerUsageCarriesNoOldLoginWindowAfterASwitch(t *testing.T) {
 	_, _, usages := cycle(w, as)
 	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-b") || usages[0].FiveHour.UsedPercent != 5 || usages[0].SevenDay != nil {
 		t.Fatalf("usages = %+v, want B's 5h window alone, not A's weekly", usages)
+	}
+}
+
+func TestWatcherUsageFirstRunTrustsExistingSessions(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaAt("u-a", t0.Add(-72*time.Hour)), evStarted, rateLine(t0.Add(-time.Minute), 30, t0.Add(time.Hour)))
+	now := t0.Add(5 * time.Second)
+	w := switchWatcher(t, dir, home, &now)
+	if _, _, usages := w.tick(); len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-a") {
+		t.Fatalf("usages = %+v, want the old session's rates on the first run", usages)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, accountHistoryFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, _ := os.Stat(filepath.Join(dir, accountHistoryFile))
+	if fi.Mode().Perm() != 0o600 || strings.Contains(string(b), "acct-a") || !strings.Contains(string(b), producer.AccountKey("codex", "acct-a")) {
+		t.Fatalf("history file %o %s, want 0600 with the hashed key only", fi.Mode().Perm(), b)
+	}
+}
+
+func TestWatcherUsageSurvivesARestartAfterATokenRefresh(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	keyA := producer.AccountKey("codex", "acct-a")
+	writeHistory(t, dir, accountHistoryDoc{Eras: []accountEra{{Key: keyA}}, CheckedAt: t0.Add(-time.Hour)})
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus", "refreshed": true})
+	setAuthTime(t, home, t0.Add(-10*time.Minute))
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaAt("u-a", t0.Add(-72*time.Hour)), evStarted, rateLine(t0.Add(-time.Minute), 30, t0.Add(time.Hour)))
+	now := t0.Add(5 * time.Second)
+	w := switchWatcher(t, dir, home, &now)
+	if _, _, usages := w.tick(); len(usages) != 1 || usages[0].AccountKey != keyA {
+		t.Fatalf("usages = %+v, want A's rates after a restart that followed a refresh", usages)
+	}
+}
+
+func TestWatcherUsageFromASessionResumedUnderTheNewLogin(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	reset := t0.Add(time.Hour)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	metaA := metaAt("u-a", t0.Add(-3*time.Hour))
+	old := rateLine(t0.Add(-150*time.Minute), 30, reset)
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaA, evStarted, old)
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	if _, _, usages := w.tick(); len(usages) != 1 {
+		t.Fatalf("usages = %+v, want A's", usages)
+	}
+	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+	now = t0.Add(10 * time.Second)
+	if _, _, usages := w.tick(); len(usages) != 0 {
+		t.Fatalf("usages after the switch = %+v, want none", usages)
+	}
+	resumed := `{"timestamp":"` + t0.Add(15*time.Second).UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"task_started"}}`
+	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(20*time.Second), metaA, evStarted, old, resumed, rateLine(t0.Add(20*time.Second), 4, reset))
+	now = t0.Add(21 * time.Second)
+	_, _, usages := w.tick()
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-b") || usages[0].FiveHour.UsedPercent != 4 {
+		t.Fatalf("usages = %+v, want B's rates from the resumed session", usages)
+	}
+}
+
+func TestWatcherUsageTakesTheSwitchFromTheRenameNotTheKeptMtime(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	writeHistory(t, dir, accountHistoryDoc{Eras: []accountEra{{Key: producer.AccountKey("codex", "acct-a")}}, CheckedAt: t0.Add(-time.Hour)})
+	saved := t.TempDir()
+	writeCodexAuth(t, saved, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+	setAuthTime(t, saved, t0.Add(-2*time.Hour))
+	if err := os.Rename(filepath.Join(saved, "auth.json"), filepath.Join(home, "auth.json")); err != nil {
+		t.Fatal(err)
+	}
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaAt("u-a", t0.Add(-30*time.Minute)), evStarted, rateLine(t0.Add(-time.Minute), 30, t0.Add(time.Hour)))
+	now := t0.Add(5 * time.Second)
+	w := switchWatcher(t, dir, home, &now)
+	if _, _, usages := w.tick(); len(usages) != 0 {
+		t.Fatalf("usages = %+v, want A's session kept off B after a rename that kept B's old mtime", usages)
+	}
+}
+
+func TestWatcherIgnoresAPartialAuthWrite(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	as := connectedAppServer(w.cfg, "t1", wireStatus{Type: "active"})
+	as.now = func() time.Time { return now }
+	reset := strconv.FormatInt(t0.Add(time.Hour).Unix(), 10)
+	as.onNotification("account/rateLimits/updated", json.RawMessage(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":50,"resetsAt":`+reset+`}}}`))
+	if _, _, usages := cycle(w, as); len(usages) != 1 {
+		t.Fatalf("usages = %+v, want A's", usages)
+	}
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"tokens":{"id_tok`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now = t0.Add(2 * time.Second)
+	cycle(w, as)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus", "refreshed": true})
+	now = t0.Add(4 * time.Second)
+	cycle(w, as)
+	as.mu.Lock()
+	kept := as.hasRate
+	as.mu.Unlock()
+	if !kept || len(w.history.eras) != 1 {
+		t.Fatalf("hasRate=%v eras=%d, want the snapshot kept and no new era", kept, len(w.history.eras))
+	}
+}
+
+func TestAppServerUsageDropsTheOldLoginWindowBeforeSelection(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	now := t0.Add(-5 * time.Second)
+	w := switchWatcher(t, dir, home, &now)
+	as := connectedAppServer(w.cfg, "t1", wireStatus{Type: "active"})
+	as.now = func() time.Time { return now }
+	reset := strconv.FormatInt(t0.Add(time.Hour).Unix(), 10)
+	as.onNotification("account/rateLimits/updated", json.RawMessage(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":50,"resetsAt":`+reset+`},"secondary":{"usedPercent":60,"resetsAt":`+reset+`}}}`))
+	if _, _, usages := cycle(w, as); len(usages) != 1 || usages[0].SevenDay == nil {
+		t.Fatalf("usages = %+v, want A's two windows", usages)
+	}
+	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+	now = time.Now().Add(2 * time.Second)
+	as.onNotification("account/rateLimits/updated", json.RawMessage(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":5,"resetsAt":`+reset+`},"secondary":null}}`))
+	now = now.Add(time.Second)
+	_, _, usages := cycle(w, as)
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-b") || usages[0].FiveHour.UsedPercent != 5 || usages[0].SevenDay != nil {
+		t.Fatalf("usages = %+v, want B's first snapshot alone, without A's weekly", usages)
+	}
+}
+
+func TestAccountHistory(t *testing.T) {
+	t0 := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	type step struct {
+		key      string
+		boundary time.Time
+		now      time.Time
+	}
+	type probe struct {
+		at    time.Time
+		key   string
+		known bool
+	}
+	cases := []struct {
+		name   string
+		stored *accountHistoryDoc
+		steps  []step
+		eras   int
+		probes []probe
+	}{
+		{"A then B then A", nil, []step{{"A", at(0), at(1)}, {"B", at(10), at(11)}, {"A", at(20), at(21)}}, 3,
+			[]probe{{at(5), "A", true}, {at(10), "B", true}, {at(15), "B", true}, {at(25), "A", true}}},
+		{"an exactly equal timestamp is the new era", nil, []step{{"A", at(0), at(1)}, {"B", at(10), at(11)}}, 2,
+			[]probe{{at(10).Add(-time.Nanosecond), "A", true}, {at(10), "B", true}}},
+		{"trim to 8 eras", nil, []step{{"k0", at(0), at(1)}, {"k1", at(10), at(11)}, {"k2", at(20), at(21)}, {"k3", at(30), at(31)}, {"k4", at(40), at(41)}, {"k5", at(50), at(51)}, {"k6", at(60), at(61)}, {"k7", at(70), at(71)}, {"k8", at(80), at(81)}, {"k9", at(90), at(91)}}, 8,
+			[]probe{{at(15), "", false}, {at(25), "k2", true}, {at(95), "k9", true}}},
+		{"a partial read is no switch", nil, []step{{"A", at(0), at(1)}, {"", at(5), at(6)}, {"A", at(7), at(8)}}, 1,
+			[]probe{{at(9), "A", true}}},
+		{"a stale boundary falls back to the last check", nil, []step{{"A", at(0), at(1)}, {"B", at(-30), at(3)}}, 2,
+			[]probe{{at(1).Add(-time.Second), "A", true}, {at(1), "B", true}}},
+		{"a future boundary is clamped to now", nil, []step{{"A", at(0), at(1)}, {"B", at(60), at(3)}}, 2,
+			[]probe{{at(2), "A", true}, {at(3), "B", true}}},
+		{"a clock rollback takes the boundary", nil, []step{{"A", at(0), at(30)}, {"B", at(5), at(6)}}, 2,
+			[]probe{{at(4), "A", true}, {at(5), "B", true}}},
+		{"first run trusts everything", nil, []step{{"A", at(0), at(1)}}, 1,
+			[]probe{{at(-10000), "A", true}, {time.Time{}, "", false}}},
+		{"a restart after a refresh keeps the eras", &accountHistoryDoc{Eras: []accountEra{{Key: "A"}}, CheckedAt: at(-60)}, []step{{"A", at(-10), at(1)}}, 1,
+			[]probe{{at(-5000), "A", true}}},
+		{"a switch while down starts at the later of the last check and the boundary", &accountHistoryDoc{Eras: []accountEra{{Key: "A"}}, CheckedAt: at(-60)}, []step{{"B", at(-120), at(1)}}, 2,
+			[]probe{{at(-61), "A", true}, {at(-60), "B", true}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), accountHistoryFile)
+			if tc.stored != nil {
+				b, _ := json.Marshal(tc.stored)
+				if err := os.WriteFile(path, b, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			h := accountHistory{path: path}
+			for _, s := range tc.steps {
+				h.observe(s.key, s.boundary, true, s.now)
+			}
+			if len(h.eras) != tc.eras {
+				t.Fatalf("eras = %+v, want %d", h.eras, tc.eras)
+			}
+			for _, p := range tc.probes {
+				if key, known := h.at(p.at); key != p.key || known != p.known {
+					t.Errorf("at(%v) = %q %v, want %q %v", p.at, key, known, p.key, p.known)
+				}
+			}
+			reloaded := accountHistory{path: path}
+			reloaded.load()
+			if len(reloaded.eras) != len(h.eras) {
+				t.Errorf("reloaded %d eras, want %d", len(reloaded.eras), len(h.eras))
+			}
+		})
+	}
+}
+
+func TestFold_ALongGapStartsASegment(t *testing.T) {
+	t0 := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	ev := func(at time.Time) string {
+		return `{"timestamp":"` + at.Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"task_started"}}`
+	}
+	d := foldAll([]string{ev(t0), rateLine(t0.Add(time.Minute), 1, t0.Add(time.Hour)), ev(t0.Add(29 * time.Minute))}, false)
+	if !d.segmentAt.IsZero() || !d.rateStart.IsZero() {
+		t.Fatalf("segmentAt %v rateStart %v, want none under 30 min", d.segmentAt, d.rateStart)
+	}
+	d = foldAll([]string{ev(t0), ev(t0.Add(30 * time.Minute)), rateLine(t0.Add(31*time.Minute), 1, t0.Add(time.Hour))}, false)
+	if !d.rateStart.Equal(t0.Add(30 * time.Minute)) {
+		t.Fatalf("rateStart = %v, want the line after the gap", d.rateStart)
 	}
 }

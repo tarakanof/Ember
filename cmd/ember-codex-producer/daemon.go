@@ -65,14 +65,13 @@ func runDaemon() {
 func cycle(w *watcher, as *appServer) (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
 	var ap apTick
 	if as != nil {
+		if since, switched := w.observeAccountSwitch(); switched {
+			as.dropRateBefore(since)
+		}
 		ap = as.tick()
 	}
 	w.owned, w.pending, w.rateExtra = ap.owned, ap.pending, ap.rate
-	switches := w.history.switches
 	posts, deletes, usages = w.tick()
-	if as != nil && w.history.switches != switches {
-		as.dropRate()
-	}
 	posts = append(ap.posts, posts...)
 	deletes = append(deletes, ap.deletes...)
 	for _, id := range ap.released {

@@ -96,6 +96,8 @@ type appServer struct {
 	released     []string
 	rate         derived
 	hasRate      bool
+	primaryAt    time.Time
+	weeklyAt     time.Time
 }
 
 func newAppServer(cfg Config) *appServer {
@@ -854,12 +856,14 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 			r := producer.Pct(w.UsedPercent)
 			as.rate.rateWindowPct, as.rate.rateResetAt, as.rate.primaryRaw = &r, w.resetsAt(), w.UsedPercent
 			as.rate.primaryMins = w.minutes()
+			as.primaryAt = as.now()
 			as.hasRate = true
 		}
 		if w := lim.Secondary; w != nil {
 			wk := producer.Pct(w.UsedPercent)
 			as.rate.weeklyPct, as.rate.weeklyResetAt, as.rate.weeklyRaw = &wk, w.resetsAt(), w.UsedPercent
 			as.rate.weeklyMins = w.minutes()
+			as.weeklyAt = as.now()
 			as.hasRate = true
 		}
 		if lim.PlanType != nil && *lim.PlanType != "" {
@@ -992,10 +996,18 @@ func (as *appServer) tick() apTick {
 	return out
 }
 
-func (as *appServer) dropRate() {
+func (as *appServer) dropRateBefore(since time.Time) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
-	as.hasRate, as.rate = false, derived{}
+	if as.primaryAt.Before(since) {
+		as.rate.rateWindowPct, as.rate.rateResetAt, as.rate.primaryRaw, as.rate.primaryMins = nil, 0, 0, 0
+	}
+	if as.weeklyAt.Before(since) {
+		as.rate.weeklyPct, as.rate.weeklyResetAt, as.rate.weeklyRaw, as.rate.weeklyMins = nil, 0, 0, 0
+	}
+	if as.rate.rateResetAt == 0 && as.rate.weeklyResetAt == 0 {
+		as.hasRate, as.rate = false, derived{}
+	}
 }
 
 func (as *appServer) status() (connected bool, userAgent string) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -26,8 +27,11 @@ type derived struct {
 	weeklyMins    int64
 	rateAt        time.Time
 	rateSeq       int
+	rateStart     time.Time
 	rateKey       string
 	rateBound     bool
+	lineAt        time.Time
+	segmentAt     time.Time
 	planType      string
 }
 
@@ -48,7 +52,10 @@ type sessionMeta struct {
 	started    time.Time
 }
 
-const claudeOriginator = "Claude Code"
+const (
+	claudeOriginator = "Claude Code"
+	resumeGap        = 30 * time.Minute
+)
 
 type rolloutLine struct {
 	Timestamp string          `json:"timestamp"`
@@ -110,7 +117,9 @@ func parseSessionMeta(line []byte) (sessionMeta, bool) {
 	}
 	started, err := time.Parse(time.RFC3339Nano, rl.Timestamp)
 	if err != nil {
-		started, _ = time.Parse(time.RFC3339Nano, p.Timestamp)
+		if started, err = time.Parse(time.RFC3339Nano, p.Timestamp); err != nil {
+			slog.Debug("codex session_meta has no timestamp; its rate limits are not posted", "session", p.ID)
+		}
 	}
 	return sessionMeta{id: p.ID, source: sourceKind(p.Source), originator: p.Originator, cwd: p.Cwd, started: started}, true
 }
@@ -141,7 +150,19 @@ func isRunningEvent(t string) bool {
 
 func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trailEnabled bool) {
 	var rl rolloutLine
-	if json.Unmarshal(line, &rl) != nil || rl.Type != "event_msg" {
+	if json.Unmarshal(line, &rl) != nil {
+		return
+	}
+	ts, tsErr := time.Parse(time.RFC3339Nano, rl.Timestamp)
+	if tsErr == nil {
+		if !d.lineAt.IsZero() && ts.Sub(d.lineAt) >= resumeGap {
+			d.segmentAt = ts
+		}
+		if ts.After(d.lineAt) {
+			d.lineAt = ts
+		}
+	}
+	if rl.Type != "event_msg" {
 		return
 	}
 	var p eventPayload
@@ -167,7 +188,11 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 				d.weeklyResetAt = w.ResetsAt
 				d.weeklyRaw, d.weeklyMins = w.UsedPercent, w.WindowMinutes
 			}
-			d.rateAt, _ = time.Parse(time.RFC3339Nano, rl.Timestamp)
+			d.rateAt = ts
+			if tsErr != nil {
+				d.rateAt = time.Time{}
+			}
+			d.rateStart = d.segmentAt
 			d.rateSeq++
 			if lim.PlanType != "" {
 				d.planType = lim.PlanType

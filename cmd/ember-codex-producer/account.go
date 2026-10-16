@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,63 +97,143 @@ func (c *codexAccountCache) current(codexHome string) codexAccount {
 	if err != nil {
 		return codexAccount{}
 	}
+	if !json.Valid(b) {
+		return c.acct
+	}
 	c.path, c.mtime, c.size, c.acct = path, fi.ModTime(), fi.Size(), parseCodexAuth(b)
 	return c.acct
 }
 
-func authModTime(codexHome string) (time.Time, bool) {
+func authBoundary(codexHome string) (time.Time, bool) {
 	if codexHome == "" {
 		return time.Time{}, false
 	}
-	fi, err := os.Stat(filepath.Join(codexHome, "auth.json"))
+	path := filepath.Join(codexHome, "auth.json")
+	fi, err := os.Stat(path)
 	if err != nil {
 		return time.Time{}, false
 	}
-	return fi.ModTime(), true
+	at := fi.ModTime()
+	if c := changeTime(fi); c.After(at) {
+		at = c
+	}
+	if li, err := os.Lstat(path); err == nil && li.ModTime().After(at) {
+		at = li.ModTime()
+	}
+	return at, true
 }
 
-const maxAccountEras = 8
+const (
+	maxAccountEras      = 8
+	historySaveInterval = time.Minute
+	accountHistoryFile  = "codex-accounts.json"
+)
 
 type accountEra struct {
-	key   string
-	since time.Time
+	Key   string    `json:"key"`
+	Since time.Time `json:"since"`
+}
+
+type accountHistoryDoc struct {
+	Eras      []accountEra `json:"eras"`
+	CheckedAt time.Time    `json:"checked_at"`
 }
 
 type accountHistory struct {
+	path      string
+	loaded    bool
 	eras      []accountEra
 	checkedAt time.Time
-	switches  int
+	savedAt   time.Time
 }
 
-func (h *accountHistory) observe(key string, authMod time.Time, haveMod bool, now time.Time) {
+func (h *accountHistory) load() {
+	h.loaded = true
+	if h.path == "" {
+		return
+	}
+	b, err := os.ReadFile(h.path)
+	if err != nil {
+		return
+	}
+	var doc accountHistoryDoc
+	if json.Unmarshal(b, &doc) != nil || len(doc.Eras) == 0 {
+		return
+	}
+	if len(doc.Eras) > maxAccountEras {
+		doc.Eras = doc.Eras[len(doc.Eras)-maxAccountEras:]
+	}
+	h.eras, h.checkedAt = doc.Eras, doc.CheckedAt
+}
+
+func (h *accountHistory) save(now time.Time) {
+	h.savedAt = now
+	if h.path == "" {
+		return
+	}
+	b, err := json.Marshal(accountHistoryDoc{Eras: h.eras, CheckedAt: h.checkedAt})
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(h.path), 0o700); err != nil {
+		slog.Debug("codex account history not saved", "err", err)
+		return
+	}
+	if err := producer.WriteFileAtomic(h.path, b, 0o600); err != nil {
+		slog.Debug("codex account history not saved", "err", err)
+	}
+}
+
+func (h *accountHistory) observe(key string, boundary time.Time, haveBoundary bool, now time.Time) (since time.Time, switched bool) {
+	if !h.loaded {
+		h.load()
+	}
+	dirty := false
 	switch n := len(h.eras); {
 	case n == 0:
-		var since time.Time
-		if haveMod {
-			since = authMod
-			if since.After(now) {
-				since = now
-			}
-		}
-		h.eras = append(h.eras, accountEra{key: key, since: since})
-	case h.eras[n-1].key != key:
-		since := now
-		if haveMod && authMod.After(h.checkedAt) && !authMod.After(now) {
-			since = authMod
-		}
-		h.eras = append(h.eras, accountEra{key: key, since: since})
-		h.switches++
+		h.eras = []accountEra{{Key: key}}
+		dirty = true
+	case key == "" && h.eras[n-1].Key != "":
+	case h.eras[n-1].Key != key:
+		since = h.switchTime(boundary, haveBoundary, now)
+		h.eras = append(h.eras, accountEra{Key: key, Since: since})
 		if len(h.eras) > maxAccountEras {
 			h.eras = h.eras[len(h.eras)-maxAccountEras:]
 		}
+		switched, dirty = true, true
 	}
 	h.checkedAt = now
+	if dirty || now.Sub(h.savedAt) >= historySaveInterval || now.Before(h.savedAt) {
+		h.save(now)
+	}
+	return since, switched
+}
+
+func (h *accountHistory) switchTime(boundary time.Time, haveBoundary bool, now time.Time) time.Time {
+	since := now
+	if haveBoundary && boundary.Before(now) {
+		since = boundary
+	}
+	if h.checkedAt.After(since) && !h.checkedAt.After(now) {
+		since = h.checkedAt
+	}
+	return since
+}
+
+func (h *accountHistory) current() string {
+	if len(h.eras) == 0 {
+		return ""
+	}
+	return h.eras[len(h.eras)-1].Key
 }
 
 func (h *accountHistory) at(t time.Time) (string, bool) {
+	if t.IsZero() {
+		return "", false
+	}
 	for i := len(h.eras) - 1; i >= 0; i-- {
-		if t.After(h.eras[i].since) {
-			return h.eras[i].key, true
+		if !t.Before(h.eras[i].Since) {
+			return h.eras[i].Key, true
 		}
 	}
 	return "", false

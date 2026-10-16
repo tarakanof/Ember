@@ -143,9 +143,7 @@ func buildUsageRequest(d derived) (producer.UsageRequest, bool) {
 func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
 	now := w.now()
 	w.handedOver = nil
-	acct := w.accounts.current(w.cfg.CodexHome)
-	authMod, haveMod := authModTime(w.cfg.CodexHome)
-	w.history.observe(acct.key, authMod, haveMod, now)
+	acct, _, _ := w.observeAccount(now)
 	candidates := map[string]bool{}
 	for _, path := range w.candidateFiles(now) {
 		candidates[path] = true
@@ -258,9 +256,31 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 	return posts, deletes, usages
 }
 
+func (w *watcher) observeAccount(now time.Time) (acct codexAccount, since time.Time, switched bool) {
+	if w.history.path == "" && w.cfg.StateDir != "" {
+		w.history.path = filepath.Join(filepath.Dir(w.cfg.StateDir), accountHistoryFile)
+	}
+	acct = w.accounts.current(w.cfg.CodexHome)
+	boundary, ok := authBoundary(w.cfg.CodexHome)
+	since, switched = w.history.observe(acct.key, boundary, ok, now)
+	if acct.key != w.history.current() {
+		acct = codexAccount{key: w.history.current()}
+	}
+	return acct, since, switched
+}
+
+func (w *watcher) observeAccountSwitch() (since time.Time, switched bool) {
+	_, since, switched = w.observeAccount(w.now())
+	return since, switched
+}
+
 func (w *watcher) bindSession(ss *sessionState) {
 	d := &ss.derived
-	start, startKnown := w.history.at(ss.startedAt)
+	started := ss.startedAt
+	if d.rateStart.After(started) {
+		started = d.rateStart
+	}
+	start, startKnown := w.history.at(started)
 	key, known := w.history.at(d.rateAt)
 	d.rateKey, d.rateBound = key, known && startKnown && start == key
 }
