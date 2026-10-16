@@ -992,6 +992,12 @@ func (as *appServer) tick() apTick {
 	return out
 }
 
+func (as *appServer) dropRate() {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	as.hasRate, as.rate = false, derived{}
+}
+
 func (as *appServer) status() (connected bool, userAgent string) {
 	as.mu.Lock()
 	defer as.mu.Unlock()

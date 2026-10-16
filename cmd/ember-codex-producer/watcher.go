@@ -25,6 +25,7 @@ type sessionState struct {
 	post         producer.Repost
 	viaClaude    bool
 	project      string
+	startedAt    time.Time
 }
 
 type fileStamp struct {
@@ -49,9 +50,10 @@ type watcher struct {
 	handedOver     []string
 	reads          int
 	accounts       codexAccountCache
-	usageAcct      codexAccount
-	usageAcctSeen  bool
-	usageSince     time.Time
+	history        accountHistory
+	extraSeen      time.Time
+	extraKey       string
+	extraBound     bool
 }
 
 func newWatcher(cfg Config) *watcher {
@@ -141,6 +143,9 @@ func buildUsageRequest(d derived) (producer.UsageRequest, bool) {
 func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
 	now := w.now()
 	w.handedOver = nil
+	acct := w.accounts.current(w.cfg.CodexHome)
+	authMod, haveMod := authModTime(w.cfg.CodexHome)
+	w.history.observe(acct.key, authMod, haveMod, now)
 	candidates := map[string]bool{}
 	for _, path := range w.candidateFiles(now) {
 		candidates[path] = true
@@ -184,7 +189,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 				w.ignored[path] = true
 				continue
 			}
-			ss = &sessionState{path: path, uuid: meta.id, viaClaude: meta.originator == claudeOriginator, project: producer.ProjectFromCwd(meta.cwd)}
+			ss = &sessionState{path: path, uuid: meta.id, viaClaude: meta.originator == claudeOriginator, project: producer.ProjectFromCwd(meta.cwd), startedAt: meta.started}
 			w.sessions[path] = ss
 		}
 		if info.Size() < ss.offset {
@@ -193,10 +198,14 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		}
 		w.reads++
 		if lines, newOffset, err := readNewLines(path, ss.offset); err == nil {
+			seq := ss.derived.rateSeq
 			for _, ln := range lines {
 				ss.derived.foldEvent(ln, w.cfg.ContextPctEnabled, w.cfg.RatePctEnabled, w.cfg.ActivityTrailEnabled)
 			}
 			ss.offset = newOffset
+			if ss.derived.rateSeq != seq {
+				w.bindSession(ss)
+			}
 		}
 		ss.derived.expireWindows(now)
 		ss.lastModified = info.ModTime()
@@ -225,7 +234,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 			posts = append(posts, req)
 		}
 	}
-	if u, ok := w.usage(now); ok {
+	if u, ok := w.usage(now, acct); ok {
 		usages = append(usages, u)
 	}
 	for path, ss := range w.sessions {
@@ -249,16 +258,18 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 	return posts, deletes, usages
 }
 
-func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
-	acct := w.accounts.current(w.cfg.CodexHome)
-	if w.usageAcctSeen && acct != w.usageAcct {
-		w.usageSince = w.accounts.changedAt(w.cfg.CodexHome, now)
-	}
-	w.usageAcct, w.usageAcctSeen = acct, true
+func (w *watcher) bindSession(ss *sessionState) {
+	d := &ss.derived
+	start, startKnown := w.history.at(ss.startedAt)
+	key, known := w.history.at(d.rateAt)
+	d.rateKey, d.rateBound = key, known && startKnown && start == key
+}
+
+func (w *watcher) usage(now time.Time, acct codexAccount) (producer.UsageRequest, bool) {
 	var newest *derived
 	for _, ss := range w.sessions {
 		d := &ss.derived
-		if d.rateResetAt == 0 && d.weeklyResetAt == 0 || !w.boundToAccount(d) {
+		if d.rateResetAt == 0 && d.weeklyResetAt == 0 || !d.rateBound || d.rateKey != acct.key {
 			continue
 		}
 		if now.Sub(ss.lastModified) > w.activityWindow {
@@ -268,8 +279,14 @@ func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 			newest = d
 		}
 	}
-	if x := w.rateExtra; x != nil && w.boundToAccount(x) && (newest == nil || x.rateAt.After(newest.rateAt)) {
-		newest = x
+	if x := w.rateExtra; x != nil {
+		if !x.rateAt.Equal(w.extraSeen) {
+			w.extraSeen = x.rateAt
+			w.extraKey, w.extraBound = w.history.at(x.rateAt)
+		}
+		if w.extraBound && w.extraKey == acct.key && (newest == nil || x.rateAt.After(newest.rateAt)) {
+			newest = x
+		}
 	}
 	if newest == nil {
 		return producer.UsageRequest{}, false
@@ -287,10 +304,6 @@ func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 		return producer.UsageRequest{}, false
 	}
 	return u, true
-}
-
-func (w *watcher) boundToAccount(d *derived) bool {
-	return w.usageSince.IsZero() || d.rateAt.After(w.usageSince)
 }
 
 func (w *watcher) posted(id string) bool {

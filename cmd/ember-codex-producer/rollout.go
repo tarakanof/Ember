@@ -25,6 +25,9 @@ type derived struct {
 	primaryMins   int64
 	weeklyMins    int64
 	rateAt        time.Time
+	rateSeq       int
+	rateKey       string
+	rateBound     bool
 	planType      string
 }
 
@@ -42,6 +45,7 @@ type sessionMeta struct {
 	source     string
 	originator string
 	cwd        string
+	started    time.Time
 }
 
 const claudeOriginator = "Claude Code"
@@ -57,6 +61,7 @@ type metaPayload struct {
 	Originator string          `json:"originator"`
 	Source     json.RawMessage `json:"source"`
 	Cwd        string          `json:"cwd"`
+	Timestamp  string          `json:"timestamp"`
 }
 
 type tokenInfo struct {
@@ -103,7 +108,11 @@ func parseSessionMeta(line []byte) (sessionMeta, bool) {
 	if json.Unmarshal(rl.Payload, &p) != nil || p.ID == "" {
 		return sessionMeta{}, false
 	}
-	return sessionMeta{id: p.ID, source: sourceKind(p.Source), originator: p.Originator, cwd: p.Cwd}, true
+	started, err := time.Parse(time.RFC3339Nano, rl.Timestamp)
+	if err != nil {
+		started, _ = time.Parse(time.RFC3339Nano, p.Timestamp)
+	}
+	return sessionMeta{id: p.ID, source: sourceKind(p.Source), originator: p.Originator, cwd: p.Cwd, started: started}, true
 }
 
 func sourceKind(raw json.RawMessage) string {
@@ -158,9 +167,8 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 				d.weeklyResetAt = w.ResetsAt
 				d.weeklyRaw, d.weeklyMins = w.UsedPercent, w.WindowMinutes
 			}
-			if ts, err := time.Parse(time.RFC3339Nano, rl.Timestamp); err == nil {
-				d.rateAt = ts
-			}
+			d.rateAt, _ = time.Parse(time.RFC3339Nano, rl.Timestamp)
+			d.rateSeq++
 			if lim.PlanType != "" {
 				d.planType = lim.PlanType
 			}

@@ -97,6 +97,7 @@ func TestWatcherUsageCarriesTheAccountButNoRawIDs(t *testing.T) {
 	dir := t.TempDir()
 	home := t.TempDir()
 	writeCodexAuth(t, home, "acct-raw-123", map[string]any{"chatgpt_plan_type": "plus", "chatgpt_user_id": "user-raw-456"})
+	setAuthTime(t, home, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
 	var logs bytes.Buffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
@@ -180,40 +181,143 @@ func TestAppServerRateLimitsCarryTheWindowLengths(t *testing.T) {
 	}
 }
 
+func setAuthTime(t *testing.T, home string, at time.Time) {
+	t.Helper()
+	if err := os.Chtimes(filepath.Join(home, "auth.json"), at, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func metaAt(id string, at time.Time) string {
+	return `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"session_meta","payload":{"id":"` + id + `","source":"cli","originator":"codex-tui"}}`
+}
+
+func rateLine(at time.Time, pct int, reset time.Time) string {
+	return `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":` + strconv.Itoa(pct) + `,"resets_at":` + strconv.FormatInt(reset.Unix(), 10) + `}}}}`
+}
+
+func switchWatcher(t *testing.T, dir, home string, now *time.Time) *watcher {
+	t.Helper()
+	w := newTestWatcher(dir, *now)
+	w.now = func() time.Time { return *now }
+	w.cfg.RatePctEnabled = true
+	w.cfg.CodexHome = home
+	return w
+}
+
 func TestWatcherUsageNeverPostsTheOldAccountsRatesUnderTheNewOne(t *testing.T) {
 	dir := t.TempDir()
 	home := t.TempDir()
 	t0 := time.Now().Truncate(time.Second)
+	reset := t0.Add(time.Hour)
 	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
-	if err := os.Chtimes(filepath.Join(home, "auth.json"), t0.Add(-time.Hour), t0.Add(-time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	reset := strconv.FormatInt(t0.Add(time.Hour).Unix(), 10)
-	tok := func(at time.Time, pct int) string {
-		return `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":` + strconv.Itoa(pct) + `,"resets_at":` + reset + `}}}}`
-	}
-	first := tok(t0.Add(-time.Minute), 30)
-	writeRollout(t, dir, "rollout-a.jsonl", t0, metaCLI, evStarted, first)
+	setAuthTime(t, home, t0.Add(-time.Hour))
+	metaA := metaAt("u-a", t0.Add(-30*time.Minute))
+	first := rateLine(t0.Add(-time.Minute), 30, reset)
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaA, evStarted, first)
 	now := t0
-	w := newTestWatcher(dir, now)
-	w.now = func() time.Time { return now }
-	w.cfg.RatePctEnabled = true
-	w.cfg.CodexHome = home
+	w := switchWatcher(t, dir, home, &now)
 	if _, _, usages := w.tick(); len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-a") {
 		t.Fatalf("usages = %+v, want A's", usages)
 	}
 	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
-	if err := os.Chtimes(filepath.Join(home, "auth.json"), t0, t0); err != nil {
-		t.Fatal(err)
-	}
+	setAuthTime(t, home, t0)
 	now = t0.Add(10 * time.Second)
 	if _, _, usages := w.tick(); len(usages) != 0 {
 		t.Fatalf("usages after the switch = %+v, want A's cached rates dropped", usages)
 	}
-	writeRollout(t, dir, "rollout-a.jsonl", now, metaCLI, evStarted, first, tok(t0.Add(5*time.Second), 7))
+	writeRollout(t, dir, "rollout-a.jsonl", now, metaA, evStarted, first, rateLine(t0.Add(5*time.Second), 7, reset))
 	now = t0.Add(20 * time.Second)
+	if _, _, usages := w.tick(); len(usages) != 0 {
+		t.Fatalf("usages = %+v, want nothing from a session still running on the old login", usages)
+	}
+	writeRollout(t, dir, "rollout-b.jsonl", now, metaAt("u-b", t0.Add(15*time.Second)), evStarted, rateLine(t0.Add(18*time.Second), 9, reset))
+	now = t0.Add(30 * time.Second)
 	_, _, usages := w.tick()
-	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-b") || usages[0].FiveHour.UsedPercent != 7 {
-		t.Fatalf("usages = %+v, want B's own rates", usages)
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-b") || usages[0].FiveHour.UsedPercent != 9 {
+		t.Fatalf("usages = %+v, want B's own rates from the session started after the switch", usages)
+	}
+}
+
+func TestWatcherUsageSkipsOldLoginRatesAfterASwitchWhileTheDaemonWasDown(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	reset := t0.Add(time.Hour)
+	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+	setAuthTime(t, home, t0.Add(-10*time.Second))
+	metaA := metaAt("u-a", t0.Add(-30*time.Minute))
+	first := rateLine(t0.Add(-time.Minute), 30, reset)
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaA, evStarted, first)
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	if _, _, usages := w.tick(); len(usages) != 0 {
+		t.Fatalf("first tick usages = %+v, want the pre-switch rates skipped", usages)
+	}
+	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(5*time.Second), metaA, evStarted, first, rateLine(t0.Add(5*time.Second), 31, reset))
+	now = t0.Add(6 * time.Second)
+	if _, _, usages := w.tick(); len(usages) != 0 {
+		t.Fatalf("usages = %+v, want nothing from a session that started before the switch", usages)
+	}
+	writeRollout(t, dir, "rollout-b.jsonl", now, metaAt("u-b", t0.Add(2*time.Second)), evStarted, rateLine(t0.Add(4*time.Second), 9, reset))
+	now = t0.Add(8 * time.Second)
+	_, _, usages := w.tick()
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-b") || usages[0].FiveHour.UsedPercent != 9 {
+		t.Fatalf("usages = %+v, want B's rates from the new session", usages)
+	}
+}
+
+func TestWatcherUsageSurvivesATokenRefresh(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	reset := t0.Add(time.Hour)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	setAuthTime(t, home, t0.Add(-time.Hour))
+	metaA := metaAt("u-a", t0.Add(-30*time.Minute))
+	first := rateLine(t0.Add(-time.Minute), 30, reset)
+	writeRollout(t, dir, "rollout-a.jsonl", t0, metaA, evStarted, first)
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	if _, _, usages := w.tick(); len(usages) != 1 {
+		t.Fatalf("usages = %+v, want A's", usages)
+	}
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus", "refreshed": true})
+	setAuthTime(t, home, t0.Add(2*time.Second))
+	writeRollout(t, dir, "rollout-a.jsonl", t0.Add(3*time.Second), metaA, evStarted, first, rateLine(t0.Add(3*time.Second), 33, reset))
+	now = t0.Add(4 * time.Second)
+	_, _, usages := w.tick()
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-a") || usages[0].FiveHour.UsedPercent != 33 {
+		t.Fatalf("usages = %+v, want A's new rates after a token refresh", usages)
+	}
+}
+
+func TestAppServerUsageCarriesNoOldLoginWindowAfterASwitch(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	t0 := time.Now().Truncate(time.Second)
+	writeCodexAuth(t, home, "acct-a", map[string]any{"chatgpt_plan_type": "plus"})
+	setAuthTime(t, home, t0.Add(-time.Hour))
+	now := t0
+	w := switchWatcher(t, dir, home, &now)
+	as := connectedAppServer(w.cfg, "t1", wireStatus{Type: "active"})
+	as.now = func() time.Time { return now }
+	reset := strconv.FormatInt(t0.Add(time.Hour).Unix(), 10)
+	as.onNotification("account/rateLimits/updated", json.RawMessage(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":50,"resetsAt":`+reset+`},"secondary":{"usedPercent":60,"resetsAt":`+reset+`}}}`))
+	if _, _, usages := cycle(w, as); len(usages) != 1 || usages[0].SevenDay == nil {
+		t.Fatalf("usages = %+v, want A's two windows", usages)
+	}
+	writeCodexAuth(t, home, "acct-b", map[string]any{"chatgpt_plan_type": "pro"})
+	setAuthTime(t, home, t0.Add(time.Second))
+	now = t0.Add(2 * time.Second)
+	if _, _, usages := cycle(w, as); len(usages) != 0 {
+		t.Fatalf("usages after the switch = %+v, want none", usages)
+	}
+	now = t0.Add(3 * time.Second)
+	as.onNotification("account/rateLimits/updated", json.RawMessage(`{"rateLimits":{"limitId":"codex","primary":{"usedPercent":5,"resetsAt":`+reset+`},"secondary":null}}`))
+	now = t0.Add(4 * time.Second)
+	_, _, usages := cycle(w, as)
+	if len(usages) != 1 || usages[0].AccountKey != producer.AccountKey("codex", "acct-b") || usages[0].FiveHour.UsedPercent != 5 || usages[0].SevenDay != nil {
+		t.Fatalf("usages = %+v, want B's 5h window alone, not A's weekly", usages)
 	}
 }

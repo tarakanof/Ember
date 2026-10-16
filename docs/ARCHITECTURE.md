@@ -4742,11 +4742,30 @@ add `account_key` and `plan` to `POST /v1/usage`:
   workspace. The id_token's payload is base64-decoded locally, never
   verified against the network and never logged; only the three claims
   are read. No `oauthAccount` or no `tokens` (an API key): no key. A
-  Codex rate-limit snapshot belongs to the account current when it
-  arrived: when the daemon sees the key change, it drops every cached
-  snapshot (rollouts and app server) dated before `auth.json` changed, so
-  after a switch it posts nothing until the new account's first rate
-  limits arrive.
+  Codex rate-limit snapshot is bound, when it is captured, to the account
+  key it was captured under, and only snapshots bound to the current key
+  are posted (#542). The daemon keeps the last 8 account eras, each a key
+  and the time it took over: the first one starts at `auth.json`'s mtime
+  (no `auth.json`: from the beginning), a later one at the mtime of the
+  write that changed the key (or the tick that saw it, if that mtime is
+  older than the previous tick). A token refresh rewrites `auth.json` but
+  keeps the key, so it starts no era. A rollout snapshot is bound to an
+  era only when both its line timestamp and its session's `session_meta`
+  timestamp fall in that era, because a Codex process keeps the login it
+  started with: a session that started before the switch, or before the
+  first era, posts no rate limits, even when its lines are newer, and neither does a
+  rate line with no timestamp. An
+  app-server snapshot is bound by its arrival time, and a key change also
+  clears the app server's merged snapshot, so a null window can't carry
+  the old login's value. So after a switch nothing is posted until a
+  session started after it reports rate limits. Limits: on the daemon's
+  first tick it can't tell a refresh from a switch, so sessions started
+  before the last `auth.json` write post nothing until they end (a
+  refresh is rare); a session resumed after a switch keeps its original
+  `session_meta` start, so it posts none either; the
+  shared app-server daemon outlives its sessions and its wire carries no
+  account id, so if it kept the old login after a `codex login` from
+  another process, its rate limits are posted under the new key.
 - A window may carry `window_minutes`, its length when the producer knows
   it (Codex: rollout `window_minutes`, app-server `windowDurationMins`);
   the knob's `five_hour.starts_at` is `resets_at` minus it, else minus 5 h.

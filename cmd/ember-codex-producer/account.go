@@ -100,11 +100,60 @@ func (c *codexAccountCache) current(codexHome string) codexAccount {
 	return c.acct
 }
 
-func (c *codexAccountCache) changedAt(codexHome string, now time.Time) time.Time {
-	if codexHome != "" {
-		if fi, err := os.Stat(filepath.Join(codexHome, "auth.json")); err == nil && !fi.ModTime().After(now) {
-			return fi.ModTime()
+func authModTime(codexHome string) (time.Time, bool) {
+	if codexHome == "" {
+		return time.Time{}, false
+	}
+	fi, err := os.Stat(filepath.Join(codexHome, "auth.json"))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return fi.ModTime(), true
+}
+
+const maxAccountEras = 8
+
+type accountEra struct {
+	key   string
+	since time.Time
+}
+
+type accountHistory struct {
+	eras      []accountEra
+	checkedAt time.Time
+	switches  int
+}
+
+func (h *accountHistory) observe(key string, authMod time.Time, haveMod bool, now time.Time) {
+	switch n := len(h.eras); {
+	case n == 0:
+		var since time.Time
+		if haveMod {
+			since = authMod
+			if since.After(now) {
+				since = now
+			}
+		}
+		h.eras = append(h.eras, accountEra{key: key, since: since})
+	case h.eras[n-1].key != key:
+		since := now
+		if haveMod && authMod.After(h.checkedAt) && !authMod.After(now) {
+			since = authMod
+		}
+		h.eras = append(h.eras, accountEra{key: key, since: since})
+		h.switches++
+		if len(h.eras) > maxAccountEras {
+			h.eras = h.eras[len(h.eras)-maxAccountEras:]
 		}
 	}
-	return now
+	h.checkedAt = now
+}
+
+func (h *accountHistory) at(t time.Time) (string, bool) {
+	for i := len(h.eras) - 1; i >= 0; i-- {
+		if t.After(h.eras[i].since) {
+			return h.eras[i].key, true
+		}
+	}
+	return "", false
 }
