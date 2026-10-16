@@ -4860,6 +4860,14 @@ hidden one is numbered among the shown ones as if it were shown), and an
 account's `default_name` is what it would get back.
 `hidden` only affects the knob: the clock keeps the representative
 account and its per-tool hide in `/v1/apps`.
+Ember.app edits them in Settings › Sources › Agents › Accounts (#536;
+`UsageAccounts` in EmberKit, `UsageAccountsSection`): one row per account
+with the knob's tool mark, the plan label, the name (an empty field means
+`default_name`), a show-on-knob switch and drag or Control-click to
+reorder. No id or email is shown. A reorder writes `order` 0…n-1 on every
+row; a save PUTs only the rows whose settings changed, each with its whole
+object (`null` when it is back to defaults), then re-reads the list so
+the renumbered `default_name`s show.
 
 **Idle usage frame.** When all sessions expire and a tool is over threshold,
 the coordinator publishes a **dimmed usage frame** (the same usage card content

@@ -56,6 +56,16 @@
                 <string>public.data</string>
             </array>
         </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.ember.Ember.usage-account</string>
+            <key>UTTypeDescription</key>
+            <string>Ember usage account</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+        </dict>
     </array>
     <key>NSBonjourServices</key>
     <array>

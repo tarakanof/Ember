@@ -5,6 +5,7 @@ import EmberKit
 extension UTType {
     static let emberClockApp = UTType(exportedAs: ReorderDragType.clockApp)
     static let emberKnobPage = UTType(exportedAs: ReorderDragType.knobPage)
+    static let emberUsageAccount = UTType(exportedAs: ReorderDragType.usageAccount)
 }
 
 private struct ReorderDrop<Item: Transferable>: ViewModifier {
