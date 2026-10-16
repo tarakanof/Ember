@@ -23,6 +23,7 @@ type derived struct {
 	weeklyRaw     float64
 	primaryRaw    float64
 	rateAt        time.Time
+	planType      string
 }
 
 func (d *derived) expireWindows(now time.Time) {
@@ -76,6 +77,7 @@ type eventPayload struct {
 		LimitID   string      `json:"limit_id"`
 		Primary   *rateWindow `json:"primary"`
 		Secondary *rateWindow `json:"secondary"`
+		PlanType  string      `json:"plan_type"`
 	} `json:"rate_limits"`
 	Reason           string                     `json:"reason,omitempty"`
 	LastAgentMessage string                     `json:"last_agent_message,omitempty"`
@@ -155,6 +157,9 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 			}
 			if ts, err := time.Parse(time.RFC3339Nano, rl.Timestamp); err == nil {
 				d.rateAt = ts
+			}
+			if lim.PlanType != "" {
+				d.planType = lim.PlanType
 			}
 		}
 	case p.Type == "task_complete":

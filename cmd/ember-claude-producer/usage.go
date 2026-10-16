@@ -134,6 +134,7 @@ func usagePollOnce(ctx context.Context, cfg Config, client *Client) {
 			"sonnet": win(u.SevenDaySonnet, loc, dayLabel),
 		},
 	}
+	claudeAccounts.current().apply(&req)
 	usageModels.set(req.Models)
 	if err := client.Usage(ctx, req); err != nil {
 		tickFailLog.Warn(slog.Default(), "claude_usage", "usage POST failed", "err", err)
@@ -163,6 +164,7 @@ func postStatuslineUsage(ctx context.Context, client *Client, snap statuslineUsa
 	if req.FiveHour == nil && req.SevenDay == nil {
 		return
 	}
+	claudeAccounts.current().apply(&req)
 	if err := client.Usage(ctx, req); err != nil {
 		tickFailLog.Warn(slog.Default(), "claude_usage_statusline", "usage POST failed", "err", err)
 	}

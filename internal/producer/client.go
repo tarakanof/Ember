@@ -97,19 +97,29 @@ type UsageWindow struct {
 }
 
 type UsageRequest struct {
-	Tool     string                  `json:"tool"`
-	Source   string                  `json:"source"`
-	FiveHour *UsageWindow            `json:"five_hour,omitempty"`
-	SevenDay *UsageWindow            `json:"seven_day,omitempty"`
-	Models   map[string]*UsageWindow `json:"models,omitempty"`
+	Tool       string                  `json:"tool"`
+	Source     string                  `json:"source"`
+	AccountKey string                  `json:"account_key,omitempty"`
+	Plan       string                  `json:"plan,omitempty"`
+	FiveHour   *UsageWindow            `json:"five_hour,omitempty"`
+	SevenDay   *UsageWindow            `json:"seven_day,omitempty"`
+	Models     map[string]*UsageWindow `json:"models,omitempty"`
 }
 
 func (c *Client) Usage(ctx context.Context, req UsageRequest) error {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return err
+	req = optionalUsageFields.strip(req, time.Now())
+	for attempt := 0; ; attempt++ {
+		body, err := json.Marshal(req)
+		if err != nil {
+			return err
+		}
+		err = c.send(ctx, http.MethodPost, "/v1/usage", body)
+		field, ok := unknownField(err)
+		if !ok || attempt >= len(optionalUsageFields.zeroers) || !optionalUsageFields.drop(field, time.Now()) {
+			return err
+		}
+		req = optionalUsageFields.strip(req, time.Now())
 	}
-	return c.send(ctx, http.MethodPost, "/v1/usage", body)
 }
 
 func (c *Client) send(ctx context.Context, method, path string, body []byte) error {

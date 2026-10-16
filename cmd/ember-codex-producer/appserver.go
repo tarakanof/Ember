@@ -832,6 +832,7 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 				LimitID   *string          `json:"limitId"`
 				Primary   *rateLimitWindow `json:"primary"`
 				Secondary *rateLimitWindow `json:"secondary"`
+				PlanType  *string          `json:"planType"`
 			} `json:"rateLimits"`
 		}
 		if json.Unmarshal(params, &p) != nil || !as.cfg.RatePctEnabled {
@@ -850,6 +851,9 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 			wk := producer.Pct(w.UsedPercent)
 			as.rate.weeklyPct, as.rate.weeklyResetAt, as.rate.weeklyRaw = &wk, w.resetsAt(), w.UsedPercent
 			as.hasRate = true
+		}
+		if lim.PlanType != nil && *lim.PlanType != "" {
+			as.rate.planType = *lim.PlanType
 		}
 		as.rate.rateAt = as.now()
 	}

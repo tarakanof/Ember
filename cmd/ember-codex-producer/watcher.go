@@ -48,6 +48,7 @@ type watcher struct {
 	rateExtra      *derived
 	handedOver     []string
 	reads          int
+	accounts       codexAccountCache
 }
 
 func newWatcher(cfg Config) *watcher {
@@ -269,7 +270,12 @@ func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 	if !ok {
 		return u, false
 	}
-	fp := fmt.Sprintf("%v|%d|%v|%d", newest.primaryRaw, newest.rateResetAt, newest.weeklyRaw, newest.weeklyResetAt)
+	acct := w.accounts.current(w.cfg.CodexHome)
+	u.AccountKey, u.Plan = acct.key, acct.plan
+	if u.Plan == "" {
+		u.Plan = producer.Plan(newest.planType)
+	}
+	fp := fmt.Sprintf("%v|%d|%v|%d|%s|%s", newest.primaryRaw, newest.rateResetAt, newest.weeklyRaw, newest.weeklyResetAt, u.AccountKey, u.Plan)
 	if !w.usagePost.Due(fp, now) {
 		return producer.UsageRequest{}, false
 	}
