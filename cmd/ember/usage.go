@@ -32,6 +32,7 @@ type ToolUsage struct {
 	UpdatedAt  time.Time               `json:"updated_at"`
 	Principal  string                  `json:"-"`
 	MasterHeld bool                    `json:"-"`
+	FirstSeen  time.Time               `json:"-"`
 }
 
 type usageKey struct {
@@ -79,6 +80,10 @@ func (s *UsageStore) putLocked(tool string, u ToolUsage, limit int, now time.Tim
 		if limit > 0 && len(s.byKey) >= limit {
 			return errUsageFull
 		}
+	}
+	u.FirstSeen = u.UpdatedAt
+	if exists && !prev.FirstSeen.IsZero() {
+		u.FirstSeen = prev.FirstSeen
 	}
 	s.byKey[k] = u
 	return nil

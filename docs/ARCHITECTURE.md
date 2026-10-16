@@ -4809,7 +4809,9 @@ wrote (`MasterHeld` in the store, `master` in the registry, carried from
 the registry into the store after a restart) counts toward no client
 token's cap and no client cap evicts it; and a bound token still passes
 `allowSource` for its labels before any of this. The registry follows the same per-writer caps and skips a
-new account at 64 instead of refusing. An account's
+new account at 64 instead of refusing; the store keeps such an account's
+first post time, so its first sighting and place don't move with each
+post (until a restart, which forgets it). An account's
 id is `<tool>:<account_key>`, so one key on two tools stays two accounts; a
 keyless post is one account per tool, whose id is the bare tool name, which
 no keyed id can equal; once its tool has a keyed

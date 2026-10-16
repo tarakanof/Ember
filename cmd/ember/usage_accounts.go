@@ -438,7 +438,7 @@ func buildUsageAccounts(state usageState, seen map[string]usageAccountSeen, pref
 	byID := map[string]*usageAccount{}
 	for _, s := range state.Accounts {
 		rep := s.Report
-		byID[s.Key.id()] = &usageAccount{ID: s.Key.id(), Tool: s.Key.Tool, Plan: rep.Plan, FirstSeen: rep.UpdatedAt, Report: &rep, Fresh: s.Fresh}
+		byID[s.Key.id()] = &usageAccount{ID: s.Key.id(), Tool: s.Key.Tool, Plan: rep.Plan, FirstSeen: rep.FirstSeen, Report: &rep, Fresh: s.Fresh}
 	}
 	for id, s := range seen {
 		acc, ok := byID[id]

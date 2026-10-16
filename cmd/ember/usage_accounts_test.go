@@ -1111,3 +1111,44 @@ func TestMasterTakeoverOfAClientAccountSurvivesARestart(t *testing.T) {
 		t.Fatalf("reloaded entry = %+v, want it master-held and the master's", s)
 	}
 }
+
+func TestUnregisteredAccountKeepsItsFirstSeenAndPlace(t *testing.T) {
+	s := newUsageStore()
+	t0 := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, Plan: "max", UpdatedAt: t0})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxB, Plan: "max", UpdatedAt: t0.Add(time.Minute)})
+	putUsage(t, s, "claude", ToolUsage{Account: keyMaxA, Plan: "max", UpdatedAt: t0.Add(time.Hour)})
+	accs := buildUsageAccounts(s.state(nil, t0.Add(time.Hour)), nil, nil)
+	if len(accs) != 2 || accs[0].ID != idMaxA || accs[1].ID != idMaxB {
+		t.Fatalf("order = %+v, want first-seen order with no registry entry", accs)
+	}
+	if !accs[0].FirstSeen.Equal(t0) {
+		t.Fatalf("first_seen = %v, want %v kept across posts", accs[0].FirstSeen, t0)
+	}
+}
+
+func TestUsageAccountsOutsideAFullRegistryKeepTheirOrder(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	now := time.Now()
+	for i := range usageAccountsTotal {
+		k := usageKey{fmt.Sprintf("tool%02d", i/usageAccountsPerTool), fmt.Sprintf("%016x", i)}
+		principal := fmt.Sprintf("client:c%d", i/usageAccountsPerWriter)
+		if err := app.usageSeen.observe(k, ToolUsage{}, principal, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxB+`","plan":"max"}`)
+	if _, registered := app.usageSeen.snapshot(time.Now())[idMaxA]; registered {
+		t.Fatal("registry took a 65th account")
+	}
+	ageUsageAccount(t, app, usageKey{"claude", keyMaxA}, time.Hour)
+	ageUsageAccount(t, app, usageKey{"claude", keyMaxB}, time.Hour-time.Minute)
+	before := getAccounts(t, srv, testToken)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
+	after := getAccounts(t, srv, testToken)
+	if accountNames(after) != accountNames(before) || !after.Accounts[0].FirstSeen.Equal(before.Accounts[0].FirstSeen) {
+		t.Fatalf("after a post = %s %v, want %s %v", accountNames(after), after.Accounts[0].FirstSeen,
+			accountNames(before), before.Accounts[0].FirstSeen)
+	}
+}
