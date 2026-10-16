@@ -164,7 +164,7 @@ type usageAccountRegistry struct {
 	mu      sync.Mutex
 	seen    map[string]usageAccountSeen
 	written map[string]time.Time
-	removed []string
+	broken  bool
 	nextSeq int
 	kv      func() settingsKV
 }
@@ -184,6 +184,9 @@ func (r *usageAccountRegistry) load() error {
 	}
 	seen := map[string]usageAccountSeen{}
 	if err := json.Unmarshal([]byte(blob), &seen); err != nil {
+		r.mu.Lock()
+		r.broken = true
+		r.mu.Unlock()
 		return fmt.Errorf("parse %s: %w", usageAccountsSeenKey, err)
 	}
 	r.mu.Lock()
@@ -270,15 +273,16 @@ func (r *usageAccountRegistry) expireLocked(now time.Time) {
 func (r *usageAccountRegistry) dropLocked(id string) {
 	delete(r.seen, id)
 	delete(r.written, id)
-	r.removed = append(r.removed, id)
 }
 
-func (r *usageAccountRegistry) drainRemoved() []string {
+func (r *usageAccountRegistry) ids() (map[string]bool, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := r.removed
-	r.removed = nil
-	return out
+	out := make(map[string]bool, len(r.seen))
+	for id := range r.seen {
+		out[id] = true
+	}
+	return out, !r.broken
 }
 
 func (r *usageAccountRegistry) evictOwnOldestLocked(in func(usageAccountSeen) bool, principal string, max int) {
@@ -505,17 +509,21 @@ func (a *App) usageAccounts(now time.Time) []usageAccount {
 	return buildUsageAccounts(a.usage.state(nil, now), a.usageSeen.snapshot(now), a.cfg.Load().UsageAccounts)
 }
 
-func (a *App) pruneUsageAccountPrefs(removed []string) {
-	if len(removed) == 0 {
+func (a *App) pruneUsageAccountPrefs() {
+	prefs := a.cfg.Load().UsageAccounts
+	if len(prefs) == 0 {
 		return
 	}
-	prefs, live := a.cfg.Load().UsageAccounts, map[string]bool{}
+	known, ok := a.usageSeen.ids()
+	if !ok {
+		return
+	}
 	for k := range a.usage.All() {
-		live[k.id()] = true
+		known[k.id()] = true
 	}
 	patch := map[string]any{}
-	for _, id := range removed {
-		if _, ok := prefs[id]; ok && !live[id] {
+	for id := range prefs {
+		if !known[id] {
 			patch[id] = nil
 		}
 	}

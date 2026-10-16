@@ -982,3 +982,27 @@ func TestClientCapNeverEvictsAMasterAccountKnownOnlyToTheRegistry(t *testing.T) 
 		t.Fatal("the box's cap evicted a master account it took over after a restart")
 	}
 }
+
+func TestUsageAccountSettingsArePrunedOnceNeitherStoreNorRegistryHoldsIt(t *testing.T) {
+	app, srv := newDevicesApp(t, filepath.Join(t.TempDir(), "s.db"))
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
+	if resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+idMaxA+`":{"name":"Old"}}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put = %d %s", resp.StatusCode, b)
+	}
+	app.usageSeen.mu.Lock()
+	app.usageSeen.dropLocked(idMaxA)
+	app.usageSeen.mu.Unlock()
+	postUsage(t, srv, `{"tool":"codex","account_key":"`+keyCodex+`"}`)
+	if _, ok := app.cfg.Load().UsageAccounts[idMaxA]; !ok {
+		t.Fatal("settings pruned while the store still holds the account")
+	}
+	app.usage.mu.Lock()
+	u := app.usage.byKey[usageKey{"claude", keyMaxA}]
+	u.UpdatedAt = time.Now().Add(-usageAccountTTL - time.Hour)
+	app.usage.byKey[usageKey{"claude", keyMaxA}] = u
+	app.usage.mu.Unlock()
+	postUsage(t, srv, `{"tool":"codex","account_key":"`+keyCodex+`"}`)
+	if prefs := app.cfg.Load().UsageAccounts; len(prefs) != 0 {
+		t.Fatalf("settings = %+v, want the account's pruned once neither holds it", prefs)
+	}
+}
