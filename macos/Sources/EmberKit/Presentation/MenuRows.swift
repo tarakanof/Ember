@@ -320,10 +320,11 @@ public enum MenuRows {
         public var showsActions: Bool { disabledNotice == nil }
     }
 
-    public static func clockMenu(usage: Loadable<UsageSnapshot>, clockHealth: Loadable<ClockHealth>,
-                                 apps: Loadable<[AppToggle]>, matrixPower: Bool?) -> ClockMenu {
-        if let notice = ClockHealthReadout.disabledNotice(clockHealth) {
-            return ClockMenu(disabledNotice: notice, power: [], apps: [])
+    public static func clockMenu(clockDisabled: Bool, usage: Loadable<UsageSnapshot>,
+                                 clockHealth: Loadable<ClockHealth>, apps: Loadable<[AppToggle]>,
+                                 matrixPower: Bool?) -> ClockMenu {
+        if clockDisabled || clockHealth.value?.isDisabled == true {
+            return ClockMenu(disabledNotice: ClockHealthReadout.disabledText, power: [], apps: [])
         }
         return ClockMenu(disabledNotice: nil,
                          power: displayPower(usage: usage, clockHealth: clockHealth, matrixPower: matrixPower),

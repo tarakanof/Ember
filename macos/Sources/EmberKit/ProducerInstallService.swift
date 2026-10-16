@@ -129,7 +129,7 @@ public enum AgentState: Sendable, Equatable {
         }
     }
 
-    public var isReporting: Bool {
+    public var isMeantToReport: Bool {
         switch self {
         case .on, .notRunning, .needsApproval, .cliInstalled: true
         case .off, .error: false
@@ -633,13 +633,13 @@ public struct ProducerSnapshot: Sendable {
     public var claudeHooksNotice: ClaudeHooksNotice {
         guard let hooks = claudeHooks,
               let claude = agents.first(where: { $0.agent == .claude }) else { return .fine }
-        return ClaudeHooksNotice.notice(for: hooks, reportingOn: claude.state.isReporting)
+        return ClaudeHooksNotice.notice(for: hooks, reportingOn: claude.state.isMeantToReport)
     }
 
     public var needsRepair: Bool { agents.contains { $0.state == .notRunning } }
 
     public func showsSettings(for agent: ProducerAgent) -> Bool {
         guard let row = agents.first(where: { $0.agent == agent }) else { return false }
-        return !undetected.contains(agent) || row.state.isReporting
+        return !undetected.contains(agent) || row.state.isMeantToReport
     }
 }

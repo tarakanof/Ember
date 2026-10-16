@@ -302,3 +302,22 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     #expect(c.lastTickAt(.stats) == nil)
     #expect(c.consecutiveFailures(.stats) == 0)
 }
+
+@MainActor @Test func agedRefreshSkipsAFreshFeedAndFetchesAStaleOne() async {
+    let (c, clock, feeds) = makeCoordinator()
+    await c.refreshNow([.usage], ifOlderThan: .seconds(60))
+    await clock.advance(by: .seconds(59))
+    await c.refreshNow([.usage], ifOlderThan: .seconds(60))
+    #expect(feeds.count(.usage) == 1)
+    await clock.advance(by: .seconds(1))
+    await c.refreshNow([.usage], ifOlderThan: .seconds(60))
+    #expect(feeds.count(.usage) == 2)
+}
+
+@MainActor @Test func overlappingAgedRefreshesMakeOneFetch() async {
+    let (c, _, feeds) = makeCoordinator()
+    async let first: Void = c.refreshNow([.usage], ifOlderThan: .seconds(60))
+    async let second: Void = c.refreshNow([.usage], ifOlderThan: .seconds(60))
+    _ = await (first, second)
+    #expect(feeds.count(.usage) == 1)
+}

@@ -427,40 +427,14 @@ private func timedModel(_ now: Box<Date>) -> LiveModel {
     ])
 }
 
-private let disabledClockJSON = #"{"generated_at":"2026-09-26T10:00:00Z","publish":{"counting_since":"2026-09-26T09:00:00Z","ok_24h":0,"fail_24h":0,"success_ratio_24h":null,"ok_total":0,"fail_total":0,"retries_total":0,"last_at":null,"last_ok":false},"disabled":true,"device":null}"#
-
-@MainActor @Test func openingTheMenuReadsClockHealthWithNoScreenHoldingIt() async {
-    let client = stubbedClient { req in
-        switch req.url!.path {
-        case "/v1/clock/health": return (okResponse(req.url!), Data(disabledClockJSON.utf8))
-        case "/v1/usage": return (okResponse(req.url!), Data(#"{"generated_at":"2026-09-26T10:00:00Z","stale_after_sec":600,"tools":[]}"#.utf8))
-        case "/v1/apps": return (okResponse(req.url!), Data(#"{"apps":[{"name":"claude","enabled":true}]}"#.utf8))
-        default: return (okResponse(req.url!, status: 404), Data())
-        }
-    }
-    let m = makeModel()
-    m.configure(client: client)
-    await m.refreshNow(.apps)
-    #expect(!m.isTracked(.clockHealth))
-    await m.refreshMenuFeeds()
-    #expect(m.clockHealth.value?.isDisabled == true)
-    #expect(m.usage.value != nil)
-    let menu = MenuRows.clockMenu(usage: m.usage, clockHealth: m.clockHealth, apps: m.apps, matrixPower: nil)
-    #expect(!menu.showsActions)
-    #expect(menu.power.isEmpty)
-    #expect(menu.apps.isEmpty)
-    #expect(menu.disabledNotice != nil)
-}
-
-@MainActor @Test func openingTheMenuAgainSkipsAFreshClockHealth() async {
+@MainActor @Test func openingTheMenuReadsNoClockHealth() async {
     let seen = LockedBox()
     let client = stubbedClient { req in
         seen.add(req.url!.path)
-        return (okResponse(req.url!), Data(disabledClockJSON.utf8))
+        return (okResponse(req.url!, status: 404), Data())
     }
     let m = makeModel()
     m.configure(client: client)
     await m.refreshMenuFeeds()
-    await m.refreshMenuFeeds()
-    #expect(seen.paths.filter { $0 == "/v1/clock/health" }.count == 1)
+    #expect(Set(seen.paths) == ["/v1/pomodoro/stats", "/v1/meetings/state", "/v1/usage"])
 }

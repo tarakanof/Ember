@@ -99,8 +99,8 @@ struct MenuBarContentView: View {
 	@ViewBuilder
 	private func clockMenu(_ live: LiveModel) -> some View {
 		let matrixPower = live.isTracked(.clockHealth) ? live.displayPower : nil
-		let clock = MenuRows.clockMenu(usage: live.usage, clockHealth: live.clockHealth, apps: live.apps,
-		                               matrixPower: matrixPower)
+		let clock = MenuRows.clockMenu(clockDisabled: live.isClockDisabled, usage: live.usage,
+		                               clockHealth: live.clockHealth, apps: live.apps, matrixPower: matrixPower)
 
 		Menu("Clock") {
 			if let notice = clock.disabledNotice {

@@ -17,6 +17,8 @@ private final class VersionedServer: Sendable {
     let versionLost = Shared(false)
     let version = Shared("0.29.0")
     let versionReads = Shared(0)
+    let clockOff = Shared(false)
+    let healthReads = Shared(0)
 
     func client() -> APIClient {
         stubbedClient { [self] req in
@@ -27,8 +29,12 @@ private final class VersionedServer: Sendable {
             case "/version":
                 versionReads.value += 1
                 if versionLost.value { throw URLError(.timedOut) }
-                let body = #"{"binary":"ember","version":"\#(version.value)","revision":"44143ca","dirty":true}"#
+                let off = clockOff.value ? #","clock_disabled":true"# : ""
+                let body = #"{"binary":"ember","version":"\#(version.value)","revision":"44143ca","dirty":true\#(off)}"#
                 return (okResponse(req.url!), Data(body.utf8))
+            case "/v1/clock/health":
+                healthReads.value += 1
+                return (okResponse(req.url!, status: 404), Data())
             default:
                 return (okResponse(req.url!, status: 404), Data())
             }
@@ -166,4 +172,40 @@ private func poll(_ m: LiveModel) async {
     #expect(try release(#"{"version":"v0.29.0"}"#) == "0.29.0")
     #expect(try release(#"{"version":"dev","revision":"44143ca"}"#) == nil)
     #expect(try release(#"{"binary":"ember","revision":"6ad0339"}"#) == nil)
+}
+
+@MainActor @Test func clockDisabledIsReadWithTheVersionAndHidesTheClockMenu() async {
+    let server = VersionedServer()
+    server.clockOff.value = true
+    let m = makeModel()
+    m.configure(client: server.client())
+    #expect(!m.isClockDisabled)
+    await poll(m)
+    await m.refreshMenuFeeds()
+    #expect(m.isClockDisabled)
+    #expect(server.healthReads.value == 0)
+    let menu = MenuRows.clockMenu(clockDisabled: m.isClockDisabled, usage: m.usage, clockHealth: m.clockHealth,
+                                  apps: .loaded([AppToggle(name: "claude", enabled: true)], at: Date()),
+                                  matrixPower: nil)
+    #expect(!menu.showsActions)
+    #expect(menu.power.isEmpty)
+    #expect(menu.apps.isEmpty)
+    #expect(menu.disabledNotice != nil)
+}
+
+@MainActor @Test func clockDisabledFollowsARedeployOnReconnect() async {
+    let server = VersionedServer()
+    server.clockOff.value = true
+    let m = makeModel()
+    m.configure(client: server.client())
+    await poll(m)
+    #expect(m.isClockDisabled)
+
+    server.down.value = true
+    for _ in 0..<LiveModel.offlineAfterFailures { await poll(m) }
+    server.clockOff.value = false
+    server.down.value = false
+    await poll(m)
+    #expect(server.versionReads.value == 2)
+    #expect(!m.isClockDisabled)
 }

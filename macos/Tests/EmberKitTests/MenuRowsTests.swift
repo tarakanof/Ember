@@ -418,9 +418,22 @@ private func project(_ tool: String, source: String, state: String, id: String, 
 @Test func clockMenuOffersEveryActionWhileTheClockIsEnabled() {
     let usage = Loadable<UsageSnapshot>.loaded(usageSnapshot([]), at: now)
     let apps = Loadable<[AppToggle]>.loaded([AppToggle(name: "claude", enabled: true)], at: now)
-    let menu = MenuRows.clockMenu(usage: usage, clockHealth: .loading, apps: apps, matrixPower: true)
+    let menu = MenuRows.clockMenu(clockDisabled: false, usage: usage, clockHealth: .loading, apps: apps, matrixPower: true)
     #expect(menu.showsActions)
     #expect(menu.disabledNotice == nil)
     #expect(menu.power.map(\.on) == [false])
     #expect(menu.apps.map(\.name) == ["claude"])
+}
+
+@Test func clockMenuHidesEveryActionWhenClockHealthSaysDisabled() throws {
+    let usage = Loadable<UsageSnapshot>.loaded(usageSnapshot([]), at: now)
+    let json = #"{"generated_at":"2026-09-26T10:00:00Z","publish":{"counting_since":"2026-09-26T09:00:00Z","ok_24h":0,"fail_24h":0,"success_ratio_24h":null,"ok_total":0,"fail_total":0,"retries_total":0,"last_at":null,"last_ok":false},"disabled":true,"device":null}"#
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let health = try d.decode(ClockHealth.self, from: Data(json.utf8))
+    let apps = Loadable<[AppToggle]>.loaded([AppToggle(name: "claude", enabled: true)], at: now)
+    let menu = MenuRows.clockMenu(clockDisabled: false, usage: usage, clockHealth: .loaded(health, at: now),
+                                  apps: apps, matrixPower: nil)
+    #expect(!menu.showsActions)
+    #expect(menu.apps.isEmpty)
 }

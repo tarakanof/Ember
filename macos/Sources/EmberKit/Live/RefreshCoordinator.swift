@@ -147,10 +147,10 @@ final class RefreshCoordinator {
         for f in set { reconcile(f) }
     }
 
-    func refreshNow(_ feeds: [Feed] = [], ifOlderThan age: Duration? = nil, includingUnheld: Bool = false) async {
+    func refreshNow(_ feeds: [Feed] = [], ifOlderThan age: Duration? = nil) async {
         let candidates = feeds.isEmpty ? activeFeeds : Set(feeds)
         let due = candidates.filter { f in
-            if f.tier == .c && holdCount(f) == 0 && !includingUnheld { return false }
+            if f.tier == .c && holdCount(f) == 0 { return false }
             guard let age, let t = lastTick[f] else { return true }
             return now() - t >= age
         }
