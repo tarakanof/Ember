@@ -165,7 +165,7 @@ func TestReadEmberRepliesStopsWhenContextCancelled(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readEmberReplies after cancel = %v, want nil", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(300 * time.Millisecond):
 		t.Fatal("readEmberReplies kept reading after ctx cancel")
 	}
 }

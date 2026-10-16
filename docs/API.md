@@ -142,9 +142,11 @@ background, provisions icons on the new clock and installs or removes the
 boot-ping script there, following `awtrix.boot_ping`),
 `GET /v1/device/discover` (3 s of mDNS, then, only if mDNS found nothing,
 3 s of `FIND_AWTRIXNG` UDP, then up to 1.5 s probing what answered: up
-to ~7.5 s. 200 with `candidates`, `effective` and `source`; 502 when the
-browse fails; 503 `clock_disabled` under `EMBER_CLOCK=off`. A client that
-hangs up mid-browse stops the browse, and no response is written),
+to ~7.5 s. 200 with `candidates`, `effective` and `source`, an empty
+list when nothing answered; 502 only when the server has no clock browse
+wired, never on a cancel; 503 `clock_disabled` under `EMBER_CLOCK=off`. A
+client that hangs up mid-browse stops the browse, and no response is
+written),
 `GET/PUT /v1/device/settings` (whitelisted
 `PATCH /api/v1/settings` keys — see `device_settings.go`; during a Pomodoro
 takeover `autoTransition`/`blockNavigation` read and write the saved prior,

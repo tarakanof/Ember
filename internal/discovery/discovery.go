@@ -231,9 +231,6 @@ func browseAWTRIX(ctx context.Context, timeout time.Duration, lookupMDNS mdnsLoo
 	}
 	if len(svcs) == 0 {
 		svcs = browseUDP(ctx, timeout)
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 	}
 	pctx, pcancel := context.WithTimeout(ctx, 2*time.Second)
 	defer pcancel()

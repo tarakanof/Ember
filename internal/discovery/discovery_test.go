@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -203,14 +204,19 @@ func noMDNS(context.Context, string, dnssd.AddFunc, dnssd.RmvFunc) error { retur
 func TestBrowseAWTRIXReturnsCtxErrWhenCancelledDuringUDP(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	srv := ngDeviceServer(t, `{"version":"1.0.13","uid":"u1","boardType":"awtrixng"}`)
+	var probed atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probed.Store(true)
+		_, _ = w.Write([]byte(`{"version":"1.0.13","uid":"u1","boardType":"awtrixng"}`))
+	}))
+	t.Cleanup(srv.Close)
 	browseUDP := func(context.Context, time.Duration) []service {
 		cancel()
 		return []service{{host: "Awtrix", baseURL: srv.URL}}
 	}
 	got, err := browseAWTRIX(ctx, 3*time.Second, noMDNS, browseUDP)
-	if !errors.Is(err, context.Canceled) || len(got) != 0 {
-		t.Fatalf("browseAWTRIX cancelled during UDP = (%+v, %v), want (none, context.Canceled)", got, err)
+	if !errors.Is(err, context.Canceled) || len(got) != 0 || probed.Load() {
+		t.Fatalf("browseAWTRIX cancelled during UDP = (%+v, %v), probed=%v; want (none, context.Canceled), no probe", got, err, probed.Load())
 	}
 }
 

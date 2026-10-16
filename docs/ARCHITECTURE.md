@@ -332,13 +332,14 @@ The aggregator and the only writer to the device.
     (pinned by `TestNewServerApp_WiresRealClockBrowse`), so a test that
     builds its App with `NewApp` cannot reach the LAN through it. A test
     that needs candidates stubs `browseFn`. A cancelled browse has one
-    outcome: `BrowseAWTRIX` (after mDNS, after the UDP find, after the
-    probes) and `BrowseEmber` return `ctx.Err()` and no results, never a
-    partial list. The UDP reads (the clock's `FIND_AWTRIXNG` and the
-    `_ember._tcp` legacy unicast query) end on cancel, so a shutdown or a
-    client hang-up never waits out a 3 s browse. `rediscoverClock` then
-    records `cancelled`, not `no-device`, and `/v1/device/discover` writes
-    no response to a client that went away.
+    outcome: `BrowseAWTRIX` (after mDNS and after the probes; a probe on a
+    cancelled ctx sends nothing) and `BrowseEmber` return `ctx.Err()` and
+    no results, never a partial list. The UDP reads (the clock's
+    `FIND_AWTRIXNG` and the `_ember._tcp` legacy unicast query) end on
+    cancel, so a shutdown or a client hang-up never waits out a 3 s
+    browse. `rediscoverClock` then records `cancelled`, not `no-device`,
+    and `/v1/device/discover` writes no response to a client that went
+    away.
   - **`systemLock`.** `/api/v1/system` holds Wi-Fi credentials, sensor offsets
     and the button callback, and NG only offers a full replace, so two
     unserialised writers lose a write. The lock is a `ctxLock` (a channel-of-1

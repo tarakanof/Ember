@@ -634,3 +634,31 @@ func TestEnrichMarker_RefreshesAnAgedStatuslineAtDespiteAHookFreshMtime(t *testi
 		t.Fatalf("statusline_at = %d changed_ms = %d, want the render time and the old change time", m.StatuslineAt, m.StatuslineChangedMs)
 	}
 }
+
+func TestEnrichMarker_KeyOnlyChangeKeepsStatuslineChangedMs(t *testing.T) {
+	now := time.Now()
+	defer func(f func() time.Time) { hookNow = f }(hookNow)
+	hookNow = func() time.Time { return now }
+	dir := t.TempDir()
+	mp := markerPath(dir, "s")
+	body, _ := json.Marshal(marker{StatusRequest: StatusRequest{Source: "mbp", Tool: "claude", Session: "s", State: "running"}})
+	if err := os.WriteFile(mp, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := enrichMarker(dir, "s", ratePtr(40), nil, nil, "", nil, nil, "", keepAccount); err != nil {
+		t.Fatal(err)
+	}
+	changedAt := now.UnixMilli()
+	now = now.Add(time.Second)
+	rekey := func(a markerAccount) markerAccount {
+		a.UsageAccountKey, a.UsagePlan = "0123456789abcdef", "max"
+		return a
+	}
+	if err := enrichMarker(dir, "s", ratePtr(40), nil, nil, "", nil, nil, "", rekey); err != nil {
+		t.Fatal(err)
+	}
+	if m := markerAt(t, mp); m.UsageAccountKey != "0123456789abcdef" || m.StatuslineChangedMs != changedAt || m.StatuslineAt != now.Unix() {
+		t.Fatalf("marker = key %q changed_ms %d statusline_at %d, want the new key, changed_ms kept at %d and statusline_at %d",
+			m.UsageAccountKey, m.StatuslineChangedMs, m.StatuslineAt, changedAt, now.Unix())
+	}
+}
