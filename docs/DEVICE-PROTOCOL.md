@@ -414,8 +414,8 @@ order, hiding, staleness and the 5h window start. The block follows
 - **`tool`**: `claude` or `codex` (the agent mark); the list is open, so
   draw a neutral mark for another value.
 - **`name`**: what the user called it in Ember.app, else the plan
-  ("Max", "Pro", "Team", "Plus"; "Claude" or "Codex" without one), two on
-  one plan numbered ("Max 1", "Max 2"). At most 24 characters, any Unicode.
+  ("Max", "Pro", "Team", "Plus"; "Claude" or "Codex" without one), two
+  shown on one plan numbered ("Max 1", "Max 2"); hidden ones don't count. At most 24 characters, any Unicode.
 - **`five_hour`**, **`seven_day`**: `pct` an integer 0-100; `resets_at`
   Unix seconds; `five_hour.starts_at` = `resets_at` − 5 h, the window start
   for the pace tick (elapsed fraction = (now − `starts_at`) / 5 h, with

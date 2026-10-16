@@ -4788,8 +4788,10 @@ Order: accounts with an `order` first, ascending; then Claude, Codex, other
 tools by name, each by first seen. Names: the set one, else the plan's
 label ("Max", "Pro", "Team", "Plus"; no plan: "Claude", "Codex"). Two or
 more default-named accounts of one tool on one plan are numbered in display
-order ("Max 1", "Max 2"); an account with its own name leaves the
-numbering, and its `default_name` is what it would get back.
+order ("Max 1", "Max 2"); an account with its own name or hidden leaves
+the numbering of the others, so the knob never shows a lone "Max 2" (a
+hidden one is numbered among the shown ones as if it were shown), and an
+account's `default_name` is what it would get back.
 `hidden` only affects the knob: the clock keeps the representative
 account and its per-tool hide in `/v1/apps`.
 

@@ -412,7 +412,7 @@ func buildUsageAccounts(state usageState, seen map[string]usageAccountSeen, pref
 		base := usageBaseName(acc.Tool, acc.Plan)
 		pos, twins := 0, 0
 		for j, other := range out {
-			if other.Tool != acc.Tool || usageBaseName(other.Tool, other.Plan) != base || (j != i && other.Name != "") {
+			if other.Tool != acc.Tool || usageBaseName(other.Tool, other.Plan) != base || (j != i && (other.Name != "" || other.Hidden)) {
 				continue
 			}
 			twins++

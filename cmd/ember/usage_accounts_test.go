@@ -184,7 +184,7 @@ func TestUsageAccountsPutRenamesHidesAndReorders(t *testing.T) {
 	if got := accountNames(out); got != want {
 		t.Fatalf("accounts = %s, want %s", got, want)
 	}
-	if !out.Accounts[2].Hidden || out.Accounts[1].DefaultName != "Max 1" || *out.Accounts[0].Order != 0 {
+	if !out.Accounts[2].Hidden || out.Accounts[1].DefaultName != "Max" || *out.Accounts[0].Order != 0 {
 		t.Fatalf("accounts = %+v", out.Accounts)
 	}
 	resp, b = devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+idMaxB+`":null}`)
@@ -192,7 +192,7 @@ func TestUsageAccountsPutRenamesHidesAndReorders(t *testing.T) {
 		t.Fatalf("reset put = %d %s", resp.StatusCode, b)
 	}
 	got := getAccounts(t, srv, testToken)
-	if names := accountNames(got); names != idCodex+"=Plus,"+idMaxA+"=Max 1,"+idMaxB+"=Max 2" {
+	if names := accountNames(got); names != idCodex+"=Plus,"+idMaxA+"=Max 1,"+idMaxB+"=Max" {
 		t.Fatalf("after reset = %s", names)
 	}
 }
@@ -758,5 +758,20 @@ func TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize(t *testing.T) {
 	}
 	if len(blob) > 32<<10 {
 		t.Fatalf("persisted registry = %d B at 64 worst-case accounts, want at most 32 KiB", len(blob))
+	}
+}
+
+func TestUsageTwinNumberingIgnoresHiddenAccounts(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxA+`","plan":"max"}`)
+	postUsage(t, srv, `{"tool":"claude","account_key":"`+keyMaxB+`","plan":"max"}`)
+	if got := accountNames(getAccounts(t, srv, testToken)); got != idMaxA+"=Max 1,"+idMaxB+"=Max 2" {
+		t.Fatalf("accounts = %s", got)
+	}
+	if resp, b := devReq(t, srv, "PUT", "/v1/usage/accounts", testToken, `{"`+idMaxA+`":{"hidden":true}}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put = %d %s", resp.StatusCode, b)
+	}
+	if got := accountNames(getAccounts(t, srv, testToken)); got != idMaxA+"=Max 1,"+idMaxB+"=Max" {
+		t.Fatalf("with Max 1 hidden = %s, want the visible one unnumbered", got)
 	}
 }
