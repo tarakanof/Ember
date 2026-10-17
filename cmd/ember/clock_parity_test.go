@@ -436,7 +436,7 @@ func runClockParity(t *testing.T, pat []bool) string {
 			}
 			step("menu %s r%d → %d %s", cl.name, round, w.Code, out)
 		}
-		app.caps.Store(nil)
+		app.caps.invalidate()
 	}
 
 	slow := func() {

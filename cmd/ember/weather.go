@@ -857,11 +857,7 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 	n := notice{app: "weather", kind: noticeWeather, priority: noticeInterrupt,
 		payload: render.WithOverlay(render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec),
 			weatherOverlay(obs, cfg))}
-	if strings.Contains(sound, ":") {
-		n.sound.rtttl = sound
-	} else {
-		n.sound.melody = sound
-	}
+	n.sound = soundSetting(sound)
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := a.coord.showNotice(cctx, n); err != nil {
@@ -880,6 +876,9 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 		check: func(cur, next WeatherConfig) error {
 			if next.Provider != cur.Provider && !a.weatherFetcher.providerAvailable(next.Provider) {
 				return fmt.Errorf("weather.provider %q needs %s set on the server", next.Provider, keyedProviders[next.Provider].env)
+			}
+			if next.SevereSound != cur.SevereSound {
+				return validSoundSetting("weather.severe_sound", next.SevereSound)
 			}
 			return nil
 		},

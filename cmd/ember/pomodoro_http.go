@@ -187,7 +187,7 @@ func (a *App) pomoPhaseEndAlert(res *pomodoro.PhaseResult) {
 	n := notice{app: "pomodoro", kind: noticePomodoro, priority: noticeInterrupt,
 		payload: map[string]any{"text": text, "wakeup": true, "durationMs": 4000}}
 	if p.SoundMelody != "" {
-		n.sound.melody = p.SoundMelody
+		n.sound = soundSetting(p.SoundMelody)
 	} else {
 		n.sound.rtttl = defaultPomoMelody
 	}
@@ -306,6 +306,12 @@ func (a *App) pomodoroSettingSpec() settingSpec[pomodoroSettingsDTO] {
 		key:          pomodoroSettingsKey,
 		presentation: pomodoroPresentationKeys,
 		view:         func(c Config) pomodoroSettingsDTO { return dtoFromConfig(c.Pomodoro) },
+		check: func(cur, next pomodoroSettingsDTO) error {
+			if next.SoundMelody == nil || (cur.SoundMelody != nil && *next.SoundMelody == *cur.SoundMelody) {
+				return nil
+			}
+			return validSoundSetting("pomodoro.sound_melody", *next.SoundMelody)
+		},
 		apply: func(c *Config, d pomodoroSettingsDTO) error {
 			p := c.Pomodoro
 			d.mergeInto(&p)

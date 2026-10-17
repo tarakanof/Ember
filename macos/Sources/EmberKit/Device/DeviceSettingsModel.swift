@@ -75,6 +75,7 @@ public final class DeviceSettingsModel {
     public var loadError: FeedError? { settings.loadError }
     public var all: [any SaveStatusReporting] { [settings, display, sensors, writes] }
     public var supportsNG11: Bool { settings.applied?.serverSupportsNG11 ?? false }
+    public var volumeControls: ClockVolumeControls { settings.applied?.volumeControls ?? .unavailable }
     public var hasBuzzer: Bool { capabilities?.hasBuzzer ?? true }
     public var supportsControlRoutes: Bool { audio == .available || audio == .noOutput }
     public var firmwareTooOld: Bool { isLoaded && supportsControlRoutes && !supportsNG11 }

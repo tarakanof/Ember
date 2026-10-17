@@ -6,7 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 func TestValidateDeviceSettings(t *testing.T) {
@@ -32,14 +35,14 @@ func TestValidateDeviceSettings(t *testing.T) {
 			"activeColor": "#FFFFFF", "inactiveColor": "#666666",
 		},
 	}
-	if err := validateDeviceSettings(ok); err != nil {
+	if err := validateDeviceSettings(ok, soundAPILegacy); err != nil {
 		t.Fatalf("valid settings rejected: %v", err)
 	}
 	inherit := map[string]any{
 		"timeColor": nil, "dateColor": nil, "temperatureColor": nil,
 		"humidityColor": nil, "batteryColor": nil,
 	}
-	if err := validateDeviceSettings(inherit); err != nil {
+	if err := validateDeviceSettings(inherit, soundAPILegacy); err != nil {
 		t.Fatalf("null per-app colours rejected: %v", err)
 	}
 	bad := []map[string]any{
@@ -72,7 +75,7 @@ func TestValidateDeviceSettings(t *testing.T) {
 		{"weekdayBar": map[string]any{"activeColor": nil}},
 	}
 	for i, b := range bad {
-		if err := validateDeviceSettings(b); err == nil {
+		if err := validateDeviceSettings(b, soundAPILegacy); err == nil {
 			t.Fatalf("case %d: expected rejection for %v", i, b)
 		}
 	}
@@ -107,7 +110,7 @@ func TestDeviceSettingsProxyForwardsAndFilters(t *testing.T) {
 	if gw.Code != 200 {
 		t.Fatalf("get code=%d body=%s", gw.Code, gw.Body.String())
 	}
-	if strings.Contains(gw.Body.String(), "NOPE") || strings.Contains(gw.Body.String(), "MATP") || strings.Contains(gw.Body.String(), `"volume"`) || strings.Contains(gw.Body.String(), "dfplayerVolume") {
+	if strings.Contains(gw.Body.String(), "NOPE") || strings.Contains(gw.Body.String(), "MATP") || strings.Contains(gw.Body.String(), "dfplayerVolume") {
 		t.Fatalf("get leaked non-whitelisted keys: %s", gw.Body.String())
 	}
 	if !strings.Contains(gw.Body.String(), "brightness") || !strings.Contains(gw.Body.String(), "soundEnabled") || !strings.Contains(gw.Body.String(), "buzzerVolume") {
@@ -325,5 +328,156 @@ func TestDeviceSettingsPutDuringTakeoverFailureKeepsPrior(t *testing.T) {
 	}
 	if v, _, _ := a.store.GetSetting(takeoverPriorKey); v != stored {
 		t.Fatalf("stored prior = %q, want unchanged %q", v, stored)
+	}
+}
+
+func TestValidateDeviceSettingsSoundKeysFollowAudioAPI(t *testing.T) {
+	mixer := map[string]any{"volume": float64(60), "appVolume": float64(100), "alertVolume": float64(0)}
+	legacy := map[string]any{"soundEnabled": false, "buzzerVolume": float64(80)}
+	if err := validateDeviceSettings(mixer, soundAPIMixer); err != nil {
+		t.Fatalf("ng12 rejected mixer keys: %v", err)
+	}
+	if err := validateDeviceSettings(legacy, soundAPILegacy); err != nil {
+		t.Fatalf("ng11 rejected legacy keys: %v", err)
+	}
+	for _, m := range []map[string]any{mixer, legacy} {
+		if err := validateDeviceSettings(m, soundAPIUnknown); err != nil {
+			t.Fatalf("unknown API rejected %v: %v", m, err)
+		}
+	}
+	for k := range legacy {
+		err := validateDeviceSettings(map[string]any{k: legacy[k]}, soundAPIMixer)
+		if err == nil || !strings.Contains(err.Error(), "volume, appVolume or alertVolume") {
+			t.Errorf("ng12 %s: err = %v, want it to name the replacement keys", k, err)
+		}
+	}
+	for k := range mixer {
+		err := validateDeviceSettings(map[string]any{k: mixer[k]}, soundAPILegacy)
+		if err == nil || !strings.Contains(err.Error(), "soundEnabled and buzzerVolume") {
+			t.Errorf("ng11 %s: err = %v", k, err)
+		}
+	}
+	for _, b := range []map[string]any{{"volume": float64(101)}, {"appVolume": float64(-1)}, {"alertVolume": float64(1.5)}, {"volume": true}} {
+		if err := validateDeviceSettings(b, soundAPIUnknown); err == nil {
+			t.Errorf("accepted %v", b)
+		}
+	}
+}
+
+func TestSoundAPIOfIgnoresAStrayVolume(t *testing.T) {
+	cases := []struct {
+		settings map[string]any
+		want     soundAPI
+	}{
+		{map[string]any{"volume": 60.0, "appVolume": 100.0, "alertVolume": 40.0}, soundAPIMixer},
+		{map[string]any{"alertVolume": 40.0}, soundAPIMixer},
+		{map[string]any{"volume": 8.0, "soundEnabled": true, "buzzerVolume": 80.0}, soundAPILegacy},
+		{map[string]any{"volume": 8.0}, soundAPIUnknown},
+		{map[string]any{"brightness": 10.0}, soundAPIUnknown},
+	}
+	for _, c := range cases {
+		if got := soundAPIOf(c.settings); got != c.want {
+			t.Errorf("soundAPIOf(%v) = %v, want %v", c.settings, got, c.want)
+		}
+	}
+}
+
+func settingsClock(t *testing.T, reply string) (*App, *string) {
+	t.Helper()
+	var mu sync.Mutex
+	var gotBody string
+	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/settings" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPatch {
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			gotBody = string(b)
+			mu.Unlock()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(reply))
+	}))
+	t.Cleanup(dev.Close)
+	a := newTestAppWithStore(t)
+	if err := putClockOverride(a, dev.URL); err != nil {
+		t.Fatal(err)
+	}
+	return a, &gotBody
+}
+
+const ng12SettingsReply = `{"brightness":120,"volume":60,"appVolume":100,"alertVolume":40,"radioVolume":80}`
+const ng11SettingsReply = `{"brightness":120,"soundEnabled":true,"buzzerVolume":80}`
+
+func getDeviceSettings(t *testing.T, a *App) map[string]any {
+	t.Helper()
+	w := httptest.NewRecorder()
+	a.handleDeviceSettingsGet(w, httptest.NewRequest("GET", "/v1/device/settings", nil))
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != 200 {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	return got
+}
+
+func putDeviceSettings(a *App, body string) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	a.handleDeviceSettingsPut(w, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(body)))
+	return w
+}
+
+func TestDeviceSettingsGetPassesTheClocksSoundKeysWithoutCaps(t *testing.T) {
+	for _, stale := range []bool{false, true} {
+		a, _ := settingsClock(t, ng12SettingsReply)
+		if stale {
+			withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+		}
+		got := getDeviceSettings(t, a)
+		if got["volume"] != float64(60) || got["appVolume"] != float64(100) || got["alertVolume"] != float64(40) {
+			t.Errorf("stale=%v: mixer keys missing: %v", stale, got)
+		}
+		if _, has := got["radioVolume"]; has {
+			t.Errorf("radioVolume passed: %v", got)
+		}
+	}
+}
+
+func TestDeviceSettingsPutFollowsTheKeysTheClockReported(t *testing.T) {
+	a, sent := settingsClock(t, ng12SettingsReply)
+	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+	getDeviceSettings(t, a)
+	if w := putDeviceSettings(a, `{"alertVolume":0}`); w.Code != 200 || *sent != `{"alertVolume":0}` {
+		t.Fatalf("code=%d body=%s forwarded=%q", w.Code, w.Body.String(), *sent)
+	}
+	*sent = ""
+	for _, body := range []string{`{"soundEnabled":false}`, `{"buzzerVolume":50}`} {
+		w := putDeviceSettings(a, body)
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "volume, appVolume or alertVolume") || *sent != "" {
+			t.Fatalf("%s: code=%d body=%s forwarded=%q", body, w.Code, w.Body.String(), *sent)
+		}
+	}
+}
+
+func TestDeviceSettingsPutFallsBackToCaps(t *testing.T) {
+	a, sent := settingsClock(t, ng11SettingsReply)
+	withAudioCaps(a, ng12Audio(true))
+	if w := putDeviceSettings(a, `{"soundEnabled":false}`); w.Code != http.StatusBadRequest || *sent != "" {
+		t.Fatalf("ng12 caps: code=%d forwarded=%q", w.Code, *sent)
+	}
+	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+	if w := putDeviceSettings(a, `{"volume":10}`); w.Code != http.StatusBadRequest || *sent != "" {
+		t.Fatalf("ng11 caps: code=%d forwarded=%q", w.Code, *sent)
+	}
+}
+
+func TestDeviceSettingsPutWithNothingKnownLetsTheClockDecide(t *testing.T) {
+	for _, body := range []string{`{"volume":10}`, `{"soundEnabled":false}`} {
+		a, sent := settingsClock(t, ng12SettingsReply)
+		if w := putDeviceSettings(a, body); w.Code != 200 || *sent != body {
+			t.Fatalf("%s: code=%d forwarded=%q", body, w.Code, *sent)
+		}
 	}
 }

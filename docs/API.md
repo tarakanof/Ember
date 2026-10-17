@@ -149,7 +149,11 @@ has no clock browse wired, never on a cancel; 503 `clock_disabled` under
 `EMBER_CLOCK=off`. A client that hangs up mid-browse stops the browse, and no
 response is written),
 `GET/PUT /v1/device/settings` (whitelisted
-`PATCH /api/v1/settings` keys — see `device_settings.go`; during a Pomodoro
+`PATCH /api/v1/settings` keys — see `device_settings.go`; the sound keys
+follow the clock's audio API: `soundEnabled`/`buzzerVolume` on NG 1.0/1.1,
+`volume`/`appVolume`/`alertVolume` (0–100) on NG 1.2; GET passes through
+whichever the clock returns, and PUT refuses the other set with 400 once the
+clock's API is known (from its last GET, else capabilities); during a Pomodoro
 takeover `autoTransition`/`blockNavigation` read and write the saved prior,
 flagged by an `X-Ember-Deferred-Keys` response header),
 `GET/PUT /v1/device/display` (overlay, `PATCH /api/v1/display`),
@@ -157,7 +161,8 @@ flagged by an `X-Ember-Deferred-Keys` response header),
 matrix, runtime-only), `POST /v1/device/audio/test` (built-in chime, or
 `{"melody":"<name>"}` to preview a stored one), `POST /v1/device/audio/stop`,
 `GET /v1/device/audio/melodies` (NG's melody list; the audio routes answer
-503 `unavailable` when cached capabilities show no buzzer / no output),
+503 `unavailable` when cached capabilities show no buzzer, meaning neither
+`audio.buzzer` nor NG 1.2's `audio.rtttl`, or no output),
 `GET/PUT /v1/device/apps` (ordering + enable/disable,
 `PUT /api/v1/apps/order`; the PUT body is `{"order":[…],"disabled":[…]}`,
 both required, and `disabled` is the complete list of switched-off apps: a

@@ -2,8 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"maps"
+	"net/http"
+	"regexp"
+	"strings"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 type noticeKind int
@@ -43,6 +50,47 @@ type noticeSound struct {
 	loop   bool
 }
 
+var soundNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+
+func validSoundSetting(field, v string) error {
+	if v == "" {
+		return nil
+	}
+	name, _, rtttl := strings.Cut(v, ":")
+	switch {
+	case !rtttl && !soundNamePattern.MatchString(v):
+		return fmt.Errorf("%s %q must be a stored melody name (1-32 of A-Z a-z 0-9 _ -) or RTTTL text", field, v)
+	case rtttl && (name == "" || len(v) > 512 || !printableASCII.MatchString(v)):
+		return fmt.Errorf("%s must be RTTTL text up to 512 characters with a name before the first colon", field)
+	}
+	return nil
+}
+
+func soundSetting(v string) noticeSound {
+	if strings.Contains(v, ":") {
+		return noticeSound{rtttl: v}
+	}
+	return noticeSound{melody: v}
+}
+
+func (s noticeSound) object() any {
+	var src map[string]any
+	switch {
+	case s.melody != "" && !s.loop:
+		return s.melody
+	case s.melody != "":
+		src = map[string]any{"file": s.melody}
+	case s.rtttl != "":
+		src = map[string]any{"rtttl": s.rtttl}
+	default:
+		return nil
+	}
+	if s.loop {
+		src["loop"] = true
+	}
+	return src
+}
+
 type notice struct {
 	app      string
 	kind     noticeKind
@@ -62,11 +110,50 @@ func (c *coordinator) showNotice(ctx context.Context, n notice) error {
 }
 
 func (c *coordinator) showNoticeQuiet(ctx context.Context, n notice, quiet bool) error {
+	object := c.useSoundObject()
+	p := noticePayload(n, quiet, object)
+	err := c.publisher.Notify(ctx, p)
+	if err != nil && !quiet && n.sound != (noticeSound{}) && isUnprocessable(err) && c.refreshSound != nil {
+		c.refreshSound(ctx)
+		if again := c.useSoundObject(); again != object {
+			c.logger.Info("notice sound refused; retrying in the clock's audio format", "app", n.app, "sound_object", again)
+			p = noticePayload(n, quiet, again)
+			err = c.publisher.Notify(ctx, p)
+		}
+		if err != nil && isUnprocessable(err) {
+			c.logger.Warn("notice sound refused; showing it without sound", "app", n.app, "err", err)
+			p = noticePayload(n, true, false)
+			err = c.publisher.Notify(ctx, p)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	c.logger.Debug("notice shown", "app", n.app, "name", p["name"])
+	return nil
+}
+
+func (c *coordinator) useSoundObject() bool {
+	return c.soundObject != nil && c.soundObject()
+}
+
+func isUnprocessable(err error) bool {
+	var apiErr *awtrix.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnprocessableEntity
+}
+
+func noticePayload(n notice, quiet, object bool) map[string]any {
 	p := make(map[string]any, len(n.payload)+5)
 	maps.Copy(p, n.payload)
 	p["name"] = noticeNames[n.kind]
 	p["stack"] = n.priority == noticeQueue
-	if !quiet {
+	switch {
+	case quiet:
+	case object:
+		if v := n.sound.object(); v != nil {
+			p["sound"] = v
+		}
+	default:
 		if n.sound.melody != "" {
 			p["sound"] = n.sound.melody
 		}
@@ -77,11 +164,7 @@ func (c *coordinator) showNoticeQuiet(ctx context.Context, n notice, quiet bool)
 			p["soundLoop"] = true
 		}
 	}
-	if err := c.publisher.Notify(ctx, p); err != nil {
-		return err
-	}
-	c.logger.Debug("notice shown", "app", n.app, "name", p["name"])
-	return nil
+	return p
 }
 
 func (c *coordinator) dismissNotice(ctx context.Context, kind noticeKind) error {

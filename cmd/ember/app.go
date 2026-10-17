@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/sessions"
@@ -120,7 +119,8 @@ type App struct {
 	lastRediscoverAt     atomic.Int64
 	lastRediscoverResult atomic.Value
 
-	caps          atomic.Pointer[awtrix.Capabilities]
+	caps          capsCache
+	settingsSound settingsSoundCache
 	deviceVersion atomic.Value
 	appEnabled    appEnabledRoute
 
@@ -195,6 +195,8 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.hiddenApps = map[string]bool{}
 	a.coord.hiddenApps = a.hiddenAppsSet
 	a.coord.waitIcons = a.waitIcons.Load
+	a.coord.soundObject = a.soundObjectAPI
+	a.coord.refreshSound = a.refreshCapabilities
 	a.coord.usage = a.usage
 	a.coord.weather = a.weather
 	a.coord.meetings = a.meetings

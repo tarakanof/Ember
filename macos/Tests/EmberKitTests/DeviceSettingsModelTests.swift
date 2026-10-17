@@ -51,6 +51,24 @@ import Foundation
     #expect(new.serverSupportsNG11)
 }
 
+@Test func volumeControlsFollowTheSoundKeysTheServerReports() throws {
+    func controls(_ json: String) throws -> DeviceSettings {
+        try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
+    }
+    let ng12 = try controls(#"{"brightness":10,"volume":60,"appVolume":100,"alertVolume":40}"#)
+    #expect(ng12.volumeControls == .mixer)
+    #expect(ng12.serverSupportsNG11)
+    let ng11 = try controls(#"{"brightness":10,"soundEnabled":true,"buzzerVolume":80}"#)
+    #expect(ng11.volumeControls == .soundToggle)
+    let stray = try controls(#"{"brightness":10,"volume":8}"#)
+    #expect(stray.volumeControls == .unavailable)
+    let strayLegacy = try controls(#"{"volume":8,"soundEnabled":true,"buzzerVolume":80}"#)
+    #expect(strayLegacy.volumeControls == .soundToggle)
+    let none = try controls(#"{"brightness":10}"#)
+    #expect(none.volumeControls == .unavailable)
+    #expect(!none.serverSupportsNG11)
+}
+
 @Test func brightnessPercentRoundTrips() {
     #expect(DeviceUnits.brightnessPercent(raw: 0) == 0)
     #expect(DeviceUnits.brightnessPercent(raw: 255) == 100)
@@ -299,6 +317,42 @@ private func ngServer() -> FakeClock {
     await m.load()
     #expect(!m.supportsNG11)
     #expect(m.firmwareTooOld)
+}
+
+@MainActor @Test func ng12ClockShowsTheMixer() async throws {
+    let fake = ngServer()
+    fake.responses["GET /v1/device/settings"] = (200, #"{"brightness":120,"volume":60,"appVolume":100,"alertVolume":40}"#)
+    fake.responses["GET /v1/device/capabilities"] = (200, #"{"transitions":["Fade"],"audio":{"rtttl":true,"mp3":false}}"#)
+    let (m, clock) = makeModel(fake)
+    await m.load()
+    #expect(m.volumeControls == .mixer)
+    #expect(m.supportsNG11)
+    #expect(!m.firmwareTooOld)
+    #expect(m.hasBuzzer)
+    m.settings.draft.alertVolume = 0
+    m.settings.scheduleSave()
+    await clock.advance(by: .milliseconds(600))
+    let put = try #require(fake.log.last { $0.method == "PUT" })
+    #expect(put.body.count == 1)
+    #expect(put.body["alertVolume"] as? Int == 0)
+}
+
+@MainActor @Test func ng12FirstLoadWithColdCapsShowsTheMixer() async {
+    let fake = ngServer()
+    fake.responses["GET /v1/device/settings"] = (200, #"{"brightness":120,"volume":60,"appVolume":100,"alertVolume":40}"#)
+    fake.responses["GET /v1/device/capabilities"] = (502, #"{"error":"clock unreachable"}"#)
+    let (m, _) = makeModel(fake)
+    await m.load()
+    #expect(m.isLoaded)
+    #expect(m.volumeControls == .mixer)
+    #expect(m.supportsNG11)
+    #expect(!m.firmwareTooOld)
+}
+
+@MainActor @Test func ng11ClockKeepsTheSoundToggle() async {
+    let (m, _) = makeModel(ngServer())
+    await m.load()
+    #expect(m.volumeControls == .soundToggle)
 }
 
 @MainActor private func eventually(_ done: () -> Bool) async {

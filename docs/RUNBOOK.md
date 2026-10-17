@@ -453,7 +453,7 @@ offers a **Review Permissions…** button (macOS gates Bonjour browsing
 behind the Local Network privacy permission; Settings › Permissions has the
 fix) + **Rescan**. The **Device** tab
 speaks the awtrix-ng schema directly (General / Native Apps / Time & Date /
-Actions), proxied through the server (`/v1/device/*`) — brightness, sound (mute + buzzer volume),
+Actions), proxied through the server (`/v1/device/*`) — brightness, sound (mute + buzzer volume, or the NG 1.2 volume mixer),
 app time, transitions (the picker is fed by `GET /v1/device/capabilities`
 instead of a static list), native-app toggles, calendar colours, sensor
 calibration (temp/hum offsets, written via a read-merge-PUT of

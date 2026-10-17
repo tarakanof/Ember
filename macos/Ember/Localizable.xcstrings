@@ -645,6 +645,7 @@
     "Air quality alert from" : {},
     "Album" : {},
     "Album and artist" : {},
+    "Alerts volume" : {},
     "Allow Access…" : {},
     "Allow…" : {},
     "Also shows Codex runs that Claude Code's Codex plugin starts" : {
@@ -679,6 +680,8 @@
     "Applying…" : {},
     "Approve in Login Items…" : {},
     "Apps" : {},
+    "Apps and Alerts are shares of the master volume. Alerts covers Ember's chimes and popups. Set Master to 0 to silence the clock completely." : {},
+    "Apps volume" : {},
     "Apps, %@" : {
       "comment" : "VoiceOver label of a device's Apps row in the Settings sidebar; the argument is the device's name (\"Clock\")."
     },
@@ -1512,6 +1515,7 @@
       "comment" : "Settings › Knob Firmware & updates: confirmation title before moving a stored image to the Release channel; the argument is its version (\"Mark 0.9.17 as Release?\")."
     },
     "Mark as Release" : {},
+    "Master volume" : {},
     "Matches the brightness Ember works out for displays without a light sensor" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2584,6 +2588,7 @@
     },
     "Updates and Alerts" : {},
     "Updates delivered" : {},
+    "Updating to NG 1.2 resets Master to 60, so a clock muted before the update makes sound again until you set it to 0." : {},
     "Upload a build" : {},
     "Uploaded by %@ · %@ · %@" : {
       "comment" : "Settings › Knob Crash dumps row details: the firmware that uploaded the dump (the crashed build is unknown), the dump's size and when Ember received it (\"Uploaded by 0.9.14 · 64 KB · 6 Oct 2026 at 10:00\").",

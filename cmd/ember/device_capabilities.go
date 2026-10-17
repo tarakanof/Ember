@@ -6,19 +6,61 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
+type capsCache struct {
+	mu    sync.Mutex
+	gen   uint64
+	base  string
+	value *awtrix.Capabilities
+}
+
+func (c *capsCache) begin() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.gen
+}
+
+func (c *capsCache) put(gen uint64, base string, v *awtrix.Capabilities) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if gen != c.gen {
+		return false
+	}
+	c.gen++
+	c.base, c.value = base, v
+	return true
+}
+
+func (c *capsCache) invalidate() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.gen++
+	c.base, c.value = "", nil
+}
+
+func (c *capsCache) get(base string) (awtrix.Capabilities, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.value == nil || !sameDeviceURL(c.base, base) {
+		return awtrix.Capabilities{}, false
+	}
+	return *c.value, true
+}
+
 func (a *App) refreshCapabilities(ctx context.Context) {
+	gen := a.caps.begin()
 	base := a.cfg.Load().effectiveClockURL()
 	cl, err := a.clock.client(callCapabilities)
 	if errors.Is(err, errClockNotConfigured) || errors.Is(err, errClockDisabled) {
 		return
 	}
 	if err != nil {
-		a.caps.Store(nil)
+		a.caps.put(gen, base, nil)
 		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
 		return
 	}
@@ -32,23 +74,29 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	}
 	caps, err := cl.Capabilities(ctx)
 	if err != nil {
-		a.caps.Store(nil)
+		a.caps.put(gen, base, nil)
 		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
 		return
 	}
-	a.caps.Store(&caps)
+	if !a.caps.put(gen, base, &caps) {
+		a.logger.Info("device capabilities dropped: the clock changed during the fetch", "base_url", base)
+		return
+	}
 	a.logger.Info("device capabilities cached",
 		"effects", len(caps.Effects), "palette_effects", len(caps.PaletteEffects),
 		"transitions", len(caps.Transitions), "overlays", len(caps.Overlays),
-		"palettes", len(caps.Palettes), "buzzer", caps.Audio.Buzzer,
+		"palettes", len(caps.Palettes), "buzzer", caps.Audio.PlaysRTTTL(),
+		"sound_object", caps.Audio.SoundObjectAPI(),
 		"firmware", a.deviceFirmware())
 }
 
 func (a *App) capabilities() (awtrix.Capabilities, bool) {
-	if c := a.caps.Load(); c != nil {
-		return *c, true
-	}
-	return awtrix.Capabilities{}, false
+	return a.caps.get(a.cfg.Load().effectiveClockURL())
+}
+
+func (a *App) soundObjectAPI() bool {
+	caps, ok := a.capabilities()
+	return ok && caps.Audio.SoundObjectAPI()
 }
 
 func (a *App) deviceFirmware() string {
@@ -61,6 +109,8 @@ func (a *App) handleDeviceCapabilities(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, caps)
 		return
 	}
+	gen := a.caps.begin()
+	base := a.cfg.Load().effectiveClockURL()
 	body, err := a.clock.fetch(r.Context(), (*awtrix.Client).RawCapabilities)
 	if err != nil {
 		writeClockError(w, err)
@@ -71,7 +121,7 @@ func (a *App) handleDeviceCapabilities(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, fmt.Errorf("clock capabilities not JSON: %w", err))
 		return
 	}
-	a.caps.Store(&caps)
+	a.caps.put(gen, base, &caps)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)

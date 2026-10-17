@@ -1,6 +1,9 @@
 package render
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
 
 var (
 	ngSharedKeys = map[string]bool{
@@ -30,17 +33,33 @@ var (
 		"scroll.entry":     {"inline": true, "offscreen": true},
 		"scroll.whenFits":  {"static": true, "scroll": true},
 	}
-	ngScrollInts = map[string]bool{"speed": true, "gap": true, "holdMs": true}
-	ngInts       = map[string]bool{"repeat": true, "durationMs": true, "lifetimeMs": true,
+	ng12NotifyOnlyKeys = map[string]bool{
+		"name": true, "hold": true, "stack": true, "wakeup": true, "sound": true,
+	}
+	ng12SoundName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+	ngScrollInts  = map[string]bool{"speed": true, "gap": true, "holdMs": true}
+	ngInts        = map[string]bool{"repeat": true, "durationMs": true, "lifetimeMs": true,
 		"textBlinkMs": true, "textFadeMs": true}
 	ngBools = map[string]bool{"hold": true, "stack": true, "wakeup": true, "soundLoop": true,
 		"textCenter": true, "textInFront": true, "chartAutoscale": true, "paletteBlend": true}
 )
 
 func CheckNGPayload(p map[string]any, notification bool) []string {
+	return checkNG(p, notification, ngNotifyOnlyKeys)
+}
+
+func CheckNG12Payload(p map[string]any, notification bool) []string {
+	errs := checkNG(p, notification, ng12NotifyOnlyKeys)
+	if v, ok := p["sound"]; ok && notification {
+		errs = append(errs, checkNG12Sound(v)...)
+	}
+	return errs
+}
+
+func checkNG(p map[string]any, notification bool, notifyOnly map[string]bool) []string {
 	var errs []string
 	for k, v := range p {
-		if !ngSharedKeys[k] && !(notification && ngNotifyOnlyKeys[k]) {
+		if !ngSharedKeys[k] && !(notification && notifyOnly[k]) {
 			errs = append(errs, fmt.Sprintf("key %q not in NG's schema (notification=%v)", k, notification))
 			continue
 		}
@@ -59,6 +78,51 @@ func CheckNGPayload(p map[string]any, notification bool) []string {
 		if _, ok := v.(bool); ngBools[k] && !ok {
 			errs = append(errs, fmt.Sprintf("%s = %v (%T), want a bool", k, v, v))
 		}
+	}
+	return errs
+}
+
+func checkNG12Sound(v any) []string {
+	if name, ok := v.(string); ok {
+		if !ng12SoundName.MatchString(name) {
+			return []string{fmt.Sprintf("sound = %q, not a stored name (%s)", name, ng12SoundName)}
+		}
+		return nil
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return []string{fmt.Sprintf("sound = %v (%T), want a name or a sound object", v, v)}
+	}
+	var errs []string
+	sources := 0
+	for k, fv := range m {
+		var bad bool
+		switch k {
+		case "file":
+			s, ok := fv.(string)
+			bad = !ok || !ng12SoundName.MatchString(s)
+			sources++
+		case "rtttl":
+			s, ok := fv.(string)
+			bad = !ok || s == "" || len(s) > 512
+			sources++
+		case "track":
+			n, ok := fv.(int)
+			bad = !ok || n < 1 || n > 2999
+			sources++
+		case "loop":
+			_, ok := fv.(bool)
+			bad = !ok
+		default:
+			errs = append(errs, fmt.Sprintf("sound.%s is not an NG sound key", k))
+			continue
+		}
+		if bad {
+			errs = append(errs, fmt.Sprintf("sound.%s = %v (%T) is not a valid value", k, fv, fv))
+		}
+	}
+	if sources != 1 {
+		errs = append(errs, fmt.Sprintf("sound has %d source keys, want exactly one", sources))
 	}
 	return errs
 }

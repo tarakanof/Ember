@@ -71,6 +71,10 @@ func (a *App) clockJobFailed(ctx context.Context, msg string, args ...any) {
 }
 
 func (a *App) clockRebooted(reason string) {
+	a.settingsSound.forget()
+	if !clockDisabled() {
+		a.clockJobs.Go(a.refreshCapabilities)
+	}
 	a.RepublishAll(reason)
 	a.provisionIconsInBackground()
 }

@@ -71,10 +71,10 @@ import Foundation
 }
 
 @Test func deviceSettingsNeverEncodesKeysNGRejects() throws {
-    let json = #"{"volume":10,"smoothScroll":true,"buzzerVolume":40,"soundEnabled":false}"#
+    let json = #"{"mp3Volume":10,"smoothScroll":true,"buzzerVolume":40,"soundEnabled":false}"#
     let s = try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
     let obj = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(s)) as! [String: Any]
-    #expect(obj["volume"] == nil)
+    #expect(obj["mp3Volume"] == nil)
     #expect(obj["smoothScroll"] == nil)
     #expect(obj["buzzerVolume"] as? Int == 40)
     #expect(obj["soundEnabled"] as? Bool == false)
@@ -256,4 +256,24 @@ import Foundation
     let c = try JSONDecoder().decode(DeviceCapabilities.self, from: Data(json.utf8))
     #expect(c.hasBuzzer == false)
     #expect(c.audio?.mp3 == true)
+}
+
+@Test func deviceSettingsDecodesNG12MixerKeys() throws {
+    let json = #"{"volume":60,"appVolume":100,"alertVolume":40,"radioVolume":80}"#
+    let s = try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
+    #expect(s.volume == 60)
+    #expect(s.appVolume == 100)
+    #expect(s.alertVolume == 40)
+    let obj = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(s)) as! [String: Any]
+    #expect(obj.keys.sorted() == ["alertVolume", "appVolume", "volume"])
+}
+
+@Test func deviceCapabilitiesReadsNG12RTTTLAsBuzzer() throws {
+    let on = #"{"audio":{"mp3":false,"rtttl":true,"song":false,"speech":false,"track":true,"radio":false}}"#
+    let c = try JSONDecoder().decode(DeviceCapabilities.self, from: Data(on.utf8))
+    #expect(c.audio?.rtttl == true)
+    #expect(c.hasBuzzer)
+    let off = #"{"audio":{"mp3":true,"rtttl":false,"radio":true}}"#
+    let d = try JSONDecoder().decode(DeviceCapabilities.self, from: Data(off.utf8))
+    #expect(d.hasBuzzer == false)
 }
