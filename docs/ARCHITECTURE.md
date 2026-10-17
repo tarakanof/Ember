@@ -2698,8 +2698,8 @@ resets one), so the steady state costs no extra device traffic.
 after a rediscovery swap, after a detected clock reboot (a firmware update
 reboots the clock at the same URL), on a device-watch tick that finds the
 clock reachable with no capabilities cached (cold start, a failed fetch, a
-clock-config PUT, which empties the cache), and once when the clock refuses a
-sound with 422. They are cached in-process, tagged with the clock URL and a
+clock-config PUT, which empties the cache), and once when the clock answers
+422 to a notice with a sound (whatever the `field`). They are cached in-process, tagged with the clock URL and a
 generation so a late answer from a clock the menu has switched away from is
 dropped, and served at
 `GET /v1/device/capabilities` (falling back to a live proxy fetch when the
@@ -5415,9 +5415,13 @@ rather than doubling some hours.
   check). With no capabilities cached Ember sends the 1.0/1.1 payloads, byte
   for byte. A notice or melody preview the clock refuses with 422 refreshes
   the capabilities once and, if the format changed, retries once in the new
-  one; there is no loop. The refresh triggers (reboot, a watch tick with an
+  one; a notice still refused after that is sent once more without its sound,
+  so the popup shows silently. That is at most three attempts, never a loop. The refresh triggers (reboot, a watch tick with an
   empty cache) keep that path rare. A custom Pomodoro melody containing `:` is
-  RTTTL, as for severe weather (`soundSetting`). The old volume values are not
+  RTTTL, as for severe weather (`soundSetting`), and the Pomodoro and weather
+  settings PUTs refuse a changed melody NG 1.2 can't play: a name outside
+  `[A-Za-z0-9_-]{1,32}`, or RTTTL over 512 characters or with no name before
+  its first colon (`validSoundSetting`). Values already stored are kept. The old volume values are not
   migrated: NG 1.2 resets `volume` to 60 on update, a muted clock included,
   and Settings › Sounds says so under the mixer.
 
