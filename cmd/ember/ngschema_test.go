@@ -8,17 +8,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/render"
 )
 
 func TestServerFinishedPayloadsPassNGSchema(t *testing.T) {
+	checkServerFinishedPayloads(t, nil, render.CheckNGPayload)
+}
+
+func TestServerFinishedPayloadsPassNG12Schema(t *testing.T) {
+	checkServerFinishedPayloads(t, &awtrix.Capabilities{Audio: ng12Audio(true)}, render.CheckNG12Payload)
+}
+
+func checkServerFinishedPayloads(t *testing.T, caps *awtrix.Capabilities, check func(map[string]any, bool) []string) {
+	t.Helper()
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
 	cfg.Pomodoro.Sound = true
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
 	app := NewApp(cfg, pub, testLogger())
+	app.caps.Store(caps)
 	ctx := context.Background()
 
 	for _, body := range []string{
@@ -48,7 +59,7 @@ func TestServerFinishedPayloadsPassNGSchema(t *testing.T) {
 		t.Fatalf("notifications = %d, want 9", len(notes))
 	}
 	for i, p := range notes {
-		for _, e := range render.CheckNGPayload(p, true) {
+		for _, e := range check(p, true) {
 			t.Errorf("notification %d (%v): %s", i, p["text"], e)
 		}
 	}
@@ -65,7 +76,7 @@ func TestServerFinishedPayloadsPassNGSchema(t *testing.T) {
 		t.Fatal("no weather tile pushed")
 	}
 	for _, p := range apps {
-		for _, e := range render.CheckNGPayload(p, false) {
+		for _, e := range check(p, false) {
 			t.Errorf("pushed app: %s", e)
 		}
 	}

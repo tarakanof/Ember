@@ -119,7 +119,7 @@ func checkClockUse(id *ast.Ident, name string, inPublisher bool, info checkedInf
 		!strings.HasPrefix(name, "coordinator") && !inPublisher:
 		report(id.Pos(), "%s outside the coordinator; pushed apps have one writer", fn.Name())
 	case recv == "Client" && pkg == awtrixPkg &&
-		slices.Contains([]string{"Notify", "PlayRTTTL", "PlayMelody", "PlaySound"}, fn.Name()) &&
+		slices.Contains([]string{"Notify", "PlayRTTTL", "PlayMelody", "PlayFile", "PlaySound"}, fn.Name()) &&
 		!inPublisher && name != "device_audio.go":
 		report(id.Pos(), "awtrix %s outside Publisher methods/device_audio.go bypasses the quiet-hours gate", fn.Name())
 	case recv != "" && pkg == info.pkg.Path() &&

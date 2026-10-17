@@ -40,7 +40,8 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	a.logger.Info("device capabilities cached",
 		"effects", len(caps.Effects), "palette_effects", len(caps.PaletteEffects),
 		"transitions", len(caps.Transitions), "overlays", len(caps.Overlays),
-		"palettes", len(caps.Palettes), "buzzer", caps.Audio.Buzzer,
+		"palettes", len(caps.Palettes), "buzzer", caps.Audio.PlaysRTTTL(),
+		"sound_object", caps.Audio.SoundObjectAPI(),
 		"firmware", a.deviceFirmware())
 }
 
@@ -49,6 +50,11 @@ func (a *App) capabilities() (awtrix.Capabilities, bool) {
 		return *c, true
 	}
 	return awtrix.Capabilities{}, false
+}
+
+func (a *App) soundObjectAPI() bool {
+	caps, ok := a.capabilities()
+	return ok && caps.Audio.SoundObjectAPI()
 }
 
 func (a *App) deviceFirmware() string {

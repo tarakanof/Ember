@@ -1,5 +1,9 @@
 import Foundation
 
+public enum ClockVolumeControls: Equatable, Sendable {
+    case unavailable, soundToggle, mixer
+}
+
 extension DeviceSettings {
     public static let inheritableColorKeys: Set<String> = [
         "timeColor", "dateColor", "temperatureColor", "humidityColor", "batteryColor",
@@ -21,7 +25,11 @@ extension DeviceSettings {
         return out
     }
 
-    public var serverSupportsNG11: Bool {
-        soundEnabled != nil || buzzerVolume != nil
+    public var serverSupportsNG11: Bool { volumeControls != .unavailable }
+
+    public var volumeControls: ClockVolumeControls {
+        if volume != nil || appVolume != nil || alertVolume != nil { return .mixer }
+        if soundEnabled != nil || buzzerVolume != nil { return .soundToggle }
+        return .unavailable
     }
 }

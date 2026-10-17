@@ -43,6 +43,24 @@ type noticeSound struct {
 	loop   bool
 }
 
+func (s noticeSound) object() any {
+	var src map[string]any
+	switch {
+	case s.melody != "" && !s.loop:
+		return s.melody
+	case s.melody != "":
+		src = map[string]any{"file": s.melody}
+	case s.rtttl != "":
+		src = map[string]any{"rtttl": s.rtttl}
+	default:
+		return nil
+	}
+	if s.loop {
+		src["loop"] = true
+	}
+	return src
+}
+
 type notice struct {
 	app      string
 	kind     noticeKind
@@ -66,7 +84,13 @@ func (c *coordinator) showNoticeQuiet(ctx context.Context, n notice, quiet bool)
 	maps.Copy(p, n.payload)
 	p["name"] = noticeNames[n.kind]
 	p["stack"] = n.priority == noticeQueue
-	if !quiet {
+	switch {
+	case quiet:
+	case c.soundObject != nil && c.soundObject():
+		if v := n.sound.object(); v != nil {
+			p["sound"] = v
+		}
+	default:
 		if n.sound.melody != "" {
 			p["sound"] = n.sound.melody
 		}

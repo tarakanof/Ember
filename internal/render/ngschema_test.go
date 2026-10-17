@@ -88,3 +88,34 @@ func TestPayloadBuildersEmitOnlyNGKeys(t *testing.T) {
 		checkNGKeys(t, name, p, true)
 	}
 }
+
+func TestCheckNG12PayloadTakesOnlyTheSoundObject(t *testing.T) {
+	bad := map[string]map[string]any{
+		"soundRtttl":      {"soundRtttl": "x:d=4:c"},
+		"soundLoop":       {"sound": "ding", "soundLoop": true},
+		"numeric sound":   {"sound": 3},
+		"two sources":     {"sound": map[string]any{"file": "ding", "rtttl": "x:d=4:c"}},
+		"no source":       {"sound": map[string]any{"loop": true}},
+		"unknown key":     {"sound": map[string]any{"melody": "ding"}},
+		"loop not a bool": {"sound": map[string]any{"rtttl": "x:d=4:c", "loop": "yes"}},
+	}
+	for name, p := range bad {
+		if len(CheckNG12Payload(p, true)) == 0 {
+			t.Errorf("%s: %v passed the 1.2 check", name, p)
+		}
+	}
+	good := map[string]map[string]any{
+		"name":       {"sound": "ding"},
+		"rtttl":      {"sound": map[string]any{"rtttl": "x:d=4:c"}},
+		"rtttl loop": {"sound": map[string]any{"rtttl": "x:d=4:c", "loop": true}},
+		"file loop":  {"sound": map[string]any{"file": "ding", "loop": true}},
+	}
+	for name, p := range good {
+		if errs := CheckNG12Payload(p, true); len(errs) != 0 {
+			t.Errorf("%s: valid 1.2 notification rejected: %v", name, errs)
+		}
+	}
+	if len(CheckNG12Payload(map[string]any{"sound": "ding"}, false)) == 0 {
+		t.Error("sound on a pushed app passed the 1.2 check")
+	}
+}

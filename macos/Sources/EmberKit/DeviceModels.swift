@@ -33,6 +33,9 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
     public var autoBrightness: Bool?
     public var soundEnabled: Bool?
     public var buzzerVolume: Int?
+    public var volume: Int?
+    public var appVolume: Int?
+    public var alertVolume: Int?
     public var appDurationMs: Int?
     public var autoTransition: Bool?
     public var transitionDurationMs: Int?
@@ -64,7 +67,8 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
     public var weekdayBar: WeekdayBar?
 
     enum CodingKeys: String, CodingKey {
-        case brightness, autoBrightness, soundEnabled, buzzerVolume, appDurationMs, autoTransition, transitionDurationMs
+        case brightness, autoBrightness, soundEnabled, buzzerVolume, volume, appVolume, alertVolume
+        case appDurationMs, autoTransition, transitionDurationMs
         case transitionEffect, textColor, uppercase, blockNavigation
         case timeMode, time24h, timeLeadingZero, timeShowSeconds, timeShowAmPm, timeSeparatorMode
         case dateOrder, dateSeparator, dateYearMode, dateShowWeekday, dateMonthNames
@@ -83,6 +87,7 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
         func s(_ k: CodingKeys) -> String? { (try? c.decodeIfPresent(String.self, forKey: k)) ?? nil }
         brightness = i(.brightness); autoBrightness = b(.autoBrightness)
         soundEnabled = b(.soundEnabled); buzzerVolume = i(.buzzerVolume)
+        volume = i(.volume); appVolume = i(.appVolume); alertVolume = i(.alertVolume)
         appDurationMs = i(.appDurationMs); autoTransition = b(.autoTransition)
         transitionDurationMs = i(.transitionDurationMs); transitionEffect = s(.transitionEffect)
         textColor = s(.textColor); uppercase = b(.uppercase); blockNavigation = b(.blockNavigation)
@@ -254,21 +259,25 @@ public struct AppsUpdate: Codable, Equatable, Sendable {
 
 public struct DeviceAudioCapabilities: Codable, Equatable, Sendable {
     public var buzzer: Bool
+    public var rtttl: Bool?
     public var track: Bool
     public var mp3: Bool
     public var radio: Bool
 
-    enum CodingKeys: String, CodingKey { case buzzer, track, mp3, radio }
+    enum CodingKeys: String, CodingKey { case buzzer, rtttl, track, mp3, radio }
 
-    public init(buzzer: Bool = false, track: Bool = false, mp3: Bool = false, radio: Bool = false) {
-        self.buzzer = buzzer; self.track = track; self.mp3 = mp3; self.radio = radio
+    public init(buzzer: Bool = false, rtttl: Bool? = nil, track: Bool = false, mp3: Bool = false, radio: Bool = false) {
+        self.buzzer = buzzer; self.rtttl = rtttl; self.track = track; self.mp3 = mp3; self.radio = radio
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func b(_ k: CodingKeys) -> Bool { (try? c.decodeIfPresent(Bool.self, forKey: k)) ?? false }
         buzzer = b(.buzzer); track = b(.track); mp3 = b(.mp3); radio = b(.radio)
+        rtttl = (try? c.decodeIfPresent(Bool.self, forKey: .rtttl)) ?? nil
     }
+
+    public var playsRTTTL: Bool { buzzer || rtttl == true }
 }
 
 public struct DeviceCapabilities: Codable, Equatable, Sendable {
@@ -295,7 +304,7 @@ public struct DeviceCapabilities: Codable, Equatable, Sendable {
         audio = (try? c.decodeIfPresent(DeviceAudioCapabilities.self, forKey: .audio)) ?? nil
     }
 
-    public var hasBuzzer: Bool { audio?.buzzer ?? true }
+    public var hasBuzzer: Bool { audio?.playsRTTTL ?? true }
 }
 
 public struct ScreenFrame: Codable, Equatable, Sendable {

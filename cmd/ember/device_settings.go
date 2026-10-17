@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
 	"strings"
@@ -60,8 +61,6 @@ var weekdayBarRules = map[string]settingRule{
 var deviceSettingRules = map[string]settingRule{
 	"brightness":           {kind: kInt, min: 0, max: 255},
 	"autoBrightness":       {kind: kBool},
-	"soundEnabled":         {kind: kBool},
-	"buzzerVolume":         {kind: kInt, min: 0, max: 100},
 	"appDurationMs":        {kind: kInt, min: 1000, max: 3600000},
 	"autoTransition":       {kind: kBool},
 	"transitionDurationMs": {kind: kInt, min: 0, max: 60000},
@@ -93,11 +92,49 @@ var deviceSettingRules = map[string]settingRule{
 	"weekdayBar":           {kind: kObject, obj: weekdayBarRules},
 }
 
+var legacySoundRules = map[string]settingRule{
+	"soundEnabled": {kind: kBool},
+	"buzzerVolume": {kind: kInt, min: 0, max: 100},
+}
+
+var mixerSoundRules = map[string]settingRule{
+	"volume":      {kind: kInt, min: 0, max: 100},
+	"appVolume":   {kind: kInt, min: 0, max: 100},
+	"alertVolume": {kind: kInt, min: 0, max: 100},
+}
+
+func deviceSoundRules(mixer bool) (own, other map[string]settingRule) {
+	if mixer {
+		return mixerSoundRules, legacySoundRules
+	}
+	return legacySoundRules, mixerSoundRules
+}
+
+func isDeviceSettingKey(k string, mixer bool) bool {
+	own, _ := deviceSoundRules(mixer)
+	_, base := deviceSettingRules[k]
+	_, sound := own[k]
+	return base || sound
+}
+
 var hexColor = regexp.MustCompile(`^#?[0-9A-Fa-f]{6}$`)
 var printableASCII = regexp.MustCompile(`^[\x20-\x7E]*$`)
 
-func validateDeviceSettings(m map[string]any) error {
-	return validateAgainstRules(m, deviceSettingRules)
+func validateDeviceSettings(m map[string]any, mixer bool) error {
+	own, other := deviceSoundRules(mixer)
+	wrong := "setting %q needs awtrix-ng 1.2 or later; this clock takes soundEnabled and buzzerVolume"
+	if mixer {
+		wrong = "setting %q was removed in awtrix-ng 1.2; use volume, appVolume or alertVolume"
+	}
+	for k := range m {
+		if _, ok := other[k]; ok {
+			return fmt.Errorf(wrong, k)
+		}
+	}
+	rules := make(map[string]settingRule, len(deviceSettingRules)+len(own))
+	maps.Copy(rules, deviceSettingRules)
+	maps.Copy(rules, own)
+	return validateAgainstRules(m, rules)
 }
 
 func validateAgainstRules(m map[string]any, rules map[string]settingRule) error {
@@ -203,8 +240,9 @@ func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{}
+	mixer := a.soundObjectAPI()
 	for k, v := range all {
-		if _, ok := deviceSettingRules[k]; ok {
+		if isDeviceSettingKey(k, mixer) {
 			out[k] = v
 		}
 	}
@@ -230,7 +268,7 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOrReject(w, r, &m, false) {
 		return
 	}
-	if err := validateDeviceSettings(m); err != nil {
+	if err := validateDeviceSettings(m, a.soundObjectAPI()); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

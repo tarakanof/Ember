@@ -30,17 +30,33 @@ var (
 		"scroll.entry":     {"inline": true, "offscreen": true},
 		"scroll.whenFits":  {"static": true, "scroll": true},
 	}
-	ngScrollInts = map[string]bool{"speed": true, "gap": true, "holdMs": true}
-	ngInts       = map[string]bool{"repeat": true, "durationMs": true, "lifetimeMs": true,
+	ng12NotifyOnlyKeys = map[string]bool{
+		"name": true, "hold": true, "stack": true, "wakeup": true, "sound": true,
+	}
+	ng12SoundSources = map[string]bool{"file": true, "rtttl": true, "track": true}
+	ngScrollInts     = map[string]bool{"speed": true, "gap": true, "holdMs": true}
+	ngInts           = map[string]bool{"repeat": true, "durationMs": true, "lifetimeMs": true,
 		"textBlinkMs": true, "textFadeMs": true}
 	ngBools = map[string]bool{"hold": true, "stack": true, "wakeup": true, "soundLoop": true,
 		"textCenter": true, "textInFront": true, "chartAutoscale": true, "paletteBlend": true}
 )
 
 func CheckNGPayload(p map[string]any, notification bool) []string {
+	return checkNG(p, notification, ngNotifyOnlyKeys)
+}
+
+func CheckNG12Payload(p map[string]any, notification bool) []string {
+	errs := checkNG(p, notification, ng12NotifyOnlyKeys)
+	if v, ok := p["sound"]; ok && notification {
+		errs = append(errs, checkNG12Sound(v)...)
+	}
+	return errs
+}
+
+func checkNG(p map[string]any, notification bool, notifyOnly map[string]bool) []string {
 	var errs []string
 	for k, v := range p {
-		if !ngSharedKeys[k] && !(notification && ngNotifyOnlyKeys[k]) {
+		if !ngSharedKeys[k] && !(notification && notifyOnly[k]) {
 			errs = append(errs, fmt.Sprintf("key %q not in NG's schema (notification=%v)", k, notification))
 			continue
 		}
@@ -59,6 +75,34 @@ func CheckNGPayload(p map[string]any, notification bool) []string {
 		if _, ok := v.(bool); ngBools[k] && !ok {
 			errs = append(errs, fmt.Sprintf("%s = %v (%T), want a bool", k, v, v))
 		}
+	}
+	return errs
+}
+
+func checkNG12Sound(v any) []string {
+	if _, ok := v.(string); ok {
+		return nil
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return []string{fmt.Sprintf("sound = %v (%T), want a name or a sound object", v, v)}
+	}
+	var errs []string
+	sources := 0
+	for k, fv := range m {
+		switch {
+		case ng12SoundSources[k]:
+			sources++
+		case k == "loop":
+			if _, ok := fv.(bool); !ok {
+				errs = append(errs, fmt.Sprintf("sound.loop = %v (%T), want a bool", fv, fv))
+			}
+		default:
+			errs = append(errs, fmt.Sprintf("sound.%s is not an NG sound key", k))
+		}
+	}
+	if sources != 1 {
+		errs = append(errs, fmt.Sprintf("sound has %d source keys, want exactly one", sources))
 	}
 	return errs
 }

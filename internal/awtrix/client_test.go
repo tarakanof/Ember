@@ -546,3 +546,44 @@ func TestMelodiesEmptyListIsNotNull(t *testing.T) {
 		t.Fatalf("marshal = %s", b)
 	}
 }
+
+func TestPlayFileSendsFileKey(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.PlayFile(context.Background(), "doorbell"); err != nil {
+		t.Fatalf("PlayFile: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if m := decodeBody(t, rec); m["file"] != "doorbell" || len(m) != 1 {
+		t.Fatalf("body = %v", m)
+	}
+}
+
+func TestAudioCapsReadsNG11AndNG12Shapes(t *testing.T) {
+	cases := []struct {
+		name               string
+		body               string
+		soundObject, rtttl bool
+	}{
+		{"ng11 buzzer", `{"audio":{"buzzer":true,"track":false,"mp3":false,"radio":false}}`, false, true},
+		{"ng11 no buzzer", `{"audio":{"buzzer":false,"track":true,"mp3":false,"radio":false}}`, false, false},
+		{"ng12 rtttl", `{"audio":{"mp3":false,"rtttl":true,"song":false,"speech":false,"track":true,"radio":false,"url":false,"effect":false,"clip":false}}`, true, true},
+		{"ng12 no buzzer pin", `{"audio":{"mp3":true,"rtttl":false,"song":true,"track":false,"radio":true}}`, true, false},
+		{"no audio", `{}`, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var caps Capabilities
+			if err := json.Unmarshal([]byte(c.body), &caps); err != nil {
+				t.Fatal(err)
+			}
+			if got := caps.Audio.SoundObjectAPI(); got != c.soundObject {
+				t.Errorf("SoundObjectAPI = %v, want %v", got, c.soundObject)
+			}
+			if got := caps.Audio.PlaysRTTTL(); got != c.rtttl {
+				t.Errorf("PlaysRTTTL = %v, want %v", got, c.rtttl)
+			}
+		})
+	}
+}

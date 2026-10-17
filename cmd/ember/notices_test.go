@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/meetings"
 	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/render"
@@ -368,5 +369,62 @@ func TestReminderLoopArmsWhenQuietHoursStartDuringThePush(t *testing.T) {
 	}
 	if _, n, _ := app.reminderLoop.current(); n == nil {
 		t.Error("loud looping alarm left without a loop guard because quiet hours began mid-push")
+	}
+}
+
+func TestShowNoticeSoundFollowsClockAudioAPI(t *testing.T) {
+	sounds := []struct {
+		name  string
+		sound noticeSound
+		ng11  string
+		ng12  string
+	}{
+		{"named", noticeSound{melody: "ding"}, `{"sound":"ding"}`, `{"sound":"ding"}`},
+		{"named loop", noticeSound{melody: "ding", loop: true}, `{"sound":"ding","soundLoop":true}`, `{"sound":{"file":"ding","loop":true}}`},
+		{"rtttl", noticeSound{rtttl: "x:d=4:c"}, `{"soundRtttl":"x:d=4:c"}`, `{"sound":{"rtttl":"x:d=4:c"}}`},
+		{"rtttl loop", noticeSound{rtttl: "x:d=4:c", loop: true}, `{"soundLoop":true,"soundRtttl":"x:d=4:c"}`, `{"sound":{"loop":true,"rtttl":"x:d=4:c"}}`},
+		{"silent", noticeSound{}, `{}`, `{}`},
+	}
+	apis := []struct {
+		name string
+		caps *awtrix.Capabilities
+		want func(i int) string
+	}{
+		{"caps unknown", nil, func(i int) string { return sounds[i].ng11 }},
+		{"ng11", &awtrix.Capabilities{Audio: awtrix.AudioCaps{Buzzer: true}}, func(i int) string { return sounds[i].ng11 }},
+		{"ng12", &awtrix.Capabilities{Audio: ng12Audio(true)}, func(i int) string { return sounds[i].ng12 }},
+	}
+	for _, api := range apis {
+		for i, s := range sounds {
+			t.Run(api.name+"/"+s.name, func(t *testing.T) {
+				pub := &recordingPublisher{}
+				app := NewApp(defaultConfig(), pub, testLogger())
+				app.caps.Store(api.caps)
+				n := notice{app: "test", kind: noticeMessage, sound: s.sound, payload: map[string]any{}}
+				if err := app.coord.showNoticeQuiet(context.Background(), n, false); err != nil {
+					t.Fatal(err)
+				}
+				p := pub.NotifySnapshot()[0]
+				delete(p, "name")
+				delete(p, "stack")
+				got, _ := json.Marshal(p)
+				if string(got) != api.want(i) {
+					t.Errorf("payload = %s, want %s", got, api.want(i))
+				}
+			})
+		}
+	}
+}
+
+func TestShowNoticeQuietSendsNoSoundOnNG12(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	withAudioCaps(app, ng12Audio(true))
+	n := notice{app: "test", kind: noticeMessage, sound: noticeSound{rtttl: "x:d=4:c", loop: true}, payload: map[string]any{}}
+	if err := app.coord.showNoticeQuiet(context.Background(), n, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := pub.NotifySnapshot()[0]["sound"]; has {
+		t.Errorf("quiet notice carries a sound: %v", pub.NotifySnapshot()[0])
 	}
 }

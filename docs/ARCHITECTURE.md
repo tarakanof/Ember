@@ -300,7 +300,8 @@ The aggregator and the only writer to the device.
   `ListApps` adopts Ember-managed apps left from a prior run so they can be
   reconciled or cleared although the in-memory push trackers start empty.
   `PlayRTTTL` is only for chimes with no notification of their own (the
-  attention lock); popups carry their melody in `soundRtttl`. Every
+  attention lock); popups carry their melody in `soundRtttl` (on NG 1.2,
+  `"sound":{"rtttl":…}`; see the awtrix-ng gotchas). Every
   notification Ember pushes carries a `name` (NG's queue holds 32), so
   `DELETE /api/v1/notifications/{name}` retracts Ember's own popup rather than
   whatever is showing; a 404 on dismiss-by-name means it is already gone
@@ -2698,7 +2699,7 @@ and again on every rediscovery, cached in-process, and served at
 `GET /v1/device/capabilities` (falling back to a live proxy fetch when the
 cache is cold) — the firmware's supported effect/transition/overlay/palette
 name lists plus its `audio{buzzer,track,mp3,radio}` outputs (NG 1.1.0 replaced
-the old top-level `radio` flag), relayed as the device's own document so no
+the old top-level `radio` flag; NG 1.2 renamed `buzzer` to `rtttl`), relayed as the device's own document so no
 key is dropped. Settings › Clock and Sounds use them to populate its transition
 picker and to gate the buzzer-volume row, instead of guessing at a static
 enum. `/admin/doctor` reports the cached counts (and whether a buzzer is
@@ -2840,16 +2841,24 @@ discrete typed fields on NG (`timeMode`, `dateOrder`, `dateSeparator`, …) with
 no format strings to validate, unlike AWTRIX3's `TFORMAT`/`DFORMAT` strftime
 strings. `buttonCallback` is set separately via `PUT /v1/device/buttons`
 (below) because it lives on `/api/v1/system`, not `/api/v1/settings`.
-The whitelist tracks NG 1.1.x: `soundEnabled` (device mute) and
-`buzzerVolume` (0–100) replaced the pre-1.1.0 `volume` (0–30), and
+The sound keys follow the clock's audio API (cached capabilities): NG 1.0/1.1
+takes `soundEnabled` (device mute) and `buzzerVolume` (0–100), which replaced
+the pre-1.1.0 `volume` (0–30); NG 1.2 (`audio.rtttl` present) takes the mixer,
+`volume`, `appVolume` and `alertVolume` (0–100), and refuses the old pair.
+GET returns only the set the clock's API uses, and PUT answers 400 naming the
+replacement keys when the menu sends the other set. A cold capabilities cache
+counts as 1.0/1.1. `radioVolume` is not whitelisted (the TC001 has no radio).
+`smoothScroll`
 `smoothScroll` (an AWTRIX3 key NG never had; `scroll.mode` replaces it) is
 gone — NG rejects unknown keys with 422, so one stale key fails the whole
 PATCH. The per-app colours (`timeColor`, `dateColor`, `temperatureColor`,
 `humidityColor`, `batteryColor`) accept `null`, which returns the app to
 inheriting `textColor` (Settings' "Same as text"). A 0.27.x server filters its
 GET to its older whitelist, so the app treats missing `soundEnabled`/
-`buzzerVolume` as "no NG 1.1 support" and hides mute, volume and "Same as
-text" there; a 404 on the audio routes hides the test chime and melody list.
+`buzzerVolume` (and missing mixer keys) as "no NG 1.1 support" and hides
+mute, volume and "Same as text" there. The app picks its Sounds controls from
+the keys GET returns: mixer keys show Master/Apps/Alerts sliders, the old pair
+shows the Sound toggle and buzzer volume; a 404 on the audio routes hides the test chime and melody list.
 
 When the clock refuses a proxied request, the `/v1/device/*` handlers
 (sensors and buttons included, since #146) relay its NG error envelope
@@ -2873,8 +2882,9 @@ is Ember's own. A cold cache lets the call through so the clock decides; the
 cache is emptied when the menu switches clocks (`PUT /v1/device/config`) and
 when a rediscovery swap's capabilities fetch fails, so a stale entry can't
 refuse on the previous clock's word. The test chime is an explicit user action,
-so it plays during quiet hours; the clock's own `soundEnabled` mute still
-applies. These handlers (and display power) go through `internal/awtrix`
+so it plays during quiet hours; the clock's own mute (`soundEnabled`, or
+`volume`/`alertVolume` 0 on NG 1.2) still applies. On NG 1.2 a stored melody
+plays as `{"file":"<name>"}` instead of `{"melody":"<name>"}`. These handlers (and display power) go through `internal/awtrix`
 client methods rather than the raw proxy; a client `*APIError` is relayed by
 the same envelope mapping.
 
@@ -5135,7 +5145,8 @@ alarm is about resuming work, not tiles).
 adapter's notice code (`coordinator_notices.go`) — during the window
 (server-local wall clock; overnight wrap supported; `start == end` = never)
 a notice is pushed without its sound (no `sound`/`soundRtttl`/`soundLoop`,
-NG's three notification sound fields; AWTRIX3 spelled the latter two
+NG 1.0/1.1's three notification sound fields, folded into the one `sound`
+object on 1.2; AWTRIX3 spelled the latter two
 `rtttl`/`loopSound`) and `playChime` no-ops, so every sound source is covered
 at one choke point. Visual output is untouched — an attention hold still
 takes the screen at night, just silently — and sounds resume on the first
@@ -5382,6 +5393,20 @@ rather than doubling some hours.
   rather than carried forward unverified. If NG exhibits the same brightness-
   dependent hue shift, re-derive and re-document it against NG's own gamma
   code before relying on it.
+- **NG 1.2 changed the audio API; Ember keys off `capabilities.audio.rtttl`
+  (#577).** 1.2 renamed `audio.buzzer` to `audio.rtttl` and answers 422 to
+  `soundRtttl`, `soundLoop`, a numeric `sound`, `{"melody":…}` on
+  `/api/v1/audio/play` and the `soundEnabled`/`buzzerVolume` settings. The
+  presence of `audio.rtttl` in the cached capabilities selects the 1.2 shapes
+  (`AudioCaps.SoundObjectAPI`): notices send `"sound":"<name>"`,
+  `{"file":…,"loop":true}` or `{"rtttl":…[,"loop":true]}`, the menu's melody
+  preview sends `{"file":…}`, and the settings whitelist swaps to
+  `volume`/`appVolume`/`alertVolume`. "Has a buzzer" is `buzzer || rtttl`
+  everywhere it gates (audio routes' 503, Settings › Sounds, the doctor
+  check). A cold or failed capabilities fetch keeps the 1.0/1.1 payloads byte
+  for byte, so a 1.2 clock seen before its first capabilities fetch gets 422
+  on sounds until the next refresh. The old volume values are not migrated:
+  NG 1.2 resets `volume` to 60 on update, a muted clock included.
 
 ### DarwinKit / AppKit (retired Go menu)
 The retired Go menu was replaced by the native SwiftUI app (`macos/`), so its

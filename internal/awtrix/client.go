@@ -113,11 +113,16 @@ type Capabilities struct {
 }
 
 type AudioCaps struct {
-	Buzzer bool `json:"buzzer"`
-	Track  bool `json:"track"`
-	MP3    bool `json:"mp3"`
-	Radio  bool `json:"radio"`
+	Buzzer bool  `json:"buzzer"`
+	RTTTL  *bool `json:"rtttl,omitempty"`
+	Track  bool  `json:"track"`
+	MP3    bool  `json:"mp3"`
+	Radio  bool  `json:"radio"`
 }
+
+func (a AudioCaps) SoundObjectAPI() bool { return a.RTTTL != nil }
+
+func (a AudioCaps) PlaysRTTTL() bool { return a.Buzzer || (a.RTTTL != nil && *a.RTTTL) }
 
 type capabilitiesFields Capabilities
 
@@ -154,6 +159,10 @@ func (c *Client) PlaySound(ctx context.Context, name string) error {
 
 func (c *Client) PlayMelody(ctx context.Context, name string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"melody": name}, nil)
+}
+
+func (c *Client) PlayFile(ctx context.Context, name string) error {
+	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"file": name}, nil)
 }
 
 func (c *Client) StopAudio(ctx context.Context) error {

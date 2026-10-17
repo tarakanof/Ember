@@ -33,9 +33,9 @@ func (a *App) audioUnavailable(w http.ResponseWriter, has func(awtrix.AudioCaps)
 	return true
 }
 
-func hasBuzzer(c awtrix.AudioCaps) bool { return c.Buzzer }
+func hasBuzzer(c awtrix.AudioCaps) bool { return c.PlaysRTTTL() }
 
-func hasAnyAudio(c awtrix.AudioCaps) bool { return c.Buzzer || c.Track || c.MP3 || c.Radio }
+func hasAnyAudio(c awtrix.AudioCaps) bool { return c.PlaysRTTTL() || c.Track || c.MP3 || c.Radio }
 
 func (a *App) handleDevicePowerPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -67,8 +67,12 @@ func (a *App) handleDeviceAudioTest(w http.ResponseWriter, r *http.Request) {
 	if a.audioUnavailable(w, hasBuzzer, "buzzer") {
 		return
 	}
+	soundObject := a.soundObjectAPI()
 	a.callDevice(w, r, func(ctx context.Context, cl *awtrix.Client) error {
-		if body.Melody != nil {
+		switch {
+		case body.Melody != nil && soundObject:
+			return cl.PlayFile(ctx, *body.Melody)
+		case body.Melody != nil:
 			return cl.PlayMelody(ctx, *body.Melody)
 		}
 		return cl.PlayRTTTL(ctx, testChimeRTTTL)

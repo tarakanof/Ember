@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 func newAppForDoctor(t *testing.T, awtrixURL string) *App {
@@ -522,5 +524,27 @@ func TestCheckAWTRIXReachable(t *testing.T) {
 	dead.Close()
 	if res := check(deadURL); res.Status != StatusFail || !strings.HasPrefix(res.Detail, "GET "+deadURL+"/api/v1/device: ") {
 		t.Fatalf("unreachable: %q %q", res.Status, res.Detail)
+	}
+}
+
+func TestCheckCapabilitiesCountsNG12RTTTLAsBuzzer(t *testing.T) {
+	t.Setenv("EMBER_CLOCK", "")
+	cases := []struct {
+		name  string
+		audio awtrix.AudioCaps
+		want  string
+	}{
+		{"ng11 buzzer", awtrix.AudioCaps{Buzzer: true}, "buzzer=true"},
+		{"ng12 rtttl", ng12Audio(true), "buzzer=true"},
+		{"ng12 no rtttl", ng12Audio(false), "buzzer=false"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+			withAudioCaps(app, c.audio)
+			if got := checkCapabilities(app); got.Status != StatusOK || !strings.Contains(got.Detail, c.want) {
+				t.Fatalf("check = %+v, want %s", got, c.want)
+			}
+		})
 	}
 }

@@ -328,3 +328,66 @@ func TestDevicePowerAudioRoutesRequireAuth(t *testing.T) {
 		}
 	}
 }
+
+func ng12Audio(rtttl bool) awtrix.AudioCaps {
+	return awtrix.AudioCaps{RTTTL: &rtttl}
+}
+
+func TestDeviceAudioTestPlaysNamedMelodyAsFileOnNG12(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	withAudioCaps(a, ng12Audio(true))
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", strings.NewReader(`{"melody":"door_bell-2"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	if got := calls(); len(got) != 1 || got[0].path != "/api/v1/audio/play" || got[0].body != `{"file":"door_bell-2"}` {
+		t.Fatalf("calls = %+v", got)
+	}
+}
+
+func TestDeviceAudioTestPlaysBuiltInChimeAsRTTTLOnNG12(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	withAudioCaps(a, ng12Audio(true))
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", nil))
+	if got := calls(); w.Code != http.StatusOK || len(got) != 1 || got[0].body != `{"rtttl":"`+testChimeRTTTL+`"}` {
+		t.Fatalf("code=%d calls=%+v", w.Code, got)
+	}
+}
+
+func TestDeviceAudioRoutesTreatNG12RTTTLAsBuzzer(t *testing.T) {
+	cases := []struct {
+		name string
+		call func(a *App, w http.ResponseWriter)
+	}{
+		{"test", func(a *App, w http.ResponseWriter) {
+			a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", nil))
+		}},
+		{"melodies", func(a *App, w http.ResponseWriter) {
+			a.handleDeviceAudioMelodies(w, httptest.NewRequest("GET", "/v1/device/audio/melodies", nil))
+		}},
+		{"stop", func(a *App, w http.ResponseWriter) {
+			a.handleDeviceAudioStop(w, httptest.NewRequest("POST", "/v1/device/audio/stop", nil))
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true,"melodies":[]}`)
+			withAudioCaps(a, ng12Audio(true))
+			w := httptest.NewRecorder()
+			c.call(a, w)
+			if w.Code != http.StatusOK || len(calls()) != 1 {
+				t.Fatalf("rtttl=true: code=%d calls=%d body=%s", w.Code, len(calls()), w.Body.String())
+			}
+
+			a, calls = fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+			withAudioCaps(a, ng12Audio(false))
+			w = httptest.NewRecorder()
+			c.call(a, w)
+			if w.Code != http.StatusServiceUnavailable || len(calls()) != 0 {
+				t.Fatalf("rtttl=false: code=%d calls=%d", w.Code, len(calls()))
+			}
+		})
+	}
+}
