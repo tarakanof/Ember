@@ -28,7 +28,7 @@ extension DeviceSettings {
     public var serverSupportsNG11: Bool { volumeControls != .unavailable }
 
     public var volumeControls: ClockVolumeControls {
-        if volume != nil || appVolume != nil || alertVolume != nil { return .mixer }
+        if appVolume != nil || alertVolume != nil { return .mixer }
         if soundEnabled != nil || buzzerVolume != nil { return .soundToggle }
         return .unavailable
     }

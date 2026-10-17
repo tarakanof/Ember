@@ -82,7 +82,7 @@ struct ClockSoundsPane: View {
         let settings = device.settings
         Section {
             switch device.volumeControls {
-            case .mixer:
+            case .mixer where device.audio != .noOutput:
                 PercentSliderRow(title: "Master volume", percent: settings.binding(\.volume, 60), step: 5)
                 PercentSliderRow(title: "Apps volume", percent: settings.binding(\.appVolume, 100), step: 5)
                 PercentSliderRow(title: "Alerts volume", percent: settings.binding(\.alertVolume, 100), step: 5)
@@ -92,7 +92,7 @@ struct ClockSoundsPane: View {
                     PercentSliderRow(title: "Buzzer volume", percent: settings.binding(\.buzzerVolume, 80), step: 5)
                         .disabled(!(settings.draft.soundEnabled ?? true))
                 }
-            case .unavailable:
+            case .mixer, .unavailable:
                 EmptyView()
             }
             if device.audio == .available {
@@ -125,6 +125,7 @@ struct ClockSoundsPane: View {
                     Text("This clock has no speaker.")
                 } else if device.volumeControls == .mixer {
                     Text("Apps and Alerts are shares of the master volume. Alerts covers Ember's chimes and popups. Set Master to 0 to silence the clock completely.")
+                    Text("Updating to NG 1.2 resets Master to 60, so a clock muted before the update makes sound again until you set it to 0.")
                 } else {
                     Text("Turning Sound off silences the clock completely, chimes included.")
                 }

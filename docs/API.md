@@ -151,8 +151,9 @@ response is written),
 `GET/PUT /v1/device/settings` (whitelisted
 `PATCH /api/v1/settings` keys — see `device_settings.go`; the sound keys
 follow the clock's audio API: `soundEnabled`/`buzzerVolume` on NG 1.0/1.1,
-`volume`/`appVolume`/`alertVolume` (0–100) on NG 1.2, the other set is
-dropped from GET and refused by PUT with 400; during a Pomodoro
+`volume`/`appVolume`/`alertVolume` (0–100) on NG 1.2; GET passes through
+whichever the clock returns, and PUT refuses the other set with 400 once the
+clock's API is known (from its last GET, else capabilities); during a Pomodoro
 takeover `autoTransition`/`blockNavigation` read and write the saved prior,
 flagged by an `X-Ember-Deferred-Keys` response header),
 `GET/PUT /v1/device/display` (overlay, `PATCH /api/v1/display`),

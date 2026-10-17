@@ -2588,6 +2588,7 @@
     },
     "Updates and Alerts" : {},
     "Updates delivered" : {},
+    "Updating to NG 1.2 resets Master to 60, so a clock muted before the update makes sound again until you set it to 0." : {},
     "Upload a build" : {},
     "Uploaded by %@ · %@ · %@" : {
       "comment" : "Settings › Knob Crash dumps row details: the firmware that uploaded the dump (the crashed build is unknown), the dump's size and when Ember received it (\"Uploaded by 0.9.14 · 64 KB · 6 Oct 2026 at 10:00\").",
