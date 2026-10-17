@@ -64,7 +64,8 @@ type coordinator struct {
 
 	waitIcons func() bool
 
-	soundObject func() bool
+	soundObject  func() bool
+	refreshSound func(context.Context)
 
 	indicators [3]indicatorState
 

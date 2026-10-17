@@ -187,7 +187,7 @@ func (a *App) pomoPhaseEndAlert(res *pomodoro.PhaseResult) {
 	n := notice{app: "pomodoro", kind: noticePomodoro, priority: noticeInterrupt,
 		payload: map[string]any{"text": text, "wakeup": true, "durationMs": 4000}}
 	if p.SoundMelody != "" {
-		n.sound.melody = p.SoundMelody
+		n.sound = soundSetting(p.SoundMelody)
 	} else {
 		n.sound.rtttl = defaultPomoMelody
 	}

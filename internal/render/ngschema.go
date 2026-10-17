@@ -1,6 +1,9 @@
 package render
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
 
 var (
 	ngSharedKeys = map[string]bool{
@@ -33,9 +36,9 @@ var (
 	ng12NotifyOnlyKeys = map[string]bool{
 		"name": true, "hold": true, "stack": true, "wakeup": true, "sound": true,
 	}
-	ng12SoundSources = map[string]bool{"file": true, "rtttl": true, "track": true}
-	ngScrollInts     = map[string]bool{"speed": true, "gap": true, "holdMs": true}
-	ngInts           = map[string]bool{"repeat": true, "durationMs": true, "lifetimeMs": true,
+	ng12SoundName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+	ngScrollInts  = map[string]bool{"speed": true, "gap": true, "holdMs": true}
+	ngInts        = map[string]bool{"repeat": true, "durationMs": true, "lifetimeMs": true,
 		"textBlinkMs": true, "textFadeMs": true}
 	ngBools = map[string]bool{"hold": true, "stack": true, "wakeup": true, "soundLoop": true,
 		"textCenter": true, "textInFront": true, "chartAutoscale": true, "paletteBlend": true}
@@ -80,7 +83,10 @@ func checkNG(p map[string]any, notification bool, notifyOnly map[string]bool) []
 }
 
 func checkNG12Sound(v any) []string {
-	if _, ok := v.(string); ok {
+	if name, ok := v.(string); ok {
+		if !ng12SoundName.MatchString(name) {
+			return []string{fmt.Sprintf("sound = %q, not a stored name (%s)", name, ng12SoundName)}
+		}
 		return nil
 	}
 	m, ok := v.(map[string]any)
@@ -90,15 +96,29 @@ func checkNG12Sound(v any) []string {
 	var errs []string
 	sources := 0
 	for k, fv := range m {
-		switch {
-		case ng12SoundSources[k]:
+		var bad bool
+		switch k {
+		case "file":
+			s, ok := fv.(string)
+			bad = !ok || !ng12SoundName.MatchString(s)
 			sources++
-		case k == "loop":
-			if _, ok := fv.(bool); !ok {
-				errs = append(errs, fmt.Sprintf("sound.loop = %v (%T), want a bool", fv, fv))
-			}
+		case "rtttl":
+			s, ok := fv.(string)
+			bad = !ok || s == "" || len(s) > 512
+			sources++
+		case "track":
+			n, ok := fv.(int)
+			bad = !ok || n < 1 || n > 2999
+			sources++
+		case "loop":
+			_, ok := fv.(bool)
+			bad = !ok
 		default:
 			errs = append(errs, fmt.Sprintf("sound.%s is not an NG sound key", k))
+			continue
+		}
+		if bad {
+			errs = append(errs, fmt.Sprintf("sound.%s = %v (%T) is not a valid value", k, fv, fv))
 		}
 	}
 	if sources != 1 {

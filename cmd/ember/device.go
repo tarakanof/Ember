@@ -163,24 +163,30 @@ func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if a.rediscoverClock(ctx) {
-				last = deviceProbe{}
-				a.clockMoved("clock_rediscovered")
-			}
-			cur := a.probeDevice(ctx, interval/2)
-			if !cur.reachable {
-				continue
-			}
-			if rebootDetected(last, cur) {
-				a.logger.Info("clock reboot detected",
-					"uptime_seconds", cur.uptimeSec,
-					"prev_uptime_seconds", last.uptimeSec,
-					"since_prev_seconds", int64(cur.at.Sub(last.at)/time.Second))
-				a.clockRebooted("clock_reboot")
-			}
-			last = cur
+			last = a.watchTick(ctx, last, interval)
 		}
 	}
+}
+
+func (a *App) watchTick(ctx context.Context, last deviceProbe, interval time.Duration) deviceProbe {
+	if a.rediscoverClock(ctx) {
+		last = deviceProbe{}
+		a.clockMoved("clock_rediscovered")
+	}
+	cur := a.probeDevice(ctx, interval/2)
+	if !cur.reachable {
+		return last
+	}
+	if rebootDetected(last, cur) {
+		a.logger.Info("clock reboot detected",
+			"uptime_seconds", cur.uptimeSec,
+			"prev_uptime_seconds", last.uptimeSec,
+			"since_prev_seconds", int64(cur.at.Sub(last.at)/time.Second))
+		a.clockRebooted("clock_reboot")
+	} else if _, ok := a.capabilities(); !ok {
+		a.refreshCapabilities(ctx)
+	}
+	return cur
 }
 
 const republishMinGap = 10 * time.Second
@@ -256,7 +262,7 @@ func (a *App) handleDeviceConfigPut(w http.ResponseWriter, r *http.Request) {
 	if _, ok := serveSettingPutWith(a, w, r, a.settings.clock, pin); !ok {
 		return
 	}
-	a.caps.Store(nil)
+	a.caps.invalidate()
 	if moved {
 		a.clockMoved("clock_url_changed")
 	}

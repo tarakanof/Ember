@@ -857,11 +857,7 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 	n := notice{app: "weather", kind: noticeWeather, priority: noticeInterrupt,
 		payload: render.WithOverlay(render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec),
 			weatherOverlay(obs, cfg))}
-	if strings.Contains(sound, ":") {
-		n.sound.rtttl = sound
-	} else {
-		n.sound.melody = sound
-	}
+	n.sound = soundSetting(sound)
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := a.coord.showNotice(cctx, n); err != nil {

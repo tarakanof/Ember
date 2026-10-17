@@ -67,16 +67,30 @@ func (a *App) handleDeviceAudioTest(w http.ResponseWriter, r *http.Request) {
 	if a.audioUnavailable(w, hasBuzzer, "buzzer") {
 		return
 	}
-	soundObject := a.soundObjectAPI()
-	a.callDevice(w, r, func(ctx context.Context, cl *awtrix.Client) error {
-		switch {
-		case body.Melody != nil && soundObject:
-			return cl.PlayFile(ctx, *body.Melody)
-		case body.Melody != nil:
-			return cl.PlayMelody(ctx, *body.Melody)
+	play := func(soundObject bool) func(context.Context, *awtrix.Client) error {
+		return func(ctx context.Context, cl *awtrix.Client) error {
+			switch {
+			case body.Melody != nil && soundObject:
+				return cl.PlayFile(ctx, *body.Melody)
+			case body.Melody != nil:
+				return cl.PlayMelody(ctx, *body.Melody)
+			}
+			return cl.PlayRTTTL(ctx, testChimeRTTTL)
 		}
-		return cl.PlayRTTTL(ctx, testChimeRTTTL)
-	})
+	}
+	soundObject := a.soundObjectAPI()
+	err := a.clock.do(r.Context(), callMenu, play(soundObject))
+	if err != nil && body.Melody != nil && isUnprocessable(err) {
+		a.refreshCapabilities(r.Context())
+		if again := a.soundObjectAPI(); again != soundObject {
+			err = a.clock.do(r.Context(), callMenu, play(again))
+		}
+	}
+	if err != nil {
+		writeClockError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (a *App) handleDeviceAudioStop(w http.ResponseWriter, r *http.Request) {

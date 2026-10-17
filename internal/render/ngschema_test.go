@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -98,6 +99,16 @@ func TestCheckNG12PayloadTakesOnlyTheSoundObject(t *testing.T) {
 		"no source":       {"sound": map[string]any{"loop": true}},
 		"unknown key":     {"sound": map[string]any{"melody": "ding"}},
 		"loop not a bool": {"sound": map[string]any{"rtttl": "x:d=4:c", "loop": "yes"}},
+		"rtttl as a name": {"sound": "pomo:d=4,o=5,b=125:c"},
+		"name too long":   {"sound": strings.Repeat("a", 33)},
+		"file not a name": {"sound": map[string]any{"file": "a b"}},
+		"file a number":   {"sound": map[string]any{"file": 7}},
+		"track a string":  {"sound": map[string]any{"track": "3"}},
+		"track too high":  {"sound": map[string]any{"track": 3000}},
+		"track zero":      {"sound": map[string]any{"track": 0}},
+		"rtttl empty":     {"sound": map[string]any{"rtttl": ""}},
+		"rtttl too long":  {"sound": map[string]any{"rtttl": strings.Repeat("c", 513)}},
+		"rtttl a number":  {"sound": map[string]any{"rtttl": 5}},
 	}
 	for name, p := range bad {
 		if len(CheckNG12Payload(p, true)) == 0 {
@@ -109,6 +120,8 @@ func TestCheckNG12PayloadTakesOnlyTheSoundObject(t *testing.T) {
 		"rtttl":      {"sound": map[string]any{"rtttl": "x:d=4:c"}},
 		"rtttl loop": {"sound": map[string]any{"rtttl": "x:d=4:c", "loop": true}},
 		"file loop":  {"sound": map[string]any{"file": "ding", "loop": true}},
+		"track":      {"sound": map[string]any{"track": 2999}},
+		"long name":  {"sound": strings.Repeat("a", 32)},
 	}
 	for name, p := range good {
 		if errs := CheckNG12Payload(p, true); len(errs) != 0 {

@@ -390,7 +390,6 @@ func TestShowNoticeSoundFollowsClockAudioAPI(t *testing.T) {
 		caps *awtrix.Capabilities
 		want func(i int) string
 	}{
-		{"caps unknown", nil, func(i int) string { return sounds[i].ng11 }},
 		{"ng11", &awtrix.Capabilities{Audio: awtrix.AudioCaps{Buzzer: true}}, func(i int) string { return sounds[i].ng11 }},
 		{"ng12", &awtrix.Capabilities{Audio: ng12Audio(true)}, func(i int) string { return sounds[i].ng12 }},
 	}
@@ -399,7 +398,7 @@ func TestShowNoticeSoundFollowsClockAudioAPI(t *testing.T) {
 			t.Run(api.name+"/"+s.name, func(t *testing.T) {
 				pub := &recordingPublisher{}
 				app := NewApp(defaultConfig(), pub, testLogger())
-				app.caps.Store(api.caps)
+				storeCaps(app, api.caps)
 				n := notice{app: "test", kind: noticeMessage, sound: s.sound, payload: map[string]any{}}
 				if err := app.coord.showNoticeQuiet(context.Background(), n, false); err != nil {
 					t.Fatal(err)

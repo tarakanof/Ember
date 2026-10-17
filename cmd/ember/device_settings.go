@@ -6,7 +6,9 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
@@ -103,38 +105,102 @@ var mixerSoundRules = map[string]settingRule{
 	"alertVolume": {kind: kInt, min: 0, max: 100},
 }
 
-func deviceSoundRules(mixer bool) (own, other map[string]settingRule) {
-	if mixer {
-		return mixerSoundRules, legacySoundRules
+type soundAPI int
+
+const (
+	soundAPIUnknown soundAPI = iota
+	soundAPILegacy
+	soundAPIMixer
+)
+
+func soundAPIOf(settings map[string]any) soundAPI {
+	_, app := settings["appVolume"]
+	_, alert := settings["alertVolume"]
+	_, enabled := settings["soundEnabled"]
+	_, buzzer := settings["buzzerVolume"]
+	switch {
+	case app || alert:
+		return soundAPIMixer
+	case enabled || buzzer:
+		return soundAPILegacy
 	}
-	return legacySoundRules, mixerSoundRules
+	return soundAPIUnknown
 }
 
-func isDeviceSettingKey(k string, mixer bool) bool {
-	own, _ := deviceSoundRules(mixer)
+type settingsSoundCache struct {
+	mu   sync.Mutex
+	base string
+	api  soundAPI
+}
+
+func (c *settingsSoundCache) observe(base string, api soundAPI) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.base, c.api = base, api
+}
+
+func (c *settingsSoundCache) forget() { c.observe("", soundAPIUnknown) }
+
+func (c *settingsSoundCache) get(base string) soundAPI {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !sameDeviceURL(c.base, base) {
+		return soundAPIUnknown
+	}
+	return c.api
+}
+
+func (a *App) deviceSoundAPI() soundAPI {
+	if api := a.settingsSound.get(a.cfg.Load().effectiveClockURL()); api != soundAPIUnknown {
+		return api
+	}
+	if caps, ok := a.capabilities(); ok {
+		if caps.Audio.SoundObjectAPI() {
+			return soundAPIMixer
+		}
+		return soundAPILegacy
+	}
+	return soundAPIUnknown
+}
+
+func isDeviceSettingKey(k string) bool {
 	_, base := deviceSettingRules[k]
-	_, sound := own[k]
-	return base || sound
+	_, legacy := legacySoundRules[k]
+	_, mixer := mixerSoundRules[k]
+	return base || legacy || mixer
 }
 
 var hexColor = regexp.MustCompile(`^#?[0-9A-Fa-f]{6}$`)
 var printableASCII = regexp.MustCompile(`^[\x20-\x7E]*$`)
 
-func validateDeviceSettings(m map[string]any, mixer bool) error {
-	own, other := deviceSoundRules(mixer)
-	wrong := "setting %q needs awtrix-ng 1.2 or later; this clock takes soundEnabled and buzzerVolume"
-	if mixer {
-		wrong = "setting %q was removed in awtrix-ng 1.2; use volume, appVolume or alertVolume"
+func validateDeviceSettings(m map[string]any, api soundAPI) error {
+	rules := make(map[string]settingRule, len(deviceSettingRules)+len(legacySoundRules)+len(mixerSoundRules))
+	maps.Copy(rules, deviceSettingRules)
+	switch api {
+	case soundAPIMixer:
+		if k, ok := firstKeyIn(m, legacySoundRules); ok {
+			return fmt.Errorf("setting %q was removed in awtrix-ng 1.2; use volume, appVolume or alertVolume", k)
+		}
+		maps.Copy(rules, mixerSoundRules)
+	case soundAPILegacy:
+		if k, ok := firstKeyIn(m, mixerSoundRules); ok {
+			return fmt.Errorf("setting %q needs awtrix-ng 1.2 or later; this clock takes soundEnabled and buzzerVolume", k)
+		}
+		maps.Copy(rules, legacySoundRules)
+	default:
+		maps.Copy(rules, legacySoundRules)
+		maps.Copy(rules, mixerSoundRules)
 	}
-	for k := range m {
-		if _, ok := other[k]; ok {
-			return fmt.Errorf(wrong, k)
+	return validateAgainstRules(m, rules)
+}
+
+func firstKeyIn(m map[string]any, rules map[string]settingRule) (string, bool) {
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		if _, ok := rules[k]; ok {
+			return k, true
 		}
 	}
-	rules := make(map[string]settingRule, len(deviceSettingRules)+len(own))
-	maps.Copy(rules, deviceSettingRules)
-	maps.Copy(rules, own)
-	return validateAgainstRules(m, rules)
+	return "", false
 }
 
 func validateAgainstRules(m map[string]any, rules map[string]settingRule) error {
@@ -239,10 +305,10 @@ func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
+	a.settingsSound.observe(a.cfg.Load().effectiveClockURL(), soundAPIOf(all))
 	out := map[string]any{}
-	mixer := a.soundObjectAPI()
 	for k, v := range all {
-		if isDeviceSettingKey(k, mixer) {
+		if isDeviceSettingKey(k) {
 			out[k] = v
 		}
 	}
@@ -268,7 +334,7 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOrReject(w, r, &m, false) {
 		return
 	}
-	if err := validateDeviceSettings(m, a.soundObjectAPI()); err != nil {
+	if err := validateDeviceSettings(m, a.deviceSoundAPI()); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

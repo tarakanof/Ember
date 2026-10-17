@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"maps"
+	"net/http"
+	"strings"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 type noticeKind int
@@ -43,6 +48,13 @@ type noticeSound struct {
 	loop   bool
 }
 
+func soundSetting(v string) noticeSound {
+	if strings.Contains(v, ":") {
+		return noticeSound{rtttl: v}
+	}
+	return noticeSound{melody: v}
+}
+
 func (s noticeSound) object() any {
 	var src map[string]any
 	switch {
@@ -80,13 +92,41 @@ func (c *coordinator) showNotice(ctx context.Context, n notice) error {
 }
 
 func (c *coordinator) showNoticeQuiet(ctx context.Context, n notice, quiet bool) error {
+	object := c.useSoundObject()
+	p := noticePayload(n, quiet, object)
+	err := c.publisher.Notify(ctx, p)
+	if err != nil && !quiet && n.sound != (noticeSound{}) && isUnprocessable(err) && c.refreshSound != nil {
+		c.refreshSound(ctx)
+		if again := c.useSoundObject(); again != object {
+			c.logger.Info("notice sound refused; retrying in the clock's audio format", "app", n.app, "sound_object", again)
+			p = noticePayload(n, quiet, again)
+			err = c.publisher.Notify(ctx, p)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	c.logger.Debug("notice shown", "app", n.app, "name", p["name"])
+	return nil
+}
+
+func (c *coordinator) useSoundObject() bool {
+	return c.soundObject != nil && c.soundObject()
+}
+
+func isUnprocessable(err error) bool {
+	var apiErr *awtrix.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnprocessableEntity
+}
+
+func noticePayload(n notice, quiet, object bool) map[string]any {
 	p := make(map[string]any, len(n.payload)+5)
 	maps.Copy(p, n.payload)
 	p["name"] = noticeNames[n.kind]
 	p["stack"] = n.priority == noticeQueue
 	switch {
 	case quiet:
-	case c.soundObject != nil && c.soundObject():
+	case object:
 		if v := n.sound.object(); v != nil {
 			p["sound"] = v
 		}
@@ -101,11 +141,7 @@ func (c *coordinator) showNoticeQuiet(ctx context.Context, n notice, quiet bool)
 			p["soundLoop"] = true
 		}
 	}
-	if err := c.publisher.Notify(ctx, p); err != nil {
-		return err
-	}
-	c.logger.Debug("notice shown", "app", n.app, "name", p["name"])
-	return nil
+	return p
 }
 
 func (c *coordinator) dismissNotice(ctx context.Context, kind noticeKind) error {

@@ -29,7 +29,7 @@ func checkServerFinishedPayloads(t *testing.T, caps *awtrix.Capabilities, check 
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
 	app := NewApp(cfg, pub, testLogger())
-	app.caps.Store(caps)
+	storeCaps(app, caps)
 	ctx := context.Background()
 
 	for _, body := range []string{
@@ -53,10 +53,14 @@ func checkServerFinishedPayloads(t *testing.T, caps *awtrix.Capabilities, check 
 	app.sendWeatherPopup(ctx, obs, cfg.Weather, 30, defaultWeatherSevereSound)
 	app.sendWeatherPopup(ctx, obs, cfg.Weather, 30, "storm")
 	app.pomoPhaseEndAlert(&pomodoro.PhaseResult{Phase: pomodoro.PhaseFocus})
+	for _, melody := range []string{"bell", "pomo:d=4,o=5,b=125:8g6,8c7"} {
+		app.updateConfig(func(c *Config) { c.Pomodoro.SoundMelody = melody })
+		app.pomoPhaseEndAlert(&pomodoro.PhaseResult{Phase: pomodoro.PhaseFocus})
+	}
 
 	notes := pub.NotifySnapshot()
-	if len(notes) != 9 {
-		t.Fatalf("notifications = %d, want 9", len(notes))
+	if len(notes) != 11 {
+		t.Fatalf("notifications = %d, want 11", len(notes))
 	}
 	for i, p := range notes {
 		for _, e := range check(p, true) {

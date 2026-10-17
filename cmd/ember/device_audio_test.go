@@ -45,7 +45,12 @@ func fakeAudioClock(t *testing.T, status int, reply string) (*App, func() []fake
 }
 
 func withAudioCaps(a *App, audio awtrix.AudioCaps) {
-	a.caps.Store(&awtrix.Capabilities{Audio: audio})
+	storeCaps(a, &awtrix.Capabilities{Audio: audio})
+}
+
+func storeCaps(a *App, c *awtrix.Capabilities) {
+	a.caps.invalidate()
+	a.caps.put(a.caps.begin(), a.cfg.Load().effectiveClockURL(), c)
 }
 
 func TestDevicePowerPutForwardsPowerOnly(t *testing.T) {
