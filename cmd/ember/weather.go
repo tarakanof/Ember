@@ -877,6 +877,9 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 			if next.Provider != cur.Provider && !a.weatherFetcher.providerAvailable(next.Provider) {
 				return fmt.Errorf("weather.provider %q needs %s set on the server", next.Provider, keyedProviders[next.Provider].env)
 			}
+			if next.SevereSound != cur.SevereSound {
+				return validSoundSetting("weather.severe_sound", next.SevereSound)
+			}
 			return nil
 		},
 		apply: func(c *Config, w WeatherConfig) error {

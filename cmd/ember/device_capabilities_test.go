@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
+	"github.com/tarakanof/ember/internal/discovery"
 )
 
 const testCapabilitiesJSON = `{"effects":["Fade","Matrix","Snake"],"paletteEffects":["Fade"],
@@ -174,6 +175,7 @@ type ngAudioClock struct {
 	plays       []string
 	capsCalls   int
 	capsWaiting bool
+	refuseSound bool
 }
 
 func (c *ngAudioClock) set(fn func(c *ngAudioClock)) {
@@ -193,7 +195,7 @@ func (c *ngAudioClock) server(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		c.mu.Lock()
-		online, ng12, gate := c.online, c.version == "1.2.2", c.capsGate
+		online, ng12, gate, refuseSound := c.online, c.version == "1.2.2", c.capsGate, c.refuseSound
 		c.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if !online {
@@ -235,6 +237,10 @@ func (c *ngAudioClock) server(t *testing.T) *httptest.Server {
 			c.mu.Lock()
 			c.notifies = append(c.notifies, string(body))
 			c.mu.Unlock()
+			if refuseSound && strings.Contains(string(body), `"sound"`) {
+				refuse("sound")
+				return
+			}
 			if ng12 && (strings.Contains(string(body), `"soundRtttl"`) || strings.Contains(string(body), `"soundLoop"`)) {
 				refuse("soundRtttl")
 				return
@@ -393,7 +399,22 @@ func TestNoticeRefusedIn11FormatRetriesIn12Format(t *testing.T) {
 	}
 }
 
-func TestNoticeRefusedWithoutAFormatChangeIsNotRetried(t *testing.T) {
+func TestNoticeWithASoundTheClockRefusesStillShows(t *testing.T) {
+	clock := &ngAudioClock{version: "1.2.2", online: true, refuseSound: true}
+	a := ngAudioApp(t, clock)
+	withAudioCaps(a, ng12Audio(true))
+	n := notice{app: "pomodoro", kind: noticePomodoro, sound: soundSetting("Star Wars"), payload: map[string]any{"text": "BREAK"}}
+	if err := a.coord.showNoticeQuiet(t.Context(), n, false); err != nil {
+		t.Fatalf("notice: %v", err)
+	}
+	notifies, _ := clock.snapshot()
+	if len(notifies) != 2 || !strings.Contains(notifies[0], `"sound":"Star Wars"`) ||
+		strings.Contains(notifies[1], `"sound"`) || !strings.Contains(notifies[1], `"BREAK"`) {
+		t.Fatalf("notifies = %v, want the refused sound then the popup without it", notifies)
+	}
+}
+
+func TestNoticeRefusedForAnotherReasonStopsAfterTheSoundlessResend(t *testing.T) {
 	clock := &ngAudioClock{version: "1.2.2", online: true}
 	a := ngAudioApp(t, clock)
 	withAudioCaps(a, ng12Audio(true))
@@ -402,8 +423,40 @@ func TestNoticeRefusedWithoutAFormatChangeIsNotRetried(t *testing.T) {
 	if err := a.coord.showNoticeQuiet(t.Context(), n, false); !isUnprocessable(err) {
 		t.Fatalf("err = %v, want the clock's 422", err)
 	}
-	if notifies, _ := clock.snapshot(); len(notifies) != 1 {
-		t.Fatalf("notifies = %v, want exactly one attempt", notifies)
+	notifies, _ := clock.snapshot()
+	if len(notifies) != 2 || strings.Contains(notifies[1], `"sound":`) {
+		t.Fatalf("notifies = %v, want one attempt with the sound and one without", notifies)
+	}
+}
+
+func TestRediscoverySwapDropsAnInFlightFetchFromTheOldClock(t *testing.T) {
+	oldGate, newGate := make(chan struct{}), make(chan struct{})
+	oldClock := &ngAudioClock{version: "1.1.2", online: true, capsGate: oldGate}
+	a := ngAudioApp(t, oldClock)
+	newClock := &ngAudioClock{version: "1.2.2", online: true, capsGate: newGate}
+	newSrv := newClock.server(t)
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+		return []discovery.Candidate{{BaseURL: newSrv.URL, UID: "abc"}}, nil
+	}
+	oldDone := make(chan struct{})
+	go func() {
+		defer close(oldDone)
+		a.refreshCapabilities(context.Background())
+	}()
+	waitForCapsRequest(t, oldClock, oldDone)
+	oldClock.set(func(c *ngAudioClock) { c.online = false })
+	swapDone := make(chan bool)
+	go func() { swapDone <- a.rediscoverClock(context.Background()) }()
+	waitForCapsRequest(t, newClock, nil)
+	close(oldGate)
+	<-oldDone
+	close(newGate)
+	if !<-swapDone {
+		t.Fatal("rediscovery did not swap")
+	}
+	caps, ok := a.capabilities()
+	if !ok || !caps.Audio.SoundObjectAPI() {
+		t.Fatalf("caps = %+v ok=%v, want the new clock's 1.2 caps", caps.Audio, ok)
 	}
 }
 

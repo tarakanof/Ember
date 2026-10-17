@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -425,5 +426,43 @@ func TestShowNoticeQuietSendsNoSoundOnNG12(t *testing.T) {
 	}
 	if _, has := pub.NotifySnapshot()[0]["sound"]; has {
 		t.Errorf("quiet notice carries a sound: %v", pub.NotifySnapshot()[0])
+	}
+}
+
+func TestMelodySettingsRefuseValuesNG12CannotPlay(t *testing.T) {
+	routes := []struct {
+		name, key string
+		put       func(a *App, w http.ResponseWriter, r *http.Request)
+	}{
+		{"pomodoro", "sound_melody", func(a *App, w http.ResponseWriter, r *http.Request) { a.handlePomodoroConfigPut(w, r) }},
+		{"weather", "severe_sound", func(a *App, w http.ResponseWriter, r *http.Request) { a.handleWeatherConfigPut(w, r) }},
+	}
+	bad := []string{"Star Wars", "mario.mp3", strings.Repeat("a", 33), ":d=4,o=5:c", "x:" + strings.Repeat("c,", 300)}
+	good := []string{"", "bell", strings.Repeat("a", 32), "pomo:d=4,o=5,b=125:8g6,8c7"}
+	for _, rt := range routes {
+		for _, v := range append(bad, good...) {
+			a := newTestAppWithStore(t)
+			a.updateConfig(func(c *Config) { c.Weather.applyDefaults() })
+			body, _ := json.Marshal(map[string]string{rt.key: v})
+			w := httptest.NewRecorder()
+			rt.put(a, w, httptest.NewRequest("PUT", "/v1/"+rt.name+"/config", strings.NewReader(string(body))))
+			want := http.StatusOK
+			if slices.Contains(bad, v) {
+				want = http.StatusBadRequest
+			}
+			if w.Code != want || (want != http.StatusOK && !strings.Contains(w.Body.String(), rt.key)) {
+				t.Errorf("%s %q: code=%d want %d body=%s", rt.name, v, w.Code, want, w.Body)
+			}
+		}
+	}
+}
+
+func TestStoredInvalidMelodyDoesNotBlockOtherPomodoroEdits(t *testing.T) {
+	a := newTestAppWithStore(t)
+	a.updateConfig(func(c *Config) { c.Pomodoro.SoundMelody = "Star Wars" })
+	w := httptest.NewRecorder()
+	a.handlePomodoroConfigPut(w, httptest.NewRequest("PUT", "/v1/pomodoro/config", strings.NewReader(`{"sound":true}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body)
 	}
 }

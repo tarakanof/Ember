@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -46,6 +48,22 @@ type noticeSound struct {
 	melody string
 	rtttl  string
 	loop   bool
+}
+
+var soundNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+
+func validSoundSetting(field, v string) error {
+	if v == "" {
+		return nil
+	}
+	name, _, rtttl := strings.Cut(v, ":")
+	switch {
+	case !rtttl && !soundNamePattern.MatchString(v):
+		return fmt.Errorf("%s %q must be a stored melody name (1-32 of A-Z a-z 0-9 _ -) or RTTTL text", field, v)
+	case rtttl && (name == "" || len(v) > 512 || !printableASCII.MatchString(v)):
+		return fmt.Errorf("%s must be RTTTL text up to 512 characters with a name before the first colon", field)
+	}
+	return nil
 }
 
 func soundSetting(v string) noticeSound {
@@ -100,6 +118,11 @@ func (c *coordinator) showNoticeQuiet(ctx context.Context, n notice, quiet bool)
 		if again := c.useSoundObject(); again != object {
 			c.logger.Info("notice sound refused; retrying in the clock's audio format", "app", n.app, "sound_object", again)
 			p = noticePayload(n, quiet, again)
+			err = c.publisher.Notify(ctx, p)
+		}
+		if err != nil && isUnprocessable(err) {
+			c.logger.Warn("notice sound refused; showing it without sound", "app", n.app, "err", err)
+			p = noticePayload(n, true, false)
 			err = c.publisher.Notify(ctx, p)
 		}
 	}

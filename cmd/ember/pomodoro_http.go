@@ -306,6 +306,12 @@ func (a *App) pomodoroSettingSpec() settingSpec[pomodoroSettingsDTO] {
 		key:          pomodoroSettingsKey,
 		presentation: pomodoroPresentationKeys,
 		view:         func(c Config) pomodoroSettingsDTO { return dtoFromConfig(c.Pomodoro) },
+		check: func(cur, next pomodoroSettingsDTO) error {
+			if next.SoundMelody == nil || (cur.SoundMelody != nil && *next.SoundMelody == *cur.SoundMelody) {
+				return nil
+			}
+			return validSoundSetting("pomodoro.sound_melody", *next.SoundMelody)
+		},
 		apply: func(c *Config, d pomodoroSettingsDTO) error {
 			p := c.Pomodoro
 			d.mergeInto(&p)
