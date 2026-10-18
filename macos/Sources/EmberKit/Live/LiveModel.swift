@@ -22,8 +22,15 @@ public final class LiveModel {
     public private(set) var heatmap: Loadable<Heatmap> = .loading
     public private(set) var serverVersion: String?
     private var versionSaysClockDisabled = false
+    private var versionReadSeq: Int?
+    private var clockHealthReadSeq: Int?
 
-    public var isClockDisabled: Bool { versionSaysClockDisabled || clockHealth.value?.isDisabled == true }
+    public var isClockDisabled: Bool {
+        if let health = clockHealth.value, let h = clockHealthReadSeq, h > versionReadSeq ?? 0 {
+            return health.isDisabled
+        }
+        return versionSaysClockDisabled
+    }
 
     public var winningSession: Session? {
         guard case .loaded(let snap, _) = snapshot else { return nil }
@@ -94,6 +101,7 @@ public final class LiveModel {
     @ObservationIgnored private var fetchedAt: [Feed: Date] = [:]
     @ObservationIgnored private var versionDue = false
     @ObservationIgnored private var versionFetch: Task<Void, Never>?
+    @ObservationIgnored private var readSeq = 0
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "live")
 
@@ -198,6 +206,8 @@ public final class LiveModel {
         reportedPower = nil
         serverVersion = nil
         versionSaysClockDisabled = false
+        versionReadSeq = nil
+        clockHealthReadSeq = nil
         versionDue = false
         versionFetch?.cancel()
         versionFetch = nil
@@ -213,12 +223,21 @@ public final class LiveModel {
         case .meetings: return await load(feed, \.meetings) { try await c.get("/v1/meetings/state") }
         case .apps: return await load(feed, \.apps) { try await (c.get("/v1/apps") as AppsList).apps }
         case .screen: return await fetchScreen(DeviceService(client: c))
-        case .clockHealth: return await load(feed, \.clockHealth) { try await c.get("/v1/clock/health") }
+        case .clockHealth:
+            let seq = nextReadSeq()
+            return await load(feed, \.clockHealth, applied: { self.clockHealthReadSeq = seq }) {
+                try await c.get("/v1/clock/health")
+            }
         case .weather: return await load(feed, \.weather) { try await c.get("/v1/weather/state") }
         case .activity: return await load(feed, \.activity) { try await c.get("/v1/activity/summary", query: Self.days(7)) }
         case .workhours: return await load(feed, \.workhours) { try await c.get("/v1/pomodoro/workhours", query: Self.days(14)) }
         case .heatmap: return await load(feed, \.heatmap) { try await c.get("/v1/pomodoro/heatmap", query: Self.days(84)) }
         }
+    }
+
+    private func nextReadSeq() -> Int {
+        readSeq += 1
+        return readSeq
     }
 
     private static func days(_ n: Int) -> [URLQueryItem] {
@@ -238,12 +257,16 @@ public final class LiveModel {
     private func load<T: Sendable & Equatable>(
         _ feed: Feed,
         _ keyPath: ReferenceWritableKeyPath<LiveModel, Loadable<T>>,
+        applied: (() -> Void)? = nil,
         _ op: @Sendable () async throws -> T
     ) async -> FeedTick {
         let ticket = issue(feed)
         do {
             let value = try await op()
-            if isCurrent(feed, ticket) { applySuccess(feed, keyPath, value) }
+            if isCurrent(feed, ticket) {
+                applySuccess(feed, keyPath, value)
+                applied?()
+            }
             return .ok
         } catch {
             let e = FeedError(error)
@@ -293,6 +316,7 @@ public final class LiveModel {
     private func fetchVersion(_ c: APIClient) {
         guard versionFetch == nil else { return }
         let gen = generation
+        let seq = nextReadSeq()
         versionFetch = Task {
             defer { if gen == self.generation { self.versionFetch = nil } }
             do {
@@ -300,6 +324,7 @@ public final class LiveModel {
                 guard gen == generation else { return }
                 serverVersion = info.release
                 versionSaysClockDisabled = info.isClockDisabled
+                versionReadSeq = seq
                 versionDue = false
             } catch {
                 guard gen == generation else { return }
@@ -308,6 +333,7 @@ public final class LiveModel {
                 default:
                     serverVersion = nil
                     versionSaysClockDisabled = false
+                    versionReadSeq = nil
                     versionDue = false
                 }
             }

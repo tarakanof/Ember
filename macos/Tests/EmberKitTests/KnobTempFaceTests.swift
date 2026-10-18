@@ -109,5 +109,23 @@ private let w = KnobTheme.standard.weather
         let f = KnobTempFace(state: state, now: try #require(ISO8601DateFormatter().date(from: "2026-09-26T08:30:00Z")))
         #expect(f.valueText() == text && !f.still && (f.sub == "Sunny" || f.sub == "Clear"))
         #expect(f.lo == -99 && f.hi == 99)
+        #expect(f.caption == .current(sky: f.sub, temp: text))
     }
+}
+
+@Test func weatherCaptionNamesTheSkyAndTemperatureAndFlagsAStaleReading() throws {
+    let json = #"""
+    {"generated_at":"2026-09-26T10:30:00+02:00","enabled":true,"provider":"open-meteo","units":"metric",
+     "current":{"fetched_at":"2026-09-26T10:26:00+02:00","stale":false,"condition":"rain","condition_code":"61",
+                "severe":false,"temp_c":13.6,"today_min_c":8.4,"today_max_c":16.6,"hourly":[]}}
+    """#
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let state = try d.decode(WeatherState.self, from: Data(json.utf8))
+    let now = try #require(ISO8601DateFormatter().date(from: "2026-09-26T08:30:00Z"))
+    #expect(KnobTempFace(state: state, now: now).caption == .current(sky: "Rain", temp: "14°"))
+    #expect(KnobTempFace(state: state, now: now.addingTimeInterval(3 * 3600)).caption == .stale(sky: "Rain", temp: "14°"))
+    #expect(KnobTempFace(state: nil, now: now).caption == .noData)
+    #expect(KnobTempFace(value: .nan, sub: "Rain").caption == .noData)
+    #expect(KnobTempFace(value: -6, still: true, sub: "Light snow").caption == .stale(sky: "Light snow", temp: "\u{2212}6°"))
 }

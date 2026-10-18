@@ -1115,7 +1115,14 @@ upgrade shows), off the `/state` loop; a lost read retries on the next good
 `/state`. The same `/version` read carries `clock_disabled` (`EMBER_CLOCK=off`,
 fixed for the server's lifetime), so `LiveModel.isClockDisabled` is known
 before the menu first opens, is re-read after a reconnect, and costs no clock
-I/O (a `/v1/clock/health` read can probe the TC001). While it's set the Clock
+I/O (a `/v1/clock/health` read can probe the TC001). The two sources are
+ordered by when each request was sent (one sequence number taken at send
+time), not by when it answered: a `/v1/clock/health` read sent after the last
+`/version` read wins, even when its value equals the cached one, so a redeploy
+faster than the offline detection (3 failed polls) can't leave a stale flag,
+and a reply slowed down (a health read waiting on the clock probe, a lagging
+`/version`) can't overrule a newer one. `MenuRows.clockMenu` takes the model's verdict and doesn't
+re-check the health. While it's set the Clock
 submenu shows only "Clock disabled on this server": no Next/Previous/Dismiss,
 display power or Show on Clock. The menu adds no polling: opening it catches up
 `stats`/`meetings`/`usage` (`LiveModel.menuFeeds`) only if they're over 60 s
@@ -1263,6 +1270,20 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   finds Music gone (reported as stopped) or turning the toggle off ends
   the watch, so a paused or idle Music costs no wake-ups; a scrub
   while paused shows on resume, whose notification re-reads the position.
+  Three failed reads in a row while Music runs (it hangs, or Automation
+  was revoked mid-track; `AppleMusicPusher.seekMissLimit`, counted afresh
+  on every playing report) back the watch off instead of ending it: ticks
+  in between only check `NSRunningApplication` (no Apple event, no shared
+  queue), so a force-quit of a hung Music, which posts no `playerInfo`,
+  still reports stopped within 2 s, and the position read is retried after
+  4, 8, 16 s, then every 30 s (`seekMaxSkips`), so seeks show again once
+  Music recovers without waiting for a notification. A good read restores
+  the 2 s pace. `AppleScriptMusicBridge` logs a failing event or script
+  code once until a success or a different code (an ignored -1728 counts
+  as different; `AppleEventFailureLog`), so a hung Music (-1712) or an undecided
+  Automation (-1744) doesn't log on every poll or notification. Every
+  event stays `.neverInteract`: a background notification never raises
+  the Automation prompt; Settings › Permissions asks for it.
   EmberKit's `AppleMusicPusher` coalesces bursts to the latest state, POSTs
   `/v1/nowplaying` (`source:"music"`, `player` = the Connection pane's
   source name, else the computer name, `track_id` = Music's persistent ID

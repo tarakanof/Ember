@@ -323,7 +323,7 @@ public enum MenuRows {
     public static func clockMenu(clockDisabled: Bool, usage: Loadable<UsageSnapshot>,
                                  clockHealth: Loadable<ClockHealth>, apps: Loadable<[AppToggle]>,
                                  matrixPower: Bool?) -> ClockMenu {
-        if clockDisabled || clockHealth.value?.isDisabled == true {
+        if clockDisabled {
             return ClockMenu(disabledNotice: ClockHealthReadout.disabledText, power: [], apps: [])
         }
         return ClockMenu(disabledNotice: nil,

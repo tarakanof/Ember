@@ -51,6 +51,17 @@ public struct KnobTempFace: Equatable, Sendable {
 
     public func valueText() -> String { value.map(Self.degrees) ?? "--°" }
 
+    public enum Caption: Equatable, Sendable {
+        case noData
+        case current(sky: String, temp: String)
+        case stale(sky: String, temp: String)
+    }
+
+    public var caption: Caption {
+        guard value != nil else { return .noData }
+        return still ? .stale(sky: sub, temp: valueText()) : .current(sky: sub, temp: valueText())
+    }
+
     public func valueColor(_ theme: KnobTheme.Weather) -> RGB {
         guard let value, !still else { return theme.stillColor }
         return Self.color(Double(value), theme.scale)

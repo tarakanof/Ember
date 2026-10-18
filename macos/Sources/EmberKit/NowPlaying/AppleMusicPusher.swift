@@ -57,6 +57,8 @@ extension NowPlayingClient: NowPlayingCommandSource {
 public final class AppleMusicPusher {
     public static let source = "music"
     public static let seekPoll: Duration = .seconds(2)
+    static let seekMissLimit = 3
+    static let seekMaxSkips = 14
     static let seekTolerance: Int64 = 3000
 
     public typealias Sleep = @Sendable (Duration) async throws -> Void
@@ -83,6 +85,8 @@ public final class AppleMusicPusher {
     @ObservationIgnored private var reportError: Error?
     @ObservationIgnored private(set) var anchor: Anchor?
     @ObservationIgnored private var seekWatch: Task<Void, Never>?
+    @ObservationIgnored private var seekMisses = 0
+    @ObservationIgnored private var seekSkips = 0
     @ObservationIgnored private var submits = 0
     @ObservationIgnored private let seekEvery: Duration?
     @ObservationIgnored private let sleep: Sleep
@@ -165,10 +169,24 @@ public final class AppleMusicPusher {
     func checkSeek() async {
         let gen = submits
         guard worker == nil, let before = anchor else { return }
-        guard let pos = await bridge.position() else {
+        if seekSkips > 0 {
+            seekSkips -= 1
             if !(await bridge.isRunning()), current(gen, before) { submit(MusicPlayerInfo(state: .stopped)) }
             return
         }
+        guard let pos = await bridge.position() else {
+            if !(await bridge.isRunning()) {
+                if current(gen, before) { submit(MusicPlayerInfo(state: .stopped)) }
+            } else if current(gen, before) {
+                seekMisses += 1
+                if seekMisses >= Self.seekMissLimit {
+                    seekSkips = min((1 << min(seekMisses - Self.seekMissLimit + 1, 8)) - 1, Self.seekMaxSkips)
+                }
+            }
+            return
+        }
+        seekMisses = 0
+        seekSkips = 0
         let at = now()
         guard current(gen, before),
               abs(Int64(max(pos, 0) * 1000) - before.expected(at: at)) > Self.seekTolerance,
@@ -205,6 +223,8 @@ public final class AppleMusicPusher {
     private func send(_ report: NowPlayingReport) async -> NowPlayingAck? {
         if report.state == .playing {
             anchor = Anchor(positionMs: report.positionMs, at: now())
+            seekMisses = 0
+            seekSkips = 0
             watchSeeks()
         } else {
             anchor = nil

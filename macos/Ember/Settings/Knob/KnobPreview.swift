@@ -146,14 +146,17 @@ struct KnobPreviewData {
     }
 
     private var weatherCaption: Text {
-        let f = KnobTempFace(state: weather, now: .now)
-        guard f.value != nil else { return Text("No weather from Ember yet.") }
-        let sky = Text(verbatim: f.sub), temp = Text(verbatim: f.valueText())
-        if f.still {
+        switch KnobTempFace(state: weather, now: .now).caption {
+        case .noData:
+            return Text("No weather from Ember yet.")
+        case .stale(let sky, let temp):
+            let (sky, temp) = (Text(verbatim: sky), Text(verbatim: temp))
             return Text("\(sky), \(temp). Out of date, so the knob shows the temperature in grey.",
                         comment: "Knob weather preview: condition and temperature (\"Rain, 14°\") of a stale observation.")
+        case .current(let sky, let temp):
+            let (sky, temp) = (Text(verbatim: sky), Text(verbatim: temp))
+            return Text("\(sky), \(temp).", comment: "Knob weather preview: condition and temperature (\"Rain, 14°.\").")
         }
-        return Text("\(sky), \(temp).", comment: "Knob weather preview: condition and temperature (\"Rain, 14°.\").")
     }
 }
 

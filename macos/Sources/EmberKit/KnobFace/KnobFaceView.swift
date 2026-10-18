@@ -433,9 +433,10 @@ enum KnobFaceRender {
 
     static func spacedLabel(_ s: String, _ px: Double, _ c: RGB, centerX: Double, spacing: Double, top: Double,
                             theme: KnobTheme, in ctx: inout GraphicsContext) {
+        let registered = fontRegistered
         let m = theme.font.metrics(px)
-        let ct = CTFontCreateWithName(theme.font.family as CFString, px, nil)
-        let font: Font = fontRegistered ? .custom(theme.font.family, fixedSize: px) : .system(size: px, weight: .medium)
+        let ct = ctFont(theme, px)
+        let font: Font = registered ? .custom(theme.font.family, fixedSize: px) : .system(size: px, weight: .medium)
         let chars = s.map(String.init)
         let advances = chars.map { ch in
             CTLineGetTypographicBounds(CTLineCreateWithAttributedString(NSAttributedString(string: ch, attributes: [.font: ct])),
@@ -452,9 +453,13 @@ enum KnobFaceRender {
         }
     }
 
-    static func degreeShift(_ v: KnobTheme.Weather.Value, _ theme: KnobTheme) -> Double {
+    static func ctFont(_ theme: KnobTheme, _ px: Double) -> CTFont {
         _ = fontRegistered
-        let font = CTFontCreateWithName(theme.font.family as CFString, v.fontPx, nil)
+        return CTFontCreateWithName(theme.font.family as CFString, px, nil)
+    }
+
+    static func degreeShift(_ v: KnobTheme.Weather.Value, _ theme: KnobTheme) -> Double {
+        let font = ctFont(theme, v.fontPx)
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: "°", attributes: [.font: font]))
         let deg = Int(CTLineGetTypographicBounds(line, nil, nil, nil).rounded()) + Int(v.letterSpacePx)
         return Double(deg / 2)
