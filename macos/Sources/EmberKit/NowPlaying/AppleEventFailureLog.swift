@@ -6,7 +6,11 @@ public struct AppleEventFailureLog: Sendable {
     public init() {}
 
     public mutating func shouldLog(_ code: Int) -> Bool {
-        guard code != Self.noSuchObject, code != lastLogged else { return false }
+        guard code != Self.noSuchObject else {
+            lastLogged = nil
+            return false
+        }
+        guard code != lastLogged else { return false }
         lastLogged = code
         return true
     }

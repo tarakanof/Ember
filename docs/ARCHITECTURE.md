@@ -1266,10 +1266,16 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   the watch, so a paused or idle Music costs no wake-ups; a scrub
   while paused shows on resume, whose notification re-reads the position.
   Three failed reads in a row while Music runs (it hangs, or Automation
-  was revoked mid-track) end it too (`AppleMusicPusher.seekMissLimit`);
-  the next report restarts it. `AppleScriptMusicBridge` logs a failing
-  event or script code once until a success or a different code
-  (`AppleEventFailureLog`), so a hung Music (-1712) or an undecided
+  was revoked mid-track; `AppleMusicPusher.seekMissLimit`, counted afresh
+  on every playing report) back the watch off instead of ending it: ticks
+  in between only check `NSRunningApplication` (no Apple event, no shared
+  queue), so a force-quit of a hung Music, which posts no `playerInfo`,
+  still reports stopped within 2 s, and the position read is retried after
+  4, 8, 16 s, then every 30 s (`seekMaxSkips`), so seeks show again once
+  Music recovers without waiting for a notification. A good read restores
+  the 2 s pace. `AppleScriptMusicBridge` logs a failing event or script
+  code once until a success or a different code (an ignored -1728 counts
+  as different; `AppleEventFailureLog`), so a hung Music (-1712) or an undecided
   Automation (-1744) doesn't log on every poll or notification. Every
   event stays `.neverInteract`: a background notification never raises
   the Automation prompt; Settings › Permissions asks for it.
