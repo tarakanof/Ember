@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -213,18 +212,9 @@ func writeMinimalCfg(t *testing.T) string {
 
 func TestDoctorCLI_OfflineSucceeds(t *testing.T) {
 	cfgPath := writeMinimalCfg(t)
-	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer awtrix.Close()
-	body := `{"awtrix":{"http_base_url":"` + awtrix.URL + `"}}`
-	if err := os.WriteFile(cfgPath, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "run", ".", "doctor", "--offline", "--json", "-config", cfgPath)
+	cmd := goRunCommand(ctx, "doctor", "--offline", "--json", "-config", cfgPath)
 	cmd.Env = append(isolatedGoRunEnv(t), "CONFIG_PATH=/nonexistent/awtrix.json")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -242,15 +232,32 @@ func TestDoctorCLI_OfflineSucceeds(t *testing.T) {
 	if c := res.Checks["sessions_summary"]; c.Status != StatusSkipped {
 		t.Errorf("sessions_summary: status=%q, want skipped", c.Status)
 	}
+	if c := res.Checks["awtrix_reachable"]; c.Status != StatusOK || !strings.Contains(c.Detail, "disabled") {
+		t.Errorf("awtrix_reachable = %+v, want ok/disabled under EMBER_CLOCK=off", c)
+	}
 }
 
 func TestDoctorCLI_FlagsBeforeSubcommand(t *testing.T) {
-	cfgPath := writeMinimalCfg(t)
+	cfgPath := filepath.Join(t.TempDir(), "cfg.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"awtrix":{"http_base_url":"http://x"},"http":{"addr":"127.0.0.1:0"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "run", ".", "-config", cfgPath, "doctor", "--offline", "--json")
-	cmd.Env = append(isolatedGoRunEnv(t), "CONFIG_PATH=/nonexistent/awtrix.json")
-	if err := cmd.Run(); err == nil {
+	cmd := goRunCommand(ctx, "-config", cfgPath, "doctor", "--offline", "--json")
+	cmd.Env = isolatedGoRunEnv(t)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("-config before doctor: %v (ctx %v)\nstderr: %s", err, ctx.Err(), stderr.String())
+	}
+	var res DoctorResult
+	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
+		t.Fatalf("decode: %v\nstdout: %s", err, stdout.String())
+	}
+	if res.Mode != "offline" {
+		t.Errorf("Mode = %q, want offline", res.Mode)
 	}
 }
 
@@ -279,7 +286,7 @@ func TestDoctorCLI_OnlineUsesServerURL(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "run", ".", "doctor", "--server-url", stub.URL, "--json", "-config", cfgPath)
+	cmd := goRunCommand(ctx, "doctor", "--server-url", stub.URL, "--json", "-config", cfgPath)
 	cmd.Env = append(isolatedGoRunEnv(t), "EMBER_TOKEN=tok", "CONFIG_PATH=/nonexistent/awtrix.json")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -305,7 +312,7 @@ func TestDoctorCLI_AuthFailureNoFallback(t *testing.T) {
 	cfgPath := writeMinimalCfg(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "run", ".", "doctor", "--server-url", stub.URL, "-config", cfgPath)
+	cmd := goRunCommand(ctx, "doctor", "--server-url", stub.URL, "-config", cfgPath)
 	cmd.Env = append(isolatedGoRunEnv(t), "EMBER_TOKEN=wrong", "CONFIG_PATH=/nonexistent/awtrix.json")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

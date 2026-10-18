@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -62,7 +61,7 @@ func TestPrintConfig_Subprocess(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "run", ".", "--print-config", "-config", cfgPath)
+	cmd := goRunCommand(ctx, "--print-config", "-config", cfgPath)
 	cmd.Env = append(isolatedGoRunEnv(t), "X_TOK=tokval")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

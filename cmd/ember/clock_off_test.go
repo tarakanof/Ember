@@ -17,18 +17,29 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 	t.Setenv("EMBER_CLOCK", "off")
 	watchLAN(t)
 
-	var stubHits atomic.Int64
-	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		stubHits.Add(1)
-		_, _ = w.Write([]byte(`{"uid":"awtrix_x","boardType":"awtrixng"}`))
-	}))
-	defer stub.Close()
+	countingClock := func() (*httptest.Server, *atomic.Int64) {
+		var hits atomic.Int64
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits.Add(1)
+			_, _ = w.Write([]byte(`{"uid":"awtrix_x","boardType":"awtrixng"}`))
+		}))
+		t.Cleanup(srv.Close)
+		return srv, &hits
+	}
+	stub, stubHits := countingClock()
+	moved, movedHits := countingClock()
 
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = stub.URL
 	cfg.Auth.StatusToken = "tok"
 	cfg.applyDefaults()
 	app := NewApp(cfg, nil, discardLogger())
+	var connects atomic.Int64
+	connect := app.clock.connect
+	app.clock.connect = func(base string, timeout time.Duration) *awtrix.Client {
+		connects.Add(1)
+		return connect(base, timeout)
+	}
 	var browses atomic.Int64
 	app.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		browses.Add(1)
@@ -94,7 +105,7 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 		{"POST", "/v1/device/notify/dismiss", ""},
 		{"POST", "/v1/device/app/next", ""},
 		{"POST", "/v1/device/app/previous", ""},
-		{"PUT", "/v1/device/config", `{"base_url":"http://127.0.0.1:9"}`},
+		{"PUT", "/v1/device/config", `{"base_url":"` + moved.URL + `"}`},
 		{"POST", "/hooks/awtrix/boot", ""},
 	} {
 		req := httptest.NewRequest(rq.method, rq.path, strings.NewReader(rq.body))
@@ -126,8 +137,17 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 		t.Fatalf("dropped publishes counted: ok=%d fail=%d", ok, fail)
 	}
 
+	if got := app.cfg.Load().effectiveClockURL(); got != moved.URL {
+		t.Fatalf("clock URL after PUT = %q, want the moved stub %q", got, moved.URL)
+	}
 	if n := stubHits.Load(); n != 0 {
 		t.Fatalf("clock stub received %d requests, want 0", n)
+	}
+	if n := movedHits.Load(); n != 0 {
+		t.Fatalf("moved clock stub received %d requests, want 0", n)
+	}
+	if n := connects.Load(); n != 0 {
+		t.Fatalf("clock client built %d times, want 0", n)
 	}
 	if n := browses.Load(); n != 0 {
 		t.Fatalf("mDNS browse ran %d times, want 0", n)

@@ -182,51 +182,95 @@ func TestNetworkAccessGuardCatchesEachBypass(t *testing.T) {
 
 func TestOnlyTestMainWritesTheDefaultTransport(t *testing.T) {
 	fset := token.NewFileSet()
-	paths, err := filepath.Glob("*_test.go")
+	names, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var files []*ast.File
-	for _, p := range paths {
-		f, err := parser.ParseFile(fset, p, nil, 0)
+	for _, n := range names {
+		f, err := parser.ParseFile(fset, n, nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
 		files = append(files, f)
 	}
-	if got := defaultTransportWrites(fset, files); len(got) != 1 || !strings.HasSuffix(got[0], " in TestMain") {
+	info := &types.Info{Uses: map[*ast.Ident]types.Object{}}
+	if _, err := (&types.Config{Importer: exportImporter(t, fset, "-test")}).Check("github.com/tarakanof/ember/cmd/ember", fset, files, info); err != nil {
+		t.Fatalf("type-check: %v", err)
+	}
+	if got := defaultTransportWrites(fset, files, info); len(got) != 1 || !strings.HasPrefix(got[0], "env_test.go:") || !strings.HasSuffix(got[0], " in TestMain") {
 		t.Fatalf("http.DefaultTransport writes = %q, want only TestMain's: a later write races goroutines leaked from earlier tests (#594)", got)
 	}
 }
 
 func TestDefaultTransportWritesCatchesEachForm(t *testing.T) {
-	const src = "package main\n\nimport \"net/http\"\n\nfunc TestMain() { http.DefaultTransport = nil }\n\nfunc swap() { var a int; a, http.DefaultTransport = 1, nil; _ = a }\n\nfunc keep() { var http struct{ DefaultTransport int }; _ = http }\n"
+	const src = `package main
+
+import (
+	"net/http"
+	nh "net/http"
+)
+
+func TestMain() { http.DefaultTransport = nil }
+
+func swap() { var a int; a, http.DefaultTransport = 1, nil; _ = a }
+
+func viaPointer() { p := &http.DefaultTransport; *p = nil }
+
+func derefAddr() { *(&http.DefaultTransport) = nil }
+
+func paren() { (http.DefaultTransport) = nil }
+
+func aliased() { nh.DefaultTransport = nil }
+
+func read() http.RoundTripper { return http.DefaultTransport }
+
+func shadowed() { var http struct{ DefaultTransport int }; http.DefaultTransport = 1; _ = http }
+`
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "x_test.go", src, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := defaultTransportWrites(fset, []*ast.File{f}); len(got) != 2 || !strings.HasSuffix(got[0], " in TestMain") || !strings.HasSuffix(got[1], " in swap") {
-		t.Fatalf("writes = %q, want TestMain and swap", got)
+	info := &types.Info{Uses: map[*ast.Ident]types.Object{}}
+	if _, err := (&types.Config{Importer: exportImporter(t, fset)}).Check("example.com/transportfixture", fset, []*ast.File{f}, info); err != nil {
+		t.Fatalf("type-check: %v", err)
+	}
+	var fns []string
+	for _, w := range defaultTransportWrites(fset, []*ast.File{f}, info) {
+		_, fn, _ := strings.Cut(w, " in ")
+		fns = append(fns, fn)
+	}
+	if want := []string{"TestMain", "swap", "viaPointer", "derefAddr", "paren", "aliased"}; !slices.Equal(fns, want) {
+		t.Fatalf("writes in %q, want %q", fns, want)
 	}
 }
 
-func defaultTransportWrites(fset *token.FileSet, files []*ast.File) []string {
+func defaultTransportWrites(fset *token.FileSet, files []*ast.File, info *types.Info) []string {
+	isDefault := func(e ast.Expr) bool {
+		sel, ok := ast.Unparen(e).(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		v, ok := info.Uses[sel.Sel].(*types.Var)
+		return ok && v.Pkg() != nil && v.Pkg().Path() == "net/http" && v.Name() == "DefaultTransport"
+	}
 	var out []string
 	for _, f := range files {
 		for _, decl := range f.Decls {
 			ast.Inspect(decl, func(n ast.Node) bool {
-				as, ok := n.(*ast.AssignStmt)
-				if !ok {
-					return true
-				}
-				for _, lhs := range as.Lhs {
-					sel, ok := lhs.(*ast.SelectorExpr)
-					if !ok || sel.Sel.Name != "DefaultTransport" {
-						continue
+				var targets []ast.Expr
+				switch n := n.(type) {
+				case *ast.AssignStmt:
+					targets = n.Lhs
+				case *ast.UnaryExpr:
+					if n.Op == token.AND {
+						targets = []ast.Expr{n.X}
 					}
-					if id, ok := sel.X.(*ast.Ident); ok && id.Name == "http" {
-						out = append(out, fmt.Sprintf("%s in %s", fset.Position(lhs.Pos()), declName(decl)))
+				}
+				for _, e := range targets {
+					if isDefault(e) {
+						out = append(out, fmt.Sprintf("%s in %s", fset.Position(e.Pos()), declName(decl)))
 					}
 				}
 				return true

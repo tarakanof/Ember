@@ -229,9 +229,10 @@ func typeCheckPackage(t *testing.T) (*token.FileSet, []*ast.File, checkedInfo) {
 	return fset, files, checkedInfo{info, pkg}
 }
 
-func exportImporter(t *testing.T, fset *token.FileSet) types.Importer {
+func exportImporter(t *testing.T, fset *token.FileSet, listFlags ...string) types.Importer {
 	t.Helper()
-	out, err := exec.Command("go", "list", "-export", "-deps", "-f", "{{.ImportPath}}\t{{.Export}}", ".").Output()
+	args := append([]string{"list", "-export", "-deps"}, listFlags...)
+	out, err := exec.Command("go", append(args, "-f", "{{.ImportPath}}\t{{.Export}}", ".")...).Output()
 	if err != nil {
 		t.Fatalf("go list -export: %v", err)
 	}

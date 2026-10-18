@@ -61,9 +61,11 @@ offline `doctor` skips the clock under `EMBER_CLOCK=off`, and
 `--print-config` and `version` do no I/O. All of them run under
 `isolatedGoRunEnv`, which strips `EMBER_*`/`CONFIG_PATH` and sets
 `EMBER_CLOCK=off`, `EMBER_MDNS_ADVERTISE=0`, a `127.0.0.1:0` config,
-`GOPROXY=off` and `GOTOOLCHAIN=local`. Point the clock URL (`defaultConfig()`
-falls back to `http://192.168.0.14`) and provider bases at an `httptest`
-stub.
+`GOPROXY=off` and `GOTOOLCHAIN=local`. `goRunCommand` starts `go run` in its
+own process group and kills the group at the deadline, so a subcommand that
+falls through to the server can't outlive its test. Point the clock URL
+(`defaultConfig()` falls back to `http://192.168.0.14`) and provider bases at
+an `httptest` stub.
 
 If a sandboxed shell can't write the default build cache, use a repo-local one:
 `GOCACHE="$PWD/.gocache" go test ./...`. In a shell with a stale
