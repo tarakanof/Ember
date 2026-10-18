@@ -99,7 +99,11 @@ ARCHITECTURE "Knob diagnostics"), `GET /v1/devices/{id}/coredumps`
 `Content-Disposition: attachment; filename="<device>-<fw>-<dump>.bin"`; see
 ARCHITECTURE "Knob checkin", RUNBOOK "Decoding a knob core dump"), `GET /v1/clock/stats?range=15m|1h|24h`
 (clock probe history, memory only — ARCHITECTURE "Clock stats"),
-`GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
+`GET/PUT /v1/pomodoro/config` (a changed `sound_melody` that awtrix-ng 1.2
+can't play is a 400: a name outside `[A-Za-z0-9_-]{1,32}`, or RTTTL that
+isn't `name:defaults:notes` with a 1–24 character name and at most 512
+characters; a value already stored is kept and never blocks other edits),
+`GET/PUT /v1/apps` (per-tool clock visibility),
 `POST /v1/usage` (optional `account_key`, 16 hex characters hashed on the
 Mac, and `plan`; one entry per tool and account, newest wins, dropped after 7
 days; each writer, a client token or the master token, keeps 8 per tool
@@ -126,7 +130,8 @@ else is a 400 — ARCHITECTURE "Providers and models"; both answer
 `providers_available`, which lists `tomorrow-io` only while
 `EMBER_TOMORROW_API_KEY` is set and `weatherapi` only while
 `EMBER_WEATHERAPI_KEY` is; a PUT switching to one without its key
-is a 400), `POST /v1/reminders/fire` (optional
+is a 400, and so is a changed `severe_sound` under the Pomodoro
+`sound_melody` rule), `POST /v1/reminders/fire` (optional
 `Idempotency-Key` header dedupes retries for 10 min),
 `GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config` (also drives the
 knob view's `quiet`), `GET/PUT /v1/brightness/config` (every `…/config`
@@ -159,7 +164,8 @@ flagged by an `X-Ember-Deferred-Keys` response header),
 `GET/PUT /v1/device/display` (overlay, `PATCH /api/v1/display`),
 `PUT /v1/device/display/power` (`{"power":bool}` — blanks/relights the
 matrix, runtime-only), `POST /v1/device/audio/test` (built-in chime, or
-`{"melody":"<name>"}` to preview a stored one), `POST /v1/device/audio/stop`,
+`{"melody":"<name>"}` to preview a stored one, `[A-Za-z0-9_-]{1,32}` or
+400), `POST /v1/device/audio/stop`,
 `GET /v1/device/audio/melodies` (NG's melody list; the audio routes answer
 503 `unavailable` when cached capabilities show no buzzer, meaning neither
 `audio.buzzer` nor NG 1.2's `audio.rtttl`, or no output),

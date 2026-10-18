@@ -177,6 +177,7 @@ type ngAudioClock struct {
 	capsCalls   int
 	capsWaiting bool
 	refuseSound bool
+	refuseField string
 	patches     []string
 }
 
@@ -197,7 +198,7 @@ func (c *ngAudioClock) server(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		c.mu.Lock()
-		online, ng12, gate, refuseSound := c.online, c.version == "1.2.2", c.capsGate, c.refuseSound
+		online, ng12, gate, refuseSound, refuseField := c.online, c.version == "1.2.2", c.capsGate, c.refuseSound, c.refuseField
 		c.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if !online {
@@ -239,6 +240,10 @@ func (c *ngAudioClock) server(t *testing.T) *httptest.Server {
 			c.mu.Lock()
 			c.notifies = append(c.notifies, string(body))
 			c.mu.Unlock()
+			if refuseField != "" {
+				refuse(refuseField)
+				return
+			}
 			if refuseSound && strings.Contains(string(body), `"sound"`) {
 				refuse("sound")
 				return
@@ -497,6 +502,19 @@ func TestNoticeRefusedForAnotherReasonStopsAfterTheSoundlessResend(t *testing.T)
 	notifies, _ := clock.snapshot()
 	if len(notifies) != 2 || strings.Contains(notifies[1], `"sound":`) {
 		t.Fatalf("notifies = %v, want one attempt with the sound and one without", notifies)
+	}
+}
+
+func TestNoticeRefusedForANonSoundFieldIsNotResentWithoutSound(t *testing.T) {
+	clock := &ngAudioClock{version: "1.2.2", online: true, refuseField: "icon"}
+	a := ngAudioApp(t, clock)
+	withAudioCaps(a, ng12Audio(true))
+	n := notice{app: "test", kind: noticeMessage, sound: noticeSound{melody: "ding"}, payload: map[string]any{"text": "hi", "icon": "nope"}}
+	if err := a.coord.showNoticeQuiet(t.Context(), n, false); !isUnprocessable(err) {
+		t.Fatalf("err = %v, want the clock's 422", err)
+	}
+	if notifies, _ := clock.snapshot(); len(notifies) != 1 {
+		t.Fatalf("notifies = %v, want 1: an icon refusal is not fixed by dropping the sound", notifies)
 	}
 }
 

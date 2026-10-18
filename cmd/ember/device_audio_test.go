@@ -147,8 +147,19 @@ func TestDeviceAudioTestPlaysNamedMelody(t *testing.T) {
 	}
 }
 
+func TestDeviceAudioTestPlaysA32CharacterName(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+	name := strings.Repeat("a", 32)
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", strings.NewReader(`{"melody":"`+name+`"}`)))
+	if w.Code != http.StatusOK || len(calls()) != 1 {
+		t.Fatalf("code=%d body=%s calls=%d, want a name the settings accept to preview", w.Code, w.Body, len(calls()))
+	}
+}
+
 func TestDeviceAudioTestRejectsBadMelodyName(t *testing.T) {
-	for _, body := range []string{`{"melody":""}`, `{"melody":"has space"}`, `{"melody":"` + strings.Repeat("a", 25) + `"}`, `{"melody":3}`, `{"sound":"x"}`} {
+	for _, body := range []string{`{"melody":""}`, `{"melody":"has space"}`, `{"melody":"` + strings.Repeat("a", 33) + `"}`, `{"melody":3}`, `{"sound":"x"}`} {
 		a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
 		withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
 		w := httptest.NewRecorder()

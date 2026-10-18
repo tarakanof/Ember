@@ -5423,13 +5423,21 @@ rather than doubling some hours.
   check). With no capabilities cached Ember sends the 1.0/1.1 payloads, byte
   for byte. A notice or melody preview the clock refuses with 422 refreshes
   the capabilities once and, if the format changed, retries once in the new
-  one; a notice still refused after that is sent once more without its sound,
-  so the popup shows silently. That is at most three attempts, never a loop. The refresh triggers (reboot, a watch tick with an
+  one; a notice still refused for a sound field after that (`field`
+  `sound`, `sound.*`, `soundRtttl`, `soundLoop`) is sent once more without
+  its sound, so the popup shows silently. A refusal of another field (an
+  icon, a colour) is not resent: dropping the sound can't fix it. That is at most three attempts, never a loop. The refresh triggers (reboot, a watch tick with an
   empty cache) keep that path rare. A custom Pomodoro melody containing `:` is
   RTTTL, as for severe weather (`soundSetting`), and the Pomodoro and weather
   settings PUTs refuse a changed melody NG 1.2 can't play: a name outside
-  `[A-Za-z0-9_-]{1,32}`, or RTTTL over 512 characters or with no name before
-  its first colon (`validSoundSetting`). Values already stored are kept. The old volume values are not
+  `[A-Za-z0-9_-]{1,32}`, or RTTTL that is not `name:defaults:notes` with a
+  1–24 character name, or is over 512 characters (`validSoundSetting`; NG
+  1.2.2 `sounds.md` "Writing RTTTL"). Notes are not parsed, so a bad note
+  still saves and plays silently. The rule is NG 1.2's whatever firmware
+  is attached, so a 1.1 clock can't be given a value that breaks after an
+  OTA; the 400 says so. The melody preview takes the same 1–32 name rule
+  (NG's playback names; only saving a melody is limited to 24). Values
+  already stored are kept. The old volume values are not
   migrated: NG 1.2 resets `volume` to 60 on update, a muted clock included,
   and Settings › Sounds says so under the mixer.
 

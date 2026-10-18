@@ -4,14 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"regexp"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 const testChimeRTTTL = "test:d=16,o=6,b=180:c,e,g,8c7"
-
-var melodyName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,24}$`)
 
 func (a *App) callDevice(w http.ResponseWriter, r *http.Request, call func(context.Context, *awtrix.Client) error) {
 	if err := a.clock.do(r.Context(), callMenu, call); err != nil {
@@ -60,8 +57,8 @@ func (a *App) handleDeviceAudioTest(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOptionalOrReject(w, r, &body, true) {
 		return
 	}
-	if body.Melody != nil && !melodyName.MatchString(*body.Melody) {
-		writeError(w, http.StatusBadRequest, errors.New("melody must be 1-24 of A-Z a-z 0-9 _ -"))
+	if body.Melody != nil && !soundNamePattern.MatchString(*body.Melody) {
+		writeError(w, http.StatusBadRequest, errors.New("melody must be 1-32 of A-Z a-z 0-9 _ -"))
 		return
 	}
 	if a.audioUnavailable(w, hasBuzzer, "buzzer") {
