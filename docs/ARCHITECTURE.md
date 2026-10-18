@@ -2699,28 +2699,28 @@ state changed (`PUT /api/v1/indicators/{1-3}`, or `DELETE` to turn one off —
 NG keeps the stored colour/blinkMs on a bare `PUT`, so only `DELETE` truly
 resets one), so the steady state costs no extra device traffic.
 
-**Firmware capabilities** (`GET /api/v1/capabilities`) are fetched at startup,
-after a rediscovery swap, after a detected clock reboot (a firmware update
-reboots the clock at the same URL), on a device-watch tick that finds the
-clock reachable with no capabilities cached (cold start, a failed fetch, a
-clock-config PUT, which empties the cache), and once when the clock answers
-422 to a notice with a sound (whatever the `field`). A fetch that keeps
-failing (a clock that answers `/api/v1/device` but errors on capabilities is
-retried every watch tick) logs `Warn` once per outage and URL, then `Debug`
-until a fetch is cached or the cache is invalidated (a URL swap, a
-clock-config PUT) or the clock is disabled. A late answer from a clock no
-longer current, success or failure, changes neither the cache nor the
-outage. They are cached in-process, tagged with the clock URL and a
+**Firmware capabilities** (`GET /api/v1/capabilities`) are fetched at
+startup, after a rediscovery swap, after a detected clock reboot (a firmware
+update reboots the clock at the same URL), on a device-watch tick that finds
+the clock reachable with no capabilities cached (cold start, a failed fetch,
+a clock-config PUT, which empties the cache), and once when the clock
+answers 422 to a notice with a sound (whatever the `field`). A fetch that
+keeps failing (a clock that answers `/api/v1/device` but errors on
+capabilities is retried every watch tick) logs `Warn` once per outage and
+URL, then `Debug` until a fetch is cached or the cache is invalidated (a URL
+swap, a clock-config PUT) or the clock is disabled. A late answer from a
+clock no longer current, success or failure, changes neither the cache nor
+the outage. They are cached in-process, tagged with the clock URL and a
 generation so a late answer from a clock the menu has switched away from is
-dropped, and served at
-`GET /v1/device/capabilities` (falling back to a live proxy fetch when the
-cache is cold) — the firmware's supported effect/transition/overlay/palette
-name lists plus its `audio{buzzer,track,mp3,radio}` outputs (NG 1.1.0 replaced
-the old top-level `radio` flag; NG 1.2 renamed `buzzer` to `rtttl`), relayed as the device's own document so no
-key is dropped. Settings › Clock and Sounds use them to populate its transition
-picker and to gate the buzzer-volume row, instead of guessing at a static
-enum. `/admin/doctor` reports the cached counts (and whether a buzzer is
-present) as its `capabilities` check.
+dropped, and served at `GET /v1/device/capabilities` (falling back to a live
+proxy fetch when the cache is cold) — the firmware's supported
+effect/transition/overlay/palette name lists plus its
+`audio{buzzer,track,mp3,radio}` outputs (NG 1.1.0 replaced the old top-level
+`radio` flag; NG 1.2 renamed `buzzer` to `rtttl`), relayed as the device's
+own document so no key is dropped. Settings › Clock and Sounds use them to
+populate its transition picker and to gate the buzzer-volume row, instead of
+guessing at a static enum. `/admin/doctor` reports the cached counts (and
+whether a buzzer is present) as its `capabilities` check.
 
 **App ordering** (`GET/PUT /v1/device/apps`) proxies `GET /api/v1/apps` /
 `PUT /api/v1/apps/order` — ordering plus enable/disable of the device's own
@@ -5426,21 +5426,24 @@ rather than doubling some hours.
   check). With no capabilities cached Ember sends the 1.0/1.1 payloads, byte
   for byte. A notice or melody preview the clock refuses with 422 refreshes
   the capabilities once and, if the format changed, retries once in the new
-  one; a notice still refused for a sound field after that (`field`
-  `sound`, `sound.*`, `soundRtttl`, `soundLoop`) is sent once more without
-  its sound, so the popup shows silently. A refusal of another field (an
-  icon, a colour) is not resent: dropping the sound can't fix it. That is at most three attempts, never a loop. The refresh triggers (reboot, a watch tick with an
-  empty cache) keep that path rare. A custom Pomodoro melody containing `:` is
-  RTTTL, as for severe weather (`soundSetting`), and the Pomodoro and weather
-  settings PUTs refuse a changed melody NG 1.2 can't play: a name outside
-  `[A-Za-z0-9_-]{1,32}`, or RTTTL that is not `name:defaults:notes` with a
-  1–24 character name, or is over 512 characters (`validSoundSetting`; NG
-  1.2.2 `sounds.md` "Writing RTTTL"). Notes are not parsed, so a bad note
-  still saves and plays silently. The rule is NG 1.2's whatever firmware
-  is attached, so a 1.1 clock can't be given a value that breaks after an
-  OTA; the 400 says so. The melody preview takes the same 1–32 name rule
-  (NG's playback names; only saving a melody is limited to 24). Values
-  already stored are kept. The old volume values are not
+  one; a notice still refused for a sound field after that (`field` `sound`,
+  `sound.*`, `soundRtttl`, `soundLoop`) is sent once more without its sound,
+  so the popup shows silently. A refusal of another field (an icon, a
+  colour) is not resent: dropping the sound can't fix it. That is at most
+  three attempts, never a loop. The refresh triggers (reboot, a watch tick
+  with an empty cache) keep that path rare. A custom Pomodoro melody
+  containing `:` is RTTTL, as for severe weather (`soundSetting`), and the
+  Pomodoro and weather settings PUTs refuse a changed melody NG 1.2 can't
+  play: a name outside `[A-Za-z0-9_-]{1,32}`, or RTTTL that is not
+  `name:defaults:notes` with a 1–24 character name, or is over 512
+  characters (`validSoundSetting`; NG 1.2.2 `sounds.md` "Writing RTTTL").
+  Notes are not parsed, so a bad note still saves and plays silently. The
+  rule is NG 1.2's whatever firmware is attached, so a 1.1 clock can't be
+  given a value that breaks after an OTA; the 400 says so. The melody
+  preview takes NG 1.2's 1–32 playback name rule (only saving a melody is
+  limited to 24) when the cached capabilities show 1.2 or none are cached,
+  and 1–24 on a 1.0/1.1 clock, whose `{"melody":…}` plays only stored
+  melodies. Values already stored are kept. The old volume values are not
   migrated: NG 1.2 resets `volume` to 60 on update, a muted clock included,
   and Settings › Sounds says so under the mixer.
 

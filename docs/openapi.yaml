@@ -3657,10 +3657,11 @@ paths:
         1.2 and newer). On a 404 or 405 it remembers that this clock (URL,
         uid and firmware as last seen) lacks the route, reads the clock's
         app list and writes the full order with only this app changed.
-        A URL swap, a firmware change or a reboot seen by a later probe,
-        or an hour since the mark, tries the route again. Advertised as
-        `device_app_enabled` in `/version` `features`. Runs one at a time with `PUT /v1/device/apps` and the
-        clock's `PUT /v1/devices/{id}/config`.
+        A URL swap, a uid or firmware change or a reboot seen by a later
+        probe, or an hour since the mark, tries the route again.
+        Advertised as `device_app_enabled` in `/version` `features`. Runs
+        one at a time with `PUT /v1/device/apps` and the clock's
+        `PUT /v1/devices/{id}/config`.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       parameters:

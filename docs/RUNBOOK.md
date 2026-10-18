@@ -189,9 +189,9 @@ or the 0.0.x npm `t3` script. Each T3 thread then shows once, as `t3`. A
 hook. Other Agent SDK apps and interactive `claude` (also inside T3's
 terminal) are reported as before, except a terminal `claude` under a T3 that
 was itself started from a T3 Claude thread (it inherits
-`CLAUDE_AGENT_SDK_VERSION`), which is hidden. A dev or checkout T3 server (`node --watch
-src/bin.ts`, `node dist/bin.mjs`) is not recognised and still doubles; untick
-one tool in Show on Clock for that.
+`CLAUDE_AGENT_SDK_VERSION`), which is hidden. A dev or checkout T3 server
+(`node --watch src/bin.ts`, `node dist/bin.mjs`) is not recognised and
+still doubles; untick one tool in Show on Clock for that.
 Codex threads should not be doubled: T3 drives `codex app-server`, and the
 Codex producer only follows rollouts with `session_meta.source == "cli"`
 (confirm in the live check below).
