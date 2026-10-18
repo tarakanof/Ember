@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -86,7 +85,7 @@ func runHealthcheckSubprocess(t *testing.T, healthURL string) error {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "run", ".", "healthcheck")
+	cmd := goRunCommand(ctx, "healthcheck")
 	cmd.Env = append(isolatedGoRunEnv(t),
 		"EMBER_HEALTHCHECK_URL="+healthURL,
 		"CONFIG_PATH=/nonexistent/awtrix.json",

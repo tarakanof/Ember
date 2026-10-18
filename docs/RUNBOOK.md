@@ -21,15 +21,19 @@ go run ./cmd/ember -config config.example.json
   the awtrix client included, and clones of it such as the healthcheck's TLS
   transport). `TestMain` refuses any request or dial to a host that is not a
   loopback IP; `localhost` is resolved first, refused unless every answer is
-  loopback, and dialled by each validated address in turn. Each refusal fails the package, listing the URL and the test that
-  made it. A refusal from a background goroutine names its code path; rerun
-  with `GODEBUG=tracebackancestors=10` to name the test. Tests built from the
+  loopback, and dialled by each validated address in turn. Each refusal fails
+  the package, listing the URL and the test that made it. A refusal from a
+  background goroutine names its code path; rerun with
+  `GODEBUG=tracebackancestors=10` to name the test. Tests built from the
   shared helpers (`newTestApp`, `newTestAppWithStore`, `ngAudioApp`,
   `stubClockConfig`, ...) or calling `watchLAN(t)` also fail themselves.
   `watchLAN` refuses `t.Parallel` tests (it uses `t.Setenv`), and charges a
   refusal it can't attribute (a background goroutine, or the dial layer) to
   every watched test running at the time, so a goroutine leaked from an
   earlier test can fail a later one; the message says "background goroutine".
+  Only `TestMain` assigns `http.DefaultTransport`
+  (`TestOnlyTestMainWritesTheDefaultTransport`): a later swap would race those
+  leaked goroutines (#594).
 - The button/boot callback route lookup (`App.localIPFor`, a UDP connect that
   sends no packet): the shared helpers swap in a version that refuses a
   hostname, which would need a DNS lookup.
@@ -49,14 +53,19 @@ go run ./cmd/ember -config config.example.json
 
 Not covered: an `App` built with `NewApp` directly keeps the real
 `outboundIP`, so a hostname clock URL there would do a DNS lookup; and the
-`go run .` subprocesses in `tls_test.go` and `healthcheck_test.go` run
-unguarded. Those exit before any network I/O (the TLS check runs before the
-App is built, and `healthcheck` only probes the loopback URL it is given),
-and `isolatedGoRunEnv` also strips `EMBER_*`/`CONFIG_PATH` and sets
+subprocesses (`go run .` in the TLS, healthcheck, doctor, print-config and
+version tests, and the ldflags test's `go build` and binary) run unguarded.
+None reaches past loopback: the TLS check runs before the App is built,
+`healthcheck` and online `doctor` only probe the loopback stub they are given,
+offline `doctor` skips the clock under `EMBER_CLOCK=off`, and
+`--print-config` and `version` do no I/O. All of them run under
+`isolatedGoRunEnv`, which strips `EMBER_*`/`CONFIG_PATH` and sets
 `EMBER_CLOCK=off`, `EMBER_MDNS_ADVERTISE=0`, a `127.0.0.1:0` config,
-`GOPROXY=off` and `GOTOOLCHAIN=local`. Point the clock URL (`defaultConfig()`
-falls back to `http://192.168.0.14`) and provider bases at an `httptest`
-stub.
+`GOPROXY=off` and `GOTOOLCHAIN=local`. `goRunCommand` starts `go run` in its
+own process group and kills the group at the deadline, so a subcommand that
+falls through to the server can't outlive its test. Point the clock URL
+(`defaultConfig()` falls back to `http://192.168.0.14`) and provider bases at
+an `httptest` stub.
 
 If a sandboxed shell can't write the default build cache, use a repo-local one:
 `GOCACHE="$PWD/.gocache" go test ./...`. In a shell with a stale

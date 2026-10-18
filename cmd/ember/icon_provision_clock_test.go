@@ -134,14 +134,6 @@ func invalidHostURL(raw string) bool {
 	return err == nil && strings.HasSuffix(strings.ToLower(u.Hostname()), ".invalid")
 }
 
-func swapDefaultTransport(t *testing.T, wrap func(http.RoundTripper) http.RoundTripper) {
-	t.Helper()
-	t.Setenv("EMBER_TEST_DEFAULT_TRANSPORT_SWAP", "1")
-	prev := http.DefaultTransport
-	http.DefaultTransport = wrap(prev)
-	t.Cleanup(func() { http.DefaultTransport = prev })
-}
-
 func loopbackURL(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && loopbackHost(u.Hostname())

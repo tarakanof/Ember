@@ -9,13 +9,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 var errLANDialRefused = errors.New("test refused a non-loopback dial")
@@ -396,4 +399,12 @@ func isolatedGoRunEnv(t *testing.T) []string {
 		env = append(env, kv)
 	}
 	return append(env, "GOPROXY=off", "GOTOOLCHAIN=local", "EMBER_CLOCK=off", "EMBER_MDNS_ADVERTISE=0", "CONFIG_PATH="+cfg)
+}
+
+func goRunCommand(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "go", append([]string{"run", "."}, args...)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second
+	return cmd
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -12,8 +11,8 @@ import (
 func TestVersion_PrintsBinaryName(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "run", ".", "version")
-	cmd.Env = append(cmd.Environ(), "CONFIG_PATH=/nonexistent/awtrix.json")
+	cmd := goRunCommand(ctx, "version")
+	cmd.Env = append(isolatedGoRunEnv(t), "CONFIG_PATH=/nonexistent/awtrix.json")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
