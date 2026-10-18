@@ -2729,9 +2729,10 @@ answers 422 to a notice with a sound (whatever the `field`). A fetch that
 keeps failing (a clock that answers `/api/v1/device` but errors on
 capabilities is retried every watch tick) logs `Warn` once per outage and
 URL, then `Debug` until a fetch is cached or the cache is invalidated (a URL
-swap, a clock-config PUT) or the clock is disabled. A late answer from a
-clock no longer current, success or failure, changes neither the cache nor
-the outage. They are cached in-process, tagged with the clock URL and a
+swap, a clock-config PUT) or the clock is disabled. A late answer that a
+newer fetch or a clock change has superseded (two refreshes of the same clock
+racing, or a switch to another clock), success or failure, changes neither
+the cache nor the outage. They are cached in-process, tagged with the clock URL and a
 generation so a late answer from a clock the menu has switched away from is
 dropped, and served at `GET /v1/device/capabilities` (falling back to a live
 proxy fetch when the cache is cold) — the firmware's supported
