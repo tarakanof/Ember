@@ -447,6 +447,25 @@ func TestAppEnabledRetriesThePerAppRouteAfterAReboot(t *testing.T) {
 	}
 }
 
+func TestAppEnabledIgnoresTheUIDOfANonNGBoard(t *testing.T) {
+	a, _, stub, put := newNGClockApp(t, "1.2.2")
+	stub.mu.Lock()
+	stub.board = "awtrix3"
+	stub.onStatus = http.StatusNotFound
+	stub.mu.Unlock()
+	a.refreshCapabilities(context.Background())
+	mustPut(t, put, "one-off 404", "date", `{"enabled":false}`)
+	stub.mu.Lock()
+	stub.onStatus = 0
+	stub.uid = "awtrix_other"
+	stub.mu.Unlock()
+	a.refreshCapabilities(context.Background())
+	mustPut(t, put, "uid changed", "date", `{"enabled":true}`)
+	if got := stub.appEnabledPuts(); len(got) != 1 {
+		t.Fatalf("per-app writes = %v, want the route still marked: a non-NG uid is not an identity", got)
+	}
+}
+
 func TestAppEnabledRetriesThePerAppRouteAfterAnHour(t *testing.T) {
 	a, _, stub, put := newNGClockApp(t, "1.2.2")
 	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)

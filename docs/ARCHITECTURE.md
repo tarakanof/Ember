@@ -2741,8 +2741,8 @@ capability refresh or the `/v1/clock/health` probe, the uid only from an
 awtrix-ng board), so a URL swap or a firmware update seen by either tries
 the route again. So does a reboot (uptime lower than last seen) or an hour
 since the mark, so a one-off 404 (another host briefly on the address, a
-web server not up yet) doesn't keep the clock on the fallback. Without it, the
-server reads `GET /api/v1/apps` and writes the full order with only that
+web server not up yet) doesn't keep the clock on the fallback. Without it,
+the server reads `GET /api/v1/apps` and writes the full order with only that
 app changed, using the rules of the app's `NativeAppsPlan` (modules left
 out, a missing `enabled` read as on, an unlisted name switched off by
 naming it in `disabled`). The read is fresh, under the app-order lock, so
