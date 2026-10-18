@@ -230,15 +230,19 @@ func TestParseProcArgs2_SizesArgvWithArgvCap(t *testing.T) {
 	const argc = 1 << 22
 	buf := binary.LittleEndian.AppendUint32(nil, argc)
 	buf = append(buf, "/bin/t3\x00\x00/bin/t3\x00serve\x00"...)
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	_, ok := parseProcArgs2(buf)
-	runtime.ReadMemStats(&after)
-	if ok {
-		t.Fatal("parseProcArgs2 ok with argc past the buffer")
+	least := uint64(math.MaxUint64)
+	for range 5 {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		_, ok := parseProcArgs2(buf)
+		runtime.ReadMemStats(&after)
+		if ok {
+			t.Fatal("parseProcArgs2 ok with argc past the buffer")
+		}
+		least = min(least, after.TotalAlloc-before.TotalAlloc)
 	}
-	if got := after.TotalAlloc - before.TotalAlloc; got > 1<<20 {
-		t.Errorf("argc %d over a %d-byte buffer allocated %d bytes, want argv sized by argvCap", argc, len(buf), got)
+	if least > 1<<20 {
+		t.Errorf("argc %d over a %d-byte buffer allocated %d bytes, want argv sized by argvCap", argc, len(buf), least)
 	}
 }
 
