@@ -316,9 +316,9 @@ public final class LiveModel {
     private func fetchVersion(_ c: APIClient) {
         guard versionFetch == nil else { return }
         let gen = generation
-        let seq = nextReadSeq()
         versionFetch = Task {
             defer { if gen == self.generation { self.versionFetch = nil } }
+            let seq = nextReadSeq()
             do {
                 let info: VersionInfo = try await c.get("/version")
                 guard gen == generation else { return }
