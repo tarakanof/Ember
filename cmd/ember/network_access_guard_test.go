@@ -179,3 +179,59 @@ func TestNetworkAccessGuardCatchesEachBypass(t *testing.T) {
 		})
 	}
 }
+
+func TestOnlyTestMainWritesTheDefaultTransport(t *testing.T) {
+	fset := token.NewFileSet()
+	paths, err := filepath.Glob("*_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []*ast.File
+	for _, p := range paths {
+		f, err := parser.ParseFile(fset, p, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	if got := defaultTransportWrites(fset, files); len(got) != 1 || !strings.HasSuffix(got[0], " in TestMain") {
+		t.Fatalf("http.DefaultTransport writes = %q, want only TestMain's: a later write races goroutines leaked from earlier tests (#594)", got)
+	}
+}
+
+func TestDefaultTransportWritesCatchesEachForm(t *testing.T) {
+	const src = "package main\n\nimport \"net/http\"\n\nfunc TestMain() { http.DefaultTransport = nil }\n\nfunc swap() { var a int; a, http.DefaultTransport = 1, nil; _ = a }\n\nfunc keep() { var http struct{ DefaultTransport int }; _ = http }\n"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "x_test.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := defaultTransportWrites(fset, []*ast.File{f}); len(got) != 2 || !strings.HasSuffix(got[0], " in TestMain") || !strings.HasSuffix(got[1], " in swap") {
+		t.Fatalf("writes = %q, want TestMain and swap", got)
+	}
+}
+
+func defaultTransportWrites(fset *token.FileSet, files []*ast.File) []string {
+	var out []string
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			ast.Inspect(decl, func(n ast.Node) bool {
+				as, ok := n.(*ast.AssignStmt)
+				if !ok {
+					return true
+				}
+				for _, lhs := range as.Lhs {
+					sel, ok := lhs.(*ast.SelectorExpr)
+					if !ok || sel.Sel.Name != "DefaultTransport" {
+						continue
+					}
+					if id, ok := sel.X.(*ast.Ident); ok && id.Name == "http" {
+						out = append(out, fmt.Sprintf("%s in %s", fset.Position(lhs.Pos()), declName(decl)))
+					}
+				}
+				return true
+			})
+		}
+	}
+	return out
+}

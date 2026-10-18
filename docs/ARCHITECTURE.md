@@ -321,11 +321,11 @@ The aggregator and the only writer to the device.
     call and checks the NG fingerprint (`discovery.IsNG`). Tests stub that seam
     and `browseFn` together (`stubRemoteClock`): a non-loopback host answers as
     a fingerprinted clock, a `.invalid` host fails like a dead one, and mDNS
-    finds nothing. `requireLoopbackOnly` (the reload tests use it) swaps
-    `http.DefaultTransport` for a guard that refuses and reports any
-    non-loopback request. That global swap is why such tests cannot run in
-    parallel: `swapDefaultTransport` calls `t.Setenv`, which panics in a
-    parallel test. The guard sees only clients on `DefaultTransport`; a client
+    finds nothing. `TestMain` wraps `http.DefaultTransport` once, before any
+    test runs, in a guard that refuses and reports any non-loopback request;
+    no test swaps it afterwards, since goroutines leaked from earlier tests
+    still read it (#594, pinned by `TestOnlyTestMainWritesTheDefaultTransport`).
+    The guard sees only clients on `DefaultTransport`; a client
     with its own `Transport` bypasses it, and mDNS (UDP) is covered by the
     stubbed `browseFn`, not the guard. `NewApp` defaults `browseFn` to a
     no-LAN browse that returns `errBrowseNotWired`. `newServerApp`, which

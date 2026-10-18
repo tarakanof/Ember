@@ -225,7 +225,7 @@ func TestDoctorCLI_OfflineSucceeds(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "run", ".", "doctor", "--offline", "--json", "-config", cfgPath)
-	cmd.Env = append(cmd.Environ(), "CONFIG_PATH=/nonexistent/awtrix.json")
+	cmd.Env = append(isolatedGoRunEnv(t), "CONFIG_PATH=/nonexistent/awtrix.json")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -249,7 +249,7 @@ func TestDoctorCLI_FlagsBeforeSubcommand(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "run", ".", "-config", cfgPath, "doctor", "--offline", "--json")
-	cmd.Env = append(cmd.Environ(), "CONFIG_PATH=/nonexistent/awtrix.json")
+	cmd.Env = append(isolatedGoRunEnv(t), "CONFIG_PATH=/nonexistent/awtrix.json")
 	if err := cmd.Run(); err == nil {
 	}
 }
@@ -280,7 +280,7 @@ func TestDoctorCLI_OnlineUsesServerURL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "run", ".", "doctor", "--server-url", stub.URL, "--json", "-config", cfgPath)
-	cmd.Env = append(cmd.Environ(), "EMBER_TOKEN=tok", "CONFIG_PATH=/nonexistent/awtrix.json")
+	cmd.Env = append(isolatedGoRunEnv(t), "EMBER_TOKEN=tok", "CONFIG_PATH=/nonexistent/awtrix.json")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -306,7 +306,7 @@ func TestDoctorCLI_AuthFailureNoFallback(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "run", ".", "doctor", "--server-url", stub.URL, "-config", cfgPath)
-	cmd.Env = append(cmd.Environ(), "EMBER_TOKEN=wrong", "CONFIG_PATH=/nonexistent/awtrix.json")
+	cmd.Env = append(isolatedGoRunEnv(t), "EMBER_TOKEN=wrong", "CONFIG_PATH=/nonexistent/awtrix.json")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err == nil {

@@ -41,12 +41,13 @@ func TestVersion_DockerfileLdflagsReachBinary(t *testing.T) {
 
 	bin := filepath.Join(t.TempDir(), "ember")
 	build := exec.CommandContext(ctx, "go", "build", "-ldflags="+ldflags, "-o", bin, ".")
+	build.Env = isolatedGoRunEnv(t)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("go build -ldflags=%q failed: %v\n%s", ldflags, err, out)
 	}
 
 	run := exec.CommandContext(ctx, bin, "version")
-	run.Env = append(os.Environ(), "CONFIG_PATH=/nonexistent/awtrix.json")
+	run.Env = append(isolatedGoRunEnv(t), "CONFIG_PATH=/nonexistent/awtrix.json")
 	var stdout, stderr bytes.Buffer
 	run.Stdout, run.Stderr = &stdout, &stderr
 	if err := run.Run(); err != nil {

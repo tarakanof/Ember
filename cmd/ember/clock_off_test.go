@@ -13,18 +13,9 @@ import (
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
-type countingTransport struct {
-	n    atomic.Int64
-	next http.RoundTripper
-}
-
-func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	c.n.Add(1)
-	return c.next.RoundTrip(r)
-}
-
 func TestClockOffMakesNoClockRequests(t *testing.T) {
 	t.Setenv("EMBER_CLOCK", "off")
+	watchLAN(t)
 
 	var stubHits atomic.Int64
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,11 +23,6 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 		_, _ = w.Write([]byte(`{"uid":"awtrix_x","boardType":"awtrixng"}`))
 	}))
 	defer stub.Close()
-	var ct *countingTransport
-	swapDefaultTransport(t, func(next http.RoundTripper) http.RoundTripper {
-		ct = &countingTransport{next: next}
-		return ct
-	})
 
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = stub.URL
@@ -142,9 +128,6 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 
 	if n := stubHits.Load(); n != 0 {
 		t.Fatalf("clock stub received %d requests, want 0", n)
-	}
-	if n := ct.n.Load(); n != 0 {
-		t.Fatalf("default transport carried %d requests, want 0", n)
 	}
 	if n := browses.Load(); n != 0 {
 		t.Fatalf("mDNS browse ran %d times, want 0", n)
