@@ -176,6 +176,7 @@ type ngAudioClock struct {
 	capsCalls   int
 	capsWaiting bool
 	refuseSound bool
+	patches     []string
 }
 
 func (c *ngAudioClock) set(fn func(c *ngAudioClock)) {
@@ -246,6 +247,19 @@ func (c *ngAudioClock) server(t *testing.T) *httptest.Server {
 				return
 			}
 			_, _ = io.WriteString(w, `{"ok":true}`)
+		case "/api/v1/settings":
+			if r.Method == http.MethodPatch {
+				c.mu.Lock()
+				c.patches = append(c.patches, string(body))
+				c.mu.Unlock()
+				_, _ = io.WriteString(w, `{"ok":true}`)
+				return
+			}
+			if ng12 {
+				_, _ = io.WriteString(w, `{"brightness":80,"volume":50,"appVolume":40,"alertVolume":60}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"brightness":80,"soundEnabled":true,"buzzerVolume":50}`)
 		case "/api/v1/audio/play":
 			c.mu.Lock()
 			c.plays = append(c.plays, string(body))
@@ -336,6 +350,31 @@ func TestSameURLFirmwareUpgradeRefreshesCapsOnReboot(t *testing.T) {
 	a.clockJobs.Wait()
 	if !a.soundObjectAPI() {
 		t.Fatal("reboot after a same-URL upgrade kept the 1.1 caps")
+	}
+}
+
+func TestSameURLFirmwareUpgradeForgetsTheSettingsSoundAPIOnReboot(t *testing.T) {
+	clock := &ngAudioClock{version: "1.1.2", online: true, uptime: 1000}
+	a := ngAudioApp(t, clock)
+	a.refreshCapabilities(t.Context())
+	last := a.watchTick(t.Context(), deviceProbe{}, 0)
+	get := httptest.NewRecorder()
+	a.handleDeviceSettingsGet(get, httptest.NewRequest("GET", "/v1/device/settings", nil))
+	if get.Code != http.StatusOK || !strings.Contains(get.Body.String(), "buzzerVolume") {
+		t.Fatalf("settings get: %d %s", get.Code, get.Body)
+	}
+	clock.set(func(c *ngAudioClock) { c.version, c.uptime = "1.2.2", 5 })
+	a.watchTick(t.Context(), last, 0)
+	a.clockJobs.Wait()
+	put := httptest.NewRecorder()
+	a.handleDeviceSettingsPut(put, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"appVolume":30}`)))
+	if put.Code != http.StatusOK {
+		t.Fatalf("mixer put after the reboot: %d %s, want 200 from the 1.2 whitelist", put.Code, put.Body)
+	}
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	if len(clock.patches) != 1 || !strings.Contains(clock.patches[0], `"appVolume":30`) {
+		t.Fatalf("settings patches = %v", clock.patches)
 	}
 }
 
