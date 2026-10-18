@@ -425,7 +425,7 @@ private func project(_ tool: String, source: String, state: String, id: String, 
     #expect(menu.apps.map(\.name) == ["claude"])
 }
 
-@Test func clockMenuHidesEveryActionWhenClockHealthSaysDisabled() throws {
+@Test func clockMenuLeavesTheClockDisabledVerdictToTheModel() throws {
     let usage = Loadable<UsageSnapshot>.loaded(usageSnapshot([]), at: now)
     let json = #"{"generated_at":"2026-09-26T10:00:00Z","publish":{"counting_since":"2026-09-26T09:00:00Z","ok_24h":0,"fail_24h":0,"success_ratio_24h":null,"ok_total":0,"fail_total":0,"retries_total":0,"last_at":null,"last_ok":false},"disabled":true,"device":null}"#
     let d = JSONDecoder()
@@ -434,6 +434,6 @@ private func project(_ tool: String, source: String, state: String, id: String, 
     let apps = Loadable<[AppToggle]>.loaded([AppToggle(name: "claude", enabled: true)], at: now)
     let menu = MenuRows.clockMenu(clockDisabled: false, usage: usage, clockHealth: .loaded(health, at: now),
                                   apps: apps, matrixPower: nil)
-    #expect(!menu.showsActions)
-    #expect(menu.apps.isEmpty)
+    #expect(menu.showsActions)
+    #expect(menu.apps.map(\.name) == ["claude"])
 }

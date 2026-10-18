@@ -22,8 +22,14 @@ public final class LiveModel {
     public private(set) var heatmap: Loadable<Heatmap> = .loading
     public private(set) var serverVersion: String?
     private var versionSaysClockDisabled = false
+    private var versionReadAt: Date?
 
-    public var isClockDisabled: Bool { versionSaysClockDisabled || clockHealth.value?.isDisabled == true }
+    public var isClockDisabled: Bool {
+        if let health = clockHealth.value, let at = clockHealth.loadedAt, versionReadAt.map({ at >= $0 }) ?? true {
+            return health.isDisabled
+        }
+        return versionSaysClockDisabled
+    }
 
     public var winningSession: Session? {
         guard case .loaded(let snap, _) = snapshot else { return nil }
@@ -198,6 +204,7 @@ public final class LiveModel {
         reportedPower = nil
         serverVersion = nil
         versionSaysClockDisabled = false
+        versionReadAt = nil
         versionDue = false
         versionFetch?.cancel()
         versionFetch = nil
@@ -300,6 +307,7 @@ public final class LiveModel {
                 guard gen == generation else { return }
                 serverVersion = info.release
                 versionSaysClockDisabled = info.isClockDisabled
+                versionReadAt = clock()
                 versionDue = false
             } catch {
                 guard gen == generation else { return }
@@ -308,6 +316,7 @@ public final class LiveModel {
                 default:
                     serverVersion = nil
                     versionSaysClockDisabled = false
+                    versionReadAt = nil
                     versionDue = false
                 }
             }
