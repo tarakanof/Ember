@@ -83,31 +83,32 @@ func TestClockURL_Precedence(t *testing.T) {
 
 func TestClockOverride_SurvivesRestartSwapDoesNot(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "s.db")
-	a := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	pinned, swapped := notFoundServer(t), notFoundServer(t)
+	a := NewApp(stubClockConfig(t), &recordingPublisher{}, testLogger())
 	if err := a.ensureStore(db); err != nil {
 		t.Fatal(err)
 	}
-	if err := putClockOverride(a, "http://10.0.0.5"); err != nil {
+	if err := putClockOverride(a, pinned); err != nil {
 		t.Fatal(err)
 	}
-	if !a.swapDiscoveredClock("http://10.0.0.5", "http://10.0.0.6:80") {
+	if !a.swapDiscoveredClock(pinned, swapped) {
 		t.Fatal("swap refused")
 	}
-	if got := storedOverride(t, a); got != "http://10.0.0.5" {
+	if got := storedOverride(t, a); got != pinned {
 		t.Fatalf("store after swap = %q, want the override untouched", got)
 	}
 	if err := a.store.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	b := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	b := NewApp(stubClockConfig(t), &recordingPublisher{}, testLogger())
 	if err := b.ensureStore(db); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = b.store.Close() })
 	b.settings.reapply()
-	if url, src := getDeviceConfig(t, b); url != "http://10.0.0.5" || src != "store" {
-		t.Fatalf("after restart: %q (%s), want the override http://10.0.0.5 (store)", url, src)
+	if url, src := getDeviceConfig(t, b); url != pinned || src != "store" {
+		t.Fatalf("after restart: %q (%s), want the override %s (store)", url, src, pinned)
 	}
 }
 

@@ -15,6 +15,14 @@ go vet ./...
 go run ./cmd/ember -config config.example.json
 ```
 
+`cmd/ember` tests make no LAN or internet calls: `TestMain` wraps
+`http.DefaultTransport` so any HTTP request or dial to a non-loopback host is
+refused, and the package fails, listing each refused URL with the test that
+made it (a background goroutine shows the code path instead; rerun with
+`GODEBUG=tracebackancestors=10` to name its test). Point the clock URL
+(`defaultConfig()` falls back to `http://192.168.0.14`) and provider bases at
+an `httptest` stub, e.g. `stubClockConfig(t)`.
+
 If a sandboxed shell can't write the default build cache, use a repo-local one:
 `GOCACHE="$PWD/.gocache" go test ./...`. In a shell with a stale
 `GOROOT=~/.go`, prefix with `unset GOROOT &&`.

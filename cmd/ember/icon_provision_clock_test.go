@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -178,14 +177,7 @@ func requireLoopbackOnly(t *testing.T) {
 
 func loopbackURL(raw string) bool {
 	u, err := url.Parse(raw)
-	if err != nil {
-		return false
-	}
-	if u.Hostname() == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(u.Hostname())
-	return ip != nil && ip.IsLoopback()
+	return err == nil && loopbackHost(u.Hostname())
 }
 
 func TestRequireLoopbackOnly_RefusesParallelTests(t *testing.T) {

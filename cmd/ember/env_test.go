@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"testing"
 )
@@ -11,7 +12,17 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "unset EMBER_CLOCK:", err)
 		os.Exit(2)
 	}
-	os.Exit(m.Run())
+	guard, rt, err := installLANGuard(http.DefaultTransport)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "install LAN guard:", err)
+		os.Exit(2)
+	}
+	http.DefaultTransport = rt
+	code := m.Run()
+	if guard.report(os.Stderr) && code == 0 {
+		code = 1
+	}
+	os.Exit(code)
 }
 
 func TestEnvEnabled(t *testing.T) {
