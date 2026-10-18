@@ -341,12 +341,6 @@ private final class ServerStub: @unchecked Sendable {
     #expect(s.usageAccounts.draft.rows.count == 3)
 }
 
-@MainActor
-private func waitFor(_ cond: () -> Bool) async throws {
-    for _ in 0..<1000 where !cond() { try await Task.sleep(for: .milliseconds(5)) }
-    try #require(cond())
-}
-
 @MainActor @Test(.timeLimit(.minutes(1))) func anEditMadeWhileARejectedSaveIsInFlightIsSavedNext() async throws {
     let server = ServerStub()
     let gate = DispatchSemaphore(value: 0)

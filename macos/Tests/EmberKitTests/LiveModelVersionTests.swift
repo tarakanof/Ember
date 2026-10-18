@@ -368,9 +368,3 @@ private func poll(_ m: LiveModel) async {
     #expect(m.clockHealth.value != nil)
     #expect(m.isClockDisabled)
 }
-
-@MainActor
-private func waitFor(_ cond: () -> Bool) async throws {
-    for _ in 0..<1000 where !cond() { try await Task.sleep(for: .milliseconds(5)) }
-    try #require(cond())
-}
