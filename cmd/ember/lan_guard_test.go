@@ -49,40 +49,50 @@ func installLANGuard(rt http.RoundTripper) (*lanGuard, *http.Transport, http.Rou
 	}
 	tr.Proxy = nil
 	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		pinned, err := g.loopbackDialAddr(ctx, addr)
+		pinned, err := g.loopbackDialAddrs(ctx, addr)
 		if err != nil {
 			g.refuse(network+" "+addr, "")
 			return nil, err
 		}
-		return dial(ctx, network, pinned)
+		var errs []error
+		for _, a := range pinned {
+			conn, err := dial(ctx, network, a)
+			if err == nil {
+				return conn, nil
+			}
+			errs = append(errs, err)
+		}
+		return nil, errors.Join(errs...)
 	}
 	return g, tr, &lanGuardTransport{guard: g, next: tr}, nil
 }
 
-func (g *lanGuard) loopbackDialAddr(ctx context.Context, addr string) (string, error) {
+func (g *lanGuard) loopbackDialAddrs(ctx context.Context, addr string) ([]string, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", errLANDialRefused, addr)
+		return nil, fmt.Errorf("%w: %s", errLANDialRefused, addr)
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		if !ip.IsLoopback() {
-			return "", fmt.Errorf("%w: %s", errLANDialRefused, addr)
+			return nil, fmt.Errorf("%w: %s", errLANDialRefused, addr)
 		}
-		return addr, nil
+		return []string{addr}, nil
 	}
 	if !strings.EqualFold(host, "localhost") {
-		return "", fmt.Errorf("%w: %s", errLANDialRefused, addr)
+		return nil, fmt.Errorf("%w: %s", errLANDialRefused, addr)
 	}
 	ips, err := g.lookup(ctx, host)
 	if err != nil || len(ips) == 0 {
-		return "", fmt.Errorf("%w: %s does not resolve", errLANDialRefused, host)
+		return nil, fmt.Errorf("%w: %s does not resolve", errLANDialRefused, host)
 	}
+	out := make([]string, 0, len(ips))
 	for _, ip := range ips {
 		if !ip.IP.IsLoopback() {
-			return "", fmt.Errorf("%w: %s resolves to %s", errLANDialRefused, host, ip.IP)
+			return nil, fmt.Errorf("%w: %s resolves to %s", errLANDialRefused, host, ip.IP)
 		}
+		out = append(out, net.JoinHostPort(ip.IP.String(), port))
 	}
-	return net.JoinHostPort(ips[0].IP.String(), port), nil
+	return out, nil
 }
 
 type lanGuardTransport struct {
@@ -159,6 +169,7 @@ func (r lanRefusal) origin() string {
 
 func watchLAN(t *testing.T) {
 	t.Helper()
+	t.Setenv("EMBER_TEST_LAN_WATCH", "1")
 	if testLANGuard == nil {
 		return
 	}
@@ -273,42 +284,65 @@ func TestLANGuard_RefusesEveryNonLoopbackHost(t *testing.T) {
 		t.Errorf("recorded %d refusals, want 8", n)
 	}
 	for _, d := range *dialed {
-		if !strings.HasPrefix(d, "127.0.0.1:") {
+		if !strings.HasPrefix(d, "127.0.0.1:") && !strings.HasPrefix(d, "[::1]:") {
 			t.Errorf("dialled %s", d)
 		}
 	}
 }
 
-func TestLANGuard_PinsLocalhostToAValidatedLoopbackAddress(t *testing.T) {
+func fakeLookup(answers ...string) func(context.Context, string) ([]net.IPAddr, error) {
+	return func(context.Context, string) ([]net.IPAddr, error) {
+		var out []net.IPAddr
+		for _, s := range answers {
+			out = append(out, net.IPAddr{IP: net.ParseIP(s)})
+		}
+		return out, nil
+	}
+}
+
+func TestLANGuard_PinsLocalhostToValidatedLoopbackAddresses(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		resolved []string
-		want     string
+		want     []string
 	}{
-		{"loopback", []string{"127.0.0.1", "::1"}, "127.0.0.1:80"},
-		{"hosts file points elsewhere", []string{"192.0.2.1"}, ""},
-		{"mixed answer", []string{"127.0.0.1", "192.0.2.1"}, ""},
-		{"no answer", nil, ""},
+		{"loopback", []string{"::1", "127.0.0.1"}, []string{"[::1]:80", "127.0.0.1:80"}},
+		{"hosts file points elsewhere", []string{"192.0.2.1"}, nil},
+		{"mixed answer", []string{"127.0.0.1", "192.0.2.1"}, nil},
+		{"no answer", nil, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			g := &lanGuard{lookup: func(context.Context, string) ([]net.IPAddr, error) {
-				var out []net.IPAddr
-				for _, s := range tc.resolved {
-					out = append(out, net.IPAddr{IP: net.ParseIP(s)})
-				}
-				return out, nil
-			}}
-			got, err := g.loopbackDialAddr(t.Context(), "localhost:80")
-			if tc.want == "" {
+			g := &lanGuard{lookup: fakeLookup(tc.resolved...)}
+			got, err := g.loopbackDialAddrs(t.Context(), "localhost:80")
+			if tc.want == nil {
 				if !errors.Is(err, errLANDialRefused) {
-					t.Fatalf("dial addr %q, err %v; want a refusal", got, err)
+					t.Fatalf("dial addrs %q, err %v; want a refusal", got, err)
 				}
 				return
 			}
-			if err != nil || got != tc.want {
-				t.Fatalf("dial addr %q, err %v; want %q", got, err, tc.want)
+			if err != nil || !slices.Equal(got, tc.want) {
+				t.Fatalf("dial addrs %q, err %v; want %q", got, err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLANGuard_LocalhostFallsBackToTheNextLoopbackAddress(t *testing.T) {
+	g, _, rt, dialed := freshLANGuard(t)
+	g.lookup = fakeLookup("::1", "127.0.0.1")
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	_, port, err := net.SplitHostPort(srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := (&http.Client{Transport: rt}).Get("http://localhost:" + port + "/")
+	if err != nil {
+		t.Fatalf("localhost GET with ::1 first and a 127.0.0.1-only server: %v (dialled %v)", err, *dialed)
+	}
+	_ = resp.Body.Close()
+	if !slices.Contains(*dialed, "127.0.0.1:"+port) {
+		t.Fatalf("dialled %v, want a fallback to 127.0.0.1", *dialed)
 	}
 }
 

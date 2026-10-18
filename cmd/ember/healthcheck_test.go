@@ -8,10 +8,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -214,5 +216,39 @@ func TestLoadCAPool_RejectsNonPEM(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no PEM certs found") {
 		t.Errorf("loadCAPool error = %q; want it to mention \"no PEM certs found\"", err)
+	}
+}
+
+func TestHealthcheckOnce_HTTPSIgnoresTheBaseProxyAndHTTP2(t *testing.T) {
+	var proxied atomic.Bool
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied.Store(true)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer proxy.Close()
+	var proto atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proto.Store(int32(r.ProtoMajor))
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := guardedTransport.Clone()
+	base.Proxy, base.ForceAttemptHTTP2 = http.ProxyURL(proxyURL), true
+	t.Setenv("EMBER_HEALTHCHECK_CA_FILE", "")
+	t.Setenv("EMBER_HEALTHCHECK_INSECURE", "1")
+	if err := healthcheckOnce(srv.URL+"/healthz", base); err != nil {
+		t.Fatalf("healthcheckOnce: %v", err)
+	}
+	if proxied.Load() {
+		t.Error("the TLS probe went through the base transport's proxy")
+	}
+	if got := proto.Load(); got != 1 {
+		t.Errorf("the TLS probe spoke HTTP/%d, want HTTP/1.1", got)
 	}
 }

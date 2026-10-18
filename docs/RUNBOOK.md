@@ -20,22 +20,32 @@ go run ./cmd/ember -config config.example.json
 - HTTP through `http.DefaultTransport` (every client with a nil `Transport`,
   the awtrix client included, and clones of it such as the healthcheck's TLS
   transport). `TestMain` refuses any request or dial to a host that is not a
-  loopback IP; `localhost` is resolved first and dialled by its loopback
-  address. Each refusal fails the package, listing the URL and the test that
+  loopback IP; `localhost` is resolved first, refused unless every answer is
+  loopback, and dialled by each validated address in turn. Each refusal fails the package, listing the URL and the test that
   made it. A refusal from a background goroutine names its code path; rerun
   with `GODEBUG=tracebackancestors=10` to name the test. Tests built from the
   shared helpers (`newTestApp`, `newTestAppWithStore`, `ngAudioApp`,
   `stubClockConfig`, ...) or calling `watchLAN(t)` also fail themselves.
+  `watchLAN` refuses `t.Parallel` tests (it uses `t.Setenv`), and charges a
+  refusal it can't attribute (a background goroutine, or the dial layer) to
+  every watched test running at the time, so a goroutine leaked from an
+  earlier test can fail a later one; the message says "background goroutine".
 - The button/boot callback route lookup (`App.localIPFor`, a UDP connect that
   sends no packet): the shared helpers swap in a version that refuses a
   hostname, which would need a DNS lookup.
 - Statically, `TestNetworkAccessOnlyThroughTheGuardedTransport` fails if
-  non-test code builds an `http.Transport`, `net.Dialer` or `net.Resolver`, or
-  calls `net.Dial*`/`Listen{Packet,UDP,MulticastUDP,IP}`/`Lookup*` or
-  `discovery.Browse*`/`Advertise`, outside its allowlist: `outboundIP`
-  (`device_buttons.go`, injected as above), `newServerApp` (`app.go`, wires
-  the real mDNS browse; only `main` calls it, and NewApp defaults to
-  `browseNotWired`), and the mDNS advertiser in `main.go`.
+  non-test code names the type `http.Transport`, `net.Dialer`, `net.Resolver`,
+  `net.ListenConfig` or `tls.Dialer` (a literal, variable, field, parameter or
+  assertion), calls a method on the last four, or calls
+  `net.Dial*`/`Listen{Packet,UDP,MulticastUDP,IP}`/`Lookup*`/`Resolve*`,
+  `tls.Dial*` or `discovery.Browse*`/`Advertise`. `networkAllowlist` admits
+  each use by file, enclosing function and count: `net.Dial` once in
+  `outboundIP` (injected as above), `discovery.BrowseAWTRIX` once in
+  `newServerApp` (only `main` calls it; NewApp defaults to `browseNotWired`),
+  `discovery.Advertise` once in `main`, and the `*http.Transport` parameter of
+  `healthcheckOnce` and the `http.DefaultTransport` assertion in
+  `runHealthcheck` (the probe clones the default transport, so tests pass the
+  guarded one).
 
 Not covered: an `App` built with `NewApp` directly keeps the real
 `outboundIP`, so a hostname clock URL there would do a DNS lookup; and the

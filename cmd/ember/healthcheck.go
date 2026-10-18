@@ -39,7 +39,7 @@ func healthcheckOnce(url string, base *http.Transport) error {
 			tlsCfg.InsecureSkipVerify = true
 		}
 		tr := base.Clone()
-		tr.TLSClientConfig = tlsCfg
+		tr.TLSClientConfig, tr.Proxy, tr.ForceAttemptHTTP2 = tlsCfg, nil, false
 		client.Transport = tr
 	}
 	resp, err := client.Get(url)
