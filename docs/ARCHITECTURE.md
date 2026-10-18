@@ -1262,6 +1262,14 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   finds Music gone (reported as stopped) or turning the toggle off ends
   the watch, so a paused or idle Music costs no wake-ups; a scrub
   while paused shows on resume, whose notification re-reads the position.
+  Three failed reads in a row while Music runs (it hangs, or Automation
+  was revoked mid-track) end it too (`AppleMusicPusher.seekMissLimit`);
+  the next report restarts it. `AppleScriptMusicBridge` logs a failing
+  event or script code once until a success or a different code
+  (`AppleEventFailureLog`), so a hung Music (-1712) or an undecided
+  Automation (-1744) doesn't log on every poll or notification. Every
+  event stays `.neverInteract`: a background notification never raises
+  the Automation prompt; Settings › Permissions asks for it.
   EmberKit's `AppleMusicPusher` coalesces bursts to the latest state, POSTs
   `/v1/nowplaying` (`source:"music"`, `player` = the Connection pane's
   source name, else the computer name, `track_id` = Music's persistent ID

@@ -9,7 +9,8 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.ember.Ember.music-applescript", qos: .utility)
     private var compiled: [String: NSAppleScript] = [:]
-    private var loggedDenied = false
+    private var eventLog = AppleEventFailureLog()
+    private var scriptLog = AppleEventFailureLog()
 
     func isRunning() async -> Bool {
         !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).isEmpty
@@ -127,15 +128,11 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         for (k, d) in e.params { event.setParam(d, forKeyword: k) }
         do {
             let reply = try event.sendEvent(options: [.waitForReply, .neverInteract], timeout: timeout)
-            loggedDenied = false
+            eventLog.succeeded()
             return reply
         } catch {
             let code = (error as NSError).code
-            let denied = code == Int(errAEEventNotPermitted)
-            if code != Self.noSuchObject, !(denied && loggedDenied) {
-                Self.log.notice("Music event failed: \(code, privacy: .public)")
-            }
-            if denied { loggedDenied = true }
+            if eventLog.shouldLog(code) { Self.log.notice("Music event failed: \(code, privacy: .public)") }
             return nil
         }
     }
@@ -170,16 +167,15 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
                 let result = script?.executeAndReturnError(&error)
                 if let error {
                     let code = error[NSAppleScript.errorNumber] as? Int ?? 0
-                    if code != Self.noSuchObject { Self.log.notice("Music script failed: \(code, privacy: .public)") }
+                    if self.scriptLog.shouldLog(code) { Self.log.notice("Music script failed: \(code, privacy: .public)") }
                     cont.resume(returning: nil)
                 } else {
+                    self.scriptLog.succeeded()
                     cont.resume(returning: result)
                 }
             }
         }
     }
-
-    private static let noSuchObject = -1728
 
     private static let artworkScript = #"""
     tell application id "com.apple.Music"

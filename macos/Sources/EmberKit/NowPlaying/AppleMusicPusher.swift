@@ -57,6 +57,7 @@ extension NowPlayingClient: NowPlayingCommandSource {
 public final class AppleMusicPusher {
     public static let source = "music"
     public static let seekPoll: Duration = .seconds(2)
+    static let seekMissLimit = 3
     static let seekTolerance: Int64 = 3000
 
     public typealias Sleep = @Sendable (Duration) async throws -> Void
@@ -83,6 +84,7 @@ public final class AppleMusicPusher {
     @ObservationIgnored private var reportError: Error?
     @ObservationIgnored private(set) var anchor: Anchor?
     @ObservationIgnored private var seekWatch: Task<Void, Never>?
+    @ObservationIgnored private var seekMisses = 0
     @ObservationIgnored private var submits = 0
     @ObservationIgnored private let seekEvery: Duration?
     @ObservationIgnored private let sleep: Sleep
@@ -166,9 +168,15 @@ public final class AppleMusicPusher {
         let gen = submits
         guard worker == nil, let before = anchor else { return }
         guard let pos = await bridge.position() else {
-            if !(await bridge.isRunning()), current(gen, before) { submit(MusicPlayerInfo(state: .stopped)) }
+            if !(await bridge.isRunning()) {
+                if current(gen, before) { submit(MusicPlayerInfo(state: .stopped)) }
+            } else if current(gen, before) {
+                seekMisses += 1
+                if seekMisses >= Self.seekMissLimit { endSeekWatch() }
+            }
             return
         }
+        seekMisses = 0
         let at = now()
         guard current(gen, before),
               abs(Int64(max(pos, 0) * 1000) - before.expected(at: at)) > Self.seekTolerance,
@@ -184,6 +192,7 @@ public final class AppleMusicPusher {
 
     private func watchSeeks() {
         guard let every = seekEvery, seekWatch == nil else { return }
+        seekMisses = 0
         seekWatch = Task { [weak self, sleep, bridge] in
             if await bridge.canControl() {
                 while !Task.isCancelled {

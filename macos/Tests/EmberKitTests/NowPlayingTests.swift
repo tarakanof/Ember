@@ -68,6 +68,8 @@ private actor FakeBridge: MusicBridge {
     func set(running: Bool) { self.running = running }
     func isRunning() async -> Bool { running }
     var pos: Double = 42
+    var positionFails = false
+    func set(positionFails: Bool) { self.positionFails = positionFails }
     func set(position: Double) { pos = position }
     var holdPositions = false
     var heldPosition: CheckedContinuation<Void, Never>?
@@ -77,7 +79,7 @@ private actor FakeBridge: MusicBridge {
     func position() async -> Double? {
         positionReads += 1
         if holdPositions { await withCheckedContinuation { heldPosition = $0 } }
-        return running ? pos : nil
+        return running && !positionFails ? pos : nil
     }
     var holdSnapshots = false
     var heldSnapshot: CheckedContinuation<Void, Never>?
@@ -395,6 +397,38 @@ private struct SeekRig {
     await r.bridge.set(position: 204)
     await r.tick()
     #expect(await r.sink.attempts == 2)
+}
+
+@MainActor
+@Test func seekWatchEndsAfterRepeatedFailedReadsWhileMusicRuns() async {
+    let r = await SeekRig.playing()
+    await r.bridge.set(positionFails: true)
+    for _ in 1..<AppleMusicPusher.seekMissLimit { await r.tick() }
+    #expect(r.pusher.isWatchingSeeks)
+    await r.tick()
+    #expect(!r.pusher.isWatchingSeeks && r.ticks.waiting == 0)
+    #expect(await r.bridge.positionReads == 1 + AppleMusicPusher.seekMissLimit)
+    #expect(await r.sink.reports.count == 1)
+
+    await r.bridge.set(positionFails: false)
+    r.pusher.submit(r.song)
+    await r.pusher.drain()
+    await waitUntil { r.ticks.waiting == 1 }
+    #expect(r.pusher.isWatchingSeeks)
+}
+
+@MainActor
+@Test func seekWatchMissCountResetsOnAGoodRead() async {
+    let r = await SeekRig.playing()
+    for _ in 1..<AppleMusicPusher.seekMissLimit {
+        await r.bridge.set(positionFails: true)
+        await r.tick()
+    }
+    await r.bridge.set(positionFails: false)
+    await r.tick()
+    await r.bridge.set(positionFails: true)
+    for _ in 1..<AppleMusicPusher.seekMissLimit { await r.tick() }
+    #expect(r.pusher.isWatchingSeeks)
 }
 
 @MainActor
@@ -955,4 +989,13 @@ private final class BlockingSleeps: @unchecked Sendable {
     await pusher.drain()
     #expect(await bridge.performed.map(\.id) == ["1"])
     #expect(await sink.reports.isEmpty)
+}
+
+@Test func appleEventFailureLogNamesEachFailureOnceUntilASuccess() {
+    var log = AppleEventFailureLog()
+    let first = [-1744, -1744, AppleEventFailureLog.noSuchObject, -1744, -1712, -1712, -1743].map { log.shouldLog($0) }
+    #expect(first == [true, false, false, false, true, false, true])
+    log.succeeded()
+    let again = log.shouldLog(-1743)
+    #expect(again)
 }
