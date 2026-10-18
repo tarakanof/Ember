@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -222,6 +223,22 @@ func TestParseProcArgs2_HugeArgcIsBoundedByTheBuffer(t *testing.T) {
 	buf = append(buf, "/bin/t3\x00\x00/bin/t3\x00serve\x00"...)
 	if _, ok := parseProcArgs2(buf); ok {
 		t.Error("parseProcArgs2 ok with argc past the buffer")
+	}
+}
+
+func TestParseProcArgs2_SizesArgvWithArgvCap(t *testing.T) {
+	const argc = 1 << 22
+	buf := binary.LittleEndian.AppendUint32(nil, argc)
+	buf = append(buf, "/bin/t3\x00\x00/bin/t3\x00serve\x00"...)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, ok := parseProcArgs2(buf)
+	runtime.ReadMemStats(&after)
+	if ok {
+		t.Fatal("parseProcArgs2 ok with argc past the buffer")
+	}
+	if got := after.TotalAlloc - before.TotalAlloc; got > 1<<20 {
+		t.Errorf("argc %d over a %d-byte buffer allocated %d bytes, want argv sized by argvCap", argc, len(buf), got)
 	}
 }
 
