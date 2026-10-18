@@ -20,22 +20,6 @@ type capsCache struct {
 	failing string
 }
 
-func (c *capsCache) fetchFailed(base string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.failing != "" && sameDeviceURL(c.failing, base) {
-		return false
-	}
-	c.failing = base
-	return true
-}
-
-func (c *capsCache) fetchSucceeded() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.failing = ""
-}
-
 func (c *capsCache) begin() uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -49,15 +33,34 @@ func (c *capsCache) put(gen uint64, base string, v *awtrix.Capabilities) bool {
 		return false
 	}
 	c.gen++
-	c.base, c.value = base, v
+	c.base, c.value, c.failing = base, v, ""
 	return true
+}
+
+func (c *capsCache) fail(gen uint64, base string) (stored, first bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if gen != c.gen {
+		return false, false
+	}
+	c.gen++
+	c.base, c.value = base, nil
+	first = c.failing == "" || !sameDeviceURL(c.failing, base)
+	c.failing = base
+	return true, first
+}
+
+func (c *capsCache) forgetOutage() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.failing = ""
 }
 
 func (c *capsCache) invalidate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.gen++
-	c.base, c.value = "", nil
+	c.base, c.value, c.failing = "", nil, ""
 }
 
 func (c *capsCache) get(base string) (awtrix.Capabilities, bool) {
@@ -74,6 +77,7 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	base := a.cfg.Load().effectiveClockURL()
 	cl, err := a.clock.client(callCapabilities)
 	if errors.Is(err, errClockNotConfigured) || errors.Is(err, errClockDisabled) {
+		a.caps.forgetOutage()
 		return
 	}
 	if err != nil {
@@ -93,7 +97,6 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 		a.capsFetchFailed(gen, base, err)
 		return
 	}
-	a.caps.fetchSucceeded()
 	if !a.caps.put(gen, base, &caps) {
 		a.logger.Info("device capabilities dropped: the clock changed during the fetch", "base_url", base)
 		return
@@ -107,12 +110,15 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 }
 
 func (a *App) capsFetchFailed(gen uint64, base string, err error) {
-	a.caps.put(gen, base, nil)
-	if a.caps.fetchFailed(base) {
+	stored, first := a.caps.fail(gen, base)
+	switch {
+	case !stored:
+		a.logger.Debug("device capabilities fetch failed for a clock no longer current", "base_url", base, "err", err)
+	case first:
 		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
-		return
+	default:
+		a.logger.Debug("device capabilities fetch failed", "base_url", base, "err", err)
 	}
-	a.logger.Debug("device capabilities fetch failed", "base_url", base, "err", err)
 }
 
 func (a *App) capabilities() (awtrix.Capabilities, bool) {
