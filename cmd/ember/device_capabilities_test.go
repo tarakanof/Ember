@@ -208,6 +208,10 @@ func (c *ngAudioClock) server(t *testing.T) *httptest.Server {
 		}
 		refuse := func(field string) {
 			w.WriteHeader(http.StatusUnprocessableEntity)
+			if field == "-" {
+				_, _ = io.WriteString(w, `{"error":{"code":"validationFailed","message":"bad"}}`)
+				return
+			}
 			_, _ = io.WriteString(w, `{"error":{"code":"validationFailed","message":"unknown key","field":"`+field+`"}}`)
 		}
 		switch r.URL.Path {
@@ -584,16 +588,38 @@ func TestNoticeRefusedForAnotherReasonStopsAfterTheSoundlessResend(t *testing.T)
 	}
 }
 
-func TestNoticeRefusedForANonSoundFieldIsNotResentWithoutSound(t *testing.T) {
-	clock := &ngAudioClock{version: "1.2.2", online: true, refuseField: "icon"}
-	a := ngAudioApp(t, clock)
-	withAudioCaps(a, ng12Audio(true))
-	n := notice{app: "test", kind: noticeMessage, sound: noticeSound{melody: "ding"}, payload: map[string]any{"text": "hi", "icon": "nope"}}
-	if err := a.coord.showNoticeQuiet(t.Context(), n, false); !isUnprocessable(err) {
-		t.Fatalf("err = %v, want the clock's 422", err)
+func TestNoticeIsResentWithoutSoundOnlyForASoundField(t *testing.T) {
+	cases := []struct {
+		field   string
+		resends bool
+	}{
+		{"sound", true},
+		{"sound.rtttl", true},
+		{"sound[1].file", true},
+		{"soundRtttl", true},
+		{"soundLoop", true},
+		{"icon", false},
+		{"color", false},
+		{"-", false},
 	}
-	if notifies, _ := clock.snapshot(); len(notifies) != 1 {
-		t.Fatalf("notifies = %v, want 1: an icon refusal is not fixed by dropping the sound", notifies)
+	for _, c := range cases {
+		t.Run(c.field, func(t *testing.T) {
+			clock := &ngAudioClock{version: "1.2.2", online: true, refuseField: c.field}
+			a := ngAudioApp(t, clock)
+			withAudioCaps(a, ng12Audio(true))
+			n := notice{app: "test", kind: noticeMessage, sound: noticeSound{rtttl: "x:d=4:c"}, payload: map[string]any{"text": "hi"}}
+			if err := a.coord.showNoticeQuiet(t.Context(), n, false); !isUnprocessable(err) {
+				t.Fatalf("err = %v, want the clock's 422", err)
+			}
+			notifies, _ := clock.snapshot()
+			want := 1
+			if c.resends {
+				want = 2
+			}
+			if len(notifies) != want || (c.resends && strings.Contains(notifies[1], `"sound"`)) {
+				t.Fatalf("notifies = %v, want %d attempts (field %q)", notifies, want, c.field)
+			}
+		})
 	}
 }
 
