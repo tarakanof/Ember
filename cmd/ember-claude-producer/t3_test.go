@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -206,6 +207,34 @@ func TestParseProcArgs2(t *testing.T) {
 		if _, ok := parseProcArgs2(bad); ok {
 			t.Errorf("parseProcArgs2(%v) ok on a truncated buffer", bad)
 		}
+	}
+}
+
+func TestParseProcArgs2_HugeArgcAllocatesByBufferSize(t *testing.T) {
+	buf := binary.LittleEndian.AppendUint32(nil, 1<<24)
+	buf = append(buf, "/bin/t3\x00\x00/bin/t3\x00serve\x00"...)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, ok := parseProcArgs2(buf)
+	runtime.ReadMemStats(&after)
+	if ok {
+		t.Error("parseProcArgs2 ok with argc past the buffer")
+	}
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 64<<20 {
+		t.Errorf("parseProcArgs2 allocated %d bytes for a %d-byte buffer", grew, len(buf))
+	}
+}
+
+func TestSpawnedByT3_InheritedSDKEnvHidesAT3TerminalClaude(t *testing.T) {
+	env := map[string]string{"CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_AGENT_SDK_VERSION": "0.3.276"}
+	procs := map[int]t3FakeProc{
+		100: {ppid: 99, comm: "sh"},
+		99:  {ppid: 98, comm: "claude"},
+		98:  {ppid: 96, comm: "-zsh", argv: []string{"-zsh"}},
+		96:  {ppid: 1, comm: t3DesktopComm, argv: t3DesktopArgv},
+	}
+	if !fakeT3ProbeEnv(env, procs, nil).spawnedByT3(context.Background()) {
+		t.Error("known limit changed: update the T3 terminal note in ARCHITECTURE.md and RUNBOOK.md")
 	}
 }
 

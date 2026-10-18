@@ -838,8 +838,9 @@ markers still get reaped.
     `/node_modules/t3/dist/bin.mjs` (the 0.0.x npm package).
   Whole arguments are compared, so an unrelated `apps/server/dist/bin.mjs`,
   a `bin.mjs.backup` or an option value does not match. All lookups share a
-  250 ms context (`ps` via `exec.CommandContext`); a timeout or failed
-  lookup reports the session. When the probe says T3 but a marker exists
+  250 ms context (`ps` via `exec.CommandContext`, `WaitDelay` 100 ms, so a
+  stalled `ps` can hold the hook ~350 ms); a timeout or failed lookup
+  reports the session. When the probe says T3 but a marker exists
   (an upgrade mid-session, or an earlier hook whose lookup failed), the hook
   removes it and DELETEs the `claude` row, so no frozen row is re-posted by
   the heartbeat. Cost: 3 `ps` calls plus one sysctl on darwin, SDK sessions
@@ -850,7 +851,11 @@ markers still get reaped.
   Checking the direct launcher, not any ancestor, keeps an SDK script started
   from a T3 terminal reported. Not recognised, so still doubled: a dev or
   checkout server (`node --watch src/bin.ts`, `node dist/bin.mjs`) and an
-  unpackaged desktop build.
+  unpackaged desktop build. Wrongly hidden: an interactive `claude` in T3's
+  integrated terminal when T3's own env carries `CLAUDE_AGENT_SDK_VERSION`
+  (T3 started from a T3 Claude thread's Bash tool). The gate passes on the
+  inherited var and the launcher walk skips the terminal shell to the T3
+  server (pinned by `TestSpawnedByT3_InheritedSDKEnvHidesAT3TerminalClaude`).
 
 Claude producer constraints:
 - **Hook timeout.** The hook path uses the short `HookTimeoutMs` (default

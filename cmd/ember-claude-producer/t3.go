@@ -84,7 +84,7 @@ func parseProcArgs2(b []byte) ([]string, bool) {
 		return nil, false
 	}
 	rest = bytes.TrimLeft(rest[end:], "\x00")
-	argv := make([]string, 0, argc)
+	argv := make([]string, 0, min(argc, len(rest)))
 	for len(argv) < argc {
 		end := bytes.IndexByte(rest, 0)
 		if end < 0 {
