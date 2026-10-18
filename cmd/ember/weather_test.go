@@ -557,6 +557,7 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 	app := NewApp(cfg, pub, testLogger())
 	app.weatherFetcher = newWeatherFetcher()
 	app.weatherFetcher.openMeteoBase = srv.URL
+	app.weatherFetcher.airQualityBase = notFoundServer(t)
 
 	t0 := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 	app.pollWeather(context.Background(), t0)

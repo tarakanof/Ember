@@ -205,17 +205,6 @@ type checkedInfo struct {
 
 func typeCheckPackage(t *testing.T) (*token.FileSet, []*ast.File, checkedInfo) {
 	t.Helper()
-	out, err := exec.Command("go", "list", "-export", "-deps", "-f", "{{.ImportPath}}\t{{.Export}}", ".").Output()
-	if err != nil {
-		t.Fatalf("go list -export: %v", err)
-	}
-	exports := map[string]string{}
-	sc := bufio.NewScanner(bytes.NewReader(out))
-	for sc.Scan() {
-		if path, file, ok := strings.Cut(sc.Text(), "\t"); ok && file != "" {
-			exports[path] = file
-		}
-	}
 	fset := token.NewFileSet()
 	names, err := filepath.Glob("*.go")
 	if err != nil {
@@ -232,17 +221,32 @@ func typeCheckPackage(t *testing.T) (*token.FileSet, []*ast.File, checkedInfo) {
 		}
 		files = append(files, f)
 	}
-	imp := importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+	info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
+	pkg, err := (&types.Config{Importer: exportImporter(t, fset)}).Check("github.com/tarakanof/ember/cmd/ember", fset, files, info)
+	if err != nil {
+		t.Fatalf("type-check: %v", err)
+	}
+	return fset, files, checkedInfo{info, pkg}
+}
+
+func exportImporter(t *testing.T, fset *token.FileSet) types.Importer {
+	t.Helper()
+	out, err := exec.Command("go", "list", "-export", "-deps", "-f", "{{.ImportPath}}\t{{.Export}}", ".").Output()
+	if err != nil {
+		t.Fatalf("go list -export: %v", err)
+	}
+	exports := map[string]string{}
+	sc := bufio.NewScanner(bytes.NewReader(out))
+	for sc.Scan() {
+		if path, file, ok := strings.Cut(sc.Text(), "\t"); ok && file != "" {
+			exports[path] = file
+		}
+	}
+	return importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
 		file, ok := exports[path]
 		if !ok {
 			return nil, fmt.Errorf("no export data for %s", path)
 		}
 		return os.Open(file)
 	})
-	info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
-	pkg, err := (&types.Config{Importer: imp}).Check("github.com/tarakanof/ember/cmd/ember", fset, files, info)
-	if err != nil {
-		t.Fatalf("type-check: %v", err)
-	}
-	return fset, files, checkedInfo{info, pkg}
 }

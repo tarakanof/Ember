@@ -14,7 +14,7 @@ import (
 
 func newTestApp(t *testing.T) *App {
 	t.Helper()
-	a := NewApp(defaultConfig(), &recordingPublisher{}, discardLogger())
+	a := guardApp(t, NewApp(stubClockConfig(t), &recordingPublisher{}, discardLogger()))
 	return a
 }
 

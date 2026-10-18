@@ -112,8 +112,9 @@ type App struct {
 	waitArmMu sync.Mutex
 	clockGen  uint64
 
-	republish republishGate
-	browseFn  browseFunc
+	republish  republishGate
+	browseFn   browseFunc
+	localIPFor func(host string) string
 
 	deviceRediscoverMu   sync.Mutex
 	lastRediscoverAt     atomic.Int64
@@ -150,6 +151,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		weather:      newWeatherStore(),
 		activityLast: make(map[string]activityMark),
 		browseFn:     browseNotWired,
+		localIPFor:   outboundIP,
 	}
 	a.weatherFetcher = newWeatherFetcher()
 	a.meetings = newMeetingsStore()

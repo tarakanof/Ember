@@ -98,7 +98,7 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 		return
 	}
 	if !a.caps.put(gen, base, &caps) {
-		a.logger.Info("device capabilities dropped: the clock changed during the fetch", "base_url", base)
+		a.logger.Info("device capabilities dropped: superseded by a newer fetch or a clock change", "base_url", base)
 		return
 	}
 	a.logger.Info("device capabilities cached",
@@ -113,7 +113,7 @@ func (a *App) capsFetchFailed(gen uint64, base string, err error) {
 	stored, first := a.caps.fail(gen, base)
 	switch {
 	case !stored:
-		a.logger.Debug("device capabilities fetch failed for a clock no longer current", "base_url", base, "err", err)
+		a.logger.Debug("device capabilities fetch failed after a newer fetch or a clock change; ignored", "base_url", base, "err", err)
 	case first:
 		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
 	default:

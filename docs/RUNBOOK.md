@@ -15,6 +15,49 @@ go vet ./...
 go run ./cmd/ember -config config.example.json
 ```
 
+**Network isolation in `cmd/ember` tests.** What is covered:
+
+- HTTP through `http.DefaultTransport` (every client with a nil `Transport`,
+  the awtrix client included, and clones of it such as the healthcheck's TLS
+  transport). `TestMain` refuses any request or dial to a host that is not a
+  loopback IP; `localhost` is resolved first, refused unless every answer is
+  loopback, and dialled by each validated address in turn. Each refusal fails the package, listing the URL and the test that
+  made it. A refusal from a background goroutine names its code path; rerun
+  with `GODEBUG=tracebackancestors=10` to name the test. Tests built from the
+  shared helpers (`newTestApp`, `newTestAppWithStore`, `ngAudioApp`,
+  `stubClockConfig`, ...) or calling `watchLAN(t)` also fail themselves.
+  `watchLAN` refuses `t.Parallel` tests (it uses `t.Setenv`), and charges a
+  refusal it can't attribute (a background goroutine, or the dial layer) to
+  every watched test running at the time, so a goroutine leaked from an
+  earlier test can fail a later one; the message says "background goroutine".
+- The button/boot callback route lookup (`App.localIPFor`, a UDP connect that
+  sends no packet): the shared helpers swap in a version that refuses a
+  hostname, which would need a DNS lookup.
+- Statically, `TestNetworkAccessOnlyThroughTheGuardedTransport` fails if
+  non-test code names the type `http.Transport`, `net.Dialer`, `net.Resolver`,
+  `net.ListenConfig` or `tls.Dialer` (a literal, variable, field, parameter or
+  assertion), calls a method on the last four, or calls
+  `net.Dial*`/`Listen{Packet,UDP,MulticastUDP,IP}`/`Lookup*`/`Resolve*`,
+  `tls.Dial*` or `discovery.Browse*`/`Advertise`. `networkAllowlist` admits
+  each use by file, enclosing function and count: `net.Dial` once in
+  `outboundIP` (injected as above), `discovery.BrowseAWTRIX` once in
+  `newServerApp` (only `main` calls it; NewApp defaults to `browseNotWired`),
+  `discovery.Advertise` once in `main`, and the `*http.Transport` parameter of
+  `healthcheckOnce` and the `http.DefaultTransport` assertion in
+  `runHealthcheck` (the probe clones the default transport, so tests pass the
+  guarded one).
+
+Not covered: an `App` built with `NewApp` directly keeps the real
+`outboundIP`, so a hostname clock URL there would do a DNS lookup; and the
+`go run .` subprocesses in `tls_test.go` and `healthcheck_test.go` run
+unguarded. Those exit before any network I/O (the TLS check runs before the
+App is built, and `healthcheck` only probes the loopback URL it is given),
+and `isolatedGoRunEnv` also strips `EMBER_*`/`CONFIG_PATH` and sets
+`EMBER_CLOCK=off`, `EMBER_MDNS_ADVERTISE=0`, a `127.0.0.1:0` config,
+`GOPROXY=off` and `GOTOOLCHAIN=local`. Point the clock URL (`defaultConfig()`
+falls back to `http://192.168.0.14`) and provider bases at an `httptest`
+stub.
+
 If a sandboxed shell can't write the default build cache, use a repo-local one:
 `GOCACHE="$PWD/.gocache" go test ./...`. In a shell with a stale
 `GOROOT=~/.go`, prefix with `unset GOROOT &&`.

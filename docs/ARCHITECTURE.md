@@ -2720,25 +2720,26 @@ state changed (`PUT /api/v1/indicators/{1-3}`, or `DELETE` to turn one off —
 NG keeps the stored colour/blinkMs on a bare `PUT`, so only `DELETE` truly
 resets one), so the steady state costs no extra device traffic.
 
-**Firmware capabilities** (`GET /api/v1/capabilities`) are fetched at
-startup, after a rediscovery swap, after a detected clock reboot (a firmware
-update reboots the clock at the same URL), on a device-watch tick that finds
-the clock reachable with no capabilities cached (cold start, a failed fetch,
-a clock-config PUT, which empties the cache), and once when the clock
-answers 422 to a notice with a sound (whatever the `field`). A fetch that
-keeps failing (a clock that answers `/api/v1/device` but errors on
-capabilities is retried every watch tick) logs `Warn` once per outage and
-URL, then `Debug` until a fetch is cached or the cache is invalidated (a URL
-swap, a clock-config PUT) or the clock is disabled. A late answer from a
-clock no longer current, success or failure, changes neither the cache nor
-the outage. They are cached in-process, tagged with the clock URL and a
-generation so a late answer from a clock the menu has switched away from is
+**Firmware capabilities** (`GET /api/v1/capabilities`) are fetched at startup,
+after a rediscovery swap, after a detected clock reboot (a firmware update
+reboots the clock at the same URL), on a device-watch tick that finds the
+clock reachable with no capabilities cached (cold start, a failed fetch, a
+clock-config PUT, which empties the cache), and once when the clock answers
+422 to a notice with a sound (whatever the `field`). A fetch that keeps
+failing (a clock that answers `/api/v1/device` but errors on capabilities is
+retried every watch tick) logs `Warn` once per outage and URL, then `Debug`
+until a fetch is cached or the cache is invalidated (a URL swap, a
+clock-config PUT) or the clock is disabled. A late answer that a newer fetch
+or a clock change has superseded (two refreshes of the same clock racing, or a
+switch to another clock), success or failure, changes neither the cache nor
+the outage. Capabilities are cached in-process, tagged with the clock URL and
+a generation so a late answer from a clock the menu has switched away from is
 dropped, and served at `GET /v1/device/capabilities` (falling back to a live
 proxy fetch when the cache is cold) — the firmware's supported
 effect/transition/overlay/palette name lists plus its
 `audio{buzzer,track,mp3,radio}` outputs (NG 1.1.0 replaced the old top-level
-`radio` flag; NG 1.2 renamed `buzzer` to `rtttl`), relayed as the device's
-own document so no key is dropped. Settings › Clock and Sounds use them to
+`radio` flag; NG 1.2 renamed `buzzer` to `rtttl`), relayed as the device's own
+document so no key is dropped. Settings › Clock and Sounds use them to
 populate its transition picker and to gate the buzzer-volume row, instead of
 guessing at a static enum. `/admin/doctor` reports the cached counts (and
 whether a buzzer is present) as its `capabilities` check.

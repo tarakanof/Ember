@@ -294,7 +294,7 @@ func ngAudioApp(t *testing.T, clock *ngAudioClock) *App {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = srv.URL
 	cfg.applyDefaults()
-	a := NewApp(cfg, nil, testLogger())
+	a := guardApp(t, NewApp(cfg, nil, testLogger()))
 	t.Cleanup(a.clockJobs.Wait)
 	return a
 }
@@ -454,6 +454,35 @@ func TestCapsFetchFailureWarnsOncePerOutage(t *testing.T) {
 	a.watchTick(t.Context(), last, 0)
 	if n := warns(); n != 2 {
 		t.Fatalf("warnings after a recovery and a new outage = %d, want 2", n)
+	}
+}
+
+func TestCapsFetchSuccessEndsTheOutageWithoutInvalidate(t *testing.T) {
+	clock := &ngAudioClock{version: "1.2.2", online: true, capsFail: true, uptime: 1000}
+	a := ngAudioApp(t, clock)
+	var buf bytes.Buffer
+	a.logger = captureLogger(&buf)
+	warns := func() int {
+		return strings.Count(buf.String(), `"level":"WARN","msg":"device capabilities fetch failed"`)
+	}
+	last := a.watchTick(t.Context(), deviceProbe{}, 0)
+	last = a.watchTick(t.Context(), last, 0)
+	if n := warns(); n != 1 {
+		t.Fatalf("warnings over the outage = %d, want 1:\n%s", n, buf.String())
+	}
+	clock.set(func(c *ngAudioClock) { c.capsFail = false })
+	last = a.watchTick(t.Context(), last, 0)
+	if !a.soundObjectAPI() {
+		t.Fatal("caps did not recover")
+	}
+	clock.set(func(c *ngAudioClock) { c.capsFail, c.uptime = true, 5 })
+	a.watchTick(t.Context(), last, 0)
+	a.clockJobs.Wait()
+	if !strings.Contains(buf.String(), `"msg":"clock reboot detected"`) {
+		t.Fatalf("no reboot refresh:\n%s", buf.String())
+	}
+	if n := warns(); n != 2 {
+		t.Fatalf("warnings after a recovery and a failed reboot refresh = %d, want 2:\n%s", n, buf.String())
 	}
 }
 

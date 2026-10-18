@@ -13,7 +13,7 @@ import (
 
 func newTestAppWithStore(t *testing.T) *App {
 	t.Helper()
-	a := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	a := guardApp(t, NewApp(defaultConfig(), &recordingPublisher{}, testLogger()))
 	if err := a.ensureStore(t.TempDir() + "/s.db"); err != nil {
 		t.Fatal(err)
 	}

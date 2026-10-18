@@ -37,7 +37,7 @@ func TestEnsureWaitIconsStaysOffWhenTheClockCannotList(t *testing.T) {
 }
 
 func TestClockMoveDisarmsTheWaitIcons(t *testing.T) {
-	app := NewApp(defaultConfig(), &recordingPublisher{iconsErr: errTest}, testLogger())
+	app := NewApp(stubClockConfig(t), &recordingPublisher{iconsErr: errTest}, testLogger())
 	ownIconJobs(t, app)
 	app.waitIcons.Store(true)
 	app.clockMoved("test")
@@ -72,7 +72,7 @@ func TestLockedWaitPushesTheBlinkingLogoOnceProvisioned(t *testing.T) {
 
 func TestClockRebootReprovisionsTheWaitIcons(t *testing.T) {
 	pub := &recordingPublisher{}
-	app := NewApp(defaultConfig(), pub, testLogger())
+	app := NewApp(stubClockConfig(t), pub, testLogger())
 	ownIconJobs(t, app)
 	app.waitIcons.Store(true)
 	app.clockRebooted("clock_reboot")

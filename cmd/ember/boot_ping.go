@@ -27,7 +27,7 @@ func buildBootCallbackURL(ip, addr string) string {
 
 func (a *App) expectedBootCallback() string {
 	cfg := a.cfg.Load()
-	return buildBootCallbackURL(outboundIP(clockHost(cfg.effectiveClockURL())), cfg.HTTP.Addr)
+	return buildBootCallbackURL(a.localIPFor(clockHost(cfg.effectiveClockURL())), cfg.HTTP.Addr)
 }
 
 func (a *App) handleAwtrixBoot(w http.ResponseWriter, r *http.Request) {
