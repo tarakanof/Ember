@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -135,22 +134,6 @@ func invalidHostURL(raw string) bool {
 	return err == nil && strings.HasSuffix(strings.ToLower(u.Hostname()), ".invalid")
 }
 
-type loopbackOnlyTransport struct {
-	mu      sync.Mutex
-	refused []string
-	next    http.RoundTripper
-}
-
-func (l *loopbackOnlyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	if !loopbackURL(r.URL.String()) {
-		l.mu.Lock()
-		l.refused = append(l.refused, r.Method+" "+r.URL.String())
-		l.mu.Unlock()
-		return nil, errors.New("test refused a non-loopback request")
-	}
-	return l.next.RoundTrip(r)
-}
-
 func swapDefaultTransport(t *testing.T, wrap func(http.RoundTripper) http.RoundTripper) {
 	t.Helper()
 	t.Setenv("EMBER_TEST_DEFAULT_TRANSPORT_SWAP", "1")
@@ -159,44 +142,9 @@ func swapDefaultTransport(t *testing.T, wrap func(http.RoundTripper) http.RoundT
 	t.Cleanup(func() { http.DefaultTransport = prev })
 }
 
-func requireLoopbackOnly(t *testing.T) {
-	t.Helper()
-	var guard *loopbackOnlyTransport
-	swapDefaultTransport(t, func(next http.RoundTripper) http.RoundTripper {
-		guard = &loopbackOnlyTransport{next: next}
-		return guard
-	})
-	t.Cleanup(func() {
-		guard.mu.Lock()
-		defer guard.mu.Unlock()
-		if len(guard.refused) > 0 {
-			t.Errorf("non-loopback requests: %v", guard.refused)
-		}
-	})
-}
-
 func loopbackURL(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && loopbackHost(u.Hostname())
-}
-
-func TestRequireLoopbackOnly_RefusesParallelTests(t *testing.T) {
-	before := http.DefaultTransport
-	t.Run("parallel", func(t *testing.T) {
-		t.Parallel()
-		var refused any
-		func() {
-			defer func() { refused = recover() }()
-			requireLoopbackOnly(t)
-		}()
-		msg, _ := refused.(string)
-		if !strings.Contains(msg, "t.Parallel") {
-			t.Errorf("requireLoopbackOnly in a parallel test: recovered %v, want the testing package's t.Parallel panic", refused)
-		}
-		if http.DefaultTransport != before {
-			t.Error("a parallel test swapped http.DefaultTransport")
-		}
-	})
 }
 
 func TestClockReachable_RejectsUnfingerprintedDevice(t *testing.T) {
@@ -224,7 +172,7 @@ func TestClockReachable_RejectsUnfingerprintedDevice(t *testing.T) {
 }
 
 func TestStubRemoteClock_ProbesAndBrowseStayLocal(t *testing.T) {
-	requireLoopbackOnly(t)
+	watchLAN(t)
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = unreachableClockURL
 	a := NewApp(cfg, &recordingPublisher{}, testLogger())
@@ -243,7 +191,7 @@ func TestStubRemoteClock_ProbesAndBrowseStayLocal(t *testing.T) {
 }
 
 func TestStubRemoteClock_UnreachableHostFails(t *testing.T) {
-	requireLoopbackOnly(t)
+	watchLAN(t)
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = unreachableClockURL
 	a := NewApp(cfg, &recordingPublisher{}, testLogger())

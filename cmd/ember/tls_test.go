@@ -188,7 +188,7 @@ func runServerWithEnv(t *testing.T, extraEnv ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "run", ".")
-	cmd.Env = append(cmd.Environ(), extraEnv...)
+	cmd.Env = append(isolatedGoRunEnv(t), extraEnv...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

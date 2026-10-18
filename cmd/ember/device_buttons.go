@@ -50,7 +50,7 @@ func outboundIP(host string) string {
 
 func (a *App) expectedButtonCallback() string {
 	cfg := a.cfg.Load()
-	return buildCallbackURL(outboundIP(clockHost(cfg.effectiveClockURL())), cfg.HTTP.Addr)
+	return buildCallbackURL(a.localIPFor(clockHost(cfg.effectiveClockURL())), cfg.HTTP.Addr)
 }
 
 func (a *App) handleDeviceButtons(w http.ResponseWriter, r *http.Request) {

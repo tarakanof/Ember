@@ -24,8 +24,8 @@ func healthcheckTarget() string {
 	return fmt.Sprintf("%s://127.0.0.1:3627/healthz", scheme)
 }
 
-func healthcheckOnce(url string) error {
-	client := &http.Client{Timeout: 2 * time.Second}
+func healthcheckOnce(url string, base *http.Transport) error {
+	client := &http.Client{Timeout: 2 * time.Second, Transport: base}
 	if strings.HasPrefix(url, "https://") {
 		tlsCfg := &tls.Config{}
 		if caFile := os.Getenv("EMBER_HEALTHCHECK_CA_FILE"); caFile != "" {
@@ -38,7 +38,9 @@ func healthcheckOnce(url string) error {
 		if v := os.Getenv("EMBER_HEALTHCHECK_INSECURE"); v == "1" || v == "true" {
 			tlsCfg.InsecureSkipVerify = true
 		}
-		client.Transport = &http.Transport{TLSClientConfig: tlsCfg}
+		tr := base.Clone()
+		tr.TLSClientConfig = tlsCfg
+		client.Transport = tr
 	}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -64,7 +66,12 @@ func loadCAPool(path string) (*x509.CertPool, error) {
 }
 
 func runHealthcheck() {
-	if err := healthcheckOnce(healthcheckTarget()); err != nil {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "healthcheck: http.DefaultTransport is %T\n", http.DefaultTransport)
+		os.Exit(1)
+	}
+	if err := healthcheckOnce(healthcheckTarget(), base); err != nil {
 		fmt.Fprintf(os.Stderr, "healthcheck %v\n", err)
 		os.Exit(1)
 	}

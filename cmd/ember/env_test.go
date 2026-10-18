@@ -12,12 +12,12 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "unset EMBER_CLOCK:", err)
 		os.Exit(2)
 	}
-	guard, rt, err := installLANGuard(http.DefaultTransport)
+	guard, tr, rt, err := installLANGuard(http.DefaultTransport)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "install LAN guard:", err)
 		os.Exit(2)
 	}
-	http.DefaultTransport = rt
+	testLANGuard, guardedTransport, http.DefaultTransport = guard, tr, rt
 	code := m.Run()
 	if guard.report(os.Stderr) && code == 0 {
 		code = 1

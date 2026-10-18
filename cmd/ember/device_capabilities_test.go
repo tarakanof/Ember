@@ -294,7 +294,7 @@ func ngAudioApp(t *testing.T, clock *ngAudioClock) *App {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = srv.URL
 	cfg.applyDefaults()
-	a := NewApp(cfg, nil, testLogger())
+	a := guardApp(t, NewApp(cfg, nil, testLogger()))
 	t.Cleanup(a.clockJobs.Wait)
 	return a
 }

@@ -15,13 +15,38 @@ go vet ./...
 go run ./cmd/ember -config config.example.json
 ```
 
-`cmd/ember` tests make no LAN or internet calls: `TestMain` wraps
-`http.DefaultTransport` so any HTTP request or dial to a non-loopback host is
-refused, and the package fails, listing each refused URL with the test that
-made it (a background goroutine shows the code path instead; rerun with
-`GODEBUG=tracebackancestors=10` to name its test). Point the clock URL
-(`defaultConfig()` falls back to `http://192.168.0.14`) and provider bases at
-an `httptest` stub, e.g. `stubClockConfig(t)`.
+**Network isolation in `cmd/ember` tests.** What is covered:
+
+- HTTP through `http.DefaultTransport` (every client with a nil `Transport`,
+  the awtrix client included, and clones of it such as the healthcheck's TLS
+  transport). `TestMain` refuses any request or dial to a host that is not a
+  loopback IP; `localhost` is resolved first and dialled by its loopback
+  address. Each refusal fails the package, listing the URL and the test that
+  made it. A refusal from a background goroutine names its code path; rerun
+  with `GODEBUG=tracebackancestors=10` to name the test. Tests built from the
+  shared helpers (`newTestApp`, `newTestAppWithStore`, `ngAudioApp`,
+  `stubClockConfig`, ...) or calling `watchLAN(t)` also fail themselves.
+- The button/boot callback route lookup (`App.localIPFor`, a UDP connect that
+  sends no packet): the shared helpers swap in a version that refuses a
+  hostname, which would need a DNS lookup.
+- Statically, `TestNetworkAccessOnlyThroughTheGuardedTransport` fails if
+  non-test code builds an `http.Transport`, `net.Dialer` or `net.Resolver`, or
+  calls `net.Dial*`/`Listen{Packet,UDP,MulticastUDP,IP}`/`Lookup*` or
+  `discovery.Browse*`/`Advertise`, outside its allowlist: `outboundIP`
+  (`device_buttons.go`, injected as above), `newServerApp` (`app.go`, wires
+  the real mDNS browse; only `main` calls it, and NewApp defaults to
+  `browseNotWired`), and the mDNS advertiser in `main.go`.
+
+Not covered: an `App` built with `NewApp` directly keeps the real
+`outboundIP`, so a hostname clock URL there would do a DNS lookup; and the
+`go run .` subprocesses in `tls_test.go` and `healthcheck_test.go` run
+unguarded. Those exit before any network I/O (the TLS check runs before the
+App is built, and `healthcheck` only probes the loopback URL it is given),
+and `isolatedGoRunEnv` also strips `EMBER_*`/`CONFIG_PATH` and sets
+`EMBER_CLOCK=off`, `EMBER_MDNS_ADVERTISE=0`, a `127.0.0.1:0` config,
+`GOPROXY=off` and `GOTOOLCHAIN=local`. Point the clock URL (`defaultConfig()`
+falls back to `http://192.168.0.14`) and provider bases at an `httptest`
+stub.
 
 If a sandboxed shell can't write the default build cache, use a repo-local one:
 `GOCACHE="$PWD/.gocache" go test ./...`. In a shell with a stale

@@ -2732,9 +2732,9 @@ URL, then `Debug` until a fetch is cached or the cache is invalidated (a URL
 swap, a clock-config PUT) or the clock is disabled. A late answer that a
 newer fetch or a clock change has superseded (two refreshes of the same clock
 racing, or a switch to another clock), success or failure, changes neither
-the cache nor the outage. They are cached in-process, tagged with the clock URL and a
-generation so a late answer from a clock the menu has switched away from is
-dropped, and served at `GET /v1/device/capabilities` (falling back to a live
+the cache nor the outage. Capabilities are cached in-process, tagged with the
+clock URL and a generation so a late answer from a clock the menu has switched
+away from is dropped, and served at `GET /v1/device/capabilities` (falling back to a live
 proxy fetch when the cache is cold) — the firmware's supported
 effect/transition/overlay/palette name lists plus its
 `audio{buzzer,track,mp3,radio}` outputs (NG 1.1.0 replaced the old top-level

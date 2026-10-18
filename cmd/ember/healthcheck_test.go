@@ -53,7 +53,7 @@ func TestHealthcheckOnce_OK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := healthcheckOnce(srv.URL + "/healthz"); err != nil {
+	if err := healthcheckOnce(srv.URL+"/healthz", guardedTransport); err != nil {
 		t.Fatalf("healthcheckOnce: unexpected error: %v", err)
 	}
 }
@@ -64,7 +64,7 @@ func TestHealthcheckOnce_Non200(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := healthcheckOnce(srv.URL + "/healthz")
+	err := healthcheckOnce(srv.URL+"/healthz", guardedTransport)
 	if err == nil {
 		t.Fatal("healthcheckOnce: expected error on 503, got nil")
 	}
@@ -74,7 +74,7 @@ func TestHealthcheckOnce_Non200(t *testing.T) {
 }
 
 func TestHealthcheckOnce_Down(t *testing.T) {
-	err := healthcheckOnce(deadAddr(t))
+	err := healthcheckOnce(deadAddr(t), guardedTransport)
 	if err == nil {
 		t.Fatal("healthcheckOnce: expected error against closed port, got nil")
 	}
@@ -85,7 +85,7 @@ func runHealthcheckSubprocess(t *testing.T, healthURL string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "run", ".", "healthcheck")
-	cmd.Env = append(cmd.Environ(),
+	cmd.Env = append(isolatedGoRunEnv(t),
 		"EMBER_HEALTHCHECK_URL="+healthURL,
 		"CONFIG_PATH=/nonexistent/awtrix.json",
 	)
@@ -161,7 +161,7 @@ func TestHealthcheckOnce_HTTPS_TrustedViaCAFile(t *testing.T) {
 
 	t.Setenv("EMBER_HEALTHCHECK_CA_FILE", cert)
 	t.Setenv("EMBER_HEALTHCHECK_INSECURE", "")
-	if err := healthcheckOnce(srv.URL + "/healthz"); err != nil {
+	if err := healthcheckOnce(srv.URL+"/healthz", guardedTransport); err != nil {
 		t.Fatalf("healthcheckOnce: %v", err)
 	}
 }
@@ -179,7 +179,7 @@ func TestHealthcheckOnce_HTTPS_Insecure(t *testing.T) {
 
 	t.Setenv("EMBER_HEALTHCHECK_CA_FILE", "")
 	t.Setenv("EMBER_HEALTHCHECK_INSECURE", "1")
-	if err := healthcheckOnce(srv.URL + "/healthz"); err != nil {
+	if err := healthcheckOnce(srv.URL+"/healthz", guardedTransport); err != nil {
 		t.Fatalf("healthcheckOnce: %v", err)
 	}
 }
@@ -197,7 +197,7 @@ func TestHealthcheckOnce_HTTPS_UntrustedFails(t *testing.T) {
 
 	t.Setenv("EMBER_HEALTHCHECK_CA_FILE", "")
 	t.Setenv("EMBER_HEALTHCHECK_INSECURE", "")
-	if err := healthcheckOnce(srv.URL + "/healthz"); err == nil {
+	if err := healthcheckOnce(srv.URL+"/healthz", guardedTransport); err == nil {
 		t.Fatal("healthcheckOnce: expected verify failure against unknown CA, got nil")
 	}
 }
