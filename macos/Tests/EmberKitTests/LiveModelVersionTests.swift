@@ -20,6 +20,10 @@ private final class VersionedServer: Sendable {
     let clockOff = Shared(false)
     let healthReads = Shared(0)
     let healthDisabled = Shared<Bool?>(nil)
+    let holdVersion = Shared(false)
+    let holdHealth = Shared(false)
+    let versionGate = DispatchSemaphore(value: 0)
+    let healthGate = DispatchSemaphore(value: 0)
 
     func client() -> APIClient {
         stubbedClient { [self] req in
@@ -29,13 +33,16 @@ private final class VersionedServer: Sendable {
                 return (okResponse(req.url!), Data(#"{"sessions":[]}"#.utf8))
             case "/version":
                 versionReads.value += 1
-                if versionLost.value { throw URLError(.timedOut) }
                 let off = clockOff.value ? #","clock_disabled":true"# : ""
+                if holdVersion.value { versionGate.wait() }
+                if versionLost.value { throw URLError(.timedOut) }
                 let body = #"{"binary":"ember","version":"\#(version.value)","revision":"44143ca","dirty":true\#(off)}"#
                 return (okResponse(req.url!), Data(body.utf8))
             case "/v1/clock/health":
                 healthReads.value += 1
-                guard let disabled = healthDisabled.value else { return (okResponse(req.url!, status: 404), Data()) }
+                let disabledWhenAsked = healthDisabled.value
+                if holdHealth.value { healthGate.wait() }
+                guard let disabled = disabledWhenAsked else { return (okResponse(req.url!, status: 404), Data()) }
                 return (okResponse(req.url!), Data(clockHealthJSON(disabled: disabled).utf8))
             default:
                 return (okResponse(req.url!, status: 404), Data())
@@ -281,4 +288,83 @@ private func poll(_ m: LiveModel) async {
                                   matrixPower: nil)
     #expect(!menu.showsActions)
     #expect(menu.apps.isEmpty)
+}
+
+@MainActor @Test func equalClockHealthReadAfterAVersionReadStillWins() async {
+    let server = VersionedServer()
+    server.healthDisabled.value = false
+    let time = Shared<Double>(1_000)
+    let m = makeModel(at: time)
+    m.configure(client: server.client())
+    await poll(m)
+    await refreshClockHealth(m)
+    #expect(!m.isClockDisabled)
+
+    server.down.value = true
+    for _ in 0..<LiveModel.offlineAfterFailures { await poll(m) }
+    server.clockOff.value = true
+    server.healthDisabled.value = true
+    server.down.value = false
+    time.value = 1_010
+    await poll(m)
+    #expect(m.isClockDisabled)
+
+    server.clockOff.value = false
+    server.healthDisabled.value = false
+    time.value = 1_020
+    await refreshClockHealth(m)
+    #expect(server.versionReads.value == 2)
+    #expect(!m.isClockDisabled)
+}
+
+@MainActor @Test func versionReplyLandingAfterANewerHealthReadDoesNotWin() async {
+    let server = VersionedServer()
+    server.clockOff.value = true
+    server.holdVersion.value = true
+    let time = Shared<Double>(1_000)
+    let m = makeModel(at: time)
+    m.configure(client: server.client())
+    await m.refreshNow(.state)
+    for _ in 0..<2000 where server.versionReads.value == 0 { await Task.yield() }
+    #expect(server.versionReads.value == 1)
+
+    server.healthDisabled.value = false
+    time.value = 1_001
+    await refreshClockHealth(m)
+    #expect(!m.isClockDisabled)
+
+    time.value = 1_002
+    server.versionGate.signal()
+    await m.versionFetchSettled()
+    #expect(m.serverVersion == "0.29.0")
+    #expect(!m.isClockDisabled)
+}
+
+@MainActor @Test func healthReplyLandingAfterANewerVersionReadDoesNotWin() async {
+    let server = VersionedServer()
+    let time = Shared<Double>(1_000)
+    let m = makeModel(at: time)
+    m.configure(client: server.client())
+    await poll(m)
+
+    server.healthDisabled.value = false
+    server.holdHealth.value = true
+    let slow = Task { await refreshClockHealth(m) }
+    for _ in 0..<2000 where server.healthReads.value == 0 { await Task.yield() }
+    #expect(server.healthReads.value == 1)
+
+    server.down.value = true
+    for _ in 0..<LiveModel.offlineAfterFailures { await poll(m) }
+    server.clockOff.value = true
+    server.down.value = false
+    time.value = 1_010
+    await poll(m)
+    #expect(server.versionReads.value == 2)
+    #expect(m.isClockDisabled)
+
+    time.value = 1_020
+    server.healthGate.signal()
+    await slow.value
+    #expect(m.clockHealth.value != nil)
+    #expect(m.isClockDisabled)
 }

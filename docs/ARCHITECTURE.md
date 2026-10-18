@@ -1110,10 +1110,13 @@ upgrade shows), off the `/state` loop; a lost read retries on the next good
 `/state`. The same `/version` read carries `clock_disabled` (`EMBER_CLOCK=off`,
 fixed for the server's lifetime), so `LiveModel.isClockDisabled` is known
 before the menu first opens, is re-read after a reconnect, and costs no clock
-I/O (a `/v1/clock/health` read can probe the TC001). A `/v1/clock/health`
-answer loaded after that `/version` read wins: its `disabled` is the newer
-word, so a redeploy faster than the offline detection (3 failed polls) can't
-leave a stale flag. `MenuRows.clockMenu` takes the model's verdict and doesn't
+I/O (a `/v1/clock/health` read can probe the TC001). The two sources are
+ordered by when each request was sent (one sequence number taken at send
+time), not by when it answered: a `/v1/clock/health` read sent after the last
+`/version` read wins, even when its value equals the cached one, so a redeploy
+faster than the offline detection (3 failed polls) can't leave a stale flag,
+and a reply slowed down (a health read waiting on the clock probe, a lagging
+`/version`) can't overrule a newer one. `MenuRows.clockMenu` takes the model's verdict and doesn't
 re-check the health. While it's set the Clock
 submenu shows only "Clock disabled on this server": no Next/Previous/Dismiss,
 display power or Show on Clock. The menu adds no polling: opening it catches up
