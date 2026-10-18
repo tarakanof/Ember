@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -176,6 +178,8 @@ type ngAudioClock struct {
 	capsCalls   int
 	capsWaiting bool
 	refuseSound bool
+	refuseField string
+	patches     []string
 }
 
 func (c *ngAudioClock) set(fn func(c *ngAudioClock)) {
@@ -195,7 +199,7 @@ func (c *ngAudioClock) server(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		c.mu.Lock()
-		online, ng12, gate, refuseSound := c.online, c.version == "1.2.2", c.capsGate, c.refuseSound
+		online, ng12, gate, refuseSound, refuseField := c.online, c.version == "1.2.2", c.capsGate, c.refuseSound, c.refuseField
 		c.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if !online {
@@ -204,6 +208,10 @@ func (c *ngAudioClock) server(t *testing.T) *httptest.Server {
 		}
 		refuse := func(field string) {
 			w.WriteHeader(http.StatusUnprocessableEntity)
+			if field == "-" {
+				_, _ = io.WriteString(w, `{"error":{"code":"validationFailed","message":"bad"}}`)
+				return
+			}
 			_, _ = io.WriteString(w, `{"error":{"code":"validationFailed","message":"unknown key","field":"`+field+`"}}`)
 		}
 		switch r.URL.Path {
@@ -237,6 +245,10 @@ func (c *ngAudioClock) server(t *testing.T) *httptest.Server {
 			c.mu.Lock()
 			c.notifies = append(c.notifies, string(body))
 			c.mu.Unlock()
+			if refuseField != "" {
+				refuse(refuseField)
+				return
+			}
 			if refuseSound && strings.Contains(string(body), `"sound"`) {
 				refuse("sound")
 				return
@@ -246,6 +258,19 @@ func (c *ngAudioClock) server(t *testing.T) *httptest.Server {
 				return
 			}
 			_, _ = io.WriteString(w, `{"ok":true}`)
+		case "/api/v1/settings":
+			if r.Method == http.MethodPatch {
+				c.mu.Lock()
+				c.patches = append(c.patches, string(body))
+				c.mu.Unlock()
+				_, _ = io.WriteString(w, `{"ok":true}`)
+				return
+			}
+			if ng12 {
+				_, _ = io.WriteString(w, `{"brightness":80,"volume":50,"appVolume":40,"alertVolume":60}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"brightness":80,"soundEnabled":true,"buzzerVolume":50}`)
 		case "/api/v1/audio/play":
 			c.mu.Lock()
 			c.plays = append(c.plays, string(body))
@@ -323,6 +348,115 @@ func TestCapsRecoverAfterAFailedFetch(t *testing.T) {
 	}
 }
 
+func capsWarnCounter(a *App) func() int {
+	var buf bytes.Buffer
+	var mu sync.Mutex
+	a.logger = slog.New(slog.NewJSONHandler(lockedWriter{&mu, &buf}, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return strings.Count(buf.String(), `"level":"WARN","msg":"device capabilities fetch failed"`)
+	}
+}
+
+type lockedWriter struct {
+	mu *sync.Mutex
+	w  io.Writer
+}
+
+func (l lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}
+
+func TestCapsFetchFailureWarnsAgainForANewURL(t *testing.T) {
+	clockA := &ngAudioClock{version: "1.2.2", online: true, capsFail: true}
+	a := ngAudioApp(t, clockA)
+	warns := capsWarnCounter(a)
+	a.refreshCapabilities(t.Context())
+	clockB := &ngAudioClock{version: "1.2.2", online: true, capsFail: true}
+	srvB := clockB.server(t)
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = srvB.URL })
+	a.refreshCapabilities(t.Context())
+	if n := warns(); n != 2 {
+		t.Fatalf("warnings = %d, want one per URL", n)
+	}
+}
+
+func TestCapsFetchFailureWarnsAgainAfterTheClockWasDisabled(t *testing.T) {
+	clock := &ngAudioClock{version: "1.2.2", online: true, capsFail: true}
+	a := ngAudioApp(t, clock)
+	warns := capsWarnCounter(a)
+	a.refreshCapabilities(t.Context())
+	t.Setenv("EMBER_CLOCK", "off")
+	a.refreshCapabilities(t.Context())
+	t.Setenv("EMBER_CLOCK", "")
+	a.refreshCapabilities(t.Context())
+	if n := warns(); n != 2 {
+		t.Fatalf("warnings = %d, want a fresh one after re-enabling", n)
+	}
+}
+
+func TestCapsLateFetchFromTheOldClockKeepsTheNewOutageQuiet(t *testing.T) {
+	for _, late := range []string{"success", "failure"} {
+		t.Run(late, func(t *testing.T) {
+			gate := make(chan struct{})
+			clockA := &ngAudioClock{version: "1.2.2", online: true, capsGate: gate, capsFail: late == "failure"}
+			a := ngAudioApp(t, clockA)
+			warns := capsWarnCounter(a)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				a.refreshCapabilities(context.Background())
+			}()
+			waitForCapsRequest(t, clockA, done)
+			clockB := &ngAudioClock{version: "1.2.2", online: true, capsFail: true}
+			if err := putClockOverride(a, clockB.server(t).URL); err != nil {
+				t.Fatal(err)
+			}
+			a.refreshCapabilities(t.Context())
+			close(gate)
+			<-done
+			a.refreshCapabilities(t.Context())
+			if n := warns(); n != 1 {
+				t.Fatalf("warnings = %d, want 1: a late %s from the old clock must not touch the new outage", n, late)
+			}
+		})
+	}
+}
+
+func TestCapsFetchFailureWarnsOncePerOutage(t *testing.T) {
+	clock := &ngAudioClock{version: "1.2.2", online: true, capsFail: true}
+	a := ngAudioApp(t, clock)
+	var buf bytes.Buffer
+	a.logger = captureLogger(&buf)
+	warns := func() int {
+		return strings.Count(buf.String(), `"level":"WARN","msg":"device capabilities fetch failed"`)
+	}
+	last := deviceProbe{}
+	for range 3 {
+		last = a.watchTick(t.Context(), last, 0)
+	}
+	if n := warns(); n != 1 {
+		t.Fatalf("warnings over three failed ticks = %d, want 1:\n%s", n, buf.String())
+	}
+	if !strings.Contains(buf.String(), `"level":"DEBUG","msg":"device capabilities fetch failed"`) {
+		t.Fatalf("repeat failures not logged at debug:\n%s", buf.String())
+	}
+	clock.set(func(c *ngAudioClock) { c.capsFail = false })
+	last = a.watchTick(t.Context(), last, 0)
+	if !a.soundObjectAPI() {
+		t.Fatal("caps did not recover")
+	}
+	a.caps.invalidate()
+	clock.set(func(c *ngAudioClock) { c.capsFail = true })
+	a.watchTick(t.Context(), last, 0)
+	if n := warns(); n != 2 {
+		t.Fatalf("warnings after a recovery and a new outage = %d, want 2", n)
+	}
+}
+
 func TestSameURLFirmwareUpgradeRefreshesCapsOnReboot(t *testing.T) {
 	clock := &ngAudioClock{version: "1.1.2", online: true, uptime: 1000}
 	a := ngAudioApp(t, clock)
@@ -336,6 +470,31 @@ func TestSameURLFirmwareUpgradeRefreshesCapsOnReboot(t *testing.T) {
 	a.clockJobs.Wait()
 	if !a.soundObjectAPI() {
 		t.Fatal("reboot after a same-URL upgrade kept the 1.1 caps")
+	}
+}
+
+func TestSameURLFirmwareUpgradeForgetsTheSettingsSoundAPIOnReboot(t *testing.T) {
+	clock := &ngAudioClock{version: "1.1.2", online: true, uptime: 1000}
+	a := ngAudioApp(t, clock)
+	a.refreshCapabilities(t.Context())
+	last := a.watchTick(t.Context(), deviceProbe{}, 0)
+	get := httptest.NewRecorder()
+	a.handleDeviceSettingsGet(get, httptest.NewRequest("GET", "/v1/device/settings", nil))
+	if get.Code != http.StatusOK || !strings.Contains(get.Body.String(), "buzzerVolume") {
+		t.Fatalf("settings get: %d %s", get.Code, get.Body)
+	}
+	clock.set(func(c *ngAudioClock) { c.version, c.uptime = "1.2.2", 5 })
+	a.watchTick(t.Context(), last, 0)
+	a.clockJobs.Wait()
+	put := httptest.NewRecorder()
+	a.handleDeviceSettingsPut(put, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"appVolume":30}`)))
+	if put.Code != http.StatusOK {
+		t.Fatalf("mixer put after the reboot: %d %s, want 200 from the 1.2 whitelist", put.Code, put.Body)
+	}
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	if len(clock.patches) != 1 || !strings.Contains(clock.patches[0], `"appVolume":30`) {
+		t.Fatalf("settings patches = %v", clock.patches)
 	}
 }
 
@@ -426,6 +585,41 @@ func TestNoticeRefusedForAnotherReasonStopsAfterTheSoundlessResend(t *testing.T)
 	notifies, _ := clock.snapshot()
 	if len(notifies) != 2 || strings.Contains(notifies[1], `"sound":`) {
 		t.Fatalf("notifies = %v, want one attempt with the sound and one without", notifies)
+	}
+}
+
+func TestNoticeIsResentWithoutSoundOnlyForASoundField(t *testing.T) {
+	cases := []struct {
+		field   string
+		resends bool
+	}{
+		{"sound", true},
+		{"sound.rtttl", true},
+		{"sound[1].file", true},
+		{"soundRtttl", true},
+		{"soundLoop", true},
+		{"icon", false},
+		{"color", false},
+		{"-", false},
+	}
+	for _, c := range cases {
+		t.Run(c.field, func(t *testing.T) {
+			clock := &ngAudioClock{version: "1.2.2", online: true, refuseField: c.field}
+			a := ngAudioApp(t, clock)
+			withAudioCaps(a, ng12Audio(true))
+			n := notice{app: "test", kind: noticeMessage, sound: noticeSound{rtttl: "x:d=4:c"}, payload: map[string]any{"text": "hi"}}
+			if err := a.coord.showNoticeQuiet(t.Context(), n, false); !isUnprocessable(err) {
+				t.Fatalf("err = %v, want the clock's 422", err)
+			}
+			notifies, _ := clock.snapshot()
+			want := 1
+			if c.resends {
+				want = 2
+			}
+			if len(notifies) != want || (c.resends && strings.Contains(notifies[1], `"sound"`)) {
+				t.Fatalf("notifies = %v, want %d attempts (field %q)", notifies, want, c.field)
+			}
+		})
 	}
 }
 

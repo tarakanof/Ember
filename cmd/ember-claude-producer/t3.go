@@ -84,7 +84,7 @@ func parseProcArgs2(b []byte) ([]string, bool) {
 		return nil, false
 	}
 	rest = bytes.TrimLeft(rest[end:], "\x00")
-	argv := make([]string, 0, argc)
+	argv := make([]string, 0, argvCap(argc, rest))
 	for len(argv) < argc {
 		end := bytes.IndexByte(rest, 0)
 		if end < 0 {
@@ -94,6 +94,10 @@ func parseProcArgs2(b []byte) ([]string, bool) {
 		rest = rest[end+1:]
 	}
 	return argv, argc > 0
+}
+
+func argvCap(argc int, rest []byte) int {
+	return min(argc, len(rest))
 }
 
 func reapT3Session(ctx context.Context, cfg Config, sessionID string) {

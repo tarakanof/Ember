@@ -437,8 +437,9 @@ func TestMelodySettingsRefuseValuesNG12CannotPlay(t *testing.T) {
 		{"pomodoro", "sound_melody", func(a *App, w http.ResponseWriter, r *http.Request) { a.handlePomodoroConfigPut(w, r) }},
 		{"weather", "severe_sound", func(a *App, w http.ResponseWriter, r *http.Request) { a.handleWeatherConfigPut(w, r) }},
 	}
-	bad := []string{"Star Wars", "mario.mp3", strings.Repeat("a", 33), ":d=4,o=5:c", "x:" + strings.Repeat("c,", 300)}
-	good := []string{"", "bell", strings.Repeat("a", 32), "pomo:d=4,o=5,b=125:8g6,8c7"}
+	bad := []string{"Star Wars", "mario.mp3", strings.Repeat("a", 33), ":d=4,o=5:c", "x:d=4:" + strings.Repeat("c,", 300),
+		"beep:c,e,g", strings.Repeat("n", 25) + ":d=4:c", "a:b:c:d"}
+	good := []string{"", "bell", strings.Repeat("a", 32), "pomo:d=4,o=5,b=125:8g6,8c7", strings.Repeat("n", 24) + ":d=4:c", "beep::c,e,g"}
 	for _, rt := range routes {
 		for _, v := range append(bad, good...) {
 			a := newTestAppWithStore(t)
@@ -450,10 +451,26 @@ func TestMelodySettingsRefuseValuesNG12CannotPlay(t *testing.T) {
 			if slices.Contains(bad, v) {
 				want = http.StatusBadRequest
 			}
-			if w.Code != want || (want != http.StatusOK && !strings.Contains(w.Body.String(), rt.key)) {
+			if w.Code != want || (want != http.StatusOK && (!strings.Contains(w.Body.String(), rt.key) || !strings.Contains(w.Body.String(), "awtrix-ng 1.2"))) {
 				t.Errorf("%s %q: code=%d want %d body=%s", rt.name, v, w.Code, want, w.Body)
 			}
 		}
+	}
+}
+
+func TestStoredInvalidSevereSoundDoesNotBlockOtherWeatherEdits(t *testing.T) {
+	a := newTestAppWithStore(t)
+	a.updateConfig(func(c *Config) {
+		c.Weather.applyDefaults()
+		c.Weather.SevereSound = "Star Wars"
+	})
+	w := httptest.NewRecorder()
+	a.handleWeatherConfigPut(w, httptest.NewRequest("PUT", "/v1/weather/config", strings.NewReader(`{"refresh_minutes":30}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body)
+	}
+	if got := a.cfg.Load().Weather.SevereSound; got != "Star Wars" {
+		t.Fatalf("severe_sound = %q, want the stored value kept", got)
 	}
 }
 

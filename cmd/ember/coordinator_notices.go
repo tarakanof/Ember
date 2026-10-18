@@ -59,9 +59,9 @@ func validSoundSetting(field, v string) error {
 	name, _, rtttl := strings.Cut(v, ":")
 	switch {
 	case !rtttl && !soundNamePattern.MatchString(v):
-		return fmt.Errorf("%s %q must be a stored melody name (1-32 of A-Z a-z 0-9 _ -) or RTTTL text", field, v)
-	case rtttl && (name == "" || len(v) > 512 || !printableASCII.MatchString(v)):
-		return fmt.Errorf("%s must be RTTTL text up to 512 characters with a name before the first colon", field)
+		return fmt.Errorf("%s %q must be a stored melody name (1-32 of A-Z a-z 0-9 _ -) or RTTTL text, as awtrix-ng 1.2 plays", field, v)
+	case rtttl && (name == "" || len(name) > 24 || strings.Count(v, ":") != 2 || len(v) > 512 || !printableASCII.MatchString(v)):
+		return fmt.Errorf("%s must be RTTTL text as awtrix-ng 1.2 plays it: name:defaults:notes, a 1-24 character name, up to 512 characters", field)
 	}
 	return nil
 }
@@ -120,7 +120,7 @@ func (c *coordinator) showNoticeQuiet(ctx context.Context, n notice, quiet bool)
 			p = noticePayload(n, quiet, again)
 			err = c.publisher.Notify(ctx, p)
 		}
-		if err != nil && isUnprocessable(err) {
+		if err != nil && isSoundRefusal(err) {
 			c.logger.Warn("notice sound refused; showing it without sound", "app", n.app, "err", err)
 			p = noticePayload(n, true, false)
 			err = c.publisher.Notify(ctx, p)
@@ -140,6 +140,12 @@ func (c *coordinator) useSoundObject() bool {
 func isUnprocessable(err error) bool {
 	var apiErr *awtrix.APIError
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnprocessableEntity
+}
+
+func isSoundRefusal(err error) bool {
+	var apiErr *awtrix.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnprocessableEntity &&
+		strings.HasPrefix(apiErr.Field, "sound")
 }
 
 func noticePayload(n notice, quiet, object bool) map[string]any {

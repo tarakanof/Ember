@@ -994,6 +994,27 @@ func TestFirmwareStoreNextRemovalRetriesAStuckLeftover(t *testing.T) {
 	}
 }
 
+func TestFirmwareStoreWarnsOnceAboutAStuckLeftover(t *testing.T) {
+	s := newFWStore(t)
+	var buf bytes.Buffer
+	s.logger = captureLogger(&buf)
+	for _, v := range []string{"0.9.14", "0.9.15", "0.9.16"} {
+		putFW(t, s, fakeFirmware(fwOpts{version: v}), "release")
+	}
+	s.removeAll = failOnBase(firmwareTempPrefix+"0.9.14-", os.RemoveAll)
+	for _, v := range []string{"0.9.14", "0.9.15", "0.9.16"} {
+		if err := s.remove(v, nil, nil); err != nil {
+			t.Fatalf("remove %s = %v", v, err)
+		}
+	}
+	if n := strings.Count(buf.String(), "knob firmware leftover not removed"); n != 1 {
+		t.Fatalf("leftover warnings = %d, want 1 across three sweeps:\n%s", n, buf.String())
+	}
+	if names := dirNames(t, s.dir); !strings.HasPrefix(names, firmwareTempPrefix+"0.9.14-") || strings.Contains(names, ",") {
+		t.Fatalf("entries = %v, want only the stuck 0.9.14 leftover", names)
+	}
+}
+
 func TestFirmwareStoreNextUploadRetriesAStuckLeftover(t *testing.T) {
 	s := newFWStore(t)
 	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "release")

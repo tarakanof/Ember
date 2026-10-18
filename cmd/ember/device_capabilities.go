@@ -13,10 +13,11 @@ import (
 )
 
 type capsCache struct {
-	mu    sync.Mutex
-	gen   uint64
-	base  string
-	value *awtrix.Capabilities
+	mu      sync.Mutex
+	gen     uint64
+	base    string
+	value   *awtrix.Capabilities
+	failing string
 }
 
 func (c *capsCache) begin() uint64 {
@@ -32,15 +33,34 @@ func (c *capsCache) put(gen uint64, base string, v *awtrix.Capabilities) bool {
 		return false
 	}
 	c.gen++
-	c.base, c.value = base, v
+	c.base, c.value, c.failing = base, v, ""
 	return true
+}
+
+func (c *capsCache) fail(gen uint64, base string) (stored, first bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if gen != c.gen {
+		return false, false
+	}
+	c.gen++
+	c.base, c.value = base, nil
+	first = c.failing == "" || !sameDeviceURL(c.failing, base)
+	c.failing = base
+	return true, first
+}
+
+func (c *capsCache) forgetOutage() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.failing = ""
 }
 
 func (c *capsCache) invalidate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.gen++
-	c.base, c.value = "", nil
+	c.base, c.value, c.failing = "", nil, ""
 }
 
 func (c *capsCache) get(base string) (awtrix.Capabilities, bool) {
@@ -57,11 +77,11 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	base := a.cfg.Load().effectiveClockURL()
 	cl, err := a.clock.client(callCapabilities)
 	if errors.Is(err, errClockNotConfigured) || errors.Is(err, errClockDisabled) {
+		a.caps.forgetOutage()
 		return
 	}
 	if err != nil {
-		a.caps.put(gen, base, nil)
-		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
+		a.capsFetchFailed(gen, base, err)
 		return
 	}
 	if info, err := cl.DeviceInfo(ctx); err == nil {
@@ -74,8 +94,7 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	}
 	caps, err := cl.Capabilities(ctx)
 	if err != nil {
-		a.caps.put(gen, base, nil)
-		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
+		a.capsFetchFailed(gen, base, err)
 		return
 	}
 	if !a.caps.put(gen, base, &caps) {
@@ -88,6 +107,18 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 		"palettes", len(caps.Palettes), "buzzer", caps.Audio.PlaysRTTTL(),
 		"sound_object", caps.Audio.SoundObjectAPI(),
 		"firmware", a.deviceFirmware())
+}
+
+func (a *App) capsFetchFailed(gen uint64, base string, err error) {
+	stored, first := a.caps.fail(gen, base)
+	switch {
+	case !stored:
+		a.logger.Debug("device capabilities fetch failed for a clock no longer current", "base_url", base, "err", err)
+	case first:
+		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
+	default:
+		a.logger.Debug("device capabilities fetch failed", "base_url", base, "err", err)
+	}
 }
 
 func (a *App) capabilities() (awtrix.Capabilities, bool) {

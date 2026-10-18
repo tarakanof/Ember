@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -206,6 +207,34 @@ func TestParseProcArgs2(t *testing.T) {
 		if _, ok := parseProcArgs2(bad); ok {
 			t.Errorf("parseProcArgs2(%v) ok on a truncated buffer", bad)
 		}
+	}
+}
+
+func TestParseProcArgs2_HugeArgcIsBoundedByTheBuffer(t *testing.T) {
+	rest := []byte("/bin/t3\x00serve\x00")
+	if got := argvCap(math.MaxInt32, rest); got != len(rest) {
+		t.Errorf("argvCap(MaxInt32, %d bytes) = %d, want %d", len(rest), got, len(rest))
+	}
+	if got := argvCap(2, rest); got != 2 {
+		t.Errorf("argvCap(2, %d bytes) = %d, want 2", len(rest), got)
+	}
+	buf := binary.LittleEndian.AppendUint32(nil, math.MaxUint32)
+	buf = append(buf, "/bin/t3\x00\x00/bin/t3\x00serve\x00"...)
+	if _, ok := parseProcArgs2(buf); ok {
+		t.Error("parseProcArgs2 ok with argc past the buffer")
+	}
+}
+
+func TestSpawnedByT3_InheritedSDKEnvHidesAT3TerminalClaude(t *testing.T) {
+	env := map[string]string{"CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_AGENT_SDK_VERSION": "0.3.276"}
+	procs := map[int]t3FakeProc{
+		100: {ppid: 99, comm: "sh"},
+		99:  {ppid: 98, comm: "claude"},
+		98:  {ppid: 96, comm: "-zsh", argv: []string{"-zsh"}},
+		96:  {ppid: 1, comm: t3DesktopComm, argv: t3DesktopArgv},
+	}
+	if !fakeT3ProbeEnv(env, procs, nil).spawnedByT3(context.Background()) {
+		t.Error("known limit changed: update the T3 terminal note in ARCHITECTURE.md and RUNBOOK.md")
 	}
 }
 
