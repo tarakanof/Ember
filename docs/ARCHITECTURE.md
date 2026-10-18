@@ -1121,9 +1121,9 @@ time), not by when it answered: a `/v1/clock/health` read sent after the last
 `/version` read wins, even when its value equals the cached one, so a redeploy
 faster than the offline detection (3 failed polls) can't leave a stale flag,
 and a reply slowed down (a health read waiting on the clock probe, a lagging
-`/version`) can't overrule a newer one. `MenuRows.clockMenu` takes the model's verdict and doesn't
-re-check the health. While it's set the Clock
-submenu shows only "Clock disabled on this server": no Next/Previous/Dismiss,
+`/version`) can't overrule a newer one. `MenuRows.clockMenu` takes the model's
+verdict and doesn't re-check the health. While it's set the Clock submenu shows
+only "Clock disabled on this server": no Next/Previous/Dismiss,
 display power or Show on Clock. The menu adds no polling: opening it catches up
 `stats`/`meetings`/`usage` (`LiveModel.menuFeeds`) only if they're over 60 s
 old, every fetch pushes the next poll back, so stats stay at one request a

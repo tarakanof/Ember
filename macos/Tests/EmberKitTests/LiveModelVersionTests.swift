@@ -317,7 +317,7 @@ private func poll(_ m: LiveModel) async {
     #expect(!m.isClockDisabled)
 }
 
-@MainActor @Test func versionReplyLandingAfterANewerHealthReadDoesNotWin() async {
+@MainActor @Test func versionReplyLandingAfterANewerHealthReadDoesNotWin() async throws {
     let server = VersionedServer()
     server.clockOff.value = true
     server.holdVersion.value = true
@@ -325,7 +325,7 @@ private func poll(_ m: LiveModel) async {
     let m = makeModel(at: time)
     m.configure(client: server.client())
     await m.refreshNow(.state)
-    for _ in 0..<2000 where server.versionReads.value == 0 { await Task.yield() }
+    try await waitFor { server.versionReads.value > 0 }
     #expect(server.versionReads.value == 1)
 
     server.healthDisabled.value = false
@@ -340,7 +340,7 @@ private func poll(_ m: LiveModel) async {
     #expect(!m.isClockDisabled)
 }
 
-@MainActor @Test func healthReplyLandingAfterANewerVersionReadDoesNotWin() async {
+@MainActor @Test func healthReplyLandingAfterANewerVersionReadDoesNotWin() async throws {
     let server = VersionedServer()
     let time = Shared<Double>(1_000)
     let m = makeModel(at: time)
@@ -350,7 +350,7 @@ private func poll(_ m: LiveModel) async {
     server.healthDisabled.value = false
     server.holdHealth.value = true
     let slow = Task { await refreshClockHealth(m) }
-    for _ in 0..<2000 where server.healthReads.value == 0 { await Task.yield() }
+    try await waitFor { server.healthReads.value > 0 }
     #expect(server.healthReads.value == 1)
 
     server.down.value = true
@@ -367,4 +367,10 @@ private func poll(_ m: LiveModel) async {
     await slow.value
     #expect(m.clockHealth.value != nil)
     #expect(m.isClockDisabled)
+}
+
+@MainActor
+private func waitFor(_ cond: () -> Bool) async throws {
+    for _ in 0..<1000 where !cond() { try await Task.sleep(for: .milliseconds(5)) }
+    try #require(cond())
 }
