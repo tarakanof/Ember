@@ -283,6 +283,7 @@ private func save(_ img: CGImage, _ name: String) {
     #expect(KnobFaceRender.fontRegistered, "Montserrat must be registered or the labels fall back")
     let ct = CTFontCreateWithName(th.font.family as CFString, w.value.fontPx, nil)
     #expect(CTFontCopyPostScriptName(ct) as String == th.font.family, "value font resolves to Montserrat")
+    #expect(CTFontCopyPostScriptName(KnobFaceRender.ctFont(th, w.value.fontPx)) as String == th.font.family)
     #expect(KnobFaceRender.degreeShift(w.value, th) == 19, "deg / 2 of the 40 px degree glyph and -2 spacing")
 
     let ink = (200..<Int(w.sub.yPx)).flatMap { y in (100..<366).filter { x in near(pixel(img, x, y), merc, 60) } }
@@ -315,6 +316,7 @@ private func save(_ img: CGImage, _ name: String) {
         }
     }
     #expect(dark > 300 && lit > 100)
+    #expect(near(pixel(none, 227, 153), th0.strokeColor, 50), "lit shoulder where the tube leaves the head")
 
     for dark in [true, false] {
         let framed = try #require(render(KnobScreen { KnobFaceView(.pomodoro(focus)) }, side: 240, dark: dark))
