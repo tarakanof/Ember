@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -334,6 +335,37 @@ func TestCapsRecoverAfterAFailedFetch(t *testing.T) {
 	a.watchTick(t.Context(), deviceProbe{}, 0)
 	if !a.soundObjectAPI() {
 		t.Fatal("caps did not recover on the next watch tick")
+	}
+}
+
+func TestCapsFetchFailureWarnsOncePerOutage(t *testing.T) {
+	clock := &ngAudioClock{version: "1.2.2", online: true, capsFail: true}
+	a := ngAudioApp(t, clock)
+	var buf bytes.Buffer
+	a.logger = captureLogger(&buf)
+	warns := func() int {
+		return strings.Count(buf.String(), `"level":"WARN","msg":"device capabilities fetch failed"`)
+	}
+	last := deviceProbe{}
+	for range 3 {
+		last = a.watchTick(t.Context(), last, 0)
+	}
+	if n := warns(); n != 1 {
+		t.Fatalf("warnings over three failed ticks = %d, want 1:\n%s", n, buf.String())
+	}
+	if !strings.Contains(buf.String(), `"level":"DEBUG","msg":"device capabilities fetch failed"`) {
+		t.Fatalf("repeat failures not logged at debug:\n%s", buf.String())
+	}
+	clock.set(func(c *ngAudioClock) { c.capsFail = false })
+	last = a.watchTick(t.Context(), last, 0)
+	if !a.soundObjectAPI() {
+		t.Fatal("caps did not recover")
+	}
+	a.caps.invalidate()
+	clock.set(func(c *ngAudioClock) { c.capsFail = true })
+	a.watchTick(t.Context(), last, 0)
+	if n := warns(); n != 2 {
+		t.Fatalf("warnings after a recovery and a new outage = %d, want 2", n)
 	}
 }
 

@@ -2704,7 +2704,10 @@ after a rediscovery swap, after a detected clock reboot (a firmware update
 reboots the clock at the same URL), on a device-watch tick that finds the
 clock reachable with no capabilities cached (cold start, a failed fetch, a
 clock-config PUT, which empties the cache), and once when the clock answers
-422 to a notice with a sound (whatever the `field`). They are cached in-process, tagged with the clock URL and a
+422 to a notice with a sound (whatever the `field`). A fetch that keeps
+failing (a clock that answers `/api/v1/device` but errors on capabilities is
+retried every watch tick) logs `Warn` once per outage and URL, then `Debug`
+until a fetch succeeds. They are cached in-process, tagged with the clock URL and a
 generation so a late answer from a clock the menu has switched away from is
 dropped, and served at
 `GET /v1/device/capabilities` (falling back to a live proxy fetch when the

@@ -13,10 +13,27 @@ import (
 )
 
 type capsCache struct {
-	mu    sync.Mutex
-	gen   uint64
-	base  string
-	value *awtrix.Capabilities
+	mu      sync.Mutex
+	gen     uint64
+	base    string
+	value   *awtrix.Capabilities
+	failing string
+}
+
+func (c *capsCache) fetchFailed(base string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.failing != "" && sameDeviceURL(c.failing, base) {
+		return false
+	}
+	c.failing = base
+	return true
+}
+
+func (c *capsCache) fetchSucceeded() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.failing = ""
 }
 
 func (c *capsCache) begin() uint64 {
@@ -60,8 +77,7 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 		return
 	}
 	if err != nil {
-		a.caps.put(gen, base, nil)
-		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
+		a.capsFetchFailed(gen, base, err)
 		return
 	}
 	if info, err := cl.DeviceInfo(ctx); err == nil {
@@ -74,10 +90,10 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	}
 	caps, err := cl.Capabilities(ctx)
 	if err != nil {
-		a.caps.put(gen, base, nil)
-		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
+		a.capsFetchFailed(gen, base, err)
 		return
 	}
+	a.caps.fetchSucceeded()
 	if !a.caps.put(gen, base, &caps) {
 		a.logger.Info("device capabilities dropped: the clock changed during the fetch", "base_url", base)
 		return
@@ -88,6 +104,15 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 		"palettes", len(caps.Palettes), "buzzer", caps.Audio.PlaysRTTTL(),
 		"sound_object", caps.Audio.SoundObjectAPI(),
 		"firmware", a.deviceFirmware())
+}
+
+func (a *App) capsFetchFailed(gen uint64, base string, err error) {
+	a.caps.put(gen, base, nil)
+	if a.caps.fetchFailed(base) {
+		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
+		return
+	}
+	a.logger.Debug("device capabilities fetch failed", "base_url", base, "err", err)
 }
 
 func (a *App) capabilities() (awtrix.Capabilities, bool) {
