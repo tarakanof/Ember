@@ -164,8 +164,8 @@ flagged by an `X-Ember-Deferred-Keys` response header),
 `GET/PUT /v1/device/display` (overlay, `PATCH /api/v1/display`),
 `PUT /v1/device/display/power` (`{"power":bool}` — blanks/relights the
 matrix, runtime-only), `POST /v1/device/audio/test` (built-in chime, or
-`{"melody":"<name>"}` to preview a stored one, `[A-Za-z0-9_-]{1,32}` or
-400), `POST /v1/device/audio/stop`,
+`{"melody":"<name>"}` to preview a stored one, `[A-Za-z0-9_-]{1,32}`, at
+most 24 characters on a 1.0/1.1 clock, or 400), `POST /v1/device/audio/stop`,
 `GET /v1/device/audio/melodies` (NG's melody list; the audio routes answer
 503 `unavailable` when cached capabilities show no buzzer, meaning neither
 `audio.buzzer` nor NG 1.2's `audio.rtttl`, or no output),

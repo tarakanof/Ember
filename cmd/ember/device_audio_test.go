@@ -147,14 +147,35 @@ func TestDeviceAudioTestPlaysNamedMelody(t *testing.T) {
 	}
 }
 
-func TestDeviceAudioTestPlaysA32CharacterName(t *testing.T) {
-	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
-	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
-	name := strings.Repeat("a", 32)
-	w := httptest.NewRecorder()
-	a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", strings.NewReader(`{"melody":"`+name+`"}`)))
-	if w.Code != http.StatusOK || len(calls()) != 1 {
-		t.Fatalf("code=%d body=%s calls=%d, want a name the settings accept to preview", w.Code, w.Body, len(calls()))
+func TestDeviceAudioTestNameLimitFollowsTheFirmware(t *testing.T) {
+	cases := []struct {
+		name  string
+		audio *awtrix.AudioCaps
+		n     int
+		ok    bool
+	}{
+		{"ng11 24", &awtrix.AudioCaps{Buzzer: true}, 24, true},
+		{"ng11 25", &awtrix.AudioCaps{Buzzer: true}, 25, false},
+		{"ng12 32", ptr(ng12Audio(true)), 32, true},
+		{"ng12 33", ptr(ng12Audio(true)), 33, false},
+		{"cold 32", nil, 32, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+			if c.audio != nil {
+				withAudioCaps(a, *c.audio)
+			}
+			w := httptest.NewRecorder()
+			body := `{"melody":"` + strings.Repeat("a", c.n) + `"}`
+			a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", strings.NewReader(body)))
+			if c.ok && (w.Code != http.StatusOK || len(calls()) != 1) {
+				t.Fatalf("code=%d body=%s calls=%d, want the preview played", w.Code, w.Body, len(calls()))
+			}
+			if !c.ok && (w.Code != http.StatusBadRequest || len(calls()) != 0) {
+				t.Fatalf("code=%d calls=%d, want 400 and no clock call", w.Code, len(calls()))
+			}
+		})
 	}
 }
 

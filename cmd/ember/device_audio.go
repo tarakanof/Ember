@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 const testChimeRTTTL = "test:d=16,o=6,b=180:c,e,g,8c7"
+
+const legacyMelodyNameMax = 24
 
 func (a *App) callDevice(w http.ResponseWriter, r *http.Request, call func(context.Context, *awtrix.Client) error) {
 	if err := a.clock.do(r.Context(), callMenu, call); err != nil {
@@ -57,9 +60,11 @@ func (a *App) handleDeviceAudioTest(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOptionalOrReject(w, r, &body, true) {
 		return
 	}
-	if body.Melody != nil && !soundNamePattern.MatchString(*body.Melody) {
-		writeError(w, http.StatusBadRequest, errors.New("melody must be 1-32 of A-Z a-z 0-9 _ -"))
-		return
+	if body.Melody != nil {
+		if err := a.validPreviewName(*body.Melody); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
 	}
 	if a.audioUnavailable(w, hasBuzzer, "buzzer") {
 		return
@@ -88,6 +93,16 @@ func (a *App) handleDeviceAudioTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (a *App) validPreviewName(name string) error {
+	if !soundNamePattern.MatchString(name) {
+		return errors.New("melody must be 1-32 of A-Z a-z 0-9 _ -")
+	}
+	if caps, ok := a.capabilities(); ok && !caps.Audio.SoundObjectAPI() && len(name) > legacyMelodyNameMax {
+		return fmt.Errorf("melody must be 1-%d of A-Z a-z 0-9 _ - before awtrix-ng 1.2", legacyMelodyNameMax)
+	}
+	return nil
 }
 
 func (a *App) handleDeviceAudioStop(w http.ResponseWriter, r *http.Request) {
