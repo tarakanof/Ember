@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -210,18 +210,18 @@ func TestParseProcArgs2(t *testing.T) {
 	}
 }
 
-func TestParseProcArgs2_HugeArgcAllocatesByBufferSize(t *testing.T) {
-	buf := binary.LittleEndian.AppendUint32(nil, 1<<24)
-	buf = append(buf, "/bin/t3\x00\x00/bin/t3\x00serve\x00"...)
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	_, ok := parseProcArgs2(buf)
-	runtime.ReadMemStats(&after)
-	if ok {
-		t.Error("parseProcArgs2 ok with argc past the buffer")
+func TestParseProcArgs2_HugeArgcIsBoundedByTheBuffer(t *testing.T) {
+	rest := []byte("/bin/t3\x00serve\x00")
+	if got := argvCap(math.MaxInt32, rest); got != len(rest) {
+		t.Errorf("argvCap(MaxInt32, %d bytes) = %d, want %d", len(rest), got, len(rest))
 	}
-	if grew := after.TotalAlloc - before.TotalAlloc; grew > 64<<20 {
-		t.Errorf("parseProcArgs2 allocated %d bytes for a %d-byte buffer", grew, len(buf))
+	if got := argvCap(2, rest); got != 2 {
+		t.Errorf("argvCap(2, %d bytes) = %d, want 2", len(rest), got)
+	}
+	buf := binary.LittleEndian.AppendUint32(nil, math.MaxUint32)
+	buf = append(buf, "/bin/t3\x00\x00/bin/t3\x00serve\x00"...)
+	if _, ok := parseProcArgs2(buf); ok {
+		t.Error("parseProcArgs2 ok with argc past the buffer")
 	}
 }
 
