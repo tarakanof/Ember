@@ -186,12 +186,6 @@ private final class FacadeServer: @unchecked Sendable {
 }
 
 @MainActor
-private func waitFor(_ cond: () -> Bool) async throws {
-    for _ in 0..<1000 where !cond() { try await Task.sleep(for: .milliseconds(5)) }
-    try #require(cond())
-}
-
-@MainActor
 private func facade(_ server: FacadeServer, id: String? = "clock-a",
                     clock: ManualClock = ManualClock()) async -> (ClockConfigModel, APIClient) {
     let client = stubbedClient(token: "t") { server.handle($0) }

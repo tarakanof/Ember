@@ -1123,24 +1123,26 @@ faster than the offline detection (3 failed polls) can't leave a stale flag,
 and a reply slowed down (a health read waiting on the clock probe, a lagging
 `/version`) can't overrule a newer one. `MenuRows.clockMenu` takes the model's
 verdict and doesn't re-check the health. While it's set the Clock submenu shows
-only "Clock disabled on this server": no Next/Previous/Dismiss,
-display power or Show on Clock. The menu adds no polling: opening it catches up
+only "Clock disabled on this server": no Next/Previous/Dismiss, display power or
+Show on Clock. The menu adds no polling: opening it catches up
 `stats`/`meetings`/`usage` (`LiveModel.menuFeeds`) only if they're over 60 s
 old, every fetch pushes the next poll back, so stats stay at one request a
-minute. No explicit refresh fetches a feed inside a 429's Retry-After window. Actions (Pomodoro,
-clock, app visibility) go through `ActionRunner`, from every surface (Settings
-restarts the clock and switches the display through it too), which keeps the
-last failure for 10 s and refreshes the feeds the action touched (stats follow
-a Pomodoro phase change). Display power is one value, `LiveModel.displayPower`:
-the newest of clock health's `matrixPower` (dated at probe time, so the
-server's 30 s probe cache can't undo a write; it must be over 2 s newer to
-beat a report), a successful power write or reboot, and Settings' overlay read
-(dated when issued). Results from a previous server are dropped. While a write
-is in flight the switches show its target (`ActionRunner.pendingDisplayPower`). With no window open the app makes about 2,640 requests an hour:
-1,200 each to `/state` and `/v1/pomodoro/state`, 60 each to stats, usage,
-meetings and apps (the old poller made about 4,800, 1,200 of them stats).
-`APIClient`'s sessions and the direct screen mirror skip the on-disk `URLCache`,
-which, with no cache headers from the server, only rewrote `Cache.db` every poll.
+minute. No explicit refresh fetches a feed inside a 429's Retry-After window.
+Actions (Pomodoro, clock, app visibility) go through `ActionRunner`, from every
+surface (Settings restarts the clock and switches the display through it too),
+which keeps the last failure for 10 s and refreshes the feeds the action touched
+(stats follow a Pomodoro phase change). Display power is one value,
+`LiveModel.displayPower`: the newest of clock health's `matrixPower` (dated at
+probe time, so the server's 30 s probe cache can't undo a write; it must be over
+2 s newer to beat a report), a successful power write or reboot, and Settings'
+overlay read (dated when issued). Results from a previous server are dropped.
+While a write is in flight the switches show its target
+(`ActionRunner.pendingDisplayPower`). With no window open the app makes about
+2,640 requests an hour: 1,200 each to `/state` and `/v1/pomodoro/state`, 60 each
+to stats, usage, meetings and apps (the old poller made about 4,800, 1,200 of
+them stats). `APIClient`'s sessions and the direct screen mirror skip the
+on-disk `URLCache`, which, with no cache headers from the server, only rewrote
+`Cache.db` every poll.
 
 **Model and networking constraints.**
 - **Config models.** Panes bind controls to `ConfigModel.draft` and call
