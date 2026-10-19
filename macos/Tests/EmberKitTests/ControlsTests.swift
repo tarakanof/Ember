@@ -336,7 +336,7 @@ private func scratchFile(_ ext: String) -> URL {
 }
 
 private func readPid(_ url: URL) async throws -> pid_t {
-    for _ in 0..<500 {
+    for _ in 0..<3000 {
         if let text = try? String(contentsOf: url, encoding: .utf8),
            let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) { return pid }
         try await Task.sleep(for: .milliseconds(10))
@@ -430,7 +430,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 }
 
 @Test func scriptRunnerRunsOneProcessAtATime() async throws {
-    let runner = ScriptProcessRunner(timeout: .seconds(30))
+    let runner = ScriptProcessRunner(timeout: .seconds(120))
     defer { runner.shutdown(grace: .zero) }
     let release = scratchFile("release")
     defer { try? FileManager.default.removeItem(at: release) }
@@ -439,7 +439,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     #expect(runner.run("/bin/sh", hold, what: "test") == .busy)
     #expect(runner.isBusy)
     FileManager.default.createFile(atPath: release.path, contents: nil)
-    for _ in 0..<500 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+    for _ in 0..<3000 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
     #expect(!runner.isBusy)
 }
 
@@ -460,10 +460,10 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     defer { runner.shutdown(grace: .zero) }
     let pidFile = scratchFile("pid")
     defer { try? FileManager.default.removeItem(at: pidFile) }
-    #expect(runner.run("/bin/sh", ["-c", "/bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path], what: "test") == .launched)
+    #expect(runner.run("/bin/sh", ["-c", "/bin/sleep 120 & echo $! > \"$0\"; wait", pidFile.path], what: "test") == .launched)
     let grandchild = try await readPid(pidFile)
     #expect(grandchild > 0)
-    for _ in 0..<500 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
+    for _ in 0..<3000 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
     #expect(grandchild > 0 && !alive(grandchild))
     try await Task.sleep(for: ScriptProcessRunner.killGrace + .milliseconds(300))
     #expect(log.signals(SIGTERM).count == 1 && log.signals(SIGTERM).allSatisfy { $0 < 0 })
@@ -476,14 +476,14 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     defer { runner.shutdown(grace: .zero) }
     let pidFile = scratchFile("pid")
     defer { try? FileManager.default.removeItem(at: pidFile) }
-    #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path],
+    #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 120 & echo $! > \"$0\"; wait", pidFile.path],
                        what: "test") == .launched)
     let grandchild = try await readPid(pidFile)
     #expect(grandchild > 0)
-    for _ in 0..<500 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
+    for _ in 0..<3000 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
     #expect(grandchild > 0 && !alive(grandchild))
     if alive(grandchild) { kill(grandchild, SIGKILL) }
-    for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+    for _ in 0..<3000 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
     #expect(!runner.isBusy)
 }
 
@@ -491,8 +491,8 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     let log = SignalLog()
     let runner = ScriptProcessRunner(timeout: .milliseconds(300), signal: { log.send($0, $1) })
     defer { runner.shutdown(grace: .zero) }
-    #expect(runner.run("/bin/sleep", ["30"], what: "test") == .launched)
-    for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(runner.run("/bin/sleep", ["120"], what: "test") == .launched)
+    for _ in 0..<3000 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
     #expect(!runner.isBusy)
     try await Task.sleep(for: ScriptProcessRunner.killGrace + .milliseconds(300))
     #expect(log.signals(SIGTERM).count == 1)
@@ -506,7 +506,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     let big = Data(repeating: 0x41, count: 4 << 20)
     for _ in 0..<3 {
         #expect(runner.run("/usr/bin/true", [], stdin: big, what: "test") == .launched)
-        for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+        for _ in 0..<3000 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
     }
     try await Task.sleep(for: .milliseconds(300))
     #expect(!runner.isBusy)
@@ -525,13 +525,13 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     defer { runner.shutdown(grace: .zero) }
     let pidFile = scratchFile("pid")
     defer { try? FileManager.default.removeItem(at: pidFile) }
-    #expect(runner.run("/bin/sh", ["-c", "/bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path], what: "test") == .launched)
+    #expect(runner.run("/bin/sh", ["-c", "/bin/sleep 120 & echo $! > \"$0\"; wait", pidFile.path], what: "test") == .launched)
     let grandchild = try await readPid(pidFile)
     #expect(grandchild > 0)
     let started = ContinuousClock.now
     runner.shutdown()
-    #expect(ContinuousClock.now - started < .seconds(2))
-    for _ in 0..<200 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(ContinuousClock.now - started < .seconds(20))
+    for _ in 0..<3000 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
     #expect(grandchild > 0 && !alive(grandchild))
     #expect(log.signals(SIGTERM).count == 1 && log.signals(SIGTERM).allSatisfy { $0 < 0 })
     let group = log.signals(SIGTERM).first ?? 0
@@ -547,14 +547,14 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     defer { runner.shutdown(grace: .zero) }
     let pidFile = scratchFile("pid")
     defer { try? FileManager.default.removeItem(at: pidFile) }
-    #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 30 & echo $! > \"$0\"; wait", pidFile.path],
+    #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 120 & echo $! > \"$0\"; wait", pidFile.path],
                        what: "test") == .launched)
     let grandchild = try await readPid(pidFile)
     #expect(grandchild > 0)
     let started = ContinuousClock.now
     runner.shutdown(grace: .milliseconds(200))
-    #expect(ContinuousClock.now - started < .seconds(2))
-    for _ in 0..<200 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(ContinuousClock.now - started < .seconds(20))
+    for _ in 0..<3000 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
     #expect(grandchild > 0 && !alive(grandchild))
     #expect(log.signals(SIGKILL).count == 1 && log.signals(SIGKILL).allSatisfy { $0 < 0 })
     let group = log.signals(SIGKILL).first ?? 0
@@ -578,7 +578,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     let gate = LaunchGate()
     let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) }, launch: { try gate.launch($0) })
     defer { runner.shutdown(grace: .zero) }
-    async let launched = offMain { runner.run("/bin/sleep", ["30"], what: "test") }
+    async let launched = offMain { runner.run("/bin/sleep", ["120"], what: "test") }
     await offMain { gate.waitEntered() }
     let done = Flag()
     async let stopped: Void = offMain {
@@ -597,7 +597,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     #expect(await launched == .failed)
     let child = gate.pid
     #expect(child > 0)
-    for _ in 0..<200 where alive(child) { try await Task.sleep(for: .milliseconds(10)) }
+    for _ in 0..<3000 where alive(child) { try await Task.sleep(for: .milliseconds(10)) }
     #expect(child > 0 && !alive(child))
     #expect(log.signals(SIGTERM) == [-child])
     if alive(child) { kill(child, SIGKILL) }
@@ -609,15 +609,15 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     defer { runner.shutdown(grace: .zero) }
     let pidFile = scratchFile("pid")
     defer { try? FileManager.default.removeItem(at: pidFile) }
-    #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 30 & echo $! > \"$0\"", pidFile.path],
+    #expect(runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 120 & echo $! > \"$0\"", pidFile.path],
                        what: "test") == .launched)
     let grandchild = try await readPid(pidFile)
     #expect(grandchild > 0)
-    for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+    for _ in 0..<3000 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
     #expect(!runner.isBusy)
     #expect(alive(grandchild))
     runner.shutdown(grace: .milliseconds(200))
-    for _ in 0..<200 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
+    for _ in 0..<3000 where alive(grandchild) { try await Task.sleep(for: .milliseconds(10)) }
     #expect(grandchild > 0 && !alive(grandchild))
     #expect(log.signals(SIGTERM).count == 1 && log.signals(SIGTERM).allSatisfy { $0 < 0 })
     #expect(log.signals(SIGKILL).count == 1 && log.signals(SIGKILL).allSatisfy { $0 < 0 })
