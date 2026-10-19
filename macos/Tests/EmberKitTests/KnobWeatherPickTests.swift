@@ -291,6 +291,11 @@ private final class Devices: @unchecked Sendable {
         }
     }
     func slept(_ d: Duration) { lock.withLock { _sleeps.append(d) } }
+    func lag() async {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(20)) { c.resume() }
+        }
+    }
 }
 
 @MainActor @Test func theSeedStandsInOnlyUntilTheFeedExists() async {
@@ -307,7 +312,7 @@ private final class Devices: @unchecked Sendable {
     d.fail = false
     d.list = [knob("a", nil)]
     await feed.refresh()
-    #expect(KnobShownFollow.reported(by: feed, seed: seed) == nil, "a good list without shown, even if adopt rejected it")
+    #expect(KnobShownFollow.reported(by: feed, seed: seed) == nil, "a good list without shown replaces the seed")
 }
 
 @MainActor @Test func shownFeedStartsFromTheSeedList() {
@@ -358,8 +363,13 @@ private final class Devices: @unchecked Sendable {
     #expect(flag.fired && feed.face == .sun)
 }
 
-@MainActor private func until(_ cond: @autoclosure () -> Bool) async throws {
-    for _ in 0..<400 where !cond() { try await Task.sleep(for: .milliseconds(5)) }
+@MainActor private func until(_ cond: @autoclosure () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async throws {
+    var met = cond()
+    for _ in 0..<400 where !met {
+        try await Task.sleep(for: .milliseconds(5))
+        met = cond()
+    }
+    try #require(met, "timed out", sourceLocation: sourceLocation)
 }
 
 @MainActor @Test func shownFeedPollsOnlyWhileVisibleAndAtOnceWhenShownAgain() async throws {
@@ -385,9 +395,10 @@ private final class Devices: @unchecked Sendable {
 
 @MainActor @Test func shownFeedStopsPollingWhileHidden() async throws {
     let d = Devices()
-    let feed = KnobShownFeed(fetch: { try d.read() }, sleep: { _ in try await Task.sleep(for: .milliseconds(2)) })
+    let feed = KnobShownFeed(fetch: { await d.lag(); return try d.read() }, sleep: { _ in try await Task.sleep(for: .milliseconds(2)) })
     feed.setVisible(true)
     try await until(d.calls >= 3)
+    try await until(feed.refreshing)
     feed.setVisible(false)
     try await until(!feed.refreshing)
     let stopped = d.calls
