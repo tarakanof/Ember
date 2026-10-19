@@ -155,17 +155,7 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
 }
 
 @MainActor @Test func sunFaceRendersTheDayGauge() throws {
-    let mid: Int64 = 1_781_996_400
-    let now = mid + 10 * 3600 + 1800
-    var f = WeatherState.Faces(utcOffsetS: 3600, night: false, windKmh: nil, windDirDeg: nil, rainIntensity: nil,
-                               todayPopPct: nil, rain: nil, days: [], twilight: nil, moon: .init(phasePct: 0, illumPct: 0, up: true), aqi: nil)
-    func d(_ h: Int64, _ m: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(mid + h * 3600 + m * 60)) }
-    f.twilight = .init(dawn: d(6, 55), blueEnd: d(7, 13), goldenEnd: d(8, 30), goldenStart: d(18, 30), blueStart: d(19, 47), dusk: d(20, 5))
-    let at = Date(timeIntervalSince1970: TimeInterval(now))
-    let s = WeatherState(generatedAt: at, enabled: true, provider: "open-meteo", units: "metric", locationName: nil,
-                         current: .init(fetchedAt: at, stale: false, condition: "clear", conditionCode: "0", severe: false, tempC: 12,
-                                        todayMinC: nil, todayMaxC: nil, cloudPct: nil, uv: nil, hourly: []),
-                         air: nil, sun: .init(sunrise: d(7, 30), sunset: d(19, 30), night: false), faces: f)
+    let (s, at) = sunFixture()
     let face = KnobSunFace(state: s, now: at)
     let img = try render(.sun(face))
     #expect(litDot(img) == 5)
@@ -238,4 +228,62 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     var still = KnobWindFace()
     still.level = 1
     #expect(near(pixel(try render(.wind(still)), 260, 165), black, 10), "no streaks without data")
+}
+
+private func sunFixture() -> (WeatherState, Date) {
+    let mid: Int64 = 1_781_996_400
+    let at = Date(timeIntervalSince1970: TimeInterval(mid + 10 * 3600 + 1800))
+    func d(_ h: Int64, _ m: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(mid + h * 3600 + m * 60)) }
+    var fx = WeatherState.Faces(utcOffsetS: 3600, night: false, windKmh: nil, windDirDeg: nil, rainIntensity: nil,
+                                todayPopPct: nil, rain: nil, days: [], twilight: nil, moon: .init(phasePct: 0, illumPct: 0, up: true), aqi: nil)
+    fx.twilight = .init(dawn: d(6, 55), blueEnd: d(7, 13), goldenEnd: d(8, 30), goldenStart: d(18, 30), blueStart: d(19, 47), dusk: d(20, 5))
+    let s = WeatherState(generatedAt: at, enabled: true, provider: "open-meteo", units: "metric", locationName: nil,
+                         current: .init(fetchedAt: at, stale: false, condition: "clear", conditionCode: "0", severe: false, tempC: 12,
+                                        todayMinC: nil, todayMaxC: nil, cloudPct: nil, uv: nil, hourly: []),
+                         air: nil, sun: .init(sunrise: d(7, 30), sunset: d(19, 30), night: false), faces: fx)
+    return (s, at)
+}
+
+@MainActor private func drawCost(_ f: KnobFace, n: Int) throws -> Double {
+    _ = try render(f)
+    let t0 = ContinuousClock.now
+    for _ in 0..<n { _ = try render(f) }
+    return (ContinuousClock.now - t0) / .milliseconds(n)
+}
+
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["KNOB_BENCH"] != nil))
+func weatherFacesDrawCostVersusTemp() throws {
+    let (s, at) = sunFixture()
+    var cast = KnobCastFace()
+    cast.have = true; cast.hasCount = true; cast.hours = true; cast.count = 2; cast.variant = 3; cast.nowDeg = 75; cast.labelDeg = 110
+    cast.label = "15:40"; cast.sub = "rain"; cast.wet = true
+    cast.arcs = [.init(a: 150, n: 70, intensity: 2)]
+    var air = KnobAirFace()
+    air.have = true; air.aqi = 42; air.band = 2; air.fraction = 0.42
+    var wind = KnobWindFace()
+    wind.have = true; wind.kmh = 18; wind.dir = 225; wind.level = 1; wind.fraction = 0.36
+    let days = KnobDaysFace(rows: [.init(wday: 1, icon: .rain, pop: 70, lo: 9, hi: 14), .init(wday: 2, icon: .storm, lo: 7, hi: 19),
+                                   .init(wday: 3, icon: .partly, lo: 7, hi: 19), .init(wday: 4, icon: .cloud, lo: 7, hi: 19)])
+    let faces: [(String, KnobFace)] = [
+        ("temp", .weather(KnobTempFace(value: 12, todayMinC: 6, todayMaxC: 15, sub: "Clear"))),
+        ("rain", .rain(KnobRainFace(dry: false, intensity: 3, pop: 80, untilMin: 885, sub: "until 14:45"))),
+        ("cast", .cast(cast)), ("wind", .wind(wind)), ("days", .days(days)),
+        ("sun", .sun(KnobSunFace(state: s, now: at))), ("air", .air(air)),
+    ]
+    var report = ""
+    for (name, f) in faces { report += "\(name)=\(String(format: "%.2f", try drawCost(f, n: 300)))ms " }
+    print("KNOB_BENCH \(report)")
+}
+
+@Test func prebuiltCloudPathsMatchADirectBuild() {
+    for (v, sides) in KnobCastFace.clouds.enumerated() {
+        for (si, side) in sides.enumerated() {
+            for (ci, cl) in side.clouds.enumerated() {
+                #expect(KnobFaceRender.castCloudPaths[v][si][ci] == KnobFaceRender.buildCloud(cl.base, cl.circles.map { ($0.x, $0.y, $0.r) }))
+            }
+        }
+    }
+    #expect(KnobFaceRender.dayCloudPartly == KnobFaceRender.buildCloud(33, [(13, 28, 7), (21, 23, 8.5), (30, 28, 7)]))
+    #expect(KnobFaceRender.dayCloudMid == KnobFaceRender.buildCloud(30, [(10, 25, 7), (19, 20, 9), (29, 25, 7)]))
+    #expect(KnobFaceRender.dayCloudHigh == KnobFaceRender.buildCloud(24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)]))
 }
