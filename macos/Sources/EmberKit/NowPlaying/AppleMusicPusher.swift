@@ -44,11 +44,11 @@ public struct NowPlayingClient: NowPlayingSink {
 }
 
 extension NowPlayingClient: NowPlayingCommandSource {
-    public func commands(player: String, wait: Int) async throws -> [NowPlayingCommand] {
-        let answer: NowPlayingCommands = try await client.get("/v1/nowplaying/commands", query: [
+    public func commands(player: String, wait: Int, watched: Bool) async throws -> NowPlayingCommands {
+        try await client.get("/v1/nowplaying/commands", query: [
             URLQueryItem(name: "player", value: player), URLQueryItem(name: "wait", value: String(wait)),
+            URLQueryItem(name: "watched", value: watched ? "true" : "false"),
         ], budget: .clockLong)
-        return answer.commands
     }
 }
 
@@ -76,6 +76,7 @@ public final class AppleMusicPusher {
 
     public private(set) var lastError: String?
     public private(set) var lastSent: NowPlayingReport?
+    public private(set) var watched = true
 
     @ObservationIgnored private let bridge: MusicBridge
     @ObservationIgnored private var sink: NowPlayingSink
@@ -166,6 +167,15 @@ public final class AppleMusicPusher {
         }
     }
 
+    public func setWatched(_ on: Bool) {
+        guard on != watched else { return }
+        watched = on
+        guard on else { return endSeekWatch() }
+        seekMisses = 0
+        seekSkips = 0
+        watchSeeks(readFirst: true)
+    }
+
     func checkSeek() async {
         let gen = submits
         guard worker == nil, let before = anchor else { return }
@@ -200,12 +210,16 @@ public final class AppleMusicPusher {
         !Task.isCancelled && worker == nil && submits == gen && anchor == before
     }
 
-    private func watchSeeks() {
-        guard let every = seekEvery, seekWatch == nil else { return }
+    private func watchSeeks(readFirst: Bool = false) {
+        guard watched, anchor != nil, let every = seekEvery, seekWatch == nil else { return }
         seekWatch = Task { [weak self, sleep, bridge] in
             if await bridge.canControl() {
+                var wait = !readFirst
                 while !Task.isCancelled {
-                    do { try await sleep(every) } catch { return }
+                    if wait {
+                        do { try await sleep(every) } catch { return }
+                    }
+                    wait = true
                     guard let self else { return }
                     await self.checkSeek()
                 }

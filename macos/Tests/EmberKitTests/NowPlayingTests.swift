@@ -589,21 +589,110 @@ private struct SeekRig {
         #expect(req.url?.path == "/v1/nowplaying/commands")
         let q = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
         #expect(q.contains(URLQueryItem(name: "player", value: "M4")) && q.contains(URLQueryItem(name: "wait", value: "25")))
-        return (okResponse(req.url!), Data(#"{"commands":[{"id":"c1","action":"play_pause"}]}"#.utf8))
+        #expect(q.contains(URLQueryItem(name: "watched", value: "false")))
+        return (okResponse(req.url!), Data(#"{"commands":[{"id":"c1","action":"play_pause"}],"watched":true}"#.utf8))
     }
-    let got = try await NowPlayingClient(client: client).commands(player: "M4", wait: 25)
-    #expect(got.map(\.action) == [.playPause])
+    let got = try await NowPlayingClient(client: client).commands(player: "M4", wait: 25, watched: false)
+    #expect(got.commands.map(\.action) == [.playPause] && got.watched == true)
+}
+
+@Test func commandsWithoutWatchedDecodeAsUnknown() throws {
+    let body = Data(#"{"commands":[]}"#.utf8)
+    #expect(try JSONDecoder().decode(NowPlayingCommands.self, from: body).watched == nil)
+    let off = Data(#"{"commands":[],"watched":false}"#.utf8)
+    #expect(try JSONDecoder().decode(NowPlayingCommands.self, from: off).watched == false)
+}
+
+@MainActor
+@Test func seekWatchStopsWhileUnwatchedAndRereadsOnceWhenWatchedAgain() async {
+    let r = await SeekRig.playing()
+    r.pusher.setWatched(false)
+    await waitUntil { r.ticks.waiting == 0 }
+    #expect(!r.pusher.isWatchingSeeks && r.ticks.waiting == 0)
+    let reads = await r.bridge.positionReads
+    r.clock.advance(.seconds(30))
+    await r.seek(to: 285)
+    r.pusher.setWatched(true)
+    #expect(r.pusher.isWatchingSeeks)
+    await waitUntil { r.ticks.waiting == 1 }
+    await r.pusher.drain()
+    #expect(await r.bridge.positionReads == reads + 1)
+    #expect(await r.sink.reports.map(\.positionMs) == [42_000, 285_000])
+    r.pusher.setWatched(true)
+    #expect(await r.bridge.positionReads == reads + 1 && r.ticks.waiting == 1)
+}
+
+@MainActor
+@Test func watchedAgainRereadsEvenWhileTheWatchWasBackingOff() async {
+    let r = await SeekRig.playing()
+    await r.bridge.set(positionFails: true)
+    for _ in 0..<AppleMusicPusher.seekMissLimit { await r.tick() }
+    r.pusher.setWatched(false)
+    await r.bridge.set(positionFails: false)
+    await r.seek(to: 285)
+    let reads = await r.bridge.positionReads
+    r.pusher.setWatched(true)
+    await waitUntil { r.ticks.waiting == 1 }
+    await r.pusher.drain()
+    #expect(await r.bridge.positionReads == reads + 1)
+    #expect(await r.sink.reports.map(\.positionMs) == [42_000, 285_000])
+}
+
+@MainActor
+@Test func seekWatchDoesNotStartWhilePlayingUnwatched() async {
+    let r = SeekRig()
+    await r.bridge.setArt(nil)
+    r.pusher.setWatched(false)
+    r.pusher.submit(r.song)
+    await r.pusher.drain()
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(!r.pusher.isWatchingSeeks && r.ticks.entered == 0)
+    #expect(await r.bridge.positionReads == 1)
+}
+
+@MainActor
+@Test func watchedWhilePausedStartsNoSeekWatch() async {
+    let r = SeekRig()
+    await r.bridge.setArt(nil)
+    r.pusher.setWatched(false)
+    var paused = r.song
+    paused.state = .paused
+    r.pusher.submit(paused)
+    await r.pusher.drain()
+    r.pusher.setWatched(true)
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(!r.pusher.isWatchingSeeks && r.ticks.entered == 0)
+}
+
+@MainActor
+@Test func listenerSendsTheKnownHintAndAppliesTheAnswer() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: Sleeps().sleep)
+    let source = FakeCommands(answers: [NowPlayingCommands(commands: [], watched: false),
+                                        NowPlayingCommands(commands: [], watched: true),
+                                        NowPlayingCommands(commands: [], watched: false),
+                                        NowPlayingCommands(commands: [])])
+    listener.start(source: source, player: "M4")
+    await waitUntil { await source.calls >= 5 }
+    #expect(await source.sentWatched == [true, false, true, false, true])
+    #expect(pusher.watched)
+    listener.stop()
+    await listener.join()
 }
 
 private actor FakeCommands: NowPlayingCommandSource {
-    var rounds: [Result<[NowPlayingCommand], Error>]
+    var rounds: [Result<NowPlayingCommands, Error>]
     var calls = 0
-    init(_ rounds: [Result<[NowPlayingCommand], Error>]) { self.rounds = rounds }
-    func commands(player: String, wait: Int) async throws -> [NowPlayingCommand] {
+    var sentWatched: [Bool] = []
+    init(_ rounds: [Result<[NowPlayingCommand], Error>]) { self.rounds = rounds.map { $0.map { NowPlayingCommands(commands: $0) } } }
+    init(answers: [NowPlayingCommands]) { rounds = answers.map { .success($0) } }
+    func commands(player: String, wait: Int, watched: Bool) async throws -> NowPlayingCommands {
         calls += 1
+        sentWatched.append(watched)
         if rounds.isEmpty {
             try await Task.sleep(for: .seconds(3600))
-            return []
+            return NowPlayingCommands(commands: [])
         }
         return try rounds.removeFirst().get()
     }
