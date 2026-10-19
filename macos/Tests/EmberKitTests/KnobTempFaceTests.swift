@@ -253,6 +253,18 @@ private func duskState(generated: String, night: String, cloud: String = "null")
             "sunset 17:58 sent as 18:00: already night on the knob")
     let older = try duskState(generated: "2026-09-26T18:01:00Z", night: "null")
     #expect(face(older, at).sub == "Clear", "a server without sun.night falls back to the rounded times")
+    let iso = ISO8601DateFormatter()
+    let late = try duskState(generated: "2026-09-26T18:01:00Z", night: "false")
+    #expect(face(late, try #require(iso.date(from: "2026-09-26T18:03:00Z"))).sub == "Clear",
+            "fetched between the sent 18:00 and an exact sunset up to 18:02:30: night once that bound passes")
+    #expect(face(late, try #require(iso.date(from: "2026-09-26T18:02:29Z"))).sub == "Sunglasses on",
+            "30 s before the latest exact sunset the fetched day holds")
+    #expect(face(late, try #require(iso.date(from: "2026-09-26T18:02:31Z"))).sub == "Clear",
+            "30 s after the latest exact sunset it is night")
+    let dawn = try duskState(generated: "2026-09-26T06:01:00Z", night: "true", cloud: "0")
+    #expect(face(dawn, try #require(iso.date(from: "2026-09-26T06:02:00Z"))).sub == "Clear")
+    #expect(face(dawn, try #require(iso.date(from: "2026-09-26T06:03:00Z"))).sub == "Sunglasses on",
+            "the same bound at sunrise")
     let crossed = try duskState(generated: "2026-09-26T17:30:00Z", night: "false")
     #expect(face(crossed, try #require(ISO8601DateFormatter().date(from: "2026-09-26T18:30:00Z"))).sub == "Clear",
             "a sun event since the fetch overrides its night")

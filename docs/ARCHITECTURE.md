@@ -3404,7 +3404,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   (#578): `current.cloud_pct` picks the `sky_word` band, held near an edge
   by `WX_BAND_HYST` while the preview stays up, the condition's word
   without it, and by day `current.uv` ≥ 3 replaces it with
-  `wx_uv_advice` in `wx_uv_rgb`), and `nowplaying_view.c`
+  `wx_uv_advice` in `wx_uv_rgb`; night is the fetch's `sun.night`, the
+  knob's own, until a sent sun time plus 2.5 min passes, then the rounded
+  times, since the exact ones would pin the location), and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three
