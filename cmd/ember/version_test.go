@@ -27,3 +27,23 @@ func TestVersion_PrintsBinaryName(t *testing.T) {
 		t.Errorf("version output missing go runtime tag; got %q", out)
 	}
 }
+
+func TestVersion_FlagSpellings(t *testing.T) {
+	for _, spelling := range []string{"-v", "--version"} {
+		t.Run(spelling, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			cmd := goRunCommand(ctx, spelling)
+			cmd.Env = isolatedGoRunEnv(t)
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("`go run . %s` failed: %v\nstderr: %s", spelling, err, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), "ember") {
+				t.Errorf("%s output missing binary name; got %q", spelling, stdout.String())
+			}
+		})
+	}
+}

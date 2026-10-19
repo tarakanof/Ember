@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -457,3 +458,35 @@ func captureLogger(buf *bytes.Buffer) *slog.Logger {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestScanSubcommandForwardsLeadingConfig(t *testing.T) {
+	cases := []struct {
+		args     []string
+		wantSub  string
+		wantRest []string
+		wantOK   bool
+		wantErr  string
+	}{
+		{args: []string{"doctor", "--offline"}, wantSub: "doctor", wantRest: []string{"--offline"}, wantOK: true},
+		{args: []string{"-config", "a.json", "doctor", "--offline"}, wantSub: "doctor", wantRest: []string{"-config", "a.json", "--offline"}, wantOK: true},
+		{args: []string{"--config", "a.json", "doctor"}, wantSub: "doctor", wantRest: []string{"--config", "a.json"}, wantOK: true},
+		{args: []string{"-config=a.json", "doctor", "-config", "b.json"}, wantSub: "doctor", wantRest: []string{"-config=a.json", "-config", "b.json"}, wantOK: true},
+		{args: []string{"-v"}, wantSub: "-v", wantRest: []string{}, wantOK: true},
+		{args: []string{"--version"}, wantSub: "--version", wantRest: []string{}, wantOK: true},
+		{args: []string{"-config", "a.json", "-v"}, wantSub: "-v", wantRest: []string{"-config", "a.json"}, wantOK: true},
+		{args: []string{"-config", "a.json", "-print-config"}},
+		{args: []string{"-config", "doctor"}},
+		{args: []string{"--", "doctor"}},
+		{args: []string{"-print-config", "doctor"}, wantErr: "flag -print-config before subcommand doctor"},
+	}
+	for _, c := range cases {
+		sub, rest, ok, err := scanSubcommand(c.args)
+		gotErr := ""
+		if err != nil {
+			gotErr = err.Error()
+		}
+		if sub != c.wantSub || ok != c.wantOK || !slices.Equal(rest, c.wantRest) || !strings.Contains(gotErr, c.wantErr) || (c.wantErr == "") != (err == nil) {
+			t.Errorf("scanSubcommand(%q) = %q, %q, %v, %v; want %q, %q, %v, %q", c.args, sub, rest, ok, err, c.wantSub, c.wantRest, c.wantOK, c.wantErr)
+		}
+	}
+}
