@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -71,23 +72,30 @@ func (a *App) noteKnobShown(id string, r *http.Request) {
 	if !q.Has("shown") {
 		return
 	}
-	st, err := a.devices.viewState(id)
-	if err != nil || !st.caps.hasFeature(featureShown) {
-		return
-	}
 	raw := q.Get("shown")
 	s, ok := parseKnobShown(raw, a.viewNow())
-	if !ok {
+	has := a.devices.lockedIfKnobHas(id, featureShown, func() {
+		if a.shownSetHook != nil {
+			a.shownSetHook()
+		}
+		if ok {
+			a.knobShown.set(id, s)
+		}
+	})
+	switch {
+	case !has:
+	case !ok:
 		if a.shownDrops.changed(id, "malformed") {
 			a.logger.InfoContext(r.Context(), "knob shown ignored", "device_id", id, "reason", "malformed", "bytes", len(raw))
 		}
-		return
+	default:
+		a.shownDrops.changed(id, "")
 	}
-	a.shownDrops.changed(id, "")
-	a.knobShown.set(id, s)
 }
 
 func (a *App) withShown(v deviceView) deviceView {
-	v.Shown = a.knobShown.fresh(v.ID, a.viewNow())
+	if v.EffectiveCaps != nil && slices.Contains(v.EffectiveCaps.Features, featureShown) {
+		v.Shown = a.knobShown.fresh(v.ID, a.viewNow())
+	}
 	return v
 }

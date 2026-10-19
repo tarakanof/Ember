@@ -390,6 +390,17 @@ func (r *deviceRegistry) viewState(id string) (knobViewState, error) {
 	return knobViewState{epoch: r.state.Epoch, version: c.ConfigVersion, cfg: c.Config, caps: c.Caps}, nil
 }
 
+func (r *deviceRegistry) lockedIfKnobHas(id, feature string, fn func()) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.state.findKnob(id)
+	if d == nil || !d.Caps.hasFeature(feature) {
+		return false
+	}
+	fn()
+	return true
+}
+
 func (r *deviceRegistry) config(id string) (knobSettings, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

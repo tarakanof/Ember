@@ -7,6 +7,8 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -203,25 +205,128 @@ func TestKnobShownIsForgottenWhenTheDeviceIsDeleted(t *testing.T) {
 
 func TestKnobViewPollWithShownGolden(t *testing.T) {
 	f := shownFixture(t)
-	req := struct {
+	type pollRequest struct {
 		Method string `json:"method"`
 		Path   string `json:"path"`
 		Query  struct {
 			Wait  string `json:"wait"`
 			Shown string `json:"shown"`
 		} `json:"query"`
-	}{Method: "GET", Path: knobViewPath}
-	req.Query.Wait = "25"
-	req.Query.Shown = "weather:wind"
-	q := url.Values{"wait": {req.Query.Wait}, "shown": {req.Query.Shown}}
-	resp, b := f.getQuery(t, "?"+q.Encode(), "")
-	mustOK(t, "view poll with shown", resp, b)
-	if got := listedShown(t, f); !strings.Contains(got, `"page":"weather","face":"wind"`) {
-		t.Fatalf("shown after the fixture's poll = %s", got)
 	}
-	body, err := json.Marshal(req)
+	want := pollRequest{Method: "GET", Path: knobViewPath}
+	want.Query.Wait = "25"
+	want.Query.Shown = "weather:wind"
+	body, err := json.Marshal(want)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertDeviceGolden(t, "view_req_shown", body)
+	raw, err := os.ReadFile(filepath.Join("testdata", "devices", "view_req_shown.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Method string            `json:"method"`
+		Path   string            `json:"path"`
+		Query  map[string]string `json:"query"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	q := url.Values{}
+	for k, v := range fixture.Query {
+		q.Set(k, v)
+	}
+	req, err := http.NewRequest(fixture.Method, f.srv.URL+fixture.Path+"?"+q.Encode(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+f.m.Token)
+	resp, err := f.srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("fixture poll = %d", resp.StatusCode)
+	}
+	page, face, _ := strings.Cut(fixture.Query["shown"], ":")
+	if got := listedShown(t, f); !strings.Contains(got, `"page":"`+page+`","face":"`+face+`"`) {
+		t.Fatalf("shown after the fixture's poll = %s, want %s", got, fixture.Query["shown"])
+	}
+}
+
+func TestKnobShownAtIsWholeSecondsUTC(t *testing.T) {
+	f := shownFixture(t)
+	f.clk.mu.Lock()
+	f.clk.now = time.Date(2026, 6, 21, 14, 0, 7, 987654321, time.FixedZone("CEST", 2*3600))
+	f.clk.mu.Unlock()
+	pollShown(t, f, "bot")
+	if got, want := listedShown(t, f), `{"page":"bot","face":null,"at":"2026-06-21T12:00:07Z"}`; got != want {
+		t.Fatalf("shown = %s, want %s", got, want)
+	}
+}
+
+func TestKnobShownDisappearsWhenCapsWithdrawTheToken(t *testing.T) {
+	invalid := maps.Clone(knobCapsFull)
+	invalid["features"] = []string{"np-control", featureShown}
+	without := maps.Clone(knobCapsFull)
+	cases := []struct {
+		name string
+		caps any
+	}{
+		{"caps without shown", without},
+		{"no caps", nil},
+		{"invalid caps", invalid},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := shownFixture(t)
+			pollShown(t, f, "weather:wind")
+			if got := listedShown(t, f); got == "" {
+				t.Fatal("shown missing before the caps change")
+			}
+			postCapsCheckin(t, f, "0.10.0", c.caps)
+			if got := listedShown(t, f); got != "" {
+				t.Fatalf("list shown after the caps change = %s, want absent", got)
+			}
+			resp, b := devReq(t, f.srv, "PATCH", "/v1/devices/"+f.m.ID, testToken, `{"name":"Desk"}`)
+			mustOK(t, "rename", resp, b)
+			if strings.Contains(string(b), `"shown"`) {
+				t.Fatalf("rename reply after the caps change = %s, want no shown", b)
+			}
+		})
+	}
+}
+
+func TestKnobShownPollRacingADeleteLeavesNothingForTheReMintedKnob(t *testing.T) {
+	f := shownFixture(t)
+	deleted := make(chan int, 1)
+	f.app.shownSetHook = func() {
+		f.app.shownSetHook = nil
+		go func() {
+			resp, _ := devReq(t, f.srv, "DELETE", "/v1/devices/"+f.m.ID, testToken, "")
+			deleted <- resp.StatusCode
+		}()
+		select {
+		case code := <-deleted:
+			deleted <- code
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	pollShown(t, f, "weather:wind")
+	if code := <-deleted; code != http.StatusNoContent {
+		t.Fatalf("delete = %d", code)
+	}
+	m := mintKnob(t, f.srv, http.StatusCreated)
+	if m.ID != f.m.ID {
+		t.Fatalf("re-minted id %s, want the same %s", m.ID, f.m.ID)
+	}
+	f.m = m
+	caps := maps.Clone(knobCapsFull)
+	caps["features"] = []string{featureShown}
+	postCapsCheckin(t, f, "0.10.0", caps)
+	if got := listedShown(t, f); got != "" {
+		t.Fatalf("re-minted knob shown = %s, want absent", got)
+	}
 }

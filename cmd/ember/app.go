@@ -87,6 +87,7 @@ type App struct {
 	commitHook        func()
 	migrationHoldHook func()
 	viewWaitHook      func()
+	shownSetHook      func()
 	otaReadHook       func()
 
 	appsMu     sync.Mutex
