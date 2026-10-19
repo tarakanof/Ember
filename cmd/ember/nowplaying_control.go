@@ -339,7 +339,7 @@ func dropStale(cmds []queuedCommand, now time.Time) []queuedCommand {
 
 var errTooManyWaiters = errors.New("too many waiting command polls")
 
-type takeUntil func() (wake <-chan struct{}, recheck <-chan time.Time, done bool)
+type takeUntil func() (wake <-chan struct{}, recheck <-chan time.Time, stop func(), done bool)
 
 func (q *commandQueue) take(ctx context.Context, player string, wait time.Duration, until takeUntil) ([]queuedCommand, error) {
 	q.mu.Lock()
@@ -382,21 +382,25 @@ func (q *commandQueue) take(ctx context.Context, player string, wait time.Durati
 		}
 		var other <-chan struct{}
 		var recheck <-chan time.Time
+		stop := func() {}
 		if until != nil {
 			var done bool
-			if other, recheck, done = until(); done {
+			if other, recheck, stop, done = until(); done {
 				return nil, nil
 			}
 		}
 		select {
 		case <-ctx.Done():
+			stop()
 			return nil, nil
 		case <-timer.C:
+			stop()
 			return nil, nil
 		case <-wake:
 		case <-other:
 		case <-recheck:
 		}
+		stop()
 	}
 }
 

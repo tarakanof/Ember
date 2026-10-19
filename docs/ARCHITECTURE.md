@@ -1268,7 +1268,8 @@ on-disk `URLCache`, which, with no cache headers from the server, only rewrote
   pushes a fresh snapshot, unless a newer notification arrived meanwhile.
   `watched` turning false ends the watch; turning true starts it with one
   read at once (miss count reset), so a seek made while no knob looked
-  shows within a round trip. The pusher starts out watched and treats an
+  shows within a round trip. That read waits for an in-flight report or
+  artwork upload to finish rather than being dropped. The pusher starts out watched and treats an
   answer without the key (an older server) as watched.
   The anchor moves on every report attempt, so a failed POST isn't retried
   each poll. A paused or stopped report (delivered or not), a read that
@@ -2346,15 +2347,24 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     its wait here, and the app drops one older than 5 s in all). Every
     answer carries `watched` (always present, #575): true while a knob
     whose current caps list `shown` reported `nowplaying` in the last 50 s
-    (DEVICE-PROTOCOL "Shown page"), and true while any knob lacks `shown`
-    or none is paired, since an old knob can't say what it shows and the
-    seek watch kept running for it before; false otherwise. The app sends
+    (DEVICE-PROTOCOL "Shown page"), and true while a knob without `shown`
+    made a view request in the last 50 s, since an old knob can't say what
+    it shows and the seek watch kept running for it before; false
+    otherwise. A dead or spare old knob stops counting once it goes quiet
+    (view-request times live in memory, so after a restart an old knob
+    counts from its next poll, ≤25 s). No knob paired means false: nothing
+    else in the server or the app reads the Music position (the clock
+    draws no now playing; the app's knob preview needs a paired knob), so
+    only the unauthenticated `GET /v1/nowplaying/state` would see a seek
+    late. The app sends
     the value it knows as `?watched=`; a waiting poll then also answers
     once the value differs. The wait subscribes to the `shown` store's
     wake channel before reading (no lost wake-up); a change of reported
-    page, a report after a stale one and every device-registry change
-    (caps, delete, mint) close it, and a timer set 1 ms past the
-    latest fresh `nowplaying` report's 50 s mark covers staleness. A wake
+    page, a report after a stale one, an old knob's view request after
+    50 s of silence and every device-registry change (caps, delete, mint)
+    close it, and a stopped-on-wake timer set 1 ms past the latest 50 s
+    mark among whatever keeps it true covers staleness, re-armed when a
+    heartbeat moved that mark. A wake
     only re-reads, so a spurious one costs a registry scan. Without
     `?watched=` the poll waits for commands only. A Mac
     counts as listening while a poll waits and 30 s after one; otherwise

@@ -10,24 +10,20 @@ import (
 var errWatchedInvalid = errors.New("watched must be true or false")
 
 func (a *App) musicWatched(now time.Time) (bool, time.Time) {
-	reporters, legacy, watched := 0, false, false
+	watched := false
 	var until time.Time
 	a.devices.eachKnobCaps(func(id string, caps *deviceCaps) {
+		at, ok := a.knobShown.freshUntil(id, knobNowPlayingPage, now)
 		if !caps.hasFeature(featureShown) {
-			legacy = true
-			return
+			at, ok = a.knobShown.polledUntil(id, now)
 		}
-		reporters++
-		if at, ok := a.knobShown.freshUntil(id, knobNowPlayingPage, now); ok {
+		if ok {
 			watched = true
 			if at.After(until) {
 				until = at
 			}
 		}
 	})
-	if legacy || reporters == 0 {
-		return true, time.Time{}
-	}
 	return watched, until
 }
 
@@ -39,23 +35,28 @@ func (a *App) musicWatchedUntil(q url.Values) (takeUntil, error) {
 	if err != nil {
 		return nil, errWatchedInvalid
 	}
-	return func() (<-chan struct{}, <-chan time.Time, bool) {
+	return func() (<-chan struct{}, <-chan time.Time, func(), bool) {
 		wake := a.knobShown.changed()
+		if a.watchedRead != nil {
+			a.watchedRead()
+		}
 		now := a.viewNow()
 		watched, until := a.musicWatched(now)
 		if watched != known {
-			return nil, nil, true
+			return nil, nil, func() {}, true
 		}
 		if until.IsZero() {
-			return wake, nil, false
+			return wake, nil, func() {}, false
 		}
-		return wake, a.afterWatched(until.Sub(now) + time.Millisecond), false
+		recheck, stop := a.afterWatched(until.Sub(now) + time.Millisecond)
+		return wake, recheck, stop, false
 	}, nil
 }
 
-func (a *App) afterWatched(d time.Duration) <-chan time.Time {
+func (a *App) afterWatched(d time.Duration) (<-chan time.Time, func()) {
 	if a.watchedAfter != nil {
 		return a.watchedAfter(d)
 	}
-	return time.After(d)
+	t := time.NewTimer(d)
+	return t.C, func() { t.Stop() }
 }

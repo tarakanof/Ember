@@ -3311,8 +3311,9 @@ paths:
         Master token only; every client token, `admin` included, gets 403.
         Answers `{commands, watched}`. `watched` is always present: true
         while a knob with the `shown` caps feature reported `nowplaying` in
-        the last 50 s, and also true while any knob lacks that feature (it
-        can't report) or no knob is paired; false otherwise. With
+        the last 50 s, and also true while a knob without that feature (it
+        can't report) polled its view in the last 50 s; false otherwise,
+        including with no knob paired. With
         `watched=`, the caller's last known value, a waiting poll also
         answers as soon as the value differs from it; without it, only
         commands or the wait's end answer (ARCHITECTURE "Now playing" ›
@@ -3329,10 +3330,10 @@ paths:
             maxLength: 64
         - name: wait
           in: query
+          description: Whole seconds to wait; a value above 25 is clamped to 25.
           schema:
             type: integer
             minimum: 0
-            maximum: 25
         - name: watched
           in: query
           description: The caller's last known `watched`; anything but a boolean is a 400.

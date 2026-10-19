@@ -431,9 +431,11 @@ with dropped caps). There is no owner-side change long-poll for the device
 list. Ember.app doesn't read `shown` from it yet; the plan (#611) is to
 poll the device list every 2 s while a knob preview is on screen, and not
 otherwise. A report of `nowplaying` drives the `watched` hint of
-`GET /v1/nowplaying/commands` (#575, ARCHITECTURE "Now playing" › Music):
-a change of page, a report going stale, a caps change and a delete wake
-that long-poll.
+`GET /v1/nowplaying/commands` (#575, ARCHITECTURE "Now playing" › Music).
+A change of reported page, a report after a stale one and any registry
+change (caps, delete, mint) wake that long-poll; a report going stale
+ends it through a timer. A knob without `shown` keeps the hint on while
+it polls its view (any view request in the last 50 s).
 
 ## Usage
 

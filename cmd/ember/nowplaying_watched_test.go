@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -111,24 +112,49 @@ func TestMusicWatchedGoesOffFiftySecondsAfterTheLastNowPlayingReport(t *testing.
 	}
 }
 
-func TestMusicWatchedStaysOnWithoutAReportingKnob(t *testing.T) {
-	t.Run("no knob", func(t *testing.T) {
-		_, srv := newDevicesApp(t, "")
-		if !watchedNow(t, srv) {
-			t.Fatal("watched off with no knob paired")
-		}
-	})
+func TestMusicWatchedIsOffWithNoKnobPaired(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	if watchedNow(t, srv) {
+		t.Fatal("watched with no knob paired")
+	}
+}
+
+func oldKnobFixture(t *testing.T) *viewFixture {
+	t.Helper()
+	f := newViewFixture(t)
+	f.app.viewClock = f.clk.Now
+	postCapsCheckin(t, f, "0.9.0", knobCapsFull)
+	return f
+}
+
+func TestMusicWatchedStaysOnWhileAnOldKnobPolls(t *testing.T) {
 	t.Run("old firmware", func(t *testing.T) {
-		f := newViewFixture(t)
-		postCapsCheckin(t, f, "0.9.0", knobCapsFull)
+		f := oldKnobFixture(t)
+		if watchedNow(t, f.srv) {
+			t.Fatal("watched for an old knob that never polled")
+		}
+		pollShown(t, f, "weather")
 		if !watchedNow(t, f.srv) {
-			t.Fatal("watched off for a knob that can't report")
+			t.Fatal("watched off for a polling knob that can't report")
+		}
+		f.clk.advance(knobShownFresh)
+		if !watchedNow(t, f.srv) {
+			t.Fatal("watched off at the edge of the old knob's last poll")
+		}
+		f.clk.advance(time.Second)
+		if watchedNow(t, f.srv) {
+			t.Fatal("still watched for an old knob that went quiet")
 		}
 	})
 	t.Run("old knob next to a reporting one", func(t *testing.T) {
 		f := shownFixture(t)
 		pollShown(t, f, "weather:temp")
-		mintSecondKnob(t, f.srv)
+		old := mintSecondKnob(t, f.srv)
+		if watchedNow(t, f.srv) {
+			t.Fatal("watched for an old knob that never polled")
+		}
+		resp, b := devReq(t, f.srv, "GET", knobViewPath, old.Token, "")
+		mustOK(t, "old view", resp, b)
 		if !watchedNow(t, f.srv) {
 			t.Fatal("watched off while an old knob might show now playing")
 		}
@@ -189,27 +215,143 @@ func TestMusicWatchedChangeWakesTheLongPoll(t *testing.T) {
 
 func TestMusicWatchedStalenessWakesTheLongPoll(t *testing.T) {
 	f := shownFixture(t)
-	fire := make(chan time.Time)
-	asked := make(chan time.Duration, 4)
-	f.app.watchedAfter = func(d time.Duration) <-chan time.Time {
-		asked <- d
-		return fire
-	}
+	timers := fakeWatchedTimers(f.app)
 	pollShown(t, f, "nowplaying")
 	p := startWatchedPoll(t, f.app, f.srv, "&wait=25&watched=true")
+	timers.armed(t, knobShownFresh+time.Millisecond)
+	p.stillWaiting(t)
+	f.clk.advance(knobShownFresh + time.Second)
+	timers.fire <- time.Time{}
+	if a := p.answer(t, time.Second); *a.Watched {
+		t.Fatalf("answer after staleness = %+v, want not watched", a)
+	}
+}
+
+type watchedTimers struct {
+	fire    chan time.Time
+	asked   chan time.Duration
+	stopped atomic.Int32
+}
+
+func fakeWatchedTimers(app *App) *watchedTimers {
+	w := &watchedTimers{fire: make(chan time.Time), asked: make(chan time.Duration, 8)}
+	app.watchedAfter = func(d time.Duration) (<-chan time.Time, func()) {
+		w.asked <- d
+		return w.fire, func() { w.stopped.Add(1) }
+	}
+	return w
+}
+
+func (w *watchedTimers) armed(t *testing.T, want time.Duration) {
+	t.Helper()
 	select {
-	case d := <-asked:
-		if want := knobShownFresh + time.Millisecond; d != want {
+	case d := <-w.asked:
+		if d != want {
 			t.Fatalf("stale timer = %v, want %v", d, want)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no stale timer armed")
 	}
+}
+
+func (w *watchedTimers) noneArmed(t *testing.T) {
+	t.Helper()
+	select {
+	case d := <-w.asked:
+		t.Fatalf("timer re-armed (%v) without a wake", d)
+	default:
+	}
+}
+
+func TestMusicWatchedSamePageHeartbeatExtendsWithoutAWake(t *testing.T) {
+	f := shownFixture(t)
+	timers := fakeWatchedTimers(f.app)
+	pollShown(t, f, "nowplaying")
+	p := startWatchedPoll(t, f.app, f.srv, "&wait=25&watched=true")
+	timers.armed(t, knobShownFresh+time.Millisecond)
+	f.clk.advance(30 * time.Second)
+	pollShown(t, f, "nowplaying")
+	p.stillWaiting(t)
+	timers.noneArmed(t)
+	f.clk.advance(21 * time.Second)
+	timers.fire <- time.Time{}
+	timers.armed(t, 29*time.Second+time.Millisecond)
+	p.stillWaiting(t)
+	f.clk.advance(30 * time.Second)
+	timers.fire <- time.Time{}
+	if a := p.answer(t, time.Second); *a.Watched {
+		t.Fatalf("answer after the heartbeat went stale = %+v, want not watched", a)
+	}
+	if n := timers.stopped.Load(); n != 2 {
+		t.Fatalf("%d stale timers stopped, want both", n)
+	}
+}
+
+func TestMusicWatchedWithTwoKnobsEndsWhenTheLastReportExpires(t *testing.T) {
+	f := shownFixture(t)
+	timers := fakeWatchedTimers(f.app)
+	other := mintSecondKnob(t, f.srv)
+	caps := maps.Clone(knobCapsFull)
+	caps["features"] = []string{featureViewWait, featureShown}
+	resp, b := devReq(t, f.srv, "POST", "/v1/devices/self/checkin", other.Token, capsCheckinBody(t, "0.10.0", 1, caps))
+	mustOK(t, "checkin", resp, b)
+	pollShown(t, f, "nowplaying")
+	f.clk.advance(20 * time.Second)
+	resp, b = devReq(t, f.srv, "GET", knobViewPath+"?shown=nowplaying", other.Token, "")
+	mustOK(t, "other view", resp, b)
+	p := startWatchedPoll(t, f.app, f.srv, "&wait=25&watched=true")
+	timers.armed(t, knobShownFresh+time.Millisecond)
+	f.clk.advance(31 * time.Second)
+	if !watchedNow(t, f.srv) {
+		t.Fatal("not watched while the second knob's report is fresh")
+	}
+	p.stillWaiting(t)
+	f.clk.advance(20 * time.Second)
+	timers.fire <- time.Time{}
+	if a := p.answer(t, time.Second); *a.Watched {
+		t.Fatalf("answer after both reports expired = %+v, want not watched", a)
+	}
+}
+
+func TestMusicWatchedOldKnobGoingQuietEndsTheLongPoll(t *testing.T) {
+	f := oldKnobFixture(t)
+	timers := fakeWatchedTimers(f.app)
+	pollShown(t, f, "weather")
+	p := startWatchedPoll(t, f.app, f.srv, "&wait=25&watched=true")
+	timers.armed(t, knobShownFresh+time.Millisecond)
 	p.stillWaiting(t)
 	f.clk.advance(knobShownFresh + time.Second)
-	fire <- time.Time{}
+	timers.fire <- time.Time{}
 	if a := p.answer(t, time.Second); *a.Watched {
-		t.Fatalf("answer after staleness = %+v, want not watched", a)
+		t.Fatalf("answer after the old knob went quiet = %+v, want not watched", a)
+	}
+}
+
+func TestMusicWatchedOldKnobComingBackWakesTheLongPoll(t *testing.T) {
+	f := oldKnobFixture(t)
+	pollShown(t, f, "weather")
+	f.clk.advance(knobShownFresh + time.Second)
+	p := startWatchedPoll(t, f.app, f.srv, "&wait=25&watched=false")
+	p.stillWaiting(t)
+	pollShown(t, f, "weather")
+	if a := p.answer(t, time.Second); !*a.Watched {
+		t.Fatalf("answer after the old knob polled = %+v, want watched", a)
+	}
+}
+
+func TestMusicWatchedChangeBetweenSubscribeAndReadIsNotLost(t *testing.T) {
+	f := shownFixture(t)
+	pollShown(t, f, "bot")
+	var once sync.Once
+	f.app.watchedRead = func() {
+		once.Do(func() {
+			f.app.knobShown.set(f.m.ID, knobShown{Page: knobNowPlayingPage, At: f.clk.Now()})
+		})
+	}
+	began := time.Now()
+	code, a := getWatched(t, f.srv, "&wait=3&watched=false")
+	if took := time.Since(began); code != http.StatusOK || !*a.Watched || took > time.Second {
+		t.Fatalf("answer after %v = %d %+v, want watched at once", took, code, a)
 	}
 }
 
@@ -238,13 +380,13 @@ func TestMusicWatchedCapsChangeWakesTheLongPoll(t *testing.T) {
 
 func TestMusicWatchedDeleteWakesTheLongPoll(t *testing.T) {
 	f := shownFixture(t)
-	pollShown(t, f, "bot")
-	p := startWatchedPoll(t, f.app, f.srv, "&wait=25&watched=false")
+	pollShown(t, f, "nowplaying")
+	p := startWatchedPoll(t, f.app, f.srv, "&wait=25&watched=true")
 	p.stillWaiting(t)
 	resp, b := devReq(t, f.srv, "DELETE", "/v1/devices/"+f.m.ID, testToken, "")
 	mustOK(t, "delete", resp, b)
-	if a := p.answer(t, time.Second); !*a.Watched {
-		t.Fatalf("answer after the last knob went = %+v, want watched", a)
+	if a := p.answer(t, time.Second); *a.Watched {
+		t.Fatalf("answer after the last knob went = %+v, want not watched", a)
 	}
 }
 

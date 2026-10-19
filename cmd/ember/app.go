@@ -70,7 +70,8 @@ type App struct {
 	demos         demoRegistry
 	viewRecheck   time.Duration
 	viewClock     func() time.Time
-	watchedAfter  func(time.Duration) <-chan time.Time
+	watchedAfter  func(time.Duration) (<-chan time.Time, func())
+	watchedRead   func()
 	knobStats     *knobStatsStore
 	wifiDrops     checkinDropLog
 	diagDrops     checkinDropLog

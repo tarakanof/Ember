@@ -33,9 +33,33 @@ func parseKnobShown(raw string, at time.Time) (knobShown, bool) {
 }
 
 type knobShownStore struct {
-	mu   sync.Mutex
-	byID map[string]knobShown
-	wake chan struct{}
+	mu     sync.Mutex
+	byID   map[string]knobShown
+	polled map[string]time.Time
+	wake   chan struct{}
+}
+
+func (s *knobShownStore) poll(id string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.polled == nil {
+		s.polled = map[string]time.Time{}
+	}
+	prev, ok := s.polled[id]
+	s.polled[id] = at
+	if !ok || at.Sub(prev) > knobShownFresh {
+		s.bumpLocked()
+	}
+}
+
+func (s *knobShownStore) polledUntil(id string, now time.Time) (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at, ok := s.polled[id]
+	if !ok || now.Sub(at) > knobShownFresh {
+		return time.Time{}, false
+	}
+	return at.Add(knobShownFresh), true
 }
 
 func (s *knobShownStore) set(id string, v knobShown) {
@@ -101,17 +125,22 @@ func (s *knobShownStore) fresh(id string, now time.Time) *knobShown {
 func (s *knobShownStore) forget(id string) {
 	s.mu.Lock()
 	delete(s.byID, id)
+	delete(s.polled, id)
 	s.mu.Unlock()
 }
 
 func (a *App) noteKnobShown(id string, r *http.Request) {
 	q := r.URL.Query()
-	if !q.Has("shown") {
-		return
-	}
-	raw := q.Get("shown")
-	s, ok := parseKnobShown(raw, a.viewNow())
-	has := a.devices.lockedIfKnobHas(id, featureShown, func() {
+	now := a.viewNow()
+	raw, report := q.Get("shown"), q.Has("shown")
+	s, ok := parseKnobShown(raw, now)
+	has := false
+	a.devices.lockedKnob(id, func(caps *deviceCaps) {
+		a.knobShown.poll(id, now)
+		if !report || !caps.hasFeature(featureShown) {
+			return
+		}
+		has = true
 		if a.shownSetHook != nil {
 			a.shownSetHook()
 		}
@@ -120,7 +149,7 @@ func (a *App) noteKnobShown(id string, r *http.Request) {
 		}
 	})
 	switch {
-	case !has:
+	case !report, !has:
 	case !ok:
 		if a.shownDrops.changed(id, "malformed") {
 			a.logger.InfoContext(r.Context(), "knob shown ignored", "device_id", id, "reason", "malformed", "bytes", len(raw))
