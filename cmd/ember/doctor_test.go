@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -238,26 +240,88 @@ func TestDoctorCLI_OfflineSucceeds(t *testing.T) {
 }
 
 func TestDoctorCLI_FlagsBeforeSubcommand(t *testing.T) {
-	cfgPath := filepath.Join(t.TempDir(), "cfg.json")
-	if err := os.WriteFile(cfgPath, []byte(`{"awtrix":{"http_base_url":"http://x"},"http":{"addr":"127.0.0.1:0"}}`), 0o600); err != nil {
-		t.Fatal(err)
+	runDoctorWithLeadingConfig := func(t *testing.T, body string, leading func(path string) []string, extraEnv ...string) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer, error) {
+		t.Helper()
+		cfgPath := filepath.Join(t.TempDir(), "cfg.json")
+		if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		args := leading(cfgPath)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		t.Cleanup(cancel)
+		cmd := goRunCommand(ctx, append(args, "doctor", "--offline", "--json")...)
+		cmd.Env = append(isolatedGoRunEnv(t), extraEnv...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		if ctx.Err() != nil {
+			t.Fatalf("doctor timed out: %v\nstderr: %s", ctx.Err(), stderr.String())
+		}
+		return cmd, &stdout, &stderr, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := goRunCommand(ctx, "-config", cfgPath, "doctor", "--offline", "--json")
-	cmd.Env = isolatedGoRunEnv(t)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("-config before doctor: %v (ctx %v)\nstderr: %s", err, ctx.Err(), stderr.String())
+
+	t.Run("valid config wins over a broken CONFIG_PATH", func(t *testing.T) {
+		broken := filepath.Join(t.TempDir(), "broken.json")
+		if err := os.WriteFile(broken, []byte(`{"not_a_config_field":true}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, stdout, stderr, err := runDoctorWithLeadingConfig(t, `{"awtrix":{"http_base_url":"http://x"},"http":{"addr":"127.0.0.1:0"}}`, func(p string) []string { return []string{"-config", p} }, "CONFIG_PATH="+broken)
+		if err != nil {
+			t.Fatalf("-config before doctor: %v\nstderr: %s", err, stderr.String())
+		}
+		var res DoctorResult
+		if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
+			t.Fatalf("decode: %v\nstdout: %s", err, stdout.String())
+		}
+		if res.Mode != "offline" {
+			t.Errorf("Mode = %q, want offline", res.Mode)
+		}
+	})
+
+	for name, leading := range map[string]func(string) []string{
+		"-config":  func(p string) []string { return []string{"-config", p} },
+		"--config": func(p string) []string { return []string{"--config", p} },
+		"-config=": func(p string) []string { return []string{"-config=" + p} },
+	} {
+		t.Run("given config is the one read/"+name, func(t *testing.T) {
+			cmd, _, stderr, err := runDoctorWithLeadingConfig(t, `{"not_a_config_field":true}`, leading)
+			if err == nil {
+				t.Fatalf("doctor read the CONFIG_PATH fallback, not the leading %s file\nargs: %v", name, cmd.Args)
+			}
+			if !strings.Contains(stderr.String(), "doctor: config:") || !strings.Contains(stderr.String(), "not_a_config_field") {
+				t.Fatalf("stderr = %q, want a parse error naming the given file's unknown field", stderr.String())
+			}
+		})
 	}
-	var res DoctorResult
-	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
-		t.Fatalf("decode: %v\nstdout: %s", err, stdout.String())
-	}
-	if res.Mode != "offline" {
-		t.Errorf("Mode = %q, want offline", res.Mode)
+}
+
+func TestCLI_ArgsThatWouldBeDroppedAreRejected(t *testing.T) {
+	for name, tc := range map[string]struct {
+		args []string
+		want string
+	}{
+		"flag before subcommand": {[]string{"-print-config", "doctor"}, "flag -print-config before subcommand doctor"},
+		"subcommand after --":    {[]string{"--", "doctor"}, `unexpected argument "doctor"`},
+		"unknown subcommand":     {[]string{"doctr"}, `unexpected argument "doctr"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			cmd := goRunCommand(ctx, tc.args...)
+			cmd.Env = isolatedGoRunEnv(t)
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) || exitErr.ExitCode() == 0 {
+				t.Fatalf("%q: err = %v (ctx %v), want a non-zero exit\nstdout: %s\nstderr: %s", tc.args, err, ctx.Err(), stdout.String(), stderr.String())
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("%q: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+			}
+		})
 	}
 }
 

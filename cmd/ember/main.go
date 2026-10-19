@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -21,7 +22,12 @@ import (
 )
 
 func main() {
-	if sub, args, ok := scanSubcommand(os.Args[1:]); ok {
+	sub, args, ok, err := scanSubcommand(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ember:", err)
+		os.Exit(2)
+	}
+	if ok {
 		switch sub {
 		case "version", "-v", "--version":
 			runVersion()
@@ -38,6 +44,10 @@ func main() {
 	configFlag := flag.String("config", "", "path to config JSON file")
 	printConfig := flag.Bool("print-config", false, "print loaded config (post-defaults, secrets redacted) to stdout and exit")
 	flag.Parse()
+	if flag.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "ember: unexpected argument %q (subcommands: version, healthcheck, doctor)\n", flag.Arg(0))
+		os.Exit(2)
+	}
 
 	if *printConfig {
 		runPrintConfig(*configFlag)
@@ -244,7 +254,7 @@ func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.W
 	}
 }
 
-func scanSubcommand(args []string) (sub string, rest []string, ok bool) {
+func scanSubcommand(args []string) (sub string, rest []string, ok bool, err error) {
 	known := map[string]bool{
 		"version": true, "-v": true, "--version": true,
 		"healthcheck": true,
@@ -253,22 +263,35 @@ func scanSubcommand(args []string) (sub string, rest []string, ok bool) {
 	flagWithValue := map[string]bool{
 		"-config": true, "--config": true,
 	}
+	var global []string
+	stray := ""
 	for i := 0; i < len(args); i++ {
 		tok := args[i]
-		if strings.Contains(tok, "=") && (strings.HasPrefix(tok, "-config=") || strings.HasPrefix(tok, "--config=")) {
+		if known[tok] {
+			if stray != "" {
+				return "", nil, false, fmt.Errorf("flag %s before subcommand %s: put subcommand flags after it", stray, tok)
+			}
+			return tok, append(global, args[i+1:]...), true, nil
+		}
+		if tok == "--" {
+			return "", nil, false, nil
+		}
+		if strings.HasPrefix(tok, "-config=") || strings.HasPrefix(tok, "--config=") {
+			global = append(global, tok)
 			continue
 		}
 		if flagWithValue[tok] {
+			global = append(global, args[i:min(i+2, len(args))]...)
 			i++
 			continue
 		}
 		if strings.HasPrefix(tok, "-") {
+			if stray == "" {
+				stray = tok
+			}
 			continue
 		}
-		if known[tok] {
-			return tok, args[i+1:], true
-		}
-		return "", nil, false
+		return "", nil, false, nil
 	}
-	return "", nil, false
+	return "", nil, false, nil
 }
