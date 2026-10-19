@@ -199,6 +199,7 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     #expect(near(pixel(img, 68, 215), scaled(blue, 0.9), 30), "the left sheet's first drop, 45 px down at frame 0")
     #expect(near(pixel(img, 69, 170), black, 10), "nothing where the strip would sit unshifted")
     #expect(near(pixel(img, 59, 330), black, 16), "the sheet fades out at the bottom of its box")
+    #expect(near(pixel(img, 92, 183), scaled(blue, 0.55), 24), "a tile-B drop wrapped 300 px up into the left sheet")
     let snow = try render(.rain(KnobRainFace(dry: false, kind: .snow, intensity: 1, pop: 50, sub: "Light snow")))
     #expect(near(pixel(snow, 68, 193), scaled(w.rain.snowColor, 0.9), 30), "snow falls at half speed: 23 px down")
 }
@@ -210,10 +211,16 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     #expect(near(pixel(img, 182, 164), black, 12), "the left cloud breathes 4 px left at frame 0")
     #expect(near(pixel(img, 176, 164), RGB(hex: "#A8B0BA")!, 30), "its outline")
     #expect(near(pixel(img, 64, 191), scaled(w.cast.color, 0.65), 24), "a streak of the second tile")
+    #expect(near(pixel(img, 375, 207), scaled(w.cast.color, 0.85 * 0.19), 16), "the right sheet fades out over its last rows")
     var snow = c
     snow.snow = true
     let s = try render(.cast(snow))
     #expect(!near(pixel(s, 64, 191), scaled(w.cast.color, 0.65), 24), "snow moves the strip")
+    #expect(near(pixel(s, 158, 191), scaled(w.rain.snowColor, 0.85), 24), "a flake of the second tile at half speed, 8 px down")
+    var heavy = c
+    heavy.variant = 3
+    let h = try render(.cast(heavy))
+    #expect(near(pixel(h, 50, 160), black, 16), "the heavy cloud fades out at the rim")
 }
 
 @MainActor @Test func windRestFrameDrawsStreaksAndLeaves() throws {
@@ -224,6 +231,7 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     f.kmh = 40; f.level = 2; f.fraction = 0.8
     let strong = try render(.wind(f))
     #expect(near(pixel(strong, 252, 157), w.wind.leafColor, 30), "the second leaf at frame 0")
+    #expect(near(pixel(strong, 248, 160), w.wind.leafColor, 30), "the leaf lies along 135 degrees")
     #expect(near(pixel(strong, 309, 87), KnobWindFace.color(40, w.wind), 30), "the sock's tip in pose A")
     var still = KnobWindFace()
     still.level = 1

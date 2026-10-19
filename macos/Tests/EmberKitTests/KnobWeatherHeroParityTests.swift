@@ -24,36 +24,54 @@ private func box(_ r: CGRect) -> CInit { nums([r.minX, r.minY, r.maxX, r.maxY]) 
 private func pt(_ p: CGPoint) -> CInit { nums([p.x, p.y]) }
 private func f(_ v: Float) -> Double { Double(String(v))! }
 
+private struct CParseError: Error, CustomStringConvertible {
+    let description: String
+}
+
 private struct CReader {
     let s: [Character]
     var i = 0
 
-    mutating func skip() {
+    func peek() throws -> Character {
+        guard i < s.count else { throw CParseError(description: "initialiser ends early") }
+        return s[i]
+    }
+
+    mutating func skip() throws {
         while i < s.count {
-            if s[i].isWhitespace { i += 1 } else if s[i] == "/", i + 1 < s.count, s[i + 1] == "*" {
+            if s[i].isWhitespace {
+                i += 1
+            } else if s[i] == "/", i + 1 < s.count, s[i + 1] == "/" {
+                while i < s.count, s[i] != "\n" { i += 1 }
+            } else if s[i] == "/", i + 1 < s.count, s[i + 1] == "*" {
                 i += 2
                 while i + 1 < s.count, !(s[i] == "*" && s[i + 1] == "/") { i += 1 }
+                guard i + 1 < s.count else { throw CParseError(description: "unterminated comment") }
                 i += 2
             } else { return }
         }
     }
 
     mutating func value() throws -> CInit {
-        skip()
-        if s[i] == "{" {
+        try skip()
+        if try peek() == "{" {
             i += 1
             var out: [CInit] = []
             while true {
-                skip()
-                if s[i] == "}" { i += 1; return .list(out) }
+                try skip()
+                if try peek() == "}" { i += 1; return .list(out) }
                 out.append(try value())
-                skip()
-                if s[i] == "," { i += 1 }
+                try skip()
+                let c = try peek()
+                if c == "," { i += 1 } else if c != "}" { throw CParseError(description: "expected , or } at \(String(s[i...].prefix(20)))") }
             }
         }
         var t = ""
         var depth = 0
-        while i < s.count, depth > 0 || !",}".contains(s[i]) {
+        while true {
+            let c = try peek()
+            if depth == 0, ",}".contains(c) { break }
+            if s[i] == "/", i + 1 < s.count, s[i + 1] == "/" || s[i + 1] == "*" { break }
             if s[i] == "(" { depth += 1 } else if s[i] == ")" { depth -= 1 }
             t.append(s[i])
             i += 1
@@ -62,28 +80,78 @@ private struct CReader {
         if t.hasPrefix("0x"), let v = Int(t.dropFirst(2), radix: 16) { return .num(Double(v)) }
         let bare = t.hasSuffix("f") && Double(t.dropLast()) != nil ? String(t.dropLast()) : t
         if let v = Double(bare) { return .num(v) }
-        guard !t.isEmpty else { throw CocoaError(.formatting) }
+        guard t.range(of: #"^[A-Za-z_]\w*(\([A-Za-z_]\w*\))?$"#, options: .regularExpression) != nil else {
+            throw CParseError(description: "unsupported value \"\(t)\"")
+        }
         return .word(t)
     }
+}
+
+private func cTable(_ src: String, _ decl: String) throws -> CInit {
+    let re = try NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: decl) + #"\s*=\s*"#)
+    guard let m = re.firstMatch(in: src, range: NSRange(src.startIndex..., in: src)) else { throw CParseError(description: "no \(decl)") }
+    var r = CReader(s: Array(src[Range(m.range, in: src)!.upperBound...]))
+    return try r.value()
+}
+
+private func cDefine(_ src: String, _ name: String) throws -> Double {
+    let re = try NSRegularExpression(pattern: "^#define " + NSRegularExpression.escapedPattern(for: name) + #"[ \t]+(.*)$"#, options: [.anchorsMatchLines])
+    guard let m = re.firstMatch(in: src, range: NSRange(src.startIndex..., in: src)) else { throw CParseError(description: "no #define \(name)") }
+    var v = String(src[Range(m.range(at: 1), in: src)!])
+    if let c = v.range(of: "//") { v = String(v[..<c.lowerBound]) }
+    if let c = v.range(of: "/*") {
+        guard v[c.upperBound...].hasSuffix("*/"), !v[c.upperBound...].dropLast(2).contains("*/") else {
+            throw CParseError(description: "\(name): unsupported comment in \(v)")
+        }
+        v = String(v[..<c.lowerBound])
+    }
+    v = v.trimmingCharacters(in: .whitespaces)
+    let num = try NSRegularExpression(pattern: #"^(\()?(-?\d+(?:\.\d+)?)f?(\))?$"#)
+    guard let n = num.firstMatch(in: v, range: NSRange(v.startIndex..., in: v)),
+          (n.range(at: 1).location == NSNotFound) == (n.range(at: 3).location == NSNotFound),
+          let d = Double(String(v[Range(n.range(at: 2), in: v)!])) else {
+        throw CParseError(description: "\(name): unsupported value \(v)")
+    }
+    return d
 }
 
 private func source(_ file: String) throws -> String {
     try String(contentsOf: try #require(cinderDir).appendingPathComponent("firmware/components/weather/" + file), encoding: .utf8)
 }
 
-private func table(_ file: String, _ decl: String) throws -> CInit {
-    let src = try source(file)
-    let re = try NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: decl) + #"\s*=\s*"#)
-    let m = try #require(re.firstMatch(in: src, range: NSRange(src.startIndex..., in: src)), "\(file): no \(decl)")
-    var r = CReader(s: Array(src[Range(m.range, in: src)!.upperBound...]))
-    return try r.value()
+private func table(_ file: String, _ decl: String) throws -> CInit { try cTable(try source(file), decl) }
+
+private func define(_ file: String, _ name: String) throws -> Double { try cDefine(try source(file), name) }
+
+private func countOK(_ count: CInit, _ array: CInit) -> Bool { !array.word.isEmpty && count == .word("N(\(array.word))") }
+
+private func counted(_ count: CInit, _ array: CInit, _ what: String) -> Bool {
+    let ok = countOK(count, array)
+    if !ok { Issue.record("\(what): unsupported element count \(count) for \(array)") }
+    return ok
 }
 
-private func define(_ file: String, _ name: String) throws -> Double {
-    let src = try source(file)
-    let re = try NSRegularExpression(pattern: "#define " + name + #" \(?(-?[\d.]+)f?\)?\s"#)
-    let m = try #require(re.firstMatch(in: src, range: NSRange(src.startIndex..., in: src)), "\(file): no \(name)")
-    return try #require(Double(String(src[Range(m.range(at: 1), in: src)!])))
+private func entry(_ c: CInit, _ n: Int, _ what: String) -> [CInit]? {
+    let v = c.items
+    if v.count != n { Issue.record("\(what): \(v.count) fields, want \(n): \(c)") }
+    return v.count == n ? v : nil
+}
+
+@Test func cParserRejectsWhatItCannotRead() throws {
+    #expect(try cDefine("#define A 4\n", "A") == 4)
+    #expect(try cDefine("#define A 0.16f // fraction\n", "A") == 0.16)
+    #expect(try cDefine("#define A (195.0f) /* px */\n", "A") == 195)
+    #expect(try cDefine("#define A -7\n#define AB 9\n", "AB") == 9)
+    for bad in ["#define A 4 + 2\n", "#define A (2 * B)\n", "#define A 4)\n", "#define A 0x10\n", "#define A 4 /* x */ + 1\n", "#define A\n"] {
+        #expect(throws: CParseError.self, "\(bad)") { try cDefine(bad, "A") }
+    }
+    #expect(try cTable("int T[] = {1, /* a */ 2, // b\n 3.5f};", "int T[]") == nums([1, 2, 3.5]))
+    #expect(try cTable("int T[] = {{1, N(X)}, Y};", "int T[]") == .list([.list([.num(1), .word("N(X)")]), .word("Y")]))
+    for bad in ["int T[] = {1, 2", "int T[] = {1, /* 2};", "int T[] = {1 2};", "int T[] = {1, , 2};", "int T[] = {{1} 2};", "int T[] = {N(X) - 1};", "int U[] = {1};"] {
+        #expect(throws: CParseError.self, "\(bad)") { try cTable(bad, "int T[]") }
+    }
+    #expect(countOK(.word("N(LEFT)"), .word("LEFT")))
+    #expect(!countOK(.num(9), .word("LEFT")) && !countOK(.word("N(RIGHT)"), .word("LEFT")) && !countOK(.word("N()"), .word("")))
 }
 
 private func code(_ file: String, _ pattern: String) throws {
@@ -98,7 +166,7 @@ private let cinder = Testing.ConditionTrait.enabled(if: cinderDir != nil, "no ci
     let sheets = try table("wx_rain.c", "static const wx_sheet_t SHEETS[WX_SHEETS]").items
     #expect(sheets.count == KnobRainFace.sheets.count)
     for (c, s) in zip(sheets, KnobRainFace.sheets) {
-        let v = c.items
+        guard let v = entry(c, 5, "rain sheet"), counted(v[3], v[4], "rain sheet") else { continue }
         #expect(Array(v.prefix(3)) == [box(s.box), .num(Double(s.tileFrames)), .num(Double(s.delayFrames))], "sheet \(c)")
         let drops = try table("wx_rain.c", "static const wx_drop_t \(v[4].word)[]")
         #expect(drops == .list(s.drops.map { nums([$0.x, $0.y, $0.len, $0.op, $0.slant, Double($0.tile), Double($0.level)]) }), "\(v[4].word)")
@@ -109,8 +177,38 @@ private let cinder = Testing.ConditionTrait.enabled(if: cinderDir != nil, "no ci
     try code("wx_rain.c", #"int f = 2 \* SHEETS\[s\]\.tile_frames;\s*return r && r->kind == WX_PRECIP_SNOW \? 2 \* f : f;"#)
     try code("wx_rain.c", #"f->off\[s\] = offset\(frames, \(k \+ SHEETS\[s\]\.delay_frames\) % frames\);"#)
     try code("wx_rain.c", #"ops->strip_top\[s\]\[0\] = f->off\[s\] - WX_SHEET_PERIOD;\s*ops->strip_top\[s\]\[1\] = f->off\[s\];"#)
-    try code("wx_rain.c", #"\{\{24, 5\}, \{32, 13\}\}"#)
-    try code("wx_rain.c", #"static const int FLASH\[6\] = \{12, 13, 18, 19, 24, 25\};"#)
+}
+
+@Test(cinder) func noDripSplashOrBoltShowsAtFrameZero() throws {
+    try code("wx_rain.c", #"float u = \(x - 233\.0f\) / 128\.0f;\s*float k = 1 - u \* u;\s*return 198\.0f - 103\.0f \* sqrtf\(k > 0 \? k : 0\);"#)
+    try code("wx_rain.c", #"const wx_drop_t \*d = &TOP\[SPLASH_DROP\[n\]\];"#)
+    try code("wx_rain.c", #"float ty = d->y \+ \(d->tile \? WX_SHEET_H : 0\);\s*"#
+        + #"float t = fmodf\(wx_canopy_y\(d->x\) - 2 - \(float\)s->box\.y0 - ty - d->len, \(float\)WX_SHEET_PERIOD\);\s*"#
+        + #"if \(t < 0\) t \+= WX_SHEET_PERIOD;\s*int frames = 2 \* s->tile_frames;\s*"#
+        + #"for \(int a = 0; a < frames; a\+\+\)\s*if \(\(float\)offset\(frames, a\) >= t\) return a;"#)
+    try code("wx_rain.c", #"int a = \(k \+ SHEETS\[at\.sheet\]\.delay_frames\) % frames;\s*"#
+        + #"int j = \(\(a - wx_splash_hit\(n\)\) % frames \+ frames\) % frames;\s*if \(j >= 3\) continue;"#)
+    try code("wx_rain.c", #"int j = k % DRIP\[i\]\.period - DRIP\[i\]\.start;\s*if \(snow \|\| j < 0 \|\| j >= 7\) continue;"#)
+    try code("wx_rain.c", #"for \(int i = 0; i < 6; i\+\+\) f->bolt \|= k % WX_STORM_FRAMES == FLASH\[i\];"#)
+    let top = KnobRainFace.sheets[2], period = Float(2 * KnobRainFace.sheetH), frames = 2 * top.tileFrames
+    func offset(_ a: Int) -> Int { Int((Double(period) * Double(a) / Double(frames)).rounded()) % Int(period) }
+    for n in try table("wx_rain.c", "static const int SPLASH_DROP[WX_SPLASHES]").items {
+        guard case .num(let idx) = n, Int(idx) < top.drops.count else { Issue.record("splash drop \(n)"); continue }
+        let d = top.drops[Int(idx)], u = (Float(d.x) - 233) / 128, k = 1 - u * u
+        let canopy = 198 - 103 * (k > 0 ? k : 0).squareRoot()
+        var t = fmodf(canopy - 2 - Float(top.box.minY) - Float(d.y) - Float(d.tile * KnobRainFace.sheetH) - Float(d.len), period)
+        if t < 0 { t += period }
+        let hit = (0..<frames).first { Float(offset($0)) >= t } ?? 0
+        let j = ((top.delayFrames % frames - hit) % frames + frames) % frames
+        #expect(j >= 3, "splash on drop \(Int(idx)) shows at frame 0 (j \(j))")
+    }
+    for drip in try table("wx_rain.c", "} DRIP[WX_DRIPS]").items {
+        guard case .list(let v) = drip, v.count == 2, case .num(let start) = v[1] else { Issue.record("drip \(drip)"); continue }
+        #expect(0 - Int(start) < 0, "drip \(drip) shows at frame 0")
+    }
+    let flash = try table("wx_rain.c", "static const int FLASH[6]")
+    let storm = try define("include/wx_rain.h", "WX_STORM_FRAMES")
+    #expect(!flash.items.contains(.num(0)) && storm > 0, "a bolt at frame 0")
 }
 
 @Test(cinder) func castSheetsCloudsAndBreatheMatchCinder() throws {
@@ -119,7 +217,8 @@ private let cinder = Testing.ConditionTrait.enabled(if: cinderDir != nil, "no ci
     for (cv, sv) in zip(sheets, KnobCastFace.sheets) {
         #expect(cv.items.count == sv.count)
         for (c, s) in zip(cv.items, sv) {
-            let v = c.items
+            guard let v = entry(c, 8, "cast sheet"), counted(v[5], v[6], "cast sheet") else { continue }
+            #expect(s.a.count == s.b.count, "both tiles hold n streaks")
             #expect(Array(v.prefix(5)) == [box(s.box), .num(Double(s.h)), .num(Double(s.tileFrames)), .num(Double(s.delayFrames)), .num(s.width)],
                     "sheet \(c)")
             for (name, streaks) in [(v[6].word, s.a), (v[7].word, s.b)] {
@@ -162,7 +261,7 @@ private let cinder = Testing.ConditionTrait.enabled(if: cinderDir != nil, "no ci
     let geo = try table("wx_wind.c", "static const wx_wind_geo_t GEO[WX_WIND_LEVELS]").items
     #expect(geo.count == KnobWindFace.geo.count)
     for (c, g) in zip(geo, KnobWindFace.geo) {
-        let v = c.items
+        guard let v = entry(c, 10, "wind geo") else { continue }
         let want: [CInit] = [pt(g.mount), .num(g.droop), .num(Double(g.poseFrames)), .num(g.ang), .num(g.stretch),
                              .list(g.quads.map { .list($0.map(pt)) }), .num(Double(g.rows.count)), .num(Double(g.leaves.count)),
                              .list(g.rows.map { nums([f($0.dy), f($0.x0), f($0.len), f($0.period), f($0.phase), Double($0.steps)]) })]
