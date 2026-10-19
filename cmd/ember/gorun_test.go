@@ -274,11 +274,11 @@ type groupsHelper struct {
 	waited   bool
 }
 
-func startGroupsHelper(t *testing.T, mode string) *groupsHelper {
+func startGroupsHelper(t *testing.T, mode string, args ...string) *groupsHelper {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
-	h := &groupsHelper{cmd: newProcessGroups().command(ctx, os.Args[0], "-test.run=^TestProcessGroupsHelper$", "-test.count=1")}
+	h := &groupsHelper{cmd: newProcessGroups().command(ctx, os.Args[0], append([]string{"-test.run=^TestProcessGroupsHelper$", "-test.count=1"}, args...)...)}
 	h.cmd.Env = append(os.Environ(), "PROCESS_GROUPS_HELPER="+mode)
 	out, err := h.cmd.StdoutPipe()
 	if err != nil {
@@ -334,6 +334,20 @@ func TestASecondInterruptKillsATestBinaryStuckDraining(t *testing.T) {
 	if ws, ok := exit.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != syscall.SIGINT {
 		t.Fatalf("helper exited %v after %v, want killed by the second SIGINT", err, time.Since(start))
 	}
+}
+
+func TestATestTimeoutPanicKillsItsGoRunGroups(t *testing.T) {
+	h := startGroupsHelper(t, "hold", "-test.timeout=3s")
+	t.Cleanup(func() {
+		if pgid, err := syscall.Getpgid(h.sleepPID); err == nil && t.Failed() {
+			_ = killProcessGroup(pgid)
+		}
+	})
+	var exit *exec.ExitError
+	if err := h.wait(); !errors.As(err, &exit) || exit.ExitCode() != 2 {
+		t.Fatalf("timed-out test binary: %v, want the exit status 2 of a -test.timeout panic", err)
+	}
+	waitGone(t, h.sleepPID)
 }
 
 func TestProcessGroupsHelper(t *testing.T) {
