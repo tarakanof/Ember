@@ -99,8 +99,14 @@ public struct KnobWindFace: Equatable, Sendable {
 
     public static func sockQuads(level: Int) -> [[CGPoint]] {
         let g = geo[min(max(level, 0), geo.count - 1)]
-        let r = g.droop * .pi / 180, c = cos(r), s = sin(r)
-        return g.quads.map { q in q.map { p in CGPoint(x: g.mount.x + p.x * c - p.y * s, y: g.mount.y + p.x * s + p.y * c) } }
+        let r: Double = g.droop * .pi / 180
+        let c = CGFloat(cos(r)), s = CGFloat(sin(r)), m = g.mount
+        func turn(_ p: CGPoint) -> CGPoint {
+            let x: CGFloat = m.x + p.x * c - p.y * s
+            let y: CGFloat = m.y + p.x * s + p.y * c
+            return CGPoint(x: x, y: y)
+        }
+        return g.quads.map { q in q.map(turn) }
     }
 
     static func mount(level: Int) -> CGPoint { geo[min(max(level, 0), geo.count - 1)].mount }

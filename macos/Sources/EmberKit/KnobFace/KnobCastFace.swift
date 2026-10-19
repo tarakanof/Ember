@@ -147,7 +147,9 @@ public struct KnobCastFace: Equatable, Sendable {
         let (p, align) = labelAnchor(deg)
         let left = align < 0 ? p.x - w : align == 0 ? p.x - w / 2 : p.x
         let x = left.rounded(), y = (p.y - h / 2).rounded()
-        let clear = x + w + gap <= avoid.minX || x >= avoid.maxX + gap || y + h + gap <= avoid.minY || y >= avoid.maxY + gap
+        let toLeft: Bool = x + w + gap <= avoid.minX, toRight: Bool = x >= avoid.maxX + gap
+        let above: Bool = y + h + gap <= avoid.minY, below: Bool = y >= avoid.maxY + gap
+        let clear = toLeft || toRight || above || below
         return clear ? CGPoint(x: x, y: y) : nil
     }
 
@@ -156,7 +158,12 @@ public struct KnobCastFace: Equatable, Sendable {
         public var intensity: Int
     }
 
-    public static func cells() -> [(Double, Double)] { (0..<12).map { (30 * Double($0) + 1.5, 30 * Double($0) + 28.5) } }
+    public static func cells() -> [(Double, Double)] {
+        (0..<12).map { (k: Int) -> (Double, Double) in
+            let lo: Double = 30 * Double(k) + 1.5
+            return (lo, lo + 27)
+        }
+    }
 
     public var segments: [Segment] {
         var out: [Segment] = []
