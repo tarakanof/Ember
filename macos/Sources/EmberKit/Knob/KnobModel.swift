@@ -70,17 +70,19 @@ public final class KnobModel {
         Task { await load() }
     }
 
-    public func load() async {
-        do {
-            let list = try await service.devices()
-            devices = list
-            apply(KnobDevice.current(in: list))
-            isLoaded = true
-            loadError = nil
-            listReadAt = Date()
-        } catch {
-            loadError = FeedError(error)
-            return
+    public func load(reuseFreshList: Bool = false) async {
+        if !(reuseFreshList && !reloadDue()) {
+            do {
+                let list = try await service.devices()
+                devices = list
+                apply(KnobDevice.current(in: list))
+                isLoaded = true
+                loadError = nil
+                listReadAt = Date()
+            } catch {
+                loadError = FeedError(error)
+                return
+            }
         }
         if knob != nil {
             await settings.load()

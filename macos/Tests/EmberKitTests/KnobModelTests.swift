@@ -471,3 +471,26 @@ final class CountingOpener: KnobLinkOpener, @unchecked Sendable {
     m.adopt(devices: [renamed, newer], at: t0.addingTimeInterval(200))
     #expect(m.knob?.id == loaded.id && m.reloadDue(now: t0.addingTimeInterval(201)), "a new current knob is left to a full load")
 }
+
+@MainActor
+@Test func knobReloadKeepsSettingsOTAAndCoredumpsFreshWhileThePreviewFeedsTheList() async throws {
+    let fake = FakeRegistry()
+    let m = model(fake)
+    await m.load()
+    let k = try #require(m.knob)
+    m.adopt(devices: [k], at: Date())
+    let before = fake.log.count
+    await m.load(reuseFreshList: true)
+    let paths = fake.log.dropFirst(before).map(\.1)
+    #expect(!paths.contains("/v1/devices"), "the preview's list is fresh: no second list poll")
+    #expect(paths.contains("/v1/devices/knob-61fc8c/config"), "settings still reload")
+    #expect(paths.contains { $0.contains("ota") }, "OTA progress still reloads")
+    #expect(paths.contains { $0.contains("coredumps") }, "coredumps still reload")
+    m.adopt(devices: [k], at: Date().addingTimeInterval(-KnobModel.reloadEvery))
+    let mid = fake.log.count
+    await m.load(reuseFreshList: true)
+    #expect(fake.log.dropFirst(mid).map(\.1).contains("/v1/devices"), "no recent list: the reload fetches it")
+    let last = fake.log.count
+    await m.load()
+    #expect(fake.log.dropFirst(last).map(\.1).contains("/v1/devices"), "a plain load always fetches the list")
+}

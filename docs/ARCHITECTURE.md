@@ -3445,8 +3445,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   inactive), resumes at once when it shows again, backs off 4, 8, 16,
   30 s on failed polls and resets on a good one. It publishes only a
   change, so an unchanged poll redraws nothing, and hands each list to
-  `KnobModel.adopt(devices:)`, so `KnobDetail` skips its own 15 s reload
-  while it runs. It starts from `env.knob.devices`, so the first frame
+  `KnobModel.adopt(devices:)`, so `KnobDetail`'s 15 s reload skips only
+  its device-list fetch while it runs and still refreshes settings, OTA
+  and coredumps. It starts from `env.knob.devices`, so the first frame
   already shows the reported face. `KnobShownFollow` follows the knob
   whose `page`/`face` changed last (the `at` of the poll that brought
   the change; every poll moves `at`), keeping the current knob on a tie;

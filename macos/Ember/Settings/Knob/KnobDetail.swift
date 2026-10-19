@@ -41,7 +41,7 @@ struct KnobDetail: View {
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(KnobModel.reloadEvery))
-                if knob.reloadDue() { await knob.load() }
+                await knob.load(reuseFreshList: true)
             }
         }
         .onAppear { Task { await knob.probePorts(retryFailed: true) } }
