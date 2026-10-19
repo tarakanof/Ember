@@ -388,6 +388,9 @@ func TestMusicWatchedDeleteWakesTheLongPoll(t *testing.T) {
 	if a := p.answer(t, time.Second); *a.Watched {
 		t.Fatalf("answer after the last knob went = %+v, want not watched", a)
 	}
+	if _, ok := f.app.knobShown.polledUntil(f.m.ID, f.clk.Now()); ok {
+		t.Fatal("the deleted knob's view-request time is still kept")
+	}
 }
 
 func TestMusicWatchedLongPollWithoutTheParamWaitsForCommandsOnly(t *testing.T) {

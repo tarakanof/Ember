@@ -24,6 +24,9 @@ func (a *App) musicWatched(now time.Time) (bool, time.Time) {
 			}
 		}
 	})
+	if a.watchedRead != nil {
+		a.watchedRead()
+	}
 	return watched, until
 }
 
@@ -37,9 +40,6 @@ func (a *App) musicWatchedUntil(q url.Values) (takeUntil, error) {
 	}
 	return func() (<-chan struct{}, <-chan time.Time, func(), bool) {
 		wake := a.knobShown.changed()
-		if a.watchedRead != nil {
-			a.watchedRead()
-		}
 		now := a.viewNow()
 		watched, until := a.musicWatched(now)
 		if watched != known {
