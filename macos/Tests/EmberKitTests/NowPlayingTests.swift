@@ -724,10 +724,12 @@ private struct SeekRig {
     await r.sink.set(holdUploads: true)
     r.pusher.submit(r.song)
     await waitUntil { await r.sink.uploadHeld }
+    #expect(await r.sink.uploadHeld)
     let reads = await r.bridge.positionReads
     let checks = await r.bridge.controlChecks
     r.pusher.setWatched(true)
     await waitUntil { await r.bridge.controlChecks > checks }
+    #expect(await r.bridge.controlChecks > checks)
     for _ in 0..<10 { await Task.yield() }
     r.pusher.setWatched(false)
     await r.sink.releaseUpload()
