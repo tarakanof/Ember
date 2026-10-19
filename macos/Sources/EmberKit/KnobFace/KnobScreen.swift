@@ -136,21 +136,28 @@ public struct KnobWeatherLive: View {
     let face: KnobFace
     let since: Date?
     let animated: Bool
+    let windowVisible: Bool
     let theme: KnobTheme
     let brightness: Double
     @State private var visible = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(face: KnobFace, since: Date?, animated: Bool = true, theme: KnobTheme = .standard, brightness: Double = 1) {
-        self.face = face; self.since = since; self.animated = animated; self.theme = theme; self.brightness = brightness
+    public init(face: KnobFace, since: Date?, animated: Bool = true, windowVisible: Bool = true, theme: KnobTheme = .standard,
+                brightness: Double = 1) {
+        self.face = face; self.since = since; self.animated = animated; self.windowVisible = windowVisible; self.theme = theme
+        self.brightness = brightness
+    }
+
+    static func ticks(_ motion: KnobWeatherMotion, animated: Bool, onScreen: Bool, windowVisible: Bool) -> Bool {
+        animated && onScreen && windowVisible && motion != .still
     }
 
     public var body: some View {
         let motion = KnobWeatherMotion(face, reduceMotion: reduceMotion)
         Group {
-            if animated, visible, motion != .still, let since {
+            if Self.ticks(motion, animated: animated, onScreen: visible, windowVisible: windowVisible), let since {
                 TimelineView(KnobWeatherSchedule(since: since, motion: motion)) { tl in
-                    KnobFaceView(face, theme: theme, brightness: brightness, t: tl.date.timeIntervalSince(since)).equatable()
+                    KnobFaceView(face, theme: theme, brightness: brightness, t: max(tl.date.timeIntervalSince(since), 0)).equatable()
                 }
                 .id(since)
             } else {
@@ -307,7 +314,8 @@ public struct KnobWeatherMemo: Equatable, Sendable {
         let id = pick ?? KnobWeatherAuto.face(state: state, now: now, shown: drawn, theme: theme, calendar: calendar)
         let kept = drawn == id
         drawn = id
-        if !kept { shownAt = at ?? now }
+        let stamp = at ?? now
+        if shownAt.map({ stamp < $0 }) ?? true || (pick != nil && !kept) { shownAt = stamp }
         switch id {
         case .temp:
             return .weather(temp)

@@ -23,8 +23,7 @@ private func rain(_ kind: KnobRainFace.Kind = .rain, _ intensity: Int = 3) -> Kn
 }
 
 @Test func rainFrameMatchesCinder() {
-    #expect((0..<3).map { KnobRainFace.splashHit($0) } == [4, 31, 17])
-    #expect((0..<3).map { KnobRainFace.splashAt($0).x } == [164, 238, 272] && (0..<3).map { KnobRainFace.splashAt($0).y } == [95, 84, 90])
+    #expect(KnobRainFace.splashHit == [4, 31, 17])
     func off(_ snow: Bool, _ k: Int) -> [Int] { KnobRainFace.sheets.map { KnobRainFace.sheetOffset($0, snow: snow, k: k) } }
     #expect([0, 5, 6, 8, 19, 37, 102, 1000].map { off(false, $0) }
         == [[45, 94, 0], [83, 125, 44], [90, 131, 53], [105, 144, 71], [188, 213, 168], [23, 25, 26], [210, 131, 0], [45, 44, 124]])
@@ -123,7 +122,7 @@ private func rain(_ kind: KnobRainFace.Kind = .rain, _ intensity: Int = 3) -> Kn
     #expect(KnobWeatherMotion(.cast(cast)) == .loop && KnobWeatherMotion(.cast(KnobCastFace())) == .still)
     #expect(KnobWeatherMotion(.wind(wind)) == .loop && KnobWeatherMotion(.wind(KnobWindFace())) == .still)
     #expect(KnobWeatherMotion(.air(wilted)) == .loop && KnobWeatherMotion(.air(KnobAirFace())) == .still)
-    #expect(KnobWeatherMotion(.sun(sun)) == .arrival(until: 22.0 / 15))
+    #expect(KnobWeatherMotion(.sun(sun)) == .arrival(until: 22.0 / 15) && KnobSunFace.restS == 22.0 / 15 && KnobArrive.restS == 4.0 / 3)
     #expect(KnobWeatherMotion(.days(days)) == .arrival(until: 4.0 / 3) && KnobWeatherMotion(.days(KnobDaysFace())) == .still)
     #expect(KnobWeatherMotion(.weather(KnobTempFace(value: 12))) == .still, "Temperature stays static")
     for f in [KnobFace.rain(rain()), .cast(cast), .wind(wind), .air(wilted), .sun(sun), .days(days)] {
@@ -194,8 +193,40 @@ private func windy(_ kmh: Int, aqi: Int? = nil) -> WeatherState {
     #expect(KnobWeatherMemo().draw(.wind, state: windy(45), now: at(observed)).commit?.shownAt == at(observed), "at defaults to now")
 }
 
+@Test func anAutoSwitchKeepsTheShowTimeLikeTheKnob() throws {
+    var memo = KnobWeatherMemo()
+    let a0 = Date(timeIntervalSinceReferenceDate: 1000)
+    memo = try #require(memo.draw(nil, state: windy(45), now: at(observed + 300), at: a0).commit)
+    let auto = memo.draw(nil, state: windy(10, aqi: 70), now: at(observed + 360), at: a0.addingTimeInterval(60))
+    memo = try #require(auto.commit)
+    #expect(auto.face.weatherFace == .air && memo.shownAt == a0, "AUTO steps to Air without a cut: s_t keeps counting")
+    let a2 = a0.addingTimeInterval(90)
+    memo = try #require(memo.draw(.rain, state: windy(10, aqi: 70), now: at(observed + 360), at: a2).commit)
+    #expect(memo.shownAt == a2, "a reported face is a cut")
+    let a3 = a0.addingTimeInterval(120)
+    let back = memo.draw(nil, state: windy(45), now: at(observed + 420), at: a3)
+    if let m = back.commit { memo = m }
+    #expect(back.face.weatherFace == .wind && memo.shownAt == a2, "back to AUTO is no cut either")
+}
+
+@Test func aClockSetBackRestampsTheShowTime() throws {
+    var memo = KnobWeatherMemo()
+    let a0 = Date(timeIntervalSinceReferenceDate: 1000)
+    memo = try #require(memo.draw(.wind, state: windy(45), now: at(observed + 300), at: a0).commit)
+    let back = a0.addingTimeInterval(-600)
+    memo = try #require(memo.draw(.wind, state: windy(45), now: at(observed + 300), at: back).commit)
+    #expect(memo.shownAt == back, "t never goes negative")
+}
+
+@Test func theAnimationTicksOnlyInAVisibleWindow() {
+    #expect(KnobWeatherLive.ticks(.loop, animated: true, onScreen: true, windowVisible: true))
+    #expect(!KnobWeatherLive.ticks(.loop, animated: true, onScreen: true, windowVisible: false), "covered, minimised or inactive")
+    #expect(!KnobWeatherLive.ticks(.loop, animated: true, onScreen: false, windowVisible: true))
+    #expect(!KnobWeatherLive.ticks(.loop, animated: false, onScreen: true, windowVisible: true))
+    #expect(!KnobWeatherLive.ticks(.still, animated: true, onScreen: true, windowVisible: true))
+}
+
 @Test func faceViewWithoutAFrameIsTheRestPose() {
     let f = KnobFace.rain(rain())
-    #expect(KnobFaceView(f) == KnobFaceView(f, t: nil))
     #expect(KnobFaceView(f, t: 1) != KnobFaceView(f, t: 2), "a new frame redraws")
 }

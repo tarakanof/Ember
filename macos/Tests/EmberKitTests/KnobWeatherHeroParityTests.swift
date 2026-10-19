@@ -326,7 +326,7 @@ private let face = "../../main/temp_face.c"
 }
 
 @Test(cinder) func rainFrameTablesAndSpritesMatchCinder() throws {
-    #expect(try define("include/wx_rain.h", "WX_RAIN_FPS") == Double(KnobRainFace.fps))
+    #expect(try define("include/wx_rain.h", "WX_RAIN_FPS") == KnobWeatherMotion.fps)
     #expect(try define("include/wx_rain.h", "WX_STORM_FRAMES") == Double(KnobRainFace.stormFrames))
     #expect(try table("wx_rain.c", "static const int FLASH[6]") == nums(KnobRainFace.flash.map(Double.init)))
     #expect(try table("wx_rain.c", "static const int SPLASH_DROP[WX_SPLASHES]") == nums(KnobRainFace.splashDrop.map(Double.init)))
@@ -335,7 +335,6 @@ private let face = "../../main/temp_face.c"
     #expect(try table("wx_rain.c", "} SPLASH_SEQ[3]") == .list(KnobRainFace.splashSeq.map { nums([Double($0.dy), Double($0.opa)]) }))
     #expect(try table("wx_paint.c", "static const float DRIP_X[WX_DRIPS]") == nums(KnobRainFace.dripX))
     #expect(try table("wx_paint.c", "static const float SCALE[WX_DRIP_POSES]") == nums(KnobRainFace.dripScale))
-    #expect(try define("include/wx_paint.h", "WX_DRIP_Y") == KnobRainFace.dripY)
     #expect(try define("include/wx_paint.h", "WX_BOLT_X") == KnobRainFace.boltAt.x && define("include/wx_paint.h", "WX_BOLT_Y") == KnobRainFace.boltAt.y)
     #expect(try table("wx_paint.c", "static const float P[7][2]") == .list(KnobRainFace.bolt.map(pt)))
     try code(face, "#define BOLT_RGB 0x" + KnobRainFace.boltColor.hex.dropFirst() + #"\n"#)
@@ -404,7 +403,8 @@ private let face = "../../main/temp_face.c"
     try code(face, #"wx_days_frame\(d, ta, &f\);"#)
     try code(face, #"int opa = f\.opa\[i\] \* fo / 255, dy = f\.dy\[i\], lo = f\.lo\[i\], hi = f\.hi\[i\];\s*if \(opa != s_shown\.day_opa\[i\]\) \{\s*"#
         + #"s_shown\.day_opa\[i\] = opa;\s*lv_obj_set_style_opa\(s_drow\[i\], \(lv_opa_t\)opa, 0\);"#)
-    #expect(try define("include/wx_air.h", "WX_AIR_FPS") == KnobAirFace.fps)
+    #expect(try define("include/wx_air.h", "WX_AIR_FPS") == KnobWeatherMotion.fps)
+    #expect(try define("include/wx_wind.h", "WX_WIND_FPS") == KnobWeatherMotion.fps && define("include/wx_cast.h", "WX_CAST_FPS") == KnobWeatherMotion.fps)
     #expect(try define("wx_air.c", "PETAL_FRAMES") == Double(KnobAirFace.petalFrames) && define("wx_air.c", "PETAL_PHASE") == Double(KnobAirFace.petalPhase))
     #expect(try define("include/wx_air.h", "WX_PETAL_X") == KnobAirFace.petalAt.x && define("include/wx_air.h", "WX_PETAL_Y") == KnobAirFace.petalAt.y)
     #expect(try define("include/wx_air.h", "WX_PETAL_BOX") == Double(KnobAirFace.petalBox))

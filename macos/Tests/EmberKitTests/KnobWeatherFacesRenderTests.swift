@@ -267,6 +267,17 @@ private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
     let mid = CGPoint(x: q.map(\.x).reduce(0, +) / 4, y: q.map(\.y).reduce(0, +) / 4)
     #expect(near(pixel(try render(.wind(wind), t: 0), mid), black, 10), "the sock fades in")
     #expect(near(pixel(try render(.wind(wind), t: frame(40)), mid), KnobWindFace.color(18, w.wind), 30), "pose A again at frame 40")
+    let rest = try render(.wind(wind)), c = try render(.wind(wind), t: frame(50))
+    #expect(KnobWindFace.frame(level: 1, k: 50).pose == 2)
+    let tip = KnobWindFace.sockQuads(level: 1, pose: 2)[4]
+    let tipMid = CGPoint(x: tip.map(\.x).reduce(0, +) / 4, y: tip.map(\.y).reduce(0, +) / 4)
+    let sock = KnobWindFace.color(18, w.wind)
+    #expect(near(pixel(c, tipMid), sock, 30) && !near(pixel(rest, tipMid), sock, 30), "pose C swings the tip")
+    let st = KnobWindFace.frame(level: 1, k: 50).streaks[1], st0 = KnobWindFace.frame(level: 1, k: 0).streaks[1]
+    #expect(st.dx != st0.dx && st.opa > 40)
+    let row = KnobWindFace.streakStart(level: 1, row: 1), len = Double(KnobWindFace.geo(level: 1).rows[1].len)
+    let mark = CGPoint(x: row.x + Double(st.dx) + len / 2, y: row.y)
+    #expect(!near(pixel(c, mark), black, 10) && !near(pixel(c, mark), pixel(rest, mark), 10), "the streak has moved on by frame 50")
 
     var cast = KnobCastFace()
     cast.have = true; cast.variant = 2; cast.wet = true; cast.sub = "Rain"

@@ -153,8 +153,8 @@ extension KnobFaceRender {
                 }
             }
             if s < fr.drips.count, let d = fr.drips[s] {
-                drip(at: CGPoint(x: KnobRainFace.dripX[s], y: 203 + Double(d.dy)), scale: KnobRainFace.dripScale[d.pose],
-                     color: color.opacity(Double(d.opa * opacity / 255) / 255), in: &clipped)
+                clipped.fill(dripPaths[d.pose].offsetBy(dx: KnobRainFace.dripX[s], dy: 203 + Double(d.dy)),
+                             with: .color(color.opacity(Double(d.opa * opacity / 255) / 255)))
             }
             if s == 2 {
                 for (n, sp) in fr.splashes.enumerated() {
@@ -166,13 +166,12 @@ extension KnobFaceRender {
         }
     }
 
-    static func drip(at p: CGPoint, scale sc: Double, color: Color, in ctx: inout GraphicsContext) {
+    static let dripPaths: [Path] = KnobRainFace.dripScale.map { sc in
         let ts = (0...24).map { Double($0) / 24 }
         func y(_ t: Double) -> Double { let u = 1 - t; return 199 * u * u + 2 * u * t * 205 + 208 * t * t }
         func hw(_ t: Double) -> Double { 8 * t * (1 - t) }
-        let side = ts.map { CGPoint(x: p.x + hw($0) * sc, y: p.y + (y($0) - 203) * sc) }
-        let other = ts.reversed().map { CGPoint(x: p.x - hw($0) * sc, y: p.y + (y($0) - 203) * sc) }
-        ctx.fill(polyline(side + other), with: .color(color))
+        let side = ts.map { CGPoint(x: hw($0) * sc, y: (y($0) - 203) * sc) }
+        return polyline(side + side.reversed().map { CGPoint(x: -$0.x, y: $0.y) })
     }
 
     static func splash(_ n: Int, dy: Double, color: Color, in ctx: inout GraphicsContext) {

@@ -1,20 +1,20 @@
 import Foundation
 
-public enum KnobWeatherMotion: Equatable, Sendable {
+enum KnobWeatherMotion: Equatable, Sendable {
     case still, loop
     case arrival(until: Double)
 
-    public static let fps = 15.0
+    static let fps = 15.0
 
-    public init(_ face: KnobFace, reduceMotion: Bool = false) {
+    init(_ face: KnobFace, reduceMotion: Bool = false) {
         guard !reduceMotion else { self = .still; return }
         switch face {
         case .rain(let f): self = f.dry ? .still : .loop
         case .cast(let f): self = (1...3).contains(f.variant) ? .loop : .still
         case .wind(let f): self = f.have ? .loop : .still
         case .air(let f): self = f.wilted ? .loop : .still
-        case .sun(let f): self = f.hero ? .arrival(until: 22 / KnobSunFace.fps) : .still
-        case .days(let f): self = f.have ? .arrival(until: 40 / KnobArrive.fps) : .still
+        case .sun(let f): self = f.hero ? .arrival(until: KnobSunFace.restS) : .still
+        case .days(let f): self = f.have ? .arrival(until: KnobArrive.restS) : .still
         case .bot, .pomodoro, .nowPlaying, .weather: self = .still
         }
     }
@@ -22,6 +22,7 @@ public enum KnobWeatherMotion: Equatable, Sendable {
 
 enum KnobArrive {
     static let seconds = 1.32, fps = 30.0, fadeFps = 15.0, countMax = 30
+    static let restS = (seconds * fps).rounded(.up) / fps
 
     static func ease(_ t: Double) -> Double {
         guard t > 0 else { return 0 }
@@ -32,7 +33,7 @@ enum KnobArrive {
 
     static func quantised(_ t: Double, fps: Double) -> Double { (t * fps).rounded(.down) / fps }
 
-    static func frame(_ t: Double, fps: Double = KnobWeatherMotion.fps) -> Int { Int((t * fps).rounded(.down)) }
+    static func frame(_ t: Double) -> Int { Int((t * KnobWeatherMotion.fps).rounded(.down)) }
 
     static func spriteOpacity(_ t: Double?) -> Int {
         guard let t else { return 255 }
@@ -66,13 +67,13 @@ extension KnobRainFace {
         var bolt = false
     }
 
-    static let fps = 15, stormFrames = 90, flash = [12, 13, 18, 19, 24, 25], splashDrop = [0, 1, 6]
+    static let stormFrames = 90, flash = [12, 13, 18, 19, 24, 25], splashDrop = [0, 1, 6]
     static let drips: [(period: Int, start: Int)] = [(24, 5), (32, 13)]
     static let dripSeq: [Frame.Drip] = [.init(pose: 0, dy: 0, opa: 153), .init(pose: 1, dy: 0, opa: 230), .init(pose: 2, dy: 1, opa: 255),
                                         .init(pose: 2, dy: 6, opa: 255), .init(pose: 2, dy: 14, opa: 230), .init(pose: 2, dy: 24, opa: 166),
                                         .init(pose: 2, dy: 34, opa: 89)]
     static let splashSeq: [Frame.Splash] = [.init(dy: 1, opa: 179), .init(dy: 0, opa: 255), .init(dy: -2, opa: 153)]
-    static let dripX: [Double] = [107, 359], dripY = 196.0, dripScale = [0.45, 0.75, 1.0]
+    static let dripX: [Double] = [107, 359], dripScale = [0.45, 0.75, 1.0]
     static let boltAt = CGPoint(x: 196, y: 54), boltColor = RGB(r: 0xF0, g: 0xD0, b: 0x40)
     static let bolt: [CGPoint] = [(14, 0), (36, 0), (24, 22), (38, 22), (6, 52), (14, 30), (0, 30)].map { CGPoint(x: $0.0, y: $0.1) }
 
@@ -83,12 +84,9 @@ extension KnobRainFace {
 
     static func splashSource(_ n: Int) -> Drop { sheets[2].drops[splashDrop[n]] }
 
-    static func splashAt(_ n: Int) -> (x: Int, y: Int) {
-        let d = splashSource(n)
-        return (Int(d.x) - 8, Int((canopyY(Float(d.x)) - 3).rounded()) - 9)
-    }
+    static let splashHit = splashDrop.indices.map(hit)
 
-    static func splashHit(_ n: Int) -> Int {
+    private static func hit(_ n: Int) -> Int {
         let s = sheets[2], d = splashSource(n), period = Float(2 * sheetH), frames = 2 * s.tileFrames
         let ty = Float(d.y) + Float(d.tile * sheetH)
         var t = fmodf(canopyY(Float(d.x)) - 2 - Float(s.box.minY) - ty - Float(d.len), period)
@@ -105,7 +103,7 @@ extension KnobRainFace {
         let splashes = Self.splashDrop.indices.map { n -> Frame.Splash? in
             guard !snow, Self.splashSource(n).level <= intensity else { return nil }
             let frames = 2 * top.tileFrames, a = (k + top.delayFrames) % frames
-            let j = ((a - Self.splashHit(n)) % frames + frames) % frames
+            let j = ((a - Self.splashHit[n]) % frames + frames) % frames
             return j < Self.splashSeq.count ? Self.splashSeq[j] : nil
         }
         return Frame(drips: drips, splashes: splashes, bolt: kind == .storm && Self.flash.contains(k % Self.stormFrames))
@@ -150,6 +148,7 @@ extension KnobSunFace {
 
     static let fps = 15.0, risePx = 64, raysOnS = 0.72, raysInS = 1.44
     static let rest = Frame(dy: 0, rays: 255)
+    static let restS = max((raysInS * fps).rounded(.up) / fps, KnobArrive.restS)
 
     static func frame(t: Double) -> Frame {
         let dy = Int((Double(risePx) * (1 - KnobArrive.ease(t))).rounded())
@@ -182,7 +181,7 @@ extension KnobDaysFace {
 extension KnobAirFace {
     struct Petal: Equatable { var x, y, rot, opa: Int }
 
-    static let fps = 15.0, petalFrames = 105, petalPhase = 30, petalBox = 20, petalAt = CGPoint(x: 250, y: 202)
+    static let petalFrames = 105, petalPhase = 30, petalBox = 20, petalAt = CGPoint(x: 250, y: 202)
 
     static func ease(_ p: Double) -> Double {
         guard p > 0 else { return 0 }
