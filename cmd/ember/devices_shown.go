@@ -33,10 +33,11 @@ func parseKnobShown(raw string, at time.Time) (knobShown, bool) {
 }
 
 type knobShownStore struct {
-	mu     sync.Mutex
-	byID   map[string]knobShown
-	polled map[string]time.Time
-	wake   chan struct{}
+	mu      sync.Mutex
+	byID    map[string]knobShown
+	polled  map[string]time.Time
+	wake    chan struct{}
+	setHook func()
 }
 
 func (s *knobShownStore) poll(id string, at time.Time) {
@@ -63,6 +64,9 @@ func (s *knobShownStore) polledUntil(id string, now time.Time) (time.Time, bool)
 }
 
 func (s *knobShownStore) set(id string, v knobShown) {
+	if s.setHook != nil {
+		s.setHook()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.byID == nil {

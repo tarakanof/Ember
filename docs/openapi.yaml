@@ -1485,7 +1485,18 @@ paths:
         `current.uv` are whole numbers from the same observation as the knob
         view's `now.cloud` and `now.uv`, null when the provider has none.
         `sun.night` is the knob view's `night`, worked out from the exact sun
-        times, not the rounded `sunrise`/`sunset` sent.
+        times, not the rounded `sunrise`/`sunset` sent. `faces` (null with
+        `current`) is the knob view's weather detail (`wx_faces`) from the
+        same observation, for the app's knob face previews: `utc_offset_s`,
+        `night`, whole-number `wind_kmh`, `wind_dir_deg`,
+        `rain_intensity` (0-3, the step containing now) and `today_pop_pct`,
+        `rain` (`until` and up to 4 `spells` of the next 12 h, null without a
+        current step), up to 3 `days` after today, `twilight` (rounded to 5
+        minutes like the sun times, null without a location), `moon`
+        (`phase_pct`, `illum_pct`, `up` null without a location; no rise or
+        set times; `up` is evaluated at now rounded to the same 5-minute
+        grid) and `aqi` (null unless the air tile is on and the air
+        fresh).
         `error` (absent otherwise, and while weather is off) gives the reason
         the chosen provider can't fetch,
         e.g. "weatherapi needs EMBER_WEATHERAPI_KEY on the server" when a

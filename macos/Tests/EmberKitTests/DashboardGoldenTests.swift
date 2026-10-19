@@ -73,6 +73,14 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(w.air?.europeanAqi == 42)
     #expect(w.air?.pm25Ugm3 == 8)
     #expect(w.sun?.sunrise == iso("2026-09-26T07:35:00+02:00"))
+    let f = try #require(w.faces)
+    #expect(f.utcOffsetS == 7200 && !f.night && f.windKmh == 18 && f.windDirDeg == 243)
+    #expect(f.rainIntensity == 1 && f.todayPopPct == 80 && f.aqi == 42)
+    #expect(f.rain?.until == iso("2026-09-26T10:45:00+02:00") && f.rain?.spells.count == 2)
+    #expect(f.rain?.spells.last == .init(start: iso("2026-09-26T13:00:00+02:00"), end: iso("2026-09-26T13:15:00+02:00"),
+                                         intensity: 3, snow: false))
+    #expect(f.days.count == 2 && f.days[0].conditionCode == "63" && f.days[0].minC == 10 && f.days[1].popPct == 5)
+    #expect(f.twilight?.goldenStart == iso("2026-09-26T18:45:00+02:00") && f.moon?.up == false)
 }
 
 @Test func weatherStateDecodesEmptyGolden() async throws {
@@ -82,6 +90,7 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(w.current == nil)
     #expect(w.air == nil)
     #expect(w.sun == nil)
+    #expect(w.faces == nil)
 }
 
 @Test func clockHealthDecodesGolden() async throws {
@@ -148,4 +157,23 @@ private let workHoursJSON = #"""
     #expect(empty.workStart == nil)
     #expect(empty.workEnd == nil)
     #expect(wh.days.first?.workStart != nil)
+}
+
+@Test func weatherStateGoldenFeedsTheKnobFaces() async throws {
+    let s: WeatherState = try await decode(try golden("weather_state"))
+    let now = iso("2026-09-26T10:30:00+02:00")
+    let rain = KnobRainFace(state: s, now: now)
+    #expect(!rain.dry && rain.kind == .rain && rain.intensity == 2 && rain.pop == 80 && rain.sub == "until 10:45")
+    let cast = KnobCastFace(state: s, now: now)
+    #expect(cast.wet && cast.hasCount && !cast.hours && cast.valueText == "15" && cast.sub == "#5C9CE0 rain# until 10:45")
+    #expect(cast.arcs.map(\.intensity) == [2, 3] && cast.label == "10:45")
+    let wind = KnobWindFace(state: s, now: now)
+    #expect(wind.have && wind.kmh == 18 && wind.sub == "#8ACF7A Gentle breeze# \u{2022} SW")
+    let days = KnobDaysFace(state: s, now: now)
+    #expect(days.rows.map(\.icon) == [.rain, .sun] && days.rows.map(\.pop) == [70, nil] && days.rows.map(\.wday) == [0, 1])
+    #expect(days.rows.map(\.lo) == [10, 7] && days.rows.map(\.hi) == [14, 19])
+    let sun = KnobSunFace(state: s, now: now)
+    #expect(sun.have && sun.phase == .day && sun.rise == "07:35" && sun.set == "19:30" && sun.sub == "golden hour 18:45")
+    let air = KnobAirFace(state: s, now: now)
+    #expect(air.have && air.aqi == 42 && air.sub == "Moderate")
 }

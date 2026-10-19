@@ -3053,7 +3053,15 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
   `night` on `/v1/display/brightness`, flip at the exact crossings, so a LAN
   client polling them learns the exact sunrise and sunset; with `source: sun`
   its `level` ramps over `twilight_minutes`, so one read in the ramp gives the
-  time since sunset or until sunrise. No provider call;
+  time since sunset or until sunrise. `faces` (#610) is
+  `newKnobWeatherDetail` re-shaped for the dashboard (RFC 3339 times, `null`
+  for absent): the knob's face inputs, so the app previews the Rain, Rain
+  forecast, Wind, Next days, Sun and Air faces from the numbers the knob
+  draws. Its twilight carries the knob view's 5-min rounding; the moon's
+  rise and set (unrounded on the knob view) are left out, and `moon.up` is
+  evaluated at now rounded to that 5-min grid (the knob view's is exact),
+  so polling it can't time a moonrise or moonset closer than that. No
+  provider call;
   the coordinates are never echoed.
 - **`GET /v1/clock/health`** (per-IP rate-limited; under `EMBER_CLOCK=off` it adds `"disabled": true` (omitted otherwise), `device` is `null` and no publishes are counted) — publish counts for the last
   24 h (hourly buckets fed by `recordPublish`) and since start, the last publish,
@@ -3443,7 +3451,16 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   without it, and by day `current.uv` ≥ 3 replaces it with
   `wx_uv_advice` in `wx_uv_rgb`; night is the fetch's `sun.night`, the
   knob's own, until a sent sun time plus 2.5 min passes, then the rounded
-  times until the next poll), and `nowplaying_view.c`
+  times until the next poll), the six other weather faces (#610:
+  `KnobRainFace`, `KnobCastFace`, `KnobWindFace`, `KnobDaysFace`,
+  `KnobSunFace`, `KnobAirFace` from `wx_rain.c`, `wx_cast.c`, `wx_wind.c`,
+  `wx_days.c`, `wx_sun.c`, `wx_air.c`, fed by `/v1/weather/state`'s
+  `faces`: values, units, sub-lines with LVGL's `#RRGGBB word#` recolour,
+  the gauges' colour ramps, the cast dial's hour cells, end labels, the
+  lit face dot, and the heroes (umbrella and drops, cast clouds, windsock,
+  day rows, rising sun, flower) as simplified static vectors, no arrival or
+  ambient motion; built and tested
+  but not yet chosen by the preview, #611 wires them), and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three
@@ -3453,8 +3470,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   error shake, huff and gaze split (`bot.error`). `knob-theme.json`
   (`macos/Sources/EmberKit/Resources/`) holds the numbers the renderers
   share with the firmware: geometry, palette, label layout and LVGL font
-  metrics, eye geometry, and the Temperature face's scale, ring, thermometer
-  and label layout. Shape formulas and the hop squash curve stay in code on
+  metrics, eye geometry, the Temperature face's scale, ring, thermometer
+  and label layout, and the other weather faces' colours, thresholds and
+  layout (`weather.rain` … `weather.air`); their words stay in code and
+  are pinned by the same test. Shape formulas and the hop squash curve stay in code on
   both sides. `KnobThemeTests` pins
   every key; with a cinder checkout next to this repo (or `CINDER_DIR`) it
   also parses the firmware source and checks each key against the constant
