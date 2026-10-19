@@ -157,6 +157,48 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             public var onColor, offColor: RGB
             public var faces: Int
         }
+        public struct Unit: Decodable, Sendable, Equatable {
+            public var fontPx, gapPx: Double
+        }
+        public struct Rain: Decodable, Sendable, Equatable {
+            public var colors: [RGB]
+            public var ringFrom, snowColor, boltColor, umbrellaColor, endColor: RGB
+        }
+        public struct Cast: Decodable, Sendable, Equatable {
+            public var color, dryColor, cellColor: RGB
+            public var spanS, stepS: Int
+            public var labelFontPx, labelGapPx: Double
+        }
+        public struct Wind: Decodable, Sendable, Equatable {
+            public var bandsKmh: [Int]
+            public var colors: [RGB]
+            public var gaugeKmh, maxKmh: Int
+            public var edgesKmh: [Int]
+            public var hystKmh: Int
+            public var darkGain: Double
+            public var poleColor, unitColor: RGB
+        }
+        public struct Days: Decodable, Sendable, Equatable {
+            public var rowYPx, pitchPx, dayWPx, iconPx, tempWPx, barWPx, barHPx, gapPx, popDyPx: Int
+            public var loOpacity: Int
+            public var subYPx, ringWidthPx: Double
+            public var trackColor, nameColor, popColor: RGB
+            public var nameFontPx, popFontPx: Double
+        }
+        public struct Sun: Decodable, Sendable, Equatable {
+            public var valueColor, goldColor, horizonColor, unitColor, subColor: RGB
+            public var blueOut, blueIn, mauve, duskPink, dayEdge, dayNoon: RGB
+            public var blendS, spanMaxS, rollDays, rollGraceS, countMaxS: Int
+            public var cxPx, cyPx, radiusPx, clipYPx, horizonYPx: Double
+        }
+        public struct Air: Decodable, Sendable, Equatable {
+            public var stops: [Int]
+            public var stopColors: [RGB]
+            public var bandMax: [Int]
+            public var bandColors: [RGB]
+            public var gauge, max, poor, hyst: Int
+            public var unitColor: RGB
+        }
         public var maxAgeS: Double
         public var stillColor: RGB
         public var scale: Scale
@@ -169,6 +211,13 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public var cloud: Cloud
         public var uv: UV
         public var dots: Dots
+        public var unit: Unit
+        public var rain: Rain
+        public var cast: Cast
+        public var wind: Wind
+        public var days: Days
+        public var sun: Sun
+        public var air: Air
     }
 
     public var version: Int

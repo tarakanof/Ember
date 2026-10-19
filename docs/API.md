@@ -214,7 +214,10 @@ temperature, the knob Temperature face's gauge, `null` without a forecast
 day; `current.cloud_pct` and `current.uv` are the knob view's `now.cloud` and
 `now.uv` (same observation, whole numbers), `null` when the provider has none;
 `sun.night` is the knob view's `night`, from the exact sun times, not the
-rounded ones sent;
+rounded ones sent; `faces` is the knob view's `wx_faces` weather detail from
+the same observation (offset, night, wind, current rain step, today's chance,
+rain spells, next days, twilight rounded to 5 min, moon phase/lit/up without
+rise or set, `up` evaluated on the same 5-min grid, AQI with the knob's air gate), null with `current`;
 `error` gives the
 reason weather is unavailable while it is on, e.g. `tomorrow-io` or `weatherapi` chosen
 without its key),

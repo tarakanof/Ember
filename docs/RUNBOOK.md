@@ -403,7 +403,11 @@ weather keys mirror the Temperature face (`temp_face.c`, `wx_temp.c`,
 mercury, value, end labels, sub-line (cloud bands, their hysteresis and
 the UV advice levels, colours and words) and face dots, and structure checks
 pin the conditions the preview copies (ring span and grey track, end-label
-colour, marker gate, the `deg / 2` value shift).
+colour, marker gate, the `deg / 2` value shift). The Rain, Rain forecast,
+Wind, Next days, Sun and Air keys (`weather.unit` … `weather.air`) mirror
+`wx_rain.c`, `wx_cast.c`, `wx_wind.c`, `wx_days.c`, `wx_sun.c`, `wx_air.c`
+and their headers, and the checks also match the faces' words (band names,
+compass points, weekdays, sub-lines) against the firmware's strings.
 
 The app bundle now builds + signs the three producer helpers (`ember-claude-producer`,
 `ember-codex-producer`, `ember-t3-producer`) and their LaunchAgent plists
