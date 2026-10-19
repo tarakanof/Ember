@@ -117,6 +117,16 @@ func compareGolden(t *testing.T, path string, got []byte) {
 	}
 }
 
+func goldenPrecip() []precipStep {
+	start := time.Date(2026, 9, 26, 10, 15, 0, 0, goldenZone)
+	mmh := []float64{3.1, 1.2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8.0, 0}
+	out := make([]precipStep, len(mmh))
+	for i, v := range mmh {
+		out[i] = precipStep{At: start.Add(time.Duration(i) * 15 * time.Minute), MMh: v}
+	}
+	return out
+}
+
 func goldenApp(t *testing.T) *App {
 	t.Helper()
 	app := newPomodoroApp(t)
@@ -167,10 +177,16 @@ func goldenApp(t *testing.T) *App {
 	fetched := goldenNow.Add(-4 * time.Minute)
 	app.weather.mu.Lock()
 	app.weather.obs = weatherObservation{
-		Condition: "rain", ConditionCode: "61", TempC: 11.5, FetchedAt: fetched,
-		Now:    weatherNow{Cloud: new(62.4), UV: new(2.6)},
+		Condition: "rain", ConditionCode: "61", TempC: 11.5, FetchedAt: fetched, TZKnown: true, TZOffsetSeconds: 7200,
+		Now:    weatherNow{Cloud: new(62.4), UV: new(2.6), WindKmh: new(18.4), GustKmh: new(31.2), WindDir: new(242.6)},
 		Hourly: []float64{11.5, 12, 12.5}, HourlyStart: time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC),
-		Days: []weatherDay{{Start: time.Date(2026, 9, 26, 0, 0, 0, 0, goldenZone), MinC: new(8.4), MaxC: new(16.6)}},
+		Days: []weatherDay{
+			{Start: time.Date(2026, 9, 26, 0, 0, 0, 0, goldenZone), MinC: new(8.4), MaxC: new(16.6), Pop: new(80.0)},
+			{Start: time.Date(2026, 9, 27, 0, 0, 0, 0, goldenZone), Cond: "rain", Code: "63", MinC: new(9.6), MaxC: new(14.4), Pop: new(70.0)},
+			{Start: time.Date(2026, 9, 28, 0, 0, 0, 0, goldenZone), Cond: "clear", Code: "0", MinC: new(7.2), MaxC: new(18.5), Pop: new(5.0)},
+		},
+		PrecipStep: 15 * time.Minute,
+		Precip:     goldenPrecip(),
 	}
 	app.weather.have = true
 	app.weather.source = app.cfg.Load().Weather.source()
@@ -431,6 +447,7 @@ func TestWeatherStateCloudAndUVParityEdges(t *testing.T) {
 			cfg := app.cfg.Load().Weather
 			app.weather.mu.Lock()
 			app.weather.obs.Now = tc.now
+			app.weather.obs.Precip = nil
 			app.weather.mu.Unlock()
 			cur := app.buildWeatherState(goldenNow).Current
 			view := newKnobWeatherDetail(app.weather.state(cfg, goldenNow), cfg)
@@ -657,6 +674,93 @@ func TestVersionNewer(t *testing.T) {
 		newer, ok := versionNewer(c.latest, c.installed)
 		if newer != c.newer || ok != c.ok {
 			t.Errorf("versionNewer(%q, %q) = %v, %v; want %v, %v", c.latest, c.installed, newer, ok, c.newer, c.ok)
+		}
+	}
+}
+
+func TestWeatherStateFacesAreTheKnobViews(t *testing.T) {
+	app := goldenApp(t)
+	cfg := app.cfg.Load().Weather
+	f := app.buildWeatherState(goldenNow).Faces
+	view := newKnobWeatherDetail(app.weather.state(cfg, goldenNow), cfg)
+	if f == nil || view.Now == nil || view.Rain == nil || view.Twilight == nil || view.Today == nil {
+		t.Fatalf("faces = %+v, view = %+v, want both with wind, rain, twilight and today", f, view)
+	}
+	eq := func(a, b *int) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+	if f.UTCOffsetS != view.UTCOffset || !eq(f.WindKmh, view.Now.WindKmh) || !eq(f.GustKmh, view.Now.GustKmh) ||
+		!eq(f.WindDirDeg, view.Now.WindDir) || !eq(f.RainIntensity, view.Now.Rain) || !eq(f.TodayPopPct, view.Today.Pop) ||
+		!eq(f.AQI, view.AQI) {
+		t.Errorf("faces now/today/aqi = %+v, knob view now %+v today %+v aqi %v", f, view.Now, view.Today, view.AQI)
+	}
+	if f.Rain == nil || len(f.Rain.Spells) != len(view.Rain.Spells) || f.Rain.Until == nil || f.Rain.Until.Unix() != *view.Rain.Until {
+		t.Fatalf("rain = %+v, knob view rain %+v", f.Rain, view.Rain)
+	}
+	for i, s := range f.Rain.Spells {
+		v := view.Rain.Spells[i]
+		if s.Start.Unix() != v[0] || s.End.Unix() != v[1] || s.Intensity != v[2] || s.Snow != (v[3] == 1) {
+			t.Errorf("spell %d = %+v, knob view %v", i, s, v)
+		}
+	}
+	if len(f.Days) != len(view.Days) || len(f.Days) != 2 {
+		t.Fatalf("days = %+v, knob view %+v, want the 2 days after today", f.Days, view.Days)
+	}
+	for i, d := range f.Days {
+		v := view.Days[i]
+		if d.Start.Unix() != v.T || d.End.Unix() != v.End || !eq(d.MinC, v.MinC) || !eq(d.MaxC, v.MaxC) || !eq(d.PopPct, v.Pop) ||
+			d.Condition == nil || *d.Condition != v.Cond || d.ConditionCode == nil || *d.ConditionCode != v.Code {
+			t.Errorf("day %d = %+v, knob view %+v", i, d, v)
+		}
+	}
+	tw, vt := f.Twilight, view.Twilight
+	for name, p := range map[string][2]any{"dawn": {tw.Dawn, vt.Dawn}, "blue_end": {tw.BlueEnd, vt.BlueEnd},
+		"golden_end": {tw.GoldenEnd, vt.GoldenEnd}, "golden_start": {tw.GoldenStart, vt.GoldenStart},
+		"blue_start": {tw.BlueStart, vt.BlueStart}, "dusk": {tw.Dusk, vt.Dusk}} {
+		got, want := p[0].(*time.Time), p[1].(*int64)
+		if got == nil || want == nil || got.Unix() != *want || got.Unix()%int64(sunRounding/time.Second) != 0 {
+			t.Errorf("twilight %s = %v, knob view %v, want the same time on the %v grid", name, got, want, sunRounding)
+		}
+	}
+	if f.Moon.PhasePct != view.Moon.Phase || f.Moon.IllumPct != view.Moon.Illum || f.Moon.Up == nil || *f.Moon.Up != *view.Moon.Up {
+		t.Errorf("moon = %+v, knob view %+v", f.Moon, view.Moon)
+	}
+	if f.Night != app.knobWeather(goldenNow).Night {
+		t.Errorf("night = %v, want the knob view's", f.Night)
+	}
+
+	raw, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"rise", "set", "sunrise", "sunset"} {
+		if strings.Contains(string(raw), `"`+k+`"`) {
+			t.Errorf("faces carry %q: %s", k, raw)
+		}
+	}
+}
+
+func TestWeatherStateFacesFollowTheKnobsGates(t *testing.T) {
+	app := goldenApp(t)
+	app.updateConfig(func(c *Config) { c.Weather.AirTile = new(false) })
+	if f := app.buildWeatherState(goldenNow).Faces; f == nil || f.AQI != nil {
+		t.Errorf("faces = %+v, want no aqi with the air tile off, as on the knob", f)
+	}
+	cfg := WeatherConfig{Enabled: true}
+	obs := weatherObservation{Condition: "clear", TempC: 10, FetchedAt: goldenNow}
+	f := newWeatherFacesOut(newWeatherState(cfg, obs, true, airObservation{}, false, goldenNow), cfg, goldenZone)
+	if f == nil || f.Rain != nil || f.RainIntensity != nil || f.Twilight != nil || f.Moon.Up != nil {
+		t.Errorf("faces = %+v, want no rain without steps and no twilight or moon.up without a location", f)
+	}
+	raw, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"rain", "twilight", "rain_intensity", "aqi"} {
+		if v, ok := got[k]; !ok || v != nil {
+			t.Errorf("%s = %v (present %v), want null", k, v, ok)
 		}
 	}
 }

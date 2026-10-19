@@ -347,6 +347,95 @@ type weatherStateOut struct {
 	Current      *weatherCurrentOut `json:"current"`
 	Air          *airOut            `json:"air"`
 	Sun          *sunOut            `json:"sun"`
+	Faces        *weatherFacesOut   `json:"faces"`
+}
+
+type rainSpellOut struct {
+	Start     time.Time `json:"start"`
+	End       time.Time `json:"end"`
+	Intensity int64     `json:"intensity"`
+	Snow      bool      `json:"snow"`
+}
+
+type rainOut struct {
+	Until  *time.Time     `json:"until"`
+	Spells []rainSpellOut `json:"spells"`
+}
+
+type faceDayOut struct {
+	Start         time.Time `json:"start"`
+	End           time.Time `json:"end"`
+	Condition     *string   `json:"condition"`
+	ConditionCode *string   `json:"condition_code"`
+	MinC          *int      `json:"min_c"`
+	MaxC          *int      `json:"max_c"`
+	PopPct        *int      `json:"pop_pct"`
+}
+
+type twilightOut struct {
+	Dawn        *time.Time `json:"dawn"`
+	BlueEnd     *time.Time `json:"blue_end"`
+	GoldenEnd   *time.Time `json:"golden_end"`
+	GoldenStart *time.Time `json:"golden_start"`
+	BlueStart   *time.Time `json:"blue_start"`
+	Dusk        *time.Time `json:"dusk"`
+}
+
+type moonOut struct {
+	PhasePct int   `json:"phase_pct"`
+	IllumPct int   `json:"illum_pct"`
+	Up       *bool `json:"up"`
+}
+
+type weatherFacesOut struct {
+	UTCOffsetS    int64        `json:"utc_offset_s"`
+	Night         bool         `json:"night"`
+	WindKmh       *int         `json:"wind_kmh"`
+	GustKmh       *int         `json:"gust_kmh"`
+	WindDirDeg    *int         `json:"wind_dir_deg"`
+	RainIntensity *int         `json:"rain_intensity"`
+	TodayPopPct   *int         `json:"today_pop_pct"`
+	Rain          *rainOut     `json:"rain"`
+	Days          []faceDayOut `json:"days"`
+	Twilight      *twilightOut `json:"twilight"`
+	Moon          moonOut      `json:"moon"`
+	AQI           *int         `json:"aqi"`
+}
+
+func unixWire(t *int64, loc *time.Location) *time.Time {
+	if t == nil {
+		return nil
+	}
+	w := time.Unix(*t, 0).In(loc)
+	return &w
+}
+
+func newWeatherFacesOut(wx weatherState, cfg WeatherConfig, loc *time.Location) *weatherFacesOut {
+	d := newKnobWeatherDetail(wx, cfg)
+	f := &weatherFacesOut{UTCOffsetS: d.UTCOffset, Night: wx.Night, Days: []faceDayOut{},
+		Moon: moonOut{PhasePct: d.Moon.Phase, IllumPct: d.Moon.Illum, Up: d.Moon.Up}, AQI: d.AQI}
+	if n := d.Now; n != nil {
+		f.WindKmh, f.GustKmh, f.WindDirDeg, f.RainIntensity = n.WindKmh, n.GustKmh, n.WindDir, n.Rain
+	}
+	if d.Today != nil {
+		f.TodayPopPct = d.Today.Pop
+	}
+	if r := d.Rain; r != nil {
+		f.Rain = &rainOut{Until: unixWire(r.Until, loc), Spells: make([]rainSpellOut, 0, len(r.Spells))}
+		for _, s := range r.Spells {
+			f.Rain.Spells = append(f.Rain.Spells, rainSpellOut{Start: time.Unix(s[0], 0).In(loc), End: time.Unix(s[1], 0).In(loc),
+				Intensity: s[2], Snow: s[3] == 1})
+		}
+	}
+	for _, day := range d.Days {
+		f.Days = append(f.Days, faceDayOut{Start: time.Unix(day.T, 0).In(loc), End: time.Unix(day.End, 0).In(loc),
+			Condition: optString(day.Cond), ConditionCode: optString(day.Code), MinC: day.MinC, MaxC: day.MaxC, PopPct: day.Pop})
+	}
+	if t := d.Twilight; t != nil {
+		f.Twilight = &twilightOut{Dawn: unixWire(t.Dawn, loc), BlueEnd: unixWire(t.BlueEnd, loc), GoldenEnd: unixWire(t.GoldenEnd, loc),
+			GoldenStart: unixWire(t.GoldenStart, loc), BlueStart: unixWire(t.BlueStart, loc), Dusk: unixWire(t.Dusk, loc)}
+	}
+	return f
 }
 
 func (a *App) buildWeatherState(now time.Time) weatherStateOut {
@@ -385,6 +474,7 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 			}
 		}
 		out.Current = cur
+		out.Faces = newWeatherFacesOut(wx, cfg, loc)
 	}
 	if wx.HaveAir {
 		air := wx.Air
