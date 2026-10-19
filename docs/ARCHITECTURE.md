@@ -3062,8 +3062,9 @@ cache is invalidated on phase rollover and otherwise expires by `statsCacheTTL`
 (1 min). Sun times are rounded to 5 min because to the second they'd pin the
 coordinates to a few hundred metres; the location is the user-typed label only.
 That covers only the times sent: `sun.night` on `/v1/weather/state` and
-`night`/`level` on `/v1/display/brightness` change at the exact crossings, so
-polling them still reveals the exact sunrise and sunset on the LAN.
+`night` on `/v1/display/brightness` flip at the exact crossings, and with
+`source: sun` its `level` ramps through twilight, so polling them still reveals
+the exact sunrise and sunset on the LAN.
 
 - **`GET /v1/display/brightness`** (per-IP rate-limited) —
   `{"level":0-255,"source":"lux|sun|default","night":bool}`: one brightness for
