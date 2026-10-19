@@ -248,6 +248,9 @@ private struct KnobPreviewFeeds: ViewModifier {
                 guard page == "nowplaying" || (overview && overviewNeedsNowPlaying) else { return }
                 let feed = KnobNowPlayingFeed(client: env.connection.client, thumbnail: overview)
                 nowPlaying = feed
+                let pusher = env.musicWatcher.pusher
+                pusher.holdPreview()
+                defer { pusher.releasePreview() }
                 await feed.run()
             }
             .task(id: env.knob.settings.draft.brightness.followEmber) {

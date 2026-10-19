@@ -86,6 +86,7 @@ public final class AppleMusicPusher {
     @ObservationIgnored private var reportError: Error?
     @ObservationIgnored private(set) var anchor: Anchor?
     @ObservationIgnored private var seekWatch: Task<Void, Never>?
+    @ObservationIgnored private var previewHolds = 0
     @ObservationIgnored private var seekMisses = 0
     @ObservationIgnored private var seekSkips = 0
     @ObservationIgnored private var submits = 0
@@ -168,9 +169,29 @@ public final class AppleMusicPusher {
     }
 
     public func setWatched(_ on: Bool) {
-        guard on != watched else { return }
+        let was = watching
         watched = on
-        guard on else { return endSeekWatch() }
+        watchingChanged(from: was)
+    }
+
+    public func holdPreview() {
+        let was = watching
+        previewHolds += 1
+        watchingChanged(from: was)
+    }
+
+    public func releasePreview() {
+        guard previewHolds > 0 else { return }
+        let was = watching
+        previewHolds -= 1
+        watchingChanged(from: was)
+    }
+
+    var watching: Bool { watched || previewHolds > 0 }
+
+    private func watchingChanged(from was: Bool) {
+        guard watching != was else { return }
+        guard watching else { return endSeekWatch() }
         seekMisses = 0
         seekSkips = 0
         watchSeeks(readFirst: true)
@@ -211,7 +232,7 @@ public final class AppleMusicPusher {
     }
 
     private func watchSeeks(readFirst: Bool = false) {
-        guard watched, anchor != nil, let every = seekEvery, seekWatch == nil else { return }
+        guard watching, anchor != nil, let every = seekEvery, seekWatch == nil else { return }
         seekWatch = Task { [weak self, sleep, bridge] in
             if await bridge.canControl() {
                 var wait = !readFirst

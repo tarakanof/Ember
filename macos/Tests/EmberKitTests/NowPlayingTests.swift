@@ -662,6 +662,57 @@ private struct SeekRig {
 }
 
 @MainActor
+@Test func previewKeepsTheSeekWatchWhileNoKnobWatches() async {
+    let r = await SeekRig.playing()
+    r.pusher.setWatched(false)
+    await waitUntil { r.ticks.waiting == 0 }
+    let reads = await r.bridge.positionReads
+    r.clock.advance(.seconds(30))
+    await r.seek(to: 285)
+    r.pusher.holdPreview()
+    #expect(r.pusher.isWatchingSeeks)
+    await waitUntil { r.ticks.waiting == 1 }
+    await r.pusher.drain()
+    #expect(await r.bridge.positionReads == reads + 1)
+    #expect(await r.sink.reports.map(\.positionMs) == [42_000, 285_000])
+    r.pusher.setWatched(false)
+    #expect(r.pusher.isWatchingSeeks && r.ticks.waiting == 1)
+    r.pusher.releasePreview()
+    await waitUntil { r.ticks.waiting == 0 }
+    #expect(!r.pusher.isWatchingSeeks && r.ticks.waiting == 0)
+}
+
+@MainActor
+@Test func previewHoldsAreCountedAndAddNoReadWhileAKnobWatches() async {
+    let r = await SeekRig.playing()
+    let reads = await r.bridge.positionReads
+    r.pusher.holdPreview()
+    r.pusher.holdPreview()
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(await r.bridge.positionReads == reads && r.ticks.waiting == 1)
+    r.pusher.setWatched(false)
+    r.pusher.releasePreview()
+    #expect(r.pusher.isWatchingSeeks)
+    r.pusher.releasePreview()
+    r.pusher.releasePreview()
+    await waitUntil { r.ticks.waiting == 0 }
+    #expect(!r.pusher.isWatchingSeeks)
+    r.pusher.holdPreview()
+    #expect(r.pusher.isWatchingSeeks)
+}
+
+@MainActor
+@Test func previewOpeningWhileAKnobWatchesKeepsTheBackoff() async {
+    let r = await SeekRig.playing()
+    await r.bridge.set(positionFails: true)
+    for _ in 0..<AppleMusicPusher.seekMissLimit { await r.tick() }
+    let reads = await r.bridge.positionReads
+    r.pusher.holdPreview()
+    await r.tick()
+    #expect(await r.bridge.positionReads == reads)
+}
+
+@MainActor
 @Test func seekWatchDoesNotStartWhilePlayingUnwatched() async {
     let r = SeekRig()
     await r.bridge.setArt(nil)
