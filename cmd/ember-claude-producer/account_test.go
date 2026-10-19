@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -871,3 +872,53 @@ func TestStatuslineFirstWriteConvertsTheLegacyPendingFlagToAToken(t *testing.T) 
 			m.UsageAccountPending, m.UsageAccountLegacyPending, token)
 	}
 }
+
+func captureSlog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+	return &buf
+}
+
+func TestPollUsageLogsFetchFailuresOncePerStreak(t *testing.T) {
+	tickFailLog = producer.NewFailureLogger(time.Minute)
+	resetClaudeAccountCache(t)
+	h := newUsageRelayHarness(t)
+	writeClaudeJSON(t, h.home, fakeClaudeJSON)
+	cfg, _ := loadConfig()
+	client := NewDaemonClient(cfg)
+	buf := captureSlog(t)
+	fail := func(context.Context) (usageResponse, int, error) {
+		return usageResponse{}, http.StatusOK, errUsageTooLarge
+	}
+	pollUsage(context.Background(), client, fail)
+	pollUsage(context.Background(), client, fail)
+	if n := strings.Count(buf.String(), "kind=claude_usage_fetch"); n != 1 {
+		t.Fatalf("fetch failure logged %d times, want 1: %s", n, buf.String())
+	}
+	if !strings.Contains(buf.String(), errUsageTooLarge.Error()) {
+		t.Errorf("log lacks the error: %s", buf.String())
+	}
+}
+
+func TestReadStatuslineStdinCapsTheRead(t *testing.T) {
+	zeros := readerFunc(func(p []byte) (int, error) { return len(p), nil })
+	b, err := readStatuslineStdin(io.LimitReader(zeros, hookStdinMax+1<<20))
+	if err != nil || len(b) != hookStdinMax {
+		t.Fatalf("len=%d err=%v, want %d and nil", len(b), err, hookStdinMax)
+	}
+}
+
+func TestReadStatuslineStdinSurfacesReadErrors(t *testing.T) {
+	boom := errors.New("boom")
+	b, err := readStatuslineStdin(io.MultiReader(strings.NewReader("abc"), readerFunc(func([]byte) (int, error) { return 0, boom })))
+	if !errors.Is(err, boom) || string(b) != "abc" {
+		t.Fatalf("b=%q err=%v, want the partial read and the error", b, err)
+	}
+}
+
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }

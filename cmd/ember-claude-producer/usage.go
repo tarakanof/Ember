@@ -145,7 +145,11 @@ func usagePollOnce(ctx context.Context, cfg Config, client *Client) {
 func pollUsage(ctx context.Context, client *Client, fetch func(context.Context) (usageResponse, int, error)) {
 	acct := claudeAccounts.current()
 	u, code, err := fetch(ctx)
-	if err != nil || code != http.StatusOK || claudeAccounts.current() != acct {
+	if err != nil || code != http.StatusOK {
+		tickFailLog.Warn(slog.Default(), "claude_usage_fetch", "usage fetch failed", "status", code, "err", err)
+		return
+	}
+	if claudeAccounts.current() != acct {
 		return
 	}
 	loc := time.Now().Location()
