@@ -486,6 +486,14 @@ func TestScanSubcommandForwardsLeadingConfig(t *testing.T) {
 		{args: []string{"-jsn", "doctor"}, wantErr: "flag -jsn before subcommand doctor: -jsn is not a doctor flag; see `ember doctor -h`"},
 		{args: []string{"-offline", "version"}, wantErr: "flag -offline before subcommand version: version takes no flags"},
 		{args: []string{"-print-config", "false"}},
+		{args: []string{"-v", "doctor"}, wantErr: "flag -v before subcommand doctor: -v prints the version and does not combine with a subcommand; run `ember -v` and `ember doctor` separately"},
+		{args: []string{"--version", "-config", "a.json", "healthcheck"}, wantErr: "flag --version before subcommand healthcheck: --version prints the version"},
+		{args: []string{"-v", "extra"}, wantSub: "-v", wantRest: []string{"extra"}, wantOK: true},
+		{args: []string{"-server-url", "http://x:1", "doctor"}, wantErr: "flag -server-url before subcommand doctor: put doctor flags after it (`ember doctor -server-url http://x:1`)"},
+		{args: []string{"--server-url", "doctor", "doctor"}, wantErr: "put doctor flags after it (`ember doctor --server-url doctor`)"},
+		{args: []string{"-server-url=http://x:1", "doctor"}, wantErr: "put doctor flags after it (`ember doctor -server-url=http://x:1`)"},
+		{args: []string{"-server-url", "doctor"}},
+		{args: []string{"-offline", "doctor", "-server-url", "x"}, wantErr: "put doctor flags after it (`ember doctor -offline`)"},
 	}
 	for _, c := range cases {
 		sub, rest, ok, err := scanSubcommand(c.args)

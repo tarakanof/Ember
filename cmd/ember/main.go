@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -256,25 +257,44 @@ func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.W
 
 func scanSubcommand(args []string) (sub string, rest []string, ok bool, err error) {
 	known := map[string]bool{
-		"version": true, "-v": true, "--version": true,
+		"version":     true,
 		"healthcheck": true,
 		"doctor":      true,
 	}
 	flagWithValue := map[string]bool{
 		"-config": true, "--config": true,
 	}
-	var global []string
-	stray := ""
+	var global, stray, versionRest []string
+	versionTok := ""
+	versionResult := func() (string, []string, bool, error) {
+		if versionTok == "" {
+			return "", nil, false, nil
+		}
+		return versionTok, versionRest, true, nil
+	}
 	for i := 0; i < len(args); i++ {
 		tok := args[i]
+		if tok == "-v" || tok == "--version" {
+			if stray != nil {
+				return "", nil, false, strayFlagError(stray, tok)
+			}
+			if versionTok == "" {
+				versionTok = tok
+				versionRest = append(slices.Clone(global), args[i+1:]...)
+			}
+			continue
+		}
 		if known[tok] {
-			if stray != "" {
+			if versionTok != "" {
+				return "", nil, false, strayFlagError([]string{versionTok}, tok)
+			}
+			if stray != nil {
 				return "", nil, false, strayFlagError(stray, tok)
 			}
 			return tok, append(global, args[i+1:]...), true, nil
 		}
 		if tok == "--" {
-			return "", nil, false, nil
+			return versionResult()
 		}
 		if strings.HasPrefix(tok, "-config=") || strings.HasPrefix(tok, "--config=") {
 			global = append(global, tok)
@@ -286,20 +306,40 @@ func scanSubcommand(args []string) (sub string, rest []string, ok bool, err erro
 			continue
 		}
 		if strings.HasPrefix(tok, "-") {
-			if stray == "" {
-				stray = tok
+			flagToks := []string{tok}
+			if doctorFlagTakesValue(tok) && i+1 < len(args) {
+				flagToks = append(flagToks, args[i+1])
+				i++
+			}
+			if stray == nil {
+				stray = flagToks
 			}
 			continue
 		}
-		return "", nil, false, nil
+		return versionResult()
 	}
-	return "", nil, false, nil
+	return versionResult()
 }
 
-func strayFlagError(flagTok, sub string) error {
+func doctorFlagTakesValue(tok string) bool {
+	if strings.Contains(tok, "=") {
+		return false
+	}
+	f := newDoctorFlags().fs.Lookup(strings.TrimLeft(tok, "-"))
+	if f == nil {
+		return false
+	}
+	b, isBool := f.Value.(interface{ IsBoolFlag() bool })
+	return !isBool || !b.IsBoolFlag()
+}
+
+func strayFlagError(stray []string, sub string) error {
+	flagTok := stray[0]
 	prefix := fmt.Sprintf("flag %s before subcommand %s", flagTok, sub)
 	name, _, _ := strings.Cut(strings.TrimLeft(flagTok, "-"), "=")
 	switch {
+	case name == "v" || name == "version":
+		return fmt.Errorf("%s: %s prints the version and does not combine with a subcommand; run `ember %s` and `ember %s` separately", prefix, flagTok, flagTok, sub)
 	case name == "print-config":
 		return fmt.Errorf("%s: -print-config is a server flag and does not combine with a subcommand; run `ember -print-config` and `ember %s` separately", prefix, sub)
 	case (name == "h" || name == "help") && sub == "doctor":
@@ -307,7 +347,7 @@ func strayFlagError(flagTok, sub string) error {
 	case name == "h" || name == "help":
 		return fmt.Errorf("%s: for the server's flags run `ember -h`", prefix)
 	case sub == "doctor" && newDoctorFlags().fs.Lookup(name) != nil:
-		return fmt.Errorf("%s: put doctor flags after it (`ember doctor %s`)", prefix, flagTok)
+		return fmt.Errorf("%s: put doctor flags after it (`ember doctor %s`)", prefix, strings.Join(stray, " "))
 	case sub == "doctor":
 		return fmt.Errorf("%s: %s is not a doctor flag; see `ember doctor -h`", prefix, flagTok)
 	}
