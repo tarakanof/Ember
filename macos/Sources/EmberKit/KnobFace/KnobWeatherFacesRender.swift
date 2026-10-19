@@ -205,24 +205,13 @@ extension KnobFaceRender {
         }
     }
 
-    private final class CloudPaths: @unchecked Sendable {
-        private let lock = NSLock()
-        private var paths: [[Double]: Path] = [:]
-
-        func path(_ base: Double, _ circles: [(Double, Double, Double)]) -> Path {
-            let key = [base] + circles.flatMap { [$0.0, $0.1, $0.2] }
-            lock.lock()
-            defer { lock.unlock() }
-            if let p = paths[key] { return p }
-            let p = KnobFaceRender.buildCloud(base, circles)
-            paths[key] = p
-            return p
-        }
+    static let castCloudPaths: [[[Path]]] = KnobCastFace.clouds.map { sides in
+        sides.map { side in side.clouds.map { buildCloud($0.base, $0.circles.map { ($0.x, $0.y, $0.r) }) } }
     }
 
-    private static let cloudPaths = CloudPaths()
-
-    static func cloud(_ base: Double, _ circles: [(Double, Double, Double)]) -> Path { cloudPaths.path(base, circles) }
+    static let dayCloudPartly = buildCloud(33, [(13, 28, 7), (21, 23, 8.5), (30, 28, 7)])
+    static let dayCloudMid = buildCloud(30, [(10, 25, 7), (19, 20, 9), (29, 25, 7)])
+    static let dayCloudHigh = buildCloud(24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)])
 
     static func buildCloud(_ base: Double, _ circles: [(Double, Double, Double)]) -> Path {
         var p = Path()
@@ -249,8 +238,8 @@ extension KnobFaceRender {
                                                                                  .init(color: .clear, location: 1)]),
                                                                center: center, startRadius: 0, endRadius: r))
             }
-            for cl in sky.clouds {
-                let p = cloud(cl.base, cl.circles.map { ($0.x, $0.y, $0.r) })
+            for (ci, cl) in sky.clouds.enumerated() {
+                let p = castCloudPaths[f.variant - 1][side][ci]
                 c.fill(p, with: .color(Color(cl.back ? tone.back : tone.front)))
                 c.stroke(p, with: .color(Color(tone.line)), style: StrokeStyle(lineWidth: 4.5, lineJoin: .round))
             }
@@ -377,13 +366,12 @@ extension KnobFaceRender {
                          with: .color(Color(RGB(r: 0x5C, g: 0x9C, b: 0xE0))), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
             }
         }
-        let (base, circles, fill, edge): (Double, [(Double, Double, Double)], RGB, RGB) = switch icon {
-        case .partly: (33, [(13, 28, 7), (21, 23, 8.5), (30, 28, 7)], RGB(r: 0xE6, g: 0xEC, b: 0xF2), RGB(r: 0xC4, g: 0xCC, b: 0xD4))
-        case .cloud: (30, [(10, 25, 7), (19, 20, 9), (29, 25, 7)], RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
-        case .storm: (24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)], t.stormCloudFill, t.stormCloudEdge)
-        default: (24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)], RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
+        let (p, fill, edge): (Path, RGB, RGB) = switch icon {
+        case .partly: (dayCloudPartly, RGB(r: 0xE6, g: 0xEC, b: 0xF2), RGB(r: 0xC4, g: 0xCC, b: 0xD4))
+        case .cloud: (dayCloudMid, RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
+        case .storm: (dayCloudHigh, t.stormCloudFill, t.stormCloudEdge)
+        default: (dayCloudHigh, RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
         }
-        let p = cloud(base, circles)
         c.fill(p, with: .color(Color(fill)))
         c.stroke(p, with: .color(Color(edge)), lineWidth: 2)
         switch icon {
@@ -408,10 +396,11 @@ extension KnobFaceRender {
         faceDots(5, w, in: &ctx)
         let center = CGPoint(x: t.cxPx, y: t.cyPx)
         if f.hero {
+            var clipped = ctx
+            clipped.clip(to: Path(CGRect(x: 0, y: 0, width: 466, height: t.clipYPx)))
             for k in 0..<13 {
                 let a = (-168 + 13 * Double(k)) * .pi / 180, r1 = t.radiusPx + 12, r2 = k % 2 == 1 ? 130.0 : 170
-                var c = ctx
-                c.clip(to: Path(CGRect(x: 0, y: 0, width: 466, height: t.clipYPx)))
+                var c = clipped
                 func ga(_ r: Double) -> Double { r / 170 <= 0.3 ? 0.55 : max(0.55 * (1 - (r / 170 - 0.3) / 0.7), 0) }
                 let p1 = CGPoint(x: center.x + r1 * cos(a), y: center.y + r1 * sin(a))
                 let p2 = CGPoint(x: center.x + r2 * cos(a), y: center.y + r2 * sin(a))
@@ -420,8 +409,7 @@ extension KnobFaceRender {
                                                              startPoint: p1, endPoint: p2),
                          style: StrokeStyle(lineWidth: k % 2 == 1 ? 3 : 3.5, lineCap: .round))
             }
-            var c = ctx
-            c.clip(to: Path(CGRect(x: 0, y: 0, width: 466, height: t.clipYPx)))
+            var c = clipped
             c.fill(disc(center, 74), with: .color(Color(t.goldColor).opacity(0.12)))
             c.fill(disc(center, t.radiusPx), with: .radialGradient(Gradient(colors: [Color(RGB(r: 0xFF, g: 0xE0, b: 0x7A)),
                                                                                       Color(t.goldColor), Color(RGB(r: 0xF0, g: 0x8A, b: 0x3A))]),
@@ -434,8 +422,7 @@ extension KnobFaceRender {
             ctx.stroke(line(CGPoint(x: a, y: t.horizonYPx + 8), CGPoint(x: b, y: t.horizonYPx + 8)),
                        with: .color(Color(w.stillColor)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
         }
-        let stops = f.colorStops(t)
-        gauge(f.have ? { f.ringColor($0, w, stops: stops) } : nil, w, in: &ctx)
+        gauge(f.have ? { [stops = f.colorStops(t)] in f.ringColor($0, w, stops: stops) } : nil, w, in: &ctx)
         if f.have {
             for e in [KnobSunFace.Event.rise, .set] {
                 let a = (w.ring.fromDeg + w.ring.sweepDeg * f.frac(f.t[e.rawValue])) * .pi / 180

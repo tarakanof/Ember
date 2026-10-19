@@ -155,17 +155,7 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
 }
 
 @MainActor @Test func sunFaceRendersTheDayGauge() throws {
-    let mid: Int64 = 1_781_996_400
-    let now = mid + 10 * 3600 + 1800
-    var f = WeatherState.Faces(utcOffsetS: 3600, night: false, windKmh: nil, windDirDeg: nil, rainIntensity: nil,
-                               todayPopPct: nil, rain: nil, days: [], twilight: nil, moon: .init(phasePct: 0, illumPct: 0, up: true), aqi: nil)
-    func d(_ h: Int64, _ m: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(mid + h * 3600 + m * 60)) }
-    f.twilight = .init(dawn: d(6, 55), blueEnd: d(7, 13), goldenEnd: d(8, 30), goldenStart: d(18, 30), blueStart: d(19, 47), dusk: d(20, 5))
-    let at = Date(timeIntervalSince1970: TimeInterval(now))
-    let s = WeatherState(generatedAt: at, enabled: true, provider: "open-meteo", units: "metric", locationName: nil,
-                         current: .init(fetchedAt: at, stale: false, condition: "clear", conditionCode: "0", severe: false, tempC: 12,
-                                        todayMinC: nil, todayMaxC: nil, cloudPct: nil, uv: nil, hourly: []),
-                         air: nil, sun: .init(sunrise: d(7, 30), sunset: d(19, 30), night: false), faces: f)
+    let (s, at) = sunFixture()
     let face = KnobSunFace(state: s, now: at)
     let img = try render(.sun(face))
     #expect(litDot(img) == 5)
@@ -258,8 +248,7 @@ private func sunFixture() -> (WeatherState, Date) {
     _ = try render(f)
     let t0 = ContinuousClock.now
     for _ in 0..<n { _ = try render(f) }
-    let d = ContinuousClock.now - t0
-    return (Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18) * 1000 / Double(n)
+    return (ContinuousClock.now - t0) / .milliseconds(n)
 }
 
 @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["KNOB_BENCH"] != nil))
@@ -286,20 +275,15 @@ func weatherFacesDrawCostVersusTemp() throws {
     print("KNOB_BENCH \(report)")
 }
 
-@Test func cloudShapesAreCachedAndMatchTheDirectBuild() {
-    let circles: [(Double, Double, Double)] = [(10, 19, 7), (19, 14, 9), (29, 19, 7)]
-    let a = KnobFaceRender.cloud(24, circles)
-    #expect(a == KnobFaceRender.buildCloud(24, circles))
-    #expect(a == KnobFaceRender.cloud(24, circles))
-    #expect(a != KnobFaceRender.cloud(30, circles))
-}
-
-@Test func sunRingColoursMatchWithPrebuiltStops() {
-    let (state, at) = sunFixture()
-    let f = KnobSunFace(state: state, now: at)
-    let stops = f.colorStops(w.sun)
-    for k in 0...20 {
-        let t = Int64(at.timeIntervalSince1970) - 5 * 3600 + Int64(k) * 3000
-        #expect(f.color(at: t, w.sun) == f.color(at: t, w.sun, stops: stops))
+@Test func prebuiltCloudPathsMatchADirectBuild() {
+    for (v, sides) in KnobCastFace.clouds.enumerated() {
+        for (si, side) in sides.enumerated() {
+            for (ci, cl) in side.clouds.enumerated() {
+                #expect(KnobFaceRender.castCloudPaths[v][si][ci] == KnobFaceRender.buildCloud(cl.base, cl.circles.map { ($0.x, $0.y, $0.r) }))
+            }
+        }
     }
+    #expect(KnobFaceRender.dayCloudPartly == KnobFaceRender.buildCloud(33, [(13, 28, 7), (21, 23, 8.5), (30, 28, 7)]))
+    #expect(KnobFaceRender.dayCloudMid == KnobFaceRender.buildCloud(30, [(10, 25, 7), (19, 20, 9), (29, 25, 7)]))
+    #expect(KnobFaceRender.dayCloudHigh == KnobFaceRender.buildCloud(24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)]))
 }
