@@ -337,7 +337,7 @@ func TestASecondInterruptKillsATestBinaryStuckDraining(t *testing.T) {
 }
 
 func TestATestTimeoutPanicKillsItsGoRunGroups(t *testing.T) {
-	h := startGroupsHelper(t, "hold", "-test.timeout=3s")
+	h := startGroupsHelper(t, "hold", "-test.timeout=5s")
 	t.Cleanup(func() {
 		if pgid, err := syscall.Getpgid(h.sleepPID); err == nil && t.Failed() {
 			_ = killProcessGroup(pgid)

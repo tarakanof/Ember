@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 	}()
 	flag.Parse()
 	if timeout := flag.Lookup("test.timeout").Value.(flag.Getter).Get().(time.Duration); timeout > 0 {
-		time.AfterFunc(timeout-min(time.Second, timeout/2), func() {
+		time.AfterFunc(timeout-min(250*time.Millisecond, timeout/2), func() {
 			drained := goRuns.killAll(goRunDrainBound)
 			fmt.Fprintf(os.Stderr, "-test.timeout %v is near: killed the go run process groups (drained %v)\n", timeout, drained)
 		})
