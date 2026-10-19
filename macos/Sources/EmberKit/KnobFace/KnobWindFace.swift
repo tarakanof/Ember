@@ -67,47 +67,4 @@ public struct KnobWindFace: Equatable, Sendable {
     public func ringColor(_ f: Double, _ w: KnobTheme.Weather) -> RGB {
         have ? Self.color(Int((Double(w.wind.gaugeKmh) * f).rounded()), w.wind) : w.ring.trackColor
     }
-
-    struct Geo {
-        var mount: CGPoint
-        var droop: Double
-        var quads: [[CGPoint]]
-    }
-
-    static let geo: [Geo] = [
-        Geo(mount: CGPoint(x: 240.3, y: 78), droop: 64.3, quads: [
-            [.init(x: 0.76, y: -22.79), .init(x: 27.62, y: -16.04), .init(x: 21.75, y: 17.69), .init(x: -0.76, y: 22.79)],
-            [.init(x: 27.62, y: -16.04), .init(x: 50.99, y: 1.03), .init(x: 45.41, y: 15.74), .init(x: 21.75, y: 17.69)],
-            [.init(x: 50.99, y: 1.03), .init(x: 73.5, y: 12.21), .init(x: 68.13, y: 24.42), .init(x: 45.41, y: 15.74)],
-            [.init(x: 73.5, y: 12.21), .init(x: 95.63, y: 23.24), .init(x: 91.23, y: 33.26), .init(x: 68.13, y: 24.42)],
-            [.init(x: 95.63, y: 23.24), .init(x: 117.76, y: 34.27), .init(x: 114.33, y: 42.1), .init(x: 91.23, y: 33.26)]]),
-        Geo(mount: CGPoint(x: 201.7, y: 101), droop: 26.8, quads: [
-            [.init(x: 0, y: -22.8), .init(x: 24.7, y: -20.14), .init(x: 24.7, y: 20.14), .init(x: 0, y: 22.8)],
-            [.init(x: 24.7, y: -20.14), .init(x: 49.4, y: -17.48), .init(x: 49.4, y: 17.48), .init(x: 24.7, y: 20.14)],
-            [.init(x: 49.4, y: -17.48), .init(x: 75.42, y: -14.76), .init(x: 72.78, y: 14.76), .init(x: 49.4, y: 17.48)],
-            [.init(x: 75.42, y: -14.76), .init(x: 100.57, y: -2.6), .init(x: 96.26, y: 11.34), .init(x: 72.78, y: 14.76)],
-            [.init(x: 100.57, y: -2.6), .init(x: 122.69, y: 10.58), .init(x: 119.19, y: 18.38), .init(x: 96.26, y: 11.34)]]),
-        Geo(mount: CGPoint(x: 191.2, y: 101), droop: 0, quads: [
-            [.init(x: 0, y: -22.8), .init(x: 24.7, y: -20.14), .init(x: 24.7, y: 20.14), .init(x: 0, y: 22.8)],
-            [.init(x: 24.7, y: -20.14), .init(x: 49.4, y: -17.48), .init(x: 49.4, y: 17.48), .init(x: 24.7, y: 20.14)],
-            [.init(x: 49.4, y: -17.48), .init(x: 74.1, y: -14.82), .init(x: 74.1, y: 14.82), .init(x: 49.4, y: 17.48)],
-            [.init(x: 74.1, y: -14.82), .init(x: 98.8, y: -12.16), .init(x: 98.8, y: 12.16), .init(x: 74.1, y: 14.82)],
-            [.init(x: 98.8, y: -12.16), .init(x: 123.5, y: -9.5), .init(x: 123.5, y: 9.5), .init(x: 98.8, y: 12.16)]]),
-    ]
-
-    static let arm = 22.0, poleTop = 26.0, baseY = 205.0
-
-    public static func sockQuads(level: Int) -> [[CGPoint]] {
-        let g = geo[min(max(level, 0), geo.count - 1)]
-        let r: Double = g.droop * .pi / 180
-        let c = CGFloat(cos(r)), s = CGFloat(sin(r)), m = g.mount
-        func turn(_ p: CGPoint) -> CGPoint {
-            let x: CGFloat = m.x + p.x * c - p.y * s
-            let y: CGFloat = m.y + p.x * s + p.y * c
-            return CGPoint(x: x, y: y)
-        }
-        return g.quads.map { q in q.map(turn) }
-    }
-
-    static func mount(level: Int) -> CGPoint { geo[min(max(level, 0), geo.count - 1)].mount }
 }

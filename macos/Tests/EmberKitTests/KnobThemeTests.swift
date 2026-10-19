@@ -220,6 +220,8 @@ private let pinned: [String: String] = [
     "weather.wind.dark_gain": "0.55",
     "weather.wind.pole_color": "#9AA4B0",
     "weather.wind.unit_color": "#9A9A9A",
+    "weather.wind.streak_color": "#9AA4B0",
+    "weather.wind.leaf_color": "#8ACF7A",
     "weather.days.row_y_px": "228",
     "weather.days.pitch_px": "85",
     "weather.days.day_w_px": "60",
@@ -353,12 +355,13 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
                  "firmware/components/weather/wx_wind.c", "firmware/components/weather/wx_days.c",
                  "firmware/components/weather/include/wx_days.h", "firmware/components/weather/wx_sun.c",
                  "firmware/components/weather/include/wx_sun.h", "firmware/components/weather/wx_air.c",
-                 "firmware/components/weather/include/wx_air.h", "firmware/components/weather/wx_clock.c"] {
+                 "firmware/components/weather/include/wx_air.h", "firmware/components/weather/wx_clock.c",
+                 "firmware/components/weather/include/wx_rain.h"] {
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path), "CINDER_DIR has no \(file)")
     }
 }
 
-private let cinderDir: URL? = {
+let cinderDir: URL? = {
     let fm = FileManager.default
     var candidates: [URL] = []
     if let env = ProcessInfo.processInfo.environment["CINDER_DIR"] { candidates.append(URL(fileURLWithPath: env)) }
@@ -737,6 +740,8 @@ private func weatherFaceChecks() -> [Check] {
         one(ww, #"\(uint32_t\)lround\(\(\(rgb >> s\) & 0xFF\) \* ([\d.]+)\) << s;"#, "weather.wind.dark_gain"),
         one(wwh, #"#define WX_WIND_POLE_RGB "# + hex, "weather.wind.pole_color"),
         one(wwh, #"#define WX_WIND_UNIT_RGB "# + hex, "weather.wind.unit_color"),
+        one(wwh, #"#define WX_WIND_STREAK_RGB "# + hex, "weather.wind.streak_color"),
+        one(wwh, #"#define WX_WIND_LEAF_RGB "# + hex, "weather.wind.leaf_color"),
         Check(file: tf, pattern: #"fixed_label\(s_lo, "0", t->wind\.have, wx_wind_rgb\(0\)\);\s*"#
                 + #"fixed_label\(s_hi, "50\+", t->wind\.have, wx_wind_rgb\(WX_WIND_GAUGE_KMH\)\);"#, keys: []),
         Check(file: ww, pattern: #"" \\xE2\\x80\\xA2 %s", wx_wind_compass\(w->dir\)"#, keys: []),

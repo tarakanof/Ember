@@ -198,7 +198,9 @@
       "hyst_kmh": 3,
       "dark_gain": 0.55,
       "pole_color": "#9AA4B0",
-      "unit_color": "#9A9A9A"
+      "unit_color": "#9A9A9A",
+      "streak_color": "#9AA4B0",
+      "leaf_color": "#8ACF7A"
     },
     "days": {
       "row_y_px": 228,

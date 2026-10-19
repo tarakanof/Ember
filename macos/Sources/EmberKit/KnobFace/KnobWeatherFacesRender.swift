@@ -113,41 +113,38 @@ extension KnobFaceRender {
         sub(f.sub, w.sub.color, theme: theme, in: &ctx)
     }
 
-    static let rainSheets: [(box: CGRect, drops: [(Double, Double, Double, Double, Double, Int, Int)])] = [
-        (CGRect(x: 58, y: 150, width: 60, height: 182), [
-            (70, 12, 16, 0.9, 3, 0, 1), (92, 70, 12, 0.6, 3, 0, 2), (64, 118, 18, 0.8, 5, 0, 1), (86, 30, 14, 0.75, 3, 1, 1),
-            (66, 88, 16, 1.0, 3, 1, 2), (96, 128, 12, 0.55, 4, 1, 1), (82, 42, 14, 0.7, 3, 0, 3), (100, 104, 12, 0.6, 3, 0, 3),
-            (100, 4, 12, 0.65, 3, 1, 3), (78, 62, 14, 0.7, 4, 1, 3)]),
-        (CGRect(x: 348, y: 150, width: 54, height: 182), [
-            (376, 20, 16, 0.85, 3, 0, 1), (396, 84, 12, 0.6, 4, 0, 2), (370, 126, 14, 0.95, 3, 0, 1), (390, 8, 14, 0.7, 3, 1, 1),
-            (372, 60, 18, 0.9, 5, 1, 2), (398, 110, 12, 0.55, 3, 1, 1), (386, 50, 14, 0.7, 3, 0, 3), (358, 96, 12, 0.6, 3, 0, 3),
-            (358, 34, 12, 0.65, 3, 1, 3), (384, 136, 14, 0.7, 4, 1, 3)]),
-        (CGRect(x: 150, y: 46, width: 166, height: 86), [
-            (172, 10, 16, 0.9, 3, 0, 1), (246, 64, 14, 0.7, 3, 0, 2), (298, 112, 12, 0.8, 4, 0, 1), (205, 128, 16, 0.6, 3, 0, 2),
-            (226, 24, 14, 1.0, 3, 1, 1), (186, 80, 12, 0.65, 5, 1, 2), (280, 40, 16, 0.8, 3, 1, 1), (160, 136, 14, 0.7, 3, 1, 1),
-            (212, 36, 14, 0.7, 3, 0, 3), (270, 92, 12, 0.6, 3, 0, 3), (256, 108, 12, 0.65, 4, 1, 3), (300, 70, 14, 0.7, 3, 1, 3)]),
-    ]
+    static func fade(_ box: CGRect, _ ramp: Double) -> GraphicsContext.Shading {
+        .linearGradient(Gradient(stops: [.init(color: .clear, location: 0), .init(color: .white, location: ramp),
+                                         .init(color: .white, location: 1 - ramp), .init(color: .clear, location: 1)]),
+                        startPoint: CGPoint(x: box.midX, y: box.minY), endPoint: CGPoint(x: box.midX, y: box.maxY))
+    }
 
     static func drops(_ f: KnobRainFace, _ w: KnobTheme.Weather, in ctx: inout GraphicsContext) {
         let snow = f.kind == .snow
         let color = Color(snow ? w.rain.snowColor : KnobRainFace.color(f.intensity, w.rain))
-        for sheet in rainSheets {
+        let tile = Double(KnobRainFace.sheetH), period = 2 * tile
+        for sheet in KnobRainFace.sheets {
+            let top = sheet.box.minY + Double(KnobRainFace.sheetOffset(sheet, snow: snow, k: 0))
             var c = ctx
             c.clip(to: Path(sheet.box))
-            for (x, y, len, op, slant, tile, level) in sheet.drops where level <= f.intensity {
-                let ay = sheet.box.minY + y + Double(tile) * 150, by = ay + len, bx = x - slant
-                if snow {
-                    let cx = (x + bx) / 2, cy = (ay + by) / 2, r = op >= 0.8 ? 5.0 : 4.0
-                    var p = Path()
-                    for k in 0..<3 {
-                        let a = Double(k) * .pi / 3
-                        p.move(to: CGPoint(x: cx - r * cos(a), y: cy - r * sin(a)))
-                        p.addLine(to: CGPoint(x: cx + r * cos(a), y: cy + r * sin(a)))
+            c.clipToLayer { $0.fill(Path(sheet.box), with: fade(sheet.box, KnobRainFace.ramp)) }
+            for d in sheet.drops where d.level <= f.intensity {
+                for wrap in -2...1 {
+                    let ay = top + d.y + Double(d.tile) * tile + Double(wrap) * period, by = ay + d.len, bx = d.x - d.slant
+                    guard by + 6 >= sheet.box.minY, ay - 6 <= sheet.box.maxY else { continue }
+                    if snow {
+                        let cx = (d.x + bx) / 2, cy = (ay + by) / 2, r = d.op >= 0.8 ? 5.0 : 4.0
+                        var p = Path()
+                        for k in 0..<3 {
+                            let a = Double(k) * .pi / 3
+                            p.move(to: CGPoint(x: cx - r * cos(a), y: cy - r * sin(a)))
+                            p.addLine(to: CGPoint(x: cx + r * cos(a), y: cy + r * sin(a)))
+                        }
+                        c.stroke(p, with: .color(color.opacity(d.op)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    } else {
+                        c.stroke(line(CGPoint(x: d.x, y: ay), CGPoint(x: bx, y: by)), with: .color(color.opacity(d.op)),
+                                 style: StrokeStyle(lineWidth: 4, lineCap: .round))
                     }
-                    c.stroke(p, with: .color(color.opacity(op)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                } else {
-                    c.stroke(line(CGPoint(x: x, y: ay), CGPoint(x: bx, y: by)), with: .color(color.opacity(op)),
-                             style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 }
             }
         }
@@ -208,22 +205,6 @@ extension KnobFaceRender {
         }
     }
 
-    static let castClouds: [[(tone: Int, clouds: [(back: Bool, base: Double, circles: [(Double, Double, Double)])])]] = [
-        [(0, [(false, 170, [(168.5, 156.5, 19.5), (203, 140, 27), (245, 134, 28.5), (291.5, 152, 22.5)])])],
-        [(1, [(false, 180, [(63.5, 161.1, 29.7), (114.8, 144.9, 35.1), (160.7, 163.8, 21.6)])]),
-         (1, [(false, 172, [(305.3, 155.8, 21.6), (351.2, 136.9, 35.1), (402.5, 153.1, 29.7)])])],
-        [(2, [(true, 132, [(20, 116, 28), (66, 96, 32), (118, 102, 30), (166, 118, 22)]),
-              (false, 172, [(30, 154, 30), (80, 138, 34), (134, 144, 30), (186, 158, 24)])]),
-         (2, [(true, 122, [(300, 108, 22), (348, 92, 30), (400, 86, 32), (446, 106, 28)]),
-              (false, 162, [(264, 148, 24), (314, 134, 30), (368, 128, 34), (420, 144, 30)])])],
-    ]
-
-    static let cloudTones: [(front: RGB, back: RGB, line: RGB)] = [
-        (RGB(r: 0xE6, g: 0xEC, b: 0xF2), RGB(r: 0xE6, g: 0xEC, b: 0xF2), RGB(r: 0xC4, g: 0xCC, b: 0xD4)),
-        (RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0x73, g: 0x7B, b: 0x86), RGB(r: 0xA8, g: 0xB0, b: 0xBA)),
-        (RGB(r: 0x55, g: 0x5D, b: 0x68), RGB(r: 0x3A, g: 0x40, b: 0x48), RGB(r: 0x6A, g: 0x74, b: 0x80)),
-    ]
-
     static func cloud(_ base: Double, _ circles: [(Double, Double, Double)]) -> Path {
         var p = Path()
         for (x, y, r) in circles { p.addEllipse(in: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)) }
@@ -236,44 +217,47 @@ extension KnobFaceRender {
 
     static func castClouds(_ f: KnobCastFace, _ w: KnobTheme.Weather, in ctx: inout GraphicsContext) {
         guard (1...3).contains(f.variant) else { return }
-        let snow = f.snow, streak = Color(snow ? w.rain.snowColor : w.cast.color)
-        if !f.dry {
-            for s in castSheets[f.variant - 1] {
-                var c = ctx
-                c.clip(to: Path(s.box))
-                for (x, y, len, op, slant) in s.streaks {
-                    let ay = s.box.minY + y, bx = x - slant
+        let streak = Color(f.snow ? w.rain.snowColor : w.cast.color), center = CGPoint(x: 233, y: 233)
+        for (side, s) in KnobCastFace.sheets[f.variant - 1].enumerated() {
+            if !f.dry { castSheet(s, snow: f.snow, color: streak, in: &ctx) }
+            let sky = KnobCastFace.clouds[f.variant - 1][side], tone = KnobCastFace.tones[sky.tone]
+            var c = ctx
+            c.translateBy(x: Double(KnobCastFace.breathe(variant: f.variant, side: side, k: 0)), y: 0)
+            let r = KnobCastFace.rimR
+            c.clipToLayer {
+                $0.fill(disc(center, r), with: .radialGradient(Gradient(stops: [.init(color: .white, location: 0),
+                                                                                 .init(color: .white, location: sky.fadeFrom / r),
+                                                                                 .init(color: .clear, location: 1)]),
+                                                               center: center, startRadius: 0, endRadius: r))
+            }
+            for cl in sky.clouds {
+                let p = cloud(cl.base, cl.circles.map { ($0.x, $0.y, $0.r) })
+                c.fill(p, with: .color(Color(cl.back ? tone.back : tone.front)))
+                c.stroke(p, with: .color(Color(tone.line)), style: StrokeStyle(lineWidth: 4.5, lineJoin: .round))
+            }
+        }
+    }
+
+    static func castSheet(_ s: KnobCastFace.Sheet, snow: Bool, color: Color, in ctx: inout GraphicsContext) {
+        let h = Double(s.h), period = 2 * h, top = s.box.minY + Double(KnobCastFace.sheetOffset(s, snow: snow, k: 0))
+        var c = ctx
+        c.clip(to: Path(s.box))
+        c.clipToLayer { $0.fill(Path(s.box), with: fade(s.box, KnobCastFace.ramp)) }
+        for (t, streaks) in [s.a, s.b].enumerated() {
+            for d in streaks {
+                for wrap in -2...1 {
+                    let ay = top + d.y + Double(t) * h + Double(wrap) * period, bx = d.x - d.slant
+                    guard ay + d.len + 6 >= s.box.minY, ay - 6 <= s.box.maxY else { continue }
                     if snow {
-                        c.fill(disc(CGPoint(x: (x + bx) / 2, y: ay + len / 2), s.width * 0.75), with: .color(streak.opacity(op)))
+                        c.fill(disc(CGPoint(x: (d.x + bx) / 2, y: ay + d.len / 2), s.width * 0.75), with: .color(color.opacity(d.op)))
                     } else {
-                        c.stroke(line(CGPoint(x: x, y: ay), CGPoint(x: bx, y: ay + len)), with: .color(streak.opacity(op)),
+                        c.stroke(line(CGPoint(x: d.x, y: ay), CGPoint(x: bx, y: ay + d.len)), with: .color(color.opacity(d.op)),
                                  style: StrokeStyle(lineWidth: s.width, lineCap: .round))
                     }
                 }
             }
         }
-        for side in castClouds[f.variant - 1] {
-            let tone = cloudTones[side.tone]
-            for cl in side.clouds {
-                let p = cloud(cl.base, cl.circles)
-                ctx.fill(p, with: .color(Color(cl.back ? tone.back : tone.front)))
-                ctx.stroke(p, with: .color(Color(tone.line)), style: StrokeStyle(lineWidth: 4.5, lineJoin: .round))
-            }
-        }
     }
-
-    static let castSheets: [[(box: CGRect, width: Double, streaks: [(Double, Double, Double, Double, Double)])]] = [
-        [(CGRect(x: 160, y: 172, width: 142, height: 36), 3,
-          [(176, 6, 5, 0.8, 0), (214, 22, 5, 1, 0), (248, 10, 5, 0.7, 0), (282, 30, 5, 0.9, 0), (196, 34, 5, 0.6, 0)])],
-        [(CGRect(x: 54, y: 182, width: 118, height: 26), 4,
-          [(72, 4, 10, 0.85, 3), (118, 17, 10, 1, 3), (150, 29, 10, 0.7, 3), (94, 35, 10, 0.9, 4), (132, 9, 10, 0.75, 3), (60, 22, 10, 0.8, 3)]),
-         (CGRect(x: 298, y: 174, width: 108, height: 34), 4,
-          [(312, 7, 10, 0.9, 3), (356, 20, 10, 0.75, 3), (392, 32, 10, 1, 4), (334, 36, 10, 0.6, 3), (376, 2, 10, 0.85, 3), (306, 24, 10, 0.75, 3)])],
-        [(CGRect(x: 58, y: 172, width: 142, height: 36), 4.5,
-          [(70, 4, 16, 0.9, 6), (102, 22, 16, 1, 6), (138, 10, 16, 0.75, 6), (170, 34, 16, 0.95, 6), (196, 48, 14, 0.7, 5)]),
-         (CGRect(x: 248, y: 164, width: 152, height: 44), 4.5,
-          [(262, 8, 16, 0.9, 6), (296, 30, 16, 1, 6), (330, 4, 16, 0.75, 6), (362, 26, 16, 0.95, 6), (394, 44, 14, 0.7, 5)])],
-    ]
 
     static func wind(_ f: KnobWindFace, _ theme: KnobTheme, in ctx: inout GraphicsContext) {
         let w = theme.weather, t = w.wind
@@ -284,9 +268,21 @@ extension KnobFaceRender {
         ctx.fill(Path(roundedRect: CGRect(x: px, y: m.y - 3, width: KnobWindFace.arm, height: 6), cornerRadius: 3), with: .color(pole))
         ctx.fill(Path(roundedRect: CGRect(x: px - 24, y: base - 7, width: 48, height: 7), cornerRadius: 3.5), with: .color(pole))
         ctx.fill(disc(CGPoint(x: px, y: top), 5.5), with: .color(pole))
-        let sock = f.valueColor(w)
-        for (k, q) in KnobWindFace.sockQuads(level: f.level).enumerated() {
+        let sock = f.valueColor(w), fr = KnobWindFace.frame(level: f.level, k: f.have ? 0 : nil)
+        for (r, s) in fr.streaks.enumerated() where s.opa > 0 {
+            let a = KnobWindFace.streakStart(level: f.level, row: r), len = Double(KnobWindFace.geo(level: f.level).rows[r].len)
+            ctx.stroke(line(CGPoint(x: a.x + Double(s.dx), y: a.y), CGPoint(x: a.x + Double(s.dx) + len, y: a.y)),
+                       with: .color(Color(t.streakColor).opacity(Double(s.opa) / 255)), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+        }
+        for (k, q) in KnobWindFace.sockQuads(level: f.level, pose: fr.pose).enumerated() {
             ctx.fill(polyline(q + [q[0]]), with: .color(Color(k % 2 == 1 ? KnobWindFace.dark(sock, t) : sock)))
+        }
+        let outline = polyline(KnobWindFace.leafOutline())
+        for l in fr.leaves where l.opa > 0 {
+            let half = Double(KnobWindFace.leafBox) / 2, deg = Double(l.rot) * 180 / Double(KnobWindFace.leafRots)
+            let at = CGAffineTransform(rotationAngle: deg * .pi / 180)
+                .concatenating(CGAffineTransform(translationX: Double(l.x) + half, y: Double(l.y) + half))
+            ctx.fill(outline.applying(at), with: .color(Color(t.leafColor).opacity(Double(l.opa) / 255)))
         }
         gauge(f.have ? { f.ringColor($0, w) } : nil, w, in: &ctx)
         valueUnit(f.valueText, sock, unit: f.have ? "km/h" : nil, unitColor: t.unitColor, theme: theme, in: &ctx)
