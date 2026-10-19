@@ -233,6 +233,12 @@ func dotted() { DefaultTransport = nil }
 func dottedPointer() { p := &DefaultTransport; *p = nil }
 
 func dotShadowed() { var DefaultTransport int; DefaultTransport = 1; _ = DefaultTransport }
+
+func ranged() { for _, http.DefaultTransport = range []http.RoundTripper{nil} {} }
+
+func dotRangedKey() { for DefaultTransport = range map[RoundTripper]int{} {} }
+
+func rangeDeclares() { for _, DefaultTransport := range []int{1} { _ = DefaultTransport } }
 `
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "x_test.go", src, 0)
@@ -248,7 +254,7 @@ func dotShadowed() { var DefaultTransport int; DefaultTransport = 1; _ = Default
 		_, fn, _ := strings.Cut(w, " in ")
 		fns = append(fns, fn)
 	}
-	if want := []string{"TestMain", "swap", "viaPointer", "derefAddr", "paren", "aliased", "dotted", "dottedPointer"}; !slices.Equal(fns, want) {
+	if want := []string{"TestMain", "swap", "viaPointer", "derefAddr", "paren", "aliased", "dotted", "dottedPointer", "ranged", "dotRangedKey"}; !slices.Equal(fns, want) {
 		t.Fatalf("writes in %q, want %q", fns, want)
 	}
 }
@@ -275,6 +281,10 @@ func defaultTransportWrites(fset *token.FileSet, files []*ast.File, info *types.
 				switch n := n.(type) {
 				case *ast.AssignStmt:
 					targets = n.Lhs
+				case *ast.RangeStmt:
+					if n.Tok == token.ASSIGN {
+						targets = []ast.Expr{n.Key, n.Value}
+					}
 				case *ast.UnaryExpr:
 					if n.Op == token.AND {
 						targets = []ast.Expr{n.X}
