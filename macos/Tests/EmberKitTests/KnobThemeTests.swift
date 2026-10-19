@@ -196,6 +196,77 @@ private let pinned: [String: String] = [
     "weather.dots.on_color": "#FFFFFF",
     "weather.dots.off_color": "#4A4A4A",
     "weather.dots.faces": "7",
+    "weather.unit.font_px": "30",
+    "weather.unit.gap_px": "6",
+    "weather.rain.colors": "[#4F81B7,#5C9CE0,#3D7BF5]",
+    "weather.rain.ring_from": "#2E3A48",
+    "weather.rain.snow_color": "#D0DCE8",
+    "weather.rain.bolt_color": "#F0D040",
+    "weather.rain.umbrella_color": "#FF8A3D",
+    "weather.rain.end_color": "#8A8A8A",
+    "weather.cast.color": "#5C9CE0",
+    "weather.cast.dry_color": "#BDBDBD",
+    "weather.cast.cell_color": "#262626",
+    "weather.cast.span_s": "43200",
+    "weather.cast.step_s": "300",
+    "weather.cast.label_font_px": "24",
+    "weather.cast.label_gap_px": "2",
+    "weather.wind.bands_kmh": "[0,5,11,19,28,38,49,61,74,88,102,117]",
+    "weather.wind.colors": "[#9AA4B0,#9AA4B0,#4FD6CC,#8ACF7A,#C9D25A,#E8D44A,#F08A3A,#FF5050,#D03060,#D03060,#D03060,#D03060,#D03060]",
+    "weather.wind.gauge_kmh": "50",
+    "weather.wind.max_kmh": "999",
+    "weather.wind.edges_kmh": "[12,29]",
+    "weather.wind.hyst_kmh": "3",
+    "weather.wind.dark_gain": "0.55",
+    "weather.wind.pole_color": "#9AA4B0",
+    "weather.wind.unit_color": "#9A9A9A",
+    "weather.days.row_y_px": "228",
+    "weather.days.pitch_px": "85",
+    "weather.days.day_w_px": "60",
+    "weather.days.icon_px": "40",
+    "weather.days.temp_w_px": "54",
+    "weather.days.bar_w_px": "104",
+    "weather.days.bar_h_px": "10",
+    "weather.days.gap_px": "10",
+    "weather.days.pop_dy_px": "22",
+    "weather.days.lo_opacity": "204",
+    "weather.days.sub_y_px": "372",
+    "weather.days.ring_width_px": "6",
+    "weather.days.track_color": "#262626",
+    "weather.days.name_color": "#BDBDBD",
+    "weather.days.pop_color": "#5C9CE0",
+    "weather.days.name_font_px": "30",
+    "weather.days.pop_font_px": "24",
+    "weather.sun.value_color": "#E0A030",
+    "weather.sun.gold_color": "#FFB547",
+    "weather.sun.horizon_color": "#FF9A3D",
+    "weather.sun.unit_color": "#9A9A9A",
+    "weather.sun.sub_color": "#BDBDBD",
+    "weather.sun.blue_out": "#4A4FC8",
+    "weather.sun.blue_in": "#3E6FD8",
+    "weather.sun.mauve": "#9A6A9E",
+    "weather.sun.dusk_pink": "#E08A5A",
+    "weather.sun.day_edge": "#7E5A20",
+    "weather.sun.day_noon": "#B5832A",
+    "weather.sun.blend_s": "1020",
+    "weather.sun.span_max_s": "43200",
+    "weather.sun.roll_days": "7",
+    "weather.sun.roll_grace_s": "600",
+    "weather.sun.count_max_s": "172800",
+    "weather.sun.cx_px": "233",
+    "weather.sun.cy_px": "178",
+    "weather.sun.radius_px": "42",
+    "weather.sun.clip_y_px": "194",
+    "weather.sun.horizon_y_px": "196",
+    "weather.air.stops": "[10,30,50,70,90]",
+    "weather.air.stop_colors": "[#4FD6CC,#50CCAA,#F0E641,#FF5050,#D03060]",
+    "weather.air.band_max": "[20,40,60,80,100,999]",
+    "weather.air.band_colors": "[#4FD6CC,#50CCAA,#F0E641,#FF5050,#D03060,#B060E0]",
+    "weather.air.gauge": "100",
+    "weather.air.max": "999",
+    "weather.air.poor": "60",
+    "weather.air.hyst": "5",
+    "weather.air.unit_color": "#9A9A9A",
     "nowplaying.backdrop_disk_radius_px": "188",
     "nowplaying.ring_radius_px": "198",
     "nowplaying.ring_width_px": "6",
@@ -277,7 +348,12 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
                  "firmware/components/weather/wx_temp.c", "firmware/components/weather/wx_paint.c",
                  "firmware/components/weather/include/wx_temp.h", "firmware/components/weather/include/wx_paint.h",
                  "firmware/components/weather/include/wx_faces.h", "firmware/components/weather/include/wx_cast.h",
-                 "firmware/components/weather/include/wx_wind.h", "firmware/components/knob_view/knob_view.c"] {
+                 "firmware/components/weather/include/wx_wind.h", "firmware/components/knob_view/knob_view.c",
+                 "firmware/components/weather/wx_rain.c", "firmware/components/weather/wx_cast.c",
+                 "firmware/components/weather/wx_wind.c", "firmware/components/weather/wx_days.c",
+                 "firmware/components/weather/include/wx_days.h", "firmware/components/weather/wx_sun.c",
+                 "firmware/components/weather/include/wx_sun.h", "firmware/components/weather/wx_air.c",
+                 "firmware/components/weather/include/wx_air.h", "firmware/components/weather/wx_clock.c"] {
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path), "CINDER_DIR has no \(file)")
     }
 }
@@ -322,6 +398,9 @@ private let wt = "components/weather/wx_temp.c", wth = "components/weather/inclu
 private let wp = "components/weather/wx_paint.c", wph = "components/weather/include/wx_paint.h"
 private let wfh = "components/weather/include/wx_faces.h", wch = "components/weather/include/wx_cast.h"
 private let wwh = "components/weather/include/wx_wind.h", kv = "components/knob_view/knob_view.c"
+private let wr = "components/weather/wx_rain.c", wc = "components/weather/wx_cast.c", ww = "components/weather/wx_wind.c"
+private let wd = "components/weather/wx_days.c", wdh = "components/weather/include/wx_days.h", ws = "components/weather/wx_sun.c"
+private let wsh = "components/weather/include/wx_sun.h", wa = "components/weather/wx_air.c", wah = "components/weather/include/wx_air.h"
 private func quoted(_ s: String) -> String { "\"" + NSRegularExpression.escapedPattern(for: s) + "\"" }
 private func twice(_ i: Int) -> ([String]) -> String { { n(String(2 * (Double(n($0[i])) ?? .nan))) } }
 private func pairs(_ re: String, _ i: Int) -> ([String]) -> String {
@@ -595,6 +674,132 @@ private func allChecks() -> [Check] {
                          + #" \* lc\) \* ffx, "# + num + #" \* fh, "# + angle,
                        keys: [("bot.eyes.\(key).width", g(1)), ("bot.eyes.\(key).widen", g(2)),
                               ("bot.eyes.\(key).height", g(3)), ("bot.eyes.\(key).angle_deg", g(4))]))
+    }
+    c += weatherFaceChecks()
+    return c
+}
+
+private func weatherFaceChecks() -> [Check] {
+    let words = { (ws: [String]) in ws.map(quoted).joined(separator: ", ") }
+    let ints = { (xs: [Int]) in xs.map(String.init).joined(separator: ", ") }
+    var c: [Check] = [
+        one(tf, #"s_unit = label\(s_root, &lv_font_montserrat_(\d+), LV_ALIGN_TOP_LEFT, 0, 0\);"#, "weather.unit.font_px"),
+        one(tf, #"#define UNIT_GAP (\d+)"#, "weather.unit.gap_px"),
+        Check(file: tf, pattern: #"lv_obj_align_to\(s_unit, s_value, LV_ALIGN_OUT_RIGHT_BOTTOM, UNIT_GAP,\s*"#
+                + #"lv_font_montserrat_30\.base_line - font_digits_96\.base_line\);"#, keys: []),
+        Check(file: wr, pattern: #"uint32_t wx_rain_rgb\(int intensity\) \{ return intensity <= 1 \? "# + hex + #" : intensity == 2 \? "#
+                + hex + " : " + hex + #"; \}"#, keys: [("weather.rain.colors", arr(1, 2, 3))]),
+        one(wp, #"lerp_rgb\("# + hex + #", to, \(float\)i / RING_STEPS\)"#, "weather.rain.ring_from"),
+        one(tf, #"#define SNOW_RGB "# + hex, "weather.rain.snow_color"),
+        one(tf, #"#define BOLT_RGB "# + hex, "weather.rain.bolt_color"),
+        one(wp, #"const uint16_t orange = wx_rgb565\("# + hex + #"\);"#, "weather.rain.umbrella_color"),
+        one(tf, #"#define LABEL_GREY_RGB "# + hex, "weather.rain.end_color"),
+        Check(file: tf, pattern: #"pct_label\(s_lo, s_lo_txt, sizeof s_lo_txt, t->rain\.has_pop, 0, LABEL_GREY_RGB\);\s*"#
+                + #"pct_label\(s_hi, s_hi_txt, sizeof s_hi_txt, t->rain\.has_pop, 100, wx_rain_rgb\(t->rain\.intensity\)\);"#, keys: []),
+        Check(file: wr, pattern: #"if \(k == WX_PRECIP_STORM\) return "# + quoted(KnobRainFace.word(.storm, 2)) + #";\s*"#
+                + #"if \(k == WX_PRECIP_SNOW\) return in == 1 \? "# + quoted(KnobRainFace.word(.snow, 1)) + #" : in == 3 \? "#
+                + quoted(KnobRainFace.word(.snow, 3)) + " : " + quoted(KnobRainFace.word(.snow, 2)) + #";\s*return in == 1 \? "#
+                + quoted(KnobRainFace.word(.rain, 1)) + #" : in == 3 \? "# + quoted(KnobRainFace.word(.rain, 3)) + " : "
+                + quoted(KnobRainFace.word(.rain, 2)) + ";", keys: []),
+        Check(file: wr, pattern: #"snprintf\(r->sub, sizeof r->sub, "until %02d:%02d", r->until_min / 60, r->until_min % 60\);"#
+                + #".*?snprintf\(r->sub, sizeof r->sub, "# + quoted(KnobRainFace.dryWord) + #"\);"#, keys: []),
+        Check(file: wr, pattern: #"r->kind != shown->kind \|\| r->intensity >= shown->intensity\)\s*return;\s*r->intensity = shown->intensity;"#, keys: []),
+        one(wch, #"#define WX_CAST_RGB "# + hex, "weather.cast.color"),
+        one(wch, #"#define WX_CAST_DRY_RGB "# + hex, "weather.cast.dry_color"),
+        one(wch, #"#define WX_CAST_GREY_RGB "# + hex, "weather.still_color"),
+        one(wp, #"#define CELL_GREY "# + hex, "weather.cast.cell_color"),
+        one(wch, #"#define WX_CAST_SPAN_S (\d+)"#, "weather.cast.span_s"),
+        one(wch, #"#define WX_CAST_STEP_S (\d+)"#, "weather.cast.step_s"),
+        one(wch, #"#define WX_LABEL_GAP (\d+)"#, "weather.cast.label_gap_px"),
+        one(tf, #"s_clabel = label\(s_root, &lv_font_montserrat_(\d+), LV_ALIGN_TOP_LEFT, 0, 0\);"#, "weather.cast.label_font_px"),
+        Check(file: wc, pattern: #"\{\{"# + words((1...3).map { KnobCastFace.words(false, $0, cap: false) }) + #"\}, \{"#
+                + words((1...3).map { KnobCastFace.words(true, $0, cap: false) }) + #"\}\},\s*\{\{"#
+                + words((1...3).map { KnobCastFace.words(false, $0, cap: true) }) + #"\}, \{"#
+                + words((1...3).map { KnobCastFace.words(true, $0, cap: true) }) + #"\}\},"#, keys: []),
+        Check(file: wc, pattern: quoted(KnobCastFace.noForecast) + ".*?" + quoted(KnobCastFace.noRain), keys: []),
+        Check(file: wc, pattern: #"long long m5 = \(s \+ 150\) / 300;\s*if \(m5 < 12\) \{\s*\*hours = false;\s*"#
+                + #"\*count = m5 < 1 \? 1 : \(int\)m5;\s*return;\s*\}\s*long long h = \(s \+ 900\) / 1800;\s*\*hours = true;\s*"#
+                + #"\*count = h < 2 \? 2 : \(int\)h;"#, keys: []),
+        Check(file: wp, pattern: #"float lo = 30\.0f \* \(float\)k \+ 1\.5f, hi = lo \+ 27\.0f"#, keys: []),
+        Check(file: ww, pattern: #"static const band_t BANDS\[\] = \{(.*?)\};"#,
+              keys: [("weather.wind.bands_kmh", pairs(#"\{(\d+), 0x"#, 1)),
+                     ("weather.wind.colors", pairs(#"\{(?:\d+|0x7FFFFFFF), (0x[0-9A-Fa-f]{6}), "#, 1))]),
+        Check(file: ww, pattern: #"static const band_t BANDS\[\] = \{\s*"#
+                + KnobWindFace.bandWords.map { #"\{(?:\d+|0x7FFFFFFF), 0x[0-9A-Fa-f]{6}, "# + quoted($0) + #"\},\s*"# }.joined()
+                + #"\};"#, keys: []),
+        Check(file: ww, pattern: #"static const char \*const P\[8\] = \{"# + words(KnobWindFace.compassWords) + #"\};\s*"#
+                + #"int d = \(\(dir % 360\) \+ 360\) % 360;\s*return P\[\(\(2 \* d \+ 45\) / 90\) % 8\];"#, keys: []),
+        Check(file: ww, pattern: #"static const int EDGE\[WX_WIND_LEVELS - 1\] = \{([^}]*)\};"#, keys: [("weather.wind.edges_kmh", list(1))]),
+        one(wwh, #"#define WX_WIND_GAUGE_KMH (\d+)"#, "weather.wind.gauge_kmh"),
+        one(wwh, #"#define WX_WIND_MAX_KMH (\d+)"#, "weather.wind.max_kmh"),
+        Check(file: kv, pattern: #"num_in\(now, "wind_kmh", 0, WX_WIND_MAX_KMH, &o->wind_kmh\)"#, keys: []),
+        one(wwh, #"#define WX_WIND_HYST (\d+)"#, "weather.wind.hyst_kmh"),
+        one(ww, #"\(uint32_t\)lround\(\(\(rgb >> s\) & 0xFF\) \* ([\d.]+)\) << s;"#, "weather.wind.dark_gain"),
+        one(wwh, #"#define WX_WIND_POLE_RGB "# + hex, "weather.wind.pole_color"),
+        one(wwh, #"#define WX_WIND_UNIT_RGB "# + hex, "weather.wind.unit_color"),
+        Check(file: tf, pattern: #"fixed_label\(s_lo, "0", t->wind\.have, wx_wind_rgb\(0\)\);\s*"#
+                + #"fixed_label\(s_hi, "50\+", t->wind\.have, wx_wind_rgb\(WX_WIND_GAUGE_KMH\)\);"#, keys: []),
+        Check(file: ww, pattern: #"" \\xE2\\x80\\xA2 %s", wx_wind_compass\(w->dir\)"#, keys: []),
+        Check(file: "components/weather/wx_clock.c", pattern: #"static const char \*const N\[7\] = \{"# + words(KnobDaysFace.names) + #"\};"#,
+              keys: []),
+        Check(file: wd, pattern: #"static const int DIGIT\[10\] = \{"# + ints(KnobDaysFace.digitW) + #"\};\s*"#
+                + #"int a = v < 0 \? -v : v, w = "# + String(KnobDaysFace.degreeW) + #" \+ \(v < 0 \? "# + String(KnobDaysFace.minusW)
+                + #" : 0\);"#, keys: []),
+        Check(file: wd, pattern: #"static const int W\[7\] = \{"# + ints(KnobDaysFace.nameW) + #"\};"#, keys: []),
+        Check(file: wd, pattern: #"r->pop = \(signed char\)\(wx_days_wet\(r->icon\) && s->pop >= 0"#, keys: []),
+        one(tf, #"s_dday\[i\] = label\(r, &lv_font_montserrat_(\d+), LV_ALIGN_TOP_LEFT, 0, 0\);"#, "weather.days.name_font_px"),
+        one(tf, #"s_dpop\[i\] = label\(r, &lv_font_montserrat_(\d+), LV_ALIGN_TOP_MID, 0, 0\);"#, "weather.days.pop_font_px"),
+        Check(file: wdh, pattern: #"#define WX_DAYS_RING_HW "# + num, keys: [("weather.days.ring_width_px", twice(1))]),
+        one(ws, #"#define BLUE_OUT "# + hex, "weather.sun.blue_out"),
+        one(ws, #"#define BLUE_IN "# + hex, "weather.sun.blue_in"),
+        one(ws, #"#define MAUVE "# + hex, "weather.sun.mauve"),
+        one(ws, #"#define DUSK_PINK "# + hex, "weather.sun.dusk_pink"),
+        one(ws, #"#define DAY_EDGE "# + hex, "weather.sun.day_edge"),
+        one(ws, #"#define DAY_NOON "# + hex, "weather.sun.day_noon"),
+        one(wsh, #"#define WX_SUN_GREY_RGB "# + hex, "weather.sun.sub_color"),
+        one(wsh, #"#define WX_SUN_R "# + num, "weather.sun.radius_px"),
+        Check(file: ws, pattern: #"add\(st, &n, x\[WX_SUN_RISE\], -300, MAUVE\);\s*add\(st, &n, x\[WX_SUN_RISE\], 360, DUSK_PINK\);"#
+                + #".*?add\(st, &n, x\[WX_SUN_SET\], -360, DUSK_PINK\);\s*add\(st, &n, x\[WX_SUN_SET\], 300, MAUVE\);"#, keys: []),
+        Check(file: ws, pattern: quoted(KnobSunFace.polarNight) + " : " + quoted(KnobSunFace.midnightSun) + ".*?"
+                + quoted(KnobSunFace.untilSunrise) + ".*?" + quoted(KnobSunFace.daylight) + ".*?" + quoted(KnobSunFace.goldenTo) + ".*?"
+                + quoted(KnobSunFace.sunsetAt) + ".*?" + quoted(KnobSunFace.golden) + ".*?" + quoted(KnobSunFace.sunsetAt), keys: []),
+        Check(file: tf, pattern: #"fixed_label\(s_lo, s_lo_txt, t->sun\.have, WX_SUN_HZN_RGB\);"#, keys: []),
+        Check(file: wa, pattern: #"static const stop_t STOPS\[\] = \{(.*?)\};"#,
+              keys: [("weather.air.stops", pairs(#"\{(\d+), (0x[0-9A-Fa-f]{6})\}"#, 1)),
+                     ("weather.air.stop_colors", pairs(#"\{(\d+), (0x[0-9A-Fa-f]{6})\}"#, 2))]),
+        Check(file: wa, pattern: #"\} BANDS\[WX_AIR_BANDS\] = \{(.*?)\};"#,
+              keys: [("weather.air.band_max", { c in
+                         let rx = try! NSRegularExpression(pattern: #"\{(\d+|WX_AIR_MAX), "#)
+                         let ms = rx.matches(in: c[1], range: NSRange(c[1].startIndex..., in: c[1]))
+                         let v = ms.map { String(c[1][Range($0.range(at: 1), in: c[1])!]) }
+                         return "[" + v.map { $0 == "WX_AIR_MAX" ? "999" : n($0) }.joined(separator: ",") + "]"
+                     }),
+                     ("weather.air.band_colors", pairs(#"\{(?:\d+|WX_AIR_MAX), (0x[0-9A-Fa-f]{6}), "#, 1))]),
+        Check(file: wa, pattern: #"\} BANDS\[WX_AIR_BANDS\] = \{\s*"#
+                + KnobAirFace.words.map { #"\{(?:\d+|WX_AIR_MAX), 0x[0-9A-Fa-f]{6}, "# + quoted($0) + #"\},\s*"# }.joined() + #"\};"#,
+              keys: []),
+        one(wah, #"#define WX_AIR_MAX (\d+)"#, "weather.air.max"),
+        one(wah, #"#define WX_AIR_GAUGE (\d+)"#, "weather.air.gauge"),
+        one(wah, #"#define WX_AIR_POOR (\d+)"#, "weather.air.poor"),
+        one(wah, #"#define WX_AIR_HYST (\d+)"#, "weather.air.hyst"),
+        one(wah, #"#define WX_AIR_UNIT_RGB "# + hex, "weather.air.unit_color"),
+        Check(file: kv, pattern: #"num_in\(w, "aqi", 0, WX_AIR_MAX, &o->aqi\)"#, keys: []),
+        Check(file: tf, pattern: #"set_unit_text\("AQI"\);.*?set_unit_text\("km/h"\);"#, keys: []),
+    ]
+    for (key, def) in [("row_y_px", "ROW_Y"), ("pitch_px", "PITCH"), ("day_w_px", "DAY_W"), ("icon_px", "ICON"), ("temp_w_px", "TEMP_W"),
+                       ("bar_w_px", "BAR_W"), ("bar_h_px", "BAR_H"), ("gap_px", "GAP"), ("pop_dy_px", "POP_DY"),
+                       ("lo_opacity", "LO_OPA"), ("sub_y_px", "SUB_Y")] {
+        c.append(one(wdh, "#define WX_DAYS_\(def) (\\d+)", "weather.days.\(key)"))
+    }
+    for (key, def) in [("track_color", "TRACK_RGB"), ("name_color", "NAME_RGB"), ("pop_color", "POP_RGB")] {
+        c.append(one(wdh, "#define WX_DAYS_\(def) " + hex, "weather.days.\(key)"))
+    }
+    for (key, def) in [("value_color", "VALUE_RGB"), ("gold_color", "GOLD_RGB"), ("horizon_color", "HZN_RGB"), ("unit_color", "UNIT_RGB")] {
+        c.append(one(wsh, "#define WX_SUN_\(def) " + hex, "weather.sun.\(key)"))
+    }
+    for (key, def) in [("blend_s", "BLEND_S"), ("span_max_s", "SPAN_MAX_S"), ("roll_days", "ROLL_DAYS"), ("roll_grace_s", "ROLL_GRACE_S"),
+                       ("count_max_s", "COUNT_MAX_S"), ("cx_px", "CX"), ("cy_px", "CY"), ("clip_y_px", "CLIP_Y"), ("horizon_y_px", "HZ_Y")] {
+        c.append(one(wsh, "#define WX_SUN_\(def) (\\d+)", "weather.sun.\(key)"))
     }
     return c
 }

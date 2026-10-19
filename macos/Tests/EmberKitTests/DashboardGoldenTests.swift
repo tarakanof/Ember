@@ -73,6 +73,14 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(w.air?.europeanAqi == 42)
     #expect(w.air?.pm25Ugm3 == 8)
     #expect(w.sun?.sunrise == iso("2026-09-26T07:35:00+02:00"))
+    let f = try #require(w.faces)
+    #expect(f.utcOffsetS == 7200 && !f.night && f.windKmh == 18 && f.gustKmh == 31 && f.windDirDeg == 243)
+    #expect(f.rainIntensity == 1 && f.todayPopPct == 80 && f.aqi == 42)
+    #expect(f.rain?.until == iso("2026-09-26T10:45:00+02:00") && f.rain?.spells.count == 2)
+    #expect(f.rain?.spells.last == .init(start: iso("2026-09-26T13:00:00+02:00"), end: iso("2026-09-26T13:15:00+02:00"),
+                                         intensity: 3, snow: false))
+    #expect(f.days.count == 2 && f.days[0].conditionCode == "63" && f.days[0].minC == 10 && f.days[1].popPct == 5)
+    #expect(f.twilight?.goldenStart == iso("2026-09-26T18:45:00+02:00") && f.moon?.up == false)
 }
 
 @Test func weatherStateDecodesEmptyGolden() async throws {
@@ -82,6 +90,7 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(w.current == nil)
     #expect(w.air == nil)
     #expect(w.sun == nil)
+    #expect(w.faces == nil)
 }
 
 @Test func clockHealthDecodesGolden() async throws {

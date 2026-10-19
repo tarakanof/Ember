@@ -7,6 +7,12 @@ public enum KnobFace: Sendable, Equatable {
     case pomodoro(KnobPomoFace)
     case nowPlaying(KnobNowPlayingFace)
     case weather(KnobTempFace)
+    case rain(KnobRainFace)
+    case cast(KnobCastFace)
+    case wind(KnobWindFace)
+    case days(KnobDaysFace)
+    case sun(KnobSunFace)
+    case air(KnobAirFace)
 }
 
 public struct KnobFaceView: View, Equatable {
@@ -33,6 +39,12 @@ public struct KnobFaceView: View, Equatable {
             case .pomodoro(let p): KnobFaceRender.pomodoro(p, theme, in: &ctx)
             case .nowPlaying(let n): KnobFaceRender.nowPlaying(n, theme, in: &ctx)
             case .weather(let t): KnobFaceRender.weather(t, theme, in: &ctx)
+            case .rain(let f): KnobFaceRender.rain(f, theme, in: &ctx)
+            case .cast(let f): KnobFaceRender.cast(f, theme, in: &ctx)
+            case .wind(let f): KnobFaceRender.wind(f, theme, in: &ctx)
+            case .days(let f): KnobFaceRender.days(f, theme, in: &ctx)
+            case .sun(let f): KnobFaceRender.sun(f, theme, in: &ctx)
+            case .air(let f): KnobFaceRender.air(f, theme, in: &ctx)
             }
             let dim = (1 - min(max(brightness, 0), 1)) * 0.6
             if dim > 0 { ctx.fill(disc, with: .color(.black.opacity(dim))) }

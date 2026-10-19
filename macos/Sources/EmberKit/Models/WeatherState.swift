@@ -70,6 +70,85 @@ public struct WeatherState: Decodable, Sendable, Equatable {
         public var night: Bool?
     }
 
+    public struct Faces: Decodable, Sendable, Equatable {
+        public struct Spell: Decodable, Sendable, Equatable {
+            public var start: Date
+            public var end: Date
+            public var intensity: Int
+            public var snow: Bool
+        }
+
+        public struct Rain: Decodable, Sendable, Equatable {
+            public var until: Date?
+            public var spells: [Spell]
+        }
+
+        public struct Day: Decodable, Sendable, Equatable {
+            public var start: Date
+            public var end: Date
+            public var condition: String?
+            public var conditionCode: String?
+            public var minC: Int?
+            public var maxC: Int?
+            public var popPct: Int?
+
+            enum CodingKeys: String, CodingKey {
+                case start, end, condition
+                case conditionCode = "condition_code"
+                case minC = "min_c"
+                case maxC = "max_c"
+                case popPct = "pop_pct"
+            }
+        }
+
+        public struct Twilight: Decodable, Sendable, Equatable {
+            public var dawn, blueEnd, goldenEnd, goldenStart, blueStart, dusk: Date?
+
+            enum CodingKeys: String, CodingKey {
+                case dawn, dusk
+                case blueEnd = "blue_end"
+                case goldenEnd = "golden_end"
+                case goldenStart = "golden_start"
+                case blueStart = "blue_start"
+            }
+        }
+
+        public struct Moon: Decodable, Sendable, Equatable {
+            public var phasePct: Int
+            public var illumPct: Int
+            public var up: Bool?
+
+            enum CodingKeys: String, CodingKey {
+                case up
+                case phasePct = "phase_pct"
+                case illumPct = "illum_pct"
+            }
+        }
+
+        public var utcOffsetS: Int
+        public var night: Bool
+        public var windKmh: Int?
+        public var gustKmh: Int?
+        public var windDirDeg: Int?
+        public var rainIntensity: Int?
+        public var todayPopPct: Int?
+        public var rain: Rain?
+        public var days: [Day]
+        public var twilight: Twilight?
+        public var moon: Moon?
+        public var aqi: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case night, rain, days, twilight, moon, aqi
+            case utcOffsetS = "utc_offset_s"
+            case windKmh = "wind_kmh"
+            case gustKmh = "gust_kmh"
+            case windDirDeg = "wind_dir_deg"
+            case rainIntensity = "rain_intensity"
+            case todayPopPct = "today_pop_pct"
+        }
+    }
+
     public var generatedAt: Date
     public var enabled: Bool
     public var provider: String
@@ -78,9 +157,10 @@ public struct WeatherState: Decodable, Sendable, Equatable {
     public var current: Current?
     public var air: Air?
     public var sun: Sun?
+    public var faces: Faces?
 
     enum CodingKeys: String, CodingKey {
-        case enabled, provider, units, current, air, sun
+        case enabled, provider, units, current, air, sun, faces
         case generatedAt = "generated_at"
         case locationName = "location_name"
     }

@@ -3420,7 +3420,15 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   without it, and by day `current.uv` ≥ 3 replaces it with
   `wx_uv_advice` in `wx_uv_rgb`; night is the fetch's `sun.night`, the
   knob's own, until a sent sun time plus 2.5 min passes, then the rounded
-  times until the next poll), and `nowplaying_view.c`
+  times until the next poll), the six other weather faces (#610:
+  `KnobRainFace`, `KnobCastFace`, `KnobWindFace`, `KnobDaysFace`,
+  `KnobSunFace`, `KnobAirFace` from `wx_rain.c`, `wx_cast.c`, `wx_wind.c`,
+  `wx_days.c`, `wx_sun.c`, `wx_air.c`, fed by `/v1/weather/state`'s
+  `faces`: values, units, sub-lines with LVGL's `#RRGGBB word#` recolour,
+  the gauges' colour ramps, the cast dial's hour cells, end labels, the
+  lit face dot, and the heroes (umbrella and drops, cast clouds, windsock,
+  day rows, rising sun, flower) as their resting frame; built and tested
+  but not yet chosen by the preview, #611 wires them), and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three
@@ -3430,8 +3438,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   error shake, huff and gaze split (`bot.error`). `knob-theme.json`
   (`macos/Sources/EmberKit/Resources/`) holds the numbers the renderers
   share with the firmware: geometry, palette, label layout and LVGL font
-  metrics, eye geometry, and the Temperature face's scale, ring, thermometer
-  and label layout. Shape formulas and the hop squash curve stay in code on
+  metrics, eye geometry, the Temperature face's scale, ring, thermometer
+  and label layout, and the other weather faces' colours, thresholds and
+  layout (`weather.rain` … `weather.air`); their words stay in code and
+  are pinned by the same test. Shape formulas and the hop squash curve stay in code on
   both sides. `KnobThemeTests` pins
   every key; with a cinder checkout next to this repo (or `CINDER_DIR`) it
   also parses the firmware source and checks each key against the constant
