@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -253,9 +254,16 @@ func statusLineIsOurs(v any) bool {
 
 func runStatusline() {
 	killWrappedOnSignal()
-	buf, _ := io.ReadAll(os.Stdin)
+	buf, err := readStatuslineStdin(os.Stdin)
+	if err != nil {
+		slog.Warn("statusline stdin read failed", "err", err)
+	}
 	statuslineMain(buf, os.Stdout)
 	os.Exit(0)
+}
+
+func readStatuslineStdin(r io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(r, hookStdinMax))
 }
 
 func statuslineMain(buf []byte, stdout io.Writer) {
