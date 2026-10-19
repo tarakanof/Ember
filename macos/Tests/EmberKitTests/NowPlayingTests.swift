@@ -131,7 +131,11 @@ private actor FakeBridge: MusicBridge {
     var level = 40
     var granted = true
     func set(granted: Bool) { self.granted = granted }
-    func canControl() async -> Bool { granted }
+    var controlChecks = 0
+    func canControl() async -> Bool {
+        controlChecks += 1
+        return granted
+    }
     var performed: [NowPlayingCommand] = []
     func volume() async -> Int? { running ? level : nil }
     func perform(_ command: NowPlayingCommand) async -> Bool {
@@ -688,7 +692,6 @@ private struct SeekRig {
     let reads = await r.bridge.positionReads
     r.pusher.holdPreview()
     r.pusher.holdPreview()
-    try? await Task.sleep(for: .milliseconds(20))
     #expect(await r.bridge.positionReads == reads && r.ticks.waiting == 1)
     r.pusher.setWatched(false)
     r.pusher.releasePreview()
@@ -710,6 +713,28 @@ private struct SeekRig {
     r.pusher.holdPreview()
     await r.tick()
     #expect(await r.bridge.positionReads == reads)
+}
+
+@MainActor
+@Test func watchEndedWhileTheTurnOnReadWaitsReadsNothing() async {
+    let r = await SeekRig.playing()
+    r.pusher.setWatched(false)
+    await waitUntil { r.ticks.waiting == 0 }
+    await r.bridge.setArt(jpeg(side: 32))
+    await r.sink.set(holdUploads: true)
+    r.pusher.submit(r.song)
+    await waitUntil { await r.sink.uploadHeld }
+    let reads = await r.bridge.positionReads
+    let checks = await r.bridge.controlChecks
+    r.pusher.setWatched(true)
+    await waitUntil { await r.bridge.controlChecks > checks }
+    for _ in 0..<10 { await Task.yield() }
+    r.pusher.setWatched(false)
+    await r.sink.releaseUpload()
+    await r.pusher.drain()
+    for _ in 0..<5 { await Task.yield() }
+    #expect(await r.bridge.positionReads == reads)
+    #expect(!r.pusher.isWatchingSeeks)
 }
 
 @MainActor
