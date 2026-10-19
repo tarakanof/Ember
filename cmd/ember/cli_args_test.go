@@ -35,14 +35,17 @@ func TestCLI_RejectedArgsExitTwo(t *testing.T) {
 		args []string
 		want string
 	}{
-		"server flag before subcommand": {[]string{"-print-config", "doctor"}, "flag -print-config before subcommand doctor: -print-config is a server flag and does not combine with a subcommand"},
-		"help before subcommand":        {[]string{"-h", "doctor"}, "for doctor's flags run `ember doctor -h`, for the server's `ember -h`"},
-		"doctor flag before doctor":     {[]string{"-offline", "doctor"}, "put doctor flags after it (`ember doctor -offline`)"},
-		"unknown flag before doctor":    {[]string{"-jsn", "doctor"}, "-jsn is not a doctor flag; see `ember doctor -h`"},
-		"flag before flagless command":  {[]string{"-offline", "healthcheck"}, "healthcheck takes no flags"},
-		"subcommand after --":           {[]string{"--", "doctor"}, `unexpected argument "doctor"`},
-		"unknown subcommand":            {[]string{"doctr"}, `unexpected argument "doctr"`},
-		"bool flag value as own token":  {[]string{"-print-config", "false"}, `unexpected argument "false"`},
+		"server flag before subcommand":    {[]string{"-print-config", "doctor"}, "flag -print-config before subcommand doctor: -print-config is a server flag and does not combine with a subcommand"},
+		"help before subcommand":           {[]string{"-h", "doctor"}, "for doctor's flags run `ember doctor -h`, for the server's `ember -h`"},
+		"doctor flag before doctor":        {[]string{"-offline", "doctor"}, "put doctor flags after it (`ember doctor -offline`)"},
+		"unknown flag before doctor":       {[]string{"-jsn", "doctor"}, "-jsn is not a doctor flag; see `ember doctor -h`"},
+		"flag before flagless command":     {[]string{"-offline", "healthcheck"}, "healthcheck takes no flags"},
+		"subcommand after --":              {[]string{"--", "doctor"}, `unexpected argument "doctor"`},
+		"unknown subcommand":               {[]string{"doctr"}, `unexpected argument "doctr"`},
+		"bool flag value as own token":     {[]string{"-print-config", "false"}, `unexpected argument "false"`},
+		"version flag before subcommand":   {[]string{"-v", "doctor"}, "flag -v before subcommand doctor: -v prints the version and does not combine with a subcommand; run `ember -v` and `ember doctor` separately"},
+		"version spelling not a flag":      {[]string{"-version", "doctor"}, "-version is not a doctor flag; see `ember doctor -h`"},
+		"valued doctor flag before doctor": {[]string{"-server-url", "http://127.0.0.1:1", "doctor"}, "flag -server-url before subcommand doctor: put doctor flags after it (`ember doctor -server-url http://127.0.0.1:1`)"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
