@@ -32,9 +32,10 @@ public struct KnobFaceView: View, Equatable {
     let face: KnobFace
     let theme: KnobTheme
     let brightness: Double
+    let t: Double?
 
-    public init(_ face: KnobFace, theme: KnobTheme = .standard, brightness: Double = 1) {
-        self.face = face; self.theme = theme; self.brightness = brightness
+    public init(_ face: KnobFace, theme: KnobTheme = .standard, brightness: Double = 1, t: Double? = nil) {
+        self.face = face; self.theme = theme; self.brightness = brightness; self.t = t
         _ = KnobFaceRender.fontRegistered
     }
 
@@ -52,12 +53,12 @@ public struct KnobFaceView: View, Equatable {
             case .pomodoro(let p): KnobFaceRender.pomodoro(p, theme, in: &ctx)
             case .nowPlaying(let n): KnobFaceRender.nowPlaying(n, theme, in: &ctx)
             case .weather(let t): KnobFaceRender.weather(t, theme, in: &ctx)
-            case .rain(let f): KnobFaceRender.rain(f, theme, in: &ctx)
-            case .cast(let f): KnobFaceRender.cast(f, theme, in: &ctx)
-            case .wind(let f): KnobFaceRender.wind(f, theme, in: &ctx)
-            case .days(let f): KnobFaceRender.days(f, theme, in: &ctx)
-            case .sun(let f): KnobFaceRender.sun(f, theme, in: &ctx)
-            case .air(let f): KnobFaceRender.air(f, theme, in: &ctx)
+            case .rain(let f): KnobFaceRender.rain(f, theme, t: t, in: &ctx)
+            case .cast(let f): KnobFaceRender.cast(f, theme, t: t, in: &ctx)
+            case .wind(let f): KnobFaceRender.wind(f, theme, t: t, in: &ctx)
+            case .days(let f): KnobFaceRender.days(f, theme, t: t, in: &ctx)
+            case .sun(let f): KnobFaceRender.sun(f, theme, t: t, in: &ctx)
+            case .air(let f): KnobFaceRender.air(f, theme, t: t, in: &ctx)
             }
             let dim = (1 - min(max(brightness, 0), 1)) * 0.6
             if dim > 0 { ctx.fill(disc, with: .color(.black.opacity(dim))) }

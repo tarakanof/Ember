@@ -43,6 +43,7 @@ struct KnobPreviewData {
     let nowPlaying: KnobNowPlayingFeed?
     let reportedFace: KnobWeatherFaceID?
     let weatherFace: KnobFace
+    var weatherSince: Date?
 
     var settings: KnobSettings { env.knob.settings.draft }
     var mood: KnobMood { liveMood ?? lastMood }
@@ -79,7 +80,7 @@ struct KnobPreviewData {
             KnobPomoLive(state: pomodoro, fetchedAt: pomodoroFetchedAt, note: pomodoroNote, animated: animated,
                          brightness: brightness)
         case "weather":
-            KnobFaceView(weatherFace, brightness: brightness).equatable()
+            KnobWeatherLive(face: weatherFace, since: weatherSince, animated: animated, brightness: brightness)
         case "nowplaying":
             KnobNowPlayingLive(state: nowPlaying?.state, offline: nowPlaying?.failed ?? false, offset: nowPlaying?.serverOffset ?? 0,
                                pictures: nowPlaying?.pictures ?? .init(),
@@ -198,9 +199,10 @@ struct KnobAppPreviewSection: View {
 
     var body: some View {
         let reported = KnobShownFollow.reported(by: shown, seed: env.knob.devices)
-        let drawn = weatherMemo.draw(reported, state: env.live.weather.value, now: weatherNow)
+        let drawn = weatherMemo.draw(reported, state: env.live.weather.value, now: weatherNow, at: .now)
         let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood,
-                                   nowPlaying: nowPlaying, reportedFace: reported, weatherFace: drawn.face)
+                                   nowPlaying: nowPlaying, reportedFace: reported, weatherFace: drawn.face,
+                                   weatherSince: (drawn.commit ?? weatherMemo).shownAt)
         Section {
             KnobPreview(title: knobPageTitle(page), caption: data.caption(page), enabled: data.isOn(page)) {
                 data.face(page, animated: true)

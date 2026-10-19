@@ -132,6 +132,61 @@ struct KnobBotSchedule: TimelineSchedule {
     }
 }
 
+public struct KnobWeatherLive: View {
+    let face: KnobFace
+    let since: Date?
+    let animated: Bool
+    let theme: KnobTheme
+    let brightness: Double
+    @State private var visible = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(face: KnobFace, since: Date?, animated: Bool = true, theme: KnobTheme = .standard, brightness: Double = 1) {
+        self.face = face; self.since = since; self.animated = animated; self.theme = theme; self.brightness = brightness
+    }
+
+    public var body: some View {
+        let motion = KnobWeatherMotion(face, reduceMotion: reduceMotion)
+        Group {
+            if animated, visible, motion != .still, let since {
+                TimelineView(KnobWeatherSchedule(since: since, motion: motion)) { tl in
+                    KnobFaceView(face, theme: theme, brightness: brightness, t: tl.date.timeIntervalSince(since)).equatable()
+                }
+                .id(since)
+            } else {
+                KnobFaceView(face, theme: theme, brightness: brightness).equatable()
+            }
+        }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
+    }
+}
+
+struct KnobWeatherSchedule: TimelineSchedule {
+    let since: Date
+    let motion: KnobWeatherMotion
+
+    func entries(from start: Date, mode: Mode) -> AnyIterator<Date> {
+        let step = 1 / KnobWeatherMotion.fps, t0 = start.timeIntervalSince(since)
+        var until = Double.infinity
+        switch motion {
+        case .still: return AnyIterator { nil }
+        case .loop: break
+        case .arrival(let end): until = end
+        }
+        var n = (t0 / step - 0.5).rounded(.down)
+        var last = t0
+        var first = true
+        return AnyIterator {
+            if first { first = false; return start }
+            guard last < until else { return nil }
+            n += 1
+            last = (n + 0.5) * step
+            return since.addingTimeInterval(last)
+        }
+    }
+}
+
 final class KnobBotClock: @unchecked Sendable {
     private let lock = NSLock()
     private var moving = true
@@ -222,6 +277,7 @@ public struct KnobPomoLive: View {
 public struct KnobWeatherMemo: Equatable, Sendable {
     public private(set) var band: Int?
     public private(set) var drawn: KnobWeatherFaceID?
+    public private(set) var shownAt: Date?
     private var rain: KnobRainFace?
     private var cast: KnobCastFace?
     private var wind: KnobWindFace?
@@ -229,28 +285,29 @@ public struct KnobWeatherMemo: Equatable, Sendable {
 
     public init() {}
 
-    public func draw(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date,
+    public func draw(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date, at: Date? = nil,
                      theme: KnobTheme.Weather = KnobTheme.standard.weather,
                      calendar: Calendar = .current) -> (face: KnobFace, commit: KnobWeatherMemo?) {
-        let p = peek(pick, state: state, now: now, theme: theme, calendar: calendar)
+        let p = peek(pick, state: state, now: now, at: at, theme: theme, calendar: calendar)
         return (p.face, p.memo == self ? nil : p.memo)
     }
 
-    public func peek(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date,
+    public func peek(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date, at: Date? = nil,
                      theme: KnobTheme.Weather = KnobTheme.standard.weather,
                      calendar: Calendar = .current) -> (face: KnobFace, memo: KnobWeatherMemo) {
         var m = self
-        let f = m.face(pick, state: state, now: now, theme: theme, calendar: calendar)
+        let f = m.face(pick, state: state, now: now, at: at, theme: theme, calendar: calendar)
         return (f, m)
     }
 
-    public mutating func face(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date,
+    public mutating func face(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date, at: Date? = nil,
                               theme: KnobTheme.Weather = KnobTheme.standard.weather,
                               calendar: Calendar = .current) -> KnobFace {
         let temp = face(state: state, now: now, theme: theme, calendar: calendar)
         let id = pick ?? KnobWeatherAuto.face(state: state, now: now, shown: drawn, theme: theme, calendar: calendar)
         let kept = drawn == id
         drawn = id
+        if !kept { shownAt = at ?? now }
         switch id {
         case .temp:
             return .weather(temp)

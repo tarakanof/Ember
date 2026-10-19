@@ -8,8 +8,8 @@ private let th = KnobTheme.standard
 private let w = th.weather
 
 @MainActor
-private func render(_ f: KnobFace) throws -> CGImage {
-    let r = ImageRenderer(content: KnobFaceView(f).frame(width: 466, height: 466).environment(\.colorScheme, .dark))
+private func render(_ f: KnobFace, t: Double? = nil) throws -> CGImage {
+    let r = ImageRenderer(content: KnobFaceView(f, t: t).frame(width: 466, height: 466).environment(\.colorScheme, .dark))
     r.scale = 1
     let img = try #require(r.cgImage)
     if let dir = ProcessInfo.processInfo.environment["KNOB_SNAPSHOT_DIR"],
@@ -228,6 +228,62 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     var still = KnobWindFace()
     still.level = 1
     #expect(near(pixel(try render(.wind(still)), 260, 165), black, 10), "no streaks without data")
+}
+
+private func same(_ a: CGImage, _ b: CGImage) -> Bool {
+    func bytes(_ i: CGImage) -> Data? { i.dataProvider?.data as Data? }
+    return a.width == b.width && a.height == b.height && bytes(a) != nil && bytes(a) == bytes(b)
+}
+
+private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
+
+@MainActor @Test func animatedFacesSettleOnTheRestPose() throws {
+    let (s, at) = sunFixture()
+    let sun = KnobFace.sun(KnobSunFace(state: s, now: at))
+    #expect(same(try render(sun, t: 3), try render(sun)), "the sun has risen and its rays are in")
+    let days = KnobFace.days(KnobDaysFace(rows: [.init(wday: 1, icon: .rain, pop: 70, lo: 9, hi: 14), .init(wday: 2, icon: .sun, lo: 7, hi: 19)]))
+    #expect(same(try render(days, t: 3), try render(days)), "every row in, the counts done")
+    let r = KnobFace.rain(KnobRainFace(dry: false, intensity: 3, pop: 80, sub: "Heavy rain"))
+    #expect(same(try render(r, t: frame(8160)), try render(r)), "a whole rain period later: frame 0 again")
+    var healthy = KnobAirFace()
+    healthy.have = true; healthy.aqi = 42; healthy.band = 2; healthy.fraction = 0.42
+    #expect(same(try render(.air(healthy), t: 5), try render(.air(healthy))), "the healthy flower is still")
+}
+
+@MainActor @Test func animatedFramesDrawCindersMotion() throws {
+    let blue = w.rain.colors[2]
+    let r = KnobFace.rain(KnobRainFace(dry: false, intensity: 3, pop: 80, sub: "Heavy rain"))
+    let drip = try render(r, t: frame(8168))
+    #expect(near(pixel(drip, 107, 210), blue, 40), "the left drip at its fullest, 6 px down")
+    #expect(near(pixel(try render(r), 107, 210), black, 10), "no drip at rest")
+    let storm = KnobFace.rain(KnobRainFace(dry: false, kind: .storm, intensity: 2, pop: 80, sub: "Storm"))
+    #expect(near(pixel(try render(storm, t: frame(102)), 212, 66), RGB(hex: "#F0D040")!, 40), "the bolt flashes")
+    #expect(!near(pixel(try render(storm, t: frame(104)), 212, 66), RGB(hex: "#F0D040")!, 40))
+    #expect(near(pixel(try render(r, t: 0), 68, 215), black, 10), "the rain fades in from nothing")
+
+    var wind = KnobWindFace()
+    wind.have = true; wind.kmh = 18; wind.level = 1; wind.fraction = 0.36
+    let q = KnobWindFace.sockQuads(level: 1, pose: 0)[0]
+    let mid = CGPoint(x: q.map(\.x).reduce(0, +) / 4, y: q.map(\.y).reduce(0, +) / 4)
+    #expect(near(pixel(try render(.wind(wind), t: 0), mid), black, 10), "the sock fades in")
+    #expect(near(pixel(try render(.wind(wind), t: frame(40)), mid), KnobWindFace.color(18, w.wind), 30), "pose A again at frame 40")
+
+    var cast = KnobCastFace()
+    cast.have = true; cast.variant = 2; cast.wet = true; cast.sub = "Rain"
+    #expect(near(pixel(try render(.cast(cast), t: 0.5), 64, 191), black, 12), "the rain waits for the gate")
+
+    let (s, at) = sunFixture()
+    let sun = KnobFace.sun(KnobSunFace(state: s, now: at))
+    #expect(near(pixel(try render(sun, t: 0), 233, 160), black, 10), "the sun starts below the horizon")
+
+    let days = KnobFace.days(KnobDaysFace(rows: [.init(wday: 1, icon: .sun, lo: 9, hi: 14)]))
+    #expect(!has(try render(days, t: 0), RGB(hex: "#FFB547")!, rows: 190..<270, cols: 100..<366), "the rows fade in")
+
+    var wilted = KnobAirFace()
+    wilted.have = true; wilted.aqi = 68; wilted.band = 3; wilted.wilted = true; wilted.fraction = 0.68
+    let petal = try render(.air(wilted), t: frame(90))
+    #expect(near(pixel(petal, 262, 150), RGB(hex: "#C98A9A")!, 40), "the falling petal")
+    #expect(!same(petal, try render(.air(wilted))), "no petal at rest")
 }
 
 private func sunFixture() -> (WeatherState, Date) {
