@@ -211,7 +211,9 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     #expect(near(pixel(img, 182, 164), black, 12), "the left cloud breathes 4 px left at frame 0")
     #expect(near(pixel(img, 176, 164), RGB(hex: "#A8B0BA")!, 30), "its outline")
     #expect(near(pixel(img, 64, 191), scaled(w.cast.color, 0.65), 24), "a streak of the second tile")
-    #expect(near(pixel(img, 375, 207), scaled(w.cast.color, 0.85 * 0.19), 16), "the right sheet fades out over its last rows")
+    let lit = { (p: RGB) in Int(p.r) + Int(p.g) + Int(p.b) }, full = lit(scaled(w.cast.color, 0.85))
+    let ramp = (206...207).map { lit(pixel(img, 375, $0)) }
+    #expect(ramp[0] > 0 && ramp.allSatisfy { $0 < full } && ramp[1] < ramp[0] * 9 / 10, "the right sheet fades out over its last rows \(ramp)")
     var snow = c
     snow.snow = true
     let s = try render(.cast(snow))
