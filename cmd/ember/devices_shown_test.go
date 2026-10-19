@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -299,24 +301,90 @@ func TestKnobShownDisappearsWhenCapsWithdrawTheToken(t *testing.T) {
 	}
 }
 
-func TestKnobShownPollRacingADeleteLeavesNothingForTheReMintedKnob(t *testing.T) {
-	f := shownFixture(t)
-	deleted := make(chan int, 1)
-	f.app.shownSetHook = func() {
-		f.app.shownSetHook = nil
-		go func() {
-			resp, _ := devReq(t, f.srv, "DELETE", "/v1/devices/"+f.m.ID, testToken, "")
-			deleted <- resp.StatusCode
-		}()
-		select {
-		case code := <-deleted:
-			deleted <- code
-		case <-time.After(200 * time.Millisecond):
+func deleteParkedOnTheRegistryLock() bool {
+	buf := make([]byte, 1<<16)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		if strings.Contains(g, ".handleDeviceDelete(") && strings.Contains(g, "(*deviceRegistry).mutate(") {
+			header, _, _ := strings.Cut(g, "\n")
+			return strings.Contains(header, "[sync.Mutex.Lock")
 		}
 	}
-	pollShown(t, f, "weather:wind")
-	if code := <-deleted; code != http.StatusNoContent {
-		t.Fatalf("delete = %d", code)
+	return false
+}
+
+func TestKnobShownPollRacingADeleteLeavesNothingForTheReMintedKnob(t *testing.T) {
+	f := shownFixture(t)
+	deleted := make(chan struct{})
+	var deleteCode int
+	var deleteErr error
+	startDelete := func() {
+		go func() {
+			defer close(deleted)
+			req, err := http.NewRequest("DELETE", f.srv.URL+"/v1/devices/"+f.m.ID, nil)
+			if err != nil {
+				deleteErr = err
+				return
+			}
+			req.Header.Set("Authorization", "Bearer "+testToken)
+			resp, err := f.srv.Client().Do(req)
+			if err != nil {
+				deleteErr = err
+				return
+			}
+			deleteCode = resp.StatusCode
+			_ = resp.Body.Close()
+		}()
+	}
+	hookErrs := make(chan error, 2)
+	awaitDelete := func(stage string) {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			select {
+			case <-deleted:
+				return
+			default:
+			}
+			if deleteParkedOnTheRegistryLock() {
+				return
+			}
+			if time.Now().After(deadline) {
+				hookErrs <- errors.New(stage + ": delete neither parked on the registry lock nor finished")
+				return
+			}
+			runtime.Gosched()
+		}
+	}
+	f.app.shownSetHook = func() {
+		f.app.shownSetHook = nil
+		startDelete()
+		awaitDelete("caps check")
+	}
+	f.app.knobShown.setHook = func() { awaitDelete("shown write") }
+	if resp, b := f.getQuery(t, "?shown=weather:wind", ""); resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("racing poll = %d: %s", resp.StatusCode, b)
+	}
+	select {
+	case <-deleted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("delete never finished")
+	}
+	close(hookErrs)
+	for err := range hookErrs {
+		t.Fatal(err)
+	}
+	if deleteErr != nil {
+		t.Fatalf("delete: %v", deleteErr)
+	}
+	if deleteCode != http.StatusNoContent {
+		t.Fatalf("delete = %d", deleteCode)
 	}
 	m := mintKnob(t, f.srv, http.StatusCreated)
 	if m.ID != f.m.ID {
