@@ -400,7 +400,8 @@ The test checks only code the knob runs, and every theme key needs a check
 (the code-only keys and LVGL's built-in `font.metrics` sizes aside). The
 weather keys mirror the Temperature face (`temp_face.c`, `wx_temp.c`,
 `wx_paint.c`): the colour scale, gauge ring, marker, thermometer and
-mercury, value, end labels, sub-line and face dots, and structure checks
+mercury, value, end labels, sub-line (cloud bands, their hysteresis and
+the UV advice levels, colours and words) and face dots, and structure checks
 pin the conditions the preview copies (ring span and grey track, end-label
 colour, marker gate, the `deg / 2` value shift).
 

@@ -224,6 +224,7 @@ public struct KnobWeatherLive: View {
     let animated: Bool
     let theme: KnobTheme
     let brightness: Double
+    @State private var shown = KnobCloudMemo()
 
     public init(state: WeatherState?, animated: Bool = true, theme: KnobTheme = .standard, brightness: Double = 1) {
         self.state = state; self.animated = animated; self.theme = theme; self.brightness = brightness
@@ -238,9 +239,15 @@ public struct KnobWeatherLive: View {
     }
 
     private func face(at now: Date) -> some View {
-        KnobFaceView(.weather(KnobTempFace(state: state, now: now, theme: theme.weather)), theme: theme, brightness: brightness)
-            .equatable()
+        let f = KnobTempFace(state: state, now: now, theme: theme.weather, shownBand: shown.band)
+        shown.band = f.cloudBand
+        return KnobFaceView(.weather(f), theme: theme, brightness: brightness).equatable()
     }
+}
+
+@MainActor
+final class KnobCloudMemo {
+    var band: Int?
 }
 
 public struct KnobNowPlayingLive: View {

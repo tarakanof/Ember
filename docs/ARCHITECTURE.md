@@ -3400,8 +3400,11 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   marker, thermometer and mercury, value, today's low and high, sky
   sub-line, face dots; today's range is `current.today_min_c`/`today_max_c`
   of `/v1/weather/state`; the sky, clouds, hero, count-up arrival, drift
-  and burn-in shift are not drawn, and the sub-line has no cloud cover or
-  UV advice, so it is the condition's word), and `nowplaying_view.c`
+  and burn-in shift are not drawn; the sub-line follows `wx_temp.c`
+  (#578): `current.cloud_pct` picks the `sky_word` band, held near an edge
+  by `WX_BAND_HYST` while the preview stays up, the condition's word
+  without it, and by day `current.uv` ≥ 3 replaces it with
+  `wx_uv_advice` in `wx_uv_rgb`), and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three

@@ -180,6 +180,16 @@ private let pinned: [String: String] = [
     "weather.sub.font_px": "30",
     "weather.sub.y_px": "302",
     "weather.sub.color": "#BDBDBD",
+    "weather.cloud.max_pct": "100",
+    "weather.cloud.edges_pct": "[10,40,70,90]",
+    "weather.cloud.hyst_pct": "5",
+    "weather.cloud.clear_pct": "0",
+    "weather.cloud.partly_pct": "55",
+    "weather.cloud.other_pct": "95",
+    "weather.uv.max": "40",
+    "weather.uv.advice_from": "3",
+    "weather.uv.level_max": "[5,7,10]",
+    "weather.uv.colors": "[#F0E641,#F08A3A,#FF5050,#B060E0]",
     "weather.dots.radius_px": "206",
     "weather.dots.pitch_px": "16",
     "weather.dots.dot_radius_px": "4",
@@ -267,7 +277,7 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
                  "firmware/components/weather/wx_temp.c", "firmware/components/weather/wx_paint.c",
                  "firmware/components/weather/include/wx_temp.h", "firmware/components/weather/include/wx_paint.h",
                  "firmware/components/weather/include/wx_faces.h", "firmware/components/weather/include/wx_cast.h",
-                 "firmware/components/weather/include/wx_wind.h"] {
+                 "firmware/components/weather/include/wx_wind.h", "firmware/components/knob_view/knob_view.c"] {
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path), "CINDER_DIR has no \(file)")
     }
 }
@@ -311,7 +321,8 @@ private let pv = "main/pomo_view.c", tf = "main/temp_face.c"
 private let wt = "components/weather/wx_temp.c", wth = "components/weather/include/wx_temp.h"
 private let wp = "components/weather/wx_paint.c", wph = "components/weather/include/wx_paint.h"
 private let wfh = "components/weather/include/wx_faces.h", wch = "components/weather/include/wx_cast.h"
-private let wwh = "components/weather/include/wx_wind.h"
+private let wwh = "components/weather/include/wx_wind.h", kv = "components/knob_view/knob_view.c"
+private func quoted(_ s: String) -> String { "\"" + NSRegularExpression.escapedPattern(for: s) + "\"" }
 private func twice(_ i: Int) -> ([String]) -> String { { n(String(2 * (Double(n($0[i])) ?? .nan))) } }
 private func pairs(_ re: String, _ i: Int) -> ([String]) -> String {
     { c in
@@ -434,6 +445,30 @@ private func allChecks() -> [Check] {
         one(tf, #"#define GREY_RGB "# + hex, "weather.still_color"),
         one("components/weather/include/weather_face.h", #"#define WX_MAX_AGE_S "# + num, "weather.max_age_s"),
         one(wth, #"#define WX_SCALE_LO \((-?\d+)\)"#, "weather.scale.lo_c"),
+        one(kv, #"num_in\(now, "cloud", 0, (\d+), &o->cloud\)"#, "weather.cloud.max_pct"),
+        one(kv, #"num_in\(now, "uv", 0, (\d+), &o->uv\)"#, "weather.uv.max"),
+        Check(file: wt, pattern: #"static const int BAND_EDGE\[4\] = \{([^}]*)\};"#, keys: [("weather.cloud.edges_pct", list(1))]),
+        one(wth, #"#define WX_BAND_HYST (\d+)"#, "weather.cloud.hyst_pct"),
+        Check(file: wt, pattern: #"int wx_cloud_band\(int cloud\)\s*\{\s*int b = 0;\s*while \(b < 4 && cloud >= BAND_EDGE\[b\]\) b\+\+;"#
+                + #".*?if \(shown < 0 \|\| shown > 4 \|\| b == shown\) return b;\s*"#
+                + #"bool above = shown == 0 \|\| cloud >= BAND_EDGE\[shown - 1\] - WX_BAND_HYST;\s*"#
+                + #"bool below = shown == 4 \|\| cloud < BAND_EDGE\[shown\] \+ WX_BAND_HYST;\s*return above && below \? shown : b;"#,
+              keys: []),
+        Check(file: wt, pattern: #"if \(o->has_cloud\) return o->cloud;\s*switch \(l->face\) \{\s*case WX_CLEAR_DAY:\s*"#
+                + #"case WX_CLEAR_NIGHT: return (\d+);\s*case WX_PARTLY_CLOUDY: return (\d+);\s*default: return (\d+);"#,
+              keys: [("weather.cloud.clear_pct", g(1)), ("weather.cloud.partly_pct", g(2)), ("weather.cloud.other_pct", g(3))]),
+        Check(file: wt, pattern: #"static const char \*const BANDS\[2\]\[5\] = \{\s*"#
+                + KnobTempFace.skyWords.map { "\\{" + $0.map(quoted).joined(separator: ", ") + "\\}," }.joined(separator: #"\s*"#)
+                + #"\s*\};.*?if \(has_cloud\) return BANDS\[night\]\[band\];"#, keys: []),
+        Check(file: wt, pattern: #"uint32_t wx_uv_rgb\(int uv\) \{ return uv <= (\d+) \? "# + hex + #" : uv <= (\d+) \? "# + hex
+                + #" : uv <= (\d+) \? "# + hex + " : " + hex + #"; \}"#,
+              keys: [("weather.uv.level_max", arr(1, 3, 5)), ("weather.uv.colors", arr(2, 4, 6, 7))]),
+        Check(file: wt, pattern: #"if \(uv < (\d+)\) return NULL;\s*return uv <= (\d+) \? "# + quoted(KnobTempFace.uvWords[0])
+                + #" : uv <= (\d+) \? "# + quoted(KnobTempFace.uvWords[1]) + #" : uv <= (\d+) \? "# + quoted(KnobTempFace.uvWords[2])
+                + " : " + quoted(KnobTempFace.uvWords[3]) + ";",
+              keys: [("weather.uv.advice_from", g(1)), ("weather.uv.level_max", arr(2, 3, 4))]),
+        Check(file: wt, pattern: #"const char \*adv = !t->night && o->has_uv \? wx_uv_advice\(o->uv\) : NULL;\s*if \(adv\) \{\s*"#
+                + #"snprintf\(t->sub, sizeof t->sub, "%s", adv\);\s*t->sub_rgb = wx_uv_rgb\(o->uv\);"#, keys: []),
         one(wth, #"#define WX_SCALE_HI (\d+)"#, "weather.scale.hi_c"),
         Check(file: wt, pattern: #"static const stop_t SCALE\[\] = \{(.*?)\};"#,
               keys: [("weather.scale.stops_c", pairs(#"\{(-?[\d.]+f?), (0x[0-9A-Fa-f]{6})\}"#, 1)),
