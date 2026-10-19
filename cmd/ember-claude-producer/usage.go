@@ -17,6 +17,9 @@ import (
 
 const usageEndpoint = "https://api.anthropic.com/api/oauth/usage"
 const usageMaxBody = 1 << 20
+
+var errUsageTooLarge = errors.New("usage reply exceeds size cap")
+
 const usagePollInterval = 5 * time.Minute
 const defaultClaudeVersion = "2.1.0"
 
@@ -86,7 +89,7 @@ func fetchUsage(ctx context.Context, token string) (usageResponse, int, error) {
 		return usageResponse{}, resp.StatusCode, err
 	}
 	if len(b) > usageMaxBody {
-		return usageResponse{}, resp.StatusCode, errors.New("usage reply exceeds size cap")
+		return usageResponse{}, resp.StatusCode, errUsageTooLarge
 	}
 	u, err := parseUsageResponse(b)
 	return u, resp.StatusCode, err

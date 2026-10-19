@@ -100,13 +100,14 @@ func TestFetchUsage_TruncatedBodySurfacesReadError(t *testing.T) {
 }
 
 func TestFetchUsage_OversizedBodyIsCapped(t *testing.T) {
-	body := strings.NewReader(`{"five_hour":null}` + strings.Repeat(" ", usageMaxBody*2))
+	const prefix = `{"five_hour":null}`
+	body := strings.NewReader(prefix + strings.Repeat(" ", usageMaxBody*2))
 	stubUsageBody(t, body)
 	_, _, err := fetchUsage(context.Background(), "tok")
-	if err == nil {
-		t.Fatal("want error for oversized body")
+	if !errors.Is(err, errUsageTooLarge) {
+		t.Fatalf("err = %v, want errUsageTooLarge", err)
 	}
-	if read := usageMaxBody*2 + 18 - body.Len(); read > usageMaxBody+1 {
+	if read := usageMaxBody*2 + len(prefix) - body.Len(); read > usageMaxBody+1 {
 		t.Fatalf("read %d bytes, cap is %d", read, usageMaxBody+1)
 	}
 }
