@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -127,6 +128,9 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, co
 		return Reply{}, err
 	}
 	defer drainClose(resp.Body)
-	out, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
+	out, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return Reply{}, fmt.Errorf("read %s %s reply: %w", method, path, err)
+	}
 	return Reply{Status: resp.StatusCode, Body: out}, nil
 }

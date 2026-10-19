@@ -2,7 +2,9 @@ package awtrix
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +72,7 @@ func TestRawCallNeedsBaseURL(t *testing.T) {
 
 func TestRawReplyIsCapped(t *testing.T) {
 	c, _ := serve(t, http.StatusOK, strings.Repeat("x", rawReplyLimit+10))
+	c = NewClient(c.BaseURL(), time.Minute)
 	reply, err := c.RawScreen(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -81,9 +84,64 @@ func TestRawReplyIsCapped(t *testing.T) {
 
 func TestRawPutScriptReplyIsCapped(t *testing.T) {
 	c, _ := serve(t, http.StatusOK, strings.Repeat("x", scriptReplyLimit+10))
+	c = NewClient(c.BaseURL(), time.Minute)
 	reply, err := c.RawPutScript(context.Background(), "s", "src")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(reply.Body) != scriptReplyLimit {
+		t.Fatalf("body = %d bytes, want the %d cap", len(reply.Body), scriptReplyLimit)
+	}
+}
+
+func serveCut(t *testing.T, status, declared int, sent string) *Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, buf, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		fmt.Fprintf(buf, "HTTP/1.1 %d %s\r\nContent-Length: %d\r\n\r\n%s", status, http.StatusText(status), declared, sent)
+		_ = buf.Flush()
+	}))
+	t.Cleanup(srv.Close)
+	return NewClient(srv.URL, time.Minute)
+}
+
+func TestRawReplyCutMidStreamIsAnError(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusUnprocessableEntity} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			c := serveCut(t, status, 1000, `{"partial":`)
+			reply, err := c.RawScreen(context.Background())
+			if err == nil {
+				t.Fatalf("cut body: reply = %d %q, want an error", reply.Status, reply.Body)
+			}
+		})
+	}
+}
+
+func TestRawReplyTimedOutMidStreamIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"partial":`))
+		_ = http.NewResponseController(w).Flush()
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	reply, err := NewClient(srv.URL, 200*time.Millisecond).RawScreen(context.Background())
+	if err == nil {
+		t.Fatalf("stalled body: reply = %d %q, want an error", reply.Status, reply.Body)
+	}
+}
+
+func TestRawReplyCutAfterTheCapIsNotAnError(t *testing.T) {
+	c := serveCut(t, http.StatusOK, scriptReplyLimit+1000, strings.Repeat("x", scriptReplyLimit+10))
+	reply, err := c.RawPutScript(context.Background(), "s", "src")
+	if err != nil {
+		t.Fatalf("cut past the cap: err = %v, want the capped reply", err)
 	}
 	if len(reply.Body) != scriptReplyLimit {
 		t.Fatalf("body = %d bytes, want the %d cap", len(reply.Body), scriptReplyLimit)

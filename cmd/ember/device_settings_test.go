@@ -240,6 +240,34 @@ func TestDeviceScreenProxyMapsErrorTo502(t *testing.T) {
 	}
 }
 
+func cutBodyClock(t *testing.T) string {
+	t.Helper()
+	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, buf, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		_, _ = buf.WriteString("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n[16711680,")
+		_ = buf.Flush()
+	}))
+	t.Cleanup(dev.Close)
+	return dev.URL
+}
+
+func TestDeviceScreenProxyMapsCutBodyTo502(t *testing.T) {
+	a := newTestAppWithStore(t)
+	if err := putClockOverride(a, cutBodyClock(t)); err != nil {
+		t.Fatal(err)
+	}
+	rw := httptest.NewRecorder()
+	a.handleDeviceScreen(rw, httptest.NewRequest("GET", "/v1/device/screen", nil))
+	if rw.Code != http.StatusBadGateway {
+		t.Fatalf("code=%d body=%q, want 502", rw.Code, rw.Body.String())
+	}
+}
+
 func TestDeviceSettingsDuringTakeoverUsePrior(t *testing.T) {
 	var patches []string
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
