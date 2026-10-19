@@ -175,7 +175,6 @@
       "colors": ["#4F81B7", "#5C9CE0", "#3D7BF5"],
       "ring_from": "#2E3A48",
       "snow_color": "#D0DCE8",
-      "bolt_color": "#F0D040",
       "umbrella_color": "#FF8A3D",
       "end_color": "#8A8A8A"
     },
@@ -213,7 +212,6 @@
       "gap_px": 10,
       "pop_dy_px": 22,
       "lo_opacity": 204,
-      "sub_y_px": 372,
       "ring_width_px": 6,
       "track_color": "#262626",
       "name_color": "#BDBDBD",
