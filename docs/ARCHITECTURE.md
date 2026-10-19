@@ -4367,8 +4367,10 @@ producers and USB; build it with another `PRODUCT_BUNDLE_IDENTIFIER`).
 
 Resolve order: the `-config` flag, `CONFIG_PATH`, `./config.json` if present,
 else defaults only. `-config` works before or after the `doctor` subcommand
-(`ember -config X doctor`); given twice, the later one wins. Failures wrap the sentinels `ErrConfigRead`, `ErrConfigParse`
-and `ErrConfigValidate`. Unknown JSON fields are a parse error
+(`ember -config X doctor`); given twice, the later one wins. Any other flag
+before a subcommand, and any stray argument (`ember -- doctor`), exits 2
+rather than being dropped. Failures wrap the sentinels `ErrConfigRead`,
+`ErrConfigParse` and `ErrConfigValidate`. Unknown JSON fields are a parse error
 (`DisallowUnknownFields`), so deprecated keys (`pulse_style`,
 `heartbeat_seconds`, `refresh_seconds`, `notify_on_waiting`) stay decodable and
 `warnDeprecatedConfig` logs them. `sanitizeConfigBaseline` drops or replaces
