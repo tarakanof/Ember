@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -312,10 +313,20 @@ func deleteParkedOnTheRegistryLock() bool {
 		buf = make([]byte, 2*len(buf))
 	}
 	for _, g := range strings.Split(string(buf), "\n\n") {
-		if strings.Contains(g, ".handleDeviceDelete(") && strings.Contains(g, "(*deviceRegistry).mutate(") {
-			header, _, _ := strings.Cut(g, "\n")
-			return strings.Contains(header, "[sync.Mutex.Lock")
+		if !strings.Contains(g, ".handleDeviceDelete(") {
+			continue
 		}
+		lines := strings.Split(g, "\n")
+		if !strings.Contains(lines[0], "[sync.Mutex.Lock") {
+			return false
+		}
+		for _, l := range lines[1:] {
+			if strings.HasPrefix(l, "\t") || strings.HasPrefix(l, "runtime.") || strings.HasPrefix(l, "sync.") || strings.HasPrefix(l, "internal/sync.") {
+				continue
+			}
+			return strings.HasPrefix(l, "github.com/tarakanof/ember/cmd/ember.(*deviceRegistry).mutate(")
+		}
+		return false
 	}
 	return false
 }
@@ -367,7 +378,11 @@ func TestKnobShownPollRacingADeleteLeavesNothingForTheReMintedKnob(t *testing.T)
 		startDelete()
 		awaitDelete("caps check")
 	}
-	f.app.knobShown.setHook = func() { awaitDelete("shown write") }
+	var wrote atomic.Bool
+	f.app.knobShown.setHook = func() {
+		wrote.Store(true)
+		awaitDelete("shown write")
+	}
 	if resp, b := f.getQuery(t, "?shown=weather:wind", ""); resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("racing poll = %d: %s", resp.StatusCode, b)
 	}
@@ -382,6 +397,9 @@ func TestKnobShownPollRacingADeleteLeavesNothingForTheReMintedKnob(t *testing.T)
 	}
 	if deleteErr != nil {
 		t.Fatalf("delete: %v", deleteErr)
+	}
+	if !wrote.Load() {
+		t.Fatal("racing poll never wrote shown")
 	}
 	if deleteCode != http.StatusNoContent {
 		t.Fatalf("delete = %d", deleteCode)
