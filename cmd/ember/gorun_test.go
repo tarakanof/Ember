@@ -2,12 +2,12 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +35,8 @@ func newProcessGroups() *processGroups {
 type groupCmd struct {
 	*exec.Cmd
 	groups *processGroups
+	// Output and CombinedOutput shadow exec.Cmd's, whose inner Run would skip Start's tracking.
+	Output, CombinedOutput struct{}
 }
 
 func (g *processGroups) command(ctx context.Context, name string, args ...string) *groupCmd {
@@ -60,6 +62,9 @@ func (c *groupCmd) Start() error {
 
 func (c *groupCmd) Wait() error {
 	err := c.Cmd.Wait()
+	if c.Process == nil {
+		return err
+	}
 	c.groups.liveMu.Lock()
 	delete(c.groups.live, c.Process.Pid)
 	c.groups.liveMu.Unlock()
@@ -71,20 +76,6 @@ func (c *groupCmd) Run() error {
 		return err
 	}
 	return c.Wait()
-}
-
-func (c *groupCmd) Output() ([]byte, error) {
-	var out bytes.Buffer
-	c.Stdout = &out
-	err := c.Run()
-	return out.Bytes(), err
-}
-
-func (c *groupCmd) CombinedOutput() ([]byte, error) {
-	var out bytes.Buffer
-	c.Stdout, c.Stderr = &out, &out
-	err := c.Run()
-	return out.Bytes(), err
 }
 
 func (g *processGroups) killAll(bound time.Duration) bool {
@@ -241,6 +232,27 @@ func TestProcessGroupsRefuseToStartAfterKillAll(t *testing.T) {
 	g.killAll(0)
 	if err := g.command(context.Background(), "sh", "-c", "exit 0").Run(); !errors.Is(err, errGroupsInterrupted) {
 		t.Fatalf("Run after killAll = %v, want errGroupsInterrupted", err)
+	}
+}
+
+func TestGroupCmdWaitWithoutAStartedProcessReturnsTheError(t *testing.T) {
+	g := newProcessGroups()
+	g.killAll(0)
+	cmd := g.command(context.Background(), "sh", "-c", "exit 0")
+	if err := cmd.Start(); !errors.Is(err, errGroupsInterrupted) {
+		t.Fatalf("Start = %v, want errGroupsInterrupted", err)
+	}
+	if err := cmd.Wait(); err == nil {
+		t.Fatal("Wait without a started process returned nil")
+	}
+}
+
+func TestGroupCmdExposesNoUntrackedRunMethods(t *testing.T) {
+	typ := reflect.TypeFor[*groupCmd]()
+	for _, name := range []string{"Output", "CombinedOutput"} {
+		if _, ok := typ.MethodByName(name); ok {
+			t.Errorf("groupCmd.%s is callable; exec.Cmd's version would run the command without tracking its group", name)
+		}
 	}
 }
 
