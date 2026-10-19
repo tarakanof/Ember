@@ -36,8 +36,10 @@ public struct KnobWeatherLook: Equatable, Sendable {
         }
         var night: Bool?
         if let sun = state.sun {
-            night = Self.isNight(now: Self.minute(now, calendar), rise: Self.minute(sun.sunrise, calendar),
-                                 set: Self.minute(sun.sunset, calendar))
+            let rise = Self.minute(sun.sunrise, calendar), set = Self.minute(sun.sunset, calendar)
+            let then = Self.isNight(now: Self.minute(state.generatedAt, calendar), rise: rise, set: set)
+            let rounded = Self.isNight(now: Self.minute(now, calendar), rise: rise, set: set)
+            night = then == rounded ? sun.night ?? rounded : rounded
         }
         self.init(provider: state.provider, condition: cur.condition, code: cur.conditionCode, night: night)
         still = !state.enabled || cur.stale || now.timeIntervalSince(cur.fetchedAt) > maxAge

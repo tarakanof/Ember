@@ -67,6 +67,7 @@ public struct WeatherState: Decodable, Sendable, Equatable {
     public struct Sun: Decodable, Sendable, Equatable {
         public var sunrise: Date
         public var sunset: Date
+        public var night: Bool?
     }
 
     public var generatedAt: Date

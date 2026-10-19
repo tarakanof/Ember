@@ -233,3 +233,45 @@ private func face(_ s: WeatherState, _ now: Date = noon, shown: Int? = nil) -> K
     #expect(s.current?.cloudPct == nil && s.current?.uv == nil)
     #expect(face(s).sub == "Sunny")
 }
+
+private func duskState(generated: String, night: String, cloud: String = "null") throws -> WeatherState {
+    let json = #"{"generated_at":""# + generated + #"","enabled":true,"provider":"open-meteo","units":"metric","#
+        + #""current":{"fetched_at":""# + generated + #"","stale":false,"condition":"clear","condition_code":"0","#
+        + #""severe":false,"temp_c":24,"today_min_c":15,"today_max_c":26,"cloud_pct":"# + cloud + #","uv":5,"hourly":[]},"#
+        + #""sun":{"sunrise":"2026-09-26T06:00:00Z","sunset":"2026-09-26T18:00:00Z","night":"# + night + "}}"
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    return try d.decode(WeatherState.self, from: Data(json.utf8))
+}
+
+@Test func uvAdviceFollowsTheServersNightNotTheRoundedSunset() throws {
+    let at = try #require(ISO8601DateFormatter().date(from: "2026-09-26T18:01:00Z"))
+    let day = try duskState(generated: "2026-09-26T18:01:00Z", night: "false")
+    #expect(face(day, at).sub == "Sunglasses on", "sunset 18:02 sent as 18:00: still day on the knob")
+    let dark = try duskState(generated: "2026-09-26T17:58:00Z", night: "true")
+    #expect(face(dark, try #require(ISO8601DateFormatter().date(from: "2026-09-26T17:59:00Z"))).sub == "Clear",
+            "sunset 17:58 sent as 18:00: already night on the knob")
+    let older = try duskState(generated: "2026-09-26T18:01:00Z", night: "null")
+    #expect(face(older, at).sub == "Clear", "a server without sun.night falls back to the rounded times")
+    let crossed = try duskState(generated: "2026-09-26T17:30:00Z", night: "false")
+    #expect(face(crossed, try #require(ISO8601DateFormatter().date(from: "2026-09-26T18:30:00Z"))).sub == "Clear",
+            "a sun event since the fetch overrides its night")
+}
+
+@MainActor @Test func weatherMemoHoldsTheShownBandOnlyFromAFaceWithData() throws {
+    let memo = KnobWeatherMemo()
+    let none = memo.face(state: nil, now: noon, calendar: utc)
+    #expect(none.value == nil && memo.band == nil)
+    let real = memo.face(state: try skyState(condition: "clouds", code: "3", cloud: "87"), now: noon, calendar: utc)
+    #expect(real.cloudBand == 3 && real.sub == "Cloudy", "no band held over from the empty face")
+
+    let fresh = KnobWeatherMemo()
+    _ = fresh.face(state: try skyState(condition: "clouds", code: "2", cloud: "38"), now: noon, calendar: utc)
+    let held = fresh.face(state: try skyState(condition: "clouds", code: "2", cloud: "42"), now: noon, calendar: utc)
+    #expect(held.sub == "Mostly sunny" && fresh.band == 1)
+    let caption = fresh.face(state: try skyState(condition: "clouds", code: "2", cloud: "42"), now: noon, calendar: utc).caption
+    #expect(caption == .current(sky: "Mostly sunny", temp: "31°"), "the caption read from the same memo matches the drawn sub-line")
+    _ = fresh.face(state: try skyState(condition: "clouds", code: "2", cloud: "45"), now: noon, calendar: utc)
+    #expect(fresh.band == 2)
+    #expect(KnobTempFace(value: nil, cloudBand: 4).cloudBand == nil && KnobTempFace(value: .nan, cloudBand: 4).cloudBand == nil)
+}
