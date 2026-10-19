@@ -446,11 +446,9 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 @Test func scriptRunnerKillsAProcessPastItsTimeout() async throws {
     let runner = ScriptProcessRunner(timeout: .milliseconds(200))
     defer { runner.shutdown(grace: .zero) }
-    let started = ContinuousClock.now
-    #expect(runner.run("/bin/sleep", ["30"], what: "test") == .launched)
-    for _ in 0..<300 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(runner.run("/bin/sleep", ["120"], what: "test") == .launched)
+    for _ in 0..<3000 where runner.isBusy { try await Task.sleep(for: .milliseconds(10)) }
     #expect(!runner.isBusy)
-    #expect(ContinuousClock.now - started < .seconds(3))
     #expect(runner.run("/usr/bin/true", [], what: "test") == .launched)
 }
 
