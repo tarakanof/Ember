@@ -99,6 +99,20 @@ private func seen(_ page: String, _ face: String? = nil, _ t: Int64 = now) -> Kn
     #expect(f.face == .air && f.current == "b", "the followed knob's report went stale")
 }
 
+@Test func aKnobWhoseReportDropsOutAndReturnsUnchangedDoesNotTakeOver() {
+    var f = KnobShownFollow()
+    f.follow([knob("a", seen("weather", "wind", now)), knob("b", seen("weather", "air", now + 5))])
+    #expect(f.current == "b")
+    f.follow([knob("a", seen("weather", "wind", now + 10)), knob("b", nil)])
+    #expect(f.current == "a" && f.face == .wind)
+    f.follow([knob("a", seen("weather", "sun", now + 20)), knob("b", nil)])
+    #expect(f.face == .sun)
+    f.follow([knob("a", seen("weather", "sun", now + 30)), knob("b", seen("weather", "air", now + 31))])
+    #expect(f.current == "a" && f.face == .sun, "b came back with the face it had: no change")
+    f.follow([knob("a", seen("weather", "sun", now + 40)), knob("b", seen("weather", "rain", now + 41))])
+    #expect(f.current == "b" && f.face == .rain, "a real change takes over")
+}
+
 @Test func followKeepsTheCurrentKnobOnATie() {
     var f = KnobShownFollow()
     f.follow([knob("b", seen("weather", "air", now))])
@@ -200,6 +214,28 @@ private func seen(_ page: String, _ face: String? = nil, _ t: Int64 = now) -> Kn
     }
 }
 
+private func render(_ memo: inout KnobWeatherMemo, _ pick: KnobWeatherFaceID?, _ s: WeatherState) -> KnobFace {
+    let d = memo.draw(pick, state: s, now: at(now))
+    if let m = d.commit { memo = m }
+    return d.face
+}
+
+@Test func theFirstDrawAfterOpenIsCommitted() {
+    var memo = KnobWeatherMemo()
+    #expect(render(&memo, nil, state(faces: faces(wind: 40))).weatherFace == .wind)
+    #expect(render(&memo, nil, state(faces: faces(wind: 36))).weatherFace == .wind, "opened at 40, still Wind at 36")
+    var band = KnobWeatherMemo()
+    guard case .weather(let t1) = render(&band, .temp, state(cloud: 38)),
+          case .weather(let t2) = render(&band, .temp, state(cloud: 42)) else { Issue.record("not temp"); return }
+    #expect(t1.cloudBand == 1 && t2.cloudBand == 1, "the band hysteresis holds right after open")
+    _ = render(&band, .temp, state(cloud: 50))
+    guard case .weather(let t3) = render(&band, .temp, state(cloud: 42)) else { Issue.record("not temp"); return }
+    #expect(t3.cloudBand == 2, "a band change on the same face is committed too: 42 stays in band 2 after 50")
+    #expect(band.draw(.temp, state: state(cloud: 42), now: at(now)).commit == nil, "settled: nothing more to commit")
+    #expect(KnobWeatherMemo().draw(.wind, state: state(faces: faces(wind: 40)), now: at(now)).commit != nil,
+            "a fresh or reset memo commits its first draw")
+}
+
 @Test func aFreshMemoForgetsTheKeepLikeTheKnobOnPageOpen() {
     var memo = KnobWeatherMemo()
     #expect(memo.face(nil, state: state(faces: faces(wind: 40)), now: at(now)).weatherFace == .wind)
@@ -255,6 +291,23 @@ private final class Devices: @unchecked Sendable {
         }
     }
     func slept(_ d: Duration) { lock.withLock { _sleeps.append(d) } }
+}
+
+@MainActor @Test func theSeedStandsInOnlyUntilTheFeedExists() async {
+    let seed = [knob("a", seen("weather", "sun"))]
+    #expect(KnobShownFollow.reported(by: nil, seed: seed) == .sun, "before the feed exists")
+    let d = Devices()
+    d.fail = true
+    d.clock = at(now)
+    let feed = KnobShownFeed(seed: seed, fetch: { try d.read() }, now: { d.clock })
+    #expect(KnobShownFollow.reported(by: feed, seed: seed) == .sun)
+    await feed.refresh()
+    #expect(feed.face == nil, "no good list yet: the failure is AUTO")
+    #expect(KnobShownFollow.reported(by: feed, seed: seed) == nil, "the model's old list doesn't bring the face back")
+    d.fail = false
+    d.list = [knob("a", nil)]
+    await feed.refresh()
+    #expect(KnobShownFollow.reported(by: feed, seed: seed) == nil, "a good list without shown, even if adopt rejected it")
 }
 
 @MainActor @Test func shownFeedStartsFromTheSeedList() {
@@ -336,7 +389,7 @@ private final class Devices: @unchecked Sendable {
     feed.setVisible(true)
     try await until(d.calls >= 3)
     feed.setVisible(false)
-    try await Task.sleep(for: .milliseconds(20))
+    try await until(!feed.refreshing)
     let stopped = d.calls
     try await Task.sleep(for: .milliseconds(60))
     #expect(d.calls == stopped, "minimised, covered or inactive: no poll")

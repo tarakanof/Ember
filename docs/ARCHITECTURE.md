@@ -3530,7 +3530,8 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   as in `wx_temp_from_shown`, moves with every observation whatever face
   is drawn. The section computes the face once with `peek` (no state
   change in `body`), so face and caption come from the same pick, and
-  commits the memo in `onChange`; it redraws every 60 s and on new data.
+  commits it whenever it differs (`draw`, from the first render on and
+  after a reset); it redraws every 60 s and on new data.
   The memo starts empty each time the weather preview opens, as the knob
   does on page open. The lit dot is the drawn face's index in
   `wx_face_id_t`. Every face, Temperature included, goes grey like

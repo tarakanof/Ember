@@ -229,6 +229,13 @@ public struct KnobWeatherMemo: Equatable, Sendable {
 
     public init() {}
 
+    public func draw(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date,
+                     theme: KnobTheme.Weather = KnobTheme.standard.weather,
+                     calendar: Calendar = .current) -> (face: KnobFace, commit: KnobWeatherMemo?) {
+        let p = peek(pick, state: state, now: now, theme: theme, calendar: calendar)
+        return (p.face, p.memo == self ? nil : p.memo)
+    }
+
     public func peek(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date,
                      theme: KnobTheme.Weather = KnobTheme.standard.weather,
                      calendar: Calendar = .current) -> (face: KnobFace, memo: KnobWeatherMemo) {

@@ -197,8 +197,8 @@ struct KnobAppPreviewSection: View {
     @State private var weatherNow = Date()
 
     var body: some View {
-        let reported = shown?.face ?? KnobShownFollow.seeded(env.knob.devices)
-        let drawn = weatherMemo.peek(reported, state: env.live.weather.value, now: weatherNow)
+        let reported = KnobShownFollow.reported(by: shown, seed: env.knob.devices)
+        let drawn = weatherMemo.draw(reported, state: env.live.weather.value, now: weatherNow)
         let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood,
                                    nowPlaying: nowPlaying, reportedFace: reported, weatherFace: drawn.face)
         Section {
@@ -211,7 +211,7 @@ struct KnobAppPreviewSection: View {
         }
         .knobPreviewFeeds(page: page, brightness: $brightness, nowPlaying: $nowPlaying, shown: $shown,
                           weatherMemo: $weatherMemo, weatherNow: $weatherNow)
-        .onChange(of: drawn.memo) { _, m in weatherMemo = m }
+        .onChange(of: drawn.commit, initial: true) { _, m in if let m, m != weatherMemo { weatherMemo = m } }
         .onChange(of: data.liveMood, initial: true) { _, m in if let m { lastMood = m } }
     }
 }
@@ -226,8 +226,8 @@ struct KnobPagesPreviewSection: View {
     @State private var weatherNow = Date()
 
     var body: some View {
-        let reported = shown?.face ?? KnobShownFollow.seeded(env.knob.devices)
-        let drawn = weatherMemo.peek(reported, state: env.live.weather.value, now: weatherNow)
+        let reported = KnobShownFollow.reported(by: shown, seed: env.knob.devices)
+        let drawn = weatherMemo.draw(reported, state: env.live.weather.value, now: weatherNow)
         let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood, nowPlaying: nowPlaying,
                                    reportedFace: reported, weatherFace: drawn.face)
         let s = data.settings
@@ -250,7 +250,7 @@ struct KnobPagesPreviewSection: View {
         }
         .knobPreviewFeeds(page: nil, brightness: $brightness, nowPlaying: $nowPlaying, shown: $shown,
                           weatherMemo: $weatherMemo, weatherNow: $weatherNow)
-        .onChange(of: drawn.memo) { _, m in weatherMemo = m }
+        .onChange(of: drawn.commit, initial: true) { _, m in if let m, m != weatherMemo { weatherMemo = m } }
         .onChange(of: data.liveMood, initial: true) { _, m in if let m { lastMood = m } }
     }
 }

@@ -15,17 +15,22 @@ public struct KnobShownFollow: Equatable, Sendable {
 
     public mutating func follow(_ devices: [KnobDevice]) {
         var next: [String: Seen] = [:]
+        var live: [String: Seen] = [:]
         for d in devices where d.kind == KnobDevice.knobKind {
-            guard let s = d.shown else { continue }
+            guard let s = d.shown else {
+                next[d.id] = seen[d.id]
+                continue
+            }
             if let old = seen[d.id], old.page == s.page, old.face == s.face {
                 next[d.id] = old
             } else {
                 next[d.id] = Seen(page: s.page, face: s.face, changedAt: s.at)
             }
+            live[d.id] = next[d.id]
         }
         seen = next
         let keep = current
-        let best = next.max { a, b in
+        let best = live.max { a, b in
             if a.value.changedAt != b.value.changedAt { return a.value.changedAt < b.value.changedAt }
             if a.key == keep || b.key == keep { return b.key == keep }
             return a.key > b.key
@@ -39,6 +44,12 @@ public struct KnobShownFollow: Equatable, Sendable {
     }
 
     public mutating func forget() { self = KnobShownFollow() }
+
+    @MainActor
+    public static func reported(by feed: KnobShownFeed?, seed devices: [KnobDevice]) -> KnobWeatherFaceID? {
+        if let feed { return feed.face }
+        return seeded(devices)
+    }
 
     public static func seeded(_ devices: [KnobDevice]) -> KnobWeatherFaceID? {
         var f = KnobShownFollow()
@@ -60,6 +71,7 @@ public final class KnobShownFeed {
     @ObservationIgnored private var lastRead: Date?
     @ObservationIgnored public private(set) var failures = 0
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private(set) var refreshing = false
     @ObservationIgnored private let fetch: @Sendable () async throws -> [KnobDevice]
     @ObservationIgnored private let onDevices: @MainActor ([KnobDevice]) -> Void
     @ObservationIgnored private let now: @Sendable () -> Date
@@ -104,12 +116,13 @@ public final class KnobShownFeed {
     }
 
     private func poll() async -> Duration {
-        guard !Task.isCancelled else { return delay }
         await refresh()
         return delay
     }
 
     public func refresh() async {
+        refreshing = true
+        defer { refreshing = false }
         do {
             let devices = try await fetch()
             guard !Task.isCancelled else { return }
