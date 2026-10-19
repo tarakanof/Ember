@@ -1,12 +1,14 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -29,6 +31,13 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "%v: killed the go run process groups (drained %v)\n", sig, drained)
 		os.Exit(1)
 	}()
+	flag.Parse()
+	if timeout := flag.Lookup("test.timeout").Value.(flag.Getter).Get().(time.Duration); timeout > 0 {
+		time.AfterFunc(timeout-min(250*time.Millisecond, timeout/2), func() {
+			drained := goRuns.killAll(goRunDrainBound)
+			fmt.Fprintf(os.Stderr, "-test.timeout %v is near: killed the go run process groups (drained %v)\n", timeout, drained)
+		})
+	}
 	code := m.Run()
 	if guard.report(os.Stderr) && code == 0 {
 		code = 1
