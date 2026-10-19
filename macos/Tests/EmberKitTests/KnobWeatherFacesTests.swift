@@ -14,9 +14,10 @@ private func spells(_ s: [(Int64, Int64, Int, Bool)], until: Int64? = nil) -> We
     .init(until: until.map(at), spells: s.map { .init(start: at($0.0), end: at($0.1), intensity: $0.2, snow: $0.3) })
 }
 
-private func state(_ cond: String = "clouds", _ code: String = "3", fetched: Int64, faces f: WeatherState.Faces? = faces(),
-                   stale: Bool = false, enabled: Bool = true, sun: (Int64, Int64)? = nil) -> WeatherState {
-    WeatherState(generatedAt: at(fetched), enabled: enabled, provider: "open-meteo", units: "metric", locationName: nil,
+private func state(_ cond: String = "clouds", _ code: String = "3", fetched: Int64, generated: Int64? = nil,
+                   faces f: WeatherState.Faces? = faces(), stale: Bool = false, enabled: Bool = true,
+                   sun: (Int64, Int64)? = nil) -> WeatherState {
+    WeatherState(generatedAt: at(generated ?? fetched), enabled: enabled, provider: "open-meteo", units: "metric", locationName: nil,
                  current: .init(fetchedAt: at(fetched), stale: stale, condition: cond, conditionCode: code, severe: false, tempC: 12,
                                 todayMinC: nil, todayMaxC: nil, cloudPct: nil, uv: nil, hourly: []),
                  air: nil, sun: sun.map { .init(sunrise: at($0.0), sunset: at($0.1), night: nil) }, faces: f)
@@ -404,6 +405,43 @@ private func dayEntry(_ start: Int64, _ cond: String, _ code: String, _ lo: Int?
     #expect(KnobSubMarkup.runs("#5C9CE0 rain# at 13:00") == [.init(text: "rain", color: RGB(hex: "#5C9CE0")), .init(text: " at 13:00", color: nil)])
     #expect(KnobSubMarkup.plain("#9AA4B0 Calm#") == "Calm" && KnobSubMarkup.runs("Dry now") == [.init(text: "Dry now", color: nil)])
     #expect(KnobSubMarkup.plain("#bad") == "#bad")
+}
+
+@Test func facesExpireByTheServersGenerationAndStaleFlagLikeTheKnob() {
+    var f = faces()
+    f.windKmh = 20
+    f.aqi = 42
+    f.rainIntensity = 2
+    f.rain = spells([(observed - 900, observed + 7200, 2, false)])
+    let oldFetch = state("rain", "61", fetched: observed - 3600, generated: knobNow - 60, faces: f)
+    #expect(KnobWindFace(state: oldFetch, now: at(knobNow)).have, "an hour-old provider fetch the server still calls fresh")
+    #expect(KnobAirFace(state: oldFetch, now: at(knobNow)).have)
+    #expect(!rain(oldFetch).dry && cast(oldFetch, now: knobNow).have)
+    let oldView = state("rain", "61", fetched: knobNow - 60, generated: knobNow - 1801, faces: f)
+    #expect(!KnobWindFace(state: oldView, now: at(knobNow)).have, "no new state for over 30 min")
+    let stale = state("rain", "61", fetched: knobNow - 60, generated: knobNow - 60, faces: f, stale: true)
+    #expect(!KnobWindFace(state: stale, now: at(knobNow)).have && !KnobAirFace(state: stale, now: at(knobNow)).have)
+}
+
+@Test func disabledWeatherGivesNoFaceData() {
+    let on = sunState(h(10, 30))
+    #expect(KnobSunFace(state: on, now: at(h(10, 30))).have)
+    let off = KnobSunFace(state: on.with { $0.enabled = false }, now: at(h(10, 30)))
+    #expect(!off.have && !off.hasNow && off.polar == .none && off.sub.isEmpty && off.rise.isEmpty && off.valueText == "--")
+    var polar = faces()
+    polar.night = true
+    polar.moon?.up = false
+    let p = state(fetched: h(10, 0), faces: polar)
+    #expect(KnobSunFace(state: p, now: at(h(10, 0))).polar == .night)
+    let pOff = KnobSunFace(state: p.with { $0.enabled = false }, now: at(h(10, 0)))
+    #expect(pOff.polar == .none && pOff.sub.isEmpty && !pOff.hero)
+    var f = faces()
+    f.todayPopPct = 40
+    f.windKmh = 20
+    f.aqi = 42
+    let w = state(fetched: observed, faces: f, enabled: false)
+    #expect(rain(w) == KnobRainFace(dry: true, intensity: 1) && !KnobWindFace(state: w, now: at(knobNow)).have)
+    #expect(!KnobAirFace(state: w, now: at(knobNow)).have && !cast(w, now: knobNow).have && cast(w, now: knobNow).sub.isEmpty)
 }
 
 extension WeatherState {

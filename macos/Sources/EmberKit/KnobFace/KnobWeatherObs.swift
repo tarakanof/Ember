@@ -12,8 +12,8 @@ struct KnobWeatherObs: Sendable {
 
     init(state: WeatherState?, now: Date, theme: KnobTheme.Weather, calendar: Calendar) {
         look = KnobWeatherLook(state: state, now: now, maxAge: theme.maxAgeS, calendar: calendar)
-        valid = state?.current != nil
-        still = look.still
+        valid = state?.enabled == true && state?.current != nil
+        still = !valid || state?.current?.stale != false || state.map { now.timeIntervalSince($0.generatedAt) > theme.maxAgeS } ?? true
         provider = state?.provider ?? ""
         self.now = Self.unix(now)
         faces = state?.faces
