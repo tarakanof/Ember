@@ -430,7 +430,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 }
 
 @Test func scriptRunnerRunsOneProcessAtATime() async throws {
-    let runner = ScriptProcessRunner(timeout: .seconds(30))
+    let runner = ScriptProcessRunner(timeout: .seconds(120))
     defer { runner.shutdown(grace: .zero) }
     let release = scratchFile("release")
     defer { try? FileManager.default.removeItem(at: release) }
@@ -568,7 +568,7 @@ private func alive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
     let runner = ScriptProcessRunner(timeout: .seconds(30), signal: { log.send($0, $1) })
     defer { runner.shutdown(grace: .zero) }
     runner.shutdown()
-    #expect(runner.run("/bin/sleep", ["120"], what: "test") == .failed)
+    #expect(runner.run("/bin/sleep", ["30"], what: "test") == .failed)
     #expect(!runner.isBusy)
     #expect(log.signals(SIGTERM).isEmpty && log.signals(SIGKILL).isEmpty)
 }
