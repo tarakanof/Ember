@@ -167,6 +167,7 @@ func goldenApp(t *testing.T) *App {
 	app.weather.mu.Lock()
 	app.weather.obs = weatherObservation{
 		Condition: "rain", ConditionCode: "61", TempC: 11.5, FetchedAt: fetched,
+		Now:    weatherNow{Cloud: new(62.4), UV: new(2.6)},
 		Hourly: []float64{11.5, 12, 12.5}, HourlyStart: time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC),
 		Days: []weatherDay{{Start: time.Date(2026, 9, 26, 0, 0, 0, 0, goldenZone), MinC: new(8.4), MaxC: new(16.6)}},
 	}
@@ -375,6 +376,36 @@ func TestWeatherStateTodayRangeIsTheKnobsRange(t *testing.T) {
 	app.weather.mu.Unlock()
 	if cur := app.buildWeatherState(goldenNow).Current; cur == nil || cur.TodayMinC != nil || cur.TodayMaxC != nil {
 		t.Errorf("today = %+v, want null without a forecast day", cur)
+	}
+}
+
+func TestWeatherStateCloudAndUVAreTheKnobViews(t *testing.T) {
+	app := goldenApp(t)
+	cfg := app.cfg.Load().Weather
+	cur := app.buildWeatherState(goldenNow).Current
+	view := newKnobWeatherDetail(app.weather.state(cfg, goldenNow), cfg)
+	if cur == nil || view.Now == nil || cur.CloudPct == nil || cur.UV == nil {
+		t.Fatalf("current = %+v, knob now = %+v, want cloud and UV in both", cur, view.Now)
+	}
+	if *cur.CloudPct != *view.Now.Cloud || *cur.UV != *view.Now.UV || *cur.CloudPct != 62 || *cur.UV != 3 {
+		t.Errorf("cloud_pct %d uv %d, knob view cloud %d uv %d, want 62 and 3 in both", *cur.CloudPct, *cur.UV, *view.Now.Cloud, *view.Now.UV)
+	}
+
+	app.weather.mu.Lock()
+	app.weather.obs.Now = weatherNow{}
+	app.weather.mu.Unlock()
+	raw, err := json.Marshal(app.buildWeatherState(goldenNow).Current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"cloud_pct", "uv"} {
+		if v, ok := got[k]; !ok || v != nil {
+			t.Errorf("%s = %v (present %v), want null when the provider has none", k, v, ok)
+		}
 	}
 }
 
