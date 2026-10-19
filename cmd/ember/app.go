@@ -79,12 +79,15 @@ type App struct {
 	otaDrops      checkinDropLog
 	capsDrops     checkinDropLog
 	viewOverLimit checkinDropLog
+	knobShown     knobShownStore
+	shownDrops    checkinDropLog
 	firmwareLimit *callerLimiter
 	clockStats    *clockStatsStore
 
 	commitHook        func()
 	migrationHoldHook func()
 	viewWaitHook      func()
+	shownSetHook      func()
 	otaReadHook       func()
 
 	appsMu     sync.Mutex

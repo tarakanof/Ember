@@ -17,7 +17,7 @@ Every route the knob calls, all with its device token (`ekd_…`):
 | Route | What |
 |---|---|
 | `POST /v1/devices/self/checkin` | Health report in, optionally with `caps` ("Capabilities" below); reply carries `config_version`, `caps_ack` when the caps were accepted, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
-| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `usage` (with the `usage` feature while an account has a snapshot, "Usage"), `diag_live_until` (live mode only) and `demo` (with the `demo` feature while a demo is set, "Demo mode"). `?demo_id=&demo_state=` report on the demo. Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
+| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `usage` (with the `usage` feature while an account has a snapshot, "Usage"), `diag_live_until` (live mode only) and `demo` (with the `demo` feature while a demo is set, "Demo mode"). `?demo_id=&demo_state=` report on the demo; `?shown=<page>[:<face>]` reports what the knob shows ("Shown page"). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
 | `GET /v1/devices/self/config` | `{config_version, config}`, the same pair a stale checkin carries. |
 | `PUT /v1/devices/self/coredump?id=` | The core dump a checkin asked for. |
 | `GET /v1/devices/self/firmware/{version}` | The image the checkin's `ota` offer names. |
@@ -204,6 +204,7 @@ pre-releases the same way):
 | `wx_moments` | Applies `bot.weather_moments` and `bot.weather_every_min` from its config ("Bot weather moments") | Ember.app shows the Weather moments rows only with this token; the server sends both keys to every knob |
 | `demo` | Plays the view's `demo` block and reports `demo_id`/`demo_state` ("Demo mode") | `demo` is sent only with this token; `POST …/demo` is 409 without it; Ember.app's Demo page needs it |
 | `usage` | Parses the view's `usage` block and shows the usage screens ("Usage") | `usage` is sent only with this token |
+| `shown` | Adds `?shown=<page>[:<face>]` to its view polls ("Shown page") | `shown` is read only with this token; the owner's device entry carries `shown` while fresh |
 
 Page ids in `caps.pages` need no registry: they are the config's page ids;
 Ember.app lists a knob app only when its page is in `effective_caps.pages`.
@@ -225,6 +226,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`, `TestDemoPlayingReportDoesNotAnswerTheLongPoll`, `TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted`, `TestDemoLatePlayingReportForTheServedSceneRevivesIt`, `TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue`, `TestDemoOnTheWorstCaseViewFitsTheBuffer`, `TestDemoKnobRebootDropsTheDemoAndItsQueue`, `TestDemoViewWithoutAReportWhilePlayingMeansTheKnobRestarted`, `TestDemoDelayedUnreportedViewAfterPlayingKeepsTheDemo`, `TestDemoCheckinWithUnknownOrStaleUptimeKeepsTheDemo`, `TestDemoStartedAfterTheKnobBootedSurvivesAStaleLastCheckin`, `TestDemoSetBetweenBootAndFirstCheckinStaysPending`; cinder host test: every `demo/*.json` parses |
 | new | any, `stats.inv_areas`/`inv_px` sent or not (cinder#118) | the firmware must send totals for exactly the `period_ms` window (since the previous report, its own accumulator, not the 30 s serial log's take), counted at `LV_EVENT_RENDER_START` as in ARCHITECTURE "Knob diagnostics"; window totals become `invalidated_areas_per_sec`/`invalidated_px_per_sec` in the stats points (full diagnostics only); firmware without them gets nulls; an older server ignores the keys. No caps token: the stats keys are optional on both sides (ARCHITECTURE "Knob diagnostics") | `TestKnobStatsCheckinStoresSample`, `TestKnobStatsFirmwareWithoutInvalidatedAreasLeavesThemNull`, `TestKnobStatsInvalidatedAreasMergeAsPeriodWeightedRates`, `TestKnobStatsInvalidatedAreasWeighOnlyMeasuredWindows`, `TestKnobStatsBasicDropsFullOnlyFields`, `TestDeviceCheckinGolden` (`devices_stats_test.go`, `devices_golden_test.go`); cinder sends them since 0.9.72 (cinder#133), its `NOT_YET_SENT` list is empty |
 | new | new, `usage` or not | `usage` only with the token, after `nowplaying`, left out with no account to show; a caps knob without it and a legacy knob get the view byte-identical; dropped after `nowplaying` to fit `view_bytes`; the worst case (8 accounts, 24-character escaped names, both models) is 3.4 KB, the worst whole view with it 9.1 KB | `TestKnobViewUsageGolden` (`view_usage.json`), `TestKnobViewWithoutTheUsageCapGolden` (`view_usage_uncapped.json`), `TestKnobViewSendsUsageOnlyWithTheUsageFeature`, `TestKnobViewLeavesOutUsageWithNoAccounts`, `TestKnobViewUsageModelsFollowUsagePerModel`, `TestKnobViewUsageETagIgnoresAFreshAccountsUpdateTime`, `TestKnobViewUsageWorstCaseStaysSmall`, `TestLegacyFirmwareViewIsUnchanged` (`devices_view_usage_test.go`) |
+| new | new, `shown` or not | `shown` read only with the token and exposed on `GET /v1/devices` while the current caps list it and a poll carried it in the last 50 s; a malformed value is ignored with a 200 and logged once until a good one; the view's bytes and ETag never depend on it | `TestKnobShownPollReachesTheDeviceList`, `TestKnobShownGoesStaleFiftySecondsAfterTheLastPoll`, `TestKnobShownIsIgnoredWithoutTheShownCap`, `TestKnobShownMalformedValuesAreIgnoredAndLoggedOnce`, `TestKnobShownIsRecordedBeforeTheLongPollWaits`, `TestKnobShownRenameReplyCarriesIt`, `TestKnobShownLongestValidValuesAreKept`, `TestKnobShownIsForgottenWhenTheDeviceIsDeleted`, `TestKnobShownPollRacingADeleteLeavesNothingForTheReMintedKnob`, `TestKnobShownDisappearsWhenCapsWithdrawTheToken`, `TestKnobShownAtIsWholeSecondsUTC`, `TestKnobViewPollWithShownGolden` (`view_req_shown.json`, `devices_shown_test.go`); cinder side next: a host test that builds the fixture's query (tarakanof/cinder#246) |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Demo mode
@@ -374,6 +376,61 @@ at its recheck.
   cream line-art cover with `cover_light`), paused, nothing, offline.
 
 OTA, reset, setup and join screens are not scenes.
+
+## Shown page
+
+What the knob has on screen (#609, cinder#245), so Ember.app's knob
+preview can follow its page and weather face. Design:
+`Specs/ember/2026-10-19-knob-shown-face-design.md` in the vault.
+
+**Request.** A knob with `shown` in its caps adds
+`shown=<page>[:<face>]` to every view request, plain polls, long polls and
+conditional requests alike (`?wait=25&shown=weather:wind`,
+`view_req_shown.json`):
+
+- `<page>`: the page id on screen, one of its `pages[]` ids (`bot`,
+  `pomodoro`, `weather`, `nowplaying`, `usage`, …). It reports what is
+  actually shown, demo scenes included.
+- `<face>`: for `weather` always the resolved face, `temp`, `rain`, `cast`,
+  `wind`, `days`, `sun` or `air`, the demo `page` grammar. AUTO reports the
+  face it resolved to, never `auto`. Other pages send no face.
+- The value must match `^[a-z][a-z0-9_]{0,23}(:[a-z]{1,8})?$`. A value that
+  doesn't, an empty one included, is ignored: the poll is answered as
+  usual, never a 400, so a bad report can't cost the knob its view. The
+  server logs it once per device (`knob shown ignored`, Info) until a good
+  value arrives. The page is not checked against `caps.pages`.
+- The server reads `shown` only from a knob whose reported caps list the
+  token; a legacy knob or one without it is ignored, so "reports, nothing
+  yet" (token, no `shown`) differs from old firmware (no token).
+- The view's bytes and ETag never depend on `shown`.
+
+**Knob timing.** On a change of page or face the knob waits 300 ms, then
+ends its current long poll and polls at once with the new value, so the
+server learns of it within about 0.5 s. A turn faster than the debounce
+reports once, with the face it settled on.
+
+**Server.** Kept in memory per device as `{page, face, at}`, never
+persisted; `at` is the arrival of the last poll that carried a good value.
+Fresh while the knob keeps polling with it; stale 50 s (2× the 25 s
+view-wait cap) after that poll. A restart or deleting the device forgets it.
+The caps check and the store write happen under the device registry's
+lock, so a poll racing a delete can't leave a value behind for a
+re-minted knob. The value is recorded before a long poll starts waiting.
+
+**Owner side.** `GET /v1/devices` (and the `PATCH /v1/devices/{id}` reply)
+carries, on a knob with a fresh value:
+
+```json
+"shown": {"page": "weather", "face": "wind", "at": "2026-06-21T12:00:00Z"}
+```
+
+`face` is `null` for a page without one; `at` is whole seconds UTC. The key
+is absent when nothing fresh is known, and as soon as the knob's current
+caps no longer list `shown` (a checkin without the token, without caps or
+with dropped caps). There is no owner-side change long-poll, so a `shown`
+change wakes nothing. Ember.app doesn't read `shown` yet; the plan (#611)
+is to poll the device list every 2 s while a knob preview is on screen,
+and not otherwise.
 
 ## Usage
 
@@ -857,6 +914,7 @@ Indented JSON; key order is the wire order.
 | `view_np_cover.json` | An `np_cover` knob (caps `bot`, `nowplaying`): playing with an album picture, `accent` lightened from a dark violet to 3:1 on black, `cover_version`, no `cover_light` (a dark cover) |
 | `view_np_cover_light.json` | The same knob with a light cover: `accent` the `#F4F4F2` fallback, `cover_version`, then `"cover_light": true` as the last key |
 | `view_single_host_paused.json` | One host: `source` set, `lead`/`hosts` left out; paused `pomo` with `remaining_sec`; `weather` without a location (`sunrise`/`sunset` `null`) and without a provider observation time (`observed_at` absent) |
+| `view_req_shown.json` | A view request, not a reply: `method`, `path` and the `query` a `shown` knob sends on a long poll (`wait` 25, `shown` `weather:wind`); the test reads the file back, sends its `query` through the real handler and checks the owner's device entry |
 | `checkin_req_minimal.json` | The base fields every firmware sends |
 | `checkin_req_full.json` | Every block: `diag` with a crash, `ota` with `last`, `stats` (with `inv_areas`/`inv_px`), `wifi`, the display link |
 | `checkin_req_caps.json` | The base fields plus `caps` (every page and feature of 0.9.41, its limits, `rotations` `[0, 180]`); not yet `wx_faces` or `wx_moments` (below) |
@@ -876,7 +934,7 @@ The test also compares what the server stores for `checkin_req_full.json`
 (the checkin record and the stats sample) with every value sent, so a request
 field the server stops reading fails it. `TestDeviceViewHeadersContract` pins
 the view and checkin header names and the 304 behaviour. Regenerate after an
-intended change with `go test ./cmd/ember -run 'Golden|Caps|LegacyFirmware|DemoScene' -update`
+intended change with `go test ./cmd/ember -run 'Golden|Caps|LegacyFirmware|DemoScene|KnobShown' -update`
 and review the diff.
 
 **cinder side** (cinder#24): `firmware/test/host/fixtures/ember/` holds a copy

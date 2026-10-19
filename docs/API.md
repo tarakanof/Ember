@@ -38,7 +38,12 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 optional `Idempotency-Key`), `GET/POST /v1/devices` (`GET` lists devices
 only; a pre-#340 server also lists clients there, `kind: client`; each knob
 carries `effective_caps`, its reported or legacy capabilities, #341,
-DEVICE-PROTOCOL "Capabilities"),
+DEVICE-PROTOCOL "Capabilities"; a knob with the `shown` caps feature also
+carries `shown: {page, face|null, at}`, what it reported on screen, while a
+poll carried it in the last 50 s and the current caps list the token,
+absent otherwise, #609, DEVICE-PROTOCOL
+"Shown page"; the `PATCH` reply too; no change long-poll, so a client
+polls the list),
 `GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340), `GET/PUT
 /v1/devices/{id}/config` (same merge; includes `swipe_pages` (bool, default
 true), `quiet{calm, dim_level}` and
@@ -232,7 +237,9 @@ stored or already stored), `GET /v1/devices/self/firmware/{version}` (only
 the image its checkin's `ota` offers: 409 for any other version, `Range`/`If-Range` (416 past the end),
 `ETag: "<sha256>"`, per-device rate limit), `GET /v1/devices/self/view` (the knob's
 single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
-`X-Ember-View-Wait`; `?demo_id=&demo_state=playing|done` report on a demo; `"quiet":true` while quiet hours are on, and a waiting
+`X-Ember-View-Wait`; `?demo_id=&demo_state=playing|done` report on a demo;
+`?shown=<page>[:<face>]` reports what the knob shows (`shown` caps feature;
+a malformed value is ignored, never a 400); `"quiet":true` while quiet hours are on, and a waiting
 poll wakes at the quiet-hours edges — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
 on any knob config change or rotation and on any clock record or clock config change). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
 the Plex poller). Device-only (unauthenticated): `POST /hooks/awtrix/button`

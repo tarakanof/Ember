@@ -4782,6 +4782,13 @@ draws-if-present in `internal/render`, add a menu checkbox.
   is left. Shape and rules in DEVICE-PROTOCOL.md "Usage". Fresh accounts
   carry no time that moves on a repost, so the ETag moves only when a
   value does; going stale is caught by the 5 s recheck.
+- **Knob shown page (#609).** A knob with the `shown` caps feature adds
+  `?shown=<page>[:<face>]` to its view polls; `devices_shown.go` keeps the
+  last good value per device in memory (`knobShownStore`, not persisted)
+  and `GET /v1/devices` shows it as `shown` for 50 s after the last poll
+  that carried it. A malformed value is ignored and logged once; the view
+  bytes don't depend on it. Shape, freshness and the knob's 300 ms
+  debounce in DEVICE-PROTOCOL.md "Shown page".
 - **Knob view long-poll (#235).** `?wait=N` (whole seconds, capped at 25,
   `devices_view_wait.go`) with `If-None-Match` holds the request while the
   view still matches the tag: 200 with the new body as soon as it changes,

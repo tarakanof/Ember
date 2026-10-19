@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/v1/devices/self/view",
+  "query": {
+    "wait": "25",
+    "shown": "weather:wind"
+  }
+}
