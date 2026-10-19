@@ -209,6 +209,7 @@ func TestDefaultTransportWritesCatchesEachForm(t *testing.T) {
 import (
 	"net/http"
 	nh "net/http"
+	. "net/http"
 )
 
 func TestMain() { http.DefaultTransport = nil }
@@ -226,6 +227,18 @@ func aliased() { nh.DefaultTransport = nil }
 func read() http.RoundTripper { return http.DefaultTransport }
 
 func shadowed() { var http struct{ DefaultTransport int }; http.DefaultTransport = 1; _ = http }
+
+func dotted() { DefaultTransport = nil }
+
+func dottedPointer() { p := &DefaultTransport; *p = nil }
+
+func dotShadowed() { var DefaultTransport int; DefaultTransport = 1; _ = DefaultTransport }
+
+func ranged() { for _, http.DefaultTransport = range []http.RoundTripper{nil} {} }
+
+func dotRangedKey() { for DefaultTransport = range map[RoundTripper]int{} {} }
+
+func rangeDeclares() { for _, DefaultTransport := range []int{1} { _ = DefaultTransport } }
 `
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "x_test.go", src, 0)
@@ -241,18 +254,23 @@ func shadowed() { var http struct{ DefaultTransport int }; http.DefaultTransport
 		_, fn, _ := strings.Cut(w, " in ")
 		fns = append(fns, fn)
 	}
-	if want := []string{"TestMain", "swap", "viaPointer", "derefAddr", "paren", "aliased"}; !slices.Equal(fns, want) {
+	if want := []string{"TestMain", "swap", "viaPointer", "derefAddr", "paren", "aliased", "dotted", "dottedPointer", "ranged", "dotRangedKey"}; !slices.Equal(fns, want) {
 		t.Fatalf("writes in %q, want %q", fns, want)
 	}
 }
 
 func defaultTransportWrites(fset *token.FileSet, files []*ast.File, info *types.Info) []string {
 	isDefault := func(e ast.Expr) bool {
-		sel, ok := ast.Unparen(e).(*ast.SelectorExpr)
-		if !ok {
+		var id *ast.Ident
+		switch e := ast.Unparen(e).(type) {
+		case *ast.Ident:
+			id = e
+		case *ast.SelectorExpr:
+			id = e.Sel
+		default:
 			return false
 		}
-		v, ok := info.Uses[sel.Sel].(*types.Var)
+		v, ok := info.Uses[id].(*types.Var)
 		return ok && v.Pkg() != nil && v.Pkg().Path() == "net/http" && v.Name() == "DefaultTransport"
 	}
 	var out []string
@@ -263,6 +281,10 @@ func defaultTransportWrites(fset *token.FileSet, files []*ast.File, info *types.
 				switch n := n.(type) {
 				case *ast.AssignStmt:
 					targets = n.Lhs
+				case *ast.RangeStmt:
+					if n.Tok == token.ASSIGN {
+						targets = []ast.Expr{n.Key, n.Value}
+					}
 				case *ast.UnaryExpr:
 					if n.Op == token.AND {
 						targets = []ast.Expr{n.X}
