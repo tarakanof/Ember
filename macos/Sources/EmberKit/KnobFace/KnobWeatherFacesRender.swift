@@ -64,7 +64,7 @@ extension KnobFaceRender {
         let center = c - (uw / 2).rounded(.down)
         spacedLabel(value, v.fontPx, color, centerX: center, spacing: v.letterSpacePx, top: v.yPx, theme: theme, in: &ctx)
         guard let unit else { return }
-        let right = center - (spacedWidth(value, v, theme: theme) / 2).rounded(.down) + spacedWidth(value, v, theme: theme)
+        let vw = spacedWidth(value, v, theme: theme), right = center - (vw / 2).rounded(.down) + vw
         let vm = theme.font.metrics(v.fontPx), um = theme.font.metrics(u.fontPx)
         let baseline = v.yPx + vm.lineHeightPx - vm.baselinePx
         label(unit, u.fontPx, unitColor, centerX: right + u.gapPx, anchor: 0,
@@ -113,10 +113,15 @@ extension KnobFaceRender {
         sub(f.sub, w.sub.color, theme: theme, in: &ctx)
     }
 
-    static func fade(_ box: CGRect, _ ramp: Double) -> GraphicsContext.Shading {
-        .linearGradient(Gradient(stops: [.init(color: .clear, location: 0), .init(color: .white, location: ramp),
-                                         .init(color: .white, location: 1 - ramp), .init(color: .clear, location: 1)]),
-                        startPoint: CGPoint(x: box.midX, y: box.minY), endPoint: CGPoint(x: box.midX, y: box.maxY))
+    static func fadeGradient(_ ramp: Double) -> Gradient {
+        Gradient(stops: [.init(color: .clear, location: 0), .init(color: .white, location: ramp),
+                         .init(color: .white, location: 1 - ramp), .init(color: .clear, location: 1)])
+    }
+
+    static let rainFade = fadeGradient(KnobRainFace.ramp), castFade = fadeGradient(KnobCastFace.ramp)
+
+    static func fade(_ box: CGRect, _ g: Gradient) -> GraphicsContext.Shading {
+        .linearGradient(g, startPoint: CGPoint(x: box.midX, y: box.minY), endPoint: CGPoint(x: box.midX, y: box.maxY))
     }
 
     static func drops(_ f: KnobRainFace, _ w: KnobTheme.Weather, in ctx: inout GraphicsContext) {
@@ -127,9 +132,9 @@ extension KnobFaceRender {
             let top = sheet.box.minY + Double(KnobRainFace.sheetOffset(sheet, snow: snow, k: 0))
             var c = ctx
             c.clip(to: Path(sheet.box))
-            c.clipToLayer { $0.fill(Path(sheet.box), with: fade(sheet.box, KnobRainFace.ramp)) }
+            c.clipToLayer { $0.fill(Path(sheet.box), with: fade(sheet.box, rainFade)) }
             for d in sheet.drops where d.level <= f.intensity {
-                for wrap in -2...1 {
+                for wrap in -1...0 {
                     let ay = top + d.y + Double(d.tile) * tile + Double(wrap) * period, by = ay + d.len, bx = d.x - d.slant
                     guard by + 6 >= sheet.box.minY, ay - 6 <= sheet.box.maxY else { continue }
                     if snow {
@@ -150,7 +155,7 @@ extension KnobFaceRender {
         }
     }
 
-    static func umbrella(_ color: RGB, in ctx: inout GraphicsContext) {
+    static let canopy: Path = {
         let l = 105.0, r = 361.0, rim = 198.0, ry = 103.0, cx = (l + r) / 2, rx = (r - l) / 2, n = 5
         var canopy = Path()
         canopy.move(to: CGPoint(x: l, y: rim))
@@ -167,15 +172,23 @@ extension KnobFaceRender {
             }
         }
         canopy.closeSubpath()
-        let style = StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
-        let c = Color(color)
-        ctx.fill(canopy, with: .color(.black))
-        ctx.stroke(canopy, with: .color(c), style: style)
+        return canopy
+    }()
+
+    static let handle: Path = {
         var h = line(CGPoint(x: 233, y: 185), CGPoint(x: 233, y: 210.75))
         h.addPath(line(CGPoint(x: 233, y: 336.25), CGPoint(x: 233, y: 366)))
         h.addArc(center: CGPoint(x: 244, y: 366), radius: 11, startAngle: .degrees(180), endAngle: .degrees(0), clockwise: true)
         h.addPath(line(CGPoint(x: 233, y: 81), CGPoint(x: 233, y: 93)))
-        ctx.stroke(h, with: .color(c), style: style)
+        return h
+    }()
+
+    static func umbrella(_ color: RGB, in ctx: inout GraphicsContext) {
+        let style = StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
+        let c = Color(color)
+        ctx.fill(canopy, with: .color(.black))
+        ctx.stroke(canopy, with: .color(c), style: style)
+        ctx.stroke(handle, with: .color(c), style: style)
     }
 
     static func cast(_ f: KnobCastFace, _ theme: KnobTheme, in ctx: inout GraphicsContext) {
@@ -215,6 +228,15 @@ extension KnobFaceRender {
         return p.subtracting(below)
     }
 
+    static let castCloudPaths: [[[Path]]] = KnobCastFace.clouds.map { sides in
+        sides.map { side in side.clouds.map { cl in cloud(cl.base, cl.circles.map { ($0.x, $0.y, $0.r) }) } }
+    }
+
+    static let castRims: [[Gradient]] = KnobCastFace.clouds.map { sides in
+        sides.map { Gradient(stops: [.init(color: .white, location: 0), .init(color: .white, location: $0.fadeFrom / KnobCastFace.rimR),
+                                     .init(color: .clear, location: 1)]) }
+    }
+
     static func castClouds(_ f: KnobCastFace, _ w: KnobTheme.Weather, in ctx: inout GraphicsContext) {
         guard (1...3).contains(f.variant) else { return }
         let streak = Color(f.snow ? w.rain.snowColor : w.cast.color), center = CGPoint(x: 233, y: 233)
@@ -224,14 +246,8 @@ extension KnobFaceRender {
             var c = ctx
             c.translateBy(x: Double(KnobCastFace.breathe(variant: f.variant, side: side, k: 0)), y: 0)
             let r = KnobCastFace.rimR
-            c.clipToLayer {
-                $0.fill(disc(center, r), with: .radialGradient(Gradient(stops: [.init(color: .white, location: 0),
-                                                                                 .init(color: .white, location: sky.fadeFrom / r),
-                                                                                 .init(color: .clear, location: 1)]),
-                                                               center: center, startRadius: 0, endRadius: r))
-            }
-            for cl in sky.clouds {
-                let p = cloud(cl.base, cl.circles.map { ($0.x, $0.y, $0.r) })
+            c.clipToLayer { $0.fill(disc(center, r), with: .radialGradient(castRims[f.variant - 1][side], center: center, startRadius: 0, endRadius: r)) }
+            for (cl, p) in zip(sky.clouds, castCloudPaths[f.variant - 1][side]) {
                 c.fill(p, with: .color(Color(cl.back ? tone.back : tone.front)))
                 c.stroke(p, with: .color(Color(tone.line)), style: StrokeStyle(lineWidth: 4.5, lineJoin: .round))
             }
@@ -242,10 +258,10 @@ extension KnobFaceRender {
         let h = Double(s.h), period = 2 * h, top = s.box.minY + Double(KnobCastFace.sheetOffset(s, snow: snow, k: 0))
         var c = ctx
         c.clip(to: Path(s.box))
-        c.clipToLayer { $0.fill(Path(s.box), with: fade(s.box, KnobCastFace.ramp)) }
+        c.clipToLayer { $0.fill(Path(s.box), with: fade(s.box, castFade)) }
         for (t, streaks) in [s.a, s.b].enumerated() {
             for d in streaks {
-                for wrap in -2...1 {
+                for wrap in -1...0 {
                     let ay = top + d.y + Double(t) * h + Double(wrap) * period, bx = d.x - d.slant
                     guard ay + d.len + 6 >= s.box.minY, ay - 6 <= s.box.maxY else { continue }
                     if snow {
@@ -277,12 +293,11 @@ extension KnobFaceRender {
         for (k, q) in KnobWindFace.sockQuads(level: f.level, pose: fr.pose).enumerated() {
             ctx.fill(polyline(q + [q[0]]), with: .color(Color(k % 2 == 1 ? KnobWindFace.dark(sock, t) : sock)))
         }
-        let outline = polyline(KnobWindFace.leafOutline())
         for l in fr.leaves where l.opa > 0 {
             let half = Double(KnobWindFace.leafBox) / 2, deg = Double(l.rot) * 180 / Double(KnobWindFace.leafRots)
             let at = CGAffineTransform(rotationAngle: deg * .pi / 180)
                 .concatenating(CGAffineTransform(translationX: Double(l.x) + half, y: Double(l.y) + half))
-            ctx.fill(outline.applying(at), with: .color(Color(t.leafColor).opacity(Double(l.opa) / 255)))
+            ctx.fill(windLeaf.applying(at), with: .color(Color(t.leafColor).opacity(Double(l.opa) / 255)))
         }
         gauge(f.have ? { f.ringColor($0, w) } : nil, w, in: &ctx)
         valueUnit(f.valueText, sock, unit: f.have ? "km/h" : nil, unitColor: t.unitColor, theme: theme, in: &ctx)
@@ -292,6 +307,8 @@ extension KnobFaceRender {
         }
         sub(f.sub, w.sub.color, theme: theme, in: &ctx)
     }
+
+    static let windLeaf = polyline(KnobWindFace.leafOutline())
 
     static func days(_ f: KnobDaysFace, _ theme: KnobTheme, in ctx: inout GraphicsContext) {
         let w = theme.weather, t = w.days
@@ -338,6 +355,14 @@ extension KnobFaceRender {
         }
     }
 
+    static let dayClouds: [Path] = KnobDaysFace.Icon.allCases.map { icon in
+        switch icon {
+        case .partly: cloud(33, [(13, 28, 7), (21, 23, 8.5), (30, 28, 7)])
+        case .cloud: cloud(30, [(10, 25, 7), (19, 20, 9), (29, 25, 7)])
+        default: cloud(24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)])
+        }
+    }
+
     static func dayIcon(_ icon: KnobDaysFace.Icon, origin o: CGPoint, in ctx: inout GraphicsContext) {
         var c = ctx
         c.translateBy(x: o.x, y: o.y)
@@ -358,13 +383,12 @@ extension KnobFaceRender {
                          with: .color(Color(RGB(r: 0x5C, g: 0x9C, b: 0xE0))), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
             }
         }
-        let (base, circles, fill, edge): (Double, [(Double, Double, Double)], RGB, RGB) = switch icon {
-        case .partly: (33, [(13, 28, 7), (21, 23, 8.5), (30, 28, 7)], RGB(r: 0xE6, g: 0xEC, b: 0xF2), RGB(r: 0xC4, g: 0xCC, b: 0xD4))
-        case .cloud: (30, [(10, 25, 7), (19, 20, 9), (29, 25, 7)], RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
-        case .storm: (24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)], RGB(r: 0x55, g: 0x5D, b: 0x68), RGB(r: 0x6A, g: 0x74, b: 0x80))
-        default: (24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)], RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
+        let (fill, edge): (RGB, RGB) = switch icon {
+        case .partly: (RGB(r: 0xE6, g: 0xEC, b: 0xF2), RGB(r: 0xC4, g: 0xCC, b: 0xD4))
+        case .storm: (RGB(r: 0x55, g: 0x5D, b: 0x68), RGB(r: 0x6A, g: 0x74, b: 0x80))
+        default: (RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
         }
-        let p = cloud(base, circles)
+        let p = dayClouds[icon.rawValue]
         c.fill(p, with: .color(Color(fill)))
         c.stroke(p, with: .color(Color(edge)), lineWidth: 2)
         switch icon {
@@ -415,7 +439,7 @@ extension KnobFaceRender {
             ctx.stroke(line(CGPoint(x: a, y: t.horizonYPx + 8), CGPoint(x: b, y: t.horizonYPx + 8)),
                        with: .color(Color(w.stillColor)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
         }
-        gauge(f.have ? { f.ringColor($0, w) } : nil, w, in: &ctx)
+        gauge(f.have ? f.ringColors(w) : nil, w, in: &ctx)
         if f.have {
             for e in [KnobSunFace.Event.rise, .set] {
                 let a = (w.ring.fromDeg + w.ring.sweepDeg * f.frac(f.t[e.rawValue])) * .pi / 180

@@ -133,7 +133,9 @@ public struct KnobSunFace: Equatable, Sendable {
 
     public func valueColor(_ w: KnobTheme.Weather) -> RGB { have && hasNow && unit != nil ? w.sun.valueColor : w.stillColor }
 
-    public func color(at time: Int64, _ th: KnobTheme.Weather.Sun) -> RGB {
+    public func color(at time: Int64, _ th: KnobTheme.Weather.Sun) -> RGB { Self.color(at: time, colorStops(th), th) }
+
+    func colorStops(_ th: KnobTheme.Weather.Sun) -> [(Int64, RGB)] {
         let x = t, b = Int64(th.blendS)
         var st: [(Int64, RGB)] = []
         func add(_ anchor: Int64, _ d: Int64, _ c: RGB) {
@@ -163,6 +165,10 @@ public struct KnobSunFace: Equatable, Sendable {
         add(set, 300, th.mauve)
         add(x[Event.blueStart.rawValue], 0, th.blueIn)
         add(x[Event.dusk.rawValue], 0, th.blueOut)
+        return st
+    }
+
+    static func color(at time: Int64, _ st: [(Int64, RGB)], _ th: KnobTheme.Weather.Sun) -> RGB {
         guard let first = st.first else { return th.dayNoon }
         if time <= first.0 { return first.1 }
         for i in 1..<st.count where time <= st[i].0 {
@@ -171,9 +177,11 @@ public struct KnobSunFace: Equatable, Sendable {
         return st[st.count - 1].1
     }
 
-    public func ringColor(_ f: Double, _ w: KnobTheme.Weather) -> RGB {
-        guard have else { return w.ring.trackColor }
-        let a = start, b = end
-        return color(at: a + Int64((Double(b - a) * f).rounded()), w.sun)
+    public func ringColor(_ f: Double, _ w: KnobTheme.Weather) -> RGB { ringColors(w)(f) }
+
+    func ringColors(_ w: KnobTheme.Weather) -> (Double) -> RGB {
+        guard have else { return { _ in w.ring.trackColor } }
+        let a = start, b = end, st = colorStops(w.sun)
+        return { Self.color(at: a + Int64((Double(b - a) * $0).rounded()), st, w.sun) }
     }
 }
