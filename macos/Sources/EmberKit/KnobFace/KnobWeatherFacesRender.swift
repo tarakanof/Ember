@@ -205,7 +205,26 @@ extension KnobFaceRender {
         }
     }
 
-    static func cloud(_ base: Double, _ circles: [(Double, Double, Double)]) -> Path {
+    private final class CloudPaths: @unchecked Sendable {
+        private let lock = NSLock()
+        private var paths: [[Double]: Path] = [:]
+
+        func path(_ base: Double, _ circles: [(Double, Double, Double)]) -> Path {
+            let key = [base] + circles.flatMap { [$0.0, $0.1, $0.2] }
+            lock.lock()
+            defer { lock.unlock() }
+            if let p = paths[key] { return p }
+            let p = KnobFaceRender.buildCloud(base, circles)
+            paths[key] = p
+            return p
+        }
+    }
+
+    private static let cloudPaths = CloudPaths()
+
+    static func cloud(_ base: Double, _ circles: [(Double, Double, Double)]) -> Path { cloudPaths.path(base, circles) }
+
+    static func buildCloud(_ base: Double, _ circles: [(Double, Double, Double)]) -> Path {
         var p = Path()
         for (x, y, r) in circles { p.addEllipse(in: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)) }
         if let first = circles.first, let last = circles.last {
@@ -415,7 +434,8 @@ extension KnobFaceRender {
             ctx.stroke(line(CGPoint(x: a, y: t.horizonYPx + 8), CGPoint(x: b, y: t.horizonYPx + 8)),
                        with: .color(Color(w.stillColor)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
         }
-        gauge(f.have ? { f.ringColor($0, w) } : nil, w, in: &ctx)
+        let stops = f.colorStops(t)
+        gauge(f.have ? { f.ringColor($0, w, stops: stops) } : nil, w, in: &ctx)
         if f.have {
             for e in [KnobSunFace.Event.rise, .set] {
                 let a = (w.ring.fromDeg + w.ring.sweepDeg * f.frac(f.t[e.rawValue])) * .pi / 180
