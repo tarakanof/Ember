@@ -687,7 +687,7 @@ func TestWeatherStateFacesAreTheKnobViews(t *testing.T) {
 		t.Fatalf("faces = %+v, view = %+v, want both with wind, rain, twilight and today", f, view)
 	}
 	eq := func(a, b *int) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
-	if f.UTCOffsetS != view.UTCOffset || !eq(f.WindKmh, view.Now.WindKmh) || !eq(f.GustKmh, view.Now.GustKmh) ||
+	if f.UTCOffsetS != view.UTCOffset || !eq(f.WindKmh, view.Now.WindKmh) ||
 		!eq(f.WindDirDeg, view.Now.WindDir) || !eq(f.RainIntensity, view.Now.Rain) || !eq(f.TodayPopPct, view.Today.Pop) ||
 		!eq(f.AQI, view.AQI) {
 		t.Errorf("faces now/today/aqi = %+v, knob view now %+v today %+v aqi %v", f, view.Now, view.Today, view.AQI)
@@ -720,7 +720,7 @@ func TestWeatherStateFacesAreTheKnobViews(t *testing.T) {
 			t.Errorf("twilight %s = %v, knob view %v, want the same time on the %v grid", name, got, want, sunRounding)
 		}
 	}
-	if f.Moon.PhasePct != view.Moon.Phase || f.Moon.IllumPct != view.Moon.Illum || f.Moon.Up == nil || *f.Moon.Up != *view.Moon.Up {
+	if f.Moon.PhasePct != view.Moon.Phase || f.Moon.IllumPct != view.Moon.Illum || f.Moon.Up == nil {
 		t.Errorf("moon = %+v, knob view %+v", f.Moon, view.Moon)
 	}
 	if f.Night != app.knobWeather(goldenNow).Night {
@@ -762,5 +762,38 @@ func TestWeatherStateFacesFollowTheKnobsGates(t *testing.T) {
 		if v, ok := got[k]; !ok || v != nil {
 			t.Errorf("%s = %v (present %v), want null", k, v, ok)
 		}
+	}
+}
+
+func TestWeatherStateFacesMoonUpIsOnTheSunGrid(t *testing.T) {
+	app := goldenApp(t)
+	cfg := app.cfg.Load().Weather
+	at := func(now time.Time) bool {
+		t.Helper()
+		f := newWeatherFacesOut(app.weather.state(cfg, now), cfg, goldenZone)
+		if f == nil || f.Moon.Up == nil {
+			t.Fatalf("faces = %+v, want moon.up with a location", f)
+		}
+		return *f.Moon.Up
+	}
+	rise, set, _ := moonUpWindow(cfg.Latitude, cfg.Longitude, goldenNow)
+	checked := 0
+	for _, e := range []time.Time{rise, set} {
+		if e.IsZero() {
+			continue
+		}
+		for d := time.Second; d < sunRounding/2; d += 7 * time.Second {
+			a, b := e.Add(-d), e.Add(d)
+			if a.Round(sunRounding) != b.Round(sunRounding) {
+				continue
+			}
+			checked++
+			if at(a) != at(b) {
+				t.Fatalf("moon.up flips between %v and %v around the crossing %v, inside one %v bucket", a, b, e, sunRounding)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no instant pair inside one bucket around a crossing; pick another fixture time")
 	}
 }

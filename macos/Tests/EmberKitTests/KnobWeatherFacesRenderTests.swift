@@ -153,7 +153,7 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
 @MainActor @Test func sunFaceRendersTheDayGauge() throws {
     let mid: Int64 = 1_781_996_400
     let now = mid + 10 * 3600 + 1800
-    var f = WeatherState.Faces(utcOffsetS: 3600, night: false, windKmh: nil, gustKmh: nil, windDirDeg: nil, rainIntensity: nil,
+    var f = WeatherState.Faces(utcOffsetS: 3600, night: false, windKmh: nil, windDirDeg: nil, rainIntensity: nil,
                                todayPopPct: nil, rain: nil, days: [], twilight: nil, moon: .init(phasePct: 0, illumPct: 0, up: true), aqi: nil)
     func d(_ h: Int64, _ m: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(mid + h * 3600 + m * 60)) }
     f.twilight = .init(dawn: d(6, 55), blueEnd: d(7, 13), goldenEnd: d(8, 30), goldenStart: d(18, 30), blueStart: d(19, 47), dusk: d(20, 5))

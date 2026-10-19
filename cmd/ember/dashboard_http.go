@@ -391,7 +391,6 @@ type weatherFacesOut struct {
 	UTCOffsetS    int64        `json:"utc_offset_s"`
 	Night         bool         `json:"night"`
 	WindKmh       *int         `json:"wind_kmh"`
-	GustKmh       *int         `json:"gust_kmh"`
 	WindDirDeg    *int         `json:"wind_dir_deg"`
 	RainIntensity *int         `json:"rain_intensity"`
 	TodayPopPct   *int         `json:"today_pop_pct"`
@@ -415,7 +414,11 @@ func newWeatherFacesOut(wx weatherState, cfg WeatherConfig, loc *time.Location) 
 	f := &weatherFacesOut{UTCOffsetS: d.UTCOffset, Night: wx.Night, Days: []faceDayOut{},
 		Moon: moonOut{PhasePct: d.Moon.Phase, IllumPct: d.Moon.Illum, Up: d.Moon.Up}, AQI: d.AQI}
 	if n := d.Now; n != nil {
-		f.WindKmh, f.GustKmh, f.WindDirDeg, f.RainIntensity = n.WindKmh, n.GustKmh, n.WindDir, n.Rain
+		f.WindKmh, f.WindDirDeg, f.RainIntensity = n.WindKmh, n.WindDir, n.Rain
+	}
+	if wx.HaveLocation {
+		_, _, up := moonUpWindow(wx.Lat, wx.Lon, wx.At.Round(sunRounding))
+		f.Moon.Up = &up
 	}
 	if d.Today != nil {
 		f.TodayPopPct = d.Today.Pop

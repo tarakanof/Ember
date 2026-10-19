@@ -57,7 +57,6 @@
     "utc_offset_s": 7200,
     "night": false,
     "wind_kmh": 18,
-    "gust_kmh": 31,
     "wind_dir_deg": 243,
     "rain_intensity": 1,
     "today_pop_pct": 80,

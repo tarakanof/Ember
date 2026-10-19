@@ -6,7 +6,7 @@ private let w = KnobTheme.standard.weather
 private func at(_ t: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(t)) }
 
 private func faces(offset: Int = 3600) -> WeatherState.Faces {
-    .init(utcOffsetS: offset, night: false, windKmh: nil, gustKmh: nil, windDirDeg: nil, rainIntensity: nil, todayPopPct: nil,
+    .init(utcOffsetS: offset, night: false, windKmh: nil, windDirDeg: nil, rainIntensity: nil, todayPopPct: nil,
           rain: nil, days: [], twilight: nil, moon: .init(phasePct: 40, illumPct: 80, up: nil), aqi: nil)
 }
 

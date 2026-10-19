@@ -3030,7 +3030,10 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
   for absent): the knob's face inputs, so the app previews the Rain, Rain
   forecast, Wind, Next days, Sun and Air faces from the numbers the knob
   draws. Its twilight carries the knob view's 5-min rounding; the moon's
-  rise and set (unrounded on the knob view) are left out. No provider call;
+  rise and set (unrounded on the knob view) are left out, and `moon.up` is
+  evaluated at now rounded to that 5-min grid (the knob view's is exact),
+  so polling it can't time a moonrise or moonset closer than that. No
+  provider call;
   the coordinates are never echoed.
 - **`GET /v1/clock/health`** (per-IP rate-limited; under `EMBER_CLOCK=off` it adds `"disabled": true` (omitted otherwise), `device` is `null` and no publishes are counted) — publish counts for the last
   24 h (hourly buckets fed by `recordPublish`) and since start, the last publish,

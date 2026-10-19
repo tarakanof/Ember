@@ -128,7 +128,6 @@ public struct WeatherState: Decodable, Sendable, Equatable {
         public var utcOffsetS: Int
         public var night: Bool
         public var windKmh: Int?
-        public var gustKmh: Int?
         public var windDirDeg: Int?
         public var rainIntensity: Int?
         public var todayPopPct: Int?
@@ -142,7 +141,6 @@ public struct WeatherState: Decodable, Sendable, Equatable {
             case night, rain, days, twilight, moon, aqi
             case utcOffsetS = "utc_offset_s"
             case windKmh = "wind_kmh"
-            case gustKmh = "gust_kmh"
             case windDirDeg = "wind_dir_deg"
             case rainIntensity = "rain_intensity"
             case todayPopPct = "today_pop_pct"
