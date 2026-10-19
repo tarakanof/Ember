@@ -3493,13 +3493,33 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   wraps −2 to +1 against its box (at k = 0 today's tables only reach −1
   and 0, the knob's other phases reach −2, and +1 only a box taller
   than the strip period), and `rainSheetsDrawEveryWrapTheirGuardLetsThrough`
-  and its cast twin pin the full range. The motion (15 fps loops on the
-  knob) and the count-up arrival are left out by choice:
-  preview fidelity against more animation code (a `TimelineView` schedule
-  per face, frame state and a full Canvas redraw per frame). The cost
-  would only run while the pane is visible, and the bot preview already
-  animates at up to 20 fps there, so it is affordable; it is a follow-up,
-  not a limit, and until then the weather faces redraw once a minute),
+  and its cast twin pin the full range. The Knob › Weather
+  preview animates the heroes as the knob does (#625, `KnobWeatherLive`,
+  `KnobWeatherMotion.swift`): `KnobFaceView(face, t:)` takes the seconds
+  since the face showed and each renderer draws cinder's frame at that t
+  (`k = floor(t * 15)`; arrivals on `ARRIVE_FPS` 30 or `FADE_FPS` 15
+  steps): `wx_rain_frame` (strip offsets, the two drips, the three
+  canopy splashes, the storm bolt) under the hero fade `wx_arrive(tf)`;
+  the cast strips, `wx_cast_breathe`, `wx_cast_gloom` and the rain gate
+  and label fade; `wx_wind_frame` under the fade; `wx_air_petal` on the
+  wilted flower; `wx_sun_frame` (rise and rays) and `wx_days_frame` (row
+  fade, slide and count-up). With no t (the Pages overview, Reduce
+  Motion) the faces draw the rest pose above. `KnobWeatherMemo.shownAt`
+  is the show time, like cinder's `s_t`: it resets on page open (a fresh
+  memo) and when a reported face changes, not when the preview's own AUTO
+  pick steps to another face or the data refreshes, and a clock set back
+  re-stamps it. A knob that reports its face reports AUTO's resolved face,
+  so the preview can't tell an AUTO step from a turn: it replays the
+  arrival on both, while the knob replays only on a cut (`wx_job_cut`).
+  `KnobWeatherSchedule` ticks at 15 fps, mid-frame on the show's frame
+  grid, only while the view is on screen in a visible, active window
+  (the feeds' `WindowVisibilityReader` signal) and the face moves: loops
+  (rain, cast, wind with data, wilted air) tick on, arrivals (sun, days)
+  stop on the first frame that equals the rest pose. Temperature stays
+  static (the preview draws none of its sky, so its cloud drift has
+  nothing to move), as do the cast's sliding drop, every face's value
+  count-up, marker ease, mercury rise and sub-line fade, and the weather
+  moments,
   and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
@@ -3560,7 +3580,7 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   from, placed by LVGL's line box (top, line height, baseline). The bot
   redraws only when its pose changes: 20 fps while `BotBehavior.isAnimating`,
   otherwise the next frame is scheduled at `nextEventAt`. Weather redraws
-  once a minute (staleness), the Pomodoro ticks once a second, and only while
+  once a minute (staleness) plus the hero frames above, the Pomodoro ticks once a second, and only while
   the pane is on screen; Reduce Motion keeps blinks only. The Pages overview has no timers: it redraws when the polled data
   changes. `KNOB_SNAPSHOT_DIR=… swift test --filter knobFaces` writes PNGs
   of every face.

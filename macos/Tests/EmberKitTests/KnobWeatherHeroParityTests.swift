@@ -307,3 +307,115 @@ private let cinder = Testing.ConditionTrait.enabled(if: cinderDir != nil, "no ci
     let q = KnobWindFace.sockQuads(level: 1, pose: 0)
     #expect(abs(q[0][0].x - 210.712) < 0.01 && abs(q[0][0].y - 79.561) < 0.01 && abs(q[4][2].x - 302.114) < 0.01 && abs(q[4][2].y - 163.547) < 0.01)
 }
+
+private let face = "../../main/temp_face.c"
+
+@Test(cinder) func arrivalClockMatchesCinder() throws {
+    #expect(try define("include/wx_temp.h", "WX_ARRIVE_S") == KnobArrive.seconds)
+    #expect(try define("include/wx_temp.h", "WX_COUNT_MAX") == Double(KnobArrive.countMax))
+    #expect(try define(face, "ARRIVE_FPS") == KnobArrive.fps && define(face, "FADE_FPS") == KnobArrive.fadeFps)
+    try code("wx_temp.c", #"double wx_arrive\(double t\)\s*\{\s*if \(!\(t > 0\)\) return 0;\s*if \(t >= WX_ARRIVE_S\) return 1;\s*"#
+        + #"double p = 1 - t / WX_ARRIVE_S;\s*return 1 - p \* p \* p;"#)
+    try code("wx_temp.c", #"int a = v < 0 \? -v : v;\s*return a <= WX_COUNT_MAX \? a : 23;"#)
+    try code("wx_temp.c", #"if \(k <= 0 \|\| n == 0\) return 0;\s*if \(k >= n\) return v;\s*if \(n == \(v < 0 \? -v : v\)\) return v < 0 \? -k : k;\s*"#
+        + #"return \(int\)lround\(\(double\)k \* v / n\);"#)
+    try code("wx_temp.c", #"if \(!\(t > 0\)\) return 0;\s*if \(t >= WX_ARRIVE_S\) return n;\s*double p = 1 - t / WX_ARRIVE_S;\s*"#
+        + #"int k = \(int\)floor\(n \* \(1 - p \* p \* p\) \+ 1e-9\);\s*return k > n \? n : k;"#)
+    try code(face, #"double ta = floor\(s_t \* ARRIVE_FPS\) / ARRIVE_FPS;.*?double tf = floor\(s_t \* FADE_FPS\) / FADE_FPS;\s*"#
+        + #"int sprite_opa = \(int\)lround\(fo \* wx_arrive\(tf\)\);"#)
+}
+
+@Test(cinder) func rainFrameTablesAndSpritesMatchCinder() throws {
+    #expect(try define("include/wx_rain.h", "WX_RAIN_FPS") == KnobWeatherMotion.fps)
+    #expect(try define("include/wx_rain.h", "WX_STORM_FRAMES") == Double(KnobRainFace.stormFrames))
+    #expect(try table("wx_rain.c", "static const int FLASH[6]") == nums(KnobRainFace.flash.map(Double.init)))
+    #expect(try table("wx_rain.c", "static const int SPLASH_DROP[WX_SPLASHES]") == nums(KnobRainFace.splashDrop.map(Double.init)))
+    #expect(try table("wx_rain.c", "} DRIP[WX_DRIPS]") == .list(KnobRainFace.drips.map { nums([Double($0.period), Double($0.start)]) }))
+    #expect(try table("wx_rain.c", "} DRIP_SEQ[7]") == .list(KnobRainFace.dripSeq.map { nums([Double($0.pose), Double($0.dy), Double($0.opa)]) }))
+    #expect(try table("wx_rain.c", "} SPLASH_SEQ[3]") == .list(KnobRainFace.splashSeq.map { nums([Double($0.dy), Double($0.opa)]) }))
+    #expect(try table("wx_paint.c", "static const float DRIP_X[WX_DRIPS]") == nums(KnobRainFace.dripX))
+    #expect(try table("wx_paint.c", "static const float SCALE[WX_DRIP_POSES]") == nums(KnobRainFace.dripScale))
+    #expect(try define("include/wx_paint.h", "WX_BOLT_X") == KnobRainFace.boltAt.x && define("include/wx_paint.h", "WX_BOLT_Y") == KnobRainFace.boltAt.y)
+    #expect(try table("wx_paint.c", "static const float P[7][2]") == .list(KnobRainFace.bolt.map(pt)))
+    try code(face, "#define BOLT_RGB 0x" + KnobRainFace.boltColor.hex.dropFirst() + #"\n"#)
+    try code("wx_paint.c", #"const float k = 0\.8f, o = 1\.0f;.*?cov\(\(in \? -d : d\) - 0\.8f\)"#)
+    try code("wx_paint.c", #"static float drip_hw\(float t\) \{ return 8\.0f \* t \* \(1 - t\); \}"#)
+    try code("wx_paint.c", #"const float ox = WX_DRIP_W / 2\.0f, oy = 203\.0f - WX_DRIP_Y;.*?"#
+        + #"float py = \(\(float\)y \+ \(sy \+ 0\.5f\) / 4 - oy\) / sc \+ 203\.0f;\s*in\[sy\] = !\(py < 199 \|\| py > 208\);.*?"#
+        + #"float yt = 199 \* u \* u \+ 2 \* u \* t \* 205 \+ 208 \* t \* t;.*?"#
+        + #"if \(fabsf\(\(\(float\)x \+ \(sx \+ 0\.5f\) / 4 - ox\) / sc\) <= hw\[sy\]\) hit\+\+;"#)
+    try code("wx_paint.c", #"float x = d->x, y = wx_canopy_y\(d->x\) - 3;.*?"#
+        + #"float dd = fminf\(seg_d\(px, py, x, y, x - 5, y - 6\), seg_d\(px, py, x, y, x \+ 5, y - 6\)\);\s*put_a\(&a8\[r \* WX_SPLASH_W \+ c\], cov\(dd - 1\.5f\)\);"#)
+    try code("wx_rain.c", #"f->drip_pose\[i\] = DRIP_SEQ\[j\]\.pose;\s*f->drip_dy\[i\] = DRIP_SEQ\[j\]\.dy;\s*f->drip_opa\[i\] = DRIP_SEQ\[j\]\.opa;"#)
+    try code("wx_rain.c", #"if \(!wx_drop_shown\(&SHEETS\[at\.sheet\]\.drop\[at\.drop\], r\)\) continue;\s*int frames = wx_sheet_frames\(r, at\.sheet\);"#)
+    try code("wx_rain.c", #"f->splash_dy\[n\] = SPLASH_SEQ\[j\]\.dy;\s*f->splash_opa\[n\] = SPLASH_SEQ\[j\]\.opa;"#)
+    try code("wx_rain.c", #"if \(r->kind == WX_PRECIP_STORM\)\s*for"#)
+    try code("wx_rain.c", #"ops->drip_top\[i\] = WX_DRIP_Y \+ f->drip_dy\[i\] - SHEETS\[i\]\.box\.y0;\s*ops->drip_alpha\[i\] = f->drip_opa\[i\] \* opa / 255;"#)
+    try code("wx_rain.c", #"ops->splash_top\[n\] = at\.y \+ f->splash_dy\[n\] - SHEETS\[at\.sheet\]\.box\.y0;\s*ops->splash_alpha\[n\] = f->splash_opa\[n\] \* opa / 255;"#)
+    try code(face, #"wx_rain_frame\(r, \(int\)floor\(s_t \* WX_RAIN_FPS\), &f\);"#)
+    try code(face, #"set_rain\(r, sprite_opa, fo == 255 && !r->dry\);"#)
+    try code(face, #"if \(op\.opa\) lv_obj_set_style_image_opa\(s_bolt, \(lv_opa_t\)op\.layer_opa, 0\);"#)
+}
+
+@Test(cinder) func castArrivalAndGloomMatchCinder() throws {
+    #expect(try define("include/wx_cast.h", "WX_CAST_GATE_S") == KnobCastFace.gateS)
+    #expect(try define("include/wx_cast.h", "WX_CAST_GATE_END_S") == KnobCastFace.gateEndS)
+    #expect(try define("include/wx_cast.h", "WX_CAST_SLIDE_S") == KnobCastFace.slideS)
+    #expect(try define("include/wx_cast.h", "WX_CAST_LABEL_END_S") == KnobCastFace.labelEndS)
+    #expect(try define("include/wx_cast.h", "WX_CAST_GLOOM_STEPS") == Double(KnobCastFace.gloomSteps))
+    try code("wx_cast.c", #"double f = t <= t0 \? 0 : t >= t1 \? 1 : \(t - t0\) / \(t1 - t0\);\s*return \(int\)lround\(255 \* \(up \? f : 1 - f\)\);"#)
+    try code("wx_cast.c", #"int wx_cast_gate_opa\(double t\) \{ return ramp\(t, WX_CAST_GATE_S, WX_CAST_GATE_END_S, true\); \}"#)
+    try code("wx_cast.c", #"int wx_cast_label_opa\(double t\) \{ return ramp\(t, WX_CAST_SLIDE_S, WX_CAST_LABEL_END_S, true\); \}"#)
+    try code("wx_cast.c", #"return \(int\)lround\(255 \* \(1 - 0\.3 \* f\)\);"#)
+    try code(face, #"int k = \(int\)floor\(s_t \* WX_CAST_FPS\);\s*int gate = wx_cast_gate_opa\(\(double\)k / WX_CAST_FPS\);\s*"#
+        + #"bool rain = fo == 255 && gate > 0 && !c->dry;"#)
+    try code(face, #"int dx = wx_cast_breathe\(c->variant, s, k\), opa = sprite_opa \* wx_cast_gloom\(c->variant, k\) / 255;"#)
+    try code(face, #"int off = wx_cast_sheet_off\(sh, c->snow, k\);"#)
+    try code(face, #"double tl = floor\(s_t \* FADE_FPS\) / FADE_FPS;\s*set_label\(c, wx_cast_label_opa\(tl\) \* fo / 255\);"#)
+}
+
+@Test(cinder) func windArrivalMatchesCinder() throws {
+    try code(face, #"wx_wind_frame\(w->level, w->have && fo == 255 \? \(int\)floor\(s_t \* WX_WIND_FPS\) : -1, &f\);"#)
+    try code(face, #"set_wind\(w, rgb, fo, sprite_opa\);"#)
+    try code(face, #"lv_obj_set_style_image_opa\(s_wsock, \(lv_opa_t\)opa, 0\);\s*lv_obj_set_style_image_opa\(s_wdark, \(lv_opa_t\)opa, 0\);"#)
+    try code(face, #"int o = f\.streak_opa\[r\] \* opa / 255;"#)
+    try code(face, #"int o = f\.leaf_opa\[i\] \* opa / 255;"#)
+}
+
+@Test(cinder) func sunDaysAndAirFramesMatchCinder() throws {
+    #expect(try define("include/wx_sun.h", "WX_SUN_RISE_PX") == Double(KnobSunFace.risePx))
+    #expect(try define("include/wx_sun.h", "WX_SUN_FPS") == KnobSunFace.fps)
+    #expect(try define("include/wx_sun.h", "WX_SUN_RAYS_ON_S") == KnobSunFace.raysOnS && define("include/wx_sun.h", "WX_SUN_RAYS_IN_S") == KnobSunFace.raysInS)
+    try code("wx_sun.c", #"f->dy = \(int\)lround\(WX_SUN_RISE_PX \* \(1 - wx_arrive\(t\)\)\);\s*"#
+        + #"double tf = t > 0 \? floor\(t \* WX_SUN_FPS \+ 1e-9\) / WX_SUN_FPS : 0;\s*"#
+        + #"double p = \(tf - WX_SUN_RAYS_ON_S\) / \(WX_SUN_RAYS_IN_S - WX_SUN_RAYS_ON_S\);\s*"#
+        + #"f->rays_opa = !\(p > 0\) \? 0 : p >= 1 \? 255 : \(int\)lround\(255 \* p\);"#)
+    try code(face, #"wx_sun_frame\(ta, &f\);"#)
+    try code(face, #"lv_obj_set_y\(s_ssun, f\.dy\);"#)
+    try code(face, #"int rays = hero \? f\.rays_opa \* fo / 255 : 0;"#)
+    #expect(try define("include/wx_days.h", "WX_DAYS_SLIDE") == Double(KnobDaysFace.slidePx))
+    #expect(try define("include/wx_days.h", "WX_DAYS_STAGGER_S") == KnobDaysFace.staggerS && define("include/wx_days.h", "WX_DAYS_IN_S") == KnobDaysFace.inS)
+    try code("wx_days.c", #"double p = \(t - i \* WX_DAYS_STAGGER_S\) / WX_DAYS_IN_S;\s*"#
+        + #"double u = !\(p > 0\) \? 0 : p >= 1 \? 1 : 1 - \(1 - p\) \* \(1 - p\) \* \(1 - p\);\s*"#
+        + #"\*opa = \(int\)lround\(255 \* u\);\s*\*dy = \(int\)lround\(WX_DAYS_SLIDE \* \(1 - u\)\);"#)
+    try code("wx_days.c", #"f->lo\[i\] = wx_count_value\(d->row\[i\]\.lo, wx_count_step\(wx_count_n\(d->row\[i\]\.lo\), t\)\);\s*"#
+        + #"f->hi\[i\] = wx_count_value\(d->row\[i\]\.hi, wx_count_step\(wx_count_n\(d->row\[i\]\.hi\), t\)\);"#)
+    try code(face, #"wx_days_frame\(d, ta, &f\);"#)
+    try code(face, #"int opa = f\.opa\[i\] \* fo / 255, dy = f\.dy\[i\], lo = f\.lo\[i\], hi = f\.hi\[i\];\s*if \(opa != s_shown\.day_opa\[i\]\) \{\s*"#
+        + #"s_shown\.day_opa\[i\] = opa;\s*lv_obj_set_style_opa\(s_drow\[i\], \(lv_opa_t\)opa, 0\);"#)
+    #expect(try define("include/wx_air.h", "WX_AIR_FPS") == KnobWeatherMotion.fps)
+    #expect(try define("include/wx_wind.h", "WX_WIND_FPS") == KnobWeatherMotion.fps && define("include/wx_cast.h", "WX_CAST_FPS") == KnobWeatherMotion.fps)
+    #expect(try define("wx_air.c", "PETAL_FRAMES") == Double(KnobAirFace.petalFrames) && define("wx_air.c", "PETAL_PHASE") == Double(KnobAirFace.petalPhase))
+    #expect(try define("include/wx_air.h", "WX_PETAL_X") == KnobAirFace.petalAt.x && define("include/wx_air.h", "WX_PETAL_Y") == KnobAirFace.petalAt.y)
+    #expect(try define("include/wx_air.h", "WX_PETAL_BOX") == Double(KnobAirFace.petalBox))
+    try code("wx_air.c", #"if \(3 \* v \* v \* u \* 0\.42 \+ 3 \* v \* u \* u \* 0\.58 \+ u \* u \* u < p\) lo = u;.*?return 3 \* \(1 - u\) \* u \* u \+ u \* u \* u;"#)
+    try code("wx_air.c", #"double t = \(double\)\(\(k \+ PETAL_PHASE\) % PETAL_FRAMES\) / PETAL_FRAMES;\s*"#
+        + #"double u = t < 0\.62 \? ease\(t / 0\.62\) : 1;\s*"#
+        + #"double op = t < 0\.08 \? ease\(t / 0\.08\) : t < 0\.9 \? 1 : 1 - ease\(\(t - 0\.9\) / 0\.1\);\s*"#
+        + #"p->x = \(int\)lround\(WX_PETAL_X \+ 14 \* \(1 - u\)\) - WX_PETAL_BOX / 2;\s*"#
+        + #"p->y = \(int\)lround\(WX_PETAL_Y - 58 \* \(1 - u\)\) - WX_PETAL_BOX / 2;\s*"#
+        + #"p->rot = \(int\)lround\(5 \* u\);\s*p->opa = \(int\)lround\(255 \* op\);"#)
+    try code("wx_paint.c", #"ink_t pe = \{\.fill = PETAL_RGB, \.line = PETAL_LINE, \.has_fill = true, \.has_line = true, \.hw = 0\.75f, \.alpha = 1\};\s*"#
+        + #"petal\(im, NULL, 0, WX_PETAL_X, WX_PETAL_Y, 4\.5f, 8, 86\.0f - 50\.0f \+ 10\.0f \* \(float\)rot, WX_PETAL_X, WX_PETAL_Y, &pe\);"#)
+    try code(face, #"wx_air_petal\(aq->wilted && fo == 255 \? \(int\)floor\(s_t \* WX_AIR_FPS\) : -1, &p\);"#)
+}
