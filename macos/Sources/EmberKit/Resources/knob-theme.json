@@ -185,6 +185,8 @@
       "cell_color": "#262626",
       "span_s": 43200,
       "step_s": 300,
+      "soon_s": 3600,
+      "keep_s": 5400,
       "label_font_px": 24,
       "label_gap_px": 2
     },
@@ -196,6 +198,8 @@
       "max_kmh": 999,
       "edges_kmh": [12, 29],
       "hyst_kmh": 3,
+      "auto_kmh": 39,
+      "keep_kmh": 34,
       "dark_gain": 0.55,
       "pole_color": "#9AA4B0",
       "unit_color": "#9A9A9A"

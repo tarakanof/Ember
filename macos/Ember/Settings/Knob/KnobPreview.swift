@@ -41,6 +41,7 @@ struct KnobPreviewData {
     let brightnessLevel: Int?
     let lastMood: KnobMood
     let nowPlaying: KnobNowPlayingFeed?
+    let shown: KnobShownFeed?
     let weatherMemo: KnobWeatherMemo
 
     var settings: KnobSettings { env.knob.settings.draft }
@@ -53,6 +54,7 @@ struct KnobPreviewData {
     var pomodoro: PomoState? { env.live.pomodoro.value }
     var pomodoroFetchedAt: Date? { env.live.lastFetched(.pomodoroState) }
     var weather: WeatherState? { env.live.weather.value }
+    var reportedFace: KnobWeatherFaceID? { shown?.face }
 
     var pomodoroNote: String? {
         let p = env.settings.pomodoro
@@ -78,7 +80,7 @@ struct KnobPreviewData {
             KnobPomoLive(state: pomodoro, fetchedAt: pomodoroFetchedAt, note: pomodoroNote, animated: animated,
                          brightness: brightness)
         case "weather":
-            KnobWeatherLive(state: weather, memo: weatherMemo, animated: animated, brightness: brightness)
+            KnobWeatherLive(state: weather, pick: reportedFace, memo: weatherMemo, animated: animated, brightness: brightness)
         case "nowplaying":
             KnobNowPlayingLive(state: nowPlaying?.state, offline: nowPlaying?.failed ?? false, offset: nowPlaying?.serverOffset ?? 0,
                                pictures: nowPlaying?.pictures ?? .init(),
@@ -135,6 +137,18 @@ struct KnobPreviewData {
         }
     }
 
+    private func weatherFaceName(_ f: KnobWeatherFaceID) -> Text {
+        switch f {
+        case .temp: Text("Temperature")
+        case .rain: Text("Rain now")
+        case .cast: Text("Rain forecast")
+        case .wind: Text("Wind")
+        case .days: Text("Next days")
+        case .sun: Text("Sun")
+        case .air: Text("Air")
+        }
+    }
+
     private var nowPlayingCaption: Text {
         guard let s = nowPlaying?.state else {
             return nowPlaying?.failed == true ? Text("No music data from Ember.") : Text("Reading what's playing…")
@@ -147,7 +161,16 @@ struct KnobPreviewData {
     }
 
     private var weatherCaption: Text {
-        switch weatherMemo.face(state: weather, now: .now).caption {
+        let drawn = weatherMemo.face(reportedFace, state: weather, now: .now)
+        guard case .weather(let temp) = drawn else {
+            let name = drawn.weatherFace.map(weatherFaceName) ?? Text(verbatim: "")
+            return reportedFace == nil
+                ? Text("\(name): the face the knob's AUTO picks for this weather.",
+                       comment: "Knob weather preview: the face drawn by the knob's AUTO rule (\"Wind: the face…\").")
+                : Text("\(name): the face the knob shows.",
+                       comment: "Knob weather preview: the face the knob reports on screen (\"Wind: the face the knob shows.\").")
+        }
+        switch temp.caption {
         case .noData:
             return Text("No weather from Ember yet.")
         case .stale(let sky, let temp):
@@ -167,11 +190,12 @@ struct KnobAppPreviewSection: View {
     @State private var brightness: Int?
     @State private var lastMood = KnobMood(mood: .idle)
     @State private var nowPlaying: KnobNowPlayingFeed?
+    @State private var shown: KnobShownFeed?
     @State private var weatherMemo = KnobWeatherMemo()
 
     var body: some View {
         let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood,
-                                   nowPlaying: nowPlaying, weatherMemo: weatherMemo)
+                                   nowPlaying: nowPlaying, shown: shown, weatherMemo: weatherMemo)
         Section {
             KnobPreview(title: knobPageTitle(page), caption: data.caption(page), enabled: data.isOn(page)) {
                 data.face(page, animated: true)
@@ -180,7 +204,7 @@ struct KnobAppPreviewSection: View {
         } footer: {
             Text("Drawn by Ember from the same data the knob shows.")
         }
-        .knobPreviewFeeds(page: page, brightness: $brightness, nowPlaying: $nowPlaying)
+        .knobPreviewFeeds(page: page, brightness: $brightness, nowPlaying: $nowPlaying, shown: $shown)
         .onChange(of: data.liveMood, initial: true) { _, m in if let m { lastMood = m } }
     }
 }
@@ -190,11 +214,12 @@ struct KnobPagesPreviewSection: View {
     @State private var brightness: Int?
     @State private var lastMood = KnobMood(mood: .idle)
     @State private var nowPlaying: KnobNowPlayingFeed?
+    @State private var shown: KnobShownFeed?
     @State private var weatherMemo = KnobWeatherMemo()
 
     var body: some View {
         let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood, nowPlaying: nowPlaying,
-                                   weatherMemo: weatherMemo)
+                                   shown: shown, weatherMemo: weatherMemo)
         let s = data.settings
         Section {
             HStack(alignment: .top, spacing: 12) {
@@ -213,15 +238,15 @@ struct KnobPagesPreviewSection: View {
             }
             .settingsPreviewRow()
         }
-        .knobPreviewFeeds(page: nil, brightness: $brightness, nowPlaying: $nowPlaying)
+        .knobPreviewFeeds(page: nil, brightness: $brightness, nowPlaying: $nowPlaying, shown: $shown)
         .onChange(of: data.liveMood, initial: true) { _, m in if let m { lastMood = m } }
     }
 }
 
 extension View {
-    func knobPreviewFeeds(page: String?, brightness: Binding<Int?>,
-                          nowPlaying: Binding<KnobNowPlayingFeed?>) -> some View {
-        modifier(KnobPreviewFeeds(page: page, brightness: brightness, nowPlaying: nowPlaying))
+    func knobPreviewFeeds(page: String?, brightness: Binding<Int?>, nowPlaying: Binding<KnobNowPlayingFeed?>,
+                          shown: Binding<KnobShownFeed?>) -> some View {
+        modifier(KnobPreviewFeeds(page: page, brightness: brightness, nowPlaying: nowPlaying, shown: shown))
     }
 }
 
@@ -230,11 +255,16 @@ private struct KnobPreviewFeeds: ViewModifier {
     let page: String?
     @Binding var brightness: Int?
     @Binding var nowPlaying: KnobNowPlayingFeed?
+    @Binding var shown: KnobShownFeed?
 
     private struct Level: Decodable { let level: Int }
 
     private var overviewNeedsNowPlaying: Bool {
         page == nil && env.knob.settings.draft.pages.contains { $0.id == "nowplaying" && $0.on }
+    }
+
+    private var showsWeather: Bool {
+        page == "weather" || (page == nil && env.knob.settings.draft.pages.contains { $0.id == "weather" && $0.on })
     }
 
     func body(content: Content) -> some View {
@@ -248,6 +278,15 @@ private struct KnobPreviewFeeds: ViewModifier {
                 guard page == "nowplaying" || (overview && overviewNeedsNowPlaying) else { return }
                 let feed = KnobNowPlayingFeed(client: env.connection.client, thumbnail: overview)
                 nowPlaying = feed
+                await feed.run()
+            }
+            .task(id: "\(env.connection.serverURL?.absoluteString ?? "")|\(showsWeather)") {
+                guard showsWeather else {
+                    shown = nil
+                    return
+                }
+                let feed = KnobShownFeed(client: env.connection.client)
+                shown = feed
                 await feed.run()
             }
             .task(id: env.knob.settings.draft.brightness.followEmber) {
