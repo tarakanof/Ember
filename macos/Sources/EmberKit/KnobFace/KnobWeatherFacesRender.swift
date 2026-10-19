@@ -310,7 +310,7 @@ extension KnobFaceRender {
             let cy = Double(KnobDaysFace.rowY(n, i, t))
             label(KnobDaysFace.name(r.wday), t.nameFontPx, t.nameColor, centerX: Double(c.dayX), anchor: 0,
                   top: cy - (nm.lineHeightPx / 2).rounded(.down), theme: theme, in: &ctx)
-            dayIcon(r.icon, origin: CGPoint(x: Double(c.iconX), y: cy - Double(t.iconPx) / 2), in: &ctx)
+            dayIcon(r.icon, t, origin: CGPoint(x: Double(c.iconX), y: cy - Double(t.iconPx) / 2), in: &ctx)
             let tempTop = cy - (em.lineHeightPx / 2).rounded(.down)
             var lo = ctx
             lo.opacity = Double(t.loOpacity) / 255
@@ -338,7 +338,7 @@ extension KnobFaceRender {
         }
     }
 
-    static func dayIcon(_ icon: KnobDaysFace.Icon, origin o: CGPoint, in ctx: inout GraphicsContext) {
+    static func dayIcon(_ icon: KnobDaysFace.Icon, _ t: KnobTheme.Weather.Days, origin o: CGPoint, in ctx: inout GraphicsContext) {
         var c = ctx
         c.translateBy(x: o.x, y: o.y)
         let gold = Color(RGB(r: 0xFF, g: 0xB5, b: 0x47))
@@ -361,7 +361,7 @@ extension KnobFaceRender {
         let (base, circles, fill, edge): (Double, [(Double, Double, Double)], RGB, RGB) = switch icon {
         case .partly: (33, [(13, 28, 7), (21, 23, 8.5), (30, 28, 7)], RGB(r: 0xE6, g: 0xEC, b: 0xF2), RGB(r: 0xC4, g: 0xCC, b: 0xD4))
         case .cloud: (30, [(10, 25, 7), (19, 20, 9), (29, 25, 7)], RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
-        case .storm: (24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)], RGB(r: 0x55, g: 0x5D, b: 0x68), RGB(r: 0x6A, g: 0x74, b: 0x80))
+        case .storm: (24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)], t.stormCloudFill, t.stormCloudEdge)
         default: (24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)], RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
         }
         let p = cloud(base, circles)
@@ -379,7 +379,7 @@ extension KnobFaceRender {
         case .storm:
             let bolt = [CGPoint(x: 21, y: 24), CGPoint(x: 15, y: 32), CGPoint(x: 19.5, y: 32), CGPoint(x: 17, y: 39),
                         CGPoint(x: 25, y: 30), CGPoint(x: 20.5, y: 30), CGPoint(x: 23, y: 24)]
-            c.fill(polyline(bolt + [bolt[0]]), with: .color(Color(RGB(r: 0xF0, g: 0xD0, b: 0x40))))
+            c.fill(polyline(bolt + [bolt[0]]), with: .color(Color(t.stormBoltColor)))
         default: break
         }
     }
