@@ -409,7 +409,7 @@ enum KnobFaceRender {
             label(KnobTempFace.degrees(f.hi), e.fontPx, KnobTempFace.color(Double(f.hi), w.scale), centerX: d - e.xPx, anchor: 1,
                   top: e.yPx, theme: theme, in: &ctx)
         }
-        label(f.sub, w.sub.fontPx, w.sub.color, centerX: c, top: w.sub.yPx, theme: theme, in: &ctx)
+        label(f.sub, w.sub.fontPx, f.subColor ?? w.sub.color, centerX: c, top: w.sub.yPx, theme: theme, in: &ctx)
 
         if f.value != nil {
             let p = KnobTempFace.gaugePoint(f.fraction, w, center: c)

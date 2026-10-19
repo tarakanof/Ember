@@ -142,6 +142,16 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             public var fontPx, yPx: Double
             public var color: RGB
         }
+        public struct Cloud: Decodable, Sendable, Equatable {
+            public var maxPct: Int
+            public var edgesPct: [Int]
+            public var hystPct, clearPct, partlyPct, otherPct: Int
+        }
+        public struct UV: Decodable, Sendable, Equatable {
+            public var max, adviceFrom: Int
+            public var levelMax: [Int]
+            public var colors: [RGB]
+        }
         public struct Dots: Decodable, Sendable, Equatable {
             public var radiusPx, pitchPx, dotRadiusPx: Double
             public var onColor, offColor: RGB
@@ -156,6 +166,8 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public var value: Value
         public var ends: Ends
         public var sub: Sub
+        public var cloud: Cloud
+        public var uv: UV
         public var dots: Dots
     }
 

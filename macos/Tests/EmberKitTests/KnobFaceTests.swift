@@ -547,3 +547,18 @@ private struct Bitmap {
     #expect(Double((plain.last ?? 0) - (lined.last ?? 0)) == rise, "plain \(plain.last ?? -1), lined \(lined.last ?? -1)")
     #expect(try markRows(KnobMood(mood: .error, host: "ember", hostColor: purple, tool: "claude")).isEmpty)
 }
+
+@MainActor @Test func uvAdviceSubLineIsDrawnInTheUVColour() throws {
+    let w = KnobTheme.standard.weather, purple = RGB(r: 0xB0, g: 0x60, b: 0xE0)
+    func purplePixels(_ f: KnobTempFace) throws -> Int {
+        let img = try #require(render(KnobFaceView(.weather(f))))
+        var n = 0
+        for y in Int(w.sub.yPx)..<Int(w.sub.yPx) + 34 {
+            for x in 120..<346 where near(pixel(img, x, y), purple, 30) { n += 1 }
+        }
+        return n
+    }
+    let advice = KnobTempFace(value: 20, todayMinC: 15, todayMaxC: 25, sub: "Avoid the sun", subColor: purple)
+    #expect(try purplePixels(advice) > 20)
+    #expect(try purplePixels(KnobTempFace(value: 20, todayMinC: 15, todayMaxC: 25, sub: "Avoid the sun")) == 0)
+}

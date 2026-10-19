@@ -206,7 +206,11 @@ observation; label but no coordinates, sun times rounded to 5 min; `model`
 names the Open-Meteo model, absent under MET Norway; `current.today_min_c`
 and `today_max_c` are today's forecast range widened to the current
 temperature, the knob Temperature face's gauge, `null` without a forecast
-day; `error` gives the
+day; `current.cloud_pct` and `current.uv` are the knob view's `now.cloud` and
+`now.uv` (same observation, whole numbers), `null` when the provider has none;
+`sun.night` is the knob view's `night`, from the exact sun times, not the
+rounded ones sent;
+`error` gives the
 reason weather is unavailable while it is on, e.g. `tomorrow-io` or `weatherapi` chosen
 without its key),
 `GET /v1/nowplaying/state`, `GET /v1/nowplaying/art?kind=album|artist|backdrop|cover&size=`

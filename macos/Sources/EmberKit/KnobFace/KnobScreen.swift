@@ -224,9 +224,12 @@ public struct KnobWeatherLive: View {
     let animated: Bool
     let theme: KnobTheme
     let brightness: Double
+    let memo: KnobWeatherMemo?
+    @State private var ownMemo = KnobWeatherMemo()
 
-    public init(state: WeatherState?, animated: Bool = true, theme: KnobTheme = .standard, brightness: Double = 1) {
-        self.state = state; self.animated = animated; self.theme = theme; self.brightness = brightness
+    public init(state: WeatherState?, memo: KnobWeatherMemo? = nil, animated: Bool = true, theme: KnobTheme = .standard,
+                brightness: Double = 1) {
+        self.state = state; self.memo = memo; self.animated = animated; self.theme = theme; self.brightness = brightness
     }
 
     public var body: some View {
@@ -238,8 +241,22 @@ public struct KnobWeatherLive: View {
     }
 
     private func face(at now: Date) -> some View {
-        KnobFaceView(.weather(KnobTempFace(state: state, now: now, theme: theme.weather)), theme: theme, brightness: brightness)
-            .equatable()
+        let f = (memo ?? ownMemo).face(state: state, now: now, theme: theme.weather)
+        return KnobFaceView(.weather(f), theme: theme, brightness: brightness).equatable()
+    }
+}
+
+@MainActor
+public final class KnobWeatherMemo {
+    public private(set) var band: Int?
+
+    public init() {}
+
+    public func face(state: WeatherState?, now: Date, theme: KnobTheme.Weather = KnobTheme.standard.weather,
+                     calendar: Calendar = .current) -> KnobTempFace {
+        let f = KnobTempFace(state: state, now: now, theme: theme, calendar: calendar, shownBand: band)
+        band = f.cloudBand
+        return f
     }
 }
 

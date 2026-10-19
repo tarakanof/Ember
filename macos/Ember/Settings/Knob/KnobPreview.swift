@@ -41,6 +41,7 @@ struct KnobPreviewData {
     let brightnessLevel: Int?
     let lastMood: KnobMood
     let nowPlaying: KnobNowPlayingFeed?
+    let weatherMemo: KnobWeatherMemo
 
     var settings: KnobSettings { env.knob.settings.draft }
     var mood: KnobMood { liveMood ?? lastMood }
@@ -77,7 +78,7 @@ struct KnobPreviewData {
             KnobPomoLive(state: pomodoro, fetchedAt: pomodoroFetchedAt, note: pomodoroNote, animated: animated,
                          brightness: brightness)
         case "weather":
-            KnobWeatherLive(state: weather, animated: animated, brightness: brightness)
+            KnobWeatherLive(state: weather, memo: weatherMemo, animated: animated, brightness: brightness)
         case "nowplaying":
             KnobNowPlayingLive(state: nowPlaying?.state, offline: nowPlaying?.failed ?? false, offset: nowPlaying?.serverOffset ?? 0,
                                pictures: nowPlaying?.pictures ?? .init(),
@@ -146,16 +147,16 @@ struct KnobPreviewData {
     }
 
     private var weatherCaption: Text {
-        switch KnobTempFace(state: weather, now: .now).caption {
+        switch weatherMemo.face(state: weather, now: .now).caption {
         case .noData:
             return Text("No weather from Ember yet.")
         case .stale(let sky, let temp):
             let (sky, temp) = (Text(verbatim: sky), Text(verbatim: temp))
             return Text("\(sky), \(temp). Out of date, so the knob shows the temperature in grey.",
-                        comment: "Knob weather preview: condition and temperature (\"Rain, 14°\") of a stale observation.")
+                        comment: "Knob weather preview: the knob's sub-line (sky word or UV advice) and temperature (\"Rain, 14°\", \"Use sunscreen, 24°\") of a stale observation.")
         case .current(let sky, let temp):
             let (sky, temp) = (Text(verbatim: sky), Text(verbatim: temp))
-            return Text("\(sky), \(temp).", comment: "Knob weather preview: condition and temperature (\"Rain, 14°.\").")
+            return Text("\(sky), \(temp).", comment: "Knob weather preview: the knob's sub-line (sky word or UV advice) and temperature (\"Rain, 14°.\", \"Use sunscreen, 24°.\").")
         }
     }
 }
@@ -166,10 +167,11 @@ struct KnobAppPreviewSection: View {
     @State private var brightness: Int?
     @State private var lastMood = KnobMood(mood: .idle)
     @State private var nowPlaying: KnobNowPlayingFeed?
+    @State private var weatherMemo = KnobWeatherMemo()
 
     var body: some View {
         let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood,
-                                   nowPlaying: nowPlaying)
+                                   nowPlaying: nowPlaying, weatherMemo: weatherMemo)
         Section {
             KnobPreview(title: knobPageTitle(page), caption: data.caption(page), enabled: data.isOn(page)) {
                 data.face(page, animated: true)
@@ -188,9 +190,11 @@ struct KnobPagesPreviewSection: View {
     @State private var brightness: Int?
     @State private var lastMood = KnobMood(mood: .idle)
     @State private var nowPlaying: KnobNowPlayingFeed?
+    @State private var weatherMemo = KnobWeatherMemo()
 
     var body: some View {
-        let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood, nowPlaying: nowPlaying)
+        let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood, nowPlaying: nowPlaying,
+                                   weatherMemo: weatherMemo)
         let s = data.settings
         Section {
             HStack(alignment: .top, spacing: 12) {

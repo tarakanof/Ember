@@ -362,7 +362,7 @@
       }
     },
     "%@, %@." : {
-      "comment" : "Knob weather preview: condition and temperature (\"Rain, 14°.\").",
+      "comment" : "Knob weather preview: the knob's sub-line (sky word or UV advice) and temperature (\"Rain, 14°.\", \"Use sunscreen, 24°.\").",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -373,7 +373,7 @@
       }
     },
     "%@, %@. Out of date, so the knob shows the temperature in grey." : {
-      "comment" : "Knob weather preview: condition and temperature (\"Rain, 14°\") of a stale observation.",
+      "comment" : "Knob weather preview: the knob's sub-line (sky word or UV advice) and temperature (\"Rain, 14°\", \"Use sunscreen, 24°\") of a stale observation.",
       "localizations" : {
         "en" : {
           "stringUnit" : {

@@ -316,6 +316,8 @@ type weatherCurrentOut struct {
 	TempC         float64     `json:"temp_c"`
 	TodayMinC     *float64    `json:"today_min_c"`
 	TodayMaxC     *float64    `json:"today_max_c"`
+	CloudPct      *int        `json:"cloud_pct"`
+	UV            *int        `json:"uv"`
 	Hourly        []tempPoint `json:"hourly"`
 }
 
@@ -331,6 +333,7 @@ type airOut struct {
 type sunOut struct {
 	Sunrise time.Time `json:"sunrise"`
 	Sunset  time.Time `json:"sunset"`
+	Night   bool      `json:"night"`
 }
 
 type weatherStateOut struct {
@@ -369,6 +372,8 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 			ConditionCode: optString(obs.ConditionCode),
 			Severe:        obs.Severe,
 			TempC:         obs.TempC,
+			CloudPct:      roundedInt(obs.Now.Cloud, 1),
+			UV:            roundedInt(obs.Now.UV, 1),
 			Hourly:        []tempPoint{},
 		}
 		if today, _ := faceDays(obs, now); today != nil {
@@ -399,7 +404,7 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 		out.Air = ao
 	}
 	if rise, set, ok := wx.roundedSun(); ok {
-		out.Sun = &sunOut{Sunrise: rise.In(loc), Sunset: set.In(loc)}
+		out.Sun = &sunOut{Sunrise: rise.In(loc), Sunset: set.In(loc), Night: wx.Night}
 	}
 	return out
 }

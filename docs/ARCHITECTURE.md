@@ -3021,7 +3021,12 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
   the provider's raw `condition_code`, `temp_c`, hourly points stamped with the
   provider's own series start), air quality, the user's `location_name` label
   and the location's local-day sunrise/sunset **rounded to 5 min** (to the second they'd pin the
-  coordinates). No provider call; the coordinates are never echoed.
+  coordinates). The rounding covers only the times sent: `sun.night` here, and
+  `night` on `/v1/display/brightness`, flip at the exact crossings, so a LAN
+  client polling them learns the exact sunrise and sunset; with `source: sun`
+  its `level` ramps over `twilight_minutes`, so one read in the ramp gives the
+  time since sunset or until sunrise. No provider call;
+  the coordinates are never echoed.
 - **`GET /v1/clock/health`** (per-IP rate-limited; under `EMBER_CLOCK=off` it adds `"disabled": true` (omitted otherwise), `device` is `null` and no publishes are counted) — publish counts for the last
   24 h (hourly buckets fed by `recordPublish`) and since start, the last publish,
   plus the clock's `currentApp` (not shown by the app: 30 s behind a rotation
@@ -3056,6 +3061,10 @@ sources with no live session. Row writes use `activityThrottle` (2 min) with the
 cache is invalidated on phase rollover and otherwise expires by `statsCacheTTL`
 (1 min). Sun times are rounded to 5 min because to the second they'd pin the
 coordinates to a few hundred metres; the location is the user-typed label only.
+That covers only the times sent: `sun.night` on `/v1/weather/state` and
+`night` on `/v1/display/brightness` flip at the exact crossings, and with
+`source: sun` its `level` ramps through twilight, so polling them still reveals
+the exact sunrise and sunset on the LAN.
 
 - **`GET /v1/display/brightness`** (per-IP rate-limited) —
   `{"level":0-255,"source":"lux|sun|default","night":bool}`: one brightness for
@@ -3400,8 +3409,13 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   marker, thermometer and mercury, value, today's low and high, sky
   sub-line, face dots; today's range is `current.today_min_c`/`today_max_c`
   of `/v1/weather/state`; the sky, clouds, hero, count-up arrival, drift
-  and burn-in shift are not drawn, and the sub-line has no cloud cover or
-  UV advice, so it is the condition's word), and `nowplaying_view.c`
+  and burn-in shift are not drawn; the sub-line follows `wx_temp.c`
+  (#578): `current.cloud_pct` picks the `sky_word` band, held near an edge
+  by `WX_BAND_HYST` while the preview stays up, the condition's word
+  without it, and by day `current.uv` ≥ 3 replaces it with
+  `wx_uv_advice` in `wx_uv_rgb`; night is the fetch's `sun.night`, the
+  knob's own, until a sent sun time plus 2.5 min passes, then the rounded
+  times until the next poll), and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three

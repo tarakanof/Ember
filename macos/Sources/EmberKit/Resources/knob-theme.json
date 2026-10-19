@@ -167,6 +167,8 @@
     "value": { "font_px": 96, "y_px": 200, "letter_space_px": -2 },
     "ends": { "font_px": 36, "x_px": 96, "y_px": 362 },
     "sub": { "font_px": 30, "y_px": 302, "color": "#BDBDBD" },
+    "cloud": { "max_pct": 100, "edges_pct": [10, 40, 70, 90], "hyst_pct": 5, "clear_pct": 0, "partly_pct": 55, "other_pct": 95 },
+    "uv": { "max": 40, "advice_from": 3, "level_max": [5, 7, 10], "colors": ["#F0E641", "#F08A3A", "#FF5050", "#B060E0"] },
     "dots": { "radius_px": 206, "pitch_px": 16, "dot_radius_px": 4, "on_color": "#FFFFFF", "off_color": "#4A4A4A", "faces": 7 }
   },
   "nowplaying": {

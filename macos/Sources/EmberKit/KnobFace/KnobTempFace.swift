@@ -8,8 +8,11 @@ public struct KnobTempFace: Equatable, Sendable {
     public var hi: Int
     public var hasRange: Bool
     public var sub: String
+    public var subColor: RGB?
+    public var cloudBand: Int?
 
     public init(value: Double?, still: Bool = false, todayMinC: Double? = nil, todayMaxC: Double? = nil, sub: String = "",
+                subColor: RGB? = nil, cloudBand: Int? = nil,
                 scale: KnobTheme.Weather.Scale = KnobTheme.standard.weather.scale) {
         self.still = still
         lo = Int(scale.loC)
@@ -23,6 +26,8 @@ public struct KnobTempFace: Equatable, Sendable {
         let v = Self.whole(value)
         self.value = v
         self.sub = sub
+        self.subColor = subColor
+        self.cloudBand = cloudBand
         if let mn = todayMinC, let mx = todayMaxC, mn.isFinite, mx.isFinite {
             hasRange = true
             lo = min(Self.whole(mn), v)
@@ -35,12 +40,56 @@ public struct KnobTempFace: Equatable, Sendable {
     }
 
     public init(state: WeatherState?, now: Date, theme: KnobTheme.Weather = KnobTheme.standard.weather,
-                calendar: Calendar = .current) {
+                calendar: Calendar = .current, shownBand: Int? = nil) {
         let look = KnobWeatherLook(state: state, now: now, maxAge: theme.maxAgeS, calendar: calendar)
         let cur = state?.current
+        let cloud = Self.reading(cur?.cloudPct, max: theme.cloud.maxPct)
+        let uv = Self.reading(cur?.uv, max: theme.uv.max)
+        let band = Self.cloudBandKeep(cloud ?? Self.assumedCloud(look.face, theme.cloud), shown: shownBand, theme.cloud)
+        let advice = look.night ? nil : uv.flatMap { Self.uvAdvice($0, theme.uv) }
         self.init(value: cur?.tempC, still: look.still, todayMinC: cur?.todayMinC, todayMaxC: cur?.todayMaxC,
-                  sub: Self.sky(look), scale: theme.scale)
+                  sub: advice ?? Self.sky(look, band: cloud == nil ? nil : band),
+                  subColor: advice == nil ? nil : uv.map { Self.uvColor($0, theme.uv) }, cloudBand: band, scale: theme.scale)
     }
+
+    static func reading(_ v: Double?, max: Int) -> Int? {
+        guard let v, v >= 0, v <= Double(max) else { return nil }
+        return Int(v.rounded())
+    }
+
+    static func assumedCloud(_ face: KnobWeatherLook.Face, _ c: KnobTheme.Weather.Cloud) -> Int {
+        switch face {
+        case .clearDay, .clearNight: c.clearPct
+        case .partlyCloudy: c.partlyPct
+        case .overcast, .fog, .rain, .snow, .storm: c.otherPct
+        }
+    }
+
+    public static func cloudBand(_ cloud: Int, _ c: KnobTheme.Weather.Cloud) -> Int {
+        var b = 0
+        while b < c.edgesPct.count && cloud >= c.edgesPct[b] { b += 1 }
+        return b
+    }
+
+    public static func cloudBandKeep(_ cloud: Int, shown: Int?, _ c: KnobTheme.Weather.Cloud) -> Int {
+        let b = cloudBand(cloud, c), e = c.edgesPct
+        guard let shown, (0...e.count).contains(shown), b != shown else { return b }
+        let above = shown == 0 || cloud >= e[shown - 1] - c.hystPct
+        let below = shown == e.count || cloud < e[shown] + c.hystPct
+        return above && below ? shown : b
+    }
+
+    static let skyWords = [["Sunny", "Mostly sunny", "Partly cloudy", "Cloudy", "Overcast"],
+                           ["Clear", "Mostly clear", "Partly cloudy", "Cloudy", "Overcast"]]
+    static let uvWords = ["Sunglasses on", "Use sunscreen", "Sunscreen & shade", "Avoid the sun"]
+
+    static func uvLevel(_ uv: Int, _ u: KnobTheme.Weather.UV) -> Int { u.levelMax.firstIndex { uv <= $0 } ?? u.levelMax.count }
+
+    public static func uvAdvice(_ uv: Int, _ u: KnobTheme.Weather.UV) -> String? {
+        uv < u.adviceFrom ? nil : uvWords[min(uvLevel(uv, u), uvWords.count - 1)]
+    }
+
+    public static func uvColor(_ uv: Int, _ u: KnobTheme.Weather.UV) -> RGB { u.colors[min(uvLevel(uv, u), u.colors.count - 1)] }
 
     static func whole(_ c: Double) -> Int { Int(min(max(c, -99), 99).rounded()) }
 
@@ -69,13 +118,17 @@ public struct KnobTempFace: Equatable, Sendable {
 
     static func degrees(_ v: Int) -> String { v < 0 ? "\u{2212}\(-v)°" : "\(v)°" }
 
-    static func sky(_ look: KnobWeatherLook) -> String {
+    static func sky(_ look: KnobWeatherLook, band: Int? = nil) -> String {
         func amount(_ word: String) -> String {
             switch look.intensity {
             case .light: "Light \(word.lowercased())"
             case .heavy: "Heavy \(word.lowercased())"
             case .none, .moderate: word
             }
+        }
+        let words = skyWords[look.night ? 1 : 0]
+        if let band, ![.fog, .rain, .snow, .storm].contains(look.face) {
+            return words[min(max(band, 0), words.count - 1)]
         }
         return switch look.face {
         case .fog: "Fog"

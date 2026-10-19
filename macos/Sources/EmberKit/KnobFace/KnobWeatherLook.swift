@@ -36,11 +36,29 @@ public struct KnobWeatherLook: Equatable, Sendable {
         }
         var night: Bool?
         if let sun = state.sun {
-            night = Self.isNight(now: Self.minute(now, calendar), rise: Self.minute(sun.sunrise, calendar),
-                                 set: Self.minute(sun.sunset, calendar))
+            let rise = Self.minute(sun.sunrise, calendar), set = Self.minute(sun.sunset, calendar)
+            let then = Self.isNight(now: Self.minute(state.generatedAt, calendar), rise: rise, set: set)
+            let rounded = Self.isNight(now: Self.minute(now, calendar), rise: rise, set: set)
+            let since = now.timeIntervalSince(state.generatedAt)
+            let fetched = Self.second(state.generatedAt, calendar)
+            func passed(_ r: Date) -> Bool {
+                let ahead = (Self.second(r, calendar) + Self.sunRoundingHalfS - fetched + 2 * Self.day)
+                    .truncatingRemainder(dividingBy: Self.day)
+                return ahead > 0 && ahead <= since
+            }
+            let crossed = since < 0 || then != rounded || passed(sun.sunrise) || passed(sun.sunset)
+            night = crossed ? rounded : sun.night ?? rounded
         }
         self.init(provider: state.provider, condition: cur.condition, code: cur.conditionCode, night: night)
         still = !state.enabled || cur.stale || now.timeIntervalSince(cur.fetchedAt) > maxAge
+    }
+
+    static let sunRoundingHalfS: TimeInterval = 150
+    static let day: TimeInterval = 86_400
+
+    static func second(_ d: Date, _ cal: Calendar) -> TimeInterval {
+        let c = cal.dateComponents([.hour, .minute, .second], from: d)
+        return TimeInterval((c.hour ?? 0) * 3600 + (c.minute ?? 0) * 60 + (c.second ?? 0))
     }
 
     static func minute(_ d: Date, _ cal: Calendar) -> Int {
