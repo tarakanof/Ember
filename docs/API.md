@@ -40,7 +40,8 @@ only; a pre-#340 server also lists clients there, `kind: client`; each knob
 carries `effective_caps`, its reported or legacy capabilities, #341,
 DEVICE-PROTOCOL "Capabilities"; a knob with the `shown` caps feature also
 carries `shown: {page, face|null, at}`, what it reported on screen, while a
-poll carried it in the last 50 s, absent otherwise, #609, DEVICE-PROTOCOL
+poll carried it in the last 50 s and the current caps list the token,
+absent otherwise, #609, DEVICE-PROTOCOL
 "Shown page"; the `PATCH` reply too; no change long-poll, so a client
 polls the list),
 `GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340), `GET/PUT

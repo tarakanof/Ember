@@ -570,7 +570,7 @@ components:
                   description: Why the last checkin's `caps` were dropped; absent when they were accepted or not sent.
         shown:
           type: object
-          description: "Knobs with the `shown` caps feature only: what the knob last reported on screen through the view poll's `shown` query (DEVICE-PROTOCOL \"Shown page\"). Kept in memory; absent before the first report, after a restart, and once no poll carried `shown` for 50 s."
+          description: "Knobs with the `shown` caps feature only: what the knob last reported on screen through the view poll's `shown` query (DEVICE-PROTOCOL \"Shown page\"). Kept in memory; absent before the first report, after a restart, once no poll carried `shown` for 50 s, and once the knob's current caps no longer list `shown`."
           required: [page, face, at]
           properties:
             page:
