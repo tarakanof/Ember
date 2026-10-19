@@ -559,6 +559,11 @@ func TestCheckAWTRIXReachable(t *testing.T) {
 		t.Fatalf("empty base: %q %q", res.Status, res.Detail)
 	}
 
+	cut := cutBodyClock(t)
+	if res := check(cut); res.Status != StatusFail || !strings.HasPrefix(res.Detail, "GET "+cut+"/api/v1/device: ") {
+		t.Fatalf("cut body: %q %q", res.Status, res.Detail)
+	}
+
 	dead := httptest.NewServer(http.NotFoundHandler())
 	deadURL := dead.URL
 	dead.Close()

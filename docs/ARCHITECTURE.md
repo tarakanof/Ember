@@ -3430,8 +3430,36 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `faces`: values, units, sub-lines with LVGL's `#RRGGBB word#` recolour,
   the gauges' colour ramps, the cast dial's hour cells, end labels, the
   lit face dot, and the heroes (umbrella and drops, cast clouds, windsock,
-  day rows, rising sun, flower) as simplified static vectors, no arrival or
-  ambient motion), and `nowplaying_view.c`
+  day rows, rising sun, flower) as static vectors; the rain, cast and
+  wind heroes draw a synthetic rest pose (#615): every loop at its phase
+  for k = 0 and every arrival at its end values, full opacity. The knob
+  itself never shows exactly this frame, since k is past 0 by the time
+  the cast gate or the wind's full fade opens. The rain sheets sit at
+  `wx_rain_frame`'s strip offsets (45, 94 and 0 px down; snow falls at
+  half speed, so 23, 47 and 0), wrapped through the two-tile strip and
+  faded over `WX_RAMP` of each box; no drip, splash or bolt is on at k = 0
+  (`SPLASH_DROP`, `wx_canopy_y`, `wx_splash_hit`, `DRIP` and `FLASH` are
+  pinned, and the test derives that from them). The cast sheets draw both
+  tiles at `wx_cast_sheet_off`, faded over `WX_CAST_RAMP`, and each
+  side's clouds move by `wx_cast_breathe` (−4, +3 or 0 px) and fade to
+  the rim from their `fade_from`; the gloom pulse is at rest. The windsock
+  is in pose A with the streak rows and leaves `wx_wind_frame(level, 0)`
+  shows; with no wind data it hangs still in pose B with neither, as on
+  the knob. `KnobWeatherHeroes.swift` holds the tables
+  (`KnobRainFace.sheets`, `KnobCastFace.sheets`, `clouds`, `tones`,
+  `breathe`, `KnobWindFace.geo`) and the frame-0 maths;
+  `KnobWeatherHeroParityTests` parses cinder's C initialisers and
+  `#define`s strictly (a value it cannot read, such as an expression or
+  an element count other than `N(array)`, fails the test rather than
+  being half-read) and pins the tables, the constants and the frame
+  formulas, so a cinder change fails `swift test`. The motion (15 fps
+  loops on the knob) and the count-up arrival are left out by choice:
+  preview fidelity against more animation code (a `TimelineView` schedule
+  per face, frame state and a full Canvas redraw per frame). The cost
+  would only run while the pane is visible, and the bot preview already
+  animates at up to 20 fps there, so it is affordable; it is a follow-up,
+  not a limit, and until then the weather faces redraw once a minute),
+  and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three
@@ -3478,8 +3506,8 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   metrics, eye geometry, the Temperature face's scale, ring, thermometer
   and label layout, and the other weather faces' colours, thresholds and
   layout (`weather.rain` … `weather.air`); their words stay in code and
-  are pinned by the same test. Shape formulas and the hop squash curve stay in code on
-  both sides. `KnobThemeTests` pins
+  are pinned by the same test. Shape formulas, the weather heroes' shape
+  tables and the hop squash curve stay in code on both sides. `KnobThemeTests` pins
   every key; with a cinder checkout next to this repo (or `CINDER_DIR`) it
   also parses the firmware source and checks each key against the constant
   it mirrors. tarakanof/cinder#34 tracks generating the C side from a copy.
