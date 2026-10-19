@@ -44,6 +44,7 @@ func TestCLI_RejectedArgsExitTwo(t *testing.T) {
 		"unknown subcommand":               {[]string{"doctr"}, `unexpected argument "doctr"`},
 		"bool flag value as own token":     {[]string{"-print-config", "false"}, `unexpected argument "false"`},
 		"version flag before subcommand":   {[]string{"-v", "doctor"}, "flag -v before subcommand doctor: -v prints the version and does not combine with a subcommand; run `ember -v` and `ember doctor` separately"},
+		"version spelling not a flag":      {[]string{"-version", "doctor"}, "-version is not a doctor flag; see `ember doctor -h`"},
 		"valued doctor flag before doctor": {[]string{"-server-url", "http://127.0.0.1:1", "doctor"}, "flag -server-url before subcommand doctor: put doctor flags after it (`ember doctor -server-url http://127.0.0.1:1`)"},
 	} {
 		t.Run(name, func(t *testing.T) {

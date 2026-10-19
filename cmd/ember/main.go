@@ -275,14 +275,14 @@ func scanSubcommand(args []string) (sub string, rest []string, ok bool, err erro
 	for i := 0; i < len(args); i++ {
 		tok := args[i]
 		if tok == "-v" || tok == "--version" {
-			if stray != nil {
-				return "", nil, false, strayFlagError(stray, tok)
-			}
 			if versionTok == "" {
 				versionTok = tok
 				versionRest = append(slices.Clone(global), args[i+1:]...)
 			}
 			continue
+		}
+		if tok == "version" && versionTok != "" {
+			return versionResult()
 		}
 		if known[tok] {
 			if versionTok != "" {
@@ -338,7 +338,7 @@ func strayFlagError(stray []string, sub string) error {
 	prefix := fmt.Sprintf("flag %s before subcommand %s", flagTok, sub)
 	name, _, _ := strings.Cut(strings.TrimLeft(flagTok, "-"), "=")
 	switch {
-	case name == "v" || name == "version":
+	case flagTok == "-v" || flagTok == "--version":
 		return fmt.Errorf("%s: %s prints the version and does not combine with a subcommand; run `ember %s` and `ember %s` separately", prefix, flagTok, flagTok, sub)
 	case name == "print-config":
 		return fmt.Errorf("%s: -print-config is a server flag and does not combine with a subcommand; run `ember -print-config` and `ember %s` separately", prefix, sub)
