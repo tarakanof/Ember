@@ -3439,22 +3439,37 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   preview is up; burn-in dimming and drift are not drawn; text folds with the firmware's own tables, `KnobTextFold`, tested against np.c; failed picture fetches retry with a 5-60 s back-off; Knob > Now Playing is its own app page from firmware 0.9.0; `GET /v1/nowplaying/state` sends `X-Ember-Now` for clock skew).
   The weather preview draws the face the knob shows (#611):
   `KnobShownFeed` polls `GET /v1/devices` every 2 s while a preview with
-  the weather page is up (the page's own pane, or the Pages overview with
-  weather on) and publishes only a change, so an unchanged poll redraws
-  nothing. The newest `shown.at` across knobs wins; on `weather` its face
-  is drawn, another page keeps the last reported weather face, and with no
-  fresh report (old firmware, a stale knob, a list unread for over 50 s)
-  `KnobWeatherAuto` mirrors `wx_temp_from_shown`: Rain now while wet or
-  stormy, else Rain forecast when a spell starts within `WX_CAST_SOON_S`
-  (1 h; `WX_CAST_KEEP_S`, 1.5 h, while it is on screen), else Wind from
-  `WX_WIND_AUTO_KMH` (39 km/h; down to 34 while shown), else Air above
-  `WX_AIR_POOR` (60, minus the 5 hysteresis while shown), else
-  Temperature. `KnobWeatherMemo` keeps what it drew, so AUTO and each
-  face's own hysteresis (rain intensity, cast, windsock level, wilted
-  flower, cloud band) behave as on the knob. The lit dot is the drawn
-  face's index in `wx_face_id_t`. Every face, Temperature included, goes
-  grey like `wx_look_from_obs`: weather off, `current.stale`, or
-  `generated_at` more than 1800 s old (strictly, `WX_MAX_AGE_S`). `BotBehavior.Tuning`
+  the weather page is visible (the page's own pane, or the Pages overview
+  with weather on; `WindowVisibilityReader` and `controlActiveState`, so
+  not while the window is minimised or covered or the app is hidden or
+  inactive), resumes at once when it shows again, backs off 4, 8, 16,
+  30 s on failed polls and resets on a good one. It publishes only a
+  change, so an unchanged poll redraws nothing, and hands each list to
+  `KnobModel.adopt(devices:)`, so `KnobDetail` skips its own 15 s reload
+  while it runs. It starts from `env.knob.devices`, so the first frame
+  already shows the reported face. `KnobShownFollow` follows the knob
+  whose `page`/`face` changed last (the `at` of the poll that brought
+  the change; every poll moves `at`), keeping the current knob on a tie;
+  on `weather` its face is drawn, another page keeps the last reported
+  weather face, and with no fresh report (old firmware, a stale knob) or
+  no good list for over 50 s `KnobWeatherAuto` mirrors
+  `wx_temp_from_shown`: Rain now while wet or stormy, else Rain forecast
+  when a spell starts within `WX_CAST_SOON_S` (1 h; `WX_CAST_KEEP_S`,
+  1.5 h, while it is on screen), else Wind from `WX_WIND_AUTO_KMH`
+  (39 km/h; down to 34 while shown), else Air above `WX_AIR_POOR` (60,
+  minus the 5 hysteresis while shown), else Temperature.
+  `KnobWeatherMemo` (a value) holds what was drawn: AUTO's keep, each
+  face's own hysteresis while it stays drawn (rain intensity, cast,
+  windsock level, wilted flower), and the Temperature cloud band, which,
+  as in `wx_temp_from_shown`, moves with every observation whatever face
+  is drawn. The section computes the face once with `peek` (no state
+  change in `body`), so face and caption come from the same pick, and
+  commits the memo in `onChange`; it redraws every 60 s and on new data.
+  The memo starts empty each time the weather preview opens, as the knob
+  does on page open. The lit dot is the drawn face's index in
+  `wx_face_id_t`. Every face, Temperature included, goes grey like
+  `wx_look_from_obs`: weather off, `current.stale`, or `generated_at`
+  more than 1800 s old (strictly, `WX_MAX_AGE_S`). `BotBehavior.Tuning`
   carries the knob's slower, flatter hop, its swap-blink hide rule and its
   error shake, huff and gaze split (`bot.error`). `knob-theme.json`
   (`macos/Sources/EmberKit/Resources/`) holds the numbers the renderers

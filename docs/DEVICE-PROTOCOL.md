@@ -429,12 +429,16 @@ is absent when nothing fresh is known, and as soon as the knob's current
 caps no longer list `shown` (a checkin without the token, without caps or
 with dropped caps). There is no owner-side change long-poll, so a `shown`
 change wakes nothing. Ember.app polls the device list every 2 s while a
-knob preview with the weather page is on screen, and not otherwise
-(#611): the newest `at` across knobs wins; on `weather` the preview draws
-the reported face and lights its dot; on another page it keeps the last
-reported weather face; with no fresh `shown` (old firmware, a stale
-knob, or a list it couldn't read for over 50 s) it mirrors the knob's
-AUTO rule from `/v1/weather/state` (ARCHITECTURE "Knob page previews").
+knob preview with the weather page is visible (window on screen, app
+active), backing off to 30 s while polls fail, and not otherwise (#611).
+`at` moves on every poll, so with several knobs the app follows the one
+whose `page`/`face` changed most recently as it saw them, keeping the
+current one on a tie. On `weather` the preview draws the reported face
+and lights its dot; on another page it keeps the last reported weather
+face; a good list without `shown` (old firmware, a stale knob) means it
+mirrors the knob's AUTO rule from `/v1/weather/state` at once, and a
+failed poll keeps the last answer for 50 s after the last good one
+(ARCHITECTURE "Knob page previews").
 
 ## Usage
 
