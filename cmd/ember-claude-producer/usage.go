@@ -25,6 +25,8 @@ const defaultClaudeVersion = "2.1.0"
 
 const usageClientTimeout = 30 * time.Second
 
+var usageFetchFailing bool
+
 var errNoClaudeCreds = errors.New("no Claude credentials")
 
 var usageHTTPClient = &http.Client{Timeout: usageClientTimeout}
@@ -146,9 +148,17 @@ func pollUsage(ctx context.Context, client *Client, fetch func(context.Context) 
 	acct := claudeAccounts.current()
 	u, code, err := fetch(ctx)
 	if err != nil || code != http.StatusOK {
-		tickFailLog.Warn(slog.Default(), "claude_usage_fetch", "usage fetch failed", "status", code, "err", err)
+		if !usageFetchFailing {
+			if err != nil {
+				slog.Warn("usage fetch failed", "kind", "claude_usage_fetch", "err", err)
+			} else {
+				slog.Warn("usage fetch failed", "kind", "claude_usage_fetch", "status", code)
+			}
+		}
+		usageFetchFailing = true
 		return
 	}
+	usageFetchFailing = false
 	if claudeAccounts.current() != acct {
 		return
 	}

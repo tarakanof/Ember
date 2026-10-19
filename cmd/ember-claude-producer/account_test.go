@@ -882,24 +882,42 @@ func captureSlog(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-func TestPollUsageLogsFetchFailuresOncePerStreak(t *testing.T) {
-	tickFailLog = producer.NewFailureLogger(time.Minute)
+func TestPollUsageLogsOnlyTheStartOfAFailureStreak(t *testing.T) {
+	usageFetchFailing = false
+	t.Cleanup(func() { usageFetchFailing = false })
 	resetClaudeAccountCache(t)
+	usageModels.reset()
+	t.Cleanup(usageModels.reset)
 	h := newUsageRelayHarness(t)
 	writeClaudeJSON(t, h.home, fakeClaudeJSON)
 	cfg, _ := loadConfig()
 	client := NewDaemonClient(cfg)
 	buf := captureSlog(t)
-	fail := func(context.Context) (usageResponse, int, error) {
+	failTooLarge := func(context.Context) (usageResponse, int, error) {
 		return usageResponse{}, http.StatusOK, errUsageTooLarge
 	}
-	pollUsage(context.Background(), client, fail)
-	pollUsage(context.Background(), client, fail)
-	if n := strings.Count(buf.String(), "kind=claude_usage_fetch"); n != 1 {
-		t.Fatalf("fetch failure logged %d times, want 1: %s", n, buf.String())
+	failStatus := func(context.Context) (usageResponse, int, error) {
+		return usageResponse{}, http.StatusUnauthorized, nil
 	}
-	if !strings.Contains(buf.String(), errUsageTooLarge.Error()) {
-		t.Errorf("log lacks the error: %s", buf.String())
+	ok := func(context.Context) (usageResponse, int, error) {
+		return usageResponse{FiveHour: usageWindow{Utilization: 5}}, http.StatusOK, nil
+	}
+	count := func() int { return strings.Count(buf.String(), "kind=claude_usage_fetch") }
+	pollUsage(context.Background(), client, failTooLarge)
+	pollUsage(context.Background(), client, failStatus)
+	if count() != 1 {
+		t.Fatalf("logged %d lines across one streak, want 1: %s", count(), buf.String())
+	}
+	if !strings.Contains(buf.String(), errUsageTooLarge.Error()) || strings.Contains(buf.String(), "status=") {
+		t.Errorf("want only the err field for a transport failure: %s", buf.String())
+	}
+	pollUsage(context.Background(), client, ok)
+	pollUsage(context.Background(), client, failStatus)
+	if count() != 2 {
+		t.Fatalf("logged %d lines after a success and a new failure, want 2: %s", count(), buf.String())
+	}
+	if !strings.Contains(buf.String(), "status=401") || strings.Contains(buf.String(), "err=<nil>") {
+		t.Errorf("want only the status field for a non-200 reply: %s", buf.String())
 	}
 }
 
