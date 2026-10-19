@@ -3431,13 +3431,30 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   the gauges' colour ramps, the cast dial's hour cells, end labels, the
   lit face dot, and the heroes (umbrella and drops, cast clouds, windsock,
   day rows, rising sun, flower) as simplified static vectors, no arrival or
-  ambient motion; built and tested
-  but not yet chosen by the preview, #611 wires them), and `nowplaying_view.c`
+  ambient motion), and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three
   pictures from `/v1/nowplaying/art` once per `art_version`, only while a
-  preview is up; burn-in dimming and drift are not drawn; text folds with the firmware's own tables, `KnobTextFold`, tested against np.c; failed picture fetches retry with a 5-60 s back-off; Knob > Now Playing is its own app page from firmware 0.9.0; `GET /v1/nowplaying/state` sends `X-Ember-Now` for clock skew); `BotBehavior.Tuning`
+  preview is up; burn-in dimming and drift are not drawn; text folds with the firmware's own tables, `KnobTextFold`, tested against np.c; failed picture fetches retry with a 5-60 s back-off; Knob > Now Playing is its own app page from firmware 0.9.0; `GET /v1/nowplaying/state` sends `X-Ember-Now` for clock skew).
+  The weather preview draws the face the knob shows (#611):
+  `KnobShownFeed` polls `GET /v1/devices` every 2 s while a preview with
+  the weather page is up (the page's own pane, or the Pages overview with
+  weather on) and publishes only a change, so an unchanged poll redraws
+  nothing. The newest `shown.at` across knobs wins; on `weather` its face
+  is drawn, another page keeps the last reported weather face, and with no
+  fresh report (old firmware, a stale knob, a list unread for over 50 s)
+  `KnobWeatherAuto` mirrors `wx_temp_from_shown`: Rain now while wet or
+  stormy, else Rain forecast when a spell starts within `WX_CAST_SOON_S`
+  (1 h; `WX_CAST_KEEP_S`, 1.5 h, while it is on screen), else Wind from
+  `WX_WIND_AUTO_KMH` (39 km/h; down to 34 while shown), else Air above
+  `WX_AIR_POOR` (60, minus the 5 hysteresis while shown), else
+  Temperature. `KnobWeatherMemo` keeps what it drew, so AUTO and each
+  face's own hysteresis (rain intensity, cast, windsock level, wilted
+  flower, cloud band) behave as on the knob. The lit dot is the drawn
+  face's index in `wx_face_id_t`. Every face, Temperature included, goes
+  grey like `wx_look_from_obs`: weather off, `current.stale`, or
+  `generated_at` more than 1800 s old (strictly, `WX_MAX_AGE_S`). `BotBehavior.Tuning`
   carries the knob's slower, flatter hop, its swap-blink hide rule and its
   error shake, huff and gaze split (`bot.error`). `knob-theme.json`
   (`macos/Sources/EmberKit/Resources/`) holds the numbers the renderers

@@ -428,9 +428,13 @@ carries, on a knob with a fresh value:
 is absent when nothing fresh is known, and as soon as the knob's current
 caps no longer list `shown` (a checkin without the token, without caps or
 with dropped caps). There is no owner-side change long-poll, so a `shown`
-change wakes nothing. Ember.app doesn't read `shown` yet; the plan (#611)
-is to poll the device list every 2 s while a knob preview is on screen,
-and not otherwise.
+change wakes nothing. Ember.app polls the device list every 2 s while a
+knob preview with the weather page is on screen, and not otherwise
+(#611): the newest `at` across knobs wins; on `weather` the preview draws
+the reported face and lights its dot; on another page it keeps the last
+reported weather face; with no fresh `shown` (old firmware, a stale
+knob, or a list it couldn't read for over 50 s) it mirrors the knob's
+AUTO rule from `/v1/weather/state` (ARCHITECTURE "Knob page previews").
 
 ## Usage
 
