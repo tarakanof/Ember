@@ -124,8 +124,13 @@ merge by id, an unknown id 400; the knob's `usage` block follows it —
 DEVICE-PROTOCOL "Usage"),
 `POST /v1/nowplaying` (a
 source's player report; a playing or paused report with no title and no
-`track_id` counts as stopped and drops the entry), `GET /v1/nowplaying/commands?player=&wait=` (Ember.app's
-long-poll for Music commands; master token only, every client token 403) and `PUT /v1/nowplaying/art?source=&player=&kind=album|artist&track_id=`
+`track_id` counts as stopped and drops the entry), `GET /v1/nowplaying/commands?player=&wait=&watched=` (Ember.app's
+long-poll for Music commands; master token only, every client token 403;
+the answer's `watched`, always present, says whether a knob shows now
+playing or an old knob that can't say polled in the last 50 s, false with
+no knob paired, and a poll that names the value it knows wakes when it
+changes —
+ARCHITECTURE "Now playing" › Music) and `PUT /v1/nowplaying/art?source=&player=&kind=album|artist&track_id=`
 (raw JPEG/PNG ≤2 MB; 409 once the track moved on — ARCHITECTURE "Now playing"), `GET/PUT /v1/display/config`,
 `GET/PUT /v1/weather/config` (`provider` `open-meteo`, `met-no`,
 `tomorrow-io` or `weatherapi`, and under Open-Meteo

@@ -1259,12 +1259,26 @@ on-disk `URLCache`, which, with no cache headers from the server, only rewrote
   distributed notification only while it is on (a knob skip re-reads
   briefly, see "Now playing" › Music). Music posts no `playerInfo` for a
   seek or a restart of the same track (cinder#230), so while the last
-  report is playing (and Automation is granted, checked once per watch) the
-  pusher reads `player position` every 2 s (`AppleMusicPusher.seekPoll`,
+  report is playing, something watches (the commands long-poll's
+  `watched`, #575, see "Now playing" › Music, or this app's own knob
+  now-playing preview) and Automation is granted (checked once
+  per watch), the pusher reads `player position` every 2 s (`AppleMusicPusher.seekPoll`,
   a `core/getd` of `pPos` sent to Music's PID with a 1 s timeout, so it
   can't relaunch a quitting Music). When the read is more than 3 s off the
   report's position extrapolated to now (the server's seek tolerance), it
   pushes a fresh snapshot, unless a newer notification arrived meanwhile.
+  The preview needs no round trip: the Knob settings' now-playing feed
+  task (`KnobPreviewFeeds`, overview thumbnail or the page) calls
+  `AppleMusicPusher.holdPreview()` while it runs and `releasePreview()`
+  when SwiftUI cancels it; holds are counted, so the overview and the
+  page together keep one watch. The pusher watches while `watched` or a
+  hold is on. Both ending stops the watch; either starting it from off
+  starts it with one
+  read at once (miss count reset; a hold while already watching changes
+  nothing, backoff included), so a seek made while nothing looked
+  shows within a round trip. That read waits for an in-flight report or
+  artwork upload to finish rather than being dropped. The pusher starts out watched and treats an
+  answer without the key (an older server) as watched.
   The anchor moves on every report attempt, so a failed POST isn't retried
   each poll. A paused or stopped report (delivered or not), a read that
   finds Music gone (reported as stopped) or turning the toggle off ends
@@ -2338,7 +2352,30 @@ Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
     volume steps, dropped after 5 s so a late "next" never fires) that
     Ember.app long-polls with `GET /v1/nowplaying/commands?player=&wait=≤25`
     (request budget `.clockLong`, 35 s to the first byte, above that wait; master token only, every client token 403; delivery at most once; each command carries `age_ms`,
-    its wait here, and the app drops one older than 5 s in all). A Mac
+    its wait here, and the app drops one older than 5 s in all). Every
+    answer carries `watched` (always present, #575): true while a knob
+    whose current caps list `shown` reported `nowplaying` in the last 50 s
+    (DEVICE-PROTOCOL "Shown page"), and true while a knob without `shown`
+    made a view request in the last 50 s, since an old knob can't say what
+    it shows and the seek watch kept running for it before; false
+    otherwise. A dead or spare old knob stops counting once it goes quiet
+    (view-request times live in memory, so after a restart an old knob
+    counts from its next poll, ≤25 s). No knob paired means false: nothing
+    else in the server or the app reads the Music position (the clock
+    draws no now playing; the app's knob preview needs a paired knob and
+    holds the seek watch itself, see "Apple Music pusher"), so
+    only the unauthenticated `GET /v1/nowplaying/state` would see a seek
+    late. The app sends
+    the value it knows as `?watched=`; a waiting poll then also answers
+    once the value differs. The wait subscribes to the `shown` store's
+    wake channel before reading (no lost wake-up); a change of reported
+    page, a report after a stale one, an old knob's view request after
+    50 s of silence and every device-registry change (caps, delete, mint)
+    close it, and a stopped-on-wake timer set 1 ms past the latest 50 s
+    mark among whatever keeps it true covers staleness, re-armed when a
+    heartbeat moved that mark. A wake
+    only re-reads, so a spurious one costs a registry scan. Without
+    `?watched=` the poll waits for commands only. A Mac
     counts as listening while a poll waits and 30 s after one; otherwise
     the control answers 503. The app sends Apple Events to the running
     Music's **PID** (an event to a process that just quit fails; nothing

@@ -172,6 +172,7 @@ private let cinder = Testing.ConditionTrait.enabled(if: cinderDir != nil, "no ci
         #expect(drops == .list(s.drops.map { nums([$0.x, $0.y, $0.len, $0.op, $0.slant, Double($0.tile), Double($0.level)]) }), "\(v[4].word)")
     }
     #expect(try define("include/wx_rain.h", "WX_SHEET_H") == Double(KnobRainFace.sheetH))
+    try code("include/wx_rain.h", #"#define WX_SHEET_PERIOD \(2 \* WX_SHEET_H\)\n"#)
     #expect(try define("include/wx_paint.h", "WX_RAMP") == KnobRainFace.ramp)
     try code("wx_rain.c", #"static int offset\(int frames, int a\) \{ return \(int\)lround\(\(double\)WX_SHEET_PERIOD \* a / frames\) % WX_SHEET_PERIOD; \}"#)
     try code("wx_rain.c", #"int f = 2 \* SHEETS\[s\]\.tile_frames;\s*return r && r->kind == WX_PRECIP_SNOW \? 2 \* f : f;"#)
@@ -181,7 +182,10 @@ private let cinder = Testing.ConditionTrait.enabled(if: cinderDir != nil, "no ci
 
 @Test(cinder) func noDripSplashOrBoltShowsAtFrameZero() throws {
     try code("wx_rain.c", #"float u = \(x - 233\.0f\) / 128\.0f;\s*float k = 1 - u \* u;\s*return 198\.0f - 103\.0f \* sqrtf\(k > 0 \? k : 0\);"#)
-    try code("wx_rain.c", #"const wx_drop_t \*d = &TOP\[SPLASH_DROP\[n\]\];"#)
+    let splashSheet = 2
+    try code("wx_rain.c", #"const wx_drop_t \*d = &TOP\[SPLASH_DROP\[n\]\];\s*"#
+        + #"\*at = \(wx_splash_at_t\)\{\(int\)d->x - 8, \(int\)lroundf\(wx_canopy_y\(d->x\) - 3\) - 9, "#
+        + "\(splashSheet), " + #"SPLASH_DROP\[n\]\};"#)
     try code("wx_rain.c", #"float ty = d->y \+ \(d->tile \? WX_SHEET_H : 0\);\s*"#
         + #"float t = fmodf\(wx_canopy_y\(d->x\) - 2 - \(float\)s->box\.y0 - ty - d->len, \(float\)WX_SHEET_PERIOD\);\s*"#
         + #"if \(t < 0\) t \+= WX_SHEET_PERIOD;\s*int frames = 2 \* s->tile_frames;\s*"#
@@ -190,7 +194,7 @@ private let cinder = Testing.ConditionTrait.enabled(if: cinderDir != nil, "no ci
         + #"int j = \(\(a - wx_splash_hit\(n\)\) % frames \+ frames\) % frames;\s*if \(j >= 3\) continue;"#)
     try code("wx_rain.c", #"int j = k % DRIP\[i\]\.period - DRIP\[i\]\.start;\s*if \(snow \|\| j < 0 \|\| j >= 7\) continue;"#)
     try code("wx_rain.c", #"for \(int i = 0; i < 6; i\+\+\) f->bolt \|= k % WX_STORM_FRAMES == FLASH\[i\];"#)
-    let top = KnobRainFace.sheets[2], period = Float(2 * KnobRainFace.sheetH), frames = 2 * top.tileFrames
+    let top = KnobRainFace.sheets[splashSheet], period = Float(2 * KnobRainFace.sheetH), frames = 2 * top.tileFrames
     func offset(_ a: Int) -> Int { Int((Double(period) * Double(a) / Double(frames)).rounded()) % Int(period) }
     for n in try table("wx_rain.c", "static const int SPLASH_DROP[WX_SPLASHES]").items {
         guard case .num(let idx) = n, Int(idx) < top.drops.count else { Issue.record("splash drop \(n)"); continue }

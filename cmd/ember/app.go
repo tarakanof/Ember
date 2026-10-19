@@ -70,6 +70,8 @@ type App struct {
 	demos         demoRegistry
 	viewRecheck   time.Duration
 	viewClock     func() time.Time
+	watchedAfter  func(time.Duration) (<-chan time.Time, func())
+	watchedRead   func()
 	knobStats     *knobStatsStore
 	wifiDrops     checkinDropLog
 	diagDrops     checkinDropLog
@@ -177,7 +179,10 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		}
 		return a.store
 	})
-	a.devices.onChange = func() { a.changes.notify(topicDevices) }
+	a.devices.onChange = func() {
+		a.changes.notify(topicDevices)
+		a.knobShown.bump()
+	}
 	a.clients = newClientRegistry(a.devices.kv)
 	a.usageSeen = newUsageAccountRegistry(a.devices.kv)
 	a.knobStats = newKnobStatsStore()

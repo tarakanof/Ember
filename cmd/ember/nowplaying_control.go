@@ -339,7 +339,9 @@ func dropStale(cmds []queuedCommand, now time.Time) []queuedCommand {
 
 var errTooManyWaiters = errors.New("too many waiting command polls")
 
-func (q *commandQueue) take(ctx context.Context, player string, wait time.Duration) ([]queuedCommand, error) {
+type takeUntil func() (wake <-chan struct{}, recheck <-chan time.Time, stop func(), done bool)
+
+func (q *commandQueue) take(ctx context.Context, player string, wait time.Duration, until takeUntil) ([]queuedCommand, error) {
 	q.mu.Lock()
 	if wait > 0 && q.waiters >= commandWaitersMax {
 		q.mu.Unlock()
@@ -378,18 +380,33 @@ func (q *commandQueue) take(ctx context.Context, player string, wait time.Durati
 			}
 			return cmds, nil
 		}
+		var other <-chan struct{}
+		var recheck <-chan time.Time
+		stop := func() {}
+		if until != nil {
+			var done bool
+			if other, recheck, stop, done = until(); done {
+				return nil, nil
+			}
+		}
 		select {
 		case <-ctx.Done():
+			stop()
 			return nil, nil
 		case <-timer.C:
+			stop()
 			return nil, nil
 		case <-wake:
+		case <-other:
+		case <-recheck:
 		}
+		stop()
 	}
 }
 
 type commandsAnswer struct {
 	Commands []queuedCommand `json:"commands"`
+	Watched  bool            `json:"watched"`
 }
 
 func (a *App) handleNowPlayingCommands(w http.ResponseWriter, r *http.Request) {
@@ -410,13 +427,18 @@ func (a *App) handleNowPlayingCommands(w http.ResponseWriter, r *http.Request) {
 	if wait > commandsWaitMax {
 		wait = commandsWaitMax
 	}
+	until, err := a.musicWatchedUntil(q)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	if wait > 0 {
 		rc := http.NewResponseController(w)
 		dl := time.Now().Add(wait + knobViewWriteSlack)
 		_ = rc.SetWriteDeadline(dl)
 		_ = rc.SetReadDeadline(dl)
 	}
-	cmds, err := a.nowPlaying.commands.take(r.Context(), player, wait)
+	cmds, err := a.nowPlaying.commands.take(r.Context(), player, wait, until)
 	if err != nil {
 		w.Header().Set("Retry-After", "5")
 		writeError(w, http.StatusTooManyRequests, err)
@@ -426,5 +448,6 @@ func (a *App) handleNowPlayingCommands(w http.ResponseWriter, r *http.Request) {
 		cmds = []queuedCommand{}
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, commandsAnswer{Commands: cmds})
+	watched, _ := a.musicWatched(a.viewNow())
+	writeJSON(w, http.StatusOK, commandsAnswer{Commands: cmds, Watched: watched})
 }

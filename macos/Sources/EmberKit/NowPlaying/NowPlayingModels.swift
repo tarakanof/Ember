@@ -141,11 +141,18 @@ public struct NowPlayingCommand: Decodable, Equatable, Sendable {
 
 public struct NowPlayingCommands: Decodable, Equatable, Sendable {
     public let commands: [NowPlayingCommand]
+    public let watched: Bool?
 
-    enum CodingKeys: String, CodingKey { case commands }
+    public init(commands: [NowPlayingCommand], watched: Bool? = nil) {
+        self.commands = commands
+        self.watched = watched
+    }
+
+    enum CodingKeys: String, CodingKey { case commands, watched }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         commands = try c.decodeIfPresent([NowPlayingCommand].self, forKey: .commands) ?? []
+        watched = try c.decodeIfPresent(Bool.self, forKey: .watched)
     }
 }

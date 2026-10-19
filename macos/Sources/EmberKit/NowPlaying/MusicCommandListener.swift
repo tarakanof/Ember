@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 
 public protocol NowPlayingCommandSource: Sendable {
-    func commands(player: String, wait: Int) async throws -> [NowPlayingCommand]
+    func commands(player: String, wait: Int, watched: Bool) async throws -> NowPlayingCommands
 }
 
 @MainActor
@@ -56,8 +56,10 @@ public final class MusicCommandListener {
         while !Task.isCancelled {
             let began = clock.now
             do {
-                let commands = try await source.commands(player: player, wait: Self.wait)
+                let answer = try await source.commands(player: player, wait: Self.wait, watched: pusher.watched)
                 let received = clock.now
+                let commands = answer.commands
+                pusher.setWatched(answer.watched ?? true)
                 backoff = Self.firstBackoff
                 if let at = recoverAt, clock.now >= at {
                     let error = await pusher.pushSnapshot()

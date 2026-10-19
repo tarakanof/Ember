@@ -201,7 +201,6 @@ private let pinned: [String: String] = [
     "weather.rain.colors": "[#4F81B7,#5C9CE0,#3D7BF5]",
     "weather.rain.ring_from": "#2E3A48",
     "weather.rain.snow_color": "#D0DCE8",
-    "weather.rain.bolt_color": "#F0D040",
     "weather.rain.umbrella_color": "#FF8A3D",
     "weather.rain.end_color": "#8A8A8A",
     "weather.cast.color": "#5C9CE0",
@@ -236,7 +235,6 @@ private let pinned: [String: String] = [
     "weather.days.gap_px": "10",
     "weather.days.pop_dy_px": "22",
     "weather.days.lo_opacity": "204",
-    "weather.days.sub_y_px": "372",
     "weather.days.ring_width_px": "6",
     "weather.days.track_color": "#262626",
     "weather.days.name_color": "#BDBDBD",
@@ -699,7 +697,6 @@ private func weatherFaceChecks() -> [Check] {
                 + hex + " : " + hex + #"; \}"#, keys: [("weather.rain.colors", arr(1, 2, 3))]),
         one(wp, #"lerp_rgb\("# + hex + #", to, \(float\)i / RING_STEPS\)"#, "weather.rain.ring_from"),
         one(tf, #"#define SNOW_RGB "# + hex, "weather.rain.snow_color"),
-        one(tf, #"#define BOLT_RGB "# + hex, "weather.rain.bolt_color"),
         one(wp, #"const uint16_t orange = wx_rgb565\("# + hex + #"\);"#, "weather.rain.umbrella_color"),
         one(tf, #"#define LABEL_GREY_RGB "# + hex, "weather.rain.end_color"),
         Check(file: tf, pattern: #"pct_label\(s_lo, s_lo_txt, sizeof s_lo_txt, t->rain\.has_pop, 0, LABEL_GREY_RGB\);\s*"#
@@ -802,7 +799,7 @@ private func weatherFaceChecks() -> [Check] {
     ]
     for (key, def) in [("row_y_px", "ROW_Y"), ("pitch_px", "PITCH"), ("day_w_px", "DAY_W"), ("icon_px", "ICON"), ("temp_w_px", "TEMP_W"),
                        ("bar_w_px", "BAR_W"), ("bar_h_px", "BAR_H"), ("gap_px", "GAP"), ("pop_dy_px", "POP_DY"),
-                       ("lo_opacity", "LO_OPA"), ("sub_y_px", "SUB_Y")] {
+                       ("lo_opacity", "LO_OPA")] {
         c.append(one(wdh, "#define WX_DAYS_\(def) (\\d+)", "weather.days.\(key)"))
     }
     for (key, def) in [("track_color", "TRACK_RGB"), ("name_color", "NAME_RGB"), ("pop_color", "POP_RGB")] {

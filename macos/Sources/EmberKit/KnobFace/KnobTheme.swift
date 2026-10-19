@@ -162,7 +162,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         }
         public struct Rain: Decodable, Sendable, Equatable {
             public var colors: [RGB]
-            public var ringFrom, snowColor, boltColor, umbrellaColor, endColor: RGB
+            public var ringFrom, snowColor, umbrellaColor, endColor: RGB
         }
         public struct Cast: Decodable, Sendable, Equatable {
             public var color, dryColor, cellColor: RGB
@@ -181,7 +181,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public struct Days: Decodable, Sendable, Equatable {
             public var rowYPx, pitchPx, dayWPx, iconPx, tempWPx, barWPx, barHPx, gapPx, popDyPx: Int
             public var loOpacity: Int
-            public var subYPx, ringWidthPx: Double
+            public var ringWidthPx: Double
             public var trackColor, nameColor, popColor: RGB
             public var nameFontPx, popFontPx: Double
         }

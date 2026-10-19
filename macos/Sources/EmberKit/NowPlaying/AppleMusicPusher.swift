@@ -44,11 +44,11 @@ public struct NowPlayingClient: NowPlayingSink {
 }
 
 extension NowPlayingClient: NowPlayingCommandSource {
-    public func commands(player: String, wait: Int) async throws -> [NowPlayingCommand] {
-        let answer: NowPlayingCommands = try await client.get("/v1/nowplaying/commands", query: [
+    public func commands(player: String, wait: Int, watched: Bool) async throws -> NowPlayingCommands {
+        try await client.get("/v1/nowplaying/commands", query: [
             URLQueryItem(name: "player", value: player), URLQueryItem(name: "wait", value: String(wait)),
+            URLQueryItem(name: "watched", value: watched ? "true" : "false"),
         ], budget: .clockLong)
-        return answer.commands
     }
 }
 
@@ -76,6 +76,7 @@ public final class AppleMusicPusher {
 
     public private(set) var lastError: String?
     public private(set) var lastSent: NowPlayingReport?
+    public private(set) var watched = true
 
     @ObservationIgnored private let bridge: MusicBridge
     @ObservationIgnored private var sink: NowPlayingSink
@@ -85,6 +86,7 @@ public final class AppleMusicPusher {
     @ObservationIgnored private var reportError: Error?
     @ObservationIgnored private(set) var anchor: Anchor?
     @ObservationIgnored private var seekWatch: Task<Void, Never>?
+    @ObservationIgnored private var previewHolds = 0
     @ObservationIgnored private var seekMisses = 0
     @ObservationIgnored private var seekSkips = 0
     @ObservationIgnored private var submits = 0
@@ -166,6 +168,35 @@ public final class AppleMusicPusher {
         }
     }
 
+    public func setWatched(_ on: Bool) {
+        let was = watching
+        watched = on
+        watchingChanged(from: was)
+    }
+
+    public func holdPreview() {
+        let was = watching
+        previewHolds += 1
+        watchingChanged(from: was)
+    }
+
+    public func releasePreview() {
+        guard previewHolds > 0 else { return }
+        let was = watching
+        previewHolds -= 1
+        watchingChanged(from: was)
+    }
+
+    var watching: Bool { watched || previewHolds > 0 }
+
+    private func watchingChanged(from was: Bool) {
+        guard watching != was else { return }
+        guard watching else { return endSeekWatch() }
+        seekMisses = 0
+        seekSkips = 0
+        watchSeeks(readFirst: true)
+    }
+
     func checkSeek() async {
         let gen = submits
         guard worker == nil, let before = anchor else { return }
@@ -200,13 +231,21 @@ public final class AppleMusicPusher {
         !Task.isCancelled && worker == nil && submits == gen && anchor == before
     }
 
-    private func watchSeeks() {
-        guard let every = seekEvery, seekWatch == nil else { return }
+    private func watchSeeks(readFirst: Bool = false) {
+        guard watching, anchor != nil, let every = seekEvery, seekWatch == nil else { return }
         seekWatch = Task { [weak self, sleep, bridge] in
             if await bridge.canControl() {
+                var wait = !readFirst
                 while !Task.isCancelled {
-                    do { try await sleep(every) } catch { return }
+                    if wait {
+                        do { try await sleep(every) } catch { return }
+                    }
                     guard let self else { return }
+                    if !wait {
+                        await self.drain()
+                        guard !Task.isCancelled else { return }
+                    }
+                    wait = true
                     await self.checkSeek()
                 }
             }
