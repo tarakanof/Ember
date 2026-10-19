@@ -104,6 +104,7 @@ public final class KnobShownFeed {
     }
 
     private func poll() async -> Duration {
+        guard !Task.isCancelled else { return delay }
         await refresh()
         return delay
     }

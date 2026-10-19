@@ -336,6 +336,7 @@ private final class Devices: @unchecked Sendable {
     feed.setVisible(true)
     try await until(d.calls >= 3)
     feed.setVisible(false)
+    try await Task.sleep(for: .milliseconds(20))
     let stopped = d.calls
     try await Task.sleep(for: .milliseconds(60))
     #expect(d.calls == stopped, "minimised, covered or inactive: no poll")
