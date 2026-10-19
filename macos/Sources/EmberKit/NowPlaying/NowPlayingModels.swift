@@ -141,7 +141,6 @@ public struct NowPlayingCommand: Decodable, Equatable, Sendable {
 
 public struct NowPlayingCommands: Decodable, Equatable, Sendable {
     public let commands: [NowPlayingCommand]
-    /// nil from a server that predates the hint; treat it as watched.
     public let watched: Bool?
 
     public init(commands: [NowPlayingCommand], watched: Bool? = nil) {

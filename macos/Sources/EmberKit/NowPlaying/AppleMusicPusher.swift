@@ -219,8 +219,9 @@ public final class AppleMusicPusher {
                     if wait {
                         do { try await sleep(every) } catch { return }
                     }
-                    wait = true
                     guard let self else { return }
+                    if !wait { await self.drain() }
+                    wait = true
                     await self.checkSeek()
                 }
             }

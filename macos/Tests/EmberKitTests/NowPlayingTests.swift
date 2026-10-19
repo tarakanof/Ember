@@ -171,7 +171,13 @@ private actor FakeSink: NowPlayingSink {
         reports.append(r)
         return try JSONDecoder().decode(NowPlayingAck.self, from: Data(#"{"has_album_art":\#(hasArt),"has_artist_art":false}"#.utf8))
     }
+    var holdUploads = false
+    var heldUpload: CheckedContinuation<Void, Never>?
+    var uploadHeld: Bool { heldUpload != nil }
+    func set(holdUploads: Bool) { self.holdUploads = holdUploads }
+    func releaseUpload() { heldUpload?.resume(); heldUpload = nil }
     func putArtwork(_ data: Data, contentType: String, source: String, player: String, trackID: String) async throws {
+        if holdUploads { await withCheckedContinuation { heldUpload = $0 } }
         uploads.append(trackID)
         hasArt = true
     }
@@ -636,6 +642,23 @@ private struct SeekRig {
     await r.pusher.drain()
     #expect(await r.bridge.positionReads == reads + 1)
     #expect(await r.sink.reports.map(\.positionMs) == [42_000, 285_000])
+}
+
+@MainActor
+@Test func turnOnReadWaitsForAnInFlightArtworkUpload() async {
+    let r = await SeekRig.playing()
+    r.pusher.setWatched(false)
+    await waitUntil { r.ticks.waiting == 0 }
+    await r.bridge.setArt(jpeg(side: 32))
+    await r.sink.set(holdUploads: true)
+    r.pusher.submit(r.song)
+    await waitUntil { await r.sink.uploadHeld }
+    await r.seek(to: 285)
+    r.pusher.setWatched(true)
+    await r.sink.releaseUpload()
+    await waitUntil { await r.sink.reports.count == 3 }
+    await r.pusher.drain()
+    #expect(await r.sink.reports.map(\.positionMs) == [42_000, 42_000, 285_000])
 }
 
 @MainActor
