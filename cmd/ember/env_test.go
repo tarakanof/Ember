@@ -24,8 +24,9 @@ func TestMain(m *testing.M) {
 	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		sig := <-interrupts
-		goRuns.killAll()
-		fmt.Fprintf(os.Stderr, "%v: killed the go run process groups\n", sig)
+		signal.Stop(interrupts)
+		drained := goRuns.killAll(goRunDrainBound)
+		fmt.Fprintf(os.Stderr, "%v: killed the go run process groups (drained %v)\n", sig, drained)
 		os.Exit(1)
 	}()
 	code := m.Run()
