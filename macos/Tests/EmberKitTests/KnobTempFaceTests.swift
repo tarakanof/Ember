@@ -265,6 +265,13 @@ private func duskState(generated: String, night: String, cloud: String = "null")
     #expect(face(dawn, try #require(iso.date(from: "2026-09-26T06:02:00Z"))).sub == "Clear")
     #expect(face(dawn, try #require(iso.date(from: "2026-09-26T06:03:00Z"))).sub == "Sunglasses on",
             "the same bound at sunrise")
+    let overnight = try duskState(generated: "2026-09-26T23:00:00Z", night: "true", cloud: "0")
+    #expect(face(overnight, try #require(iso.date(from: "2026-09-27T06:05:00Z"))).sub == "Sunglasses on",
+            "the bound wraps midnight: sunrise sent as 06:00 ends the fetched night next morning")
+    let dayOld = try duskState(generated: "2026-09-25T17:00:00Z", night: "false")
+    #expect(face(dayOld, try #require(iso.date(from: "2026-09-26T18:10:00Z"))).sub == "Clear", "a fetch a day old uses the rounded times")
+    let future = try duskState(generated: "2026-09-26T19:00:00Z", night: "false")
+    #expect(face(future, try #require(iso.date(from: "2026-09-26T18:30:00Z"))).sub == "Clear", "a fetch from the future uses the rounded times")
     let crossed = try duskState(generated: "2026-09-26T17:30:00Z", night: "false")
     #expect(face(crossed, try #require(ISO8601DateFormatter().date(from: "2026-09-26T18:30:00Z"))).sub == "Clear",
             "a sun event since the fetch overrides its night")
