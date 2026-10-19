@@ -3306,11 +3306,38 @@ paths:
     get:
       tags: [nowplaying]
       operationId: getNowPlayingCommands
-      summary: Ember.app's long-poll for player commands (`?player=&wait=≤25`)
-      description: Master token only; every client token, `admin` included, gets 403.
+      summary: Ember.app's long-poll for player commands (`?player=&wait=≤25&watched=`)
+      description: |
+        Master token only; every client token, `admin` included, gets 403.
+        Answers `{commands, watched}`. `watched` is always present: true
+        while a knob with the `shown` caps feature reported `nowplaying` in
+        the last 50 s, and also true while any knob lacks that feature (it
+        can't report) or no knob is paired; false otherwise. With
+        `watched=`, the caller's last known value, a waiting poll also
+        answers as soon as the value differs from it; without it, only
+        commands or the wait's end answer (ARCHITECTURE "Now playing" ›
+        Music).
       x-internal: true
       x-master-only: true
       security: [{ownerToken: []}]
+      parameters:
+        - name: player
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 64
+        - name: wait
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 25
+        - name: watched
+          in: query
+          description: The caller's last known `watched`; anything but a boolean is a 400.
+          schema:
+            type: boolean
       responses:
         "200":
           $ref: "#/components/responses/Object"

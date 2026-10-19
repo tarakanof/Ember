@@ -401,6 +401,16 @@ func (r *deviceRegistry) lockedIfKnobHas(id, feature string, fn func()) bool {
 	return true
 }
 
+func (r *deviceRegistry) eachKnobCaps(fn func(id string, caps *deviceCaps)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.state.Devices {
+		if d := &r.state.Devices[i]; d.Kind == deviceKindKnob {
+			fn(d.ID, d.Caps)
+		}
+	}
+}
+
 func (r *deviceRegistry) config(id string) (knobSettings, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -70,7 +70,7 @@ func TestControlAcceptsKnobDeviceToken(t *testing.T) {
 		Title: "Song", TrackID: "T1"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	go func() { _, _ = app.nowPlaying.commands.take(context.Background(), "M4", 2*time.Second) }()
+	go func() { _, _ = app.nowPlaying.commands.take(context.Background(), "M4", 2*time.Second, nil) }()
 	waitPolling(t, app.nowPlaying.commands, "M4")
 	if code, _, b := control(t, srv, knob.Token, `{"action":"play_pause"}`, "k1"); code != http.StatusForbidden {
 		t.Fatalf("page off: %d %s", code, b)
@@ -187,19 +187,19 @@ func TestCommandQueueCoalescesVolumeAndDropsStale(t *testing.T) {
 	if err := q.push("M4", controlRequest{Action: actNext}); err != errNoController {
 		t.Fatalf("no poll yet: %v", err)
 	}
-	_, _ = q.take(context.Background(), "M4", 0)
+	_, _ = q.take(context.Background(), "M4", 0, nil)
 	for _, d := range []int{3, 3, -1} {
 		if err := q.push("M4", controlRequest{Action: actVolume, Delta: d}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	cmds, _ := q.take(context.Background(), "M4", 0)
+	cmds, _ := q.take(context.Background(), "M4", 0, nil)
 	if len(cmds) != 1 || cmds[0].Delta != 5 {
 		t.Fatalf("coalesced = %+v, want one volume +5", cmds)
 	}
 	_ = q.push("M4", controlRequest{Action: actPlayPause})
 	now = now.Add(commandTTL)
-	if cmds, _ := q.take(context.Background(), "M4", 0); len(cmds) != 0 {
+	if cmds, _ := q.take(context.Background(), "M4", 0, nil); len(cmds) != 0 {
 		t.Fatalf("stale command delivered: %+v", cmds)
 	}
 	now = now.Add(commandListenGrace + time.Second)
@@ -425,10 +425,10 @@ func TestCommandsCarryTheirAge(t *testing.T) {
 	q := newCommandQueue()
 	now := time.Now()
 	q.clock = func() time.Time { return now }
-	_, _ = q.take(context.Background(), "M4", 0)
+	_, _ = q.take(context.Background(), "M4", 0, nil)
 	_ = q.push("M4", controlRequest{Action: actNext})
 	now = now.Add(1200 * time.Millisecond)
-	cmds, _ := q.take(context.Background(), "M4", 0)
+	cmds, _ := q.take(context.Background(), "M4", 0, nil)
 	if len(cmds) != 1 || cmds[0].AgeMS != 1200 {
 		t.Fatalf("cmds = %+v", cmds)
 	}
@@ -446,7 +446,7 @@ func TestKnobBurstIsNotChargedPerIP(t *testing.T) {
 	knob := mintKnob(t, srv, http.StatusCreated)
 	devReq(t, srv, "PUT", "/v1/devices/"+knob.ID+"/config", testToken, `{"pages":[{"id":"nowplaying","on":true}]}`)
 	playMusic(t, app, "M4")
-	go func() { _, _ = app.nowPlaying.commands.take(context.Background(), "M4", 25*time.Second) }()
+	go func() { _, _ = app.nowPlaying.commands.take(context.Background(), "M4", 25*time.Second, nil) }()
 	waitPolling(t, app.nowPlaying.commands, "M4")
 	for i := range 100 {
 		now = now.Add(200 * time.Millisecond)

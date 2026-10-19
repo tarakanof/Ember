@@ -427,10 +427,13 @@ carries, on a knob with a fresh value:
 `face` is `null` for a page without one; `at` is whole seconds UTC. The key
 is absent when nothing fresh is known, and as soon as the knob's current
 caps no longer list `shown` (a checkin without the token, without caps or
-with dropped caps). There is no owner-side change long-poll, so a `shown`
-change wakes nothing. Ember.app doesn't read `shown` yet; the plan (#611)
-is to poll the device list every 2 s while a knob preview is on screen,
-and not otherwise.
+with dropped caps). There is no owner-side change long-poll for the device
+list. Ember.app doesn't read `shown` from it yet; the plan (#611) is to
+poll the device list every 2 s while a knob preview is on screen, and not
+otherwise. A report of `nowplaying` drives the `watched` hint of
+`GET /v1/nowplaying/commands` (#575, ARCHITECTURE "Now playing" › Music):
+a change of page, a report going stale, a caps change and a delete wake
+that long-poll.
 
 ## Usage
 

@@ -35,6 +35,7 @@ func parseKnobShown(raw string, at time.Time) (knobShown, bool) {
 type knobShownStore struct {
 	mu   sync.Mutex
 	byID map[string]knobShown
+	wake chan struct{}
 }
 
 func (s *knobShownStore) set(id string, v knobShown) {
@@ -43,7 +44,43 @@ func (s *knobShownStore) set(id string, v knobShown) {
 	if s.byID == nil {
 		s.byID = map[string]knobShown{}
 	}
+	prev, ok := s.byID[id]
 	s.byID[id] = v
+	if !ok || prev.Page != v.Page || v.At.Sub(prev.At) > knobShownFresh {
+		s.bumpLocked()
+	}
+}
+
+func (s *knobShownStore) changed() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.wake == nil {
+		s.wake = make(chan struct{})
+	}
+	return s.wake
+}
+
+func (s *knobShownStore) bump() {
+	s.mu.Lock()
+	s.bumpLocked()
+	s.mu.Unlock()
+}
+
+func (s *knobShownStore) bumpLocked() {
+	if s.wake != nil {
+		close(s.wake)
+		s.wake = nil
+	}
+}
+
+func (s *knobShownStore) freshUntil(id, page string, now time.Time) (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.byID[id]
+	if !ok || v.Page != page || now.Sub(v.At) > knobShownFresh {
+		return time.Time{}, false
+	}
+	return v.At.Add(knobShownFresh), true
 }
 
 func (s *knobShownStore) fresh(id string, now time.Time) *knobShown {
