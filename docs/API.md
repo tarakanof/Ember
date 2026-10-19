@@ -208,6 +208,8 @@ and `today_max_c` are today's forecast range widened to the current
 temperature, the knob Temperature face's gauge, `null` without a forecast
 day; `current.cloud_pct` and `current.uv` are the knob view's `now.cloud` and
 `now.uv` (same observation, whole numbers), `null` when the provider has none;
+`sun.night` is the knob view's `night`, from the exact sun times, not the
+rounded ones sent;
 `error` gives the
 reason weather is unavailable while it is on, e.g. `tomorrow-io` or `weatherapi` chosen
 without its key),

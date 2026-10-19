@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -405,6 +406,82 @@ func TestWeatherStateCloudAndUVAreTheKnobViews(t *testing.T) {
 	for _, k := range []string{"cloud_pct", "uv"} {
 		if v, ok := got[k]; !ok || v != nil {
 			t.Errorf("%s = %v (present %v), want null when the provider has none", k, v, ok)
+		}
+	}
+}
+
+func TestWeatherStateCloudAndUVParityEdges(t *testing.T) {
+	type pair struct{ cloud, uv *int }
+	for _, tc := range []struct {
+		name      string
+		now       weatherNow
+		want      pair
+		wantKnobs bool
+	}{
+		{"clear sky, no UV", weatherNow{Cloud: new(0.0)}, pair{cloud: new(0)}, true},
+		{"no cloud, UV 0 at night", weatherNow{UV: new(0.0)}, pair{uv: new(0)}, true},
+		{"halves round away from zero", weatherNow{Cloud: new(62.5), UV: new(2.5)}, pair{new(63), new(3)}, true},
+		{"just under a half", weatherNow{Cloud: new(9.49), UV: new(2.49)}, pair{new(9), new(2)}, true},
+		{"range tops", weatherNow{Cloud: new(100.0), UV: new(40.0)}, pair{new(100), new(40)}, true},
+		{"tiny negative rounds to zero", weatherNow{Cloud: new(-0.4), UV: new(-0.4)}, pair{new(0), new(0)}, true},
+		{"neither", weatherNow{}, pair{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := goldenApp(t)
+			cfg := app.cfg.Load().Weather
+			app.weather.mu.Lock()
+			app.weather.obs.Now = tc.now
+			app.weather.mu.Unlock()
+			cur := app.buildWeatherState(goldenNow).Current
+			view := newKnobWeatherDetail(app.weather.state(cfg, goldenNow), cfg)
+			eq := func(a, b *int) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+			show := func(p *int) string {
+				if p == nil {
+					return "null"
+				}
+				return strconv.Itoa(*p)
+			}
+			if !eq(cur.CloudPct, tc.want.cloud) || !eq(cur.UV, tc.want.uv) {
+				t.Errorf("cloud_pct %s uv %s, want %s %s", show(cur.CloudPct), show(cur.UV), show(tc.want.cloud), show(tc.want.uv))
+			}
+			var vc, vu *int
+			if view.Now != nil {
+				vc, vu = view.Now.Cloud, view.Now.UV
+			}
+			if !eq(cur.CloudPct, vc) || !eq(cur.UV, vu) {
+				t.Errorf("state cloud %s uv %s, knob view cloud %s uv %s", show(cur.CloudPct), show(cur.UV), show(vc), show(vu))
+			}
+			if (view.Now != nil) != tc.wantKnobs {
+				t.Errorf("knob view now = %+v, want present %v", view.Now, tc.wantKnobs)
+			}
+		})
+	}
+}
+
+func TestWeatherStateSunNightIsTheKnobViews(t *testing.T) {
+	app := goldenApp(t)
+	for _, at := range []time.Time{goldenNow, goldenNow.Add(11 * time.Hour)} {
+		out := app.buildWeatherState(at)
+		knob := app.knobWeather(at)
+		if out.Sun == nil || knob == nil || knob.Sunrise == nil {
+			t.Fatalf("sun = %+v, knob = %+v, want both with sun times", out.Sun, knob)
+		}
+		if out.Sun.Night != knob.Night {
+			t.Errorf("%v: sun.night %v, knob view night %v", at, out.Sun.Night, knob.Night)
+		}
+	}
+	if !app.buildWeatherState(goldenNow.Add(11*time.Hour)).Sun.Night || app.buildWeatherState(goldenNow).Sun.Night {
+		t.Error("want day at 10:30 and night at 21:30 in Amsterdam")
+	}
+
+	exact := app.weather.state(app.cfg.Load().Weather, goldenNow).Sun.Set
+	for _, tc := range []struct {
+		at    time.Time
+		night bool
+	}{{exact.Add(-30 * time.Second), false}, {exact.Add(30 * time.Second), true}} {
+		out := app.buildWeatherState(tc.at)
+		if out.Sun.Night != tc.night || out.Sun.Night != app.knobWeather(tc.at).Night {
+			t.Errorf("%v (exact sunset %v, sent %v): night %v, want %v like the knob view", tc.at, exact, out.Sun.Sunset, out.Sun.Night, tc.night)
 		}
 	}
 }

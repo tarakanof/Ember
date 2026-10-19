@@ -333,6 +333,7 @@ type airOut struct {
 type sunOut struct {
 	Sunrise time.Time `json:"sunrise"`
 	Sunset  time.Time `json:"sunset"`
+	Night   bool      `json:"night"`
 }
 
 type weatherStateOut struct {
@@ -403,7 +404,7 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 		out.Air = ao
 	}
 	if rise, set, ok := wx.roundedSun(); ok {
-		out.Sun = &sunOut{Sunrise: rise.In(loc), Sunset: set.In(loc)}
+		out.Sun = &sunOut{Sunrise: rise.In(loc), Sunset: set.In(loc), Night: wx.Night}
 	}
 	return out
 }

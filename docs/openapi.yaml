@@ -1469,6 +1469,8 @@ paths:
         gauge), null without a forecast day. `current.cloud_pct` (0-100) and
         `current.uv` are whole numbers from the same observation as the knob
         view's `now.cloud` and `now.uv`, null when the provider has none.
+        `sun.night` is the knob view's `night`, worked out from the exact sun
+        times, not the rounded `sunrise`/`sunset` sent.
         `error` (absent otherwise, and while weather is off) gives the reason
         the chosen provider can't fetch,
         e.g. "weatherapi needs EMBER_WEATHERAPI_KEY on the server" when a
