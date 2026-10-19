@@ -209,6 +209,7 @@ func TestDefaultTransportWritesCatchesEachForm(t *testing.T) {
 import (
 	"net/http"
 	nh "net/http"
+	. "net/http"
 )
 
 func TestMain() { http.DefaultTransport = nil }
@@ -226,6 +227,12 @@ func aliased() { nh.DefaultTransport = nil }
 func read() http.RoundTripper { return http.DefaultTransport }
 
 func shadowed() { var http struct{ DefaultTransport int }; http.DefaultTransport = 1; _ = http }
+
+func dotted() { DefaultTransport = nil }
+
+func dottedPointer() { p := &DefaultTransport; *p = nil }
+
+func dotShadowed() { var DefaultTransport int; DefaultTransport = 1; _ = DefaultTransport }
 `
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "x_test.go", src, 0)
@@ -241,18 +248,23 @@ func shadowed() { var http struct{ DefaultTransport int }; http.DefaultTransport
 		_, fn, _ := strings.Cut(w, " in ")
 		fns = append(fns, fn)
 	}
-	if want := []string{"TestMain", "swap", "viaPointer", "derefAddr", "paren", "aliased"}; !slices.Equal(fns, want) {
+	if want := []string{"TestMain", "swap", "viaPointer", "derefAddr", "paren", "aliased", "dotted", "dottedPointer"}; !slices.Equal(fns, want) {
 		t.Fatalf("writes in %q, want %q", fns, want)
 	}
 }
 
 func defaultTransportWrites(fset *token.FileSet, files []*ast.File, info *types.Info) []string {
 	isDefault := func(e ast.Expr) bool {
-		sel, ok := ast.Unparen(e).(*ast.SelectorExpr)
-		if !ok {
+		var id *ast.Ident
+		switch e := ast.Unparen(e).(type) {
+		case *ast.Ident:
+			id = e
+		case *ast.SelectorExpr:
+			id = e.Sel
+		default:
 			return false
 		}
-		v, ok := info.Uses[sel.Sel].(*types.Var)
+		v, ok := info.Uses[id].(*types.Var)
 		return ok && v.Pkg() != nil && v.Pkg().Path() == "net/http" && v.Name() == "DefaultTransport"
 	}
 	var out []string
