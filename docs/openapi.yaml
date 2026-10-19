@@ -568,6 +568,21 @@ components:
                   type: string
                   maxLength: 160
                   description: Why the last checkin's `caps` were dropped; absent when they were accepted or not sent.
+        shown:
+          type: object
+          description: "Knobs with the `shown` caps feature only: what the knob last reported on screen through the view poll's `shown` query (DEVICE-PROTOCOL \"Shown page\"). Kept in memory; absent before the first report, after a restart, and once no poll carried `shown` for 50 s."
+          required: [page, face, at]
+          properties:
+            page:
+              type: string
+              description: "The page id, such as `bot`, `pomodoro`, `weather`, `nowplaying` or `usage`."
+            face:
+              type: [string, "null"]
+              description: "The weather face the knob resolved (`temp`, `rain`, `cast`, `wind`, `days`, `sun`, `air`); `null` for a page without faces."
+            at:
+              type: string
+              format: date-time
+              description: The last poll that carried it, whole seconds UTC.
         scopes:
           type: array
           description: Clients only.
@@ -3140,6 +3155,22 @@ paths:
             type: integer
             minimum: 0
             maximum: 25
+        - name: shown
+          in: query
+          description: >-
+            `<page>[:<face>]`, what the knob shows: a `pages[]` id, and for
+            `weather` always the resolved face (`weather:wind`). Read only
+            from a knob with the `shown` caps feature; a value not matching
+            `^[a-z][a-z0-9_]{0,23}(:[a-z]{1,8})?$` is ignored (never a 400).
+            Exposed as `shown` on the owner's device entry while fresh
+            (DEVICE-PROTOCOL.md "Shown page").
+          schema:
+            type: string
+          examples:
+            weather:
+              value: "weather:wind"
+            page:
+              value: nowplaying
         - name: demo_id
           in: query
           description: The `demo.id` the knob is reporting on.

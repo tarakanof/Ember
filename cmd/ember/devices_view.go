@@ -313,6 +313,7 @@ func (a *App) handleDeviceSelfView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.noteDemoReport(id, r)
+	a.noteKnobShown(id, r)
 	w.Header().Set(knobViewWaitHeader, strconv.Itoa(int(knobViewWaitMax/time.Second)))
 	if a.serveKnobViewWait(w, r, id, wait) {
 		return

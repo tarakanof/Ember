@@ -79,6 +79,8 @@ type App struct {
 	otaDrops      checkinDropLog
 	capsDrops     checkinDropLog
 	viewOverLimit checkinDropLog
+	knobShown     knobShownStore
+	shownDrops    checkinDropLog
 	firmwareLimit *callerLimiter
 	clockStats    *clockStatsStore
 

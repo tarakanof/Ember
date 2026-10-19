@@ -206,7 +206,11 @@ type mintedClient struct {
 }
 
 func (a *App) handleDevicesList(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"devices": a.devices.list()})
+	views := a.devices.list()
+	for i := range views {
+		views[i] = a.withShown(views[i])
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"devices": views})
 }
 
 func (a *App) handleClientsList(w http.ResponseWriter, r *http.Request) {
@@ -296,7 +300,7 @@ func (a *App) handleDevicePatch(w http.ResponseWriter, r *http.Request) {
 		a.writeDeviceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, view)
+	writeJSON(w, http.StatusOK, a.withShown(view))
 }
 
 func (a *App) handleDeviceRotate(w http.ResponseWriter, r *http.Request) {
@@ -330,6 +334,8 @@ func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	a.otaDrops.forget(id)
 	a.capsDrops.forget(id)
 	a.viewOverLimit.forget(id)
+	a.knobShown.forget(id)
+	a.shownDrops.forget(id)
 	a.ota.forget(id)
 	if a.coredumps != nil {
 		if err := a.coredumps.removeDevice(id); err != nil {

@@ -162,6 +162,7 @@ type deviceView struct {
 	LastCheckin     *deviceCheckin     `json:"last_checkin"`
 	LastSeen        *clockSeen         `json:"last_seen,omitempty"`
 	EffectiveCaps   *effectiveCapsView `json:"effective_caps,omitempty"`
+	Shown           *knobShown         `json:"shown,omitempty"`
 }
 
 func (d deviceRecord) view() deviceView {

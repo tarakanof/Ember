@@ -37,6 +37,7 @@ const (
 	featureWxMoments      = "wx_moments"
 	featureDemo           = "demo"
 	featureUsage          = "usage"
+	featureShown          = "shown"
 )
 
 var capsFeaturePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
