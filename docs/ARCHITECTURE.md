@@ -4372,9 +4372,9 @@ before a subcommand, and any stray argument (`ember -- doctor`), exits 2
 rather than being dropped; the message names the fix per case (`-print-config`
 is a server flag and runs alone, `-h` points at both helps, doctor flags go
 after `doctor`, an unknown one is named as such, `version` and `healthcheck`
-take none). `-v`/`--version` prints the version unless another subcommand follows
-(`ember -v`, `ember -v version`, `ember -offline -v`); before one (`ember -v doctor`) it exits 2
-and says to run the two separately. A valued doctor flag before `doctor` takes
+take none). `-v`/`--version` prints the version unless another subcommand
+follows (`ember -v`, `ember -v version`, `ember -offline -v`); before one
+(`ember -v doctor`) it exits 2 and says to run the two separately. A valued doctor flag before `doctor` takes
 the next token as its value, as Go's `flag` does (`ember -server-url X doctor`
 exits 2 with `ember doctor -server-url X`; `-server-url doctor` reads `doctor`
 as the URL and falls through to the server's flag error).
