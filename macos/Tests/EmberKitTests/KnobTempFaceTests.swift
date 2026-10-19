@@ -294,3 +294,30 @@ private func duskState(generated: String, night: String, cloud: String = "null")
     #expect(fresh.band == 2)
     #expect(KnobTempFace(value: nil, cloudBand: 4).cloudBand == nil && KnobTempFace(value: .nan, cloudBand: 4).cloudBand == nil)
 }
+
+private func polarState(generated: String, night: String, rise: String, set: String) throws -> WeatherState {
+    let json = #"{"generated_at":""# + generated + #"","enabled":true,"provider":"open-meteo","units":"metric","#
+        + #""current":{"fetched_at":""# + generated + #"","stale":false,"condition":"clear","condition_code":"0","#
+        + #""severe":false,"temp_c":14,"today_min_c":8,"today_max_c":16,"cloud_pct":0,"uv":5,"hourly":[]},"#
+        + #""sun":{"sunrise":""# + rise + #"","sunset":""# + set + #"","night":"# + night + "}}"
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    return try d.decode(WeatherState.self, from: Data(json.utf8))
+}
+
+@Test func sunTimeSentAsMidnightStillEndsTheFetchedNight() throws {
+    let iso = ISO8601DateFormatter()
+    let set = try polarState(generated: "2026-06-10T23:59:00Z", night: "true",
+                             rise: "2026-06-10T03:00:00Z", set: "2026-06-11T00:00:00Z")
+    #expect(face(set, try #require(iso.date(from: "2026-06-11T00:30:00Z"))).sub == "Clear")
+    #expect(face(set, try #require(iso.date(from: "2026-06-11T03:10:00Z"))).sub == "Sunglasses on")
+    #expect(face(set, try #require(iso.date(from: "2026-06-11T12:00:00Z"))).sub == "Sunglasses on")
+}
+
+@Test func sunriseSentAsMidnightStillEndsTheFetchedDay() throws {
+    let iso = ISO8601DateFormatter()
+    let rise = try polarState(generated: "2026-06-10T23:59:00Z", night: "false",
+                              rise: "2026-06-11T00:00:00Z", set: "2026-06-10T21:00:00Z")
+    #expect(face(rise, try #require(iso.date(from: "2026-06-11T12:00:00Z"))).sub == "Sunglasses on")
+    #expect(face(rise, try #require(iso.date(from: "2026-06-11T21:30:00Z"))).sub == "Clear")
+}

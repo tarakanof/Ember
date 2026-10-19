@@ -3022,8 +3022,10 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
   provider's own series start), air quality, the user's `location_name` label
   and the location's local-day sunrise/sunset **rounded to 5 min** (to the second they'd pin the
   coordinates). The rounding covers only the times sent: `sun.night` here, and
-  `night`/`level` on `/v1/display/brightness`, flip at the exact crossings, so a
-  LAN client polling them learns the exact sunrise and sunset. No provider call;
+  `night` on `/v1/display/brightness`, flip at the exact crossings, so a LAN
+  client polling them learns the exact sunrise and sunset; with `source: sun`
+  its `level` ramps over `twilight_minutes`, so one read in the ramp gives the
+  time since sunset or until sunrise. No provider call;
   the coordinates are never echoed.
 - **`GET /v1/clock/health`** (per-IP rate-limited; under `EMBER_CLOCK=off` it adds `"disabled": true` (omitted otherwise), `device` is `null` and no publishes are counted) — publish counts for the last
   24 h (hourly buckets fed by `recordPublish`) and since start, the last publish,

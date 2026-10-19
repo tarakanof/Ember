@@ -42,7 +42,8 @@ public struct KnobWeatherLook: Equatable, Sendable {
             let since = now.timeIntervalSince(state.generatedAt)
             let fetched = Self.second(state.generatedAt, calendar)
             func passed(_ r: Date) -> Bool {
-                let ahead = Self.second(r, calendar) + Self.sunRoundingHalfS - fetched
+                let ahead = (Self.second(r, calendar) + Self.sunRoundingHalfS - fetched + 2 * Self.day)
+                    .truncatingRemainder(dividingBy: Self.day)
                 return ahead > 0 && ahead <= since
             }
             let crossed = since < 0 || then != rounded || passed(sun.sunrise) || passed(sun.sunset)
@@ -53,6 +54,7 @@ public struct KnobWeatherLook: Equatable, Sendable {
     }
 
     static let sunRoundingHalfS: TimeInterval = 150
+    static let day: TimeInterval = 86_400
 
     static func second(_ d: Date, _ cal: Calendar) -> TimeInterval {
         let c = cal.dateComponents([.hour, .minute, .second], from: d)
