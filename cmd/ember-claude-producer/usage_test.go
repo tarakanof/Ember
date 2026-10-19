@@ -1,6 +1,11 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,5 +62,52 @@ func TestUsageModelsCache_SetGetReset(t *testing.T) {
 func TestFetchUsage_UsesDedicatedTimeoutClient(t *testing.T) {
 	if usageHTTPClient.Timeout != 30*time.Second {
 		t.Errorf("usageHTTPClient.Timeout = %v, want 30s", usageHTTPClient.Timeout)
+	}
+}
+
+type usageRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f usageRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func stubUsageBody(t *testing.T, body io.Reader) {
+	t.Helper()
+	old := usageHTTPClient
+	usageHTTPClient = &http.Client{Transport: usageRoundTripper(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(body), Header: http.Header{}}, nil
+	})}
+	t.Cleanup(func() { usageHTTPClient = old })
+}
+
+type cutReader struct {
+	data string
+	done bool
+}
+
+func (c *cutReader) Read(p []byte) (int, error) {
+	if c.done {
+		return 0, io.ErrUnexpectedEOF
+	}
+	c.done = true
+	return copy(p, c.data), nil
+}
+
+func TestFetchUsage_TruncatedBodySurfacesReadError(t *testing.T) {
+	stubUsageBody(t, &cutReader{data: `{"five_hour":{"utiliz`})
+	_, _, err := fetchUsage(context.Background(), "tok")
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("err = %v, want io.ErrUnexpectedEOF", err)
+	}
+}
+
+func TestFetchUsage_OversizedBodyIsCapped(t *testing.T) {
+	const prefix = `{"five_hour":null}`
+	body := strings.NewReader(prefix + strings.Repeat(" ", usageMaxBody*2))
+	stubUsageBody(t, body)
+	_, _, err := fetchUsage(context.Background(), "tok")
+	if !errors.Is(err, errUsageTooLarge) {
+		t.Fatalf("err = %v, want errUsageTooLarge", err)
+	}
+	if read := usageMaxBody*2 + len(prefix) - body.Len(); read > usageMaxBody+1 {
+		t.Fatalf("read %d bytes, cap is %d", read, usageMaxBody+1)
 	}
 }
