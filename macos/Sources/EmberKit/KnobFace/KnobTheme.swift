@@ -176,7 +176,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             public var edgesKmh: [Int]
             public var hystKmh: Int
             public var darkGain: Double
-            public var poleColor, unitColor: RGB
+            public var poleColor, unitColor, streakColor, leafColor: RGB
         }
         public struct Days: Decodable, Sendable, Equatable {
             public var rowYPx, pitchPx, dayWPx, iconPx, tempWPx, barWPx, barHPx, gapPx, popDyPx: Int
