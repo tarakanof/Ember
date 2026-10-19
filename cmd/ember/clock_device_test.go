@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -40,6 +41,7 @@ type clockStub struct {
 	appsSlow  []time.Duration
 	version   string
 	onStatus  int
+	onCut     bool
 	onPuts    []string
 	orderCode int
 	uptime    int64
@@ -154,6 +156,10 @@ func (s *clockStub) serveAppEnabledLocked(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	if s.onStatus != 0 && s.onCut {
+		cutReply(w, s.onStatus, `{"error":`)
+		return
+	}
 	if s.onStatus != 0 && s.onStatus != http.StatusInsufficientStorage {
 		w.WriteHeader(s.onStatus)
 		_, _ = w.Write([]byte(`{"error":"stubbed"}`))
@@ -176,6 +182,16 @@ func (s *clockStub) serveAppEnabledLocked(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+func cutReply(w http.ResponseWriter, status int, partial string) {
+	conn, buf, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	_, _ = fmt.Fprintf(buf, "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n%s", status, http.StatusText(status), partial)
+	_ = buf.Flush()
 }
 
 func (s *clockStub) appEnabledPuts() []string {

@@ -129,8 +129,8 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, co
 	}
 	defer drainClose(resp.Body)
 	out, err := io.ReadAll(io.LimitReader(resp.Body, limit))
-	if err != nil {
-		return Reply{}, fmt.Errorf("read %s %s reply: %w", method, path, err)
+	if err != nil && resp.StatusCode/100 == 2 {
+		return Reply{}, fmt.Errorf("read reply: %w", err)
 	}
 	return Reply{Status: resp.StatusCode, Body: out}, nil
 }

@@ -493,3 +493,25 @@ func TestAppEnabledRetriesThePerAppRouteAfterAnHour(t *testing.T) {
 		t.Fatalf("per-app writes = %v, want a fresh try after the hour", got)
 	}
 }
+
+func TestAppEnabledFallsBackWhenTheClocksNotFoundIsCut(t *testing.T) {
+	_, _, stub, put := newNGClockApp(t, "1.2.2")
+	stub.onStatus, stub.onCut = http.StatusNotFound, true
+	resp, b := put("date", `{"enabled":false}`)
+	mustOK(t, "app enabled", resp, b)
+	if puts := stub.puts(); len(puts) != 1 {
+		t.Fatalf("order writes = %v, want the fallback", puts)
+	}
+}
+
+func TestAppEnabledRelaysACutRejection(t *testing.T) {
+	_, _, stub, put := newNGClockApp(t, "1.2.2")
+	stub.onStatus, stub.onCut = http.StatusUnprocessableEntity, true
+	resp, b := put("date", `{"enabled":false}`)
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(b), "clock returned 422") {
+		t.Fatalf("PUT = %d %s, want 422 relaying the clock", resp.StatusCode, b)
+	}
+	if len(stub.puts()) != 0 {
+		t.Fatalf("a refused toggle fell back to an order write: %v", stub.puts())
+	}
+}

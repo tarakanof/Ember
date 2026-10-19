@@ -2,6 +2,7 @@ package awtrix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -71,8 +72,7 @@ func TestRawCallNeedsBaseURL(t *testing.T) {
 }
 
 func TestRawReplyIsCapped(t *testing.T) {
-	c, _ := serve(t, http.StatusOK, strings.Repeat("x", rawReplyLimit+10))
-	c = NewClient(c.BaseURL(), time.Minute)
+	c, _ := serveWithTimeout(t, http.StatusOK, strings.Repeat("x", rawReplyLimit+10), time.Minute)
 	reply, err := c.RawScreen(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -83,8 +83,7 @@ func TestRawReplyIsCapped(t *testing.T) {
 }
 
 func TestRawPutScriptReplyIsCapped(t *testing.T) {
-	c, _ := serve(t, http.StatusOK, strings.Repeat("x", scriptReplyLimit+10))
-	c = NewClient(c.BaseURL(), time.Minute)
+	c, _ := serveWithTimeout(t, http.StatusOK, strings.Repeat("x", scriptReplyLimit+10), time.Minute)
 	reply, err := c.RawPutScript(context.Background(), "s", "src")
 	if err != nil {
 		t.Fatal(err)
@@ -111,18 +110,42 @@ func serveCut(t *testing.T, status, declared int, sent string) *Client {
 }
 
 func TestRawReplyCutMidStreamIsAnError(t *testing.T) {
-	for _, status := range []int{http.StatusOK, http.StatusUnprocessableEntity} {
+	c := serveCut(t, http.StatusOK, 1000, `{"partial":`)
+	reply, err := c.RawScreen(context.Background())
+	if err == nil {
+		t.Fatalf("cut body: reply = %d %q, want an error", reply.Status, reply.Body)
+	}
+}
+
+func TestRawRejectionCutMidStreamKeepsItsStatus(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusUnprocessableEntity} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
-			c := serveCut(t, status, 1000, `{"partial":`)
+			c := serveCut(t, status, 1000, `{"error":`)
 			reply, err := c.RawScreen(context.Background())
-			if err == nil {
-				t.Fatalf("cut body: reply = %d %q, want an error", reply.Status, reply.Body)
+			if err != nil {
+				t.Fatalf("cut %d body: err = %v, want the reply", status, err)
+			}
+			if reply.Status != status || string(reply.Body) != `{"error":` {
+				t.Fatalf("reply = %d %q, want %d with the partial body", reply.Status, reply.Body, status)
 			}
 		})
 	}
 }
 
-func TestRawReplyTimedOutMidStreamIsAnError(t *testing.T) {
+type headersSeen struct {
+	base http.RoundTripper
+	seen chan struct{}
+}
+
+func (h headersSeen) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := h.base.RoundTrip(r)
+	if err == nil {
+		close(h.seen)
+	}
+	return resp, err
+}
+
+func TestRawReplyAbortedMidBodyIsAReadError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "1000")
 		w.WriteHeader(http.StatusOK)
@@ -131,9 +154,21 @@ func TestRawReplyTimedOutMidStreamIsAnError(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	t.Cleanup(srv.Close)
-	reply, err := NewClient(srv.URL, 200*time.Millisecond).RawScreen(context.Background())
+	c := NewClient(srv.URL, time.Minute)
+	seen := make(chan struct{})
+	c.hc.Transport = headersSeen{base: http.DefaultTransport, seen: seen}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-seen
+		cancel()
+	}()
+	reply, err := c.RawScreen(ctx)
 	if err == nil {
-		t.Fatalf("stalled body: reply = %d %q, want an error", reply.Status, reply.Body)
+		t.Fatalf("aborted body: reply = %d %q, want an error", reply.Status, reply.Body)
+	}
+	if !strings.HasPrefix(err.Error(), "read reply: ") || !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the body read's context.Canceled", err)
 	}
 }
 
