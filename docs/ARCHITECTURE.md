@@ -3505,15 +3505,18 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   wilted flower; `wx_sun_frame` (rise and rays) and `wx_days_frame` (row
   fade, slide and count-up). With no t (the Pages overview, Reduce
   Motion) the faces draw the rest pose above. `KnobWeatherMemo.shownAt`
-  is the show time: it resets when the drawn face changes or the memo
-  does (page open), and a data refresh of the same face keeps it.
+  is the show time, like cinder's `s_t`: it resets on page open (a fresh
+  memo) and when a reported face changes (a cut), not when AUTO steps to
+  another face or the data refreshes, and a clock set back re-stamps it.
   `KnobWeatherSchedule` ticks at 15 fps, mid-frame on the show's frame
-  grid, only while the view is on screen and the face moves: loops
+  grid, only while the view is on screen in a visible, active window
+  (the feeds' `WindowVisibilityReader` signal) and the face moves: loops
   (rain, cast, wind with data, wilted air) tick on, arrivals (sun, days)
   stop on the first frame that equals the rest pose. Temperature stays
   static (the preview draws none of its sky, so its cloud drift has
   nothing to move), as do the cast's sliding drop, every face's value
-  count-up, marker ease and mercury rise, and the weather moments,
+  count-up, marker ease, mercury rise and sub-line fade, and the weather
+  moments,
   and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
