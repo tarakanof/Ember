@@ -243,7 +243,7 @@ func TestDeviceScreenProxyMapsErrorTo502(t *testing.T) {
 func cutBodyClock(t *testing.T) string {
 	t.Helper()
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cutReply(w, http.StatusOK, "[16711680,")
+		cutReply(t, w, http.StatusOK, "[16711680,")
 	}))
 	t.Cleanup(dev.Close)
 	return dev.URL

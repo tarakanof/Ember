@@ -21,6 +21,7 @@ const testClockUID = "e868e705ffb8"
 
 type clockStub struct {
 	*httptest.Server
+	t         *testing.T
 	mu        sync.Mutex
 	uid       string
 	board     string
@@ -49,7 +50,7 @@ type clockStub struct {
 
 func newClockStub(t *testing.T) *clockStub {
 	t.Helper()
-	s := &clockStub{uid: testClockUID, board: "awtrixng", apps: []map[string]any{
+	s := &clockStub{t: t, uid: testClockUID, board: "awtrixng", apps: []map[string]any{
 		{"name": "time", "slot": 0, "enabled": true, "inLoop": true, "origin": "builtin"},
 		{"name": "date", "slot": 1, "enabled": true, "inLoop": true, "origin": "builtin"},
 		{"name": "hum", "slot": 2, "enabled": false, "inLoop": false, "origin": "builtin"},
@@ -157,7 +158,7 @@ func (s *clockStub) serveAppEnabledLocked(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if s.onStatus != 0 && s.onCut {
-		cutReply(w, s.onStatus, `{"error":`)
+		cutReply(s.t, w, s.onStatus, `{"error":`)
 		return
 	}
 	if s.onStatus != 0 && s.onStatus != http.StatusInsufficientStorage {
@@ -184,9 +185,10 @@ func (s *clockStub) serveAppEnabledLocked(w http.ResponseWriter, r *http.Request
 	_, _ = w.Write([]byte(`{"ok":true}`))
 }
 
-func cutReply(w http.ResponseWriter, status int, partial string) {
+func cutReply(t *testing.T, w http.ResponseWriter, status int, partial string) {
 	conn, buf, err := http.NewResponseController(w).Hijack()
 	if err != nil {
+		t.Error(err)
 		return
 	}
 	defer conn.Close()
