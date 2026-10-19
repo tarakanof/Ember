@@ -124,17 +124,18 @@ extension KnobFaceRender {
         .linearGradient(g, startPoint: CGPoint(x: box.midX, y: box.minY), endPoint: CGPoint(x: box.midX, y: box.maxY))
     }
 
-    static func drops(_ f: KnobRainFace, _ w: KnobTheme.Weather, in ctx: inout GraphicsContext) {
+    static func drops(_ f: KnobRainFace, _ w: KnobTheme.Weather, sheets: [KnobRainFace.Sheet] = KnobRainFace.sheets,
+                      in ctx: inout GraphicsContext) {
         let snow = f.kind == .snow
         let color = Color(snow ? w.rain.snowColor : KnobRainFace.color(f.intensity, w.rain))
         let tile = Double(KnobRainFace.sheetH), period = 2 * tile
-        for sheet in KnobRainFace.sheets {
+        for sheet in sheets {
             let top = sheet.box.minY + Double(KnobRainFace.sheetOffset(sheet, snow: snow, k: 0))
             var c = ctx
             c.clip(to: Path(sheet.box))
             c.clipToLayer { $0.fill(Path(sheet.box), with: fade(sheet.box, rainFade)) }
             for d in sheet.drops where d.level <= f.intensity {
-                for wrap in -1...0 {
+                for wrap in -2...1 {
                     let ay = top + d.y + Double(d.tile) * tile + Double(wrap) * period, by = ay + d.len, bx = d.x - d.slant
                     guard by + 6 >= sheet.box.minY, ay - 6 <= sheet.box.maxY else { continue }
                     if snow {
@@ -261,7 +262,7 @@ extension KnobFaceRender {
         c.clipToLayer { $0.fill(Path(s.box), with: fade(s.box, castFade)) }
         for (t, streaks) in [s.a, s.b].enumerated() {
             for d in streaks {
-                for wrap in -1...0 {
+                for wrap in -2...1 {
                     let ay = top + d.y + Double(t) * h + Double(wrap) * period, bx = d.x - d.slant
                     guard ay + d.len + 6 >= s.box.minY, ay - 6 <= s.box.maxY else { continue }
                     if snow {
@@ -355,11 +356,15 @@ extension KnobFaceRender {
         }
     }
 
-    static let dayClouds: [Path] = KnobDaysFace.Icon.allCases.map { icon in
+    static let partlyCloud = cloud(33, [(13, 28, 7), (21, 23, 8.5), (30, 28, 7)])
+    static let overcastCloud = cloud(30, [(10, 25, 7), (19, 20, 9), (29, 25, 7)])
+    static let highCloud = cloud(24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)])
+
+    static func dayCloud(_ icon: KnobDaysFace.Icon) -> Path {
         switch icon {
-        case .partly: cloud(33, [(13, 28, 7), (21, 23, 8.5), (30, 28, 7)])
-        case .cloud: cloud(30, [(10, 25, 7), (19, 20, 9), (29, 25, 7)])
-        default: cloud(24, [(10, 19, 7), (19, 14, 9), (29, 19, 7)])
+        case .partly: partlyCloud
+        case .cloud: overcastCloud
+        default: highCloud
         }
     }
 
@@ -388,7 +393,7 @@ extension KnobFaceRender {
         case .storm: (RGB(r: 0x55, g: 0x5D, b: 0x68), RGB(r: 0x6A, g: 0x74, b: 0x80))
         default: (RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
         }
-        let p = dayClouds[icon.rawValue]
+        let p = dayCloud(icon)
         c.fill(p, with: .color(Color(fill)))
         c.stroke(p, with: .color(Color(edge)), lineWidth: 2)
         switch icon {

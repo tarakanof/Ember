@@ -3491,8 +3491,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   being half-read) and pins the tables, the constants and the frame
   formulas, so a cinder change fails `swift test`. The constant shapes
   (cloud cut-outs, umbrella, wind leaf, day icons) and fade gradients
-  are built once, and at k = 0 a strip wraps at most one period up, so
-  only wraps −1 and 0 are drawn. The sheet and cloud-rim fades stay
+  are built once. Each strip tries wraps −2 to +1 against its box (at
+  k = 0 today's tables only reach −1 and 0, but other phases and table
+  changes reach −2), and `rainSheetsDrawEveryWrapTheirGuardLetsThrough`
+  and its cast twin pin the full range. The sheet and cloud-rim fades stay
   masked layers (#617): a black gradient overlay, cinder's way, differs
   by the gradient's dither (±1) and by double edge coverage at
   fractional scales, and the layers measured about 7 µs of a 0.2 ms

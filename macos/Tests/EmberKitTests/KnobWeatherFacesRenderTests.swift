@@ -239,3 +239,39 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     still.level = 1
     #expect(near(pixel(try render(.wind(still)), 260, 165), black, 10), "no streaks without data")
 }
+
+@MainActor
+private func canvas(_ draw: @escaping (inout GraphicsContext) -> Void) throws -> CGImage {
+    let r = ImageRenderer(content: Canvas { ctx, _ in
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: 466, height: 466)), with: .color(.black))
+        draw(&ctx)
+    }.frame(width: 466, height: 466))
+    r.scale = 1
+    return try #require(r.cgImage)
+}
+
+private func lit(_ p: RGB) -> Int { Int(p.r) + Int(p.g) + Int(p.b) }
+
+@MainActor @Test func rainSheetsDrawEveryWrapTheirGuardLetsThrough() throws {
+    let up = KnobRainFace.Sheet(box: CGRect(x: 100, y: 100, width: 60, height: 182), tileFrames: 24, delayFrames: 47,
+                                drops: [.init(x: 130, y: 149, len: 18, op: 1, slant: 0, tile: 1, level: 1)])
+    let down = KnobRainFace.Sheet(box: CGRect(x: 300, y: 40, width: 60, height: 400), tileFrames: 24, delayFrames: 0,
+                                  drops: [.init(x: 330, y: 10, len: 18, op: 1, slant: 0, tile: 0, level: 1)])
+    #expect(KnobRainFace.sheetOffset(up, snow: false, k: 0) == 294)
+    let img = try canvas { KnobFaceRender.drops(KnobRainFace(dry: false, intensity: 1, pop: 50), w, sheets: [up, down], in: &$0) }
+    #expect(lit(pixel(img, 130, 106)) > 20, "a tile-B drop wrapped two periods up into the top of the box")
+    #expect(lit(pixel(img, 330, 360)) > 200, "a drop wrapped one period down in a box taller than the period")
+}
+
+@MainActor @Test func castSheetsDrawEveryWrapTheirGuardLetsThrough() throws {
+    let up = KnobCastFace.Sheet(box: CGRect(x: 100, y: 100, width: 100, height: 40), h: 40, tileFrames: 40, delayFrames: 79, width: 4,
+                                a: [], b: [.init(x: 150, y: 37, len: 10, op: 1, slant: 0)])
+    let down = KnobCastFace.Sheet(box: CGRect(x: 300, y: 100, width: 60, height: 130), h: 40, tileFrames: 40, delayFrames: 0, width: 4,
+                                  a: [.init(x: 320, y: 5, len: 10, op: 1, slant: 0)], b: [])
+    #expect(KnobCastFace.sheetOffset(up, snow: false, k: 0) == 79)
+    let img = try canvas { ctx in
+        for s in [up, down] { KnobFaceRender.castSheet(s, snow: false, color: .white, in: &ctx) }
+    }
+    #expect(lit(pixel(img, 150, 104)) > 600, "a tile-B streak wrapped two periods up into the box")
+    #expect(lit(pixel(img, 320, 190)) > 600, "a streak wrapped one period down in a box taller than the period")
+}
