@@ -4366,7 +4366,8 @@ producers and USB; build it with another `PRODUCT_BUNDLE_IDENTIFIER`).
 ### Config load and `/admin/reload`
 
 Resolve order: the `-config` flag, `CONFIG_PATH`, `./config.json` if present,
-else defaults only. Failures wrap the sentinels `ErrConfigRead`, `ErrConfigParse`
+else defaults only. `-config` works before or after the `doctor` subcommand
+(`ember -config X doctor`); given twice, the later one wins. Failures wrap the sentinels `ErrConfigRead`, `ErrConfigParse`
 and `ErrConfigValidate`. Unknown JSON fields are a parse error
 (`DisallowUnknownFields`), so deprecated keys (`pulse_style`,
 `heartbeat_seconds`, `refresh_seconds`, `notify_on_waiting`) stay decodable and

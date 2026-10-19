@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -457,3 +458,25 @@ func captureLogger(buf *bytes.Buffer) *slog.Logger {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestScanSubcommandForwardsLeadingConfig(t *testing.T) {
+	cases := []struct {
+		args     []string
+		wantSub  string
+		wantRest []string
+		wantOK   bool
+	}{
+		{[]string{"doctor", "--offline"}, "doctor", []string{"--offline"}, true},
+		{[]string{"-config", "a.json", "doctor", "--offline"}, "doctor", []string{"-config", "a.json", "--offline"}, true},
+		{[]string{"--config", "a.json", "doctor"}, "doctor", []string{"--config", "a.json"}, true},
+		{[]string{"-config=a.json", "doctor", "-config", "b.json"}, "doctor", []string{"-config=a.json", "-config", "b.json"}, true},
+		{[]string{"-config", "a.json", "-print-config"}, "", nil, false},
+		{[]string{"-config", "doctor"}, "", nil, false},
+	}
+	for _, c := range cases {
+		sub, rest, ok := scanSubcommand(c.args)
+		if sub != c.wantSub || ok != c.wantOK || !slices.Equal(rest, c.wantRest) {
+			t.Errorf("scanSubcommand(%q) = %q, %q, %v; want %q, %q, %v", c.args, sub, rest, ok, c.wantSub, c.wantRest, c.wantOK)
+		}
+	}
+}

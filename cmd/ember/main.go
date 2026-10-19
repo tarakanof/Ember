@@ -253,12 +253,15 @@ func scanSubcommand(args []string) (sub string, rest []string, ok bool) {
 	flagWithValue := map[string]bool{
 		"-config": true, "--config": true,
 	}
+	var global []string
 	for i := 0; i < len(args); i++ {
 		tok := args[i]
-		if strings.Contains(tok, "=") && (strings.HasPrefix(tok, "-config=") || strings.HasPrefix(tok, "--config=")) {
+		if strings.HasPrefix(tok, "-config=") || strings.HasPrefix(tok, "--config=") {
+			global = append(global, tok)
 			continue
 		}
 		if flagWithValue[tok] {
+			global = append(global, args[i:min(i+2, len(args))]...)
 			i++
 			continue
 		}
@@ -266,7 +269,7 @@ func scanSubcommand(args []string) (sub string, rest []string, ok bool) {
 			continue
 		}
 		if known[tok] {
-			return tok, args[i+1:], true
+			return tok, append(global, args[i+1:]...), true
 		}
 		return "", nil, false
 	}
