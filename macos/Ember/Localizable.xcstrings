@@ -383,6 +383,17 @@
         }
       }
     },
+    "%@, %@. The face the knob shows." : {
+      "comment" : "Knob weather preview: the Temperature face the knob reports on screen, its sub-line and temperature (\"Cloudy, 14°. The face the knob shows.\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@. The face the knob shows."
+          }
+        }
+      }
+    },
     "%@, not set up" : {
       "comment" : "VoiceOver label of a Settings sidebar device that isn't set up: its name (and kind, \"Desk knob, Knob\")."
     },

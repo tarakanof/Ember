@@ -41,8 +41,8 @@ struct KnobPreviewData {
     let brightnessLevel: Int?
     let lastMood: KnobMood
     let nowPlaying: KnobNowPlayingFeed?
-    let shown: KnobShownFeed?
-    let weatherMemo: KnobWeatherMemo
+    let reportedFace: KnobWeatherFaceID?
+    let weatherFace: KnobFace
 
     var settings: KnobSettings { env.knob.settings.draft }
     var mood: KnobMood { liveMood ?? lastMood }
@@ -54,7 +54,6 @@ struct KnobPreviewData {
     var pomodoro: PomoState? { env.live.pomodoro.value }
     var pomodoroFetchedAt: Date? { env.live.lastFetched(.pomodoroState) }
     var weather: WeatherState? { env.live.weather.value }
-    var reportedFace: KnobWeatherFaceID? { shown?.face }
 
     var pomodoroNote: String? {
         let p = env.settings.pomodoro
@@ -80,7 +79,7 @@ struct KnobPreviewData {
             KnobPomoLive(state: pomodoro, fetchedAt: pomodoroFetchedAt, note: pomodoroNote, animated: animated,
                          brightness: brightness)
         case "weather":
-            KnobWeatherLive(state: weather, pick: reportedFace, memo: weatherMemo, animated: animated, brightness: brightness)
+            KnobFaceView(weatherFace, brightness: brightness).equatable()
         case "nowplaying":
             KnobNowPlayingLive(state: nowPlaying?.state, offline: nowPlaying?.failed ?? false, offset: nowPlaying?.serverOffset ?? 0,
                                pictures: nowPlaying?.pictures ?? .init(),
@@ -161,9 +160,8 @@ struct KnobPreviewData {
     }
 
     private var weatherCaption: Text {
-        let drawn = weatherMemo.face(reportedFace, state: weather, now: .now)
-        guard case .weather(let temp) = drawn else {
-            let name = drawn.weatherFace.map(weatherFaceName) ?? Text(verbatim: "")
+        guard case .weather(let temp) = weatherFace else {
+            let name = weatherFace.weatherFace.map(weatherFaceName) ?? Text(verbatim: "")
             return reportedFace == nil
                 ? Text("\(name): the face the knob's AUTO picks for this weather.",
                        comment: "Knob weather preview: the face drawn by the knob's AUTO rule (\"Wind: the face…\").")
@@ -177,6 +175,10 @@ struct KnobPreviewData {
             let (sky, temp) = (Text(verbatim: sky), Text(verbatim: temp))
             return Text("\(sky), \(temp). Out of date, so the knob shows the temperature in grey.",
                         comment: "Knob weather preview: the knob's sub-line (sky word or UV advice) and temperature (\"Rain, 14°\", \"Use sunscreen, 24°\") of a stale observation.")
+        case .current(let sky, let temp) where reportedFace != nil:
+            let (sky, temp) = (Text(verbatim: sky), Text(verbatim: temp))
+            return Text("\(sky), \(temp). The face the knob shows.",
+                        comment: "Knob weather preview: the Temperature face the knob reports on screen, its sub-line and temperature (\"Cloudy, 14°. The face the knob shows.\").")
         case .current(let sky, let temp):
             let (sky, temp) = (Text(verbatim: sky), Text(verbatim: temp))
             return Text("\(sky), \(temp).", comment: "Knob weather preview: the knob's sub-line (sky word or UV advice) and temperature (\"Rain, 14°.\", \"Use sunscreen, 24°.\").")
@@ -192,10 +194,13 @@ struct KnobAppPreviewSection: View {
     @State private var nowPlaying: KnobNowPlayingFeed?
     @State private var shown: KnobShownFeed?
     @State private var weatherMemo = KnobWeatherMemo()
+    @State private var weatherNow = Date()
 
     var body: some View {
+        let reported = shown?.face ?? KnobShownFollow.seeded(env.knob.devices)
+        let drawn = weatherMemo.peek(reported, state: env.live.weather.value, now: weatherNow)
         let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood,
-                                   nowPlaying: nowPlaying, shown: shown, weatherMemo: weatherMemo)
+                                   nowPlaying: nowPlaying, reportedFace: reported, weatherFace: drawn.face)
         Section {
             KnobPreview(title: knobPageTitle(page), caption: data.caption(page), enabled: data.isOn(page)) {
                 data.face(page, animated: true)
@@ -204,7 +209,9 @@ struct KnobAppPreviewSection: View {
         } footer: {
             Text("Drawn by Ember from the same data the knob shows.")
         }
-        .knobPreviewFeeds(page: page, brightness: $brightness, nowPlaying: $nowPlaying, shown: $shown)
+        .knobPreviewFeeds(page: page, brightness: $brightness, nowPlaying: $nowPlaying, shown: $shown,
+                          weatherMemo: $weatherMemo, weatherNow: $weatherNow)
+        .onChange(of: drawn.memo) { _, m in weatherMemo = m }
         .onChange(of: data.liveMood, initial: true) { _, m in if let m { lastMood = m } }
     }
 }
@@ -216,10 +223,13 @@ struct KnobPagesPreviewSection: View {
     @State private var nowPlaying: KnobNowPlayingFeed?
     @State private var shown: KnobShownFeed?
     @State private var weatherMemo = KnobWeatherMemo()
+    @State private var weatherNow = Date()
 
     var body: some View {
+        let reported = shown?.face ?? KnobShownFollow.seeded(env.knob.devices)
+        let drawn = weatherMemo.peek(reported, state: env.live.weather.value, now: weatherNow)
         let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood, nowPlaying: nowPlaying,
-                                   shown: shown, weatherMemo: weatherMemo)
+                                   reportedFace: reported, weatherFace: drawn.face)
         let s = data.settings
         Section {
             HStack(alignment: .top, spacing: 12) {
@@ -238,15 +248,19 @@ struct KnobPagesPreviewSection: View {
             }
             .settingsPreviewRow()
         }
-        .knobPreviewFeeds(page: nil, brightness: $brightness, nowPlaying: $nowPlaying, shown: $shown)
+        .knobPreviewFeeds(page: nil, brightness: $brightness, nowPlaying: $nowPlaying, shown: $shown,
+                          weatherMemo: $weatherMemo, weatherNow: $weatherNow)
+        .onChange(of: drawn.memo) { _, m in weatherMemo = m }
         .onChange(of: data.liveMood, initial: true) { _, m in if let m { lastMood = m } }
     }
 }
 
 extension View {
     func knobPreviewFeeds(page: String?, brightness: Binding<Int?>, nowPlaying: Binding<KnobNowPlayingFeed?>,
-                          shown: Binding<KnobShownFeed?>) -> some View {
-        modifier(KnobPreviewFeeds(page: page, brightness: brightness, nowPlaying: nowPlaying, shown: shown))
+                          shown: Binding<KnobShownFeed?>, weatherMemo: Binding<KnobWeatherMemo>,
+                          weatherNow: Binding<Date>) -> some View {
+        modifier(KnobPreviewFeeds(page: page, brightness: brightness, nowPlaying: nowPlaying, shown: shown,
+                                  weatherMemo: weatherMemo, weatherNow: weatherNow))
     }
 }
 
@@ -256,6 +270,12 @@ private struct KnobPreviewFeeds: ViewModifier {
     @Binding var brightness: Int?
     @Binding var nowPlaying: KnobNowPlayingFeed?
     @Binding var shown: KnobShownFeed?
+    @Binding var weatherMemo: KnobWeatherMemo
+    @Binding var weatherNow: Date
+    @State private var windowVisible = true
+    @Environment(\.controlActiveState) private var activeState
+
+    private var visible: Bool { windowVisible && activeState != .inactive }
 
     private struct Level: Decodable { let level: Int }
 
@@ -280,14 +300,32 @@ private struct KnobPreviewFeeds: ViewModifier {
                 nowPlaying = feed
                 await feed.run()
             }
+            .background(WindowVisibilityReader(isVisible: $windowVisible))
             .task(id: "\(env.connection.serverURL?.absoluteString ?? "")|\(showsWeather)") {
+                shown?.setVisible(false)
+                weatherMemo = KnobWeatherMemo()
                 guard showsWeather else {
                     shown = nil
                     return
                 }
-                let feed = KnobShownFeed(client: env.connection.client)
+                let knob = env.knob
+                let feed = KnobShownFeed(client: env.connection.client, seed: knob.devices,
+                                         onDevices: { knob.adopt(devices: $0) })
                 shown = feed
-                await feed.run()
+                weatherNow = .now
+                feed.setVisible(visible)
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(60))
+                    weatherNow = .now
+                }
+            }
+            .onChange(of: visible) { _, v in
+                shown?.setVisible(v)
+                if v { weatherNow = .now }
+            }
+            .onDisappear {
+                shown?.setVisible(false)
+                weatherMemo = KnobWeatherMemo()
             }
             .task(id: env.knob.settings.draft.brightness.followEmber) {
                 guard env.knob.settings.draft.brightness.followEmber else { return }

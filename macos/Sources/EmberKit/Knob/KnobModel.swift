@@ -36,6 +36,7 @@ public final class KnobModel {
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var probeTask: Task<Void, Never>?
     @ObservationIgnored public var portBusy = false
+    @ObservationIgnored private var listReadAt: Date?
     @ObservationIgnored var probeTimeouts = KnobProvisioner.Timeouts()
 
     public var all: [any SaveStatusReporting] { [settings] }
@@ -76,6 +77,7 @@ public final class KnobModel {
             apply(KnobDevice.current(in: list))
             isLoaded = true
             loadError = nil
+            listReadAt = Date()
         } catch {
             loadError = FeedError(error)
             return
@@ -86,6 +88,20 @@ public final class KnobModel {
             await ota.loadStatus()
             await ota.loadImages()
         }
+    }
+
+    public static let reloadEvery: TimeInterval = 15
+
+    public func reloadDue(now: Date = Date()) -> Bool {
+        listReadAt.map { now.timeIntervalSince($0) >= Self.reloadEvery } ?? true
+    }
+
+    public func adopt(devices list: [KnobDevice], at: Date = Date()) {
+        guard isLoaded, KnobDevice.current(in: list)?.id == knob?.id else { return }
+        listReadAt = at
+        if list != devices { devices = list }
+        let current = KnobDevice.current(in: list)
+        if current != knob { knob = current }
     }
 
     public func loadCoredumps() async {

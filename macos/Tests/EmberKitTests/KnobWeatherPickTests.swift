@@ -16,10 +16,11 @@ private func faces(wind: Int? = nil, aqi: Int? = nil, nowRain: Int? = nil,
 }
 
 private func state(_ cond: String = "clouds", _ code: String = "3", fetched: Int64 = observed, generated: Int64 = observed,
-                   faces f: WeatherState.Faces? = faces(), stale: Bool = false, enabled: Bool = true) -> WeatherState {
+                   cloud: Double? = nil, faces f: WeatherState.Faces? = faces(), stale: Bool = false,
+                   enabled: Bool = true) -> WeatherState {
     WeatherState(generatedAt: at(generated), enabled: enabled, provider: "open-meteo", units: "metric", locationName: nil,
                  current: .init(fetchedAt: at(fetched), stale: stale, condition: cond, conditionCode: code, severe: false, tempC: 12,
-                                todayMinC: nil, todayMaxC: nil, cloudPct: nil, uv: nil, hourly: []),
+                                todayMinC: nil, todayMaxC: nil, cloudPct: cloud, uv: nil, hourly: []),
                  air: nil, sun: nil, faces: f)
 }
 
@@ -83,30 +84,48 @@ private func knob(_ id: String, kind: String = KnobDevice.knobKind, _ shown: Kno
 
 private func seen(_ page: String, _ face: String? = nil, _ t: Int64 = now) -> KnobShown { .init(page: page, face: face, at: at(t)) }
 
-@Test func followUsesTheNewestReportAcrossKnobs() {
-    let devices = [knob("a", seen("weather", "wind", now - 10)), knob("b", seen("weather", "air", now - 2)),
-                   knob("c", kind: KnobDevice.clockKind, seen("weather", "rain", now)), knob("d", nil)]
-    #expect(KnobShownFollow.newest(devices) == seen("weather", "air", now - 2))
-    #expect(KnobShownFollow.newest([knob("d", nil)]) == nil)
-    #expect(KnobShownFollow.newest([]) == nil)
+@Test func followPicksTheKnobThatChangedLast() {
+    var f = KnobShownFollow()
+    f.follow([knob("a", seen("weather", "wind", now - 10)), knob("b", seen("weather", "air", now - 2)),
+              knob("c", kind: KnobDevice.clockKind, seen("weather", "rain", now)), knob("d", nil)])
+    #expect(f.face == .air && f.current == "b", "the clock is no knob")
+    f.follow([knob("a", seen("weather", "wind", now + 20)), knob("b", seen("weather", "air", now + 3))])
+    #expect(f.face == .air, "a knob re-polling the same face is no change")
+    f.follow([knob("a", seen("weather", "sun", now + 22)), knob("b", seen("weather", "air", now + 25))])
+    #expect(f.face == .sun && f.current == "a", "a turn on the other knob takes over")
+    f.follow([knob("a", seen("weather", "sun", now + 40)), knob("b", seen("weather", "air", now + 45))])
+    #expect(f.face == .sun)
+    f.follow([knob("b", seen("weather", "air", now + 47))])
+    #expect(f.face == .air && f.current == "b", "the followed knob's report went stale")
+}
+
+@Test func followKeepsTheCurrentKnobOnATie() {
+    var f = KnobShownFollow()
+    f.follow([knob("b", seen("weather", "air", now))])
+    f.follow([knob("a", seen("weather", "wind", now)), knob("b", seen("weather", "air", now))])
+    #expect(f.face == .air && f.current == "b")
+    var g = KnobShownFollow()
+    g.follow([knob("a", seen("weather", "wind", now))])
+    g.follow([knob("a", seen("weather", "wind", now)), knob("b", seen("weather", "air", now))])
+    #expect(g.face == .wind && g.current == "a")
 }
 
 @Test func followKeepsTheLastWeatherFaceOffThePage() {
     var f = KnobShownFollow()
-    f.follow(seen("pomodoro"))
+    f.follow([knob("a", seen("pomodoro"))])
     #expect(f.face == nil, "no weather report yet: AUTO")
-    for id in KnobWeatherFaceID.allCases {
-        f.follow(seen("weather", id.rawValue))
+    for (i, id) in KnobWeatherFaceID.allCases.enumerated() {
+        f.follow([knob("a", seen("weather", id.rawValue, now + Int64(i)))])
         #expect(f.face == id)
     }
-    f.follow(seen("weather", "wind"))
-    f.follow(seen("nowplaying"))
+    f.follow([knob("a", seen("weather", "wind", now + 10))])
+    f.follow([knob("a", seen("nowplaying", nil, now + 11))])
     #expect(f.face == .wind, "a non-weather page keeps the last weather face")
-    f.follow(seen("weather", "fog"))
+    f.follow([knob("a", seen("weather", "fog", now + 12))])
     #expect(f.face == .wind, "an unknown face keeps it too")
-    f.follow(seen("weather"))
+    f.follow([knob("a", seen("weather", nil, now + 13))])
     #expect(f.face == .wind)
-    f.follow(nil)
+    f.follow([knob("a", nil)])
     #expect(f.face == nil, "nothing fresh reported: AUTO")
 }
 
@@ -129,16 +148,17 @@ private func seen(_ page: String, _ face: String? = nil, _ t: Int64 = now) -> Kn
     #expect(list[0].shown == KnobShown(page: "weather", face: "wind", at: Date(timeIntervalSince1970: 1_782_043_200)))
     #expect(list[1].shown == KnobShown(page: "pomodoro", face: nil, at: Date(timeIntervalSince1970: 1_782_043_140)))
     #expect(list[2].shown == nil && list[3].shown == nil)
-    #expect(KnobShownFollow.newest(list)?.face == "wind")
-    #expect(KnobShownFollow.newest([list[2], list[3]]) == nil, "old firmware: AUTO")
+    #expect(KnobShownFollow.seeded(list) == .wind)
+    #expect(KnobShownFollow.seeded([list[2], list[3]]) == nil, "old firmware: AUTO")
 }
 
-@MainActor @Test func memoDrawsTheReportedFaceOrTheAutoPick() {
+@Test func memoDrawsTheReportedFaceOrTheAutoPick() {
     let windy = state(faces: faces(wind: 45))
     for id in KnobWeatherFaceID.allCases {
-        #expect(KnobWeatherMemo().face(id, state: windy, now: at(now)).weatherFace == id)
+        var m = KnobWeatherMemo()
+        #expect(m.face(id, state: windy, now: at(now)).weatherFace == id)
     }
-    let memo = KnobWeatherMemo()
+    var memo = KnobWeatherMemo()
     #expect(memo.face(nil, state: windy, now: at(now)).weatherFace == .wind)
     #expect(memo.face(nil, state: state(faces: faces(wind: 36)), now: at(now)).weatherFace == .wind, "AUTO keeps what it drew")
     #expect(memo.face(.temp, state: windy, now: at(now)) == .weather(KnobTempFace(state: windy, now: at(now))))
@@ -146,16 +166,48 @@ private func seen(_ page: String, _ face: String? = nil, _ t: Int64 = now) -> Kn
             "a reported face resets AUTO's keep")
 }
 
-@MainActor @Test func memoKeepsTheShownFacesOwnHysteresis() {
-    let memo = KnobWeatherMemo()
-    let air = memo.face(.air, state: state(faces: faces(aqi: 61)), now: at(now))
-    guard case .air(let a) = air else { Issue.record("not air"); return }
+@Test func memoKeepsTheShownFacesOwnHysteresis() {
+    var memo = KnobWeatherMemo()
+    guard case .air(let a) = memo.face(.air, state: state(faces: faces(aqi: 61)), now: at(now)) else { Issue.record("not air"); return }
     #expect(a.wilted)
     guard case .air(let b) = memo.face(.air, state: state(faces: faces(aqi: 58)), now: at(now)) else { return }
     #expect(b.wilted, "kept within the hysteresis while on screen")
     _ = memo.face(.temp, state: state(faces: faces(aqi: 58)), now: at(now))
     guard case .air(let c) = memo.face(.air, state: state(faces: faces(aqi: 58)), now: at(now)) else { return }
     #expect(!c.wilted, "a face off screen keeps nothing")
+}
+
+@Test func temperatureCloudBandFollowsEveryObservationWhateverIsDrawn() {
+    var memo = KnobWeatherMemo()
+    _ = memo.face(.temp, state: state(cloud: 39), now: at(now))
+    #expect(memo.band == 1)
+    _ = memo.face(.wind, state: state(cloud: 80, faces: faces(wind: 45)), now: at(now))
+    #expect(memo.band == 3, "the band moves while Wind is drawn, as wx_temp_from_shown does")
+    _ = memo.face(.wind, state: state(cloud: 42, faces: faces(wind: 45)), now: at(now))
+    guard case .weather(let t) = memo.face(.temp, state: state(cloud: 42), now: at(now)) else { Issue.record("not temp"); return }
+    #expect(t.cloudBand == 2 && t.sub == "Partly cloudy", "back on Temperature: band 2 like the knob, not the stale band 1")
+}
+
+@Test func peekDrawsWithoutTouchingTheMemoAndSettles() {
+    let s = state(cloud: 42, faces: faces(wind: 45, aqi: 70, nowRain: 2, spells: [(observed - 900, observed + 7200), (now + 600, now + 1200)]))
+    for pick in [nil] + KnobWeatherFaceID.allCases.map(Optional.some) {
+        let memo = KnobWeatherMemo()
+        let first = memo.peek(pick, state: s, now: at(now))
+        #expect(memo == KnobWeatherMemo(), "peek leaves the memo alone")
+        #expect(first.memo.drawn == first.face.weatherFace && first.memo.band != nil, "the peek's memo is what the commit stores")
+        let again = first.memo.peek(pick, state: s, now: at(now))
+        #expect(again.memo == first.memo && again.face == first.face, "committing a peek is a fixed point (\(String(describing: pick)))")
+    }
+}
+
+@Test func aFreshMemoForgetsTheKeepLikeTheKnobOnPageOpen() {
+    var memo = KnobWeatherMemo()
+    #expect(memo.face(nil, state: state(faces: faces(wind: 40)), now: at(now)).weatherFace == .wind)
+    #expect(memo.peek(nil, state: state(faces: faces(wind: 36)), now: at(now + 600)).face.weatherFace == .wind,
+            "while the page stays open, Wind is kept down to 34")
+    memo = KnobWeatherMemo()
+    #expect(memo.peek(nil, state: state(faces: faces(wind: 36)), now: at(now + 600)).face.weatherFace == .temp,
+            "reopened, the knob starts without a shown face")
 }
 
 @MainActor
@@ -178,9 +230,9 @@ private func litDot(_ f: KnobFace) throws -> Int? {
     #expect(KnobWeatherFaceID.allCases.map(\.dot) == Array(0..<w.dots.faces))
     let s = state(faces: faces(wind: 45, aqi: 70, spells: [(now + 600, now + 1200)]))
     for id in KnobWeatherFaceID.allCases {
-        #expect(try litDot(KnobWeatherMemo().face(id, state: s, now: at(now))) == id.dot, "\(id)")
+        #expect(try litDot(KnobWeatherMemo().peek(id, state: s, now: at(now)).face) == id.dot, "\(id)")
     }
-    #expect(try litDot(KnobWeatherMemo().face(nil, state: state(faces: faces(wind: 45)), now: at(now))) == KnobWeatherFaceID.wind.dot)
+    #expect(try litDot(KnobWeatherMemo().peek(nil, state: state(faces: faces(wind: 45)), now: at(now)).face) == KnobWeatherFaceID.wind.dot)
 }
 
 private final class Devices: @unchecked Sendable {
@@ -189,9 +241,11 @@ private final class Devices: @unchecked Sendable {
     private var _fail = false
     private var _calls = 0
     private var _now = at(now)
+    private var _sleeps: [Duration] = []
     var list: [KnobDevice] { get { lock.withLock { _list } } set { lock.withLock { _list = newValue } } }
     var fail: Bool { get { lock.withLock { _fail } } set { lock.withLock { _fail = newValue } } }
     var calls: Int { lock.withLock { _calls } }
+    var sleeps: [Duration] { lock.withLock { _sleeps } }
     var clock: Date { get { lock.withLock { _now } } set { lock.withLock { _now = newValue } } }
     func read() throws -> [KnobDevice] {
         try lock.withLock {
@@ -200,33 +254,45 @@ private final class Devices: @unchecked Sendable {
             return _list
         }
     }
+    func slept(_ d: Duration) { lock.withLock { _sleeps.append(d) } }
 }
 
-@MainActor @Test func shownFeedFollowsTheDeviceListAndRidesOutShortOutages() async {
+@MainActor @Test func shownFeedStartsFromTheSeedList() {
+    let feed = KnobShownFeed(seed: [knob("a", seen("weather", "sun"))], fetch: { [] })
+    #expect(feed.face == .sun, "no AUTO flash before the first poll")
+    #expect(KnobShownFeed(fetch: { [] }).face == nil)
+}
+
+@MainActor @Test func shownFeedKeepsTheAnswerOnlyAcrossFailures() async {
     let d = Devices()
-    let feed = KnobShownFeed(fetch: { try d.read() }, now: { d.clock }, sleep: { _ in })
+    var handed: [[KnobDevice]] = []
+    let feed = KnobShownFeed(fetch: { try d.read() }, onDevices: { handed.append($0) }, now: { d.clock })
     await feed.refresh()
     #expect(feed.face == nil)
     d.list = [knob("a", seen("weather", "rain"))]
     await feed.refresh()
-    #expect(feed.face == .rain)
+    #expect(feed.face == .rain && handed.last == d.list, "the list is handed on to the knob model")
     d.fail = true
     d.clock = at(now + 50)
     await feed.refresh()
     #expect(feed.face == .rain, "a failed poll within 50 s keeps the last answer")
     d.clock = at(now + 51)
     await feed.refresh()
-    #expect(feed.face == nil, "AUTO once the list is over 50 s old")
+    #expect(feed.face == nil, "AUTO once the last good list is over 50 s old")
     d.fail = false
+    d.list = [knob("a", seen("weather", "rain", now + 52))]
+    await feed.refresh()
+    #expect(feed.face == .rain)
     d.list = [knob("a", nil)]
     await feed.refresh()
-    #expect(feed.face == nil)
+    #expect(feed.face == nil, "a good list without shown is AUTO at once")
+    #expect(handed.count == 4)
 }
 
 @MainActor @Test func shownFeedPublishesOnlyAChange() async {
     let d = Devices()
     d.list = [knob("a", seen("weather", "wind"))]
-    let feed = KnobShownFeed(fetch: { try d.read() }, sleep: { _ in })
+    let feed = KnobShownFeed(fetch: { try d.read() })
     await feed.refresh()
     final class Flag: @unchecked Sendable { var fired = false }
     let flag = Flag()
@@ -239,26 +305,77 @@ private final class Devices: @unchecked Sendable {
     #expect(flag.fired && feed.face == .sun)
 }
 
-@MainActor @Test func shownFeedPollsEveryTwoSecondsUntilCancelled() async throws {
+@MainActor private func until(_ cond: @autoclosure () -> Bool) async throws {
+    for _ in 0..<400 where !cond() { try await Task.sleep(for: .milliseconds(5)) }
+}
+
+@MainActor @Test func shownFeedPollsOnlyWhileVisibleAndAtOnceWhenShownAgain() async throws {
     #expect(KnobShownFeed.interval == .seconds(2))
-    final class Waits: @unchecked Sendable {
-        let lock = NSLock(); var asked: [Duration] = []
-        func add(_ d: Duration) { lock.withLock { asked.append(d) } }
-        var count: Int { lock.withLock { asked.count } }
-    }
-    let d = Devices(), waits = Waits()
-    let feed = KnobShownFeed(fetch: { try d.read() }, sleep: { s in
-        waits.add(s)
-        try await Task.sleep(for: .milliseconds(5))
-    })
-    let task = Task { await feed.run() }
-    while d.calls < 3 { try await Task.sleep(for: .milliseconds(5)) }
-    task.cancel()
-    await task.value
+    let d = Devices()
+    let feed = KnobShownFeed(fetch: { try d.read() }, sleep: { s in d.slept(s); try await Task.sleep(for: .seconds(3600)) })
+    #expect(!feed.isPolling && d.calls == 0, "nothing polls before the preview is visible")
+    feed.setVisible(true)
+    try await until(d.calls == 1)
+    feed.setVisible(true)
+    try await Task.sleep(for: .milliseconds(30))
+    #expect(d.calls == 1 && feed.isPolling, "visible twice is one poller")
+    feed.setVisible(false)
+    #expect(!feed.isPolling)
+    try await Task.sleep(for: .milliseconds(30))
+    #expect(d.calls == 1, "hidden: no poll")
+    feed.setVisible(true)
+    try await until(d.calls == 2)
+    #expect(d.calls == 2, "shown again: it polls at once, not after the wait")
+    #expect(d.sleeps.allSatisfy { $0 == .seconds(2) })
+    feed.setVisible(false)
+}
+
+@MainActor @Test func shownFeedStopsPollingWhileHidden() async throws {
+    let d = Devices()
+    let feed = KnobShownFeed(fetch: { try d.read() }, sleep: { _ in try await Task.sleep(for: .milliseconds(2)) })
+    feed.setVisible(true)
+    try await until(d.calls >= 3)
+    feed.setVisible(false)
     let stopped = d.calls
-    try await Task.sleep(for: .milliseconds(50))
-    #expect(d.calls == stopped, "no poll once the preview's task is cancelled")
-    #expect(waits.lock.withLock { waits.asked.allSatisfy { $0 == .seconds(2) } })
+    try await Task.sleep(for: .milliseconds(60))
+    #expect(d.calls == stopped, "minimised, covered or inactive: no poll")
+    feed.setVisible(true)
+    try await until(d.calls >= stopped + 3)
+    #expect(d.calls >= stopped + 3, "visible again: polling resumes")
+    feed.setVisible(false)
+}
+
+@MainActor @Test func shownFeedBacksOffOnFailuresAndResetsOnSuccess() async throws {
+    let d = Devices()
+    d.fail = true
+    let feed = KnobShownFeed(fetch: { try d.read() }, sleep: { s in d.slept(s); try await Task.sleep(for: .milliseconds(1)) })
+    feed.setVisible(true)
+    try await until(d.sleeps.count >= 6)
+    d.fail = false
+    let failed = d.sleeps.count
+    try await until(d.sleeps.count >= failed + 2)
+    feed.setVisible(false)
+    let s = d.sleeps
+    #expect(Array(s.prefix(6)) == [.seconds(4), .seconds(8), .seconds(16), .seconds(30), .seconds(30), .seconds(30)])
+    #expect(s.last == .seconds(2), "a good poll goes back to 2 s")
+}
+
+@MainActor @Test func shownFeedDropsAnAnswerThatLandsAfterItWasHidden() async throws {
+    let d = Devices()
+    d.list = [knob("a", seen("weather", "sun"))]
+    final class Box: @unchecked Sendable { var feed: KnobShownFeed? }
+    let box = Box()
+    var handed = 0
+    let feed = KnobShownFeed(fetch: {
+        let list = try d.read()
+        await MainActor.run { box.feed?.setVisible(false) }
+        return list
+    }, onDevices: { _ in handed += 1 }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
+    box.feed = feed
+    feed.setVisible(true)
+    try await until(d.calls == 1)
+    try await Task.sleep(for: .milliseconds(30))
+    #expect(feed.face == nil && handed == 0, "a poll cancelled in flight changes nothing")
 }
 
 @Test(.enabled(if: cinderDir != nil, "no cinder checkout next to this repo (set CINDER_DIR)"))

@@ -448,3 +448,26 @@ final class CountingOpener: KnobLinkOpener, @unchecked Sendable {
     #expect(put.1 == "/v1/devices/knob-61fc8c/config")
     #expect(put.2 == #"{"swipe_pages":false}"#)
 }
+
+@MainActor
+@Test func knobModelAdoptsThePreviewsListAndSkipsItsOwnReload() async throws {
+    let fake = FakeRegistry()
+    let m = model(fake)
+    let t0 = Date(timeIntervalSince1970: 1_000)
+    m.adopt(devices: [], at: t0)
+    #expect(m.devices.isEmpty && m.reloadDue(now: t0), "nothing adopted before the first load")
+    await m.load()
+    let loaded = try #require(m.knob)
+    #expect(!m.reloadDue(now: Date()) && m.reloadDue(now: Date().addingTimeInterval(KnobModel.reloadEvery)))
+    var renamed = loaded
+    renamed.name = "Shelf knob"
+    let other = KnobDevice(id: "knob-000001", hwID: "000000000001", name: "Old", createdAt: Date(timeIntervalSince1970: 0))
+    m.adopt(devices: [renamed, other], at: t0.addingTimeInterval(100))
+    #expect(m.knob?.name == "Shelf knob" && m.devices.count == 2, "the preview's poll refreshes the list")
+    #expect(!m.reloadDue(now: t0.addingTimeInterval(110)), "so the 15 s reload is skipped")
+    #expect(m.reloadDue(now: t0.addingTimeInterval(115)))
+    var newer = KnobDevice(id: "knob-new", hwID: "000000000009", name: "New", createdAt: loaded.createdAt.addingTimeInterval(60))
+    newer.kind = KnobDevice.knobKind
+    m.adopt(devices: [renamed, newer], at: t0.addingTimeInterval(200))
+    #expect(m.knob?.id == loaded.id && m.reloadDue(now: t0.addingTimeInterval(201)), "a new current knob is left to a full load")
+}

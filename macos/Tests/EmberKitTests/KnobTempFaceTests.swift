@@ -278,13 +278,13 @@ private func duskState(generated: String, night: String, cloud: String = "null")
 }
 
 @MainActor @Test func weatherMemoHoldsTheShownBandOnlyFromAFaceWithData() throws {
-    let memo = KnobWeatherMemo()
+    var memo = KnobWeatherMemo()
     let none = memo.face(state: nil, now: noon, calendar: utc)
     #expect(none.value == nil && memo.band == nil)
     let real = memo.face(state: try skyState(condition: "clouds", code: "3", cloud: "87"), now: noon, calendar: utc)
     #expect(real.cloudBand == 3 && real.sub == "Cloudy", "no band held over from the empty face")
 
-    let fresh = KnobWeatherMemo()
+    var fresh = KnobWeatherMemo()
     _ = fresh.face(state: try skyState(condition: "clouds", code: "2", cloud: "38"), now: noon, calendar: utc)
     let held = fresh.face(state: try skyState(condition: "clouds", code: "2", cloud: "42"), now: noon, calendar: utc)
     #expect(held.sub == "Mostly sunny" && fresh.band == 1)
