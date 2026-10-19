@@ -50,7 +50,7 @@ public struct KnobWeatherLook: Equatable, Sendable {
             night = crossed ? rounded : sun.night ?? rounded
         }
         self.init(provider: state.provider, condition: cur.condition, code: cur.conditionCode, night: night)
-        still = !state.enabled || cur.stale || now.timeIntervalSince(cur.fetchedAt) > maxAge
+        still = !state.enabled || cur.stale || now.timeIntervalSince(state.generatedAt) > maxAge
     }
 
     static let sunRoundingHalfS: TimeInterval = 150
