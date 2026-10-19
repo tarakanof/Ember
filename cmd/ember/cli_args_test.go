@@ -19,10 +19,12 @@ func buildEmberBinary(t *testing.T, buildFlags ...string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	bin := filepath.Join(t.TempDir(), "ember")
-	build := exec.CommandContext(ctx, "go", append(append([]string{"build"}, buildFlags...), "-o", bin, ".")...)
+	build := goRuns.command(ctx, "go", append(append([]string{"build"}, buildFlags...), "-o", bin, ".")...)
 	build.Env = isolatedGoRunEnv(t)
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("go build %q: %v\n%s", buildFlags, err, out)
+	var out bytes.Buffer
+	build.Stdout, build.Stderr = &out, &out
+	if err := build.Run(); err != nil {
+		t.Fatalf("go build %q: %v\n%s", buildFlags, err, out.String())
 	}
 	return bin
 }
