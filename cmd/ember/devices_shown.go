@@ -33,11 +33,15 @@ func parseKnobShown(raw string, at time.Time) (knobShown, bool) {
 }
 
 type knobShownStore struct {
-	mu   sync.Mutex
-	byID map[string]knobShown
+	mu      sync.Mutex
+	byID    map[string]knobShown
+	setHook func()
 }
 
 func (s *knobShownStore) set(id string, v knobShown) {
+	if s.setHook != nil {
+		s.setHook()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.byID == nil {
