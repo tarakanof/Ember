@@ -3506,8 +3506,11 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   fade, slide and count-up). With no t (the Pages overview, Reduce
   Motion) the faces draw the rest pose above. `KnobWeatherMemo.shownAt`
   is the show time, like cinder's `s_t`: it resets on page open (a fresh
-  memo) and when a reported face changes (a cut), not when AUTO steps to
-  another face or the data refreshes, and a clock set back re-stamps it.
+  memo) and when a reported face changes, not when the preview's own AUTO
+  pick steps to another face or the data refreshes, and a clock set back
+  re-stamps it. A knob that reports its face reports AUTO's resolved face,
+  so the preview can't tell an AUTO step from a turn: it replays the
+  arrival on both, while the knob replays only on a cut (`wx_job_cut`).
   `KnobWeatherSchedule` ticks at 15 fps, mid-frame on the show's frame
   grid, only while the view is on screen in a visible, active window
   (the feeds' `WindowVisibilityReader` signal) and the face moves: loops
