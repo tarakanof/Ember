@@ -26,6 +26,11 @@ type recorded struct {
 
 func serve(t *testing.T, status int, respBody string) (*Client, *recorded) {
 	t.Helper()
+	return serveWithTimeout(t, status, respBody, 2*time.Second)
+}
+
+func serveWithTimeout(t *testing.T, status int, respBody string, timeout time.Duration) (*Client, *recorded) {
+	t.Helper()
 	rec := &recorded{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec.method = r.Method
@@ -38,7 +43,7 @@ func serve(t *testing.T, status int, respBody string) (*Client, *recorded) {
 		io.WriteString(w, respBody)
 	}))
 	t.Cleanup(srv.Close)
-	return NewClient(srv.URL, 2*time.Second), rec
+	return NewClient(srv.URL, timeout), rec
 }
 
 func decodeBody(t *testing.T, rec *recorded) map[string]any {
