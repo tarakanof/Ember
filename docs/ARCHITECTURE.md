@@ -3491,10 +3491,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   being half-read) and pins the tables, the constants and the frame
   formulas, so a cinder change fails `swift test`. Each strip tries
   wraps −2 to +1 against its box (at k = 0 today's tables only reach −1
-  and 0, but other phases and table changes reach −2), and
-  `rainSheetsDrawEveryWrapTheirGuardLetsThrough` and its cast twin pin
-  the full range. The motion (15 fps
-  loops on the knob) and the count-up arrival are left out by choice:
+  and 0, the knob's other phases reach −2, and +1 only a box taller
+  than the strip period), and `rainSheetsDrawEveryWrapTheirGuardLetsThrough`
+  and its cast twin pin the full range. The motion (15 fps loops on the
+  knob) and the count-up arrival are left out by choice:
   preview fidelity against more animation code (a `TimelineView` schedule
   per face, frame state and a full Canvas redraw per frame). The cost
   would only run while the pane is visible, and the bot preview already
