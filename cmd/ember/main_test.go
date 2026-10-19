@@ -482,6 +482,8 @@ func TestScanSubcommandForwardsLeadingConfig(t *testing.T) {
 		{args: []string{"-h", "doctor"}, wantErr: "flag -h before subcommand doctor: for doctor's flags run `ember doctor -h`, for the server's `ember -h`"},
 		{args: []string{"--help", "healthcheck"}, wantErr: "flag --help before subcommand healthcheck: for the server's flags run `ember -h`"},
 		{args: []string{"-offline", "doctor"}, wantErr: "flag -offline before subcommand doctor: put doctor flags after it (`ember doctor -offline`)"},
+		{args: []string{"--json=true", "doctor"}, wantErr: "put doctor flags after it (`ember doctor --json=true`)"},
+		{args: []string{"-jsn", "doctor"}, wantErr: "flag -jsn before subcommand doctor: -jsn is not a doctor flag; see `ember doctor -h`"},
 		{args: []string{"-offline", "version"}, wantErr: "flag -offline before subcommand version: version takes no flags"},
 		{args: []string{"-print-config", "false"}},
 	}

@@ -421,16 +421,31 @@ func checkClock(ctx context.Context, app *App) CheckResult {
 	}
 }
 
-func runDoctor(args []string) {
+type doctorFlags struct {
+	fs         *flag.FlagSet
+	configPath *string
+	serverURL  *string
+	offline    *bool
+	asJSON     *bool
+}
+
+func newDoctorFlags() doctorFlags {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
-	configPath := fs.String("config", "", "path to config JSON file")
-	serverURL := fs.String("server-url", "http://127.0.0.1:3627", "doctor server URL (online mode)")
-	offline := fs.Bool("offline", false, "skip the server probe; run static checks only")
-	asJSON := fs.Bool("json", false, "print result as JSON")
-	_ = fs.Parse(args)
+	return doctorFlags{
+		fs:         fs,
+		configPath: fs.String("config", "", "path to config JSON file"),
+		serverURL:  fs.String("server-url", "http://127.0.0.1:3627", "doctor server URL (online mode)"),
+		offline:    fs.Bool("offline", false, "skip the server probe; run static checks only"),
+		asJSON:     fs.Bool("json", false, "print result as JSON"),
+	}
+}
+
+func runDoctor(args []string) {
+	f := newDoctorFlags()
+	_ = f.fs.Parse(args)
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	cfg, err := loadConfig(*configPath, logger)
+	cfg, err := loadConfig(*f.configPath, logger)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "doctor: config:", err)
 		os.Exit(1)
@@ -440,13 +455,13 @@ func runDoctor(args []string) {
 	defer cancel()
 
 	var res DoctorResult
-	if *offline {
+	if *f.offline {
 		res = runDoctorChecks(ctx, nil, &cfg)
 	} else {
-		online, terr := tryAdminDoctor(ctx, *serverURL, os.Getenv(cfg.Auth.StatusTokenEnv))
+		online, terr := tryAdminDoctor(ctx, *f.serverURL, os.Getenv(cfg.Auth.StatusTokenEnv))
 		switch {
 		case terr == errAuthFailure:
-			fmt.Fprintf(os.Stderr, "auth failure: %s/admin/doctor returned 401 — check EMBER_TOKEN\n", *serverURL)
+			fmt.Fprintf(os.Stderr, "auth failure: %s/admin/doctor returned 401 — check EMBER_TOKEN\n", *f.serverURL)
 			os.Exit(1)
 		case terr != nil:
 			res = runDoctorChecks(ctx, nil, &cfg)
@@ -455,7 +470,7 @@ func runDoctor(args []string) {
 		}
 	}
 
-	if *asJSON {
+	if *f.asJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(res)

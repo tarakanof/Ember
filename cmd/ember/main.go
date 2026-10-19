@@ -306,8 +306,10 @@ func strayFlagError(flagTok, sub string) error {
 		return fmt.Errorf("%s: for doctor's flags run `ember doctor -h`, for the server's `ember -h`", prefix)
 	case name == "h" || name == "help":
 		return fmt.Errorf("%s: for the server's flags run `ember -h`", prefix)
-	case sub == "doctor":
+	case sub == "doctor" && newDoctorFlags().fs.Lookup(name) != nil:
 		return fmt.Errorf("%s: put doctor flags after it (`ember doctor %s`)", prefix, flagTok)
+	case sub == "doctor":
+		return fmt.Errorf("%s: %s is not a doctor flag; see `ember doctor -h`", prefix, flagTok)
 	}
 	return fmt.Errorf("%s: %s takes no flags", prefix, sub)
 }

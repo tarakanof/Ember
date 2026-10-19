@@ -4370,8 +4370,9 @@ else defaults only. `-config` works before or after the `doctor` subcommand
 (`ember -config X doctor`); given twice, the later one wins. Any other flag
 before a subcommand, and any stray argument (`ember -- doctor`), exits 2
 rather than being dropped; the message names the fix per case (`-print-config`
-and `-h` are server flags, doctor flags go after `doctor`, `version` and
-`healthcheck` take none). A bool flag's value must be attached
+is a server flag and runs alone, `-h` points at both helps, doctor flags go
+after `doctor`, an unknown one is named as such, `version` and `healthcheck`
+take none). A bool flag's value must be attached
 (`-print-config=false`): `-print-config false` reads `false` as a stray argument
 and exits 2. Failures wrap the sentinels `ErrConfigRead`,
 `ErrConfigParse` and `ErrConfigValidate`. Unknown JSON fields are a parse error
