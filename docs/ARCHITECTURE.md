@@ -3520,7 +3520,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `KnobModel.adopt(devices:)`, so `KnobDetail`'s 15 s reload skips only
   its device-list fetch while it runs and still refreshes settings, OTA
   and coredumps. It starts from `env.knob.devices`, so the first frame
-  already shows the reported face. `KnobShownFollow` follows the knob
+  already shows the reported face. The seed is not a good list: if the
+  first poll after open fails, the face drops to AUTO at once until a
+  poll succeeds. `KnobShownFollow` follows the knob
   whose `page`/`face` changed last (the `at` of the poll that brought
   the change; every poll moves `at`), keeping the current knob on a tie;
   on `weather` its face is drawn, another page keeps the last reported
