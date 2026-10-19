@@ -364,8 +364,12 @@ private final class Devices: @unchecked Sendable {
 }
 
 @MainActor private func until(_ cond: @autoclosure () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async throws {
-    for _ in 0..<400 where !cond() { try await Task.sleep(for: .milliseconds(5)) }
-    try #require(cond(), "timed out", sourceLocation: sourceLocation)
+    var met = cond()
+    for _ in 0..<400 where !met {
+        try await Task.sleep(for: .milliseconds(5))
+        met = cond()
+    }
+    try #require(met, "timed out", sourceLocation: sourceLocation)
 }
 
 @MainActor @Test func shownFeedPollsOnlyWhileVisibleAndAtOnceWhenShownAgain() async throws {
