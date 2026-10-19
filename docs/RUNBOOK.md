@@ -408,6 +408,12 @@ Wind, Next days, Sun and Air keys (`weather.unit` … `weather.air`) mirror
 `wx_rain.c`, `wx_cast.c`, `wx_wind.c`, `wx_days.c`, `wx_sun.c`, `wx_air.c`
 and their headers, and the checks also match the faces' words (band names,
 compass points, weekdays, sub-lines) against the firmware's strings.
+`KnobWeatherPickTests` pins the preview's AUTO face pick the same way: the
+order of `wx_temp_from_shown`'s chain, the `wx_cast_soon`,
+`wx_wind_strong` and `wx_air_poor` conditions (thresholds in
+`weather.cast.soon_s`/`keep_s` and `weather.wind.auto_kmh`/`keep_kmh`),
+the face ids of `wx_faces.h` and demo's face words, and the strict
+`age_s > WX_MAX_AGE_S` freshness.
 
 The app bundle now builds + signs the three producer helpers (`ember-claude-producer`,
 `ember-codex-producer`, `ember-t3-producer`) and their LaunchAgent plists

@@ -208,6 +208,8 @@ private let pinned: [String: String] = [
     "weather.cast.cell_color": "#262626",
     "weather.cast.span_s": "43200",
     "weather.cast.step_s": "300",
+    "weather.cast.soon_s": "3600",
+    "weather.cast.keep_s": "5400",
     "weather.cast.label_font_px": "24",
     "weather.cast.label_gap_px": "2",
     "weather.wind.bands_kmh": "[0,5,11,19,28,38,49,61,74,88,102,117]",
@@ -216,6 +218,8 @@ private let pinned: [String: String] = [
     "weather.wind.max_kmh": "999",
     "weather.wind.edges_kmh": "[12,29]",
     "weather.wind.hyst_kmh": "3",
+    "weather.wind.auto_kmh": "39",
+    "weather.wind.keep_kmh": "34",
     "weather.wind.dark_gain": "0.55",
     "weather.wind.pole_color": "#9AA4B0",
     "weather.wind.unit_color": "#9A9A9A",
@@ -354,6 +358,7 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
                  "firmware/components/weather/include/wx_days.h", "firmware/components/weather/wx_sun.c",
                  "firmware/components/weather/include/wx_sun.h", "firmware/components/weather/wx_air.c",
                  "firmware/components/weather/include/wx_air.h", "firmware/components/weather/wx_clock.c",
+                 "firmware/components/weather/weather_face.c", "firmware/components/demo/demo.c",
                  "firmware/components/weather/include/wx_rain.h"] {
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path), "CINDER_DIR has no \(file)")
     }
@@ -710,6 +715,8 @@ private func weatherFaceChecks() -> [Check] {
         one(wp, #"#define CELL_GREY "# + hex, "weather.cast.cell_color"),
         one(wch, #"#define WX_CAST_SPAN_S (\d+)"#, "weather.cast.span_s"),
         one(wch, #"#define WX_CAST_STEP_S (\d+)"#, "weather.cast.step_s"),
+        one(wch, #"#define WX_CAST_SOON_S (\d+)"#, "weather.cast.soon_s"),
+        one(wch, #"#define WX_CAST_KEEP_S (\d+)"#, "weather.cast.keep_s"),
         one(wch, #"#define WX_LABEL_GAP (\d+)"#, "weather.cast.label_gap_px"),
         one(tf, #"s_clabel = label\(s_root, &lv_font_montserrat_(\d+), LV_ALIGN_TOP_LEFT, 0, 0\);"#, "weather.cast.label_font_px"),
         Check(file: wc, pattern: #"\{\{"# + words((1...3).map { KnobCastFace.words(false, $0, cap: false) }) + #"\}, \{"#
@@ -734,6 +741,8 @@ private func weatherFaceChecks() -> [Check] {
         one(wwh, #"#define WX_WIND_MAX_KMH (\d+)"#, "weather.wind.max_kmh"),
         Check(file: kv, pattern: #"num_in\(now, "wind_kmh", 0, WX_WIND_MAX_KMH, &o->wind_kmh\)"#, keys: []),
         one(wwh, #"#define WX_WIND_HYST (\d+)"#, "weather.wind.hyst_kmh"),
+        one(wwh, #"#define WX_WIND_AUTO_KMH (\d+)"#, "weather.wind.auto_kmh"),
+        one(wwh, #"#define WX_WIND_KEEP_KMH (\d+)"#, "weather.wind.keep_kmh"),
         one(ww, #"\(uint32_t\)lround\(\(\(rgb >> s\) & 0xFF\) \* ([\d.]+)\) << s;"#, "weather.wind.dark_gain"),
         one(wwh, #"#define WX_WIND_POLE_RGB "# + hex, "weather.wind.pole_color"),
         one(wwh, #"#define WX_WIND_UNIT_RGB "# + hex, "weather.wind.unit_color"),
@@ -882,7 +891,7 @@ private func cinderMoods(_ expr: String, _ term: String) throws -> Set<BotMood> 
     return Set(found.compactMap { $0 })
 }
 
-private func cinderMatch(_ file: String, _ pattern: String) throws -> String {
+func cinderMatch(_ file: String, _ pattern: String) throws -> String {
     let src = try String(contentsOf: try #require(cinderDir).appendingPathComponent("firmware/" + file), encoding: .utf8)
     let re = try NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
     let m = try #require(re.firstMatch(in: src, range: NSRange(src.startIndex..., in: src)), "\(file): no match for \(pattern)")

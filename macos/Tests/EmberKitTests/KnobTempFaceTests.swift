@@ -132,7 +132,7 @@ private let w = KnobTheme.standard.weather
 
 private func skyState(condition: String, code: String, cloud: String = "null", uv: String = "null",
                       sun: Bool = true) throws -> WeatherState {
-    let json = #"{"generated_at":"2026-09-26T10:30:00+02:00","enabled":true,"provider":"open-meteo","units":"metric","#
+    let json = #"{"generated_at":"2026-09-26T10:30:00Z","enabled":true,"provider":"open-meteo","units":"metric","#
         + #""current":{"fetched_at":"2026-09-26T10:26:00Z","stale":false,"condition":""# + condition
         + #"","condition_code":""# + code + #"","severe":false,"temp_c":31.2,"today_min_c":24,"today_max_c":34,"#
         + #""cloud_pct":"# + cloud + #","uv":"# + uv + #","hourly":[]}"#
@@ -224,7 +224,7 @@ private func face(_ s: WeatherState, _ now: Date = noon, shown: Int? = nil) -> K
 }
 
 @Test func olderServersWithoutCloudAndUVStillDecode() throws {
-    let json = #"{"generated_at":"2026-09-26T10:30:00+02:00","enabled":true,"provider":"open-meteo","units":"metric","#
+    let json = #"{"generated_at":"2026-09-26T10:30:00Z","enabled":true,"provider":"open-meteo","units":"metric","#
         + #""current":{"fetched_at":"2026-09-26T10:26:00Z","stale":false,"condition":"clear","condition_code":"0","#
         + #""severe":false,"temp_c":20,"today_min_c":null,"today_max_c":null,"hourly":[]}}"#
     let d = JSONDecoder()
@@ -278,13 +278,13 @@ private func duskState(generated: String, night: String, cloud: String = "null")
 }
 
 @MainActor @Test func weatherMemoHoldsTheShownBandOnlyFromAFaceWithData() throws {
-    let memo = KnobWeatherMemo()
+    var memo = KnobWeatherMemo()
     let none = memo.face(state: nil, now: noon, calendar: utc)
     #expect(none.value == nil && memo.band == nil)
     let real = memo.face(state: try skyState(condition: "clouds", code: "3", cloud: "87"), now: noon, calendar: utc)
     #expect(real.cloudBand == 3 && real.sub == "Cloudy", "no band held over from the empty face")
 
-    let fresh = KnobWeatherMemo()
+    var fresh = KnobWeatherMemo()
     _ = fresh.face(state: try skyState(condition: "clouds", code: "2", cloud: "38"), now: noon, calendar: utc)
     let held = fresh.face(state: try skyState(condition: "clouds", code: "2", cloud: "42"), now: noon, calendar: utc)
     #expect(held.sub == "Mostly sunny" && fresh.band == 1)
@@ -320,4 +320,38 @@ private func polarState(generated: String, night: String, rise: String, set: Str
                               rise: "2026-06-11T00:00:00Z", set: "2026-06-10T21:00:00Z")
     #expect(face(rise, try #require(iso.date(from: "2026-06-11T12:00:00Z"))).sub == "Sunglasses on")
     #expect(face(rise, try #require(iso.date(from: "2026-06-11T21:30:00Z"))).sub == "Clear")
+}
+
+private let ageNow: Int64 = 1_782_043_500
+private func ageAt(_ t: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(t)) }
+
+private func ageFaces(wind: Int, aqi: Int) -> WeatherState.Faces {
+    .init(utcOffsetS: 3600, night: false, windKmh: wind, windDirDeg: nil, rainIntensity: nil, todayPopPct: nil, rain: nil,
+          days: [], twilight: nil, moon: nil, aqi: aqi)
+}
+
+private func ageState(fetched: Int64 = ageNow, generated: Int64, faces: WeatherState.Faces? = nil, stale: Bool = false,
+                      enabled: Bool = true) -> WeatherState {
+    WeatherState(generatedAt: ageAt(generated), enabled: enabled, provider: "open-meteo", units: "metric", locationName: nil,
+                 current: .init(fetchedAt: ageAt(fetched), stale: stale, condition: "clouds", conditionCode: "3", severe: false,
+                                tempC: 12, todayMinC: nil, todayMaxC: nil, cloudPct: nil, uv: nil, hourly: []),
+                 air: nil, sun: nil, faces: faces)
+}
+
+@Test func tempFaceExpiresByTheServersGenerationLikeTheKnob() {
+    let fresh = KnobTempFace(state: ageState(fetched: ageNow - 7200, generated: ageNow - 1800), now: ageAt(ageNow))
+    #expect(!fresh.still, "an old provider fetch the server still vouches for is fresh")
+    #expect(KnobTempFace(state: ageState(fetched: ageNow - 60, generated: ageNow - 1801), now: ageAt(ageNow)).still, "strictly over 1800 s")
+    #expect(KnobTempFace(state: ageState(generated: ageNow - 1800), now: ageAt(ageNow)).caption == .current(sky: "Overcast", temp: "12°"))
+    #expect(KnobTempFace(state: ageState(generated: ageNow - 1801), now: ageAt(ageNow)).caption == .stale(sky: "Overcast", temp: "12°"))
+    #expect(KnobTempFace(state: ageState(generated: ageNow, stale: true), now: ageAt(ageNow)).still)
+    #expect(KnobTempFace(state: ageState(generated: ageNow, enabled: false), now: ageAt(ageNow)).still)
+}
+
+@Test func sixFacesExpireAtTheSame1800sBoundary() {
+    let windy = ageFaces(wind: 20, aqi: 42)
+    #expect(KnobWindFace(state: ageState(generated: ageNow - 1800, faces: windy), now: ageAt(ageNow)).have)
+    #expect(!KnobWindFace(state: ageState(generated: ageNow - 1801, faces: windy), now: ageAt(ageNow)).have)
+    #expect(KnobAirFace(state: ageState(generated: ageNow - 1800, faces: windy), now: ageAt(ageNow)).have)
+    #expect(!KnobAirFace(state: ageState(generated: ageNow - 1801, faces: windy), now: ageAt(ageNow)).have)
 }

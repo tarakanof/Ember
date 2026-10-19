@@ -188,9 +188,10 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
     public var rotatedAt: Date?
     public var lastCheckin: KnobCheckin?
     public var effectiveCaps: KnobCaps?
+    public var shown: KnobShown?
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, name
+        case id, kind, name, shown
         case hwID = "hw_id"
         case createdAt = "created_at"
         case configVersion = "config_version"
@@ -202,10 +203,11 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
 
     public init(id: String, kind: String = KnobDevice.knobKind, hwID: String, name: String, createdAt: Date,
                 configVersion: Int = 1, rotationPending: Bool = false, rotatedAt: Date? = nil,
-                lastCheckin: KnobCheckin? = nil, effectiveCaps: KnobCaps? = nil) {
+                lastCheckin: KnobCheckin? = nil, effectiveCaps: KnobCaps? = nil, shown: KnobShown? = nil) {
         self.id = id; self.kind = kind; self.hwID = hwID; self.name = name; self.createdAt = createdAt
         self.configVersion = configVersion; self.rotationPending = rotationPending
         self.rotatedAt = rotatedAt; self.lastCheckin = lastCheckin; self.effectiveCaps = effectiveCaps
+        self.shown = shown
     }
 
     public init(from decoder: Decoder) throws {
@@ -220,6 +222,7 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
         rotatedAt = try c.decodeIfPresent(Date.self, forKey: .rotatedAt)
         lastCheckin = try c.decodeIfPresent(KnobCheckin.self, forKey: .lastCheckin)
         effectiveCaps = (try? c.decodeIfPresent(KnobCaps.self, forKey: .effectiveCaps)) ?? nil
+        shown = (try? c.decodeIfPresent(KnobShown.self, forKey: .shown)) ?? nil
     }
 
     public static let knobKind = "cinder-knob"
@@ -287,6 +290,14 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
     public static func clock(in devices: [KnobDevice]) -> KnobDevice? {
         devices.filter { $0.kind == clockKind }.min { $0.id < $1.id }
     }
+}
+
+public struct KnobShown: Codable, Equatable, Sendable {
+    public var page: String
+    public var face: String?
+    public var at: Date
+
+    public init(page: String, face: String? = nil, at: Date) { self.page = page; self.face = face; self.at = at }
 }
 
 struct KnobDeviceList: Decodable {

@@ -166,7 +166,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         }
         public struct Cast: Decodable, Sendable, Equatable {
             public var color, dryColor, cellColor: RGB
-            public var spanS, stepS: Int
+            public var spanS, stepS, soonS, keepS: Int
             public var labelFontPx, labelGapPx: Double
         }
         public struct Wind: Decodable, Sendable, Equatable {
@@ -174,7 +174,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             public var colors: [RGB]
             public var gaugeKmh, maxKmh: Int
             public var edgesKmh: [Int]
-            public var hystKmh: Int
+            public var hystKmh, autoKmh, keepKmh: Int
             public var darkGain: Double
             public var poleColor, unitColor, streakColor, leafColor: RGB
         }

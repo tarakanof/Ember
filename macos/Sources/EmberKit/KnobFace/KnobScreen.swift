@@ -219,41 +219,66 @@ public struct KnobPomoLive: View {
     }
 }
 
-public struct KnobWeatherLive: View {
-    let state: WeatherState?
-    let animated: Bool
-    let theme: KnobTheme
-    let brightness: Double
-    let memo: KnobWeatherMemo?
-    @State private var ownMemo = KnobWeatherMemo()
-
-    public init(state: WeatherState?, memo: KnobWeatherMemo? = nil, animated: Bool = true, theme: KnobTheme = .standard,
-                brightness: Double = 1) {
-        self.state = state; self.memo = memo; self.animated = animated; self.theme = theme; self.brightness = brightness
-    }
-
-    public var body: some View {
-        if animated {
-            TimelineView(.periodic(from: .now, by: 60)) { tl in face(at: tl.date) }
-        } else {
-            face(at: .now)
-        }
-    }
-
-    private func face(at now: Date) -> some View {
-        let f = (memo ?? ownMemo).face(state: state, now: now, theme: theme.weather)
-        return KnobFaceView(.weather(f), theme: theme, brightness: brightness).equatable()
-    }
-}
-
-@MainActor
-public final class KnobWeatherMemo {
+public struct KnobWeatherMemo: Equatable, Sendable {
     public private(set) var band: Int?
+    public private(set) var drawn: KnobWeatherFaceID?
+    private var rain: KnobRainFace?
+    private var cast: KnobCastFace?
+    private var wind: KnobWindFace?
+    private var air: KnobAirFace?
 
     public init() {}
 
-    public func face(state: WeatherState?, now: Date, theme: KnobTheme.Weather = KnobTheme.standard.weather,
-                     calendar: Calendar = .current) -> KnobTempFace {
+    public func draw(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date,
+                     theme: KnobTheme.Weather = KnobTheme.standard.weather,
+                     calendar: Calendar = .current) -> (face: KnobFace, commit: KnobWeatherMemo?) {
+        let p = peek(pick, state: state, now: now, theme: theme, calendar: calendar)
+        return (p.face, p.memo == self ? nil : p.memo)
+    }
+
+    public func peek(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date,
+                     theme: KnobTheme.Weather = KnobTheme.standard.weather,
+                     calendar: Calendar = .current) -> (face: KnobFace, memo: KnobWeatherMemo) {
+        var m = self
+        let f = m.face(pick, state: state, now: now, theme: theme, calendar: calendar)
+        return (f, m)
+    }
+
+    public mutating func face(_ pick: KnobWeatherFaceID?, state: WeatherState?, now: Date,
+                              theme: KnobTheme.Weather = KnobTheme.standard.weather,
+                              calendar: Calendar = .current) -> KnobFace {
+        let temp = face(state: state, now: now, theme: theme, calendar: calendar)
+        let id = pick ?? KnobWeatherAuto.face(state: state, now: now, shown: drawn, theme: theme, calendar: calendar)
+        let kept = drawn == id
+        drawn = id
+        switch id {
+        case .temp:
+            return .weather(temp)
+        case .rain:
+            let f = KnobRainFace(state: state, now: now, shown: kept ? rain : nil, theme: theme, calendar: calendar)
+            rain = f
+            return .rain(f)
+        case .cast:
+            let f = KnobCastFace(state: state, now: now, shown: kept ? cast : nil, theme: theme, calendar: calendar)
+            cast = f
+            return .cast(f)
+        case .wind:
+            let f = KnobWindFace(state: state, now: now, shown: kept ? wind : nil, theme: theme, calendar: calendar)
+            wind = f
+            return .wind(f)
+        case .days:
+            return .days(KnobDaysFace(state: state, now: now, theme: theme, calendar: calendar))
+        case .sun:
+            return .sun(KnobSunFace(state: state, now: now, theme: theme, calendar: calendar))
+        case .air:
+            let f = KnobAirFace(state: state, now: now, shown: kept ? air : nil, theme: theme, calendar: calendar)
+            air = f
+            return .air(f)
+        }
+    }
+
+    public mutating func face(state: WeatherState?, now: Date, theme: KnobTheme.Weather = KnobTheme.standard.weather,
+                              calendar: Calendar = .current) -> KnobTempFace {
         let f = KnobTempFace(state: state, now: now, theme: theme, calendar: calendar, shownBand: band)
         band = f.cloudBand
         return f

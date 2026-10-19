@@ -13,6 +13,19 @@ public enum KnobFace: Sendable, Equatable {
     case days(KnobDaysFace)
     case sun(KnobSunFace)
     case air(KnobAirFace)
+
+    public var weatherFace: KnobWeatherFaceID? {
+        switch self {
+        case .bot, .pomodoro, .nowPlaying: nil
+        case .weather: .temp
+        case .rain: .rain
+        case .cast: .cast
+        case .wind: .wind
+        case .days: .days
+        case .sun: .sun
+        case .air: .air
+        }
+    }
 }
 
 public struct KnobFaceView: View, Equatable {
@@ -372,7 +385,7 @@ enum KnobFaceRender {
 
         for k in 0..<w.dots.faces {
             ctx.fill(disc(KnobTempFace.dotPoint(k, w.dots, center: c), w.dots.dotRadiusPx),
-                     with: .color(Color(k == 0 ? w.dots.onColor : w.dots.offColor)))
+                     with: .color(Color(k == KnobWeatherFaceID.temp.dot ? w.dots.onColor : w.dots.offColor)))
         }
 
         let head = CGPoint(x: c, y: th.headYPx + th.dyPx), bulb = CGPoint(x: c, y: th.bulbYPx + th.dyPx)
