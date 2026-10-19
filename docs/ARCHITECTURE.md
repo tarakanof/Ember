@@ -3430,7 +3430,8 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `faces`: values, units, sub-lines with LVGL's `#RRGGBB word#` recolour,
   the gauges' colour ramps, the cast dial's hour cells, end labels, the
   lit face dot, and the heroes (umbrella and drops, cast clouds, windsock,
-  day rows, rising sun, flower) as their resting frame; built and tested
+  day rows, rising sun, flower) as simplified static vectors, no arrival or
+  ambient motion; built and tested
   but not yet chosen by the preview, #611 wires them), and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
