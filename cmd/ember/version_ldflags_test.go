@@ -15,10 +15,6 @@ import (
 var dockerfileLdflags = regexp.MustCompile(`-ldflags="([^"]*)"`)
 
 func TestVersion_DockerfileLdflagsReachBinary(t *testing.T) {
-	if testing.Short() {
-		t.Skip("builds the server binary; skipped under -short (CI runs the full suite)")
-	}
-
 	dockerfile, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
 	if err != nil {
 		t.Fatalf("read Dockerfile: %v", err)
@@ -36,16 +32,10 @@ func TestVersion_DockerfileLdflagsReachBinary(t *testing.T) {
 	const want = "9.9.9-test"
 	ldflags = strings.ReplaceAll(ldflags, "$VERSION", want)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	bin := buildEmberBinary(t, "-ldflags="+ldflags)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
-	bin := filepath.Join(t.TempDir(), "ember")
-	build := exec.CommandContext(ctx, "go", "build", "-ldflags="+ldflags, "-o", bin, ".")
-	build.Env = isolatedGoRunEnv(t)
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("go build -ldflags=%q failed: %v\n%s", ldflags, err, out)
-	}
-
 	run := exec.CommandContext(ctx, bin, "version")
 	run.Env = append(isolatedGoRunEnv(t), "CONFIG_PATH=/nonexistent/awtrix.json")
 	var stdout, stderr bytes.Buffer

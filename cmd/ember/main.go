@@ -269,7 +269,7 @@ func scanSubcommand(args []string) (sub string, rest []string, ok bool, err erro
 		tok := args[i]
 		if known[tok] {
 			if stray != "" {
-				return "", nil, false, fmt.Errorf("flag %s before subcommand %s: put subcommand flags after it", stray, tok)
+				return "", nil, false, strayFlagError(stray, tok)
 			}
 			return tok, append(global, args[i+1:]...), true, nil
 		}
@@ -294,4 +294,22 @@ func scanSubcommand(args []string) (sub string, rest []string, ok bool, err erro
 		return "", nil, false, nil
 	}
 	return "", nil, false, nil
+}
+
+func strayFlagError(flagTok, sub string) error {
+	prefix := fmt.Sprintf("flag %s before subcommand %s", flagTok, sub)
+	name, _, _ := strings.Cut(strings.TrimLeft(flagTok, "-"), "=")
+	switch {
+	case name == "print-config":
+		return fmt.Errorf("%s: -print-config is a server flag and does not combine with a subcommand; run `ember -print-config` and `ember %s` separately", prefix, sub)
+	case (name == "h" || name == "help") && sub == "doctor":
+		return fmt.Errorf("%s: for doctor's flags run `ember doctor -h`, for the server's `ember -h`", prefix)
+	case name == "h" || name == "help":
+		return fmt.Errorf("%s: for the server's flags run `ember -h`", prefix)
+	case sub == "doctor" && newDoctorFlags().fs.Lookup(name) != nil:
+		return fmt.Errorf("%s: put doctor flags after it (`ember doctor %s`)", prefix, flagTok)
+	case sub == "doctor":
+		return fmt.Errorf("%s: %s is not a doctor flag; see `ember doctor -h`", prefix, flagTok)
+	}
+	return fmt.Errorf("%s: %s takes no flags", prefix, sub)
 }
