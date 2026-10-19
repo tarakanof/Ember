@@ -119,11 +119,12 @@ extension KnobFaceRender {
                         startPoint: CGPoint(x: box.midX, y: box.minY), endPoint: CGPoint(x: box.midX, y: box.maxY))
     }
 
-    static func drops(_ f: KnobRainFace, _ w: KnobTheme.Weather, in ctx: inout GraphicsContext) {
+    static func drops(_ f: KnobRainFace, _ w: KnobTheme.Weather, sheets: [KnobRainFace.Sheet] = KnobRainFace.sheets,
+                      in ctx: inout GraphicsContext) {
         let snow = f.kind == .snow
         let color = Color(snow ? w.rain.snowColor : KnobRainFace.color(f.intensity, w.rain))
         let tile = Double(KnobRainFace.sheetH), period = 2 * tile
-        for sheet in KnobRainFace.sheets {
+        for sheet in sheets {
             let top = sheet.box.minY + Double(KnobRainFace.sheetOffset(sheet, snow: snow, k: 0))
             var c = ctx
             c.clip(to: Path(sheet.box))
