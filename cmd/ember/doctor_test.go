@@ -240,7 +240,7 @@ func TestDoctorCLI_OfflineSucceeds(t *testing.T) {
 }
 
 func TestDoctorCLI_FlagsBeforeSubcommand(t *testing.T) {
-	runDoctorWithLeadingConfig := func(t *testing.T, body string, leading func(path string) []string, extraEnv ...string) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer, error) {
+	runDoctorWithLeadingConfig := func(t *testing.T, body string, leading func(path string) []string, extraEnv ...string) (*groupCmd, *bytes.Buffer, *bytes.Buffer, error) {
 		t.Helper()
 		cfgPath := filepath.Join(t.TempDir(), "cfg.json")
 		if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {

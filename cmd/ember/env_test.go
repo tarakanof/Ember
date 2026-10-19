@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"testing"
 )
 
@@ -18,6 +20,15 @@ func TestMain(m *testing.M) {
 		os.Exit(2)
 	}
 	testLANGuard, guardedTransport, http.DefaultTransport = guard, tr, rt
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-interrupts
+		signal.Stop(interrupts)
+		drained := goRuns.killAll(goRunDrainBound)
+		fmt.Fprintf(os.Stderr, "%v: killed the go run process groups (drained %v)\n", sig, drained)
+		os.Exit(1)
+	}()
 	code := m.Run()
 	if guard.report(os.Stderr) && code == 0 {
 		code = 1
