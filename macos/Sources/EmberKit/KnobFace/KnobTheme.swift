@@ -184,6 +184,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             public var ringWidthPx: Double
             public var trackColor, nameColor, popColor: RGB
             public var stormBoltColor, stormCloudFill, stormCloudEdge: RGB
+            public var cloudWhiteFill, cloudWhiteEdge, cloudLowFill, cloudLowEdge, cloudGreyFill, cloudGreyEdge: RGB
             public var nameFontPx, popFontPx: Double
         }
         public struct Sun: Decodable, Sendable, Equatable {

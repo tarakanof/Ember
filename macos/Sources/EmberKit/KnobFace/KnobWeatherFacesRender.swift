@@ -367,10 +367,10 @@ extension KnobFaceRender {
             }
         }
         let (p, fill, edge): (Path, RGB, RGB) = switch icon {
-        case .partly: (dayCloudPartly, RGB(r: 0xE6, g: 0xEC, b: 0xF2), RGB(r: 0xC4, g: 0xCC, b: 0xD4))
-        case .cloud: (dayCloudMid, RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
+        case .partly: (dayCloudPartly, t.cloudWhiteFill, t.cloudWhiteEdge)
+        case .cloud: (dayCloudMid, t.cloudLowFill, t.cloudLowEdge)
         case .storm: (dayCloudHigh, t.stormCloudFill, t.stormCloudEdge)
-        default: (dayCloudHigh, RGB(r: 0x8E, g: 0x96, b: 0xA0), RGB(r: 0xA8, g: 0xB0, b: 0xBA))
+        default: (dayCloudHigh, t.cloudGreyFill, t.cloudGreyEdge)
         }
         c.fill(p, with: .color(Color(fill)))
         c.stroke(p, with: .color(Color(edge)), lineWidth: 2)
