@@ -543,29 +543,82 @@ describe('Sender', () => {
     assert.equal(sender.lateSends(), 0)
   })
 
-  test('a repair POST that lands after the DELETE is deleted again', async () => {
+  function manual() {
+    const calls: { effect: Effect; land: (ok?: boolean) => void; expire: () => void }[] = []
+    const timers: (() => void)[] = []
     const rows = new Map<string, string>()
     const log: string[] = []
-    let calls = 0
-    const deliver = async (e: Effect) => {
-      const call = ++calls
-      if (call === 1 || call === 2) await wait(100)
-      if (e.method === 'POST') rows.set(e.body.session, e.body.state)
-      else rows.delete(e.body.session)
-      log.push(e.method + (call <= 2 ? ' (late)' : ''))
-      return true
+    const io = {
+      deliver: (effect: Effect) =>
+        new Promise<boolean>(resolve => {
+          calls.push({
+            effect,
+            land: (ok = true) => {
+              if (effect.method === 'POST') rows.set(effect.body.session, effect.body.state)
+              else rows.delete(effect.body.session)
+              log.push(effect.method === 'POST' ? `POST ${effect.body.state}` : 'DELETE')
+              resolve(ok)
+            },
+            expire: () => timers[calls.length - 1]?.(),
+          })
+        }),
+      timer: () => new Promise<void>(resolve => timers.push(resolve)),
+      reconcile: (): Effect => current,
     }
     let current: Effect = post('done')
-    const io = { deliver, timer: wait, reconcile: () => current }
+    return { calls, timers, rows, log, io, setCurrent: (e: Effect) => void (current = e) }
+  }
+  const flush = () => new Promise<void>(resolve => setImmediate(resolve))
+
+  test('a repair POST that lands after the DELETE is deleted again', async () => {
+    const m = manual()
     const sender = new Sender()
-    void sender.push(post('running'), 20, io, 0)
-    await wait(125)
-    current = del
-    void sender.push(del, 20, io, 125)
-    await wait(500)
-    assert.equal(log.join(' -> '), 'POST (late) -> DELETE -> POST (late) -> DELETE')
-    assert.equal(rows.has('s1'), false)
-    assert.equal(sender.outbox.busy, 0)
+    void sender.push(post('running'), 20, m.io, 0)
+    await flush()
+    m.timers[0]()
+    await flush()
+    m.calls[0].land()
+    await flush()
+    assert.equal(m.calls[1].effect.method, 'POST')
+    m.timers[1]()
+    await flush()
+    m.setCurrent(del)
+    void sender.push(del, 20, m.io, 1)
+    await flush()
+    m.calls[2].land()
+    m.timers[2]()
+    await flush()
+    m.calls[1].land()
+    await flush()
+    assert.equal(m.calls[3].effect.method, 'DELETE')
+    m.calls[3].land()
+    m.timers[3]()
+    await flush()
+    assert.equal(m.log.join(' -> '), 'POST running -> DELETE -> POST done -> DELETE')
+    assert.equal(m.rows.has('s1'), false)
+    assert.equal(sender.lateSends(), 0)
+  })
+
+  test('a slow repair POST that lands over a newer state sends that state once more', async () => {
+    const m = manual()
+    const sender = new Sender()
+    void sender.push(post('running'), 20, m.io, 0)
+    await flush()
+    m.timers[0]()
+    await flush()
+    m.calls[0].land()
+    await flush()
+    m.timers[1]()
+    await flush()
+    m.setCurrent(post('running'))
+    m.calls[1].land()
+    await flush()
+    assert.equal(m.calls[2].effect.method === 'POST' && m.calls[2].effect.body.state, 'running')
+    m.calls[2].land()
+    m.timers[2]()
+    await flush()
+    assert.equal(m.calls.length, 3)
+    assert.equal(m.rows.get('s1'), 'running')
     assert.equal(sender.lateSends(), 0)
   })
 

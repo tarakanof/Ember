@@ -628,7 +628,7 @@ export function bounded<T>(work: Promise<T>, timer: Promise<void>, onTimeout: T)
 export type SendIO = {
   deliver: (effect: Effect) => Promise<boolean>
   timer: (ms: number) => Promise<void>
-  reconcile: (session: string) => Effect
+  reconcile: (session: string) => Effect | Promise<Effect>
 }
 
 type Watch = 'none' | 'stray' | 'repair'
@@ -661,21 +661,22 @@ export class Sender {
       { ok: false, timedOut: true },
     )
     if (watch !== 'none' && settled.timedOut && effect.method === 'POST') {
-      this.watchLate(effect.body.session, delivery, limitMs, io, now, watch === 'repair')
+      this.watchLate(effect, delivery, limitMs, io, now, watch === 'repair')
     }
     return settled.ok
   }
 
-  private watchLate(key: string, delivery: Promise<boolean>, limitMs: number, io: SendIO, now: number, isRepair: boolean): void {
+  private watchLate(effect: Effect, delivery: Promise<boolean>, limitMs: number, io: SendIO, now: number, isRepair: boolean): void {
+    const key = effect.body.session
     const starts = this.strays.get(key) ?? []
     starts.push(now)
     this.strays.set(key, starts)
-    void delivery.then(() => {
+    void delivery.then(async () => {
       starts.splice(starts.indexOf(now), 1)
       if (starts.length === 0) this.strays.delete(key)
-      const repair = io.reconcile(key)
-      if (isRepair && repair.method === 'POST') return
-      void this.outbox.push(key, () => this.attempt(repair, limitMs, io, now, repair.method === 'POST' ? 'repair' : 'none'))
+      const repair = await io.reconcile(key)
+      if (isRepair && repair.method === 'POST' && repair.body.state === effect.body.state) return
+      void this.outbox.push(key, () => this.attempt(repair, limitMs, io, now, repair.method === 'POST' && !isRepair ? 'repair' : 'none'))
     })
   }
 }
