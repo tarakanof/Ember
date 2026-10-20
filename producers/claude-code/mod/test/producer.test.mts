@@ -35,6 +35,7 @@ import {
   nowOr,
   unknownField,
 } from '../hooks/producer.ts'
+import * as producerModule from '../hooks/producer.ts'
 import { argvFromPs, detectT3, isT3ServerArgv, parsePsInfo, type T3Probe } from '../hooks/t3.ts'
 
 const row = (status: string, waitingFor = '') => ({ status, waitingFor })
@@ -441,8 +442,8 @@ test('send POSTs and DELETEs /v1/status with the bearer token to a local stub', 
     const cfg = config({ EMBER_SERVER_URL: `http://127.0.0.1:${port}/` })
     const t = new Tracker()
     const fetcher = (url: string, init: { method: string; headers: Record<string, string>; body: string }) => fetch(url, init)
-    for (const e of t.promptSubmit(cfg, 0, 's1', 'go', HOME)) assert.equal(await send(fetcher, cfg, e), true)
-    for (const e of t.sessionEnd(cfg, 's1', 'logout')) assert.equal(await send(fetcher, cfg, e), true)
+    for (const e of t.promptSubmit(cfg, 0, 's1', 'go', HOME)) assert.equal(await send(fetcher, cfg, e, new FieldDropper()), true)
+    for (const e of t.sessionEnd(cfg, 's1', 'logout')) assert.equal(await send(fetcher, cfg, e, new FieldDropper()), true)
     assert.deepEqual(seen, [
       {
         method: 'POST',
@@ -470,7 +471,7 @@ test('send reports a refused connection as false instead of throwing', async () 
   const failing = async () => {
     throw new Error('ECONNREFUSED')
   }
-  assert.equal(await send(failing, cfg, effect), false)
+  assert.equal(await send(failing, cfg, effect, new FieldDropper()), false)
 })
 
 describe('send against an older server', () => {
@@ -1138,5 +1139,11 @@ describe('nowOr', () => {
   })
   test('a clock that answers is used as is', async () => {
     assert.equal(await nowOr(() => Promise.resolve(7), () => 42), 7)
+  })
+})
+
+describe('send', () => {
+  test('there is no shared process-wide dropper to leak a drop between sessions', () => {
+    assert.equal('optionalFields' in producerModule, false)
   })
 })

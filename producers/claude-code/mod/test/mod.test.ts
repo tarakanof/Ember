@@ -223,6 +223,20 @@ test('a host that resolves to nothing is looked up once, then again after 10 min
   expect(sent).toHaveLength(0)
 })
 
+test('a host found on the 10-minute retry is used by the next hook', async ($, on) => {
+  const placeholder = { ...TRUSTED, text: 'EMBER_SOURCE=\nEMBER_SERVER_URL=http://127.0.0.1:9\n' }
+  const { sent, clock, ctl } = world(on, placeholder)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent).toHaveLength(0)
+  ctl.hostName = 'Dmitrys-MacBook-Pro'
+  await clock.advance(600_000)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent.map(s => s.body.source)).toEqual(['mbp-mod'])
+})
+
 test('a server that rejects project gets the POST again without it', async ($, on) => {
   const { sent, clock, ctl } = world(on)
   ctl.rejectProject = true

@@ -970,8 +970,6 @@ export class FieldDropper {
   }
 }
 
-export const optionalFields = new FieldDropper()
-
 export function unknownField(status: number, body: string): string {
   if (status !== 400) return ''
   return UNKNOWN_FIELD_RE.exec(body)?.[1] ?? ''
@@ -981,7 +979,7 @@ export async function send(
   fetch: FetchLike,
   cfg: Config,
   effect: Effect,
-  dropper: FieldDropper = optionalFields,
+  dropper: FieldDropper,
   clock: () => number = Date.now,
 ): Promise<boolean> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
