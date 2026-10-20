@@ -135,21 +135,22 @@ public struct KnobCastFace: Equatable, Sendable {
     }
 
     public static func ringPoint(_ deg: Double, radius: Double = 222, center: Double = 233) -> CGPoint {
-        let a = deg * .pi / 180
-        return CGPoint(x: center + radius * sin(a), y: center - radius * cos(a))
+        let a = Float(deg) * KnobFaceRender.nearestPi / 180, r = Float(radius), c = Float(center)
+        return CGPoint(x: Double(c + r * sin(a)), y: Double(c - r * cos(a)))
     }
 
     public static func labelAnchor(_ deg: Double) -> (CGPoint, align: Int) {
-        let lc = (deg.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
-        var r = 188.0, align = 0
+        let d = Float(deg), lc = (d.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
+        var r: Float = 188, align = 0
         if lc > 45 && lc < 135 { align = -1; r = 198 } else if lc > 225 && lc < 315 { align = 1; r = 198 }
-        return (ringPoint(lc, radius: r), align)
+        return (ringPoint(Double(lc), radius: Double(r)), align)
     }
 
     public static func labelPlace(_ deg: Double, w: Double, h: Double, avoid: CGRect, gap: Double) -> CGPoint? {
         let (p, align) = labelAnchor(deg)
-        let left = align < 0 ? p.x - w : align == 0 ? p.x - w / 2 : p.x
-        let x = left.rounded(), y = (p.y - h / 2).rounded()
+        let ax = Float(p.x), ay = Float(p.y), fw = Float(w), fh = Float(h)
+        let left = align < 0 ? ax - fw : align == 0 ? ax - fw / 2 : ax
+        let x = Double(left.rounded()), y = Double((ay - fh / 2).rounded())
         let toLeft: Bool = x + w + gap <= avoid.minX, toRight: Bool = x >= avoid.maxX + gap
         let above: Bool = y + h + gap <= avoid.minY, below: Bool = y >= avoid.maxY + gap
         let clear = toLeft || toRight || above || below
