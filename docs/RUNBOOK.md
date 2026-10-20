@@ -572,6 +572,24 @@ rows. Needs Claude Code 2.1.288 or newer.
   POST that gets `400 unknown field "project"` is sent again without it, and
   the mod leaves `project` out for an hour. Other fields and other 400s are
   not retried.
+- **Hot reload.** `/reload-plugins` (or an edit under `--plugin-dir`) keeps
+  the tracker: it is mirrored to `$.state` (`ember-mod.snapshot`) after each
+  event and tick, and the reloaded module restores it on its first event or
+  tick, so a running or waiting session keeps its state, trail and pending
+  approval instead of vanishing until its next hook. Heartbeats resume within
+  10 s. A send in flight at the reload is lost with the old code (the next
+  heartbeat repeats it), and a timed-out POST's late-settle repair is lost too
+  (its 60 s heartbeat skip is kept). `$.state` lives as long as the Claude Code
+  process; restarting it starts empty.
+- **T3 sessions** (#216). Like the Go hooks, the mod skips Claude threads that
+  T3 Code spawns (T3 reports them as `t3`): an SDK session whose launcher is a T3
+  server posts nothing. Same gate and launcher rules as `t3.go`, run once per
+  process with a 250 ms budget. A failed lookup posts as usual and retries
+  every 30 s, and a later match DELETEs the earlier rows. Known gaps match the
+  Go ones (dev/checkout T3 servers and an inherited SDK env), plus: argv on
+  macOS comes from `ps`, so a space inside a later `node` argument breaks the
+  `node .../t3` match. To check a T3 thread, run T3 with the mod installed
+  and confirm `/state` shows only `t3/...` rows for it.
 - **Where it differs from the Go producer** (phase 1):
   - `waiting` from a permission dialog ends when the approved tool
     **finishes** (the awaited `tool.call` resolves), not when you click

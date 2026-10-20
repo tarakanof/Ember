@@ -26,8 +26,11 @@ import {
   stopFailureMessage,
   type Config,
   type Effect,
+  parseSnapshot,
+  STRAY_SKIP_MS,
   unknownField,
 } from '../hooks/producer.ts'
+import { argvFromPs, detectT3, isT3ServerArgv, parsePsInfo, type T3Probe } from '../hooks/t3.ts'
 
 const parity = JSON.parse(readFileSync(new URL('./parity.json', import.meta.url), 'utf8'))
 
@@ -71,6 +74,73 @@ describe('parity with the Go producer (test/parity.json)', () => {
   })
   test('host name to source', () => {
     for (const c of parity.host_name) assert.equal(normalizeHostName(c.raw), c.want, JSON.stringify(c.raw))
+  })
+})
+
+type FakeProc = { ppid: number; comm: string; argv?: string[] }
+
+function fakeProbe(env: Record<string, string>, procs: Record<string, FakeProc>, lookups: { n: number } = { n: 0 }): T3Probe {
+  return {
+    isSDK: async () => env.CLAUDE_CODE_ENTRYPOINT === 'sdk-ts' || (env.CLAUDE_AGENT_SDK_VERSION ?? '') !== '',
+    start: async () => 100,
+    info: async pid => {
+      lookups.n++
+      const p = procs[String(pid)]
+      return p ? { ppid: p.ppid, comm: p.comm } : undefined
+    },
+    argv: async pid => {
+      lookups.n++
+      return procs[String(pid)]?.argv
+    },
+  }
+}
+
+describe('T3 spawn detection (#216), parity with the Go producer', () => {
+  test('the shared cases (parity.json t3)', async () => {
+    assert.ok(parity.t3.length > 20)
+    for (const c of parity.t3) assert.equal((await detectT3(fakeProbe(c.env, c.procs))) === 'yes', c.want, c.name)
+  })
+  test('a failed lookup is unknown, not a verdict, so the next event tries again', async () => {
+    const sdk = { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' }
+    assert.equal(await detectT3(fakeProbe(sdk, {})), 'unknown')
+    assert.equal(await detectT3(fakeProbe(sdk, { '100': { ppid: 99, comm: 'sh' }, '99': { ppid: 98, comm: 'claude' }, '98': { ppid: 1, comm: 'x' } })), 'unknown')
+  })
+  test('an interactive session pays for no process lookups', async () => {
+    const lookups = { n: 0 }
+    await detectT3(fakeProbe({ CLAUDE_CODE_ENTRYPOINT: 'cli' }, {}, lookups))
+    assert.equal(lookups.n, 0)
+  })
+  test('an SDK session costs sh, claude, launcher and its argv, as in Go', async () => {
+    const lookups = { n: 0 }
+    const d = '/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)'
+    const tree = {
+      '100': { ppid: 99, comm: '/bin/sh' },
+      '99': { ppid: 98, comm: 'claude' },
+      '98': { ppid: 1, comm: d, argv: [d, 'serve'] },
+    }
+    assert.equal(await detectT3(fakeProbe({ CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' }, tree, lookups)), 'no')
+    assert.equal(lookups.n, 4)
+    lookups.n = 0
+    assert.equal(await detectT3(fakeProbe({ CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' }, { ...tree, '98': { ppid: 1, comm: 't3', argv: ['/x/t3', 'serve'] } }, lookups)), 'yes')
+    assert.equal(lookups.n, 4)
+  })
+  test('argv rebuilt from ps keeps a spaced executable whole', () => {
+    const comm = '/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)'
+    const args = `${comm} --require /x/compileCache.cjs /Applications/T3 Code (Alpha).app/Contents/Resources/app.asar/apps/server/dist/bin.mjs --bootstrap-fd 3\n`
+    const argv = argvFromPs(comm, args)
+    assert.equal(argv[0], comm)
+    assert.equal(isT3ServerArgv(argv), true)
+    assert.deepEqual(argvFromPs('/usr/bin/node', 'node /usr/local/bin/t3 serve'), ['node', '/usr/local/bin/t3', 'serve'])
+    assert.equal(isT3ServerArgv(argvFromPs('/usr/bin/node', 'node /usr/local/bin/t3 serve')), true)
+    assert.equal(isT3ServerArgv(argvFromPs('/usr/bin/python3', '/usr/bin/python3 t3')), false)
+  })
+  test('ps output parses with a spaced comm and rejects junk', () => {
+    assert.deepEqual(parsePsInfo('  412 /Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)\n'), {
+      ppid: 412,
+      comm: '/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)',
+    })
+    assert.equal(parsePsInfo(''), undefined)
+    assert.equal(parsePsInfo('PPID COMMAND'), undefined)
   })
 })
 
@@ -466,6 +536,68 @@ describe('shared transitions with the Go producer (test/transitions.json)', () =
       })
     })
   }
+})
+
+describe('snapshot for a hot reload', () => {
+  const reborn = (t: Tracker): Tracker => {
+    const snap = parseSnapshot(JSON.parse(JSON.stringify({ v: 1, sessions: t.entries(), strays: [], permissionMode: '', t3: '' })))
+    assert.ok(snap)
+    const next = new Tracker()
+    next.restore(snap.sessions)
+    return next
+  }
+  for (const sc of transitions.scenarios) {
+    test(`${sc.name}: a reload between every step changes nothing`, () => {
+      const env = parseEnvFile(transitions.env)
+      const r = resolveConfig({ env: { ...env, EMBER_MOD_SOURCE: env.EMBER_SOURCE ?? '', EMBER_SERVER_URL: 'http://h' }, home: '/home/nobody' })
+      assert.ok('config' in r)
+      let t = new Tracker()
+      sc.steps.forEach((step: Step, n: number) => {
+        assert.deepEqual(drive(t, r.config, step), step.want, `step ${n} (${step.event} at ${step.at}s)`)
+        t = reborn(t)
+      })
+    })
+  }
+  test('restore keeps what the new module already tracked', () => {
+    const cfg = config()
+    const old = new Tracker()
+    old.promptSubmit(cfg, 1000, 's1', 'old', '/repo')
+    const fresh = new Tracker()
+    fresh.promptSubmit(cfg, 2000, 's1', 'new', '/repo')
+    fresh.restore(old.entries())
+    assert.equal(fresh.sessions.get('s1')?.message, 'new')
+  })
+  test('parseSnapshot drops junk and fills missing fields', () => {
+    assert.equal(parseSnapshot(undefined), undefined)
+    assert.equal(parseSnapshot({ v: 2, sessions: [] }), undefined)
+    const snap = parseSnapshot({
+      v: 1,
+      sessions: [['ok', { state: 'running', message: 7, changedAt: 5 }], ['no-state', {}], [3, {}], 'bad'],
+      strays: [['s', [1, 'x', 2]], ['t', 'bad']],
+      permissionMode: 4,
+      t3: 'maybe',
+    })
+    assert.ok(snap)
+    assert.deepEqual(snap.sessions.map(([id]) => id), ['ok'])
+    assert.equal(snap.sessions[0]?.[1].message, '')
+    assert.equal(snap.sessions[0]?.[1].changedAt, 5)
+    assert.deepEqual(snap.strays, [['s', [1, 2]]])
+    assert.equal(snap.permissionMode, '')
+    assert.equal(snap.t3, '')
+  })
+  test('stray POST bookkeeping survives a reload only while it can still matter', () => {
+    const sender = new Sender()
+    const now = 1_000_000
+    sender.restore(
+      [
+        ['young', [now - 1000]],
+        ['old', [now - STRAY_SKIP_MS - 1]],
+      ],
+      now,
+    )
+    assert.deepEqual(sender.entries(), [['young', [now - 1000]]])
+    assert.equal(sender.lateSends(), 1)
+  })
 })
 
 describe('Outbox', () => {

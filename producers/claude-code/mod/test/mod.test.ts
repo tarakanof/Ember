@@ -23,7 +23,33 @@ function ran(stdout: string, exitCode = 0) {
   return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
 }
 
-function world(on: On, envFile: EnvFile | null = TRUSTED) {
+type Proc = { ppid: number; comm: string; argv?: string[] }
+
+const T3_DESKTOP = '/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)'
+
+function t3Tree(launcherArgv: string[]): Record<string, Proc> {
+  return {
+    '100': { ppid: 99, comm: '/bin/sh' },
+    '99': { ppid: 98, comm: 'claude' },
+    '98': { ppid: 1, comm: launcherArgv[0] ?? '', argv: launcherArgv },
+  }
+}
+
+const T3_SERVER = [T3_DESKTOP, '--require', '/x/compileCache.cjs', '/Applications/T3 Code (Alpha).app/Contents/Resources/app.asar/apps/server/dist/bin.mjs', '--bootstrap-fd', '3']
+const SDK_ENV = { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' }
+
+function heldState(on: On, initial?: unknown) {
+  const held = { value: initial as unknown, version: initial === undefined ? 0 : 1 }
+  on('state.get', () => ({ value: { value: held.value, version: held.version } }))
+  on('state.set', (_$, e) => {
+    held.value = e.value
+    held.version++
+    return { value: { isSet: true as const, version: held.version } }
+  })
+  return held
+}
+
+function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<string, string> = {}) {
   const sent: Sent[] = []
   const done: string[] = []
   const ctl = {
@@ -39,8 +65,10 @@ function world(on: On, envFile: EnvFile | null = TRUSTED) {
     hostName: '',
     hostRuns: 0,
     rejectProject: false,
+    procs: {} as Record<string, Proc>,
+    psCalls: 0,
   }
-  mock.env(on, { HOME })
+  mock.env(on, { HOME, ...extraEnv })
   const clock = mock.clock(on, { now: 1_000_000 })
   on('fs.read', async ($, e) => {
     if (e.path !== ENV_FILE || envFile === null) return { deny: 'ENOENT' }
@@ -60,6 +88,18 @@ function world(on: On, envFile: EnvFile | null = TRUSTED) {
       ctl.hostRuns++
       if (bin.endsWith('scutil') && ctl.hostName !== '') return ran(ctl.hostName + '\n')
       return ran('', 127)
+    }
+    if (/(^|\/)sh$/.test(bin) && e.argv[1] === '-c') {
+      if (e.argv[2] === 'echo $PPID') return ran('100\n')
+      return ran('', 1)
+    }
+    if (/(^|\/)ps$/.test(bin)) {
+      ctl.psCalls++
+      const proc = ctl.procs[e.argv[e.argv.length - 1] ?? '']
+      if (!proc) return ran('', 1)
+      if (e.argv.includes('ppid=,comm=')) return ran(`${proc.ppid} ${proc.comm}\n`)
+      if (e.argv.includes('comm=')) return ran(proc.comm + '\n')
+      if (e.argv.includes('args=')) return ran((proc.argv ?? [proc.comm]).join(' ') + '\n')
     }
     const usable = ctl.absoluteMissing ? !bin.startsWith('/') : bin.startsWith('/usr/bin/')
     if (!usable) return ran('', 127)
@@ -457,4 +497,123 @@ test('heartbeats skip a session only while its stray POST is younger than 60 s',
   expect(sent).toHaveLength(1)
   await clock.advance(10_000)
   expect(sent.map(s => s.body.state)).toEqual(['running', 'running'])
+})
+
+test('a heartbeat re-posts a session the previous copy of the module tracked, restored from $.state', async ($, on) => {
+  const held = heldState(on)
+  const { sent, clock } = world(on)
+  const at = clock.now()
+  const seeded = {
+    v: 1 as const,
+    sessions: [
+      [
+        'sess-1',
+        {
+          state: 'running',
+          message: 'before reload',
+          activity: 'Bash: make',
+          project: 'proj',
+          changedAt: at - 5000,
+          hookAt: at - 5000,
+          pendingPermission: false,
+          pendingTool: '',
+          pendingToolUseId: '',
+          askedTool: '',
+          askedToolUseId: '',
+          lastTool: 'Bash',
+          lastToolUseId: 'toolu_1',
+          resumedTool: '',
+          resumedAt: 0,
+          agentInput: false,
+          parked: false,
+        },
+      ],
+    ],
+    strays: [],
+    permissionMode: '',
+    t3: '' as const,
+  }
+  held.value = seeded
+  held.version = 1
+  await $.session.start(START)
+  await clock.advance(10_000)
+  expect(sent.map(s => [s.method, s.body.session, s.body.state, s.body.message, s.body.activity])).toEqual([
+    ['POST', 'sess-1', 'running', 'before reload', 'Bash: make'],
+  ])
+})
+
+test('the tracker is written to $.state after each event so a reload can read it back', async ($, on) => {
+  const held = heldState(on)
+  const { clock } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  const sessions = (held.value as { sessions: [string, { state: string; message: string }][] } | undefined)?.sessions ?? []
+  expect(sessions.map(([id, s]) => [id, s.state, s.message])).toEqual([['sess-1', 'running', 'go']])
+  await $.classic.SessionEnd(END)
+  await clock.settle()
+  expect((held.value as { sessions: unknown[] }).sessions).toEqual([])
+})
+
+test('a T3-spawned session posts nothing and sends no DELETE', async ($, on) => {
+  const { sent, clock, ctl } = world(on, TRUSTED, SDK_ENV)
+  ctl.procs = t3Tree(T3_SERVER)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await $.classic.Stop(STOP)
+  await $.classic.SessionEnd(END)
+  await clock.advance(10_000)
+  expect(sent).toEqual([])
+  expect(ctl.psCalls).toBeGreaterThan(0)
+})
+
+test('the T3 verdict is taken once per process, not on every event', async ($, on) => {
+  const { clock, ctl } = world(on, TRUSTED, SDK_ENV)
+  ctl.procs = t3Tree(T3_SERVER)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  const first = ctl.psCalls
+  await $.classic.Stop(STOP)
+  await clock.advance(10_000)
+  expect(ctl.psCalls).toBe(first)
+})
+
+test('an SDK session that no T3 server launched still posts', async ($, on) => {
+  const { sent, clock, ctl } = world(on, TRUSTED, SDK_ENV)
+  ctl.procs = t3Tree(['node', '/Users/u/agent/run.mjs'])
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent.map(s => s.body.state)).toEqual(['running'])
+})
+
+test('an interactive session never looks at the process tree', async ($, on) => {
+  const { sent, clock, ctl } = world(on, TRUSTED, { CLAUDE_CODE_ENTRYPOINT: 'cli' })
+  ctl.procs = t3Tree(T3_SERVER)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(ctl.psCalls).toBe(0)
+  expect(sent.map(s => s.body.state)).toEqual(['running'])
+})
+
+test('a failed process lookup reports the session, and a later one that finds T3 deletes the row', async ($, on) => {
+  const { sent, clock, ctl } = world(on, TRUSTED, SDK_ENV)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent.map(s => s.body.state)).toEqual(['running'])
+  ctl.procs = t3Tree(T3_SERVER)
+  await $.classic.Stop(STOP)
+  await clock.settle()
+  expect(sent.map(s => s.method)).toEqual(['POST', 'POST'])
+  await clock.advance(30_000)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent.at(-1)).toEqual(expect.objectContaining({ method: 'DELETE', body: { source: 'mbp-mod', tool: 'claude', session: 'sess-1' } }))
+  const count = sent.length
+  await clock.advance(10_000)
+  await $.classic.Stop(STOP)
+  await clock.settle()
+  expect(sent).toHaveLength(count)
 })
