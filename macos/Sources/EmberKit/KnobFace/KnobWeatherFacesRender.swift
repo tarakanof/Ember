@@ -39,9 +39,11 @@ extension KnobFaceRender {
         ctx.stroke(disc(at, w.marker.ringRadiusPx), with: .color(Color(w.marker.color)), lineWidth: w.marker.ringWidthPx)
     }
 
+    static let nearestPi = Float(Double.pi)
+
     static func gaugeMarkerPoint(_ fraction: Double, t: Double?, _ w: KnobTheme.Weather) -> CGPoint {
         let f = Float(fraction) * Float(KnobArrive.eased(t)), r = Float(w.ring.radiusPx)
-        let a = (Float(w.ring.fromDeg) + Float(w.ring.sweepDeg) * f) * .pi / 180
+        let a = (Float(w.ring.fromDeg) + Float(w.ring.sweepDeg) * f) * nearestPi / 180
         return CGPoint(x: Double(233 + r * sin(a)), y: Double(233 - r * cos(a)))
     }
 

@@ -78,7 +78,7 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     let img = try render(.rain(r))
     #expect(litDot(img) == 1, "the second face dot")
     #expect(near(pixel(img, ring(0.02)), w.rain.ringFrom, 30) && near(pixel(img, ring(0.98)), w.rain.colors[2], 30))
-    #expect(markerRing(img, KnobTempFace.gaugePoint(0.8, w, center: 233)))
+    #expect(markerRing(img, KnobFaceRender.gaugeMarkerPoint(0.8, t: nil, w)))
     #expect(near(pixel(img, 233, 200), w.rain.umbrellaColor, 40), "the umbrella handle under the canopy")
     #expect(near(pixel(img, 233, 160), black, 10), "a black canopy")
     #expect(has(img, w.rain.colors[2], rows: 210..<300, cols: 150..<320), "the chance in the heavy rain colour")
@@ -125,7 +125,7 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     #expect(litDot(img) == 3)
     #expect(near(pixel(img, ring(0.02)), RGB(hex: "#9AA4B0")!, 30))
     #expect(near(pixel(img, ring(0.98)), RGB(hex: "#F08A3A")!, 30), "49 km/h: a strong breeze")
-    #expect(markerRing(img, KnobTempFace.gaugePoint(0.36, w, center: 233)))
+    #expect(markerRing(img, KnobFaceRender.gaugeMarkerPoint(0.36, t: nil, w)))
     let q = KnobWindFace.sockQuads(level: 1, pose: 0)
     func mid(_ p: [CGPoint]) -> CGPoint { CGPoint(x: p.map(\.x).reduce(0, +) / 4, y: p.map(\.y).reduce(0, +) / 4) }
     #expect(near(pixel(img, mid(q[0])), g, 20) && near(pixel(img, mid(q[1])), KnobWindFace.dark(g, w.wind), 20), "striped sock")
@@ -160,7 +160,7 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     let img = try render(.sun(face))
     #expect(litDot(img) == 5)
     #expect(near(pixel(img, ring(0.01)), w.sun.blueOut, 30) && near(pixel(img, ring(0.5)), w.sun.dayNoon, 30))
-    #expect(markerRing(img, KnobTempFace.gaugePoint(face.fraction, w, center: 233)))
+    #expect(markerRing(img, KnobFaceRender.gaugeMarkerPoint(face.fraction, t: nil, w)))
     #expect(near(pixel(img, 233, 160), w.sun.goldColor, 40) && near(pixel(img, 233, 190), w.sun.goldColor, 60), "the sun above the horizon")
     #expect(near(pixel(img, 233, Int(w.sun.horizonYPx)), RGB(hex: "#9AA4B0")!, 30) && near(pixel(img, 233, 201), black, 10),
             "nothing of the sun below the horizon")
@@ -174,7 +174,7 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     let img = try render(.air(a))
     #expect(litDot(img) == 6)
     #expect(near(pixel(img, ring(0.02)), RGB(hex: "#4FD6CC")!, 30) && near(pixel(img, ring(0.98)), RGB(hex: "#D03060")!, 30))
-    #expect(markerRing(img, KnobTempFace.gaugePoint(0.42, w, center: 233)))
+    #expect(markerRing(img, KnobFaceRender.gaugeMarkerPoint(0.42, t: nil, w)))
     #expect(near(pixel(img, 233, 112), RGB(hex: "#F5C84A")!, 30), "the healthy flower's centre")
     #expect(has(img, KnobAirFace.color(42, w.air), rows: 210..<300, cols: 150..<320) && has(img, RGB(hex: "#F0E641")!, rows: 302..<335, cols: 150..<320))
     a.aqi = 68; a.band = 3; a.wilted = true; a.fraction = 0.68
@@ -235,7 +235,8 @@ private func same(_ a: CGImage, _ b: CGImage) -> Bool {
     guard a.width == b.width, a.height == b.height, a.bytesPerRow == b.bytesPerRow, let x = bytes(a), let y = bytes(b), x.count == y.count else {
         return false
     }
-    return zip(x, y).allSatisfy { abs(Int($0) - Int($1)) <= 1 }
+    let off = zip(x, y).filter { $0 != $1 }
+    return off.count <= 16 && off.allSatisfy { abs(Int($0) - Int($1)) <= 1 }
 }
 
 private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
@@ -306,8 +307,8 @@ private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
     #expect(same(try render(.weather(f), t: 3), rest), "the arrival settles on the rest pose")
     let th = w.thermo, tube = CGPoint(x: 233, y: (KnobTempFace.mercuryTop(21, th) + th.mercuryBottomPx) / 2 + th.dyPx)
     #expect(near(pixel(rest, tube), KnobTempFace.color(21, w.scale), 30) && near(pixel(start, tube), black, 10), "the mercury rises from the bulb")
-    #expect(markerRing(start, KnobTempFace.gaugePoint(0, w, center: 233)) && !markerRing(start, KnobTempFace.gaugePoint(f.fraction, w, center: 233)))
-    #expect(markerRing(mid, KnobTempFace.gaugePoint(f.fraction * KnobArrive.eased(0.5), w, center: 233)), "the marker eases along the ring")
+    #expect(markerRing(start, KnobFaceRender.gaugeMarkerPoint(0, t: nil, w)) && !markerRing(start, KnobFaceRender.gaugeMarkerPoint(f.fraction, t: nil, w)))
+    #expect(markerRing(mid, KnobFaceRender.gaugeMarkerPoint(f.fraction, t: 0.5, w)), "the marker eases along the ring")
     #expect(has(mid, KnobTempFace.color(15, w.scale), rows: 210..<300, cols: 150..<320, tol: 12)
         && !has(mid, KnobTempFace.color(21, w.scale), rows: 210..<300, cols: 150..<320, tol: 4), "15° on the way to 21°")
 }
@@ -327,17 +328,17 @@ private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
 
 @MainActor @Test func gaugeFacesEaseTheirMarkerAndCountUp() throws {
     let dry = KnobRainFace(dry: true, intensity: 1, pop: 40, sub: "Dry now")
-    #expect(markerRing(try render(.rain(dry), t: 0.5), KnobTempFace.gaugePoint(0.4 * KnobArrive.eased(0.5), w, center: 233)))
+    #expect(markerRing(try render(.rain(dry), t: 0.5), KnobFaceRender.gaugeMarkerPoint(0.4, t: 0.5, w)))
     #expect(same(try render(.rain(dry), t: 3), try render(.rain(dry))))
     var wind = KnobWindFace()
     wind.have = true; wind.kmh = 30; wind.level = 2; wind.fraction = 0.6
     let start = try render(.wind(wind), t: 0)
-    #expect(markerRing(start, KnobTempFace.gaugePoint(0, w, center: 233)))
+    #expect(markerRing(start, KnobFaceRender.gaugeMarkerPoint(0, t: nil, w)))
     #expect(has(start, KnobWindFace.color(0, w.wind), rows: 210..<300, cols: 150..<320, tol: 8)
         && !has(start, KnobWindFace.color(30, w.wind), rows: 210..<300, cols: 150..<320, tol: 8), "0 km/h in its colour")
     var air = KnobAirFace()
     air.have = true; air.aqi = 42; air.band = 2; air.fraction = 0.42
-    #expect(markerRing(try render(.air(air), t: 0.5), KnobTempFace.gaugePoint(0.42 * KnobArrive.eased(0.5), w, center: 233)))
+    #expect(markerRing(try render(.air(air), t: 0.5), KnobFaceRender.gaugeMarkerPoint(0.42, t: 0.5, w)))
     let (s, now) = sunFixture()
     let sun = KnobSunFace(state: s, now: now)
     let eased = KnobFaceRender.gaugeMarkerPoint(sun.fraction, t: 0.5, w)

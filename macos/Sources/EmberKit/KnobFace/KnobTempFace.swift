@@ -157,11 +157,6 @@ public struct KnobTempFace: Equatable, Sendable {
         return RGB(r: ch(a.r, b.r), g: ch(a.g, b.g), b: ch(a.b, b.b))
     }
 
-    public static func gaugePoint(_ fraction: Double, _ theme: KnobTheme.Weather, center: Double) -> CGPoint {
-        let a = (theme.ring.fromDeg + theme.ring.sweepDeg * fraction) * .pi / 180
-        return CGPoint(x: center + theme.ring.radiusPx * sin(a), y: center - theme.ring.radiusPx * cos(a))
-    }
-
     public static func mercuryTop(_ c: Double, _ t: KnobTheme.Weather.Thermo) -> Double {
         let m = t.mercuryTop
         return min(max(m.refPx - (c - m.refC) * m.risePx / m.perC, m.minPx), m.maxPx)

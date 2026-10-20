@@ -324,4 +324,5 @@ private let arrivalTimes = [0, 0.1, 0.5, 1.0, 1.3, 1.34]
     #expect(at(KnobTempFace(value: 26, todayMinC: 0, todayMaxC: 47).fraction, 0.65) == [207, 13], "26 on 0-47 at t 0.65")
     #expect(at(KnobTempFace(value: 6, todayMinC: -20, todayMaxC: 27).fraction, 9.5 / 15) == [207, 13], "6 on -20-27 mid-frame 9")
     #expect(at(0.8, nil) == [452, 198] && at(0, 0) == [76, 390], "the rest pose and the start")
+    #expect(at(49.0 / 57, 12.5 / 30) == [304, 23] && at(18214.0 / 50000, nil) == [101, 55], "(float)M_PI, not Float.pi")
 }
