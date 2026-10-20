@@ -171,7 +171,7 @@ private final class FakeClock: @unchecked Sendable {
     }
     var paths: [String] { log.map { "\($0.method) \($0.path)" } }
 
-    func gatedRequestArrived(timeout: Duration = .seconds(5),
+    func gatedRequestArrived(whileRunning task: Task<Void, Never>,
                              sourceLocation: SourceLocation = #_sourceLocation) async {
         let id = UUID()
         let arrived = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
@@ -182,13 +182,13 @@ private final class FakeClock: @unchecked Sendable {
             }
             if now { c.resume(returning: true); return }
             Task { [self] in
-                try? await Task.sleep(for: timeout)
+                await task.value
                 lock.withLock { arrivalWaiters.removeValue(forKey: id) }?.resume(returning: false)
             }
         }
         if !arrived {
             let route = lock.withLock { armedRoute } ?? "(none)"
-            Issue.record("gated request \(route) never arrived within \(timeout)", sourceLocation: sourceLocation)
+            Issue.record("gated request \(route) never arrived; the task finished without sending it", sourceLocation: sourceLocation)
         }
     }
 
@@ -369,7 +369,7 @@ private func ngServer() -> FakeClock {
     fake.responses["GET /v1/device/settings"] = (200, ##"{"brightness":120,"soundEnabled":true,"buzzerVolume":80,"timeColor":"#FF0000","autoTransition":false,"blockNavigation":true}"##)
     fake.gatedRoute = "GET /v1/device/settings"
     let refocus = Task { await m.load() }
-    await fake.gatedRequestArrived()
+    await fake.gatedRequestArrived(whileRunning: refocus)
     m.settings.draft.brightness = 200
     m.settings.scheduleSave()
     fake.gate.signal()
@@ -386,7 +386,7 @@ private func ngServer() -> FakeClock {
     let (m, _) = makeModel(fake)
     fake.gatedRoute = "GET /v1/device/apps"
     let first = Task { await m.load() }
-    await fake.gatedRequestArrived()
+    await fake.gatedRequestArrived(whileRunning: first)
     first.cancel()
     fake.gate.signal()
     await first.value
@@ -402,7 +402,7 @@ private func ngServer() -> FakeClock {
     let settingsGets = { fake.paths.filter { $0 == "GET /v1/device/settings" }.count }
     fake.gatedRoute = "GET /v1/device/apps"
     let running = Task { await m.load(force: true) }
-    await fake.gatedRequestArrived()
+    await fake.gatedRequestArrived(whileRunning: running)
     await m.load(force: true)
     let during = settingsGets()
     fake.gate.signal()
@@ -710,7 +710,7 @@ private func names(_ m: DeviceSettingsModel) -> [String: Bool] {
     defer { withExtendedLifetime(clock) {} }
     fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
     let toggle = Task { await m.setApp("Date", enabled: false) }
-    await fake.gatedRequestArrived()
+    await fake.gatedRequestArrived(whileRunning: toggle)
     await m.load(force: true)
     #expect(names(m)["Date"] == false)
     fake.gate.signal()
@@ -724,7 +724,7 @@ private func names(_ m: DeviceSettingsModel) -> [String: Bool] {
     defer { withExtendedLifetime(clock) {} }
     fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
     let first = Task { await m.setApp("Date", enabled: false) }
-    await fake.gatedRequestArrived()
+    await fake.gatedRequestArrived(whileRunning: first)
     let second = Task { await m.setApp("Humidity", enabled: true) }
     await eventually { names(m)["Humidity"] == true }
     clockApps.failNext()
@@ -744,7 +744,7 @@ private func names(_ m: DeviceSettingsModel) -> [String: Bool] {
     defer { withExtendedLifetime(clock) {} }
     fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
     let first = Task { await m.setApp("Date", enabled: false) }
-    await fake.gatedRequestArrived()
+    await fake.gatedRequestArrived(whileRunning: first)
     let second = Task { await m.setApp("Date", enabled: true) }
     await eventually { names(m)["Date"] == true }
     let third = Task { await m.setApp("Date", enabled: false) }
@@ -774,7 +774,7 @@ private func names(_ m: DeviceSettingsModel) -> [String: Bool] {
     }
     fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
     let toggle = Task { await m.setApp("Date", enabled: false) }
-    await fake.gatedRequestArrived()
+    await fake.gatedRequestArrived(whileRunning: toggle)
     let reload = Task { await m.load(force: true) }
     await eventually { getArrived.isSet }
     fake.gate.signal()
@@ -920,7 +920,7 @@ private func perAppModel(facade: Bool = true, missing: Bool = false) async -> (D
     defer { withExtendedLifetime(clock) {} }
     fake.gatedRoute = "PUT /v1/device/apps/Date/enabled"
     let toggle = Task { await m.setApp("Date", enabled: false) }
-    await fake.gatedRequestArrived()
+    await fake.gatedRequestArrived(whileRunning: toggle)
     let next = ngServer()
     next.responses["GET /version"] = (200, appEnabledVersion)
     let nextService = DeviceService(client: stubbedClient(token: "t2") { next.handle($0) })
