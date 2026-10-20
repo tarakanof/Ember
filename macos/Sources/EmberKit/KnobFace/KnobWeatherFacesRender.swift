@@ -289,7 +289,9 @@ extension KnobFaceRender {
     }
 
     static let castCloudPaths: [[[Path]]] = KnobCastFace.clouds.map { sides in
-        sides.map { side in side.clouds.map { buildCloud($0.base, $0.circles.map { ($0.x, $0.y, $0.r) }) } }
+        sides.map { side in
+            side.clouds.map { skyCloud(.init(back: $0.back, base: Float($0.base), puffs: $0.circles.map { .init(x: Float($0.x), y: Float($0.y), r: Float($0.r)) })) }
+        }
     }
 
     static let dayCloudPartly = buildCloud(33, [(13, 28, 7), (21, 23, 8.5), (30, 28, 7)])
@@ -316,17 +318,19 @@ extension KnobFaceRender {
                 castSheet(s, snow: f.snow, color: streak, k: fr.k, in: &g)
             }
             let sky = KnobCastFace.clouds[f.variant - 1][side], tone = KnobCastFace.tones[sky.tone]
+            let opacity = fr.sprite * fr.gloom / 255
+            guard opacity > 0 else { continue }
             var c = ctx
             c.translateBy(x: Double(fr.dx[side]), y: 0)
             rimMask(Float(sky.fadeFrom), in: &c)
-            func paint(_ g: inout GraphicsContext) {
+            c.opacity = Double(opacity) / 255
+            c.drawLayer { g in
                 for (ci, cl) in sky.clouds.enumerated() {
                     let p = castCloudPaths[f.variant - 1][side][ci]
                     g.fill(p, with: .color(Color(cl.back ? tone.back : tone.front)))
                     g.stroke(p, with: .color(Color(tone.line)), style: StrokeStyle(lineWidth: 4.5, lineJoin: .round))
                 }
             }
-            faded(fr.sprite * fr.gloom / 255, in: &c, paint)
         }
     }
 
