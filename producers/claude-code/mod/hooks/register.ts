@@ -208,7 +208,7 @@ async function restore($: Engine, st: ModState): Promise<void> {
   const snap = parseSnapshot((await $.state.get(SNAPSHOT)).value)
   if (!snap) return
   const now = await $.clock.now()
-  st.tracker.restore(snap.sessions)
+  st.tracker.restore(snap.sessions, now)
   st.sender.restore(snap.strays, now)
   if (st.permissionMode === '') st.permissionMode = snap.permissionMode
   if (st.t3 === 'unknown' && snap.t3 !== '') st.t3 = snap.t3

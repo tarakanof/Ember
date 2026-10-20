@@ -648,7 +648,7 @@ describe('gauges on the tracker', () => {
     const snap = parseSnapshot({ v: 1, sessions: [['s1', { state: 'running', message: 'go', changedAt: 1, hookAt: 1 }]], strays: [] })
     assert.ok(snap)
     const t = new Tracker()
-    t.restore(snap.sessions)
+    t.restore(snap.sessions, 0)
     assert.deepEqual(gauges(t.tick(config(), 2)), [[undefined, undefined, undefined]])
   })
   test('a snapshot keeps the gauges across a reload', () => {
@@ -659,7 +659,7 @@ describe('gauges on the tracker', () => {
     const snap = parseSnapshot(JSON.parse(JSON.stringify({ v: 1, sessions: t.entries(), strays: [] })))
     assert.ok(snap)
     const next = new Tracker()
-    next.restore(snap.sessions)
+    next.restore(snap.sessions, 0)
     assert.deepEqual(gauges(next.tick(cfg, 2000)), [[30, 12, 1778614633]])
   })
 })
@@ -669,7 +669,7 @@ describe('snapshot for a hot reload', () => {
     const snap = parseSnapshot(JSON.parse(JSON.stringify({ v: 1, sessions: t.entries(), strays: [], permissionMode: '', t3: '' })))
     assert.ok(snap)
     const next = new Tracker()
-    next.restore(snap.sessions)
+    next.restore(snap.sessions, 0)
     return next
   }
   for (const sc of transitions.scenarios) {
@@ -684,13 +684,24 @@ describe('snapshot for a hot reload', () => {
       })
     })
   }
+  test('a restored session resumed long ago does not open the poll window', () => {
+    const cfg = config()
+    const old = new Tracker()
+    old.promptSubmit(cfg, 1000, 's1', 'go', '/repo')
+    old.permissionRequest(cfg, 1500, 's1', 'Bash', {}, '/repo')
+    old.toolFinished(cfg, 2000, 's1', 'Bash', '')
+    assert.equal(old.sessions.get('s1')?.resumedAt, 2000)
+    const waiting = new Tracker()
+    waiting.restore(old.entries(), 1_000_000)
+    assert.equal(waiting.needsWatch(), false)
+  })
   test('restore keeps what the new module already tracked', () => {
     const cfg = config()
     const old = new Tracker()
     old.promptSubmit(cfg, 1000, 's1', 'old', '/repo')
     const fresh = new Tracker()
     fresh.promptSubmit(cfg, 2000, 's1', 'new', '/repo')
-    fresh.restore(old.entries())
+    fresh.restore(old.entries(), 0)
     assert.equal(fresh.sessions.get('s1')?.message, 'new')
   })
   test('parseSnapshot drops junk and fills missing fields', () => {

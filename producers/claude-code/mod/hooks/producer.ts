@@ -537,7 +537,8 @@ export class Tracker {
     return [...this.sessions].map(([id, s]) => [id, { ...s }])
   }
 
-  restore(entries: [string, Session][]): void {
+  restore(entries: [string, Session][], now: number): void {
+    this.seenNow = Math.max(this.seenNow, now)
     for (const [id, s] of entries) if (!this.sessions.has(id)) this.sessions.set(id, { ...s })
   }
 
