@@ -563,8 +563,8 @@ rows. Needs Claude Code 2.1.288 or newer.
   reload runs `stat`, and `id -u` runs once: `/usr/bin`, then `/bin`, then a
   `PATH` lookup, for NixOS); a refused file keeps it silent. A reload swaps
   the config in one step, and a check that could not run (`stat`/`id` missing,
-  timed out or silent) keeps the previous config, so events during a reload
-  are not lost.
+  timed out or silent) keeps the previous config, and events and heartbeats
+  carry on with it, so nothing is lost or paused during a reload.
 - **Where it differs from the Go producer** (phase 1):
   - An empty or placeholder `EMBER_SOURCE` with no `EMBER_MOD_SOURCE`
     silences the mod; Go derives a host id with `scutil`.
@@ -581,11 +581,15 @@ rows. Needs Claude Code 2.1.288 or newer.
     so the first ask after switching into `auto` can show a short `waiting`.
   - A killed Claude Code (`kill -9`) is reaped by the server's
     `display.stale_seconds` (default 300 s), not a 10 s `ps` check.
-  - Network sends are serialised per session (a DELETE never overtakes a
-    POST in flight) and coalesced (only the newest pending send waits). Each
-    send is bounded like Go's requests: `EMBER_HOOK_TIMEOUT_MS` (500 ms) for
-    hook sends, 5 s for heartbeat sends, after which the session's queue
-    moves on; SessionEnd waits at most 800 ms in all.
+  - Network sends are serialised per session and coalesced (only the
+    newest pending send waits). Each send is bounded like Go's requests:
+    `EMBER_HOOK_TIMEOUT_MS` (500 ms) for hook sends, 5 s for heartbeat
+    sends, after which the session's queue moves on; SessionEnd waits at
+    most 800 ms in all. A timed-out fetch can't be cancelled, so a slow POST
+    can still land after the send that followed it. If the session ended or
+    was parked by then, the mod sends its DELETE again; on a live session
+    the next heartbeat corrects it within 10 s. Heartbeat POSTs for a session
+    wait while such a POST is still out.
 - **One session only**, nothing installed:
   `claude --plugin-dir ~/Github/Ember/producers/claude-code/mod`.
 - **Every session**: `claude plugin marketplace update ember`,
@@ -627,9 +631,11 @@ rows. Needs Claude Code 2.1.288 or newer.
   row lingers up to `stale_seconds`. `claude agents --json` (`status`,
   `waitingFor`) is the ground truth for interactive waits.
 - **Tests.** What CI runs: `node --test
-  producers/claude-code/mod/test/producer.test.mts` (the pure module: the
-  `Tracker`, the outbox, bounded sends, the HTTP send against a local stub)
-  and the Go tests. Two fixtures are shared with Go: `test/parity.json`
+  producers/claude-code/mod/test/producer.test.mts` (the pure module only:
+  the `Tracker`, the outbox and `Sender`, bounded sends, the HTTP send
+  against a local stub) and the Go tests. `test/mod.test.ts` is **not** part
+  of `node --test`: it imports `claude-code/testing` and runs only under
+  `claude plugin test`, so it needs Claude Code. Two fixtures are shared with Go: `test/parity.json`
   (activity strings, error labels, trails, env parsing, session ids) and
   `test/transitions.json` (event sequences, ticks included, to the exact
   POST/DELETE bodies). `mod_parity_test.go` runs the real Go hooks

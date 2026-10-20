@@ -357,6 +357,11 @@ type Upsert = {
 export class Tracker {
   readonly sessions = new Map<string, Session>()
 
+  gone(id: string): boolean {
+    const s = this.sessions.get(id)
+    return !s || s.parked
+  }
+
   sessionStart(id: string, source: string): Effect[] {
     if (source !== 'startup') this.sessions.delete(id)
     return []
@@ -617,6 +622,49 @@ export function bounded<T>(work: Promise<T>, timer: Promise<void>, onTimeout: T)
     () => new Promise<T>(() => {}),
   )
   return Promise.race([work, expired])
+}
+
+export type SendIO = {
+  deliver: (effect: Effect) => Promise<boolean>
+  timer: (ms: number) => Promise<void>
+  gone: (session: string) => boolean
+}
+
+export class Sender {
+  readonly outbox = new Outbox()
+  private readonly late = new Set<string>()
+
+  push(effect: Effect, limitMs: number, io: SendIO, heartbeat = false): Promise<void> {
+    const key = effect.body.session
+    if (heartbeat && effect.method === 'POST' && this.late.has(key)) return Promise.resolve()
+    return this.outbox.push(key, () => this.attempt(effect, limitMs, io))
+  }
+
+  lateSends(): number {
+    return this.late.size
+  }
+
+  private async attempt(effect: Effect, limitMs: number, io: SendIO): Promise<boolean> {
+    const delivery = io.deliver(effect)
+    const settled = await bounded(
+      delivery.then(ok => ({ ok, timedOut: false })),
+      io.timer(limitMs),
+      { ok: false, timedOut: true },
+    )
+    if (settled.timedOut && effect.method === 'POST') this.watchLate(effect, delivery, limitMs, io)
+    return settled.ok
+  }
+
+  private watchLate(effect: Effect, delivery: Promise<boolean>, limitMs: number, io: SendIO): void {
+    const key = effect.body.session
+    this.late.add(key)
+    void delivery.then(ok => {
+      this.late.delete(key)
+      if (!ok || !io.gone(key)) return
+      const { source, tool, session } = effect.body
+      void this.push({ method: 'DELETE', body: { source, tool, session } }, limitMs, io)
+    })
+  }
 }
 
 export async function send(fetch: FetchLike, cfg: Config, effect: Effect): Promise<boolean> {

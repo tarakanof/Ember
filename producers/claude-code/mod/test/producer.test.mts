@@ -6,6 +6,7 @@ import { describe, test } from 'node:test'
 
 import {
   Outbox,
+  Sender,
   bounded,
   Tracker,
   activityString,
@@ -458,5 +459,85 @@ describe('bounded', () => {
     const out = bounded(work, Promise.reject(new Error('aborted')), false)
     finish(true)
     assert.equal(await out, true)
+  })
+})
+
+describe('Sender', () => {
+  const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+  const effect = (method: 'POST' | 'DELETE'): Effect =>
+    method === 'POST'
+      ? { method, body: { source: 'mbp-mod', tool: 'claude', session: 's1', state: 'running', source_card: true, session_bar: true } }
+      : { method, body: { source: 'mbp-mod', tool: 'claude', session: 's1' } }
+
+  function server(slowFirstPost: number) {
+    const rows = new Set<string>()
+    const log: string[] = []
+    let first = true
+    const deliver = async (e: Effect) => {
+      const slow = first && e.method === 'POST'
+      first = false
+      if (slow) await wait(slowFirstPost)
+      if (e.method === 'POST') rows.add(e.body.session)
+      else rows.delete(e.body.session)
+      log.push(e.method + (slow ? '(late)' : ''))
+      return true
+    }
+    return { rows, log, deliver }
+  }
+
+  test('a timed-out POST that lands after the DELETE is deleted again (reviewer harness)', async () => {
+    const srv = server(300)
+    let ended = false
+    const io = { deliver: srv.deliver, timer: wait, gone: () => ended }
+    const sender = new Sender()
+    void sender.push(effect('POST'), 50, io)
+    await wait(10)
+    ended = true
+    void sender.push(effect('DELETE'), 50, io)
+    await wait(500)
+    assert.equal(srv.log.join(' -> '), 'DELETE -> POST(late) -> DELETE')
+    assert.equal(srv.rows.has('s1'), false)
+    assert.equal(sender.outbox.busy, 0)
+    assert.equal(sender.lateSends(), 0)
+  })
+
+  test('a late POST for a live session is left alone for the next heartbeat', async () => {
+    const srv = server(100)
+    const io = { deliver: srv.deliver, timer: wait, gone: () => false }
+    const sender = new Sender()
+    void sender.push(effect('POST'), 20, io)
+    await wait(200)
+    assert.equal(srv.log.join(' -> '), 'POST(late)')
+  })
+
+  test('heartbeat POSTs are skipped while a timed-out POST is still out; DELETEs are not', async () => {
+    const delivered: string[] = []
+    let release: () => void = () => {}
+    const hung = new Promise<boolean>(resolve => (release = () => resolve(true)))
+    let first = true
+    const io = {
+      deliver: (e: Effect) => {
+        delivered.push(e.method)
+        if (first) {
+          first = false
+          return hung
+        }
+        return Promise.resolve(true)
+      },
+      timer: wait,
+      gone: () => false,
+    }
+    const sender = new Sender()
+    await sender.push(effect('POST'), 10, io)
+    assert.equal(sender.lateSends(), 1)
+    await sender.push(effect('POST'), 10, io, true)
+    await sender.push(effect('POST'), 10, io, true)
+    await sender.push(effect('DELETE'), 10, io, true)
+    assert.deepEqual(delivered, ['POST', 'DELETE'])
+    release()
+    await wait(5)
+    assert.equal(sender.lateSends(), 0)
+    await sender.push(effect('POST'), 10, io, true)
+    assert.deepEqual(delivered, ['POST', 'DELETE', 'POST'])
   })
 })

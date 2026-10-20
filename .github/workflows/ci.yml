@@ -82,7 +82,7 @@ jobs:
         run: npx --yes @redocly/cli@2.58.2 lint --config docs/redocly.yaml --format github-actions docs/openapi.yaml
 
   claude-mod:
-    name: Claude mod producer (node --test)
+    name: Claude mod producer (node --test, pure module only)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -93,7 +93,7 @@ jobs:
         with:
           node-version: 24
 
-      - name: node --test
+      - name: node --test (test/mod.test.ts needs Claude Code; not run here)
         run: node --test producers/claude-code/mod/test/producer.test.mts
 
   image-vcs:

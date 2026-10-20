@@ -1,11 +1,10 @@
 import type { EngineInterface, Register } from 'claude-code'
 import {
   HEARTBEAT_MS,
-  Outbox,
+  Sender,
   SESSION_END_BUDGET_MS,
   TICK_SEND_TIMEOUT_MS,
   Tracker,
-  bounded,
   dialogExpected,
   envFileProblem,
   failureOutcome,
@@ -24,7 +23,7 @@ type Engine = EngineInterface
 
 type ModState = {
   tracker: Tracker
-  outbox: Outbox
+  sender: Sender
   config: Config | undefined
   loading: Promise<void> | undefined
   beating: boolean
@@ -130,10 +129,13 @@ function fetcher($: Engine): FetchLike {
   return (url, init) => $.http.fetch(url, init)
 }
 
-function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: number): Promise<void>[] {
-  return effects.map(effect =>
-    st.outbox.push(effect.body.session, () => bounded(send(fetcher($), cfg, effect), $.clock.sleep(limitMs), false)),
-  )
+function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: number, heartbeat = false): Promise<void>[] {
+  const io = {
+    deliver: (effect: Effect) => send(fetcher($), cfg, effect),
+    timer: (ms: number) => $.clock.sleep(ms),
+    gone: (session: string) => st.tracker.gone(session),
+  }
+  return effects.map(effect => st.sender.push(effect, limitMs, io, heartbeat))
 }
 
 async function track($: Engine, st: ModState, rawSession: string, cwd: string, step: Step): Promise<void> {
@@ -154,9 +156,9 @@ async function beat($: Engine, st: ModState): Promise<void> {
   if (st.beating) return
   st.beating = true
   try {
-    await load($, st)
+    await quietly(() => load($, st))
     const cfg = st.config
-    if (cfg) emit($, st, cfg, st.tracker.tick(cfg, await $.clock.now()), TICK_SEND_TIMEOUT_MS)
+    if (cfg) emit($, st, cfg, st.tracker.tick(cfg, await $.clock.now()), TICK_SEND_TIMEOUT_MS, true)
   } finally {
     st.beating = false
   }
@@ -192,7 +194,7 @@ function noteMode(st: ModState, mode: string | undefined): void {
 export const register: Register = on => {
   const st: ModState = {
     tracker: new Tracker(),
-    outbox: new Outbox(),
+    sender: new Sender(),
     config: undefined,
     loading: undefined,
     beating: false,

@@ -260,7 +260,7 @@ test('SessionEnd gives up on a stalled DELETE after the 500 ms hook timeout, ins
   ctl.fetch.DELETE.open()
 })
 
-test('a DELETE never overtakes a POST still in flight for the same session', async ($, on) => {
+test('a DELETE waits for a POST still inside its timeout for the same session', async ($, on) => {
   const { done, clock, ctl } = world(on)
   await $.session.start(START)
   ctl.fetch.POST = gate()
@@ -366,4 +366,35 @@ test('stat and id fall back to a PATH lookup when the absolute paths are missing
   await clock.settle()
   expect(sent.map(s => s.body.state)).toEqual(['running'])
   expect(ctl.runs.some(argv => argv[0] === 'stat')).toBe(true)
+})
+
+test('a timed-out POST that lands after the SessionEnd DELETE is deleted again', async ($, on) => {
+  const { done, clock, ctl } = world(on)
+  await $.session.start(START)
+  await clock.settle()
+  const slow = gate()
+  ctl.holdNext = slow
+  await $.classic.UserPromptSubmit(PROMPT)
+  const end = $.classic.SessionEnd(END)
+  await clock.advance(800)
+  await end
+  expect(done).toEqual(['DELETE'])
+  slow.open()
+  await clock.settle()
+  await clock.advance(500)
+  const rows = new Set<string>()
+  for (const method of done) method === 'POST' ? rows.add('sess-1') : rows.delete('sess-1')
+  expect(done).toEqual(['DELETE', 'POST', 'DELETE'])
+  expect(rows.size).toBe(0)
+})
+
+test('heartbeats keep running on the kept config while the stat check cannot run', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  ctl.statFails = true
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  expect(sent.map(s => s.body.state)).toEqual(['running', 'running', 'running'])
 })

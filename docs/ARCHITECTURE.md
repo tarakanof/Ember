@@ -624,13 +624,19 @@ markers still get reaped.
   re-POSTs like `heartbeatPass` (done/error for `EMBER_DONE_TTL_SECONDS`, the
   30 min notification-wait backstop, the `EMBER_HEARTBEAT_TTL_HOURS` reap) and
   is skipped while the previous beat is still reloading. A reload builds the
-  config and swaps it in one step. Sends go through a per-session outbox:
-  one in flight, only the newest pending one kept, so a DELETE never
-  overtakes a POST (the race `postReconciled` repairs in Go) and a dead
-  server can't pile them up. Each send is bounded inside its queue slot
-  (`$.clock.sleep` race: `EMBER_HOOK_TIMEOUT_MS` for hook sends, 5 s like
-  `daemonHTTPTimeout` for tick sends), so a hung fetch releases the session;
-  SessionEnd waits at most 800 ms in all (`sessionEndHTTPBudget`). The timer dies with the process, so a killed
+  config and swaps it in one step; a reload that fails keeps the old config
+  and the tick still runs on it. Sends go through a per-session outbox: one
+  in flight, only the newest pending one kept, so a dead server can't pile
+  them up. Each send is bounded inside its slot (`$.clock.sleep` race:
+  `EMBER_HOOK_TIMEOUT_MS` for hook sends, 5 s like `daemonHTTPTimeout` for
+  tick sends), so a hung fetch releases the session; SessionEnd waits at most
+  800 ms in all (`sessionEndHTTPBudget`). `$.http.fetch` can't be cancelled,
+  so a POST that timed out keeps running and can land after the next send:
+  while that POST is out the session's heartbeat POSTs are skipped (at most
+  one stray fetch per session), and when it lands, if the session has ended
+  or been parked meanwhile, its DELETE is sent again (the race
+  `postReconciled` repairs in Go). A late POST on a live session is
+  corrected by the next heartbeat within 10 s. The timer dies with the process, so a killed
   Claude Code is reaped by the server's `stale_seconds`, not by a `ps`
   check. Every hook only observes: it returns `next(e)` (or the
   verdict/result untouched) and its `.catch` answers `next(e)`. Same guards
