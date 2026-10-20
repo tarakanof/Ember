@@ -186,6 +186,7 @@ describe('T3 spawn detection (#216), parity with the Go producer', () => {
       ppid: 412,
       comm: '/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)',
     })
+    assert.deepEqual(parsePsInfo('412  T3   Code  (Alpha)\n'), { ppid: 412, comm: 'T3 Code (Alpha)' })
     assert.equal(parsePsInfo(''), undefined)
     assert.equal(parsePsInfo('PPID COMMAND'), undefined)
   })

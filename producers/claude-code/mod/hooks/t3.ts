@@ -52,9 +52,10 @@ export function argvFromPs(comm: string, args: string): string[] {
 }
 
 export function parsePsInfo(out: string): ProcInfo | undefined {
-  const m = /^\s*(\d+)\s+(\S.*?)\s*$/s.exec(out)
-  if (!m) return undefined
-  return { ppid: Number(m[1]), comm: m[2] ?? '' }
+  const fields = out.split(/\s+/).filter(x => x !== '')
+  const ppid = fields[0] ?? ''
+  if (fields.length < 2 || !/^\d+$/.test(ppid)) return undefined
+  return { ppid: Number(ppid), comm: fields.slice(1).join(' ') }
 }
 
 async function walkPastShells(start: number, info: T3Probe['info']): Promise<{ pid: number; ppid: number } | undefined> {
