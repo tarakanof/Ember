@@ -389,3 +389,38 @@ func TestDeviceCheckinConfigV2Golden(t *testing.T) {
 	resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, string(req))
 	assertDeviceGolden(t, "checkin_reply_config_v2", mustOK(t, "checkin", resp, b))
 }
+
+const (
+	exampleClaimToken = "ekd_TEST-token-not-real-00000000000000000000000"
+	exampleClaimHwID  = "02005e10c0de"
+)
+
+func TestDeviceClaimGolden(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	f := claimFixtureFor(app, srv)
+	app.claims.rand = &scriptedRand{b: []byte{0x01, 0x23, 0xab, 0xcd, 0x00, 0x07, 0x5e, 0x61}}
+	req, err := json.Marshal(map[string]string{"hw_id": exampleClaimHwID, "fw": "0.9.110", "claim_key": testClaimKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDeviceGolden(t, "claim_req", req)
+	resp, b := devReq(t, srv, "POST", "/v1/devices/claim", "", string(req))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("claim = %d: %s", resp.StatusCode, b)
+	}
+	assertDeviceGolden(t, "claim_reply", b)
+	resp, b = f.poll(t, "c_0123abcd", testClaimKey)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("pending poll = %d: %s", resp.StatusCode, b)
+	}
+	assertDeviceGolden(t, "claim_poll_pending", b)
+	if resp, b := f.approve(t, "c_0123abcd", "482913", ""); resp.StatusCode != http.StatusOK {
+		t.Fatalf("approve = %d: %s", resp.StatusCode, b)
+	}
+	got := f.collectToken(t, "c_0123abcd")
+	if len(got.Token) != len(exampleClaimToken) {
+		t.Fatalf("token length %d, want %d like the fixture's", len(got.Token), len(exampleClaimToken))
+	}
+	_, b = f.poll(t, "c_0123abcd", testClaimKey)
+	assertDeviceGolden(t, "claim_poll_approved", bytes.ReplaceAll(b, []byte(got.Token), []byte(exampleClaimToken)))
+}

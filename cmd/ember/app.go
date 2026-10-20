@@ -65,6 +65,7 @@ type App struct {
 	rotationOp    clockRotationOp
 	clockMigrate  clockMigration
 	clients       *clientRegistry
+	claims        *claimRegistry
 	changes       *changeBroadcaster
 	viewWaiters   viewWaiters
 	demos         demoRegistry
@@ -184,6 +185,10 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		a.knobShown.bump()
 	}
 	a.clients = newClientRegistry(a.devices.kv)
+	a.claims = newClaimRegistry()
+	a.claims.onExpire = func(c deviceClaim) {
+		a.logger.Info("device claim expired", "claim_id", c.id, "hw_id", c.hwID, "ip", c.ip)
+	}
 	a.usageSeen = newUsageAccountRegistry(a.devices.kv)
 	a.knobStats = newKnobStatsStore()
 	a.clockStats = newClockStatsStore()

@@ -96,6 +96,9 @@ func deviceAuthWith(a *App, owner, device http.Handler, clientScope string, char
 			writeError(w, http.StatusUnauthorized, errors.New("unauthorized"))
 			return
 		}
+		if c, collected := a.claims.collect(bearer); collected {
+			a.logger.InfoContext(r.Context(), "device claim collected", "claim_id", c.id, "hw_id", c.hwID, "device_id", id)
+		}
 		device.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), deviceIDKey{}, id)))
 	})
 }
