@@ -1,11 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -115,5 +122,98 @@ func TestModParitySessionID(t *testing.T) {
 		if got := sanitizeSessionID(c.Raw, c.Cwd); got != c.Want {
 			t.Errorf("sanitizeSessionID(%q, %q) = %q, fixture says %q", c.Raw, c.Cwd, got, c.Want)
 		}
+	}
+}
+
+type wireCall struct {
+	Method string         `json:"method"`
+	Body   map[string]any `json:"body"`
+}
+
+type modTransitions struct {
+	Env       string `json:"env"`
+	Scenarios []struct {
+		Name  string `json:"name"`
+		Steps []struct {
+			At    int64           `json:"at"`
+			Event string          `json:"event"`
+			Input json.RawMessage `json:"input"`
+			Want  []wireCall      `json:"want"`
+		} `json:"steps"`
+	} `json:"scenarios"`
+}
+
+func TestModParityTransitions(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot, "producers", "claude-code", "mod", "test", "transitions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fx modTransitions
+	if err := json.Unmarshal(raw, &fx); err != nil {
+		t.Fatalf("transitions.json: %v", err)
+	}
+	for _, sc := range fx.Scenarios {
+		t.Run(sc.Name, func(t *testing.T) {
+			var mu sync.Mutex
+			var got []wireCall
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b, _ := io.ReadAll(r.Body)
+				c := wireCall{Method: r.Method}
+				if err := json.Unmarshal(b, &c.Body); err != nil {
+					t.Errorf("%s body %q: %v", r.Method, b, err)
+				}
+				mu.Lock()
+				got = append(got, c)
+				mu.Unlock()
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			t.Cleanup(srv.Close)
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_STATE_HOME", "")
+			t.Setenv("EMBER_TOKEN", "")
+			cfgDir := filepath.Join(home, ".config", "ember")
+			if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			env := fx.Env + "EMBER_SERVER_URL=" + srv.URL + "\n"
+			if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			stubOwner(t)
+			base := time.Now()
+			var at time.Duration
+			orig := hookNow
+			hookNow = func() time.Time { return base.Add(at) }
+			t.Cleanup(func() { hookNow = orig })
+			cfg, err := loadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, step := range sc.Steps {
+				at = time.Duration(step.At) * time.Second
+				mu.Lock()
+				got = nil
+				mu.Unlock()
+				if step.Event == "tick" {
+					dispatchTick(context.Background(), cfg)
+				} else {
+					dispatchHook(context.Background(), step.Event, step.Input, cfg)
+				}
+				mu.Lock()
+				calls := append([]wireCall{}, got...)
+				mu.Unlock()
+				want := step.Want
+				if want == nil {
+					want = []wireCall{}
+				}
+				if len(calls) == 0 {
+					calls = []wireCall{}
+				}
+				if !reflect.DeepEqual(calls, want) {
+					t.Errorf("step %d (%s at %ds):\n got  %v\n want %v", i, step.Event, step.At, calls, want)
+				}
+			}
+		})
 	}
 }

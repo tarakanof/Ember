@@ -1,6 +1,8 @@
 import type { EngineInterface, Register } from 'claude-code'
 import {
   HEARTBEAT_MS,
+  Outbox,
+  SESSION_END_BUDGET_MS,
   Tracker,
   dialogExpected,
   envFileProblem,
@@ -11,6 +13,7 @@ import {
   sessionID,
   stateHome,
   type Config,
+  type ConfigResult,
   type Effect,
   type FetchLike,
 } from './producer.ts'
@@ -19,13 +22,20 @@ type Engine = EngineInterface
 
 type ModState = {
   tracker: Tracker
+  outbox: Outbox
   config: Config | undefined
+  loading: Promise<void> | undefined
+  beating: boolean
+  uid: string | undefined
   interactive: boolean
   permissionMode: string
   heartbeat: { cancel: () => void } | undefined
 }
 
 type Step = (cfg: Config, now: number, id: string) => Effect[]
+
+const STAT = ['/usr/bin/stat', '/bin/stat']
+const ID = ['/usr/bin/id', '/bin/id']
 
 async function readText($: Engine, path: string): Promise<string | undefined> {
   try {
@@ -35,18 +45,28 @@ async function readText($: Engine, path: string): Promise<string | undefined> {
   }
 }
 
-async function statLine($: Engine, path: string): Promise<string> {
-  for (const argv of [
-    ['stat', '-f', '%Lp %u', path],
-    ['stat', '-c', '%a %u', path],
-  ]) {
-    const r = await $.process.run(argv, { timeoutMs: 2000 })
-    if (r.exitCode === 0) return r.stdout
+async function firstOutput($: Engine, argvs: string[][]): Promise<string> {
+  for (const argv of argvs) {
+    try {
+      const r = await $.process.run(argv, { timeoutMs: 2000 })
+      if (r.exitCode === 0) return r.stdout
+    } catch {
+      continue
+    }
   }
   return ''
 }
 
-async function readEnvFile($: Engine, path: string): Promise<{ text: string; problem: string }> {
+async function currentUID($: Engine, st: ModState): Promise<string> {
+  if (st.uid === undefined) {
+    const uid = (await firstOutput($, ID.map(bin => [bin, '-u']))).trim()
+    if (uid !== '') st.uid = uid
+    return uid
+  }
+  return st.uid
+}
+
+async function readEnvFile($: Engine, st: ModState, path: string): Promise<{ text: string; problem: string }> {
   let info: { kind: string; isLink: boolean }
   try {
     info = await $.fs.stat(path)
@@ -54,8 +74,15 @@ async function readEnvFile($: Engine, path: string): Promise<{ text: string; pro
     return { text: '', problem: '' }
   }
   if (info.isLink || info.kind !== 'file') return { text: '', problem: 'is not a regular file' }
-  const uid = (await $.process.run(['id', '-u'], { timeoutMs: 2000 })).stdout
-  const problem = envFileProblem(await statLine($, path), uid)
+  const uid = await currentUID($, st)
+  const statOut = await firstOutput(
+    $,
+    STAT.flatMap(bin => [
+      [bin, '-f', '%Lp %u', path],
+      [bin, '-c', '%a %u', path],
+    ]),
+  )
+  const problem = envFileProblem(statOut, uid)
   if (problem !== '') return { text: '', problem }
   return { text: (await readText($, path)) ?? '', problem: '' }
 }
@@ -64,24 +91,28 @@ function killSwitchPath(home: string): string {
   return `${home}/.config/ember/claude-hooks.disabled`
 }
 
-async function load($: Engine, st: ModState): Promise<void> {
-  st.config = undefined
+async function resolve($: Engine, st: ModState): Promise<ConfigResult> {
   const home = (await $.env.get('HOME')) ?? ''
-  if (home === '') return
-  const envFile = await readEnvFile($, `${home}/.config/ember/producer.env`)
+  if (home === '') return { disabled: 'HOME is not set' }
+  if (await $.fs.exists(killSwitchPath(home))) return { disabled: 'claude-hooks.disabled is present' }
+  const envFile = await readEnvFile($, st, `${home}/.config/ember/producer.env`)
   const xdg = (await $.env.get('XDG_STATE_HOME')) ?? ''
-  const result = resolveConfig({
+  return resolveConfig({
     env: parseEnvFile(envFile.text),
     home,
     processToken: await $.env.get('EMBER_TOKEN'),
     serverCache: await readText($, `${stateHome(home, xdg)}/ember/server.json`),
-    killSwitch: await $.fs.exists(killSwitchPath(home)),
     envFileProblem: envFile.problem,
   })
+}
+
+async function load($: Engine, st: ModState): Promise<void> {
+  const result = await resolve($, st)
   st.config = 'config' in result ? result.config : undefined
 }
 
 async function liveConfig($: Engine, st: ModState): Promise<Config | undefined> {
+  if (!st.config && st.loading) await st.loading
   const cfg = st.config
   if (!cfg) return undefined
   if (await $.fs.exists(killSwitchPath(cfg.home))) {
@@ -95,35 +126,42 @@ function fetcher($: Engine): FetchLike {
   return (url, init) => $.http.fetch(url, init)
 }
 
-function emit($: Engine, st: ModState, effects: Effect[]): void {
-  const cfg = st.config
-  if (!cfg) return
-  for (const effect of effects) void send(fetcher($), cfg, effect)
+function emit($: Engine, st: ModState, cfg: Config, effects: Effect[]): Promise<void>[] {
+  return effects.map(effect => st.outbox.push(effect.body.session, () => send(fetcher($), cfg, effect)))
 }
 
 async function track($: Engine, st: ModState, rawSession: string, cwd: string, step: Step): Promise<void> {
+  start($, st, false)
   const cfg = await liveConfig($, st)
   if (!cfg) return
   const id = await sessionID(rawSession, cwd)
-  emit($, st, step(cfg, await $.clock.now(), id))
+  emit($, st, cfg, step(cfg, await $.clock.now(), id))
 }
 
-async function trackLive($: Engine, st: ModState, step: Step): Promise<void> {
+async function trackLive($: Engine, st: ModState, step: (cfg: Config, now: number, id: string, cwd: string) => Effect[]): Promise<void> {
   const raw = await $.session.id()
-  await track($, st, raw, raw === '' ? await $.session.cwd() : '', step)
+  const cwd = await $.session.cwd()
+  await track($, st, raw, cwd, (cfg, now, id) => step(cfg, now, id, cwd))
 }
 
 async function beat($: Engine, st: ModState): Promise<void> {
-  await load($, st)
-  const cfg = st.config
-  if (cfg) emit($, st, st.tracker.tick(cfg, await $.clock.now()))
+  if (st.beating) return
+  st.beating = true
+  try {
+    await load($, st)
+    const cfg = st.config
+    if (cfg) emit($, st, cfg, st.tracker.tick(cfg, await $.clock.now()))
+  } finally {
+    st.beating = false
+  }
 }
 
 async function endSession($: Engine, st: ModState, rawSession: string, cwd: string, reason: string): Promise<void> {
   const cfg = await liveConfig($, st)
   if (!cfg) return
-  const effects = st.tracker.sessionEnd(cfg, await sessionID(rawSession, cwd), reason)
-  await Promise.all(effects.map(effect => send(fetcher($), cfg, effect)))
+  const sent = emit($, st, cfg, st.tracker.sessionEnd(cfg, await sessionID(rawSession, cwd), reason))
+  if (sent.length === 0) return
+  await Promise.race([Promise.all(sent), $.clock.sleep(SESSION_END_BUDGET_MS)])
 }
 
 async function quietly(work: () => Promise<void>): Promise<void> {
@@ -134,6 +172,13 @@ async function quietly(work: () => Promise<void>): Promise<void> {
   }
 }
 
+function start($: Engine, st: ModState, restart: boolean): void {
+  if (st.heartbeat && !restart) return
+  st.heartbeat?.cancel()
+  st.loading = quietly(() => load($, st))
+  st.heartbeat = $.clock.every(HEARTBEAT_MS, () => void quietly(() => beat($, st)))
+}
+
 function noteMode(st: ModState, mode: string | undefined): void {
   if (mode) st.permissionMode = mode
 }
@@ -141,7 +186,11 @@ function noteMode(st: ModState, mode: string | undefined): void {
 export const register: Register = on => {
   const st: ModState = {
     tracker: new Tracker(),
+    outbox: new Outbox(),
     config: undefined,
+    loading: undefined,
+    beating: false,
+    uid: undefined,
     interactive: false,
     permissionMode: '',
     heartbeat: undefined,
@@ -150,9 +199,7 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     st.interactive = e.isInteractive
-    await quietly(() => load($, st))
-    st.heartbeat?.cancel()
-    st.heartbeat = $.clock.every(HEARTBEAT_MS, () => void quietly(() => beat($, st)))
+    start($, st, true)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -171,7 +218,7 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('classic.PreToolUse', async ($, e, next) => {
-    await quietly(() => trackLive($, st, (cfg, now, id) => t.preToolUse(cfg, now, id, e.tool, e, e.tool_use_id)))
+    await quietly(() => trackLive($, st, (cfg, now, id, cwd) => t.preToolUse(cfg, now, id, e.tool, e, e.tool_use_id, cwd)))
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -180,7 +227,7 @@ export const register: Register = on => {
     const toolUseId = e.tool_use_id
     if (verdict.decision === 'ask' && verdict.decider === undefined && toolUseId !== undefined) {
       const dialog = dialogExpected(st.interactive, st.permissionMode)
-      await quietly(() => trackLive($, st, (cfg, now, id) => t.toolAsked(cfg, now, id, e.tool, e.input, toolUseId, dialog)))
+      await quietly(() => trackLive($, st, (cfg, now, id, cwd) => t.toolAsked(cfg, now, id, e.tool, e.input, toolUseId, dialog, cwd)))
     }
     return verdict
   }).catch(($, e, next) => next(e))

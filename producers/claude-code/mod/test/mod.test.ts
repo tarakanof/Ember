@@ -11,46 +11,73 @@ type EnvFile = { text: string; mode: string; owner: string; isLink: boolean }
 
 const TRUSTED: EnvFile = { text: ENV_TEXT, mode: '600', owner: '501', isLink: false }
 
+type Gate = { wait: Promise<void>; open: () => void }
+
+function gate(): Gate {
+  let open: () => void = () => {}
+  const wait = new Promise<void>(resolve => (open = resolve))
+  return { wait, open }
+}
+
+function ran(stdout: string, exitCode = 0) {
+  return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+}
+
 function world(on: On, envFile: EnvFile | null = TRUSTED) {
   const sent: Sent[] = []
-  const files = { killSwitch: false }
+  const done: string[] = []
+  const ctl = {
+    killSwitch: false,
+    sessionId: 'sess-1',
+    envRead: undefined as Gate | undefined,
+    fetch: {} as Record<string, Gate | undefined>,
+    envReads: 0,
+    runs: [] as string[][],
+  }
   mock.env(on, { HOME })
   const clock = mock.clock(on, { now: 1_000_000 })
-  on('fs.read', ($, e) => (e.path === ENV_FILE && envFile !== null ? { value: envFile.text } : { deny: 'ENOENT' }))
+  on('fs.read', async ($, e) => {
+    if (e.path !== ENV_FILE || envFile === null) return { deny: 'ENOENT' }
+    ctl.envReads++
+    if (ctl.envRead) await ctl.envRead.wait
+    return { value: envFile.text }
+  })
   on('fs.stat', ($, e) =>
     e.path === ENV_FILE && envFile !== null
       ? { value: { kind: 'file' as const, size: envFile.text.length, mtimeMs: 0, isLink: envFile.isLink } }
       : { deny: 'ENOENT' },
   )
   on('process.run', ($, e) => {
-    if (e.argv[0] === 'id') return { value: { exitCode: 0, stdout: '501\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-    const ok = e.argv[1] === '-f' && envFile !== null
-    return {
-      value: {
-        exitCode: ok ? 0 : 1,
-        stdout: ok ? `${envFile?.mode} ${envFile?.owner}\n` : '',
-        stderr: '',
-        isStdoutTruncated: false,
-        isStderrTruncated: false,
-      },
-    }
+    ctl.runs.push([...e.argv])
+    if (e.argv[0] === '/usr/bin/id') return ran('501\n')
+    if (e.argv[0] === '/usr/bin/stat' && e.argv[1] === '-f' && envFile !== null) return ran(`${envFile.mode} ${envFile.owner}\n`)
+    return ran('', 1)
   })
-  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/claude-hooks.disabled') && files.killSwitch }))
+  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/claude-hooks.disabled') && ctl.killSwitch }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('classic.*', () => ({}))
-  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.id', () => ({ value: ctl.sessionId }))
   on('session.cwd', () => ({ value: `${HOME}/proj` }))
-  on('http.fetch', ($, e) => {
+  on('http.fetch', async ($, e) => {
+    const method = e.init?.method ?? 'GET'
     sent.push({
       url: e.url,
-      method: e.init?.method ?? 'GET',
+      method,
       auth: e.init?.headers?.Authorization ?? '',
       body: JSON.parse(e.init?.body ?? '{}') as Record<string, unknown>,
     })
+    const held = ctl.fetch[method]
+    if (held) await held.wait
+    done.push(method)
     return { value: { status: 200, ok: true, headers: {}, text: '{"ok":true}' } }
   })
-  return { sent, clock, files }
+  return { sent, done, clock, ctl }
 }
+
+const START = { cwd: `${HOME}/proj`, surface: 'terminal', isInteractive: true } as const
+const PROMPT = { prompt: 'go', session_id: 'sess-1', cwd: `${HOME}/proj` }
+const STOP = { stop_hook_active: false, last_assistant_message: 'done', session_id: 'sess-1', cwd: `${HOME}/proj` }
+const END = { reason: 'prompt_input_exit', session_id: 'sess-1', cwd: `${HOME}/proj` } as const
 
 test('a prompt posts running under the mod source with the bearer token', async ($, on) => {
   const { sent, clock } = world(on)
@@ -180,13 +207,115 @@ for (const [name, envFile] of [
 }
 
 test('the kill switch silences the very next event, as it does each Go hook', async ($, on) => {
-  const { sent, clock, files } = world(on)
+  const { sent, clock, ctl } = world(on)
   await $.session.start({ cwd: `${HOME}/proj`, surface: 'terminal', isInteractive: true })
   await $.classic.UserPromptSubmit({ prompt: 'go', session_id: 'sess-1', cwd: `${HOME}/proj` })
   await clock.settle()
-  files.killSwitch = true
+  ctl.killSwitch = true
   await $.classic.Stop({ stop_hook_active: false, last_assistant_message: 'done', session_id: 'sess-1', cwd: `${HOME}/proj` })
   await $.classic.SessionEnd({ reason: 'prompt_input_exit', session_id: 'sess-1', cwd: `${HOME}/proj` })
   await clock.advance(10_000)
   expect(sent.map(s => s.body.state)).toEqual(['running'])
+})
+
+test('an event during a heartbeat reload still lands (the reload swaps the config in one step)', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  ctl.envRead = gate()
+  await clock.advance(10_000)
+  await $.classic.Stop(STOP)
+  await clock.settle()
+  ctl.envRead.open()
+  await clock.settle()
+  expect(sent.map(s => s.body.state)).toContain('done')
+  await clock.advance(10_000)
+  expect(sent.at(-1)?.body.state).toBe('done')
+})
+
+test('SessionEnd gives up on a stalled DELETE after 800 ms', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  ctl.fetch.DELETE = gate()
+  let ended = false
+  const end = $.classic.SessionEnd(END).then(() => (ended = true))
+  await clock.advance(799)
+  expect(ended).toBe(false)
+  await clock.advance(1)
+  await end
+  expect(ended).toBe(true)
+  expect(sent.at(-1)?.method).toBe('DELETE')
+  ctl.fetch.DELETE.open()
+})
+
+test('a DELETE never overtakes a POST still in flight for the same session', async ($, on) => {
+  const { done, clock, ctl } = world(on)
+  await $.session.start(START)
+  ctl.fetch.POST = gate()
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  const end = $.classic.SessionEnd(END)
+  await clock.settle()
+  ctl.fetch.POST.open()
+  await clock.advance(800)
+  await end
+  await clock.settle()
+  expect(done).toEqual(['POST', 'DELETE'])
+})
+
+test('a heartbeat is skipped while the previous one is still reloading', async ($, on) => {
+  const { clock, ctl } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  const before = ctl.envReads
+  ctl.envRead = gate()
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  expect(ctl.envReads).toBe(before + 1)
+  ctl.envRead.open()
+})
+
+test('tool hooks hash an invalid session id with the cwd, as classic hooks do', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.sessionId = 'not/a/valid/id'
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false } }))
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit({ ...PROMPT, session_id: 'not/a/valid/id' })
+  await $.tool.call({ tool: 'Bash', command: 'ls', description: 'list' })
+  await clock.settle()
+  expect(sent).toHaveLength(2)
+  expect(sent[1]?.body.session).toBe(sent[0]?.body.session)
+  expect(sent[0]?.body.session).not.toBe('not/a/valid/id')
+})
+
+test('id -u runs once, by absolute path, and only stat runs on later reloads', async ($, on) => {
+  const { clock, ctl } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  expect(ctl.runs.filter(argv => argv[0] === '/usr/bin/id')).toHaveLength(1)
+  expect(ctl.runs.every(argv => argv[0]?.startsWith('/'))).toBe(true)
+})
+
+test('with the kill switch present nothing is spawned', async ($, on) => {
+  const { clock, ctl } = world(on)
+  ctl.killSwitch = true
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.advance(10_000)
+  expect(ctl.runs).toEqual([])
+})
+
+test('a session with no session.start still loads and heartbeats on its first event', async ($, on) => {
+  const { sent, clock } = world(on)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  await clock.advance(10_000)
+  expect(sent.map(s => s.body.state)).toEqual(['running', 'running'])
 })

@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { describe, test } from 'node:test'
 
 import {
+  Outbox,
   Tracker,
   activityString,
   annotateTrail,
@@ -135,9 +136,9 @@ describe('Tracker', () => {
     const cfg = config()
     const t = new Tracker()
     t.promptSubmit(cfg, 0, 's1', 'go', HOME)
-    t.preToolUse(cfg, 1, 's1', 'Bash', { command: 'make' }, 'u1')
+    t.preToolUse(cfg, 1, 's1', 'Bash', { command: 'make' }, 'u1', HOME)
     t.toolOutcome(cfg, 's1', 'Bash', { command: 'make' }, 'exit 2')
-    const [e] = t.preToolUse(cfg, 2, 's1', 'Read', { file_path: '/a/b.go' }, 'u2')
+    const [e] = t.preToolUse(cfg, 2, 's1', 'Read', { file_path: '/a/b.go' }, 'u2', HOME)
     assert.ok(e?.method === 'POST')
     assert.equal(e.body.activity, 'Read: b.go · Bash: make (exit 2)')
   })
@@ -147,8 +148,8 @@ describe('Tracker', () => {
     const t = new Tracker()
     const seq = [
       ...t.promptSubmit(cfg, 0, 's1', 'go', HOME),
-      ...t.preToolUse(cfg, 1, 's1', 'Bash', { command: 'rm x' }, 'u1'),
-      ...t.toolAsked(cfg, 2, 's1', 'Bash', { command: 'rm x' }, 'u1', true),
+      ...t.preToolUse(cfg, 1, 's1', 'Bash', { command: 'rm x' }, 'u1', HOME),
+      ...t.toolAsked(cfg, 2, 's1', 'Bash', { command: 'rm x' }, 'u1', true, HOME),
       ...t.permissionRequest(cfg, 3, 's1', 'Bash', { command: 'rm x' }, HOME),
       ...t.toolFinished(cfg, 4, 's1', 'Bash', 'other'),
       ...t.toolFinished(cfg, 5, 's1', 'Bash', 'u1'),
@@ -160,8 +161,8 @@ describe('Tracker', () => {
     const cfg = config()
     const t = new Tracker()
     t.promptSubmit(cfg, 0, 's1', 'go', HOME)
-    t.preToolUse(cfg, 1, 's1', 'Bash', { command: 'x' }, 'u1')
-    assert.deepEqual(t.toolAsked(cfg, 2, 's1', 'Bash', { command: 'x' }, 'u1', false), [])
+    t.preToolUse(cfg, 1, 's1', 'Bash', { command: 'x' }, 'u1', HOME)
+    assert.deepEqual(t.toolAsked(cfg, 2, 's1', 'Bash', { command: 'x' }, 'u1', false, HOME), [])
     assert.deepEqual(states(t.permissionRequest(cfg, 3, 's1', 'Bash', { command: 'x' }, HOME)), ['waiting:approve Bash'])
     assert.deepEqual(states(t.toolFinished(cfg, 4, 's1', 'Bash', 'u1')), ['running:Bash'])
   })
@@ -169,8 +170,8 @@ describe('Tracker', () => {
   test('a late permission_prompt right after the resume is dropped', () => {
     const cfg = config()
     const t = new Tracker()
-    t.preToolUse(cfg, 0, 's1', 'Bash', {}, 'u1')
-    t.toolAsked(cfg, 1, 's1', 'Bash', {}, 'u1', true)
+    t.preToolUse(cfg, 0, 's1', 'Bash', {}, 'u1', HOME)
+    t.toolAsked(cfg, 1, 's1', 'Bash', {}, 'u1', true, HOME)
     t.toolFinished(cfg, 2, 's1', 'Bash', 'u1')
     assert.deepEqual(t.notification(cfg, 10_000, 's1', 'permission_prompt', 'Claude needs your permission to use Bash', HOME), [])
     assert.deepEqual(states(t.notification(cfg, 20_000, 's1', 'permission_prompt', 'Claude needs your permission to use Bash', HOME)), [
@@ -243,7 +244,7 @@ describe('Tracker', () => {
   test('a permission wait is not backstopped', () => {
     const cfg = config()
     const t = new Tracker()
-    t.toolAsked(cfg, 0, 's1', 'Bash', {}, 'u1', true)
+    t.toolAsked(cfg, 0, 's1', 'Bash', {}, 'u1', true, HOME)
     assert.deepEqual(states(t.tick(cfg, 31 * 60_000)), ['waiting:approve Bash'])
   })
 
@@ -323,4 +324,115 @@ test('send reports a refused connection as false instead of throwing', async () 
     throw new Error('ECONNREFUSED')
   }
   assert.equal(await send(failing, cfg, effect), false)
+})
+
+const transitions = JSON.parse(readFileSync(new URL('./transitions.json', import.meta.url), 'utf8'))
+
+type Step = { at: number; event: string; input?: Record<string, any>; want: unknown[] }
+
+function drive(t: Tracker, cfg: Config, step: Step): Effect[] {
+  const now = step.at * 1000
+  const i = step.input ?? {}
+  const id = i.session_id ?? ''
+  switch (step.event) {
+    case 'tick':
+      return t.tick(cfg, now)
+    case 'session-start':
+      return t.sessionStart(id, i.source)
+    case 'user-prompt-submit':
+      return t.promptSubmit(cfg, now, id, i.prompt, i.cwd)
+    case 'pre-tool-use':
+      return t.preToolUse(cfg, now, id, i.tool_name, i.tool_input, i.tool_use_id, i.cwd)
+    case 'permission-request':
+      return t.permissionRequest(cfg, now, id, i.tool_name, i.tool_input, i.cwd)
+    case 'post-tool-use':
+      return t.toolFinished(cfg, now, id, i.tool_name, i.tool_use_id)
+    case 'post-tool-use-failure':
+      return [
+        ...t.toolOutcome(cfg, id, i.tool_name, i.tool_input, failureOutcome(i.error, i.is_interrupt === true)),
+        ...t.toolFinished(cfg, now, id, i.tool_name, i.tool_use_id),
+      ]
+    case 'permission-denied':
+      return [...t.toolOutcome(cfg, id, i.tool_name, i.tool_input, 'denied'), ...t.toolFinished(cfg, now, id, i.tool_name, i.tool_use_id)]
+    case 'notification':
+      return t.notification(cfg, now, id, i.notification_type, i.message ?? '', i.cwd)
+    case 'stop':
+      return t.stop(cfg, now, id, i.last_assistant_message ?? '', i.background_tasks, i.cwd)
+    case 'stop-failure':
+      return t.stopFailure(cfg, now, id, i.error ?? '', i.error_details ?? '', i.last_assistant_message ?? '', i.cwd)
+    case 'session-end':
+      return t.sessionEnd(cfg, id, i.reason)
+  }
+  throw new Error(`fixture event ${step.event} has no mod mapping`)
+}
+
+describe('shared transitions with the Go producer (test/transitions.json)', () => {
+  for (const sc of transitions.scenarios) {
+    test(sc.name, () => {
+      const env = parseEnvFile(transitions.env)
+      const r = resolveConfig({ env: { ...env, EMBER_MOD_SOURCE: env.EMBER_SOURCE ?? '', EMBER_SERVER_URL: 'http://h' }, home: '/home/nobody' })
+      assert.ok('config' in r)
+      const t = new Tracker()
+      sc.steps.forEach((step: Step, n: number) => {
+        assert.deepEqual(drive(t, r.config, step), step.want, `step ${n} (${step.event} at ${step.at}s)`)
+      })
+    })
+  }
+})
+
+describe('Outbox', () => {
+  test('runs one session strictly in order: a DELETE waits for the POST in flight', async () => {
+    const box = new Outbox()
+    const log: string[] = []
+    let release: () => void = () => {}
+    const held = new Promise<void>(resolve => (release = resolve))
+    void box.push('s1', async () => {
+      log.push('POST start')
+      await held
+      log.push('POST done')
+    })
+    const deleted = box.push('s1', async () => {
+      log.push('DELETE start')
+    })
+    await new Promise(resolve => setTimeout(resolve, 5))
+    assert.deepEqual(log, ['POST start'])
+    release()
+    await deleted
+    assert.deepEqual(log, ['POST start', 'POST done', 'DELETE start'])
+    assert.equal(box.busy, 0)
+  })
+
+  test('coalesces queued sends so a dead server never piles them up', async () => {
+    const box = new Outbox()
+    const sent: number[] = []
+    let release: () => void = () => {}
+    const held = new Promise<void>(resolve => (release = resolve))
+    void box.push('s1', async () => {
+      sent.push(0)
+      await held
+    })
+    for (let n = 1; n <= 50; n++) void box.push('s1', async () => void sent.push(n))
+    release()
+    await box.push('s1', async () => void sent.push(99))
+    assert.deepEqual(sent, [0, 99])
+  })
+
+  test('sessions do not wait on each other', async () => {
+    const box = new Outbox()
+    void box.push('stuck', () => new Promise(() => {}))
+    let ran = false
+    await box.push('other', async () => void (ran = true))
+    assert.equal(ran, true)
+    assert.equal(box.busy, 1)
+  })
+
+  test('a failing send does not stop the next one', async () => {
+    const box = new Outbox()
+    let ran = false
+    void box.push('s1', async () => {
+      throw new Error('boom')
+    })
+    await box.push('s1', async () => void (ran = true))
+    assert.equal(ran, true)
+  })
 })

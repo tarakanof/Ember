@@ -55,6 +55,7 @@ export type FetchLike = (
 ) => Promise<{ ok: boolean; status: number }>
 
 export const HEARTBEAT_MS = 10_000
+export const SESSION_END_BUDGET_MS = 800
 export const WAIT_BACKSTOP_MS = 30 * 60_000
 export const RESUME_GRACE_MS = 15_000
 export const SOURCE_PLACEHOLDER = 'set-me-to-this-laptop-id'
@@ -300,8 +301,12 @@ export function projectFromCwd(cwd: string, home: string): string {
   return base === '' || base === '.' ? '' : truncate(base, PROJECT_MAX)
 }
 
+export function validSessionID(raw: string): boolean {
+  return raw !== '' && raw.length <= 64 && /^[A-Za-z0-9._-]+$/.test(raw)
+}
+
 export async function sessionID(raw: string, cwd: string): Promise<string> {
-  if (raw !== '' && raw.length <= 64 && /^[A-Za-z0-9._-]+$/.test(raw)) return raw
+  if (validSessionID(raw)) return raw
   const sum = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(cwd))
   return Array.from(new Uint8Array(sum), b => b.toString(16).padStart(2, '0'))
     .join('')
@@ -358,11 +363,12 @@ export class Tracker {
     return this.upsert(cfg, now, id, { state: 'running', message: truncate(prompt, MAX_FIELD), cwd })
   }
 
-  preToolUse(cfg: Config, now: number, id: string, tool: string, input: unknown, toolUseId: string): Effect[] {
+  preToolUse(cfg: Config, now: number, id: string, tool: string, input: unknown, toolUseId: string, cwd: string): Effect[] {
     const out = this.upsert(cfg, now, id, {
       state: 'running',
       message: tool,
       activity: cfg.activityDetail ? activityString(tool, input) : '',
+      cwd,
     })
     const s = this.sessions.get(id)
     if (s) {
@@ -372,12 +378,13 @@ export class Tracker {
     return out
   }
 
-  toolAsked(cfg: Config, now: number, id: string, tool: string, input: unknown, toolUseId: string, dialog: boolean): Effect[] {
+  toolAsked(cfg: Config, now: number, id: string, tool: string, input: unknown, toolUseId: string, dialog: boolean, cwd: string): Effect[] {
     const out = dialog
       ? this.upsert(cfg, now, id, {
           state: 'waiting',
           message: 'approve ' + tool,
           activity: cfg.activityDetail ? activityString(tool, input) : '',
+          cwd,
           pending: { tool, toolUseId },
         })
       : []
@@ -565,6 +572,39 @@ export class Tracker {
     if (cfg.rateReset) body.rate_reset = true
     if (cfg.sendProject && s.project !== '') body.project = s.project
     return { method: 'POST', body }
+  }
+}
+
+type Lane = { job: (() => Promise<unknown>) | undefined; drained: Promise<void> | undefined }
+
+export class Outbox {
+  private readonly lanes = new Map<string, Lane>()
+
+  push(key: string, job: () => Promise<unknown>): Promise<void> {
+    let lane = this.lanes.get(key)
+    if (!lane) {
+      lane = { job: undefined, drained: undefined }
+      this.lanes.set(key, lane)
+    }
+    lane.job = job
+    if (!lane.drained) lane.drained = this.drain(key, lane)
+    return lane.drained
+  }
+
+  get busy(): number {
+    return this.lanes.size
+  }
+
+  private async drain(key: string, lane: Lane): Promise<void> {
+    for (let job = lane.job; job; job = lane.job) {
+      lane.job = undefined
+      try {
+        await job()
+      } catch {
+        continue
+      }
+    }
+    this.lanes.delete(key)
   }
 }
 
