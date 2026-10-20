@@ -44,7 +44,16 @@ poll carried it in the last 50 s and the current caps list the token,
 absent otherwise, #609, DEVICE-PROTOCOL
 "Shown page"; the `PATCH` reply too; no change long-poll, so a client
 polls the list),
-`GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340), `GET/PUT
+`GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340),
+knob pairing claims (#658, master token only, every client token 403;
+ARCHITECTURE "Device registry"): `GET /v1/devices/claims`
+(`{"claims":[{id, hw_id, short_id, fw, ip, created_at, expires_at,
+known_device_id|null}]}`, pending only, never the code or key; 404 before
+#658), `POST /v1/devices/claims/{id}/approve` `{code, name?}` (200 the
+`DeviceView`, no token; 400 `{"error":"wrong_code","attempts_left"}`, the
+fifth wrong code drops the claim; 404 unknown or expired; again with the
+code: 200, nothing minted) and `POST /v1/devices/claims/{id}/decline`
+(204), `GET/PUT
 /v1/devices/{id}/config` (same merge; includes `swipe_pages` (bool, default
 true), `quiet{calm, dim_level}`, optional `idle{dim_after_s, dim_level, off_after_s}`
 and `apps{pomodoro, weather, nowplaying}` (#656, DEVICE-PROTOCOL "Idle and
@@ -252,7 +261,12 @@ single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
 a malformed value is ignored, never a 400); `"quiet":true` while quiet hours are on, and a waiting
 poll wakes at the quiet-hours edges — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
 on any knob config change or rotation and on any clock record or clock config change). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
-the Plex poller). Device-only (unauthenticated): `POST /hooks/awtrix/button`
+the Plex poller). Knob LAN re-pair (unauthenticated, rate-limited, #658, DEVICE-PROTOCOL
+"Scope"): `POST /v1/devices/claim` `{hw_id, fw, claim_key}` (201 `{claim_id,
+code, expires_in_s, poll_s}`; 409 `already_paired` while the record checked
+in within 5 min; 429 past 2 pending claims per IP or 16 in all) and `POST
+/v1/devices/claim/poll` `{claim_id, claim_key}` (202 pending, 200 with the
+token until its first use, else 404). Device-only (unauthenticated): `POST /hooks/awtrix/button`
 (NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG
 the form `button=…&state=1|0&uid` — both accepted; `select` accepted as an
 alias for `middle`; Pomodoro maps middle=play/pause/resume, left=stop,

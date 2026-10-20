@@ -3374,8 +3374,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   read or decode at boot, the registry stays empty and refuses every write
   and device auth with 500 until restart, so the blob is never overwritten and
   can be repaired by hand; doctor's `devices` check fails with the error.
-  Plaintext tokens are never stored or logged; only the mint response and a
-  checkin carrying `new_token` contain one (`Cache-Control: no-store`).
+  Plaintext tokens are never stored or logged; only the mint response, a
+  checkin carrying `new_token` and an approved claim poll contain one
+  (`Cache-Control: no-store`).
 - **Tokens:** `ekd_` + 32 random bytes, base64url (47 chars). Lookup hashes
   the bearer and compares against every record's hashes with
   `subtle.ConstantTimeCompare` (no early exit). `POST /v1/devices` with a known
@@ -3426,6 +3427,39 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   unbound. `docs/openapi.yaml`
   records each operation's credentials; `openapi_test.go` checks every
   registered route against it (route × credential table).
+- **LAN re-pair (#658):** `claimRegistry` (`devices_claims.go`), in memory
+  only with its own lock, so a restart drops every claim and the knob's next
+  poll is 404. A knob with an Ember URL but no valid token posts `POST
+  /v1/devices/claim {hw_id, fw, claim_key}` (unauthenticated,
+  `rateLimit`); the claim (`c_` + 8 random hex) gets a 6-digit code from
+  `crypto/rand` (rejection-sampled, unique among live claims) and lives 10
+  min. The server keeps the SHA-256 of `claim_key` and compares it and the
+  code with `subtle.ConstantTimeCompare`. Caps: 2 live claims per source IP
+  and 16 in all; past that 429, never an eviction, so a flood can't push
+  out the real knob's claim. 409 `already_paired` while that `hw_id`'s
+  record checked in within 5 min (a live knob never claims). The owner
+  lists pending claims (`GET /v1/devices/claims`) and approves one with the
+  code from the knob's screen (`POST …/claims/{id}/approve`, master only:
+  approval mints a knob token like `POST /v1/devices`). Approve runs
+  `provision()` under the claim lock: a new record, or a re-provision (new
+  token, old one and any rotation revoked, config and version kept, epoch
+  bumped). The plaintext token stays on the claim, and every keyed poll
+  (`POST /v1/devices/claim/poll`) returns it until the first request
+  authenticated with it, which deletes the claim (`deviceAuthWith` calls
+  `claims.collect`), as with rotation delivery. An approved claim lasts 10
+  min from the approval. Five wrong codes drop the claim; decline drops it
+  at once. Every poll 404 (unknown, expired, declined, dropped, wrong key)
+  has one body. Logs: `device claim created|refused|code rejected|approved|declined|expired|collected`
+  with `claim_id`, `hw_id`, IP; never the code, key or token
+  (`TestClaimSecretsNeverLogged`). Threat model: the code on the physical
+  knob's screen is the proof of presence, and a rogue LAN claim's code
+  exists only in the rogue's reply; brute force needs `EMBER_TOKEN`. Token
+  delivery is plain HTTP on the LAN, the same exposure as checkin
+  `new_token`. Decline is a `POST …/decline`, not `DELETE
+  /v1/devices/claims/{id}`: Go's mux rejects that pattern next to `DELETE
+  /v1/devices/{id}/demo` (both match `/v1/devices/claims/demo`). Device ids
+  are `knob-`, `clock-` or `client-` prefixed, so none is `claim` or
+  `claims`.
 - **Rotation:** `POST /v1/devices/{id}/rotate` (202) only marks the record.
   The first checkin made with the old token mints the pending token and returns
   it as `new_token`; later old-token checkins get the **same** token again
