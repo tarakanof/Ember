@@ -221,6 +221,19 @@ private func near(_ a: RGB, _ b: RGB, _ tol: Int = 40) -> Bool {
     #expect(near(pixel(stock, KnobTempFace.dotPoint(1, all, center: 233)), dots.onColor))
 }
 
+@MainActor
+@Test func knobWeatherPreviewDrawsNoDotsForAOneFaceList() throws {
+    let s = try settings(##","apps":{"weather":{"faces":["rain"]}}"##)
+    let theme = s.previewTheme(for: knob(features: [KnobCaps.wxFaceList]))
+    let dots = theme.weather.dots
+    let face = KnobFace.rain(KnobRainFace(dry: true, intensity: 1, pop: 40, sub: "Dry now"))
+    let img = try render(face, theme: theme, name: "weather-dots-one-face")
+    let (placed, lit) = dots.placement(of: .rain)
+    #expect(placed.faces == 1 && lit == 0)
+    let p = pixel(img, KnobTempFace.dotPoint(0, placed, center: 233))
+    #expect(!near(p, dots.onColor) && !near(p, dots.offColor))
+}
+
 @Test func knobWeatherMoveIsOnlyOfferedWithinTheOnFaces() throws {
     var s = try settings(##","apps":{"weather":{"faces":["temp","rain"]}}"##)
     #expect(!s.canMoveWeatherFace("temp", by: -1))
