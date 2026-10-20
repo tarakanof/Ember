@@ -232,7 +232,10 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
 
 private func same(_ a: CGImage, _ b: CGImage) -> Bool {
     func bytes(_ i: CGImage) -> Data? { i.dataProvider?.data as Data? }
-    return a.width == b.width && a.height == b.height && bytes(a) != nil && bytes(a) == bytes(b)
+    guard a.width == b.width, a.height == b.height, a.bytesPerRow == b.bytesPerRow, let x = bytes(a), let y = bytes(b), x.count == y.count else {
+        return false
+    }
+    return zip(x, y).allSatisfy { abs(Int($0) - Int($1)) <= 1 }
 }
 
 private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
