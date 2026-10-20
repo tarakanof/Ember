@@ -575,3 +575,112 @@ func TestDeviceIDsCanNeverBeClaimSegments(t *testing.T) {
 		t.Fatalf("claims list = %d %s", resp.StatusCode, b)
 	}
 }
+
+func TestClaimCapCountsAnIPv6SlashSixtyFourAsOneSource(t *testing.T) {
+	cases := []struct {
+		name   string
+		first  []string
+		capped string
+		other  string
+	}{
+		{"one /64", []string{"2001:db8:1:2::1", "2001:db8:1:2:a:b:c:d"}, "2001:db8:1:2:ffff::9", "2001:db8:1:3::1"},
+		{"link-local zones", []string{"fe80::1%en0", "fe80::2%en1"}, "fe80::3%en0", "2001:db8:1:3::1"},
+		{"IPv4-mapped", []string{"192.0.2.10", "::ffff:192.0.2.10"}, "::ffff:c000:20a", "192.0.2.11"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			reg := newClaimRegistry()
+			for _, ip := range c.first {
+				if _, err := reg.open(testHwID, "", ip, testClaimKey); err != nil {
+					t.Fatalf("open from %s: %v", ip, err)
+				}
+			}
+			if _, err := reg.open(testHwID, "", c.capped, testClaimKey); !errors.Is(err, errClaimsFull) {
+				t.Fatalf("third claim from the same source %s: err = %v, want errClaimsFull", c.capped, err)
+			}
+			if _, err := reg.open(testHwID, "", c.other, testClaimKey); err != nil {
+				t.Fatalf("claim from another source %s: %v", c.other, err)
+			}
+		})
+	}
+}
+
+func TestClaimCapsHoldUnderConcurrentOpens(t *testing.T) {
+	reg := newClaimRegistry()
+	results := make(chan error, 200)
+	for i := range 200 {
+		go func() {
+			ip := "192.0.2.1"
+			if i%2 == 1 {
+				ip = fmt.Sprintf("198.51.100.%d", i%100)
+			}
+			_, err := reg.open(testHwID, "", ip, testClaimKey)
+			results <- err
+		}()
+	}
+	ok := 0
+	for range 200 {
+		if err := <-results; err == nil {
+			ok++
+		} else if !errors.Is(err, errClaimsFull) {
+			t.Fatal(err)
+		}
+	}
+	if ok != claimMaxTotal || len(reg.claims) != claimMaxTotal {
+		t.Fatalf("opened %d claims (%d stored), want exactly %d", ok, len(reg.claims), claimMaxTotal)
+	}
+	fromOne := 0
+	for _, c := range reg.claims {
+		if c.ip == "192.0.2.1" {
+			fromOne++
+		}
+	}
+	if fromOne > claimMaxPerIP {
+		t.Fatalf("one IP holds %d claims, want at most %d", fromOne, claimMaxPerIP)
+	}
+}
+
+func TestClaimSourceIsTheSocketAddressNotAForwardedHeader(t *testing.T) {
+	f := newClaimFixture(t)
+	for i := range 3 {
+		req, err := http.NewRequest("POST", f.srv.URL+"/v1/devices/claim", strings.NewReader(claimBody(testHwID, "", testClaimKey)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		spoofed := fmt.Sprintf("203.0.113.%d", i+1)
+		req.Header.Set("X-Forwarded-For", spoofed)
+		req.Header.Set("X-Real-IP", spoofed)
+		req.Header.Set("Forwarded", "for="+spoofed)
+		resp, err := f.srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		want := http.StatusCreated
+		if i == 2 {
+			want = http.StatusTooManyRequests
+		}
+		if resp.StatusCode != want {
+			t.Fatalf("claim %d with a spoofed forwarded address = %d, want %d", i+1, resp.StatusCode, want)
+		}
+	}
+	for _, c := range f.app.claims.pending() {
+		if c.ip != "127.0.0.1" {
+			t.Errorf("claim ip = %q, want the socket address 127.0.0.1", c.ip)
+		}
+	}
+}
+
+func TestClaimBodiesAreCappedSmall(t *testing.T) {
+	f := newClaimFixture(t)
+	pad := strings.Repeat(" ", claimBodyMax)
+	if resp, b := devReq(t, f.srv, "POST", "/v1/devices/claim", "", claimBody(testHwID, "", testClaimKey)+pad); resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized claim = %d, want 413: %s", resp.StatusCode, b)
+	}
+	if resp, b := devReq(t, f.srv, "POST", "/v1/devices/claim/poll", "", `{"claim_id":"c_00000000","claim_key":"`+testClaimKey+`"}`+pad); resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized poll = %d, want 413: %s", resp.StatusCode, b)
+	}
+	if n := len(f.app.claims.pending()); n != 0 {
+		t.Fatalf("an oversized claim opened %d claims", n)
+	}
+}

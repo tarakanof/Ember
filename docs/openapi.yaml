@@ -2986,8 +2986,9 @@ paths:
         knob keeps in RAM; the server stores only its SHA-256 and needs it
         again on every poll. The `code` (6 digits, unique among pending
         claims) is shown on the knob for the owner to type into Ember.app.
-        At most 2 pending claims per source IP and 16 in all; past that 429,
-        and no claim is evicted. 409 `already_paired` while that `hw_id`'s
+        At most 2 pending claims per source (an IPv4 address, or an IPv6 /64
+        so one host can't rotate addresses) and 16 in all; past that 429,
+        and no claim is evicted. Bodies over 4 KiB are 413. 409 `already_paired` while that `hw_id`'s
         record checked in within the last 5 minutes. `Cache-Control:
         no-store`. Rate-limited per IP like the other unauthenticated routes.
       security: []
@@ -3055,7 +3056,7 @@ paths:
         made with it, which deletes the claim; an approved claim lasts 10
         minutes from the approval. An unknown, expired, declined or dropped
         claim and a wrong key all get the same 404, and the knob opens a new
-        claim with a new key.
+        claim with a new key. Bodies over 4 KiB are 413.
       security: []
       requestBody:
         required: true

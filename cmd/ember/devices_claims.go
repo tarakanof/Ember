@@ -12,6 +12,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -28,6 +29,7 @@ const (
 	claimLiveWindow   = 5 * time.Minute
 	claimKeyBytes     = 32
 	claimIDPrefix     = "c_"
+	claimBodyMax      = 4096
 	claimCodeDraws    = math.MaxUint32 / 1_000_000 * 1_000_000
 )
 
@@ -46,6 +48,7 @@ type deviceClaim struct {
 	hwID      string
 	fw        string
 	ip        string
+	source    string
 	keyHash   [sha256.Size]byte
 	code      string
 	createdAt time.Time
@@ -91,9 +94,10 @@ func (r *claimRegistry) open(hwID, fw, ip, key string) (deviceClaim, error) {
 	defer r.mu.Unlock()
 	now := r.now()
 	r.pruneLocked(now)
+	source := claimSource(ip)
 	fromIP := 0
 	for _, c := range r.claims {
-		if c.ip == ip {
+		if c.source == source {
 			fromIP++
 		}
 	}
@@ -105,6 +109,7 @@ func (r *claimRegistry) open(hwID, fw, ip, key string) (deviceClaim, error) {
 		hwID:      hwID,
 		fw:        fw,
 		ip:        ip,
+		source:    source,
 		keyHash:   sha256.Sum256([]byte(key)),
 		code:      r.newCodeLocked(),
 		createdAt: now,
@@ -245,6 +250,18 @@ func (r *claimRegistry) collect(token string) (deviceClaim, bool) {
 	return deviceClaim{}, false
 }
 
+func claimSource(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	addr = addr.Unmap().WithZone("")
+	if addr.Is6() {
+		return netip.PrefixFrom(addr, 64).Masked().String()
+	}
+	return addr.String()
+}
+
 func validClaimKey(key string) bool {
 	if len(key) != base64.RawURLEncoding.EncodedLen(claimKeyBytes) {
 		return false
@@ -304,6 +321,7 @@ type claimView struct {
 }
 
 func (a *App) handleDeviceClaim(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, claimBodyMax)
 	var req struct {
 		HwID     string `json:"hw_id"`
 		FW       string `json:"fw"`
@@ -348,6 +366,7 @@ func (a *App) handleDeviceClaim(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceClaimPoll(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, claimBodyMax)
 	var req struct {
 		ClaimID  string `json:"claim_id"`
 		ClaimKey string `json:"claim_key"`

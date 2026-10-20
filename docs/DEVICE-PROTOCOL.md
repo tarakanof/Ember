@@ -33,7 +33,7 @@ IP.
 
 | Route | What |
 |---|---|
-| `POST /v1/devices/claim` | `{hw_id, fw, claim_key}` → 201 `{claim_id, code, expires_in_s: 600, poll_s: 5}` (`no-store`). `claim_key` is 32 random bytes as 43 unpadded base64url characters, kept in RAM and never logged; the server stores its SHA-256. The knob shows `code` (6 digits). 409 `already_paired` while that `hw_id`'s record checked in within 5 min; 429 at 2 pending claims per IP or 16 in all (nothing is evicted) and on the rate limit. |
+| `POST /v1/devices/claim` | `{hw_id, fw, claim_key}` → 201 `{claim_id, code, expires_in_s: 600, poll_s: 5}` (`no-store`). `claim_key` is 32 random bytes as 43 unpadded base64url characters, kept in RAM and never logged; the server stores its SHA-256. The knob shows `code` (6 digits). 409 `already_paired` while that `hw_id`'s record checked in within 5 min; 429 at 2 pending claims per source (an IPv4 address or an IPv6 /64) or 16 in all (nothing is evicted) and on the rate limit. Bodies over 4 KiB are 413. |
 | `POST /v1/devices/claim/poll` | `{claim_id, claim_key}` every `poll_s` → 202 `{"state":"pending","expires_in_s"}`, or 200 `{"state":"approved","device_id","name","token"}` (`no-store`). Every poll gets the same token until the first request made with it, which deletes the claim; the knob stores `dev_id` and token and checks in at once. 404 (one body for all) for an unknown, expired, declined or dropped claim or a wrong key: open a new claim with a new key. |
 
 The owner approves in Ember.app with the code (`POST

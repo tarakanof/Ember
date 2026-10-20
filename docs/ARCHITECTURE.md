@@ -3434,9 +3434,17 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `rateLimit`); the claim (`c_` + 8 random hex) gets a 6-digit code from
   `crypto/rand` (rejection-sampled, unique among live claims) and lives 10
   min. The server keeps the SHA-256 of `claim_key` and compares it and the
-  code with `subtle.ConstantTimeCompare`. Caps: 2 live claims per source IP
+  code with `subtle.ConstantTimeCompare`. Caps: 2 live claims per source
   and 16 in all; past that 429, never an eviction, so a flood can't push
-  out the real knob's claim. 409 `already_paired` while that `hw_id`'s
+  out the real knob's claim. The source is the socket address (never a
+  forwarded header), unmapped and without its zone, and an IPv6 address
+  counts by its /64, because one host can take any number of addresses in
+  its prefix. Expired claims are pruned under the lock before the count,
+  and the count and insert share that lock. Claim and poll bodies stop at
+  4 KiB (413). What stays open: whoever holds 8 sources (8 IPv4 addresses
+  or 8 /64s) can keep all 16 slots full, by design of "no eviction", so
+  the knob falls back to USB; the shared per-IP rate limiter
+  (`IPLimiter`) still keys by exact address, as on every route. 409 `already_paired` while that `hw_id`'s
   record checked in within 5 min (a live knob never claims). The owner
   lists pending claims (`GET /v1/devices/claims`) and approves one with the
   code from the knob's screen (`POST …/claims/{id}/approve`, master only:

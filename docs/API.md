@@ -264,7 +264,7 @@ on any knob config change or rotation and on any clock record or clock config ch
 the Plex poller). Knob LAN re-pair (unauthenticated, rate-limited, #658, DEVICE-PROTOCOL
 "Scope"): `POST /v1/devices/claim` `{hw_id, fw, claim_key}` (201 `{claim_id,
 code, expires_in_s, poll_s}`; 409 `already_paired` while the record checked
-in within 5 min; 429 past 2 pending claims per IP or 16 in all) and `POST
+in within 5 min; 429 past 2 pending claims per source, an IPv4 address or an IPv6 /64, or 16 in all; 413 over 4 KiB) and `POST
 /v1/devices/claim/poll` `{claim_id, claim_key}` (202 pending, 200 with the
 token until its first use, else 404). Device-only (unauthenticated): `POST /hooks/awtrix/button`
 (NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG
