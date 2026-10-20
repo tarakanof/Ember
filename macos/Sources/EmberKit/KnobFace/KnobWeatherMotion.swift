@@ -187,7 +187,7 @@ extension KnobCastFace {
         guard let t, hasCount else { return nil }
         let ta = KnobArrive.quantised(t, fps: KnobArrive.fps), opa = Self.dropOpacity(ta)
         guard opa > 0 else { return nil }
-        let deg = Float(nowDeg) + Float(toDeg - nowDeg) * Float(Self.ease(ta / Self.slideS))
+        let now = Float(nowDeg), deg = now + (Float(toDeg) - now) * Float(Self.ease(ta / Self.slideS))
         return Drop(deg: Double((deg * 4).rounded()) / 4, opa: opa)
     }
 }

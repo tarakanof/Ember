@@ -311,4 +311,17 @@ private let arrivalTimes = [0, 0.1, 0.5, 1.0, 1.3, 1.34]
     #expect([0, 0.09, 0.5, 1.08, 1.2, 9, .nan].map(KnobCastFace.dropOpacity) == [0, 128, 255, 127, 0, 0, 0])
     c.hasCount = false
     #expect(c.drop(t: 0.5) == nil, "no count: no drop")
+    var odd = KnobCastFace()
+    odd.have = true; odd.hasCount = true; odd.nowDeg = 10885.0 / 120; odd.toDeg = 123
+    #expect(odd.drop(t: 0.85) == .init(deg: 122.5, opa: 255), "C subtracts the float angles: 122.5, not 122.75")
+}
+
+@Test func gaugeMarkerEasesInFloatLikeCinder() {
+    func at(_ f: Double, _ t: Double?) -> [Double] {
+        let p = KnobFaceRender.gaugeMarkerPoint(f, t: t, wx)
+        return [p.x.rounded(), p.y.rounded()]
+    }
+    #expect(at(KnobTempFace(value: 26, todayMinC: 0, todayMaxC: 47).fraction, 0.65) == [207, 13], "26 on 0-47 at t 0.65")
+    #expect(at(KnobTempFace(value: 6, todayMinC: -20, todayMaxC: 27).fraction, 9.5 / 15) == [207, 13], "6 on -20-27 mid-frame 9")
+    #expect(at(0.8, nil) == [452, 198] && at(0, 0) == [76, 390], "the rest pose and the start")
 }

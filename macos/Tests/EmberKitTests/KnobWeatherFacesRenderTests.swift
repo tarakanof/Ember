@@ -335,11 +335,18 @@ private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
     var air = KnobAirFace()
     air.have = true; air.aqi = 42; air.band = 2; air.fraction = 0.42
     #expect(markerRing(try render(.air(air), t: 0.5), KnobTempFace.gaugePoint(0.42 * KnobArrive.eased(0.5), w, center: 233)))
-    let still = KnobWindFace()
-    let mid = KnobWindFace.sockQuads(level: 0, pose: 1)[0]
-    let at = CGPoint(x: mid.map(\.x).reduce(0, +) / 4, y: mid.map(\.y).reduce(0, +) / 4)
-    let faded = try render(.wind(still), t: 0), settled = try render(.wind(still), t: 3), still0 = try render(.wind(still))
-    #expect(near(pixel(faded, at), black, 10) && same(settled, still0), "without data the sock fades in")
+    let (s, now) = sunFixture()
+    let sun = KnobSunFace(state: s, now: now)
+    let eased = KnobFaceRender.gaugeMarkerPoint(sun.fraction, t: 0.5, w)
+    let half = try render(.sun(sun), t: 0.5)
+    #expect(markerRing(half, eased) && !markerRing(half, ring(sun.fraction)), "the sun marker eases in too")
+}
+
+@MainActor @Test func thermometerTicksLightFromTheHalfPixelMercuryTopLikeTheKnob() throws {
+    let f = KnobTempFace(value: -2), th = w.thermo, tick = CGPoint(x: (th.tickXPx[0] + th.tickXPx[1]) / 2, y: th.ticksPx[0] + th.dyPx)
+    #expect(KnobTempFace.mercuryTop(-2, th) > th.ticksPx[0], "unrounded, -2° sits just under the 160 tick")
+    #expect(near(pixel(try render(.weather(f), t: 1.3), tick), f.valueColor(w, t: 1.3), 30), "lit on the way up")
+    #expect(near(pixel(try render(.weather(f)), tick), f.valueColor(w), 30), "and still lit at rest, as on the knob")
 }
 
 @MainActor @Test func castDropSlidesAlongTheRingDuringTheArrival() throws {

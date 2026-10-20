@@ -39,8 +39,14 @@ extension KnobFaceRender {
         ctx.stroke(disc(at, w.marker.ringRadiusPx), with: .color(Color(w.marker.color)), lineWidth: w.marker.ringWidthPx)
     }
 
-    static func gaugeMarker(_ fraction: Double, _ w: KnobTheme.Weather, in ctx: inout GraphicsContext) {
-        marker(at: KnobTempFace.gaugePoint(fraction, w, center: 233), w, in: &ctx)
+    static func gaugeMarkerPoint(_ fraction: Double, t: Double?, _ w: KnobTheme.Weather) -> CGPoint {
+        let f = Float(fraction) * Float(KnobArrive.eased(t)), r = Float(w.ring.radiusPx)
+        let a = (Float(w.ring.fromDeg) + Float(w.ring.sweepDeg) * f) * .pi / 180
+        return CGPoint(x: Double(233 + r * sin(a)), y: Double(233 - r * cos(a)))
+    }
+
+    static func gaugeMarker(_ fraction: Double, t: Double?, _ w: KnobTheme.Weather, in ctx: inout GraphicsContext) {
+        marker(at: gaugeMarkerPoint(fraction, t: t, w), w, in: &ctx)
     }
 
     static func textWidth(_ s: String, _ px: Double, theme: KnobTheme) -> Double {
@@ -111,7 +117,7 @@ extension KnobFaceRender {
         valueUnit(f.valueText(t: t), vc, unit: "%", unitColor: vc, theme: theme, in: &ctx)
         if f.pop != nil {
             ends("0%", w.rain.endColor, "100%", KnobRainFace.color(f.intensity, w.rain), theme: theme, in: &ctx)
-            gaugeMarker(f.fraction * KnobArrive.eased(t), w, in: &ctx)
+            gaugeMarker(f.fraction, t: t, w, in: &ctx)
         }
         sub(f.sub, w.sub.color, opacity: KnobArrive.subOpacity(t), theme: theme, in: &ctx)
     }
@@ -271,11 +277,12 @@ extension KnobFaceRender {
 
     static func castDrop(_ d: KnobCastFace.Drop, _ color: RGB, in ctx: inout GraphicsContext) {
         let at = KnobCastFace.ringPoint(d.deg)
-        let p = dropPath.applying(CGAffineTransform(rotationAngle: d.deg * .pi / 180).concatenating(CGAffineTransform(translationX: at.x, y: at.y)))
         var c = ctx
+        c.translateBy(x: at.x, y: at.y)
+        c.rotate(by: .degrees(d.deg))
         faded(d.opa, in: &c) { g in
-            g.fill(p, with: .color(Color(color)))
-            g.stroke(p, with: .color(.black), lineWidth: 2)
+            g.fill(dropPath, with: .color(Color(color)))
+            g.stroke(dropPath, with: .color(.black), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
         }
     }
 
@@ -389,7 +396,7 @@ extension KnobFaceRender {
         valueUnit(f.valueText(t: time), sock, unit: f.have ? "km/h" : nil, unitColor: t.unitColor, theme: theme, in: &ctx)
         if f.have {
             ends("0", KnobWindFace.color(0, t), "\(t.gaugeKmh)+", KnobWindFace.color(t.gaugeKmh, t), theme: theme, in: &ctx)
-            gaugeMarker(f.fraction * KnobArrive.eased(time), w, in: &ctx)
+            gaugeMarker(f.fraction, t: time, w, in: &ctx)
         }
         sub(f.sub, w.sub.color, opacity: KnobArrive.subOpacity(time), theme: theme, in: &ctx)
     }
@@ -532,7 +539,7 @@ extension KnobFaceRender {
                            with: .color(Color(t.horizonColor)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
             }
             ends(f.rise, t.horizonColor, f.set, t.horizonColor, theme: theme, in: &ctx)
-            if f.hasNow { gaugeMarker(f.fraction * KnobArrive.eased(time), w, in: &ctx) }
+            if f.hasNow { gaugeMarker(f.fraction, t: time, w, in: &ctx) }
         }
         valueUnit(f.valueText(t: time), f.valueColor(w), unit: f.valueText == "--" ? nil : f.unit, unitColor: t.unitColor, theme: theme, in: &ctx)
         sub(f.sub, f.subColor, opacity: KnobArrive.subOpacity(time), theme: theme, in: &ctx)
@@ -546,7 +553,7 @@ extension KnobFaceRender {
         if f.wilted, let t { fallingPetal(KnobAirFace.petal(k: KnobArrive.frame(t)), in: &ctx) }
         faceDots(6, w, in: &ctx)
         valueUnit(f.valueText(t: t), f.valueColor(w, t: t), unit: f.unit, unitColor: w.air.unitColor, theme: theme, in: &ctx)
-        if f.have { gaugeMarker(f.fraction * KnobArrive.eased(t), w, in: &ctx) }
+        if f.have { gaugeMarker(f.fraction, t: t, w, in: &ctx) }
         sub(f.sub, f.subColor(w), opacity: KnobArrive.subOpacity(t), theme: theme, in: &ctx)
     }
 

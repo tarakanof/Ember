@@ -3515,8 +3515,13 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   spell along `wx_cast_ease` and fades out by `WX_CAST_DROP_OUT_S`, the
   sub-line fades in at 85, 170, 255 from 1.32 s (`SUB_FADE_S`), and the
   sock fades in without wind data. The half-px mercury step applies
-  only while the ease runs, so the settled top is the rest pose's
-  unrounded one. With no t (the Pages overview, Reduce
+  only while the ease runs, so the settled tube is the rest pose's
+  unrounded one; the ticks always light from the half-px top
+  (`top <= TICKS[t]` on `set_mercury`'s `q / 2`), so −2 °C keeps its
+  160 px tick lit at rest as the knob does. The drop and gauge marker
+  maths run in `Float` like cinder's (`wx_cast_drop_deg`, `wx_gauge_xy`
+  on a `float` frac), since a double-precision angle can round the
+  drop to the next quarter degree or the marker to the next pixel. With no t (the Pages overview, Reduce
   Motion) the faces draw the rest pose above. `KnobWeatherMemo.shownAt`
   is the show time, like cinder's `s_t`: it resets on page open (a fresh
   memo) and when a reported face changes, not when the preview's own AUTO
@@ -3529,8 +3534,8 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   (the feeds' `WindowVisibilityReader` signal) and the face moves: loops
   (rain, cast, wind with data, wilted air) tick on, arrivals stop on the
   first frame that equals the rest pose: 4/3 s for the counts and fades,
-  1.8 s (`WX_ARRIVE_S + SUB_FADE_S`, cinder's own repaint window) when a
-  sub-line shows, 22/15 s for the sun; a face with neither a value nor a
+  1.8 s (`WX_ARRIVE_S + SUB_FADE_S`, where the sub-line fade and
+  cinder's 30 fps paint throttle end) when a sub-line shows, 22/15 s for the sun; a face with neither a value nor a
   sub-line nor a hero is still. What stays static: the Temperature sky
   (hero, clouds and scene) and so its `WX_DRIFT_FPS` cloud drift, whose
   paths cinder seeds from `esp_random()`, the burn-in shift, the face

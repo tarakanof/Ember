@@ -417,11 +417,12 @@ enum KnobFaceRender {
         ctx.fill(Path(roundedRect: CGRect(x: c - th.mercuryHalfWPx, y: mid - reach, width: 2 * th.mercuryHalfWPx, height: 2 * reach),
                       cornerRadius: th.mercuryHalfWPx), with: .color(Color(merc)))
         ctx.fill(disc(bulb, th.mercuryBulbRadiusPx), with: .color(Color(merc)))
+        let tickTop = (top * 2).rounded() / 2
         for tick in th.ticksPx {
             var p = Path()
             p.move(to: CGPoint(x: th.tickXPx[0], y: tick + th.dyPx))
             p.addLine(to: CGPoint(x: th.tickXPx[1], y: tick + th.dyPx))
-            ctx.stroke(p, with: .color(Color(top <= tick ? merc : th.tickColor)),
+            ctx.stroke(p, with: .color(Color(tickTop <= tick ? merc : th.tickColor)),
                        style: StrokeStyle(lineWidth: th.tickWidthPx, lineCap: .round))
         }
 
@@ -442,12 +443,7 @@ enum KnobFaceRender {
             label(f.sub, w.sub.fontPx, f.subColor ?? w.sub.color, centerX: c, top: w.sub.yPx, theme: theme, in: &sc)
         }
 
-        if f.value != nil {
-            let p = KnobTempFace.gaugePoint(f.fraction * KnobArrive.eased(t), w, center: c)
-            let at = CGPoint(x: p.x.rounded(), y: p.y.rounded())
-            ctx.fill(disc(at, w.marker.discRadiusPx), with: .color(.black))
-            ctx.stroke(disc(at, w.marker.ringRadiusPx), with: .color(Color(w.marker.color)), lineWidth: w.marker.ringWidthPx)
-        }
+        if f.value != nil { gaugeMarker(f.fraction, t: t, w, in: &ctx) }
     }
 
     static func ringShading(_ f: KnobTempFace, _ w: KnobTheme.Weather, center c: Double) -> GraphicsContext.Shading {
