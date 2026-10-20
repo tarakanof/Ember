@@ -82,7 +82,7 @@ jobs:
         run: npx --yes @redocly/cli@2.58.2 lint --config docs/redocly.yaml --format github-actions docs/openapi.yaml
 
   claude-mod:
-    name: Claude mod producer (node --test, pure module only)
+    name: Claude mod producer (node --test, plugin validate + test)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -93,8 +93,25 @@ jobs:
         with:
           node-version: 24
 
-      - name: node --test (test/mod.test.ts needs Claude Code; not run here)
+      - name: node --test (pure module)
         run: node --test producers/claude-code/mod/test/producer.test.mts
+
+      - name: Install Claude Code (pinned, runner only)
+        run: npm i -g @anthropic-ai/claude-code@2.1.304
+
+      - name: claude plugin validate --strict
+        run: |
+          export HOME="$RUNNER_TEMP/claude-home"
+          export CLAUDE_CONFIG_DIR="$HOME/.claude"
+          mkdir -p "$CLAUDE_CONFIG_DIR"
+          claude plugin validate --strict producers/claude-code/mod
+
+      - name: claude plugin test (test/mod.test.ts, register.ts wiring)
+        run: |
+          export HOME="$RUNNER_TEMP/claude-home"
+          export CLAUDE_CONFIG_DIR="$HOME/.claude"
+          mkdir -p "$CLAUDE_CONFIG_DIR"
+          claude plugin test producers/claude-code/mod
 
   image-vcs:
     name: Docker image (clean VCS stamp)
