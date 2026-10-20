@@ -384,6 +384,7 @@ enum KnobFaceRender {
         let c = theme.screen.diameterPx / 2
         func disc(_ p: CGPoint, _ r: Double) -> Path { Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)) }
 
+        if t != nil { tempSkyBack(f, in: &ctx) }
         for k in 0..<w.dots.faces {
             ctx.fill(disc(KnobTempFace.dotPoint(k, w.dots, center: c), w.dots.dotRadiusPx),
                      with: .color(Color(k == KnobWeatherFaceID.temp.dot ? w.dots.onColor : w.dots.offColor)))
@@ -409,6 +410,7 @@ enum KnobFaceRender {
         } else {
             ctx.stroke(arc, with: ringShading(f, w, center: c), style: ringStyle)
         }
+        if let t { tempSkyFront(f, t: t, in: &ctx) }
 
         let merc = f.valueColor(w, t: t)
         let top = f.mercuryTop(th, t: t)

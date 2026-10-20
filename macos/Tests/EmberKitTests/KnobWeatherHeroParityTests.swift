@@ -481,3 +481,95 @@ private let face = "../../main/temp_face.c"
         #expect(abs(y - want) < 1e-3, "the drop tail at x \(x): \(y), cinder \(want)")
     }
 }
+
+private func hex(_ c: RGB) -> String { String(format: "0x%02X%02X%02X", c.r, c.g, c.b) }
+
+private func lit(_ v: Float) -> String { NSRegularExpression.escapedPattern(for: String(v)) }
+
+@Test(cinder) func tempSkyTablesAndHeroesMatchCinder() throws {
+    let tones = ["WX_TONE_WHITE", "WX_TONE_LIGHT", "WX_TONE_DARK"]
+    let meta = try table("wx_temp.c", "} B[5]").items
+    #expect(meta.count == KnobTempSky.bands.count)
+    for (b, (m, band)) in zip(meta, KnobTempSky.bands).enumerated() {
+        let src: CInit = b == 0 ? .word("NULL") : .word("BAND\(b)")
+        #expect(m == .list([src, .num(Double(band.clouds.count)), .word(tones[band.tone]), .num(f(band.fadeFrom))]), "band \(b)")
+        guard b > 0 else { continue }
+        let want = CInit.list(band.clouds.map { cl in
+            .list([.num(cl.back ? 1 : 0), .num(f(cl.base)), .num(Double(cl.puffs.count)), .list(cl.puffs.map { nums([f($0.x), f($0.y), f($0.r)]) })])
+        })
+        #expect(try table("wx_temp.c", "static const cloud_src_t BAND\(b)[]") == want, "BAND\(b)")
+    }
+    func packed(_ c: RGB) -> CInit { .num(Double(Int(c.r) << 16 | Int(c.g) << 8 | Int(c.b))) }
+    #expect(try table("wx_paint.c", "static const uint32_t TONES[4][3]") == .list(KnobTempSky.tones.map { .list([packed($0.front), packed($0.back), packed($0.line)]) }))
+    #expect(try table("wx_paint.c", "static const float STARS[10][3]") == .list(KnobTempSky.stars.map { nums([f($0.x), f($0.y), f($0.r)]) }))
+    #expect(try table("wx_paint.c", "static const float KEEP_OUT[5][5]") == .list(KnobTempSky.keepOut.map { nums($0.map(f)) }))
+    #expect(try define("wx_paint.c", "SUN_C") == f(KnobTempSky.sunC) && define("wx_paint.c", "SUN_CORE") == f(KnobTempSky.sunCore))
+    #expect(try define("wx_paint.c", "RAYS") == Double(KnobTempSky.rayCount) && define("include/wx_paint.h", "WX_HERO_BOX") == Double(KnobTempSky.heroBox))
+    #expect(try define("include/wx_temp.h", "WX_ILLUM_STEP") == Double(KnobTempFace.illumStep))
+    try code("wx_paint.c", #"#define HERO_FADE \(0\.82f \* RIM_R\)"#)
+    try code("wx_paint.c", #"for \(int i = 0; i < 10; i\+\+\) disc\(im, STARS\[i\]\[0\], STARS\[i\]\[1\], STARS\[i\]\[2\], wx_rgb565\(\#(hex(KnobTempSky.starColor))\), \#(lit(KnobTempSky.starAlpha))f, HERO_FADE\);"#)
+    try code("wx_paint.c", #"const uint16_t col = wx_rgb565\(\#(hex(KnobTempSky.rayColor))\);\s*const float start = SUN_CORE \+ 14, step = 360\.0f / RAYS;\s*"#
+        + #"const float out_dir = atan2f\(SUN_C - WX_FACE_C, SUN_C - WX_FACE_C\) / DEG \+ 360\.0f;.*?"#
+        + #"ang\[k\] = k \* step \+ 4;\s*float off = fmodf\(ang\[k\] - out_dir \+ 180\.0f \+ 720\.0f, 360\.0f\) - 180\.0f;\s*"#
+        + #"len\[k\] = fabsf\(off\) < 50 \? SUN_CORE \+ 40 : 330;.*?"#
+        + #"float m = rim\(fx, fy, HERO_FADE\);\s*if \(m <= 0\) continue;\s*float vx = fx - SUN_C, vy = fy - SUN_C;\s*"#
+        + #"float rho = sqrtf\(vx \* vx \+ vy \* vy\);\s*if \(rho < start - 3 \|\| rho > 300\) continue;\s*float phi = atan2f\(vy, vx\) / DEG;\s*"#
+        + #"int k = \(int\)floorf\(\(phi - 4\) / step \+ 0\.5f\);\s*k = \(\(k % RAYS\) \+ RAYS\) % RAYS;\s*float da = \(phi - ang\[k\]\) \* DEG;\s*"#
+        + #"float along = rho \* cosf\(da\), perp = rho \* fabsf\(sinf\(da\)\);\s*"#
+        + #"float d = along < start \? hypotf\(along - start, perp\) : along > len\[k\] \? hypotf\(along - len\[k\], perp\) : perp;\s*"#
+        + #"float c = cov\(d - \(\(k % 2\) \? 1\.5f : 1\.75f\)\);\s*if \(c <= 0\) continue;\s*float g = rho / 300\.0f;\s*"#
+        + #"float ga = g <= 0\.2f \? 0\.55f : 0\.55f \* \(1 - \(g - 0\.2f\) / 0\.8f\);\s*float block = 0;\s*"#
+        + #"for \(int b = 0; b < 5; b\+\+\) \{\s*float kb = clamp01\(0\.5f - rbox\(fx, fy, KEEP_OUT\[b\]\) / 24\.0f\);\s*if \(kb > block\) block = kb;\s*\}\s*"#
+        + #"put\(im, y \* im->w \+ x, col, c \* ga \* m \* \(1 - block\)\);"#)
+    try code("wx_paint.c", #"float d = hypotf\(fx - SUN_C, fy - SUN_C\);.*?float g = d / \#(lit(Float(KnobTempSky.haloR)))f;\s*"#
+        + #"put\(im, i, halo, g <= 0\.65f \? 0\.22f : g >= 1 \? 0 : 0\.22f \* \(1 - \(g - 0\.65f\) / 0\.35f\)\);\s*float f = d / SUN_CORE;\s*"#
+        + #"uint32_t c = f <= 0\.6f \? lerp_rgb\(\#(hex(KnobTempSky.sunLight)), \#(hex(KnobTempSky.rayColor)), f / 0\.6f\) : lerp_rgb\(\#(hex(KnobTempSky.rayColor)), \#(hex(KnobTempSky.sunEdge)), \(f - 0\.6f\) / 0\.4f\);\s*"#
+        + #"put\(im, i, wx_rgb565\(c\), cov\(d - SUN_CORE\)\);\s*put\(im, i, halo, cov\(fabsf\(d - SUN_CORE\) - 0\.75f\)\);.*?"#
+        + #"scale_alpha\(im, \#(lit(Float(KnobTempSky.sunAlpha)))f, HERO_FADE\);"#)
+    try code("wx_paint.c", #"const float gr = roundf\(r \* 1\.6f\), il = illum_pct / 100\.0f, sgn = phase < 50 \? 1\.0f : -1\.0f;\s*"#
+        + #"const float rx = fabsf\(1 - 2 \* il\) \* r;\s*const float gcx = cx - sgn \* r \* 0\.35f, gcy = cy - r \* 0\.2f, grr = r \* 1\.2f;\s*"#
+        + #"const uint16_t gc = wx_rgb565\(\#(hex(KnobTempSky.moonGlow))\);.*?put\(im, i, gc, g <= 0\.6f \? glow : g >= 1 \? 0 : glow \* \(1 - \(g - 0\.6f\) / 0\.4f\)\);.*?"#
+        + #"float side = cov\(-sgn \* dx\);.*?float lit = il < 0\.5f \? fminf\(side, 1 - in_e\) : fmaxf\(side, in_e\);\s*lit = fminf\(lit, body\);\s*"#
+        + #"uint32_t c = lerp_rgb\(\#(hex(KnobTempSky.moonLight)), \#(hex(KnobTempSky.moonShade)), hypotf\(fx - gcx, fy - gcy\) / grr\);\s*put\(im, i, wx_rgb565\(c\), lit\);.*?"#
+        + #"scale_alpha\(im, 1, HERO_FADE\);"#)
+    try code("wx_paint.c", #"if \(hero == WX_HERO_MOON\) cx = cy = \#(lit(KnobTempSky.heroCenter(.moon).x))f;\s*if \(hero == WX_HERO_MOON_SMALL\) \{\s*cx = \#(Int(KnobTempSky.heroCenter(.moonSmall).x));\s*cy = \#(Int(KnobTempSky.heroCenter(.moonSmall).y));\s*\}.*?"#
+        + #"else if \(hero == WX_HERO_MOON\) moon\(im, cx, cy, 50, 0\.2f, moon_phase, moon_illum\);\s*"#
+        + #"else if \(hero == WX_HERO_MOON_SMALL\) moon\(im, cx, cy, 34, 0\.14f, moon_phase, moon_illum\);"#)
+    try code("wx_paint.c", #"put\(im, idx, fill, cov\(d\)\);\s*put\(im, idx, line, cov\(fabsf\(d\) - 2\.25f\)\);.*?scale_alpha\(im, 1, c->fade_from\);"#)
+    try code("wx_paint.c", #"if \(t->hero == WX_HERO_SUN\) wx_paint_rays\(&bg\);\s*if \(t->stars\) wx_paint_stars\(&bg\);\s*wx_paint_thermo\(&bg\);"#)
+    try code("wx_temp.c", #"if \(!t->night\) \{\s*if \(t->cloud_band <= 1\) t->hero = WX_HERO_SUN;\s*\} else if \(o->has_moon && o->moon_up == 1 && t->cloud_band < 4\) \{\s*"#
+        + #"t->hero = t->cloud_band < 3 \? WX_HERO_MOON : WX_HERO_MOON_SMALL;\s*t->moon_phase = o->moon_phase;\s*"#
+        + #"int il = o->moon_illum < 0 \? 0 : o->moon_illum > 100 \? 100 : o->moon_illum;\s*"#
+        + #"t->moon_illum = \(il \+ WX_ILLUM_STEP / 2\) / WX_ILLUM_STEP \* WX_ILLUM_STEP;\s*\}\s*t->stars = t->night && t->cloud_band <= 1;"#)
+    try code("../knob_view/knob_view.c", #"o->has_moon = num_in\(moon, "phase", 0, 99, &o->moon_phase\) && num_in\(moon, "illum", 0, 100, &o->moon_illum\);"#)
+    try code(face, #"s_hero = canvas\(s_root, LV_COLOR_FORMAT_RGB565A8\);\s*for \(int i = 0; i < WX_CLOUDS_MAX; i\+\+\) s_cl\[i\] = canvas\(s_root, LV_COLOR_FORMAT_RGB565A8\);"#)
+}
+
+@Test(cinder) func cloudDriftMatchesCinder() throws {
+    let h = "include/wx_temp.h"
+    #expect(try define(h, "WX_DRIFT_X") == KnobTempDrift.swingX && define(h, "WX_DRIFT_Y") == KnobTempDrift.swingY)
+    #expect(try define(h, "WX_DRIFT_MIN_S") == f(KnobTempDrift.minS) && define(h, "WX_DRIFT_MAX_S") == f(KnobTempDrift.maxS))
+    #expect(try define(h, "WX_DRIFT_RAMP_S") == KnobTempDrift.rampS && define(h, "WX_DRIFT_FPS") == KnobTempDrift.fps)
+    #expect(try define(h, "WX_DRIFT_BACK") == f(KnobTempDrift.backDepth) && define(h, "WX_CLOUDS_MAX") == 4)
+    try code("wx_temp.c", #"uint32_t z = \(\*s \+= 0x9E3779B9u\);\s*z = \(z \^ \(z >> 16\)\) \* 0x85EBCA6Bu;\s*z = \(z \^ \(z >> 13\)\) \* 0xC2B2AE35u;\s*return z \^ \(z >> 16\);"#)
+    try code("wx_temp.c", #"return \(float\)\(drift_rand\(s\) >> 8\) / 16777216\.0f;"#)
+    try code("wx_temp.c", #"for \(int i = 0; i < n; i\+\+\) p\[i\] = i;\s*for \(int i = n - 1; i > 0; i--\) \{\s*"#
+        + #"int j = \(int\)\(drift_rand\(s\) % \(uint32_t\)\(i \+ 1\)\), k = p\[i\];\s*p\[i\] = p\[j\];\s*p\[j\] = k;"#)
+    try code("wx_temp.c", #"uint32_t s = entropy \^ \(starts \* 0x2545F491u\);\s*int pp\[WX_CLOUDS_MAX\], px\[WX_CLOUDS_MAX\];\s*"#
+        + #"drift_perm\(&s, d->n, pp\);\s*drift_perm\(&s, d->n, px\);\s*float slot = \(WX_DRIFT_MAX_S - WX_DRIFT_MIN_S\) / \(float\)d->n;\s*"#
+        + #"for \(int i = 0; i < d->n; i\+\+\) \{\s*d->period\[i\] = WX_DRIFT_MIN_S \+ slot \* \(\(float\)pp\[i\] \+ 0\.15f \+ 0\.7f \* drift_unit\(&s\)\);\s*"#
+        + #"d->phase_x\[i\] = \(\(float\)px\[i\] \+ 0\.15f \+ 0\.7f \* drift_unit\(&s\)\) / \(float\)d->n;\s*d->phase_y\[i\] = drift_unit\(&s\);\s*"#
+        + #"d->depth\[i\] = back && back\[i\] \? WX_DRIFT_BACK : 1;"#)
+    try code("wx_temp.c", #"double ramp = t < WX_DRIFT_RAMP_S \? t / WX_DRIFT_RAMP_S : 1, p = fmod\(t / d->period\[i\], 1\.0\);\s*double k = d->depth\[i\] \* ramp;\s*"#
+        + #"\*dx = \(int\)lround\(k \* WX_DRIFT_X \* sin\(2 \* M_PI \* \(p \+ d->phase_x\[i\]\)\)\);\s*"#
+        + #"\*dy = \(int\)lround\(k \* WX_DRIFT_Y \* sin\(2 \* M_PI \* \(p \+ d->phase_y\[i\]\)\)\);"#)
+    try code("wx_temp.c", #"long f = \(long\)floor\(d->t \* WX_DRIFT_FPS\);\s*if \(f <= d->frame\) return -1;\s*d->frame = f;\s*"#
+        + #"for \(int k = 0; k < d->n; k\+\+\) \{\s*int i = \(d->turn \+ k\) % d->n, x, y;\s*wx_drift_path\(d, i, \(double\)f / WX_DRIFT_FPS, &x, &y\);\s*"#
+        + #"if \(x == d->dx\[i\] && y == d->dy\[i\]\) continue;\s*d->dx\[i\] = toward\(d->dx\[i\], x\);\s*d->dy\[i\] = toward\(d->dy\[i\], y\);\s*"#
+        + #"d->turn = \(i \+ 1\) % d->n;\s*return i;"#)
+    try code(face, #"wx_drift_start\(&s_cd, o->nclouds, o->cloud_back, esp_random\(\)\);"#)
+    try code(face, #"s_t \+= dt;\s*if \(s_t >= WX_ARRIVE_S\) wx_drift_tick\(&s_cd, dt\);"#)
+    try code(face, #"set_sprites\(sprite_opa, temp && s_t >= WX_ARRIVE_S\);"#)
+    try code(face, #"lv_obj_set_style_image_opa\(s_hero, \(lv_opa_t\)opa, 0\);\s*for \(int i = 0; i < WX_CLOUDS_MAX; i\+\+\) lv_obj_set_style_image_opa\(s_cl\[i\], \(lv_opa_t\)opa, 0\);\s*\}\s*"#
+        + #"int i = drift \? wx_drift_step\(&s_cd\) : -1;\s*if \(i < 0\) return;\s*lv_obj_set_pos\(s_cl\[i\], s_out\.cloud\[i\]\.x0 \+ s_cd\.dx\[i\], s_out\.cloud\[i\]\.y0 \+ s_cd\.dy\[i\]\);"#)
+}

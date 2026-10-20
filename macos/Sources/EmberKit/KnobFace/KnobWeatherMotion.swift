@@ -9,7 +9,8 @@ enum KnobWeatherMotion: Equatable, Sendable {
     init(_ face: KnobFace, reduceMotion: Bool = false) {
         guard !reduceMotion else { self = .still; return }
         switch face {
-        case .weather(let f): self = f.value == nil ? .still : .arrival(until: KnobArrive.restS(sub: f.sub))
+        case .weather(let f):
+            self = f.value == nil ? .still : KnobTempSky.band(f)?.clouds.isEmpty == false ? .loop : .arrival(until: KnobArrive.restS(sub: f.sub))
         case .rain(let f): self = !f.dry ? .loop : f.pop != nil || !f.sub.isEmpty ? .arrival(until: KnobArrive.restS(sub: f.sub)) : .still
         case .cast(let f): self = (1...3).contains(f.variant) ? .loop : f.sub.isEmpty ? .still : .arrival(until: KnobArrive.subRestS)
         case .wind(let f): self = f.have ? .loop : .arrival(until: KnobArrive.restS(sub: f.sub))

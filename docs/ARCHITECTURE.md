@@ -3453,8 +3453,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `wx_temp.c`, `wx_paint.c`, #430: colour-scale gauge ring with its
   marker, thermometer and mercury, value, today's low and high, sky
   sub-line, face dots; today's range is `current.today_min_c`/`today_max_c`
-  of `/v1/weather/state`; the sky, clouds, hero, drift and burn-in shift
-  are not drawn; the sub-line follows `wx_temp.c`
+  of `/v1/weather/state`; the sky, clouds, hero and drift draw only in
+  the animated preview (below), the burn-in shift not at all; the
+  sub-line follows `wx_temp.c`
   (#578): `current.cloud_pct` picks the `sky_word` band, held near an edge
   by `WX_BAND_HYST` while the preview stays up, the condition's word
   without it, and by day `current.uv` ≥ 3 replaces it with
@@ -3539,10 +3540,31 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   1.8 s (`WX_ARRIVE_S + SUB_FADE_S`, where the sub-line fade and
   cinder's 30 fps paint throttle end) when a sub-line shows, 22/15 s
   for the sun; a face with neither a value nor a sub-line nor a hero is
-  still. What stays static: the Temperature sky
-  (hero, clouds and scene) and so its `WX_DRIFT_FPS` cloud drift, whose
-  paths cinder seeds from `esp_random()`, the burn-in shift, the face
-  cross-fade `fo`, and the weather moments,
+  still. The Temperature sky (#648, `KnobTempSky.swift`,
+  `KnobTempSkyRender.swift`) draws only with a t, under the thermometer's
+  mercury and labels: `wx_temp.c`'s hero rules (by day the sun up to
+  band 1; by night a moon with `moon.up` true, phase 0-99 and
+  illumination 0-100 rounded to `WX_ILLUM_STEP`, small behind band 3,
+  none at 4; stars at night up to band 1), `wx_paint_rays` as a raster
+  built once from the per-pixel formula in `Float` (keep-out boxes and
+  rim fade; alpha bit-equal to cinder's), the stars, the sun and the
+  phase-cut moon as vectors and gradients, and `wx_clouds_for`'s bands as
+  paths from `wx_cloud_shape`'s polygon (puffs and polygon, cut at the
+  base). Each cloud is one sprite with its own rim fade, composited
+  before the fade so its outline doesn't show through the fill; hero and
+  clouds fade in on `wx_arrive(tf)`. Colours stay 8-bit where the panel
+  is RGB565. The drift replays `wx_drift_step` at `WX_DRIFT_FPS` from
+  `WX_ARRIVE_S` on a fixed seed (`KnobTempDrift.seed`, the bot's
+  0x454D4252, start count 1) in place of `esp_random()`. It never
+  settles, so a cloudy Temperature face ticks like a loop while visible
+  and a clear one stops after its arrival. The replay is bounded: past
+  60 s it starts at a frame within the last minute where the clouds'
+  state is certain (`KnobTempDrift.anchor`: the bound on how far the
+  clouds can lag, 12 px a cloud at the window's start, has drained to 0
+  and exactly one cloud's target moves), else at the show. The knob
+  restarts the drift on a new seed at every full re-bake (a band, night
+  or sun change); the preview keeps its one path. What stays static: the
+  burn-in shift, the face cross-fade `fo`, and the weather moments,
   and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
