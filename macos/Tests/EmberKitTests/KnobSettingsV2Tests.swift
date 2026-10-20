@@ -111,7 +111,7 @@ private func knob(features: [String]) -> KnobDevice {
 
     var both = old
     both.editPomodoro { $0.focusColor = nil; $0.breakColor = nil }
-    #expect(both.normalized().patch(from: old) == ["apps": .null])
+    #expect(both.normalized().patch(from: old) == ["apps": .object(["pomodoro": .null])])
 }
 
 @Test func knobWeatherFacesKeepAtLeastOneOnAndFollowTheList() throws {
@@ -219,4 +219,40 @@ private func near(_ a: RGB, _ b: RGB, _ tol: Int = 40) -> Bool {
     let (all, stockLit) = KnobTheme.standard.weather.dots.placement(of: .rain)
     #expect(all.faces == 7 && stockLit == 1)
     #expect(near(pixel(stock, KnobTempFace.dotPoint(1, all, center: 233)), dots.onColor))
+}
+
+@Test func knobWeatherMoveIsOnlyOfferedWithinTheOnFaces() throws {
+    var s = try settings(##","apps":{"weather":{"faces":["temp","rain"]}}"##)
+    #expect(!s.canMoveWeatherFace("temp", by: -1))
+    #expect(s.canMoveWeatherFace("temp", by: 1))
+    #expect(s.canMoveWeatherFace("rain", by: -1))
+    #expect(!s.canMoveWeatherFace("rain", by: 1))
+    for off in ["cast", "wind", "days", "sun", "air"] {
+        #expect(!s.canMoveWeatherFace(off, by: -1) && !s.canMoveWeatherFace(off, by: 1))
+    }
+    let before = s
+    s.moveWeatherFace("rain", by: 1)
+    s.moveWeatherFace("cast", by: -1)
+    #expect(s == before)
+}
+
+@Test func knobPatchNeverEmitsNullForPreV2Keys() throws {
+    let full = ##"{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true}],"home":"bot","swipe_pages":true,"poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20,"source_label":true,"working_ring":true,"weather_moments":true,"weather_every_min":30},"diagnostics":"basic","stats_interval_s":60,"live_interval_s":5,"display":{"fast_link":true,"rotation":0},"quiet":{"calm":true,"dim_level":20}}"##
+    let old = try JSONDecoder().decode(KnobSettings.self, from: Data(full.utf8))
+    var new = old
+    new.swipePages = nil
+    new.bot.sourceLabel = nil; new.bot.weatherEveryMin = nil
+    new.statsIntervalS = nil
+    new.display = nil
+    new.quiet = nil
+    func hasNull(_ v: JSONValue) -> Bool {
+        switch v {
+        case .null: true
+        case .object(let o): o.values.contains(where: hasNull)
+        case .array(let a): a.contains(where: hasNull)
+        default: false
+        }
+    }
+    #expect(!hasNull(.object(new.patch(from: old))))
+    #expect(old.patch(from: old).isEmpty)
 }

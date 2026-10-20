@@ -526,19 +526,21 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public func patch(from old: KnobSettings) -> [String: JSONValue] {
         let new = (try? JSONValue.object(encoding: self)) ?? [:]
         let before = (try? JSONValue.object(encoding: old)) ?? [:]
-        return Self.diff(new, before)
+        return Self.diff(new, before, clearing: false)
     }
 
-    static func diff(_ new: [String: JSONValue], _ old: [String: JSONValue]) -> [String: JSONValue] {
+    static let v2Keys: Set<String> = ["idle", "apps"]
+
+    static func diff(_ new: [String: JSONValue], _ old: [String: JSONValue], clearing: Bool = false) -> [String: JSONValue] {
         var out: [String: JSONValue] = [:]
         for (key, n) in new where n != old[key] {
             if case .object(let no) = n, case .object(let oo)? = old[key] {
-                out[key] = .object(diff(no, oo))
+                out[key] = .object(diff(no, oo, clearing: clearing || v2Keys.contains(key)))
             } else {
                 out[key] = n
             }
         }
-        for key in old.keys where new[key] == nil { out[key] = .null }
+        for key in old.keys where new[key] == nil && (clearing || v2Keys.contains(key)) { out[key] = .null }
         return out
     }
 
@@ -601,7 +603,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
             } else {
                 a.weather = nil
             }
-            apps = a.isEmpty ? nil : a
+            apps = a
         }
     }
 
@@ -626,9 +628,16 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         setWeatherFaces(rows: rows)
     }
 
+    public func canMoveWeatherFace(_ id: String, by delta: Int) -> Bool {
+        let listed = weatherFacesListed
+        guard let from = listed.firstIndex(of: id) else { return false }
+        return listed.indices.contains(from + delta)
+    }
+
     public mutating func moveWeatherFace(_ id: String, by delta: Int) {
+        guard canMoveWeatherFace(id, by: delta) else { return }
         var rows = weatherFaceRows
-        guard let from = rows.firstIndex(where: { $0.id == id }), rows.indices.contains(from + delta) else { return }
+        guard let from = rows.firstIndex(where: { $0.id == id }) else { return }
         rows.swapAt(from, from + delta)
         setWeatherFaces(rows: rows)
     }

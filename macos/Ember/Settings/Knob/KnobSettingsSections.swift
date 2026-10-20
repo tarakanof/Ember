@@ -363,12 +363,14 @@ struct KnobAppOptionsSection: View {
         let p = knob.settings.draft.apps?.pomodoro
         let theme = KnobTheme.standard.pomodoro.colors
         return Section {
-            colorRow("Focus colour", hex: p?.focusColor, fallback: theme.focus) { v in
-                knob.edit { $0.editPomodoro { $0.focusColor = v } }
-            }
-            colorRow("Break colour", hex: p?.breakColor, fallback: theme.break) { v in
-                knob.edit { $0.editPomodoro { $0.breakColor = v } }
-            }
+            InheritableColorRow(title: "Focus colour", hex: Binding(
+                get: { p?.focusColor },
+                set: { v in knob.edit { $0.editPomodoro { $0.focusColor = v } } }),
+                inherited: theme.focus.hex, supportsInherit: true, inheritLabel: "Same as clock")
+            InheritableColorRow(title: "Break colour", hex: Binding(
+                get: { p?.breakColor },
+                set: { v in knob.edit { $0.editPomodoro { $0.breakColor = v } } }),
+                inherited: theme.break.hex, supportsInherit: true, inheritLabel: "Same as clock")
         } header: {
             Text("Colours")
         } footer: {
@@ -376,27 +378,11 @@ struct KnobAppOptionsSection: View {
         }
     }
 
-    private func colorRow(_ title: LocalizedStringKey, hex: String?, fallback: RGB,
-                          set: @escaping (String?) -> Void) -> some View {
-        LabeledContent {
-            HStack(spacing: 8) {
-                Button("Same as clock") { set(nil) }
-                    .disabled(hex == nil)
-                ColorPicker(selection: Binding(
-                    get: { Color(hex.flatMap(RGB.init(hex:)) ?? fallback) },
-                    set: { set(RGB($0).hex) }), supportsOpacity: false) { Text(title) }
-                    .labelsHidden()
-            }
-        } label: {
-            Text(title)
-        }
-    }
-
     private func weather(_ knob: KnobModel) -> some View {
         let rows = knob.settings.draft.weatherFaceRows
         let lastOn = rows.filter { $0.on }.count == 1
         return Section {
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+            ForEach(rows, id: \.id) { row in
                 HStack {
                     Toggle(isOn: Binding(
                         get: { row.on },
@@ -407,12 +393,12 @@ struct KnobAppOptionsSection: View {
                     Button { knob.edit { $0.moveWeatherFace(row.id, by: -1) } } label: {
                         Image(systemName: "chevron.up")
                     }
-                    .disabled(index == 0)
+                    .disabled(!knob.settings.draft.canMoveWeatherFace(row.id, by: -1))
                     .accessibilityLabel(Text("Move Up"))
                     Button { knob.edit { $0.moveWeatherFace(row.id, by: 1) } } label: {
                         Image(systemName: "chevron.down")
                     }
-                    .disabled(index == rows.count - 1)
+                    .disabled(!knob.settings.draft.canMoveWeatherFace(row.id, by: 1))
                     .accessibilityLabel(Text("Move Down"))
                 }
                 .buttonStyle(.borderless)
