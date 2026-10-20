@@ -19,6 +19,7 @@ import {
   isPlaceholderSource,
   bounded,
   normalizeHostName,
+  nowOr,
   parseAgents,
   parseEnvFile,
   parseSnapshot,
@@ -194,7 +195,7 @@ function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: 
     deliver: (effect: Effect) => send(fetcher($), cfg, effect, st.dropper),
     timer: (ms: number) => $.clock.sleep(ms),
     reconcile: async (session: string) => {
-      const at = await $.clock.now()
+      const at = await nowOr(() => $.clock.now())
       return st.tracker.reconcile(cfg, at, session)
     },
   }

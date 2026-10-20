@@ -874,6 +874,14 @@ export function bounded<T>(work: Promise<T>, timer: Promise<void>, onTimeout: T)
   return Promise.race([work, expired])
 }
 
+export async function nowOr(read: () => Promise<number>, fallback: () => number = Date.now): Promise<number> {
+  try {
+    return await read()
+  } catch {
+    return fallback()
+  }
+}
+
 export type SendIO = {
   deliver: (effect: Effect) => Promise<boolean>
   timer: (ms: number) => Promise<void>

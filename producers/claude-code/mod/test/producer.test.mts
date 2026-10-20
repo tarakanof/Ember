@@ -32,6 +32,7 @@ import {
   type Effect,
   parseSnapshot,
   STRAY_SKIP_MS,
+  nowOr,
   unknownField,
 } from '../hooks/producer.ts'
 import { argvFromPs, detectT3, isT3ServerArgv, parsePsInfo, type T3Probe } from '../hooks/t3.ts'
@@ -1128,5 +1129,14 @@ describe('the agents cross-check for a permission wait', () => {
     assert.equal(t.confirmDue(3600), false)
     assert.deepEqual(t.agentsCorrect(cfg, 302_000, 302_000, busy), [])
     assert.equal(t.needsWatch(), true)
+  })
+})
+
+describe('nowOr', () => {
+  test('a clock that rejects falls back to the given time instead of rejecting', async () => {
+    assert.equal(await nowOr(() => Promise.reject(new Error('gone')), () => 42), 42)
+  })
+  test('a clock that answers is used as is', async () => {
+    assert.equal(await nowOr(() => Promise.resolve(7), () => 42), 7)
   })
 })
