@@ -52,9 +52,27 @@ export function argvFromPs(comm: string, args: string): string[] {
 }
 
 export function parsePsInfo(out: string): ProcInfo | undefined {
-  const m = /^\s*(\d+)\s+(\S.*?)\s*$/s.exec(out)
-  if (!m) return undefined
-  return { ppid: Number(m[1]), comm: m[2] ?? '' }
+  const fields = out.split(/\s+/).filter(x => x !== '')
+  const ppid = fields[0] ?? ''
+  if (fields.length < 2 || !/^\d+$/.test(ppid)) return undefined
+  return { ppid: Number(ppid), comm: fields.slice(1).join(' ') }
+}
+
+export function parseProcStat(text: string): ProcInfo | undefined {
+  const open = text.indexOf('(')
+  const close = text.lastIndexOf(')')
+  if (open < 0 || close < open) return undefined
+  const rest = text.slice(close + 1).split(/\s+/).filter(x => x !== '')
+  if (rest.length < 20) return undefined
+  const ppid = rest[1] ?? ''
+  if (!/^\d+$/.test(ppid)) return undefined
+  return { ppid: Number(ppid), comm: text.slice(open + 1, close) }
+}
+
+export function argvFromCmdline(text: string): string[] | undefined {
+  const argv = text.split('\0')
+  if (argv[argv.length - 1] === '') argv.pop()
+  return argv.length === 0 || argv[0] === '' ? undefined : argv
 }
 
 async function walkPastShells(start: number, info: T3Probe['info']): Promise<{ pid: number; ppid: number } | undefined> {

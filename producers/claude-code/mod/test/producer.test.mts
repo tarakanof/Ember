@@ -32,9 +32,10 @@ import {
   type Effect,
   parseSnapshot,
   STRAY_SKIP_MS,
+  nowOr,
   unknownField,
 } from '../hooks/producer.ts'
-import { argvFromPs, detectT3, isT3ServerArgv, parsePsInfo, type T3Probe } from '../hooks/t3.ts'
+import { argvFromCmdline, argvFromPs, detectT3, isT3ServerArgv, parsePsInfo, parseProcStat, type T3Probe } from '../hooks/t3.ts'
 
 const row = (status: string, waitingFor = '') => ({ status, waitingFor })
 
@@ -186,8 +187,24 @@ describe('T3 spawn detection (#216), parity with the Go producer', () => {
       ppid: 412,
       comm: '/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)',
     })
+    assert.deepEqual(parsePsInfo('412  T3   Code  (Alpha)\n'), { ppid: 412, comm: 'T3 Code (Alpha)' })
     assert.equal(parsePsInfo(''), undefined)
     assert.equal(parsePsInfo('PPID COMMAND'), undefined)
+  })
+})
+
+const STAT_TAIL = 'S 1 98 98 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0 5000 1000000 500'
+
+describe('/proc parsing', () => {
+  test('stat gives ppid and a comm with spaces and parentheses', () => {
+    assert.deepEqual(parseProcStat(`98 (T3 Code (Alpha)) ${STAT_TAIL}`), { ppid: 1, comm: 'T3 Code (Alpha)' })
+    assert.equal(parseProcStat('junk'), undefined)
+    assert.equal(parseProcStat('1 (x) S abc'), undefined)
+    assert.equal(parseProcStat('98 (x) S 1 1 1 0'), undefined)
+  })
+  test('cmdline splits on NUL and rejects an empty file', () => {
+    assert.deepEqual(argvFromCmdline('node\0/x/t3\0serve\0'), ['node', '/x/t3', 'serve'])
+    assert.equal(argvFromCmdline(''), undefined)
   })
 })
 
@@ -439,8 +456,8 @@ test('send POSTs and DELETEs /v1/status with the bearer token to a local stub', 
     const cfg = config({ EMBER_SERVER_URL: `http://127.0.0.1:${port}/` })
     const t = new Tracker()
     const fetcher = (url: string, init: { method: string; headers: Record<string, string>; body: string }) => fetch(url, init)
-    for (const e of t.promptSubmit(cfg, 0, 's1', 'go', HOME)) assert.equal(await send(fetcher, cfg, e), true)
-    for (const e of t.sessionEnd(cfg, 's1', 'logout')) assert.equal(await send(fetcher, cfg, e), true)
+    for (const e of t.promptSubmit(cfg, 0, 's1', 'go', HOME)) assert.equal(await send(fetcher, cfg, e, new FieldDropper()), true)
+    for (const e of t.sessionEnd(cfg, 's1', 'logout')) assert.equal(await send(fetcher, cfg, e, new FieldDropper()), true)
     assert.deepEqual(seen, [
       {
         method: 'POST',
@@ -468,7 +485,7 @@ test('send reports a refused connection as false instead of throwing', async () 
   const failing = async () => {
     throw new Error('ECONNREFUSED')
   }
-  assert.equal(await send(failing, cfg, effect), false)
+  assert.equal(await send(failing, cfg, effect, new FieldDropper()), false)
 })
 
 describe('send against an older server', () => {
@@ -633,7 +650,7 @@ describe('gauges on the tracker', () => {
     const snap = parseSnapshot({ v: 1, sessions: [['s1', { state: 'running', message: 'go', changedAt: 1, hookAt: 1 }]], strays: [] })
     assert.ok(snap)
     const t = new Tracker()
-    t.restore(snap.sessions)
+    t.restore(snap.sessions, 0)
     assert.deepEqual(gauges(t.tick(config(), 2)), [[undefined, undefined, undefined]])
   })
   test('a snapshot keeps the gauges across a reload', () => {
@@ -644,7 +661,7 @@ describe('gauges on the tracker', () => {
     const snap = parseSnapshot(JSON.parse(JSON.stringify({ v: 1, sessions: t.entries(), strays: [] })))
     assert.ok(snap)
     const next = new Tracker()
-    next.restore(snap.sessions)
+    next.restore(snap.sessions, 0)
     assert.deepEqual(gauges(next.tick(cfg, 2000)), [[30, 12, 1778614633]])
   })
 })
@@ -654,7 +671,7 @@ describe('snapshot for a hot reload', () => {
     const snap = parseSnapshot(JSON.parse(JSON.stringify({ v: 1, sessions: t.entries(), strays: [], permissionMode: '', t3: '' })))
     assert.ok(snap)
     const next = new Tracker()
-    next.restore(snap.sessions)
+    next.restore(snap.sessions, 0)
     return next
   }
   for (const sc of transitions.scenarios) {
@@ -669,13 +686,24 @@ describe('snapshot for a hot reload', () => {
       })
     })
   }
+  test('a restored session resumed long ago does not open the poll window', () => {
+    const cfg = config()
+    const old = new Tracker()
+    old.promptSubmit(cfg, 1000, 's1', 'go', '/repo')
+    old.permissionRequest(cfg, 1500, 's1', 'Bash', {}, '/repo')
+    old.toolFinished(cfg, 2000, 's1', 'Bash', '')
+    assert.equal(old.sessions.get('s1')?.resumedAt, 2000)
+    const waiting = new Tracker()
+    waiting.restore(old.entries(), 1_000_000)
+    assert.equal(waiting.needsWatch(), false)
+  })
   test('restore keeps what the new module already tracked', () => {
     const cfg = config()
     const old = new Tracker()
     old.promptSubmit(cfg, 1000, 's1', 'old', '/repo')
     const fresh = new Tracker()
     fresh.promptSubmit(cfg, 2000, 's1', 'new', '/repo')
-    fresh.restore(old.entries())
+    fresh.restore(old.entries(), 0)
     assert.equal(fresh.sessions.get('s1')?.message, 'new')
   })
   test('parseSnapshot drops junk and fills missing fields', () => {
@@ -1127,5 +1155,14 @@ describe('the agents cross-check for a permission wait', () => {
     assert.equal(t.confirmDue(3600), false)
     assert.deepEqual(t.agentsCorrect(cfg, 302_000, 302_000, busy), [])
     assert.equal(t.needsWatch(), true)
+  })
+})
+
+describe('nowOr', () => {
+  test('a clock that rejects falls back to the given time instead of rejecting', async () => {
+    assert.equal(await nowOr(() => Promise.reject(new Error('gone')), () => 42), 42)
+  })
+  test('a clock that answers is used as is', async () => {
+    assert.equal(await nowOr(() => Promise.resolve(7), () => 42), 7)
   })
 })

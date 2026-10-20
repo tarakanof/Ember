@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { T3_PROBE_BUDGET_MS, T3_RETRY_MS, argvFromPs, detectT3, parsePsInfo, type T3Probe, type T3Verdict } from './t3.ts'
+import { T3_PROBE_BUDGET_MS, T3_RETRY_MS, argvFromCmdline, argvFromPs, detectT3, parsePsInfo, parseProcStat, type T3Probe, type T3Verdict } from './t3.ts'
 import {
   AGENTS_CALL_TIMEOUT_MS,
   AGENTS_FAIL_BACKOFF_MS,
@@ -19,6 +19,7 @@ import {
   isPlaceholderSource,
   bounded,
   normalizeHostName,
+  nowOr,
   parseAgents,
   parseEnvFile,
   parseSnapshot,
@@ -60,9 +61,11 @@ type ModState = {
   claudeBin: string | undefined
   restored: Promise<void> | undefined
   saving: boolean
+  saved: string | undefined
   dirty: boolean
   t3: T3Verdict
   t3TriedAt: number | undefined
+  t3Lookup: Promise<boolean> | undefined
   readingSeq: number
   appliedSeq: number
 }
@@ -194,7 +197,7 @@ function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: 
     deliver: (effect: Effect) => send(fetcher($), cfg, effect, st.dropper),
     timer: (ms: number) => $.clock.sleep(ms),
     reconcile: async (session: string) => {
-      const at = await $.clock.now()
+      const at = await nowOr(() => $.clock.now())
       return st.tracker.reconcile(cfg, at, session)
     },
   }
@@ -205,7 +208,7 @@ async function restore($: Engine, st: ModState): Promise<void> {
   const snap = parseSnapshot((await $.state.get(SNAPSHOT)).value)
   if (!snap) return
   const now = await $.clock.now()
-  st.tracker.restore(snap.sessions)
+  st.tracker.restore(snap.sessions, now)
   st.sender.restore(snap.strays, now)
   if (st.permissionMode === '') st.permissionMode = snap.permissionMode
   if (st.t3 === 'unknown' && snap.t3 !== '') st.t3 = snap.t3
@@ -236,7 +239,13 @@ function persist($: Engine, st: ModState): void {
     try {
       while (st.dirty) {
         st.dirty = false
-        await quietly(async () => void (await $.state.set(SNAPSHOT, snapshot(st))))
+        const snap = snapshot(st)
+        const text = JSON.stringify(snap)
+        if (text === st.saved) continue
+        await quietly(async () => {
+          await $.state.set(SNAPSHOT, snap)
+          st.saved = text
+        })
       }
     } finally {
       st.saving = false
@@ -365,6 +374,9 @@ async function runFirst($: Engine, argvs: string[][], timeoutMs: number): Promis
 
 function t3Probe($: Engine): T3Probe {
   const limit = T3_PROBE_BUDGET_MS
+  let procfs: Promise<boolean> | undefined
+  const hasProc = () => (procfs ??= $.fs.exists('/proc/self/stat').catch(() => false))
+  const procText = async (pid: number, file: string) => ((await hasProc()) ? readText($, `/proc/${pid}/${file}`) : undefined)
   return {
     isSDK: async () =>
       (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === 'sdk-ts' || ((await $.env.get('CLAUDE_AGENT_SDK_VERSION')) ?? '') !== '',
@@ -374,12 +386,16 @@ function t3Probe($: Engine): T3Probe {
       return Number.isInteger(pid) && pid > 0 ? pid : undefined
     },
     info: async pid => {
+      const stat = await procText(pid, 'stat')
+      const fromProc = stat === undefined ? undefined : parseProcStat(stat)
+      if (fromProc) return fromProc
       const out = await runFirst($, PS.map(ps => [ps, '-o', 'ppid=,comm=', '-p', String(pid)]), limit)
       return out === undefined ? undefined : parsePsInfo(out)
     },
     argv: async pid => {
-      const proc = await runFirst($, SH.map(sh => [sh, '-c', 'tr "\\0" "\\n" < /proc/$1/cmdline', 'sh', String(pid)]), limit)
-      if (proc !== undefined && proc.trim() !== '') return proc.replace(/\n$/, '').split('\n')
+      const cmdline = await procText(pid, 'cmdline')
+      const fromProc = cmdline === undefined ? undefined : argvFromCmdline(cmdline)
+      if (fromProc) return fromProc
       const comm = await runFirst($, PS.map(ps => [ps, '-ww', '-o', 'comm=', '-p', String(pid)]), limit)
       const args = await runFirst($, PS.map(ps => [ps, '-ww', '-o', 'args=', '-p', String(pid)]), limit)
       return comm === undefined || args === undefined || args.trim() === '' ? undefined : argvFromPs(comm, args)
@@ -387,12 +403,7 @@ function t3Probe($: Engine): T3Probe {
   }
 }
 
-async function silencedByT3($: Engine, st: ModState, cfg: Config): Promise<boolean> {
-  if (st.t3 === 'yes') return true
-  if (st.t3 === 'no') return false
-  const now = await $.clock.now()
-  if (st.t3TriedAt !== undefined && now - st.t3TriedAt < T3_RETRY_MS) return false
-  st.t3TriedAt = now
+async function lookupT3($: Engine, st: ModState, cfg: Config, now: number): Promise<boolean> {
   st.t3 = await bounded(detectT3(t3Probe($)), $.clock.sleep(T3_PROBE_BUDGET_MS), 'unknown' as T3Verdict).catch(() => 'unknown' as T3Verdict)
   if (st.t3 !== 'yes') {
     if (st.t3 === 'no') persist($, st)
@@ -403,6 +414,22 @@ async function silencedByT3($: Engine, st: ModState, cfg: Config): Promise<boole
   for (const id of gone) emit($, st, cfg, [{ method: 'DELETE', body: { source: cfg.source, tool: 'claude', session: id } }], cfg.hookTimeoutMs, now)
   persist($, st)
   return true
+}
+
+async function silencedByT3($: Engine, st: ModState, cfg: Config): Promise<boolean> {
+  if (st.t3 === 'yes') return true
+  if (st.t3 === 'no') return false
+  const now = await $.clock.now()
+  if (st.t3Lookup) return st.t3Lookup
+  if (st.t3TriedAt !== undefined && now - st.t3TriedAt < T3_RETRY_MS) return false
+  st.t3TriedAt = now
+  const lookup = lookupT3($, st, cfg, now)
+  st.t3Lookup = lookup
+  try {
+    return await lookup
+  } finally {
+    st.t3Lookup = undefined
+  }
 }
 
 async function track($: Engine, st: ModState, rawSession: string, cwd: string, step: Step): Promise<void> {
@@ -507,9 +534,11 @@ export const register: Register = on => {
     claudeBin: undefined,
     restored: undefined,
     saving: false,
+    saved: undefined,
     dirty: false,
     t3: 'unknown',
     t3TriedAt: undefined,
+    t3Lookup: undefined,
     readingSeq: 0,
     appliedSeq: 0,
   }
@@ -518,7 +547,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     st.interactive = e.isInteractive
     start($, st, true)
-    await quietly(() => ready($, st))
+    void quietly(() => ready($, st))
     void quietly(() => measure($, st, undefined))
     return next(e)
   }).catch(($, e, next) => next(e))

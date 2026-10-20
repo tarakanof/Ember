@@ -537,7 +537,8 @@ export class Tracker {
     return [...this.sessions].map(([id, s]) => [id, { ...s }])
   }
 
-  restore(entries: [string, Session][]): void {
+  restore(entries: [string, Session][], now: number): void {
+    this.seenNow = Math.max(this.seenNow, now)
     for (const [id, s] of entries) if (!this.sessions.has(id)) this.sessions.set(id, { ...s })
   }
 
@@ -626,7 +627,7 @@ export class Tracker {
   }
 
   needsWatch(): boolean {
-    for (const s of this.sessions.values()) if (dialogWait(s) || this.resumedByWatch(s, this.seenNow)) return true
+    for (const s of this.sessions.values()) if (dialogWait(s) || this.recentlyResumed(s, this.seenNow)) return true
     return false
   }
 
@@ -643,7 +644,7 @@ export class Tracker {
     this.sightings.clear()
   }
 
-  private resumedByWatch(s: Session, now: number): boolean {
+  private recentlyResumed(s: Session, now: number): boolean {
     return s.state === 'running' && s.resumedAt !== 0 && s.hookAt === s.resumedAt && now - s.resumedAt <= RESUME_GRACE_MS
   }
 
@@ -654,7 +655,7 @@ export class Tracker {
       const row = rows.get(id)
       let want = ''
       if (row && dialogWait(s) && row.status === 'busy') want = 'running'
-      if (row && this.resumedByWatch(s, began) && row.status === 'waiting') want = 'waiting'
+      if (row && this.recentlyResumed(s, began) && row.status === 'waiting') want = 'waiting'
       if (want === '' || s.hookAt > began) {
         this.sightings.delete(id)
         continue
@@ -874,6 +875,14 @@ export function bounded<T>(work: Promise<T>, timer: Promise<void>, onTimeout: T)
   return Promise.race([work, expired])
 }
 
+export async function nowOr(read: () => Promise<number>, fallback: () => number = Date.now): Promise<number> {
+  try {
+    return await read()
+  } catch {
+    return fallback()
+  }
+}
+
 export type SendIO = {
   deliver: (effect: Effect) => Promise<boolean>
   timer: (ms: number) => Promise<void>
@@ -962,8 +971,6 @@ export class FieldDropper {
   }
 }
 
-export const optionalFields = new FieldDropper()
-
 export function unknownField(status: number, body: string): string {
   if (status !== 400) return ''
   return UNKNOWN_FIELD_RE.exec(body)?.[1] ?? ''
@@ -973,7 +980,7 @@ export async function send(
   fetch: FetchLike,
   cfg: Config,
   effect: Effect,
-  dropper: FieldDropper = optionalFields,
+  dropper: FieldDropper,
   clock: () => number = Date.now,
 ): Promise<boolean> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }

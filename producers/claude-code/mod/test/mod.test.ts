@@ -27,6 +27,8 @@ type Proc = { ppid: number; comm: string; argv?: string[] }
 
 const T3_DESKTOP = '/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)'
 
+const statTail = (ppid: number) => `S ${ppid} 98 98 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0 5000 1000000 500`
+
 function t3Tree(launcherArgv: string[]): Record<string, Proc> {
   return {
     '100': { ppid: 99, comm: '/bin/sh' },
@@ -77,10 +79,17 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
     usageCalls: 0,
     usageHold: undefined as Gate | undefined,
     sessionIdFails: false,
+    psHold: undefined as Gate | undefined,
+    proc: undefined as Record<string, { stat: string; cmdline: string }> | undefined,
   }
   mock.env(on, { HOME, ...extraEnv })
   const clock = mock.clock(on, { now: 1_000_000 })
   on('fs.read', async ($, e) => {
+    const procPath = /^\/proc\/(\d+)\/(stat|cmdline)$/.exec(e.path)
+    if (procPath) {
+      const entry = ctl.proc?.[procPath[1] ?? '']
+      return entry ? { value: procPath[2] === 'stat' ? entry.stat : entry.cmdline } : { deny: 'ENOENT' }
+    }
     if (e.path !== ENV_FILE || envFile === null) return { deny: 'ENOENT' }
     ctl.envReads++
     if (ctl.envRead) await ctl.envRead.wait
@@ -91,7 +100,7 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
       ? { value: { kind: 'file' as const, size: envFile.text.length, mtimeMs: 0, isLink: envFile.isLink } }
       : { deny: 'ENOENT' },
   )
-  on('process.run', ($, e) => {
+  on('process.run', async ($, e) => {
     ctl.runs.push([...e.argv])
     const bin = e.argv[0] ?? ''
     if (/(^|\/)(scutil|hostname)$/.test(bin)) {
@@ -105,6 +114,7 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
     }
     if (/(^|\/)ps$/.test(bin)) {
       ctl.psCalls++
+      if (ctl.psHold) await ctl.psHold.wait
       const proc = ctl.procs[e.argv[e.argv.length - 1] ?? '']
       if (!proc) return ran('', 1)
       if (e.argv.includes('ppid=,comm=')) return ran(`${proc.ppid} ${proc.comm}\n`)
@@ -131,7 +141,9 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
       value: [{ name: '7.json', kind: 'file' as const, size: 40, mtimeMs: ctl.sessionFiles, isLink: false }],
     }
   })
-  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/claude-hooks.disabled') && ctl.killSwitch }))
+  on('fs.exists', ($, e) => ({
+    value: e.path.endsWith('/claude-hooks.disabled') ? ctl.killSwitch : e.path === '/proc/self/stat' && ctl.proc !== undefined,
+  }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('classic.*', () => ({}))
   on('session.id', () => {
@@ -221,6 +233,20 @@ test('a host that resolves to nothing is looked up once, then again after 10 min
   await clock.advance(600_000)
   expect(ctl.hostRuns).toBeGreaterThan(first)
   expect(sent).toHaveLength(0)
+})
+
+test('a host found on the 10-minute retry is used by the next hook', async ($, on) => {
+  const placeholder = { ...TRUSTED, text: 'EMBER_SOURCE=\nEMBER_SERVER_URL=http://127.0.0.1:9\n' }
+  const { sent, clock, ctl } = world(on, placeholder)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent).toHaveLength(0)
+  ctl.hostName = 'Dmitrys-MacBook-Pro'
+  await clock.advance(600_000)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent.map(s => s.body.source)).toEqual(['mbp-mod'])
 })
 
 test('a server that rejects project gets the POST again without it', async ($, on) => {
@@ -650,6 +676,83 @@ test('a failed process lookup reports the session, and a later one that finds T3
   await $.classic.Stop(STOP)
   await clock.settle()
   expect(sent).toHaveLength(count)
+})
+
+test('an event that arrives while the T3 lookup runs waits for its verdict and posts nothing when it is T3', async ($, on) => {
+  const { sent, clock, ctl } = world(on, TRUSTED, SDK_ENV)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent.map(s => s.method)).toEqual(['POST'])
+  ctl.procs = t3Tree(T3_SERVER)
+  await clock.advance(30_000)
+  const held = gate()
+  ctl.psHold = held
+  const posted = sent.length
+  const first = $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  const second = $.classic.Stop(STOP)
+  await clock.settle()
+  expect(sent).toHaveLength(posted)
+  held.open()
+  await Promise.all([first, second])
+  await clock.settle()
+  expect(sent.slice(posted).map(s => s.method)).toEqual(['DELETE'])
+})
+
+test('on Linux the T3 walk reads /proc through the file API and spawns no ps', async ($, on) => {
+  const { sent, clock, ctl } = world(on, TRUSTED, SDK_ENV)
+  ctl.proc = {
+    '100': { stat: `100 (sh) ${statTail(99)}`, cmdline: 'sh\0-c\0echo $PPID\0' },
+    '99': { stat: `99 (claude) ${statTail(98)}`, cmdline: 'claude\0' },
+    '98': { stat: `98 (T3 Code (Alpha)) ${statTail(1)}`, cmdline: T3_SERVER.join('\0') + '\0' },
+  }
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent).toEqual([])
+  expect(ctl.psCalls).toBe(0)
+  expect(ctl.runs.some(argv => argv.includes('-c') && argv.some(a => a.includes('/proc')))).toBe(false)
+})
+
+test('on macOS the T3 probe never tries /proc through a shell', async ($, on) => {
+  const { clock, ctl } = world(on, TRUSTED, SDK_ENV)
+  ctl.procs = t3Tree(['node', '/Users/u/agent/run.mjs'])
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(ctl.runs.filter(argv => argv.some(a => a.includes('/proc')))).toEqual([])
+})
+
+test('heartbeats with nothing changed do not rewrite the $.state snapshot', async ($, on) => {
+  const held = heldState(on)
+  const { clock } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  const written = held.version
+  expect(written).toBeGreaterThan(0)
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  expect(held.version).toBe(written)
+})
+
+test('session.start answers without waiting for the snapshot read', async ($, on) => {
+  const read = gate()
+  on('state.get', async () => {
+    await read.wait
+    return { value: { value: undefined, version: 0 } }
+  })
+  on('state.set', () => ({ value: { isSet: true as const, version: 1 } }))
+  const { clock } = world(on)
+  const started = $.session.start(START).then(() => 'started')
+  const blocked = clock.sleep(100).then(() => 'blocked')
+  const first = Promise.race([started, blocked])
+  await clock.advance(100)
+  expect(await first).toBe('started')
+  read.open()
+  await clock.settle()
 })
 
 function agentRows(status: string, waitingFor = '', sessionId = 'sess-1'): string {
