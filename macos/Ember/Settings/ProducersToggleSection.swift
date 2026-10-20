@@ -115,7 +115,7 @@ struct ProducersToggleSection: View {
                     Text("Also the ember-mod@ember mod, side by side, reporting as \(source)",
                          comment: "Settings › Agents › Claude Code caption; the argument is the mod's source name, e.g. mbp-mod.")
                 } else {
-                    Text("Also the ember-mod@ember mod, silent until EMBER_SOURCE is set")
+                    Text("Also the ember-mod@ember mod, reporting as this Mac's host name plus -mod")
                 }
             }
             if hooks.killSwitch {

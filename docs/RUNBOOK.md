@@ -175,7 +175,7 @@ Settings › Agents shows the same thing under the Claude Code row ("Hooks: the
 ember@ember plugin", "~/.claude/settings.json", both, or none, plus "Paused"
 when the kill switch exists, plus an "ember-mod@ember mod, side by side" line
 with its resolved source, `<EMBER_SOURCE>-mod` or `EMBER_MOD_SOURCE`, or
-"silent until EMBER_SOURCE is set"), reading the same files as `doctor`. The mod
+"this Mac's host name plus -mod" when EMBER_SOURCE is unset), reading the same files as `doctor`. The mod
 beside the plugin is not "registered twice" (it posts under its own source);
 only the plugin plus settings.json hooks are. With Claude
 reporting on, registered twice, none (a plugin enabled only for a project
