@@ -605,6 +605,58 @@ markers still get reaped.
   `POST /v1/usage`. On 401 (or any non-200/transient error) it just skips that
   poll and retries at the next tick — it keeps polling every ~5 min forever
   until the user re-auths via Claude Code, it never stops the loop.
+- **Claude Code mod producer — `producers/claude-code/mod`** (#253 phase 1,
+  experimental, opt-in plugin `ember-mod@ember`). A hooks module that runs
+  inside Claude Code (2.1.288+) and POSTs/DELETEs `/v1/status` with the Go
+  producer's wire shapes, under its own source (`EMBER_MOD_SOURCE`, default
+  `<EMBER_SOURCE>-mod`) so both can run side by side. `hooks/producer.ts` is
+  pure (env parsing, config, the session tracker, wire bodies, the outbox);
+  `hooks/register.ts` adapts it onto `$`. Same mapping as `hook.go`
+  (`classic.*` events), with two differences: `tool.check` resolving to `ask`
+  (interactive, mode not `auto`/`dontAsk`/`bypassPermissions`) starts
+  `waiting` for that `tool_use_id`, and the awaited `tool.call` for that id
+  ends it, which replaces the fingerprint matching for *which* call; *when*
+  is unchanged (the approved tool finishing, like PostToolUse), and there is
+  no agents watcher to flip it to `running` sooner. `classic.PreToolUse`,
+  `tool.check` and `tool.call` carry no `session_id`, so the id comes from
+  `$.session.id()`, hashed with `$.session.cwd()` when invalid, as classic
+  hooks hash theirs. State lives in module memory; `$.clock.every(10 s)`
+  re-POSTs like `heartbeatPass` (done/error for `EMBER_DONE_TTL_SECONDS`, the
+  30 min notification-wait backstop, the `EMBER_HEARTBEAT_TTL_HOURS` reap) and
+  is skipped while the previous beat is still reloading. A reload builds the
+  config and swaps it in one step; a reload that fails keeps the old config
+  and the tick still runs on it. Sends go through a per-session outbox: one
+  in flight, only the newest pending one kept, so a dead server can't pile
+  them up. Each send is bounded inside its slot (`$.clock.sleep` race:
+  `EMBER_HOOK_TIMEOUT_MS` for hook sends, 5 s like `daemonHTTPTimeout` for
+  tick sends), so a hung fetch releases the session; SessionEnd waits at most
+  800 ms in all (`sessionEndHTTPBudget`). `$.http.fetch` can't be cancelled,
+  so a POST that timed out keeps running and can land after the next send.
+  Each such stray is counted per session; heartbeat POSTs for the session
+  are skipped while a stray is younger than 60 s (so heartbeats add at most
+  one stray a minute; hook POSTs and DELETEs are never skipped). When a stray
+  settles, whatever it returned (a lost response may still have been
+  applied), the session's current wire state is sent once more: its DELETE
+  if it has ended or been parked, else its latest POST, so a late `running`
+  can't outlive a `done` past the done TTL (Go's `postReconciled` does the
+  same from the marker). That repair send is not watched again. The timer dies with the process, so a killed
+  Claude Code is reaped by the server's `stale_seconds`, not by a `ps`
+  check. Every hook only observes: it returns `next(e)` (or the
+  verdict/result untouched) and its `.catch` answers `next(e)`. Same guards
+  as the Go path: `producer.env` must be a regular, non-symlink, 0600 file
+  owned by the user (`stat`, and `id -u` once, from `/usr/bin`, `/bin`, then
+  `PATH`, since `$.fs` has no modes; a refused file disables the mod rather
+  than being ignored, while a check that could not run keeps the previous
+  config),
+  and the `claude-hooks.disabled` kill switch is checked before every event
+  and before anything is spawned. Known divergences: a placeholder
+  `EMBER_SOURCE` silences the mod (Go derives a host id), and there is no
+  `optionalFields` unknown-field fallback, so an older server 400s its POSTs.
+  No gauges, `/v1/usage` or T3 detection yet. `test/parity.json` and
+  `test/transitions.json` (event sequences to exact wire bodies) are shared
+  with `mod_parity_test.go`, which drives `dispatchHookFrom`/`dispatchTick`;
+  the node side drives the `Tracker`, so CI pins Go against the `Tracker`
+  but not `register.ts`'s wiring (`test/mod.test.ts`, local only).
 - **Codex CLI producer — `cmd/ember-codex-producer`.** Codex has **no hook
   system**, so this is a long-lived **daemon that tails rollout JSONL**
   (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop

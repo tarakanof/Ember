@@ -11,6 +11,12 @@
       "source": "./producers/claude-code/plugin",
       "description": "Claude Code hooks that report session state to an Ember server",
       "category": "productivity"
+    },
+    {
+      "name": "ember-mod",
+      "source": "./producers/claude-code/mod",
+      "description": "Experimental: an in-process Claude Code mod that reports session state under its own source, for side-by-side comparison with ember@ember",
+      "category": "productivity"
     }
   ]
 }

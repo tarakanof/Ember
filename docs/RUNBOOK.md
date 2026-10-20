@@ -542,6 +542,116 @@ store) and survive `/admin/reload`. Weather/reminders run regardless of whether
 Pomodoro is enabled — but they still write to the Pomodoro `db_path` store, so a
 deploy that wants them persisted needs that writable volume mounted.
 
+## Claude mod producer, side by side (experimental, #253)
+
+`producers/claude-code/mod/` is a Claude Code mod (`ember-mod@ember`): a
+hooks module that runs inside Claude Code and reports the same states as the
+Go hooks, with no hook binary and no heartbeat daemon. Phase 1 only: states
+and the heartbeat, no context % or rate limits. It is off unless installed,
+and it posts under its own source, so it never doubles the Go producer's
+rows. Needs Claude Code 2.1.288 or newer.
+
+- **Config.** It reads `~/.config/ember/producer.env` on `session.start`
+  and on every 10 s heartbeat: `EMBER_SERVER_URL` (empty or `auto` takes the
+  cached discovery result in `~/.local/state/ember/server.json`; the mod never
+  browses mDNS), `EMBER_TOKEN` (else the process env), the card and trail
+  toggles. Source: `EMBER_MOD_SOURCE`, else `<EMBER_SOURCE>-mod` (`mbp-mod`).
+  No server URL or `~/.config/ember/claude-hooks.disabled` keeps it silent;
+  the kill switch is checked again before every event, as each Go hook does.
+  Like `ReadEnvFile`, it refuses a `producer.env` that is a symlink, not a
+  regular file, not mode 0600 or not owned by you (`$.fs` has no modes, so a
+  reload runs `stat`, and `id -u` runs once: `/usr/bin`, then `/bin`, then a
+  `PATH` lookup, for NixOS); a refused file keeps it silent. A reload swaps
+  the config in one step, and a check that could not run (`stat`/`id` missing,
+  timed out or silent) keeps the previous config, and events and heartbeats
+  carry on with it, so nothing is lost or paused during a reload.
+- **Where it differs from the Go producer** (phase 1):
+  - An empty or placeholder `EMBER_SOURCE` with no `EMBER_MOD_SOURCE`
+    silences the mod; Go derives a host id with `scutil`.
+  - No unknown-field fallback (`optionalFields` in
+    `internal/producer/client.go`): an older server that rejects a field 400s
+    every mod POST, silently.
+  - `waiting` from a permission dialog ends when the approved tool
+    **finishes** (the awaited `tool.call` resolves), not when you click
+    Allow. The Go hook alone has the same timing (PostToolUse), but the Go
+    daemon's agents watcher flips it to `running` within a tick; the mod has
+    no watcher yet. A long approved command therefore stays `waiting` on the
+    mod's row.
+  - A `permission_mode` change by Shift+Tab is seen at the next classic event,
+    so the first ask after switching into `auto` can show a short `waiting`.
+  - A killed Claude Code (`kill -9`) is reaped by the server's
+    `display.stale_seconds` (default 300 s), not a 10 s `ps` check.
+  - Network sends are serialised per session and coalesced (only the
+    newest pending send waits). Each send is bounded like Go's requests:
+    `EMBER_HOOK_TIMEOUT_MS` (500 ms) for hook sends, 5 s for heartbeat
+    sends, after which the session's queue moves on; SessionEnd waits at
+    most 800 ms in all. A timed-out fetch can't be cancelled, so a slow POST
+    can still land after the send that followed it. When it settles, the
+    mod sends the session's current state once more: the DELETE if it
+    ended or was parked, else the latest POST (so a late `running` can't
+    stick after `done`). Heartbeat POSTs for a session wait while such a
+    POST is younger than 60 s, then go out anyway.
+- **One session only**, nothing installed:
+  `claude --plugin-dir ~/Github/Ember/producers/claude-code/mod`.
+- **Every session**: `claude plugin marketplace update ember`,
+  `claude plugin install ember-mod@ember`, then `/reload-plugins` in running
+  sessions (the mod also starts on its first event if `session.start` does
+  not fire for it). Remove with `claude plugin uninstall ember-mod@ember`.
+  Keep `ember@ember` installed: the comparison needs both.
+- **Token.** A client token bound to sources (`"sources":["mbp"]`, see
+  "Integrating a source") gets `403 token is not bound to source` for
+  `mbp-mod`, and the mod drops it silently, so it looks dead. Use the master
+  token, or mint one whose `sources` include both `<EMBER_SOURCE>` and
+  `<EMBER_SOURCE>-mod`.
+- **The devices show it twice.** While both run, every Claude session is two
+  live rows, so the TC001's source cards and session bar and the knob show
+  each session twice. The mod reads the same `EMBER_SOURCE_CARD` /
+  `EMBER_SESSION_BAR` as the Go producer, so there's no way to quiet only its
+  copy; uninstall the mod when the comparison is done.
+- **Compare the timelines.** Each Claude session shows twice in `/state`,
+  `<source>/claude/<id>` from the Go producer and `<source>-mod/claude/<id>`
+  from the mod, with the same session id. Poll both and diff the
+  `state`/`state_since`/`message` columns. The URL is `EMBER_SERVER_URL`
+  from `producer.env`, or the discovery cache when that is empty or `auto`:
+
+  ```sh
+  url=$(sed -n 's/^EMBER_SERVER_URL=//p' ~/.config/ember/producer.env | tr -d "\"'")
+  case "$url" in ""|auto) url=$(jq -r .url ~/.local/state/ember/server.json) ;; esac
+  while :; do
+    curl -s "$url/state" |
+      jq -r --arg t "$(date +%T)" '.sessions[] | select(.tool=="claude") |
+        "\($t) \(.source) \(.session[0:8]) \(.state) \(.state_since) \(.message // "")"'
+    sleep 2
+  done | tee ~/ember-mod-compare.log
+  ```
+
+  Things to check: `waiting` appears when the permission dialog opens (on
+  both rows) and ends when the approved tool finishes (the Go row may flip
+  back to `running` sooner, see above), long tools and long waits stay
+  alive, `/clear` and exit DELETE both rows, and after a `kill -9` the mod's
+  row lingers up to `stale_seconds`. `claude agents --json` (`status`,
+  `waitingFor`) is the ground truth for interactive waits.
+- **Tests.** What CI runs: `node --test
+  producers/claude-code/mod/test/producer.test.mts` (the pure module only:
+  the `Tracker`, the outbox and `Sender`, bounded sends, the HTTP send
+  against a local stub) and the Go tests. `test/mod.test.ts` is **not** part
+  of `node --test`: it imports `claude-code/testing` and runs only under
+  `claude plugin test`, so it needs Claude Code. Two fixtures are shared with Go: `test/parity.json`
+  (activity strings, error labels, trails, env parsing, session ids) and
+  `test/transitions.json` (event sequences, ticks included, to the exact
+  POST/DELETE bodies). `mod_parity_test.go` runs the real Go hooks
+  (`dispatchHookFrom`, `dispatchTick`) through it, and the node test runs the
+  mod's `Tracker` through it via a test-only event mapping (`drive()`), so CI
+  catches the Go hooks and the mod's `Tracker` drifting apart. CI does **not**
+  cover `register.ts`, the wiring from Claude Code's hooks to the `Tracker`
+  (which hook calls what, `trackLive`'s cwd, `tool.call` → `toolFinished`,
+  the config reload, the send limits): that is `test/mod.test.ts`, which
+  needs Claude Code and runs only locally, together with
+  `claude plugin validate producers/claude-code/mod` and
+  `claude plugin test producers/claude-code/mod`. Run both with `HOME` and
+  `CLAUDE_CONFIG_DIR` pointed at a scratch directory so they never read your
+  live `~/.claude`.
+
 ## Headless / Linux producers
 
 The three Go producers run without Ember.app: on a Linux box running Claude

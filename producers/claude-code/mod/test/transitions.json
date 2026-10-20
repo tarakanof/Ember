@@ -1,0 +1,69 @@
+{
+  "env": "EMBER_SOURCE=test-mbp\nEMBER_TOKEN=tok\n",
+  "scenarios": [
+    {
+      "name": "prompt, tool, permission wait, resume, stop, done heartbeat, exit",
+      "steps": [
+        { "at": 0, "event": "user-prompt-submit", "input": { "session_id": "s1", "cwd": "/repo", "prompt": "fix the build" },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s1", "state": "running", "message": "fix the build", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 1, "event": "pre-tool-use", "input": { "session_id": "s1", "cwd": "/repo", "tool_name": "Bash", "tool_input": { "command": "npm test", "description": "Run tests" }, "tool_use_id": "toolu_01" },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s1", "state": "running", "message": "Bash", "activity": "Bash: npm test", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 2, "event": "permission-request", "input": { "session_id": "s1", "cwd": "/repo", "tool_name": "Bash", "tool_input": { "description": "Run tests", "command": "npm test" } },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s1", "state": "waiting", "message": "approve Bash", "activity": "Bash: npm test", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 3, "event": "tick",
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s1", "state": "waiting", "message": "approve Bash", "activity": "Bash: npm test", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 4, "event": "post-tool-use", "input": { "session_id": "s1", "cwd": "/repo", "tool_name": "Bash", "tool_input": { "command": "npm test", "description": "Run tests" }, "tool_use_id": "toolu_01" },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s1", "state": "running", "message": "Bash", "activity": "Bash: npm test", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 6, "event": "notification", "input": { "session_id": "s1", "cwd": "/repo", "notification_type": "permission_prompt", "message": "Claude needs your permission to use Bash" },
+          "want": [] },
+        { "at": 7, "event": "stop", "input": { "session_id": "s1", "cwd": "/repo", "last_assistant_message": "\nAll green.\nDetails follow.", "background_tasks": [] },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s1", "state": "done", "message": "All green.", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 8, "event": "tick",
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s1", "state": "done", "message": "All green.", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 9, "event": "session-end", "input": { "session_id": "s1", "cwd": "/repo", "reason": "prompt_input_exit" },
+          "want": [{ "method": "DELETE", "body": { "source": "test-mbp", "tool": "claude", "session": "s1" } }] }
+      ]
+    },
+    {
+      "name": "a failed tool annotates the trail without a POST",
+      "steps": [
+        { "at": 0, "event": "pre-tool-use", "input": { "session_id": "s2", "cwd": "/repo", "tool_name": "Bash", "tool_input": { "command": "make" }, "tool_use_id": "toolu_10" },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s2", "state": "running", "message": "Bash", "activity": "Bash: make", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 1, "event": "post-tool-use-failure", "input": { "session_id": "s2", "cwd": "/repo", "tool_name": "Bash", "tool_input": { "command": "make" }, "tool_use_id": "toolu_10", "error": "Exit code 2\nmake: *** [all] Error 2", "is_interrupt": false },
+          "want": [] },
+        { "at": 2, "event": "pre-tool-use", "input": { "session_id": "s2", "cwd": "/repo", "tool_name": "Read", "tool_input": { "file_path": "/repo/Makefile" }, "tool_use_id": "toolu_11" },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s2", "state": "running", "message": "Read", "activity": "Read: Makefile · Bash: make (exit 2)", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 3, "event": "stop-failure", "input": { "session_id": "s2", "cwd": "/repo", "error": "rate_limit", "error_details": "" },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s2", "state": "error", "message": "rate limited", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 4, "event": "session-end", "input": { "session_id": "s2", "cwd": "/repo", "reason": "bypass_permissions_disabled" },
+          "want": [] }
+      ]
+    },
+    {
+      "name": "a notification wait outlives the backstop, then a prompt brings the session back",
+      "steps": [
+        { "at": 0, "event": "notification", "input": { "session_id": "s3", "cwd": "/repo", "notification_type": "elicitation_dialog", "message": "Pick an option" },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s3", "state": "waiting", "message": "Pick an option", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 1800, "event": "tick",
+          "want": [{ "method": "DELETE", "body": { "source": "test-mbp", "tool": "claude", "session": "s3" } }] },
+        { "at": 1810, "event": "tick",
+          "want": [] },
+        { "at": 1820, "event": "user-prompt-submit", "input": { "session_id": "s3", "cwd": "/repo", "prompt": "again" },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s3", "state": "running", "message": "again", "source_card": true, "session_bar": true, "project": "repo" } }] }
+      ]
+    },
+    {
+      "name": "stop with a waking subagent keeps running; a clear ends the session",
+      "steps": [
+        { "at": 0, "event": "user-prompt-submit", "input": { "session_id": "s4", "cwd": "/repo", "prompt": "spawn" },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s4", "state": "running", "message": "spawn", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 1, "event": "stop", "input": { "session_id": "s4", "cwd": "/repo", "last_assistant_message": "waiting on agent", "background_tasks": [{ "id": "a1", "type": "subagent", "status": "running", "description": "x" }] },
+          "want": [] },
+        { "at": 2, "event": "notification", "input": { "session_id": "s4", "cwd": "/repo", "notification_type": "agent_completed", "message": "Agent finished" },
+          "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s4", "state": "done", "message": "Agent finished", "source_card": true, "session_bar": true, "project": "repo" } }] },
+        { "at": 3, "event": "session-end", "input": { "session_id": "s4", "cwd": "/repo", "reason": "clear" },
+          "want": [{ "method": "DELETE", "body": { "source": "test-mbp", "tool": "claude", "session": "s4" } }] }
+      ]
+    }
+  ]
+}

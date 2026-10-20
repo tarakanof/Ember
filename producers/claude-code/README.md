@@ -121,6 +121,13 @@ The bearer token is sent in cleartext over plain HTTP — this is a LAN-only
 deployment assumption. Anyone on the same LAN with packet capture access
 can intercept it. HTTPS is future work (sub-project E).
 
+## Experimental: the mod producer (`ember-mod@ember`)
+
+`mod/` is a Claude Code mod that reports the same states from inside Claude
+Code, with no hook binary, under its own source (`<EMBER_SOURCE>-mod`). It is
+for comparing against these hooks and is off unless you install it. See
+docs/RUNBOOK.md "Claude mod producer, side by side".
+
 ## Troubleshooting
 
 - **No marker shows up:** `ember-claude-producer doctor` to check config; check `~/Library/Logs/ember-claude-producer.log` (Linux: `~/.local/state/ember/logs/`) for hook errors.
