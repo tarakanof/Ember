@@ -8,8 +8,8 @@ private let th = KnobTheme.standard
 private let w = th.weather
 
 @MainActor
-private func render(_ f: KnobFace, t: Double? = nil) throws -> CGImage {
-    let r = ImageRenderer(content: KnobFaceView(f, t: t).frame(width: 466, height: 466).environment(\.colorScheme, .dark))
+private func render(_ f: KnobFace, t: Double? = nil, theme: KnobTheme = th) throws -> CGImage {
+    let r = ImageRenderer(content: KnobFaceView(f, theme: theme, t: t).frame(width: 466, height: 466).environment(\.colorScheme, .dark))
     r.scale = 1
     let img = try #require(r.cgImage)
     if let dir = ProcessInfo.processInfo.environment["KNOB_SNAPSHOT_DIR"],
@@ -152,6 +152,27 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     #expect(!has(img, w.stillColor, rows: 210..<300, cols: 200..<266, tol: 4), "no value while rows show")
     let none = try render(.days(KnobDaysFace()))
     #expect(has(none, w.stillColor, rows: 210..<300, cols: 180..<290, tol: 4), "-- without rows")
+}
+
+@MainActor @Test func daysIconsDrawTheirOwnCloudPalette() throws {
+    var theme = th
+    let low = (fill: RGB(r: 0xE0, g: 0x20, b: 0x20), edge: RGB(r: 0xE0, g: 0x80, b: 0x20))
+    let grey = (fill: RGB(r: 0x20, g: 0xE0, b: 0x20), edge: RGB(r: 0x20, g: 0xE0, b: 0xA0))
+    theme.weather.days.cloudLowFill = low.fill
+    theme.weather.days.cloudLowEdge = low.edge
+    theme.weather.days.cloudGreyFill = grey.fill
+    theme.weather.days.cloudGreyEdge = grey.edge
+    let c = KnobDaysFace(rows: [.init(wday: 1, icon: .sun, lo: 0, hi: 1)]).cols(theme.weather.days)
+    func paints(_ icon: KnobDaysFace.Icon, _ color: RGB) throws -> Bool {
+        let img = try render(.days(KnobDaysFace(rows: [.init(wday: 1, icon: icon, lo: 0, hi: 1)])), theme: theme)
+        return has(img, color, rows: 100..<330, cols: c.iconX..<(c.iconX + 40), tol: 6)
+    }
+    #expect(try paints(.cloud, low.fill) && paints(.cloud, low.edge), "cloud uses the low palette")
+    #expect(try !paints(.cloud, grey.fill) && !paints(.cloud, grey.edge), "cloud does not use the grey palette")
+    for icon in [KnobDaysFace.Icon.fog, .rain, .snow] {
+        #expect(try paints(icon, grey.fill) && paints(icon, grey.edge), "\(icon) uses the grey palette")
+        #expect(try !paints(icon, low.fill) && !paints(icon, low.edge), "\(icon) does not use the low palette")
+    }
 }
 
 @MainActor @Test func sunFaceRendersTheDayGauge() throws {
