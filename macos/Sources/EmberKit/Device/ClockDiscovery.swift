@@ -157,10 +157,11 @@ public final class ClockDiscovery {
     }
 
     nonisolated static func probe(name: String, baseURL: String,
-                                  session: URLSession = probeSession) async -> DiscoveredClock? {
+                                  session: URLSession = probeSession,
+                                  timeout: TimeInterval = probeTimeout) async -> DiscoveredClock? {
         guard let url = URL(string: baseURL + "/api/v1/device") else { return nil }
         var req = URLRequest(url: url)
-        req.timeoutInterval = probeTimeout
+        req.timeoutInterval = timeout
         let data: Data, resp: URLResponse
         do {
             (data, resp) = try await session.data(for: req)

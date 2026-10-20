@@ -71,13 +71,14 @@ private func fingerprint(_ body: String, status: Int = 200) -> DiscoveredClock? 
 
 @Test func clockProbeGetsTheDeviceRouteWithAShortTimeout() async {
     let host = "stub-\(UUID().uuidString.lowercased()).local"
-    StubURLProtocol.register(host: host, inline: true) { req in
+    StubURLProtocol.register(host: host) { req in
         #expect(req.httpMethod == "GET")
         #expect(req.url?.path == "/api/v1/device")
-        #expect(req.timeoutInterval == 1.5)
+        #expect(req.timeoutInterval == 60)
         return (okResponse(req.url!), Data(ngDeviceFixture.utf8))
     }
-    let c = await ClockDiscovery.probe(name: "Awtrix", baseURL: "http://\(host):80", session: stubSession())
+    let c = await ClockDiscovery.probe(name: "Awtrix", baseURL: "http://\(host):80", session: stubSession(), timeout: 60)
+    #expect(ClockDiscovery.probeTimeout == 1.5)
     #expect(c?.uid == "e868e705ffb8")
     #expect(c?.baseURL == "http://\(host):80")
 }

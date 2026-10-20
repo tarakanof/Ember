@@ -6,14 +6,9 @@ final class StubURLProtocol: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var handlers: [String: @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)] = [:]
 
-    nonisolated(unsafe) private static var inlineHosts: Set<String> = []
-
-    static func register(host: String, inline: Bool = false,
+    static func register(host: String,
                          handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)) {
-        lock.withLock {
-            handlers[host] = handler
-            if inline { inlineHosts.insert(host) }
-        }
+        lock.withLock { handlers[host] = handler }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -25,11 +20,6 @@ final class StubURLProtocol: URLProtocol {
         let host = request.url?.host ?? ""
         guard let handler = Self.lock.withLock({ Self.handlers[host] }) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse)); return
-        }
-        if Self.lock.withLock({ Self.inlineHosts.contains(host) }) {
-            result = Result { try handler(request) }
-            deliver()
-            return
         }
         nonisolated(unsafe) let proto = self
         nonisolated(unsafe) let loaderThread = Thread.current
