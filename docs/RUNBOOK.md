@@ -554,7 +554,12 @@ Go hooks, with no hook binary and no heartbeat daemon. It reports the states,
 the heartbeat and (#668) the context % and 5-hour rate gauges; the account
 usage card still comes from the Go daemon. It is off unless installed,
 and it posts under its own source, so it never doubles the Go producer's
-rows. Needs Claude Code 2.1.288 or newer.
+rows. Needs Claude Code 2.1.288 or newer, gauges included: `session.measure`
+and `$.session.usage()` were live-probed on 2.1.288 (#253) and CI tests on
+2.1.304. A build that doesn't know an event the module hooks refuses the
+whole module when it loads it (no state either), and the API has no
+capability check, so the gauges can't be switched off per version; such a
+build keeps using the Go producer.
 
 - **Config.** It reads `~/.config/ember/producer.env` on `session.start`
   and on every 10 s heartbeat: `EMBER_SERVER_URL` (empty or `auto` takes the
@@ -585,7 +590,13 @@ rows. Needs Claude Code 2.1.288 or newer.
   toggle. Like the statusline, a reading is only stored: the next hook POST
   or heartbeat (at most 10 s) carries it, so the mod sends no extra request,
   and the figures stick to the session until a newer reading. Nothing shows
-  before the session's first response (Claude Code has no figures yet). The
+  before the session's first response (Claude Code has no figures yet). A
+  `five_hour` window with a reset but no percent is sent as 0 % with its
+  reset, as Go reads it. After `/compact`, `/resume` or `--resume` (a
+  non-`startup` SessionStart forgets the session, as Go removes the
+  marker), the session's next hook reads `$.session.usage()` once in the
+  background, so its row has gauges within 10 s instead of after the turn;
+  a reading that answers after a newer `session.measure` is dropped. The
   7-day window, spend limits and cost are read but not sent: `/v1/status`
   has no field for them.
 - **Who owns the gauges when both run.** No overlap on `/v1/status`: each
@@ -605,14 +616,28 @@ rows. Needs Claude Code 2.1.288 or newer.
   ```sh
   tmp=$(mktemp)
   jq --slurpfile sl ~/.config/ember/wrapped-statusline.json '.statusLine = $sl[0]' \
-    ~/.claude/settings.json > "$tmp" && cat "$tmp" > ~/.claude/settings.json
-  rm "$tmp" ~/.config/ember/wrapped-statusline.json
+    ~/.claude/settings.json > "$tmp" &&
+    cat "$tmp" > ~/.claude/settings.json &&
+    rm ~/.config/ember/wrapped-statusline.json
+  rm -f "$tmp"
   ```
-  With no `wrapped-statusline.json` (you had no status line), delete
-  `statusLine` instead: `jq 'del(.statusLine)'`. Don't use `deconfigure`:
-  it also writes the kill switch, which silences the mod. What you lose: the
-  Go rows' context glass and 5h gauge, the statusline relay to `/v1/usage`
-  between OAuth polls, and the 7d window while the OAuth poll fails.
+  The saved copy is removed only once `settings.json` holds it, so a missing
+  `jq` (macOS ships it from 15 on) or a `settings.json` that doesn't parse
+  changes nothing. With no `wrapped-statusline.json` (you had no status
+  line), delete `statusLine` instead: `jq 'del(.statusLine)'`. Don't use
+  `deconfigure`: it also writes the kill switch, which silences the mod.
+  Restart running Claude sessions afterwards: their markers keep the last
+  Go gauges until they end, and while no fresh `/v1/usage` report is in,
+  the 5h fallback could switch between those stale Go rows and the mod's
+  fresh ones on each heartbeat. What you lose:
+  - the Go rows' context glass and 5h gauge;
+  - the statusline relay to `/v1/usage` between OAuth polls, and the 7d
+    window while the OAuth poll fails;
+  - the Go daemon's uses of the statusline timestamps: `doctor`'s
+    stale-hooks warning (a session whose hooks went quiet while its status
+    line kept rendering) and the agents watcher's busy-after-dormant check
+    on Claude Code builds whose session file has no `statusUpdatedAt`.
+
   `ember-claude-producer configure` writes the wrapper again, and so do
   Ember.app's install and **Fix Hooks**, which run it; redo the step after
   either.

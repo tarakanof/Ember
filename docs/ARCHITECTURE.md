@@ -701,9 +701,18 @@ markers still get reaped.
   sent: the next hook POST or heartbeat carries the figures, as the
   statusline marker does in Go, and they stick until a reading has newer
   ones. A reading for a session the tracker doesn't hold is dropped (as
-  `enrichMarker` drops a render with no marker). `session.start` also reads
-  `$.session.usage()` once, for a session restored from a snapshot written
-  before phase 2. The figures ride the `$.state` snapshot (`contextPct`,
+  `enrichMarker` drops a render with no marker). A `five_hour` entry with
+  no percent counts as 0 %, as Go's zero value does, and its reset is read
+  on its own. `$.session.usage()` is read once in the background at
+  `session.start` (for a session restored from a snapshot written before
+  phase 2) and on the first hook of a tracked session with no gauges
+  (`Tracker.wantsGauges`, once per tracked session: after `/compact` or a
+  resume the session is forgotten and re-tracked). Each reading takes a
+  sequence number when it starts, and one that finishes after a newer
+  reading was applied is dropped, so a slow `usage()` can't overwrite a
+  `session.measure`. The engine refuses at load time any module that hooks
+  an event it doesn't know, so `session.measure` can't be gated per
+  version; it was live-probed on 2.1.288, the mod's floor. The figures ride the `$.state` snapshot (`contextPct`,
   `ratePct` -1 and `rateResetAt` 0 mean unknown). `seven_day`, `spend_limit`
   and `cost` have no `/v1/status` field and are not sent. The mod never
   posts `/v1/usage`: it has no `account_key` (`$.session.identity()`
@@ -717,7 +726,8 @@ markers still get reaped.
   `statusline` reading included, to exact wire bodies) are shared with
   `mod_parity_test.go`, which drives `dispatchHookFrom`, `dispatchTick` and
   `enrichFromStatusline` and compares the `/v1/status` calls (the tick's
-  `/v1/usage` relay is Go-only); the node side drives the `Tracker`. CI's
+  `/v1/usage` relay is Go-only and skipped; any other route fails the
+  test); the node side drives the `Tracker`. CI's
   mod job also runs `claude plugin validate --strict` and `claude plugin
   test` (`test/mod.test.ts`, the `register.ts` wiring) on a pinned Claude
   Code.
