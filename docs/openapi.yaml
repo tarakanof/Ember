@@ -3071,7 +3071,7 @@ paths:
                   type: string
       responses:
         "200":
-          description: Approved (`Cache-Control: no-store`).
+          description: "Approved (`Cache-Control: no-store`)."
           content:
             application/json:
               schema:
