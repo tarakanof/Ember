@@ -290,7 +290,7 @@ extension KnobFaceRender {
 
     static let castCloudPaths: [[[Path]]] = KnobCastFace.clouds.map { sides in
         sides.map { side in
-            side.clouds.map { skyCloud(.init(back: $0.back, base: Float($0.base), puffs: $0.circles.map { .init(x: Float($0.x), y: Float($0.y), r: Float($0.r)) })) }
+            side.clouds.map { skyCloud($0.sky) }
         }
     }
 
