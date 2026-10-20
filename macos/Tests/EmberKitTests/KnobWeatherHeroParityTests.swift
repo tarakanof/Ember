@@ -504,7 +504,7 @@ private func lit(_ v: Float) -> String { NSRegularExpression.escapedPattern(for:
     #expect(try table("wx_paint.c", "static const float STARS[10][3]") == .list(KnobTempSky.stars.map { nums([f($0.x), f($0.y), f($0.r)]) }))
     #expect(try table("wx_paint.c", "static const float KEEP_OUT[5][5]") == .list(KnobTempSky.keepOut.map { nums($0.map(f)) }))
     #expect(try define("wx_paint.c", "SUN_C") == f(KnobTempSky.sunC) && define("wx_paint.c", "SUN_CORE") == f(KnobTempSky.sunCore))
-    #expect(try define("wx_paint.c", "RAYS") == Double(KnobTempSky.rayCount) && define("include/wx_paint.h", "WX_HERO_BOX") == Double(KnobTempSky.heroBox))
+    #expect(try define("wx_paint.c", "RAYS") == Double(KnobTempSky.rayCount))
     #expect(try define("include/wx_temp.h", "WX_ILLUM_STEP") == Double(KnobTempFace.illumStep))
     try code("wx_paint.c", #"#define HERO_FADE \(0\.82f \* RIM_R\)"#)
     try code("wx_paint.c", #"for \(int i = 0; i < 10; i\+\+\) disc\(im, STARS\[i\]\[0\], STARS\[i\]\[1\], STARS\[i\]\[2\], wx_rgb565\(\#(hex(KnobTempSky.starColor))\), \#(lit(KnobTempSky.starAlpha))f, HERO_FADE\);"#)

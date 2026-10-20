@@ -308,7 +308,7 @@ extension KnobFaceRender {
 
     static func castClouds(_ f: KnobCastFace, _ w: KnobTheme.Weather, frame fr: KnobCastFace.Frame, in ctx: inout GraphicsContext) {
         guard (1...3).contains(f.variant) else { return }
-        let streak = Color(f.snow ? w.rain.snowColor : w.cast.color), center = CGPoint(x: 233, y: 233)
+        let streak = Color(f.snow ? w.rain.snowColor : w.cast.color)
         for (side, s) in KnobCastFace.sheets[f.variant - 1].enumerated() {
             if !f.dry && fr.gate > 0 {
                 var g = ctx
@@ -318,13 +318,7 @@ extension KnobFaceRender {
             let sky = KnobCastFace.clouds[f.variant - 1][side], tone = KnobCastFace.tones[sky.tone]
             var c = ctx
             c.translateBy(x: Double(fr.dx[side]), y: 0)
-            let r = KnobCastFace.rimR
-            c.clipToLayer {
-                $0.fill(disc(center, r), with: .radialGradient(Gradient(stops: [.init(color: .white, location: 0),
-                                                                                 .init(color: .white, location: sky.fadeFrom / r),
-                                                                                 .init(color: .clear, location: 1)]),
-                                                               center: center, startRadius: 0, endRadius: r))
-            }
+            rimMask(Float(sky.fadeFrom), in: &c)
             func paint(_ g: inout GraphicsContext) {
                 for (ci, cl) in sky.clouds.enumerated() {
                     let p = castCloudPaths[f.variant - 1][side][ci]

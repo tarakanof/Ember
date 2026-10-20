@@ -16,7 +16,7 @@ enum KnobTempSky {
     }
 
     static let face: Float = 233, rimR: Float = 195, heroFade = 0.82 * rimR, sunC: Float = 116.3, sunCore: Float = 52
-    static let heroBox = 164, nightTone = 3, rayCount = 22
+    static let nightTone = 3, rayCount = 22
     static let deg = KnobFaceRender.nearestPi / 180
 
     private static func c(_ x: Float, _ y: Float, _ r: Float) -> Puff { Puff(x: x, y: y, r: r) }
@@ -215,11 +215,6 @@ struct KnobTempDrift: Equatable {
         guard count > 0, t >= 0, t.isFinite else { return rest }
         let last = Int((t * Self.fps).rounded(.down))
         return replay((last > Self.window ? anchor(from: last - Self.window, to: last) : nil) ?? (0, rest, 0), to: last)
-    }
-
-    func replayed(t: Double) -> [Offset] {
-        guard count > 0, t >= 0, t.isFinite else { return rest }
-        return replay((0, rest, 0), to: Int((t * Self.fps).rounded(.down)))
     }
 
     private func targets(_ f: Int) -> [Offset] { (0..<count).map { path($0, Double(f) / Self.fps) } }

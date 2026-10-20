@@ -104,6 +104,22 @@ private func sky(_ band: Int, night: Bool = false, moon m: WeatherState.Faces.Mo
             "puffs that do not touch are no cloud")
 }
 
+private func fullReplay(_ d: KnobTempDrift, through last: Int) -> [[KnobTempDrift.Offset]] {
+    var at = d.rest, turn = 0, out: [[KnobTempDrift.Offset]] = []
+    for f in 0...last {
+        for k in 0..<d.count {
+            let i = (turn + k) % d.count, to = d.path(i, Double(f) / KnobTempDrift.fps)
+            guard to != at[i] else { continue }
+            at[i] = .init(dx: at[i].dx + (to.dx > at[i].dx ? 1 : 0) - (to.dx < at[i].dx ? 1 : 0),
+                          dy: at[i].dy + (to.dy > at[i].dy ? 1 : 0) - (to.dy < at[i].dy ? 1 : 0))
+            turn = (i + 1) % d.count
+            break
+        }
+        out.append(at)
+    }
+    return out
+}
+
 @Test func driftSeedsAndPathsMatchTheCHarness() {
     for (b, band) in KnobTempSky.bands.dropFirst().enumerated() {
         let d = KnobTempDrift(band)
@@ -120,9 +136,9 @@ private func sky(_ band: Int, night: Bool = false, moon m: WeatherState.Faces.Mo
             for o in d.offsets(t: (Double(f) + 0.5) / KnobTempDrift.fps) { h = fnv(fnv(h, o.dx), o.dy) }
         }
         #expect(h == cSampledFNV[b], "band \(b + 1): every 150th frame up to 10 min")
-        for f in stride(from: 901, through: 9000, by: 449) {
-            let t = (Double(f) + 0.5) / KnobTempDrift.fps
-            #expect(d.offsets(t: t) == d.replayed(t: t), "band \(b + 1) frame \(f): the bounded replay is the full one")
+        let full = fullReplay(d, through: 2700)
+        for f in 901...2700 where d.offsets(t: (Double(f) + 0.5) / KnobTempDrift.fps) != full[f] {
+            Issue.record("band \(b + 1) frame \(f): the bounded replay differs from the full one")
         }
         for a in stride(from: 0, through: 54000, by: 2700) {
             #expect(d.anchor(from: a, to: a + KnobTempDrift.window) != nil, "band \(b + 1): a known state within a minute of frame \(a)")
