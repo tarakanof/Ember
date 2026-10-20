@@ -276,11 +276,10 @@ private func ngServer() -> FakeClock {
     #expect(put.body.count == 2)
     #expect(put.body["brightness"] as? Int == 200)
     #expect(put.body["timeColor"] is NSNull)
-    #expect(m.settings.status == .saved)
     m.settings.draft.brightness = 10
     m.settings.scheduleSave()
     await clock.advance(by: .milliseconds(600))
-    await eventually { fake.log.filter { $0.method == "PUT" }.count == 2 }
+    await eventually { m.settings.status == .saved && fake.log.filter { $0.method == "PUT" }.count == 2 }
     let second = try #require(fake.log.last { $0.method == "PUT" })
     #expect(second.body.count == 1)
     #expect(second.body["brightness"] as? Int == 10)
@@ -358,8 +357,9 @@ private func ngServer() -> FakeClock {
     #expect(m.volumeControls == .soundToggle)
 }
 
-@MainActor private func eventually(_ done: () -> Bool) async {
-    for _ in 0..<400 where !done() { try? await Task.sleep(for: .milliseconds(5)) }
+@MainActor private func eventually(sourceLocation: SourceLocation = #_sourceLocation, _ done: () -> Bool) async {
+    for _ in 0..<2000 where !done() { try? await Task.sleep(for: .milliseconds(5)) }
+    if !done() { Issue.record("condition not met within 10s", sourceLocation: sourceLocation) }
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func editDuringAnInFlightLoadSendsOnlyTheEdit() async throws {
