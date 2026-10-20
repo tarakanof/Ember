@@ -543,6 +543,41 @@ describe('Sender', () => {
     assert.equal(sender.lateSends(), 0)
   })
 
+  test('a repair POST that lands after the DELETE is deleted again', async () => {
+    const rows = new Map<string, string>()
+    const log: string[] = []
+    let calls = 0
+    const deliver = async (e: Effect) => {
+      const call = ++calls
+      if (call === 1 || call === 2) await wait(100)
+      if (e.method === 'POST') rows.set(e.body.session, e.body.state)
+      else rows.delete(e.body.session)
+      log.push(e.method + (call <= 2 ? ' (late)' : ''))
+      return true
+    }
+    let current: Effect = post('done')
+    const io = { deliver, timer: wait, reconcile: () => current }
+    const sender = new Sender()
+    void sender.push(post('running'), 20, io, 0)
+    await wait(125)
+    current = del
+    void sender.push(del, 20, io, 125)
+    await wait(500)
+    assert.equal(log.join(' -> '), 'POST (late) -> DELETE -> POST (late) -> DELETE')
+    assert.equal(rows.has('s1'), false)
+    assert.equal(sender.outbox.busy, 0)
+    assert.equal(sender.lateSends(), 0)
+  })
+
+  test('a stray settling after the done TTL deletes the row instead of re-posting done', () => {
+    const t = new Tracker()
+    const cfg = config()
+    t.promptSubmit(cfg, 0, 's1', 'x', HOME)
+    t.stop(cfg, 1000, 's1', '', HOME)
+    assert.equal(t.reconcile(cfg, 2000, 's1').method, 'POST')
+    assert.equal(t.reconcile(cfg, 1000 + 30_000, 's1').method, 'DELETE')
+  })
+
   test('heartbeat POSTs wait for a stray younger than 60 s, then go out; DELETEs never wait', async () => {
     const delivered: string[] = []
     let first = true

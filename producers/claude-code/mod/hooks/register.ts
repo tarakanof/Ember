@@ -133,7 +133,7 @@ function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: 
   const io = {
     deliver: (effect: Effect) => send(fetcher($), cfg, effect),
     timer: (ms: number) => $.clock.sleep(ms),
-    reconcile: (session: string) => st.tracker.reconcile(cfg, session),
+    reconcile: (session: string) => st.tracker.reconcile(cfg, Date.now(), session),
   }
   return effects.map(effect => st.sender.push(effect, limitMs, io, now, heartbeat))
 }
