@@ -208,25 +208,28 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     #expect(near(at(-3, 0), RGB(r: 92, g: 156, b: 224), 4), "the body is the fill")
 }
 
+private let pathBooleanAlways = try! NSRegularExpression(pattern: #"\.(subtracting|symmetricDifference|lineSubtracting|lineIntersection)\(|\.normalized\("#)
+private let pathBooleanSetLike = try! NSRegularExpression(pattern: #"\.(union|intersection)\("#)
+private let pathBooleanSetReceiver = try! NSRegularExpression(pattern: #"(?:\b(?:CGRect|Set|IndexSet)\([^()]*\)|\bCGRect\.(?:zero|null|infinite))$"#)
+
 func hasPathBoolean(_ line: String) -> Bool {
-    let always = try! NSRegularExpression(pattern: #"\.(subtracting|symmetricDifference|lineSubtracting|lineIntersection)\(|\.normalized\("#)
-    let setLike = try! NSRegularExpression(pattern: #"\.(union|intersection)\("#)
-    let setReceiver = try! NSRegularExpression(pattern: #"(?:\b(?:CGRect|Set|IndexSet)\([^()]*\)|[A-Za-z_]*(?:[rR]ect|[fF]rame|[bB]ounds|[sS]et|[iI]ndices))$"#)
     let whole = NSRange(line.startIndex..., in: line)
-    if always.firstMatch(in: line, range: whole) != nil { return true }
-    return setLike.matches(in: line, range: whole).contains { m in
+    if pathBooleanAlways.firstMatch(in: line, range: whole) != nil { return true }
+    return pathBooleanSetLike.matches(in: line, range: whole).contains { m in
         let before = String(line[..<line.index(line.startIndex, offsetBy: m.range.location)])
-        return setReceiver.firstMatch(in: before, range: NSRange(before.startIndex..., in: before)) == nil
+        return pathBooleanSetReceiver.firstMatch(in: before, range: NSRange(before.startIndex..., in: before)) == nil
     }
 }
 
 @Test func pathBooleanMatcherSeesTheCallShape() {
     for hit in ["let p = path.union(other)", "let p = Path(CGRect(x: 0, y: 0, width: 1, height: 1)).union(Path(ellipseIn: r))",
-                "a.intersection(b)", "p.subtracting(q)", "p.normalized()", "p.normalized(eoFill: true)", "x = Path(r).lineIntersection(q)"] {
+                "a.intersection(b)", "p.subtracting(q)", "p.normalized()", "p.normalized(eoFill: true)", "x = Path(r).lineIntersection(q)",
+                "let a = offset.union(p)", "let a = subset.union(p)", "let a = reset.intersection(p)", "let a = clipRect.union(p)",
+                "let a = outFrame.intersection(p)", "let a = bounds.union(p)"] {
         #expect(hasPathBoolean(hit), "\(hit)")
     }
-    for miss in ["let r = CGRect(x: 0, y: 0, width: 1, height: 1).union(other)", "let s = Set(a).union(b)", "let u = frame.union(rect)",
-                 "let i = indices.intersection(other)", "let r = cardRect.union(x)", "let n = v.normalizedValue"] {
+    for miss in ["let r = CGRect(x: 0, y: 0, width: 1, height: 1).union(other)", "let s = Set(a).union(b)", "let z = CGRect.zero.union(r)",
+                 "let i = IndexSet(a).intersection(other)", "let n = v.normalizedValue"] {
         #expect(!hasPathBoolean(miss), "\(miss)")
     }
 }
