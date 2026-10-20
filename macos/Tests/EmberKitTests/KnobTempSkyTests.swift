@@ -221,17 +221,21 @@ private func near(_ a: RGB, _ b: RGB, _ tol: Int = 24) -> Bool {
 
 private let black = RGB(r: 0, g: 0, b: 0)
 
-private func sameImage(_ a: CGImage, _ b: CGImage, tol: Int = 1) -> Bool {
-    let x = bytes(a), y = bytes(b)
-    return x.count == y.count && zip(x, y).allSatisfy { abs(Int($0) - Int($1)) <= tol }
-}
-
 @MainActor @Test func theRestPoseDrawsNoSkyAndStaysAsItWas() throws {
     for f in [sky(1), sky(4, night: true, moon: moon), sky(0, night: true, moon: moon)] {
         var bare = KnobTempFace(value: 9.4, todayMinC: 6, todayMaxC: 15, sub: "Clear")
         bare.cloudBand = f.cloudBand
         #expect(sameImage(try render(f, t: nil), try render(bare, t: nil)), "band \(f.cloudBand ?? -1) \(f.hero): pixel-identical without t")
         #expect(!sameImage(try render(f, t: 5), try render(bare, t: nil)), "band \(f.cloudBand ?? -1): the tolerance still sees the sky")
+    }
+}
+
+@MainActor @Test func theSkyIsDrawnAtTimeZero() throws {
+    for f in [sky(1), sky(4, night: true, moon: moon), sky(0, night: true, moon: moon)] {
+        var bare = KnobTempFace(value: 9.4, todayMinC: 6, todayMaxC: 15, sub: "Clear")
+        bare.cloudBand = f.cloudBand
+        #expect(!sameImage(try render(f, t: 0), try render(bare, t: 0)), "band \(f.cloudBand ?? -1) \(f.hero): the tolerance sees the sky at t=0")
+        #expect(!sameImage(try render(f, t: 0), try render(bare, t: nil)), "band \(f.cloudBand ?? -1): t=0 is not the bare rest pose")
     }
 }
 
