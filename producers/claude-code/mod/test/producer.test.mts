@@ -34,6 +34,8 @@ import {
 } from '../hooks/producer.ts'
 import { argvFromPs, detectT3, isT3ServerArgv, parsePsInfo, type T3Probe } from '../hooks/t3.ts'
 
+const row = (status: string, waitingFor = '') => ({ status, waitingFor })
+
 const parity = JSON.parse(readFileSync(new URL('./parity.json', import.meta.url), 'utf8'))
 
 const HOME = '/Users/tester'
@@ -58,7 +60,7 @@ describe('parity with the Go producer (test/parity.json)', () => {
   test('parseAgents', () => {
     for (const c of parity.agents_parse) {
       const got = parseAgents(c.text)
-      assert.deepEqual(got === undefined ? null : Object.fromEntries(got), c.want, c.name)
+      assert.deepEqual(got === undefined ? null : Object.fromEntries([...got].map(([id, r]) => [id, r.status])), c.want, c.name)
     }
   })
   test('a busy row ends a dialog wait only', () => {
@@ -69,7 +71,7 @@ describe('parity with the Go producer (test/parity.json)', () => {
       if (c.pending) t.permissionRequest(cfg, 100, 's', 'Bash', {}, '/repo')
       else t.notification(cfg, 100, 's', 'quota_auto_resume_stale', c.message, '/repo')
       if (c.state === 'running') t.preToolUse(cfg, 100, 's', 'Bash', {}, 'toolu_1', '/repo')
-      const rows = c.status === '' ? new Map() : new Map([['s', c.status]])
+      const rows = c.status === '' ? new Map() : new Map([['s', row(c.status)]])
       t.agentsCorrect(cfg, 5000, 5000, rows)
       const got = t.agentsCorrect(cfg, 7000, 7000, rows)
       const want = c.want === null ? [] : [{ state: c.want.state, message: c.want.message }]
@@ -928,7 +930,7 @@ describe('the agents cross-check for a permission wait', () => {
     t.permissionRequest(cfg, 100, 's', 'Bash', { command: 'make' }, '/repo')
     return t
   }
-  const busy = new Map([['s', 'busy']])
+  const busy = new Map([['s', row('busy')]])
 
   test('the CLI version gate matches the Go one', () => {
     assert.equal(agentsCLIUsable('2.1.288 (Claude Code)'), true)
@@ -942,13 +944,15 @@ describe('the agents cross-check for a permission wait', () => {
   test('only a dialog wait wants the poll', () => {
     const t = new Tracker()
     t.promptSubmit(cfg, 0, 's', 'go', '/repo')
-    assert.equal(t.dialogWaiting(), false)
+    assert.equal(t.needsWatch(), false)
     t.notification(cfg, 1, 's', 'agent_needs_input', 'needs input', '/repo')
-    assert.equal(t.dialogWaiting(), false)
+    assert.equal(t.needsWatch(), false)
     t.permissionRequest(cfg, 2, 's', 'Bash', {}, '/repo')
-    assert.equal(t.dialogWaiting(), true)
+    assert.equal(t.needsWatch(), true)
     t.toolFinished(cfg, 3, 's', 'Bash', '')
-    assert.equal(t.dialogWaiting(), false)
+    assert.equal(t.needsWatch(), true)
+    t.tick(cfg, 20_000)
+    assert.equal(t.needsWatch(), false)
   })
 
   test('the first busy sighting only records, the second 1.5 s later corrects and posts running', () => {
@@ -956,13 +960,15 @@ describe('the agents cross-check for a permission wait', () => {
     assert.deepEqual(t.agentsCorrect(cfg, 2000, 2000, busy), [])
     assert.deepEqual(t.agentsCorrect(cfg, 3000, 3000, busy), [])
     assert.deepEqual(states(t.agentsCorrect(cfg, 3500, 3600, busy)), ['running:Bash'])
-    assert.equal(t.dialogWaiting(), false)
+    assert.equal(t.needsWatch(), true)
+    t.tick(cfg, 20_000)
+    assert.equal(t.needsWatch(), false)
   })
 
   test('a row that goes back to waiting resets the count', () => {
     const t = waiting()
     t.agentsCorrect(cfg, 2000, 2000, busy)
-    t.agentsCorrect(cfg, 3000, 3000, new Map([['s', 'waiting']]))
+    t.agentsCorrect(cfg, 3000, 3000, new Map([['s', row('waiting')]]))
     assert.deepEqual(t.agentsCorrect(cfg, 4000, 4000, busy), [])
     assert.deepEqual(states(t.agentsCorrect(cfg, 5600, 5600, busy)), ['running:Bash'])
   })
@@ -981,7 +987,7 @@ describe('the agents cross-check for a permission wait', () => {
     t.agentsCorrect(cfg, 3000, 3000, busy)
     t.permissionRequest(cfg, 3200, 's', 'Edit', {}, '/repo')
     assert.deepEqual(t.agentsCorrect(cfg, 3100, 3300, busy), [])
-    assert.equal(t.dialogWaiting(), true)
+    assert.equal(t.needsWatch(), true)
   })
 
   test('the late permission_prompt Notification after a correction is dropped as after a PostToolUse', () => {
@@ -995,6 +1001,45 @@ describe('the agents cross-check for a permission wait', () => {
     const t = waiting()
     t.agentsCorrect(cfg, 2000, 2000, new Map())
     assert.deepEqual(t.agentsCorrect(cfg, 4000, 4000, new Map()), [])
-    assert.equal(t.dialogWaiting(), true)
+    assert.equal(t.needsWatch(), true)
+  })
+
+  test('a wrong flip is undone: a waiting row right after it restores the wait', () => {
+    const t = waiting()
+    t.agentsCorrect(cfg, 2000, 2000, busy)
+    assert.deepEqual(states(t.agentsCorrect(cfg, 4000, 4000, busy)), ['running:Bash'])
+    const back = new Map([['s', row('waiting', 'permission prompt')]])
+    assert.equal(t.needsWatch(), true)
+    assert.deepEqual(t.agentsCorrect(cfg, 5000, 5000, back), [])
+    assert.deepEqual(states(t.agentsCorrect(cfg, 6600, 6600, back)), ['waiting:permission prompt'])
+    assert.equal(t.needsWatch(), true)
+    assert.deepEqual(t.agentsCorrect(cfg, 7000, 7000, busy), [])
+    assert.deepEqual(states(t.agentsCorrect(cfg, 8600, 8600, busy)), ['running:Bash'])
+  })
+
+  test('a waiting row is ignored after the 15 s window, or once any event followed the flip', () => {
+    const t = waiting()
+    t.agentsCorrect(cfg, 2000, 2000, busy)
+    t.agentsCorrect(cfg, 4000, 4000, busy)
+    const back = new Map([['s', row('waiting')]])
+    t.agentsCorrect(cfg, 20_000, 20_000, back)
+    assert.deepEqual(t.agentsCorrect(cfg, 22_000, 22_000, back), [])
+    assert.equal(t.needsWatch(), false)
+    const u = waiting()
+    u.agentsCorrect(cfg, 2000, 2000, busy)
+    u.agentsCorrect(cfg, 4000, 4000, busy)
+    u.preToolUse(cfg, 4500, 's', 'Read', {}, 'toolu_2', '/repo')
+    u.agentsCorrect(cfg, 5000, 5000, back)
+    assert.deepEqual(u.agentsCorrect(cfg, 7000, 7000, back), [])
+  })
+
+  test('a failed call drops the sightings, so a lone busy row later cannot flip at once', () => {
+    const t = waiting()
+    t.agentsCorrect(cfg, 2000, 2000, busy)
+    assert.equal(t.confirmDue(3600), true)
+    t.agentsFailed()
+    assert.equal(t.confirmDue(3600), false)
+    assert.deepEqual(t.agentsCorrect(cfg, 302_000, 302_000, busy), [])
+    assert.equal(t.needsWatch(), true)
   })
 })
