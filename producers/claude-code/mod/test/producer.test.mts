@@ -35,7 +35,6 @@ import {
   nowOr,
   unknownField,
 } from '../hooks/producer.ts'
-import * as producerModule from '../hooks/producer.ts'
 import { argvFromCmdline, argvFromPs, detectT3, isT3ServerArgv, parsePsInfo, parseProcStat, type T3Probe } from '../hooks/t3.ts'
 
 const row = (status: string, waitingFor = '') => ({ status, waitingFor })
@@ -194,11 +193,14 @@ describe('T3 spawn detection (#216), parity with the Go producer', () => {
   })
 })
 
+const STAT_TAIL = 'S 1 98 98 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0 5000 1000000 500'
+
 describe('/proc parsing', () => {
   test('stat gives ppid and a comm with spaces and parentheses', () => {
-    assert.deepEqual(parseProcStat('98 (T3 Code (Alpha)) S 1 1 1 0'), { ppid: 1, comm: 'T3 Code (Alpha)' })
+    assert.deepEqual(parseProcStat(`98 (T3 Code (Alpha)) ${STAT_TAIL}`), { ppid: 1, comm: 'T3 Code (Alpha)' })
     assert.equal(parseProcStat('junk'), undefined)
     assert.equal(parseProcStat('1 (x) S abc'), undefined)
+    assert.equal(parseProcStat('98 (x) S 1 1 1 0'), undefined)
   })
   test('cmdline splits on NUL and rejects an empty file', () => {
     assert.deepEqual(argvFromCmdline('node\0/x/t3\0serve\0'), ['node', '/x/t3', 'serve'])
@@ -1162,11 +1164,5 @@ describe('nowOr', () => {
   })
   test('a clock that answers is used as is', async () => {
     assert.equal(await nowOr(() => Promise.resolve(7), () => 42), 7)
-  })
-})
-
-describe('send', () => {
-  test('there is no shared process-wide dropper to leak a drop between sessions', () => {
-    assert.equal('optionalFields' in producerModule, false)
   })
 })

@@ -27,6 +27,8 @@ type Proc = { ppid: number; comm: string; argv?: string[] }
 
 const T3_DESKTOP = '/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)'
 
+const statTail = (ppid: number) => `S ${ppid} 98 98 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0 5000 1000000 500`
+
 function t3Tree(launcherArgv: string[]): Record<string, Proc> {
   return {
     '100': { ppid: 99, comm: '/bin/sh' },
@@ -701,9 +703,9 @@ test('an event that arrives while the T3 lookup runs waits for its verdict and p
 test('on Linux the T3 walk reads /proc through the file API and spawns no ps', async ($, on) => {
   const { sent, clock, ctl } = world(on, TRUSTED, SDK_ENV)
   ctl.proc = {
-    '100': { stat: '100 (sh) S 99 1 1 0', cmdline: 'sh\0-c\0echo $PPID\0' },
-    '99': { stat: '99 (claude) S 98 1 1 0', cmdline: 'claude\0' },
-    '98': { stat: '98 (T3 Code (Alpha)) S 1 1 1 0', cmdline: T3_SERVER.join('\0') + '\0' },
+    '100': { stat: `100 (sh) ${statTail(99)}`, cmdline: 'sh\0-c\0echo $PPID\0' },
+    '99': { stat: `99 (claude) ${statTail(98)}`, cmdline: 'claude\0' },
+    '98': { stat: `98 (T3 Code (Alpha)) ${statTail(1)}`, cmdline: T3_SERVER.join('\0') + '\0' },
   }
   await $.session.start(START)
   await $.classic.UserPromptSubmit(PROMPT)
@@ -744,7 +746,11 @@ test('session.start answers without waiting for the snapshot read', async ($, on
   })
   on('state.set', () => ({ value: { isSet: true as const, version: 1 } }))
   const { clock } = world(on)
-  await $.session.start(START)
+  const started = $.session.start(START).then(() => 'started')
+  const blocked = clock.sleep(100).then(() => 'blocked')
+  const first = Promise.race([started, blocked])
+  await clock.advance(100)
+  expect(await first).toBe('started')
   read.open()
   await clock.settle()
 })

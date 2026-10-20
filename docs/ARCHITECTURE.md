@@ -621,9 +621,8 @@ markers still get reaped.
   sooner. The 2.1.304 API has no "dialog answered" or "mode changed" event, so
   the mod ports the Go watcher's core. While a session is `waiting` on a
   permission dialog, and for 15 s after any resume (a watcher flip or the
-  approved tool finishing), a 1 s `$.clock.every` timer
-  (started and cancelled from `persist`, never from a hook; restarted on
-  restore) fingerprints `<config dir>/sessions/*.json` with `$.fs.list` (name,
+  approved tool finishing), a 1 s `$.clock.every` timer (started and cancelled
+  from `persist`, never from a hook; restarted on restore) fingerprints `<config dir>/sessions/*.json` with `$.fs.list` (name,
   mtime, size) and runs `claude agents --json` (5 s timeout; `claude
   --version` first, gated on 2.1.288 with cached verdicts, binary found at
   `~/.local/bin`, `PATH`, Homebrew, `/usr/local/bin`) only on a fingerprint
@@ -644,10 +643,9 @@ markers still get reaped.
   `tool.check` and `tool.call` carry no `session_id`, so the id comes from
   `$.session.id()`, hashed with `$.session.cwd()` when invalid, as classic
   hooks hash theirs. The tracker lives in module memory and is mirrored to
-  `$.state` (`ember-mod.snapshot`, declared in `types/index.d.ts`; plain JSON the host
-  keeps for the session, written after each event and tick that changed it), so
-  a hot reload
-  (`/reload-plugins`) rebuilds it from there on first use instead of forgetting
+  `$.state` (`ember-mod.snapshot`, declared in `types/index.d.ts`; plain JSON
+  the host keeps for the session, written after each event and tick that
+  changed it), so a hot reload (`/reload-plugins`) rebuilds it from there on first use instead of forgetting
   in-flight sessions. The snapshot holds the sessions, the stray-POST start
   times (kept only while younger than 60 s: the settle callbacks that clear
   them died with the old code, so they just age out), `permission_mode` and the
@@ -658,11 +656,11 @@ markers still get reaped.
   (`CLAUDE_CODE_ENTRYPOINT=sdk-ts` or `CLAUDE_AGENT_SDK_VERSION` set, read with
   `$.env.get`) walks the process tree (`sh -c 'echo $PPID'` for the process
   that spawned it, then, where `/proc` exists, `/proc/<pid>/stat` and
-  `cmdline` read with `$.fs`; otherwise `ps -o ppid=,comm=` and `ps -ww`, with
-  no `/proc` attempt through a shell) and, when the launcher is a T3 server, the
-  mod posts
-  nothing. The verdict is taken once per process (Go pays per hook), under a 250 ms budget;
-  events that arrive while it runs await the same lookup, so none can POST
+  `cmdline` read with `$.fs`; `ps -o ppid=,comm=` and `ps -ww` where it
+  doesn't, and per pid when a `/proc` read fails (`hidepid`), never a `/proc`
+  attempt through a shell) and, when the launcher is a T3 server, the mod posts
+  nothing. The verdict is taken once per process (Go pays per hook), under a
+  250 ms budget; events that arrive while it runs await the same lookup, so none can POST
   after the DELETE of a late match. A failed lookup fails open and is retried
   at most every 30 s, and a later match DELETEs the rows already posted. A
   `no` verdict sticks for the process. `test/parity.json` `t3` cases run

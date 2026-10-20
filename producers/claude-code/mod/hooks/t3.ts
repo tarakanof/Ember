@@ -62,7 +62,8 @@ export function parseProcStat(text: string): ProcInfo | undefined {
   const open = text.indexOf('(')
   const close = text.lastIndexOf(')')
   if (open < 0 || close < open) return undefined
-  const rest = text.slice(close + 1).trim().split(/\s+/)
+  const rest = text.slice(close + 1).split(/\s+/).filter(x => x !== '')
+  if (rest.length < 20) return undefined
   const ppid = rest[1] ?? ''
   if (!/^\d+$/.test(ppid)) return undefined
   return { ppid: Number(ppid), comm: text.slice(open + 1, close) }
