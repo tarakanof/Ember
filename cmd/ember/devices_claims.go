@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,7 +38,20 @@ var (
 	errClaimNotFound = errors.New("claim not found")
 	errClaimsFull    = errors.New("too many pending claims")
 	errAlreadyPaired = errors.New("already_paired")
+	errClaimApproved = errors.New("claim_approved")
 )
+
+type claimsFullError struct{ retryAfter time.Duration }
+
+func (e claimsFullError) Error() string { return errClaimsFull.Error() }
+
+func (e claimsFullError) Unwrap() error { return errClaimsFull }
+
+type alreadyPairedError struct{ retryAfter time.Duration }
+
+func (e alreadyPairedError) Error() string { return errAlreadyPaired.Error() }
+
+func (e alreadyPairedError) Unwrap() error { return errAlreadyPaired }
 
 type wrongCodeError struct{ left int }
 
@@ -65,9 +79,8 @@ type claimApproval struct {
 }
 
 type claimRegistry struct {
-	now  func() time.Time
-	rand io.Reader
-	// Runs under mu: it must not block or call back into the registry.
+	now      func() time.Time
+	rand     io.Reader
 	onExpire func(deviceClaim)
 
 	mu     sync.Mutex
@@ -89,20 +102,29 @@ func (r *claimRegistry) pruneLocked(now time.Time) {
 	}
 }
 
-func (r *claimRegistry) open(hwID, fw, ip, key string) (deviceClaim, error) {
+func (r *claimRegistry) open(hwID, fw, ip, key string) (deviceClaim, bool, error) {
+	h := sha256.Sum256([]byte(key))
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.now()
 	r.pruneLocked(now)
-	source := claimSource(ip)
-	fromIP := 0
-	for _, c := range r.claims {
-		if c.source == source {
-			fromIP++
+	for _, c := range r.sortedLocked() {
+		if c.hwID == hwID && subtle.ConstantTimeCompare(h[:], c.keyHash[:]) == 1 {
+			return *c, true, nil
 		}
 	}
-	if len(r.claims) >= claimMaxTotal || fromIP >= claimMaxPerIP {
-		return deviceClaim{}, errClaimsFull
+	source := claimSource(ip)
+	var fromSource []*deviceClaim
+	for _, c := range r.claims {
+		if c.source == source {
+			fromSource = append(fromSource, c)
+		}
+	}
+	if len(fromSource) >= claimMaxPerIP {
+		return deviceClaim{}, false, claimsFullError{retryAfter: firstExpiry(fromSource).Sub(now)}
+	}
+	if len(r.claims) >= claimMaxTotal {
+		return deviceClaim{}, false, claimsFullError{retryAfter: firstExpiry(r.sortedLocked()).Sub(now)}
 	}
 	c := &deviceClaim{
 		id:        r.newIDLocked(),
@@ -110,13 +132,23 @@ func (r *claimRegistry) open(hwID, fw, ip, key string) (deviceClaim, error) {
 		fw:        fw,
 		ip:        ip,
 		source:    source,
-		keyHash:   sha256.Sum256([]byte(key)),
+		keyHash:   h,
 		code:      r.newCodeLocked(),
 		createdAt: now,
 		expiresAt: now.Add(claimTTL),
 	}
 	r.claims[c.id] = c
-	return *c, nil
+	return *c, false, nil
+}
+
+func firstExpiry(claims []*deviceClaim) time.Time {
+	first := claims[0].expiresAt
+	for _, c := range claims[1:] {
+		if c.expiresAt.Before(first) {
+			first = c.expiresAt
+		}
+	}
+	return first
 }
 
 func (r *claimRegistry) draw() []byte {
@@ -168,13 +200,17 @@ func (r *claimRegistry) sortedLocked() []*deviceClaim {
 	return out
 }
 
-func (r *claimRegistry) poll(id, key string) (deviceClaim, error) {
+func (r *claimRegistry) poll(id, key string, current func(deviceID, tokenHash string) bool) (deviceClaim, error) {
 	h := sha256.Sum256([]byte(key))
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.pruneLocked(r.now())
 	c := r.claims[id]
 	if c == nil || subtle.ConstantTimeCompare(h[:], c.keyHash[:]) != 1 {
+		return deviceClaim{}, errClaimNotFound
+	}
+	if c.approved != nil && !current(c.approved.view.ID, c.approved.tokenHash) {
+		delete(r.claims, id)
 		return deviceClaim{}, errClaimNotFound
 	}
 	return *c, nil
@@ -193,33 +229,53 @@ func (r *claimRegistry) pending() []deviceClaim {
 	return out
 }
 
-func (r *claimRegistry) approve(id, code string, mint func(hwID string) (deviceView, string, bool, error)) (deviceClaim, error) {
+type claimMinter struct {
+	liveUntil func(hwID string) time.Time
+	mint      func(hwID string) (deviceView, string, bool, error)
+}
+
+func (r *claimRegistry) approve(id, code string, m claimMinter) (deviceClaim, []deviceClaim, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.now()
 	r.pruneLocked(now)
 	c := r.claims[id]
 	if c == nil {
-		return deviceClaim{}, errClaimNotFound
+		return deviceClaim{}, nil, errClaimNotFound
 	}
-	if subtle.ConstantTimeCompare([]byte(strings.ReplaceAll(code, " ", "")), []byte(c.code)) != 1 {
+	right := subtle.ConstantTimeCompare([]byte(strings.ReplaceAll(code, " ", "")), []byte(c.code)) == 1
+	if c.approved != nil {
+		if !right {
+			return *c, nil, wrongCodeError{left: claimMaxAttempts - c.wrong}
+		}
+		return *c, nil, nil
+	}
+	if !right {
 		c.wrong++
 		left := claimMaxAttempts - c.wrong
 		if left <= 0 {
 			delete(r.claims, id)
 		}
-		return *c, wrongCodeError{left: max(left, 0)}
+		return *c, nil, wrongCodeError{left: max(left, 0)}
 	}
-	if c.approved != nil {
-		return *c, nil
+	if until := m.liveUntil(c.hwID); now.Before(until) {
+		delete(r.claims, id)
+		return *c, nil, alreadyPairedError{retryAfter: until.Sub(now)}
 	}
-	view, token, created, err := mint(c.hwID)
+	view, token, created, err := m.mint(c.hwID)
 	if err != nil {
-		return deviceClaim{}, err
+		return deviceClaim{}, nil, err
 	}
 	c.approved = &claimApproval{view: view, token: token, tokenHash: tokenHash(token), created: created}
 	c.expiresAt = now.Add(claimTTL)
-	return *c, nil
+	var superseded []deviceClaim
+	for _, o := range r.sortedLocked() {
+		if o.id != c.id && o.hwID == c.hwID {
+			delete(r.claims, o.id)
+			superseded = append(superseded, *o)
+		}
+	}
+	return *c, superseded, nil
 }
 
 func (r *claimRegistry) decline(id string) (deviceClaim, error) {
@@ -229,6 +285,9 @@ func (r *claimRegistry) decline(id string) (deviceClaim, error) {
 	c := r.claims[id]
 	if c == nil {
 		return deviceClaim{}, errClaimNotFound
+	}
+	if c.approved != nil {
+		return *c, errClaimApproved
 	}
 	delete(r.claims, id)
 	return *c, nil
@@ -272,6 +331,20 @@ func validClaimKey(key string) bool {
 
 func secondsUntil(t, now time.Time) int {
 	return int(math.Ceil(t.Sub(now).Seconds()))
+}
+
+func (r *deviceRegistry) knobLiveUntil(hwID string) time.Time {
+	if _, seen := r.knobByHw(hwID); seen != nil {
+		return seen.Add(claimLiveWindow)
+	}
+	return time.Time{}
+}
+
+func (r *deviceRegistry) tokenCurrent(id, hash string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.state.findKnob(id)
+	return d != nil && subtle.ConstantTimeCompare([]byte(d.TokenSHA256), []byte(hash)) == 1
 }
 
 func (r *deviceRegistry) knobByHw(hwID string) (string, *time.Time) {
@@ -344,25 +417,38 @@ func (a *App) handleDeviceClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := clientIP(r)
-	if _, seen := a.devices.knobByHw(hwID); seen != nil && a.claims.now().Sub(*seen) < claimLiveWindow {
+	now := a.claims.now()
+	if until := a.devices.knobLiveUntil(hwID); now.Before(until) {
 		a.logger.InfoContext(r.Context(), "device claim refused", "reason", "already_paired", "hw_id", hwID, "ip", ip)
+		setRetryAfter(w, until.Sub(now))
 		writeError(w, http.StatusConflict, errAlreadyPaired)
 		return
 	}
-	c, err := a.claims.open(hwID, req.FW, ip, req.ClaimKey)
-	if err != nil {
+	c, reused, err := a.claims.open(hwID, req.FW, ip, req.ClaimKey)
+	var full claimsFullError
+	if errors.As(err, &full) {
 		a.logger.InfoContext(r.Context(), "device claim refused", "reason", "full", "hw_id", hwID, "ip", ip)
+		setRetryAfter(w, full.retryAfter)
 		writeError(w, http.StatusTooManyRequests, err)
 		return
 	}
-	a.logger.InfoContext(r.Context(), "device claim created", "claim_id", c.id, "hw_id", hwID, "ip", ip)
+	status := http.StatusCreated
+	if reused {
+		status = http.StatusOK
+	} else {
+		a.logger.InfoContext(r.Context(), "device claim created", "claim_id", c.id, "hw_id", hwID, "ip", ip)
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusCreated, claimOpened{
+	writeJSON(w, status, claimOpened{
 		ClaimID:    c.id,
 		Code:       c.code,
-		ExpiresInS: secondsUntil(c.expiresAt, c.createdAt),
+		ExpiresInS: max(secondsUntil(c.expiresAt, a.claims.now()), 1),
 		PollS:      int(claimPollInterval / time.Second),
 	})
+}
+
+func setRetryAfter(w http.ResponseWriter, d time.Duration) {
+	w.Header().Set("Retry-After", strconv.Itoa(max(int(math.Ceil(d.Seconds())), 1)))
 }
 
 func (a *App) handleDeviceClaimPoll(w http.ResponseWriter, r *http.Request) {
@@ -374,7 +460,7 @@ func (a *App) handleDeviceClaimPoll(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOrReject(w, r, &req, false) {
 		return
 	}
-	c, err := a.claims.poll(req.ClaimID, req.ClaimKey)
+	c, err := a.claims.poll(req.ClaimID, req.ClaimKey, a.devices.tokenCurrent)
 	if err != nil {
 		writeError(w, http.StatusNotFound, errClaimNotFound)
 		return
@@ -433,10 +519,14 @@ func (a *App) handleDeviceClaimApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	c, err := a.claims.approve(id, req.Code, func(hwID string) (deviceView, string, bool, error) {
-		return a.devices.provision(hwID, name)
+	c, superseded, err := a.claims.approve(id, req.Code, claimMinter{
+		liveUntil: a.devices.knobLiveUntil,
+		mint: func(hwID string) (deviceView, string, bool, error) {
+			return a.devices.provision(hwID, name)
+		},
 	})
 	var wrong wrongCodeError
+	var live alreadyPairedError
 	switch {
 	case errors.As(err, &wrong):
 		a.logger.InfoContext(r.Context(), "device claim code rejected", "claim_id", id, "hw_id", c.hwID, "attempts_left", wrong.left)
@@ -444,6 +534,11 @@ func (a *App) handleDeviceClaimApprove(w http.ResponseWriter, r *http.Request) {
 			a.logger.InfoContext(r.Context(), "device claim declined", "reason", "attempts", "claim_id", id, "hw_id", c.hwID, "ip", c.ip)
 		}
 		writeJSON(w, http.StatusBadRequest, claimCodeRejected{Error: wrong.Error(), AttemptsLeft: wrong.left})
+		return
+	case errors.As(err, &live):
+		a.logger.InfoContext(r.Context(), "device claim declined", "reason", "already_paired", "claim_id", id, "hw_id", c.hwID, "ip", c.ip)
+		setRetryAfter(w, live.retryAfter)
+		writeError(w, http.StatusConflict, err)
 		return
 	case errors.Is(err, errClaimNotFound):
 		writeError(w, http.StatusNotFound, err)
@@ -454,6 +549,9 @@ func (a *App) handleDeviceClaimApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	a.logger.InfoContext(r.Context(), "device claim approved", "claim_id", c.id, "hw_id", c.hwID, "ip", c.ip,
 		"device_id", c.approved.view.ID, "reprovisioned", !c.approved.created)
+	for _, o := range superseded {
+		a.logger.InfoContext(r.Context(), "device claim declined", "reason", "superseded", "claim_id", o.id, "hw_id", o.hwID, "ip", o.ip)
+	}
 	writeJSON(w, http.StatusOK, c.approved.view)
 }
 
@@ -462,6 +560,10 @@ func (a *App) handleDeviceClaimDecline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, err := a.claims.decline(r.PathValue("id"))
+	if errors.Is(err, errClaimApproved) {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
