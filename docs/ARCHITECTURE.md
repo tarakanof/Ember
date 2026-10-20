@@ -631,12 +631,15 @@ markers still get reaped.
   `EMBER_HOOK_TIMEOUT_MS` for hook sends, 5 s like `daemonHTTPTimeout` for
   tick sends), so a hung fetch releases the session; SessionEnd waits at most
   800 ms in all (`sessionEndHTTPBudget`). `$.http.fetch` can't be cancelled,
-  so a POST that timed out keeps running and can land after the next send:
-  while that POST is out the session's heartbeat POSTs are skipped (at most
-  one stray fetch per session), and when it lands, if the session has ended
-  or been parked meanwhile, its DELETE is sent again (the race
-  `postReconciled` repairs in Go). A late POST on a live session is
-  corrected by the next heartbeat within 10 s. The timer dies with the process, so a killed
+  so a POST that timed out keeps running and can land after the next send.
+  Each such stray is counted per session; heartbeat POSTs for the session
+  are skipped while a stray is younger than 60 s (so heartbeats add at most
+  one stray a minute; hook POSTs and DELETEs are never skipped). When a stray
+  settles, whatever it returned (a lost response may still have been
+  applied), the session's current wire state is sent once more: its DELETE
+  if it has ended or been parked, else its latest POST, so a late `running`
+  can't outlive a `done` past the done TTL (Go's `postReconciled` does the
+  same from the marker). That repair send is not watched again. The timer dies with the process, so a killed
   Claude Code is reaped by the server's `stale_seconds`, not by a `ps`
   check. Every hook only observes: it returns `next(e)` (or the
   verdict/result untouched) and its `.catch` answers `next(e)`. Same guards

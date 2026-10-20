@@ -129,13 +129,13 @@ function fetcher($: Engine): FetchLike {
   return (url, init) => $.http.fetch(url, init)
 }
 
-function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: number, heartbeat = false): Promise<void>[] {
+function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: number, now: number, heartbeat = false): Promise<void>[] {
   const io = {
     deliver: (effect: Effect) => send(fetcher($), cfg, effect),
     timer: (ms: number) => $.clock.sleep(ms),
-    gone: (session: string) => st.tracker.gone(session),
+    reconcile: (session: string) => st.tracker.reconcile(cfg, session),
   }
-  return effects.map(effect => st.sender.push(effect, limitMs, io, heartbeat))
+  return effects.map(effect => st.sender.push(effect, limitMs, io, now, heartbeat))
 }
 
 async function track($: Engine, st: ModState, rawSession: string, cwd: string, step: Step): Promise<void> {
@@ -143,7 +143,8 @@ async function track($: Engine, st: ModState, rawSession: string, cwd: string, s
   const cfg = await liveConfig($, st)
   if (!cfg) return
   const id = await sessionID(rawSession, cwd)
-  emit($, st, cfg, step(cfg, await $.clock.now(), id), cfg.hookTimeoutMs)
+  const now = await $.clock.now()
+  emit($, st, cfg, step(cfg, now, id), cfg.hookTimeoutMs, now)
 }
 
 async function trackLive($: Engine, st: ModState, step: (cfg: Config, now: number, id: string, cwd: string) => Effect[]): Promise<void> {
@@ -158,7 +159,8 @@ async function beat($: Engine, st: ModState): Promise<void> {
   try {
     await quietly(() => load($, st))
     const cfg = st.config
-    if (cfg) emit($, st, cfg, st.tracker.tick(cfg, await $.clock.now()), TICK_SEND_TIMEOUT_MS, true)
+    const now = await $.clock.now()
+    if (cfg) emit($, st, cfg, st.tracker.tick(cfg, now), TICK_SEND_TIMEOUT_MS, now, true)
   } finally {
     st.beating = false
   }
@@ -167,7 +169,9 @@ async function beat($: Engine, st: ModState): Promise<void> {
 async function endSession($: Engine, st: ModState, rawSession: string, cwd: string, reason: string): Promise<void> {
   const cfg = await liveConfig($, st)
   if (!cfg) return
-  const sent = emit($, st, cfg, st.tracker.sessionEnd(cfg, await sessionID(rawSession, cwd), reason), cfg.hookTimeoutMs)
+  const id = await sessionID(rawSession, cwd)
+  const now = await $.clock.now()
+  const sent = emit($, st, cfg, st.tracker.sessionEnd(cfg, id, reason), cfg.hookTimeoutMs, now)
   if (sent.length === 0) return
   await Promise.race([Promise.all(sent), $.clock.sleep(SESSION_END_BUDGET_MS)])
 }

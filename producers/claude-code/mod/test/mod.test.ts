@@ -398,3 +398,16 @@ test('heartbeats keep running on the kept config while the stat check cannot run
   await clock.advance(10_000)
   expect(sent.map(s => s.body.state)).toEqual(['running', 'running', 'running'])
 })
+
+test('heartbeats skip a session only while its stray POST is younger than 60 s', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  await $.session.start(START)
+  await clock.settle()
+  ctl.holdNext = gate()
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.advance(500)
+  await clock.advance(49_500)
+  expect(sent).toHaveLength(1)
+  await clock.advance(10_000)
+  expect(sent.map(s => s.body.state)).toEqual(['running', 'running'])
+})

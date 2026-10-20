@@ -586,10 +586,11 @@ rows. Needs Claude Code 2.1.288 or newer.
     `EMBER_HOOK_TIMEOUT_MS` (500 ms) for hook sends, 5 s for heartbeat
     sends, after which the session's queue moves on; SessionEnd waits at
     most 800 ms in all. A timed-out fetch can't be cancelled, so a slow POST
-    can still land after the send that followed it. If the session ended or
-    was parked by then, the mod sends its DELETE again; on a live session
-    the next heartbeat corrects it within 10 s. Heartbeat POSTs for a session
-    wait while such a POST is still out.
+    can still land after the send that followed it. When it settles, the
+    mod sends the session's current state once more: the DELETE if it
+    ended or was parked, else the latest POST (so a late `running` can't
+    stick after `done`). Heartbeat POSTs for a session wait while such a
+    POST is younger than 60 s, then go out anyway.
 - **One session only**, nothing installed:
   `claude --plugin-dir ~/Github/Ember/producers/claude-code/mod`.
 - **Every session**: `claude plugin marketplace update ember`,
