@@ -71,7 +71,7 @@ private func fingerprint(_ body: String, status: Int = 200) -> DiscoveredClock? 
 
 @Test func clockProbeGetsTheDeviceRouteWithAShortTimeout() async {
     let host = "stub-\(UUID().uuidString.lowercased()).local"
-    StubURLProtocol.register(host: host) { req in
+    StubURLProtocol.register(host: host, inline: true) { req in
         #expect(req.httpMethod == "GET")
         #expect(req.url?.path == "/api/v1/device")
         #expect(req.timeoutInterval == 1.5)
