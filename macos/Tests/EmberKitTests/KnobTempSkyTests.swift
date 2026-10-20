@@ -202,14 +202,6 @@ private func render(_ f: KnobTempFace, t: Double?) throws -> CGImage {
     return img
 }
 
-private func bytes(_ img: CGImage) -> [UInt8] {
-    var buf = [UInt8](repeating: 0, count: img.width * img.height * 4)
-    let ctx = CGContext(data: &buf, width: img.width, height: img.height, bitsPerComponent: 8, bytesPerRow: img.width * 4,
-                        space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-    ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
-    return buf
-}
-
 private func pixel(_ img: CGImage, _ x: Int, _ y: Int) -> RGB {
     let b = bytes(img), i = (y * img.width + x) * 4
     return RGB(r: b[i], g: b[i + 1], b: b[i + 2])
@@ -221,11 +213,6 @@ private func near(_ a: RGB, _ b: RGB, _ tol: Int = 24) -> Bool {
 
 private let black = RGB(r: 0, g: 0, b: 0)
 
-private func sameImage(_ a: CGImage, _ b: CGImage, tol: Int = 1) -> Bool {
-    let x = bytes(a), y = bytes(b)
-    return x.count == y.count && zip(x, y).allSatisfy { abs(Int($0) - Int($1)) <= tol }
-}
-
 @MainActor @Test func theRestPoseDrawsNoSkyAndStaysAsItWas() throws {
     for f in [sky(1), sky(4, night: true, moon: moon), sky(0, night: true, moon: moon)] {
         var bare = KnobTempFace(value: 9.4, todayMinC: 6, todayMaxC: 15, sub: "Clear")
@@ -233,6 +220,20 @@ private func sameImage(_ a: CGImage, _ b: CGImage, tol: Int = 1) -> Bool {
         #expect(sameImage(try render(f, t: nil), try render(bare, t: nil)), "band \(f.cloudBand ?? -1) \(f.hero): pixel-identical without t")
         #expect(!sameImage(try render(f, t: 5), try render(bare, t: nil)), "band \(f.cloudBand ?? -1): the tolerance still sees the sky")
     }
+}
+
+@MainActor @Test func theSkyBackLayerShowsAtTimeZeroAndTheCloudsOnceSpritesFadeIn() throws {
+    func bare(_ f: KnobTempFace, band: Int? = nil) -> KnobTempFace {
+        var b = KnobTempFace(value: 9.4, todayMinC: 6, todayMaxC: 15, sub: "Clear")
+        b.cloudBand = band
+        return b
+    }
+    for f in [sky(1), sky(0, night: true, moon: moon)] {
+        #expect(!sameImage(try render(f, t: 0), try render(bare(f, band: f.cloudBand), t: 0)), "band \(f.cloudBand ?? -1) \(f.hero): the back layer is drawn at t=0")
+    }
+    let clouds = sky(4)
+    #expect(sameImage(try render(clouds, t: 0), try render(bare(clouds), t: 0)), "band 4 draws nothing at t=0 (sprites are invisible)")
+    #expect(!sameImage(try render(clouds, t: 5), try render(bare(clouds), t: 5)), "band 4 clouds are drawn at t=5")
 }
 
 private let cinderPixels: [(face: KnobTempFace, x: Int, y: Int, rgb: RGB)] = [

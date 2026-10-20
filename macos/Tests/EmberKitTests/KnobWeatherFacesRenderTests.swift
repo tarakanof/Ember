@@ -208,19 +208,40 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     #expect(near(at(-3, 0), RGB(r: 92, g: 156, b: 224), 4), "the body is the fill")
 }
 
+private let pathBooleanAlways = try! NSRegularExpression(pattern: #"\.(subtracting|symmetricDifference|lineSubtracting|lineIntersection)\(|\.normalized\("#)
+private let pathBooleanSetLike = try! NSRegularExpression(pattern: #"\.(union|intersection)\("#)
+private let pathBooleanSetReceiver = try! NSRegularExpression(pattern: #"(?:\b(?:CGRect|Set|IndexSet)\([^()]*\)|\bCGRect\.(?:zero|null|infinite))$"#)
+
+func hasPathBoolean(_ line: String) -> Bool {
+    let whole = NSRange(line.startIndex..., in: line)
+    if pathBooleanAlways.firstMatch(in: line, range: whole) != nil { return true }
+    return pathBooleanSetLike.matches(in: line, range: whole).contains { m in
+        let before = String(line[..<line.index(line.startIndex, offsetBy: m.range.location)])
+        return pathBooleanSetReceiver.firstMatch(in: before, range: NSRange(before.startIndex..., in: before)) == nil
+    }
+}
+
+@Test func pathBooleanMatcherSeesTheCallShape() {
+    for hit in ["let p = path.union(other)", "let p = Path(CGRect(x: 0, y: 0, width: 1, height: 1)).union(Path(ellipseIn: r))",
+                "a.intersection(b)", "p.subtracting(q)", "p.normalized()", "p.normalized(eoFill: true)", "x = Path(r).lineIntersection(q)",
+                "let a = offset.union(p)", "let a = subset.union(p)", "let a = reset.intersection(p)", "let a = clipRect.union(p)",
+                "let a = outFrame.intersection(p)", "let a = bounds.union(p)"] {
+        #expect(hasPathBoolean(hit), "\(hit)")
+    }
+    for miss in ["let r = CGRect(x: 0, y: 0, width: 1, height: 1).union(other)", "let s = Set(a).union(b)", "let z = CGRect.zero.union(r)",
+                 "let i = IndexSet(a).intersection(other)", "let n = v.normalizedValue"] {
+        #expect(!hasPathBoolean(miss), "\(miss)")
+    }
+}
+
 @Test func renderSourcesHaveNoPathBooleans() throws {
     let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("Sources/EmberKit/KnobFace")
     let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil).filter { $0.pathExtension == "swift" }
     #expect(files.count > 5)
-    let always = try NSRegularExpression(pattern: #"\.(subtracting|symmetricDifference|lineSubtracting|lineIntersection)\(|\.normalized\(eoFill"#)
-    let setLike = try NSRegularExpression(pattern: #"\.(union|intersection)\("#)
     for f in files {
         for (n, line) in try String(contentsOf: f, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
-            let l = String(line), range = NSRange(l.startIndex..., in: l)
-            let setUse = l.contains("CGRect") || l.contains("Set(") || l.contains("Set<") || l.contains("IndexSet")
-            let hit = always.firstMatch(in: l, range: range) != nil || (!setUse && setLike.firstMatch(in: l, range: range) != nil)
-            #expect(!hit, "\(f.lastPathComponent):\(n + 1): Path booleans differ between macOS 26 and 27; draw layers under a clip instead")
+            #expect(!hasPathBoolean(String(line)), "\(f.lastPathComponent):\(n + 1): Path booleans differ between macOS 26 and 27; draw layers under a clip instead")
         }
     }
 }
@@ -301,28 +322,19 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     #expect(near(pixel(try render(.wind(still)), 260, 165), black, 10), "no streaks without data")
 }
 
-private func same(_ a: CGImage, _ b: CGImage) -> Bool {
-    func bytes(_ i: CGImage) -> Data? { i.dataProvider?.data as Data? }
-    guard a.width == b.width, a.height == b.height, a.bytesPerRow == b.bytesPerRow, let x = bytes(a), let y = bytes(b), x.count == y.count else {
-        return false
-    }
-    let off = zip(x, y).filter { $0 != $1 }
-    return off.count <= 16 && off.allSatisfy { abs(Int($0) - Int($1)) <= 1 }
-}
-
 private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
 
 @MainActor @Test func animatedFacesSettleOnTheRestPose() throws {
     let (s, at) = sunFixture()
     let sun = KnobFace.sun(KnobSunFace(state: s, now: at))
-    #expect(same(try render(sun, t: 3), try render(sun)), "the sun has risen and its rays are in")
+    #expect(sameImage(try render(sun, t: 3), try render(sun)), "the sun has risen and its rays are in")
     let days = KnobFace.days(KnobDaysFace(rows: [.init(wday: 1, icon: .rain, pop: 70, lo: 9, hi: 14), .init(wday: 2, icon: .sun, lo: 7, hi: 19)]))
-    #expect(same(try render(days, t: 3), try render(days)), "every row in, the counts done")
+    #expect(sameImage(try render(days, t: 3), try render(days)), "every row in, the counts done")
     let r = KnobFace.rain(KnobRainFace(dry: false, intensity: 3, pop: 80, sub: "Heavy rain"))
-    #expect(same(try render(r, t: frame(8160)), try render(r)), "a whole rain period later: frame 0 again")
+    #expect(sameImage(try render(r, t: frame(8160)), try render(r)), "a whole rain period later: frame 0 again")
     var healthy = KnobAirFace()
     healthy.have = true; healthy.aqi = 42; healthy.band = 2; healthy.fraction = 0.42
-    #expect(same(try render(.air(healthy), t: 5), try render(.air(healthy))), "the healthy flower is still")
+    #expect(sameImage(try render(.air(healthy), t: 5), try render(.air(healthy))), "the healthy flower is still")
 }
 
 @MainActor @Test func animatedFramesDrawCindersMotion() throws {
@@ -369,13 +381,13 @@ private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
     wilted.have = true; wilted.aqi = 68; wilted.band = 3; wilted.wilted = true; wilted.fraction = 0.68
     let petal = try render(.air(wilted), t: frame(90))
     #expect(near(pixel(petal, 262, 150), RGB(hex: "#C98A9A")!, 40), "the falling petal")
-    #expect(!same(petal, try render(.air(wilted))), "no petal at rest")
+    #expect(!sameImage(petal, try render(.air(wilted))), "no petal at rest")
 }
 
 @MainActor @Test func temperatureArrivalCountsUpRaisesTheMercuryAndSettles() throws {
     let f = KnobTempFace(value: 21, todayMinC: 6, todayMaxC: 25, sub: "Clear")
     let rest = try render(.weather(f)), start = try render(.weather(f), t: 0), mid = try render(.weather(f), t: 0.5)
-    #expect(same(try render(.weather(f), t: 3), rest), "the arrival settles on the rest pose")
+    #expect(sameImage(try render(.weather(f), t: 3), rest), "the arrival settles on the rest pose")
     let th = w.thermo, tube = CGPoint(x: 233, y: (KnobTempFace.mercuryTop(21, th) + th.mercuryBottomPx) / 2 + th.dyPx)
     #expect(near(pixel(rest, tube), KnobTempFace.color(21, w.scale), 30) && near(pixel(start, tube), black, 10), "the mercury rises from the bulb")
     #expect(markerRing(start, KnobFaceRender.gaugeMarkerPoint(0, t: nil, w)) && !markerRing(start, KnobFaceRender.gaugeMarkerPoint(f.fraction, t: nil, w)))
@@ -400,7 +412,7 @@ private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
 @MainActor @Test func gaugeFacesEaseTheirMarkerAndCountUp() throws {
     let dry = KnobRainFace(dry: true, intensity: 1, pop: 40, sub: "Dry now")
     #expect(markerRing(try render(.rain(dry), t: 0.5), KnobFaceRender.gaugeMarkerPoint(0.4, t: 0.5, w)))
-    #expect(same(try render(.rain(dry), t: 3), try render(.rain(dry))))
+    #expect(sameImage(try render(.rain(dry), t: 3), try render(.rain(dry))))
     var wind = KnobWindFace()
     wind.have = true; wind.kmh = 30; wind.level = 2; wind.fraction = 0.6
     let start = try render(.wind(wind), t: 0)
