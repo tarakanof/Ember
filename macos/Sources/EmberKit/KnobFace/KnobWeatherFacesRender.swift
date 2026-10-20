@@ -6,6 +6,7 @@ extension KnobFaceRender {
 
     static func faceDots(_ face: KnobWeatherFaceID, _ w: KnobTheme.Weather, center c: Double = 233.0, in ctx: inout GraphicsContext) {
         let (dots, lit) = w.dots.placement(of: face)
+        guard dots.faces >= 2 else { return }
         for k in 0..<dots.faces {
             ctx.fill(disc(KnobTempFace.dotPoint(k, dots, center: c), dots.dotRadiusPx),
                      with: .color(Color(k == lit ? dots.onColor : dots.offColor)))
