@@ -2503,6 +2503,7 @@
       "comment" : "Knob setup warning; the argument is the name of the knob already set up."
     },
     "This request expired. The knob will show a new code." : {},
+    "This request was already approved." : {},
     "This server can't reach a clock. Check the clock's address below or discover one." : {},
     "This server can't store knob firmware. Update the Ember server." : {},
     "This server doesn't support meetings. Update the Ember server." : {},

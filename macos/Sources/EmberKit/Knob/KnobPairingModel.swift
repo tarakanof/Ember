@@ -34,6 +34,7 @@ struct KnobClaimList: Decodable {
 public enum KnobPairingFailure: Equatable, Sendable {
     case wrongCode(attemptsLeft: Int)
     case gone
+    case alreadyApproved
     case other(FeedError)
 }
 
@@ -133,6 +134,9 @@ public final class KnobPairingModel {
             claims.removeAll { $0.id == claim.id }
         } catch let APIError.http(status, _) where status == 404 {
             claims.removeAll { $0.id == claim.id }
+        } catch let APIError.http(status, _) where status == 409 {
+            failures[claim.id] = .alreadyApproved
+            await refresh()
         } catch {
             failures[claim.id] = .other(FeedError(error))
         }

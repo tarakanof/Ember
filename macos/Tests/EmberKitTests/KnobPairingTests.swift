@@ -19,12 +19,14 @@ private final class FakePairingServer: @unchecked Sendable {
     private var _attemptsLeft = 4
     private var _code = "482913"
     private var _approveStatus: Int?
+    private var _declineStatus: Int?
 
     init(claims: [String], devices: [String] = []) { _claims = claims; _devices = devices }
 
     var requests: [(method: String, path: String, body: String)] { lock.withLock { _requests } }
     func setClaimsStatus(_ s: Int) { lock.withLock { _claimsStatus = s } }
     func setApproveStatus(_ s: Int) { lock.withLock { _approveStatus = s } }
+    func setDeclineStatus(_ s: Int) { lock.withLock { _declineStatus = s } }
     func setClaims(_ c: [String]) { lock.withLock { _claims = c } }
 
     func handle(_ req: URLRequest) -> (HTTPURLResponse, Data) {
@@ -51,6 +53,7 @@ private final class FakePairingServer: @unchecked Sendable {
                 _devices = [deviceJSON(id: "knob-61fc8c", hw: "3cdc7561fc8c", name: "Knob 61FC8C")]
                 return (okResponse(req.url!), Data(_devices[0].utf8))
             case ("POST", let p) where p.hasPrefix("/v1/devices/claims/") && p.hasSuffix("/decline"):
+                if let s = _declineStatus { return (okResponse(req.url!, status: s), Data(#"{"error":"already_approved"}"#.utf8)) }
                 _claims = []
                 return (okResponse(req.url!, status: 204), Data())
             case ("DELETE", let p) where p.hasPrefix("/v1/devices/knob-"):
@@ -197,4 +200,25 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
     #expect(!knob.supports(feature: "lan_pair"))
     knob.effectiveCaps = KnobCaps(view: [1], pages: [], features: ["lan_pair"])
     #expect(knob.supports(feature: "lan_pair"))
+}
+
+@MainActor
+@Test func decliningAnApprovedClaimShowsAlreadyApproved() async {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    let m = pairingModel(server)
+    await m.pairing.refresh()
+    let claim = m.pairing.claims[0]
+    server.setDeclineStatus(409)
+    server.setClaims([])
+    await m.pairing.decline(claim)
+    #expect(m.pairing.failures[claim.id] == .alreadyApproved)
+}
+
+@MainActor
+@Test func pairingIsHiddenOnA405Too() async {
+    let server = FakePairingServer(claims: [])
+    server.setClaimsStatus(405)
+    let m = pairingModel(server)
+    await m.pairing.refresh()
+    #expect(!m.pairing.isAvailable)
 }

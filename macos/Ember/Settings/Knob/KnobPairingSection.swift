@@ -115,6 +115,8 @@ private struct KnobClaimRow: View {
                 Text("That code is wrong, and the request is closed. The knob will show a new code.")
             case .gone:
                 Text("This request expired. The knob will show a new code.")
+            case .alreadyApproved:
+                Text("This request was already approved.")
             case .other(let error):
                 Text("Couldn't pair: \(Text(error.message))",
                      comment: "Settings › Knob pairing request error; the argument is a short reason (\"Server unreachable\").")
