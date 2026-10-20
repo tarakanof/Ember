@@ -203,7 +203,7 @@ private func wetUntil(_ until: Int64) -> WeatherState {
 
 @Test func castLabelPlacementMatchesCinder() {
     let (p, align) = KnobCastFace.labelAnchor(90)
-    #expect(align == -1 && abs(p.x - (233 + 198)) < 1e-9 && abs(p.y - 233) < 1e-9)
+    #expect(align == -1 && abs(p.x - (233 + 198)) < 1e-4 && abs(p.y - 233) < 1e-4)
     #expect(KnobCastFace.labelAnchor(0).align == 0 && KnobCastFace.labelAnchor(270).align == 1 && KnobCastFace.labelAnchor(-90).align == 1)
     let avoid = CGRect(x: 160, y: 302, width: 146, height: 33)
     #expect(KnobCastFace.labelPlace(0, w: 30, h: 27, avoid: avoid, gap: 2) == CGPoint(x: 218, y: 32))
@@ -450,4 +450,19 @@ extension WeatherState {
         f(&s)
         return s
     }
+}
+
+@Test func castRestMarkerAndLabelComputeInFloatLikeCinder() {
+    func ring(_ d: Double) -> [Double] {
+        let p = KnobCastFace.ringPoint(d)
+        return [p.x.rounded(), p.y.rounded()]
+    }
+    func place(_ d: Double) -> [Double]? {
+        KnobCastFace.labelPlace(d, w: 30, h: 27, avoid: .zero, gap: 2).map { [$0.x, $0.y] }
+    }
+    #expect(ring(258.7) == [15, 276], "C rounds 276.499939 down, Double says 276.500044")
+    #expect(ring(75) == [447, 176] && ring(0) == [233, 11])
+    #expect(place(60) == [374, 121], "C: 121.00 after float, Double lands on 120")
+    #expect(place(258.7) == [39, 258])
+    #expect(place(0) == [218, 32] && place(90) == [401, 220] && place(270) == [35, 220])
 }
