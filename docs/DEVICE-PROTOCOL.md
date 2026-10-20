@@ -7,8 +7,7 @@ field-by-field shape and the behaviour behind each route are in
 [`ARCHITECTURE.md`](ARCHITECTURE.md) "Wire protocol" (Knob view, Knob checkin),
 "Knob diagnostics" and "Knob firmware updates". The fixtures below are the
 concrete shapes. This file holds the rules for changing them and the
-fixtures both repos test against. Design: `Specs/ember/2026-10-09-device-protocol-capabilities-design.md`
-in the vault.
+fixtures both repos test against.
 
 ## Scope
 
@@ -116,7 +115,7 @@ Since #341 the knob may say what it can do in every checkin (cinder#27):
   knob stores it, compact JSON (cinder `CFG_SETTINGS_MAX`, 1024). Floors:
   `view_bytes` ≥ 4096 (a full view without `nowplaying` is under 700 B;
   the rest is headroom for long host labels and future fields) and
-  `config_bytes` ≥ the default config's compact size (493 B today; it
+  `config_bytes` ≥ the default config's compact size (512 B today; it
   follows `defaultKnobSettings`), so the knob can always hold a view and
   the config a new record starts with.
 - `rotations` (optional): the display rotations in degrees the firmware can
@@ -202,6 +201,10 @@ pre-releases the same way):
 | `wx_faces` | Parses the weather detail keys ("Weather detail") | The detail keys are added to `weather` only with this token |
 | `np_cover` | Shows the prepared cover (`kind=cover`) and `accent` ("Prepared cover") | `nowplaying.accent`, `nowplaying.cover_version` and `nowplaying.cover_light` only with this token |
 | `wx_moments` | Applies `bot.weather_moments` and `bot.weather_every_min` from its config ("Bot weather moments") | Ember.app shows the Weather moments rows only with this token; the server sends both keys to every knob |
+| `idle_dim` | Applies `idle.dim_after_s`, `idle.dim_level` and `idle.off_after_s` from its config ("Idle and per-app options") | Ember.app shows the Idle section only with this token; the server sends the keys to every knob |
+| `pomo_colors` | Applies `apps.pomodoro.focus_color` and `break_color` | Ember.app shows the Focus colour rows only with this token; the server sends the keys to every knob |
+| `wx_face_list` | Applies `apps.weather.faces` (subset and order of the weather faces a turn steps through) | Ember.app shows the face list only with this token; the server sends the key to every knob |
+| `np_dim` | Applies `apps.nowplaying.dim_after_s` | Ember.app shows the Now Playing dim row only with this token; the server sends the key to every knob |
 | `demo` | Plays the view's `demo` block and reports `demo_id`/`demo_state` ("Demo mode") | `demo` is sent only with this token; `POST …/demo` is 409 without it; Ember.app's Demo page needs it |
 | `usage` | Parses the view's `usage` block and shows the usage screens ("Usage") | `usage` is sent only with this token |
 | `shown` | Adds `?shown=<page>[:<face>]` to its view polls ("Shown page") | `shown` is read only with this token; the owner's device entry carries `shown` while fresh |
@@ -223,6 +226,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | any, Open-Meteo model set or not | `weather.model` after `provider` only for a non-default Open-Meteo model; default and MET views and ETags unchanged; MET stays the size worst case | `TestWeatherReadoutsNameTheOpenMeteoModel`, `TestKnobWeatherModelCostsAtMost24BytesAndStaysUnderTheMetWorstCase`, `TestLegacyFirmwareViewIsUnchanged` (default config) |
 | new | new, `np_cover` or not | `accent`, `cover_version` and `cover_light` only with the token, only when there is a picture, and the only change to `nowplaying` (old firmware and caps knobs without the token get it byte-identical); `cover_light` only with the other two, only `true`, last; `kind=cover` is a 466 px circle JPEG, immutable only at `v=<cover_version>`; `kind=artist` immutable only at `v=<art_version>` | `TestKnobViewNPCoverGolden` (`view_np_cover.json`, `devices_view_cover_test.go`), `TestKnobViewNPCoverLightGolden` (`view_np_cover_light.json`), `TestKnobViewSendsAccentOnlyWithNPCover`, `TestKnobViewSendsCoverLightOnlyWithNPCover`, `TestKnobViewETagChangesWithCoverLightAlone`, `TestCoverBandLuminanceOfKnownCovers`, `TestNowPlayingArtistArtIsImmutableOnlyAtTheArtVersion`, `TestKnobViewLeavesOutAccentWithoutAPicture`, `TestNowPlayingCoverRoute`, `TestNowPlayingCoverFallsBackToTheArtistPicture`, `TestKnobViewWorstCaseFitsHalfTheBuffer` |
 | new | new, `wx_moments` or not (cinder 0.9.65 sends it) | `effective_caps.features` lists it as reported; the config carries `bot.weather_moments` and `bot.weather_every_min` either way; Ember.app shows the Weather moments rows only with the token (no semver fallback: a server without `effective_caps` predates the keys) | `TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments` (`knob_weather_moments_test.go`); Ember.app `knobWeatherMomentsRowsNeedTheWxMomentsToken`; cinder host test: `wx_moments` in `FEATURES_AHEAD` |
+| new | new, `idle_dim`/`pomo_colors`/`wx_face_list`/`np_dim` or not | keys reach every knob; app rows only with the token; a config over a 1024 knob's `config_bytes` is a 400; an absent block leaves a stored record's bytes and `config_version` alone (no config push on upgrade) | `TestKnobV2KeysValidate`, `TestKnobV2RejectsUnknownKeysAndPages`, `TestKnobV2MergeFieldByField`, `TestKnobV2AbsentKeepsLegacyBytes`, `TestKnobV2LargestConfigFitsDepthAndSize`, `TestCapsKnobV2OverConfigBytes400`, `TestDeviceConfigV2Golden` (`config_v2.json`), `TestDeviceCheckinConfigV2Golden` (`checkin_reply_config_v2.json`); cinder host test: both goldens parse, fit `CFG_SETTINGS_MAX` and pass `depth_ok` (cinder#255, #256, #257) |
 | new | new, `demo` or not | `demo` only with the token and only while a demo is set, last key; the real view around it unchanged; reports from any knob are read, a stale id ignored; `POST …/demo` 409 without the token | `TestDemoReachesOnlyKnobsReportingTheDemoFeature`, `TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden` (`demo/*.json`), `TestDemoReportsPlayAndAdvanceTheQueue`, `TestDemoUnansweredWithinTenSecondsIsDropped`, `TestDemoDoneReportAnswersTheLongPollAtOnce`, `TestDemoSetWakesTheViewLongPoll`, `TestDemoViewIsStableWhileItPlays`, `TestDemoPlayingReportDoesNotAnswerTheLongPoll`, `TestDemoServerEndsAHeldSceneSixtySecondsAfterItStarted`, `TestDemoLatePlayingReportForTheServedSceneRevivesIt`, `TestDemoLateDoneReportForTheServedSceneAdvancesTheQueue`, `TestDemoOnTheWorstCaseViewFitsTheBuffer`, `TestDemoKnobRebootDropsTheDemoAndItsQueue`, `TestDemoViewWithoutAReportWhilePlayingMeansTheKnobRestarted`, `TestDemoDelayedUnreportedViewAfterPlayingKeepsTheDemo`, `TestDemoCheckinWithUnknownOrStaleUptimeKeepsTheDemo`, `TestDemoStartedAfterTheKnobBootedSurvivesAStaleLastCheckin`, `TestDemoSetBetweenBootAndFirstCheckinStaysPending`; cinder host test: every `demo/*.json` parses |
 | new | any, `stats.inv_areas`/`inv_px` sent or not (cinder#118) | the firmware must send totals for exactly the `period_ms` window (since the previous report, its own accumulator, not the 30 s serial log's take), counted at `LV_EVENT_RENDER_START` as in ARCHITECTURE "Knob diagnostics"; window totals become `invalidated_areas_per_sec`/`invalidated_px_per_sec` in the stats points (full diagnostics only); firmware without them gets nulls; an older server ignores the keys. No caps token: the stats keys are optional on both sides (ARCHITECTURE "Knob diagnostics") | `TestKnobStatsCheckinStoresSample`, `TestKnobStatsFirmwareWithoutInvalidatedAreasLeavesThemNull`, `TestKnobStatsInvalidatedAreasMergeAsPeriodWeightedRates`, `TestKnobStatsInvalidatedAreasWeighOnlyMeasuredWindows`, `TestKnobStatsBasicDropsFullOnlyFields`, `TestDeviceCheckinGolden` (`devices_stats_test.go`, `devices_golden_test.go`); cinder sends them since 0.9.72 (cinder#133), its `NOT_YET_SENT` list is empty |
 | new | new, `usage` or not | `usage` only with the token, after `nowplaying`, left out with no account to show; a caps knob without it and a legacy knob get the view byte-identical; dropped after `nowplaying` to fit `view_bytes`; the worst case (8 accounts, 24-character escaped names, both models) is 3.4 KB, the worst whole view with it 9.1 KB | `TestKnobViewUsageGolden` (`view_usage.json`), `TestKnobViewWithoutTheUsageCapGolden` (`view_usage_uncapped.json`), `TestKnobViewSendsUsageOnlyWithTheUsageFeature`, `TestKnobViewLeavesOutUsageWithNoAccounts`, `TestKnobViewUsageModelsFollowUsagePerModel`, `TestKnobViewUsageETagIgnoresAFreshAccountsUpdateTime`, `TestKnobViewUsageWorstCaseStaysSmall`, `TestLegacyFirmwareViewIsUnchanged` (`devices_view_usage_test.go`) |
@@ -533,6 +537,47 @@ knob view. The knob has no speaker, so on the knob quiet is display only:
   663 B since `display.rotation`), under cinder's
   `CFG_SETTINGS_MAX` (1024 B), which `TestKnobConfigFitsTheFirmwareStore`
   pins.
+
+## Idle and per-app options
+
+Optional config blocks (#656, cinder#255, #256, #257). No schema number: a
+key absent means the firmware's default, and each group has its own caps
+token (rule 3). The server does not fill defaults for them, so a record
+stored before keeps its bytes and `config_version` and no knob gets a config
+push on upgrade.
+
+```json
+"idle": {"dim_after_s": 600, "dim_level": 40, "off_after_s": 0},
+"apps": {
+  "pomodoro":   {"focus_color": "#FF6A3D", "break_color": "#4FA9FF"},
+  "weather":    {"faces": ["temp", "rain", "cast", "wind", "days", "sun", "air"]},
+  "nowplaying": {"dim_after_s": 180}
+}
+```
+
+| Key | Valid | Absent = | Token |
+|---|---|---|---|
+| `idle.dim_after_s` | 0 or 30-86400 | 0 (never) | `idle_dim` |
+| `idle.dim_level` | 1-255 | 20 | `idle_dim` |
+| `idle.off_after_s` | 0 or 60-86400, and greater than `dim_after_s` when both are non-zero | 0 (never) | `idle_dim` |
+| `apps.pomodoro.focus_color`, `break_color` | `#RRGGBB`, stored upper case | the firmware's colours | `pomo_colors` |
+| `apps.weather.faces` | 1-7 unique ids of `temp rain cast wind days sun air` | all 7 in that order | `wx_face_list` |
+| `apps.nowplaying.dim_after_s` | 60-1800 | 180 | `np_dim` |
+
+- **Owner PUT:** objects merge field by field, `faces` replaces whole, `null`
+  clears a key or a block, an unknown key inside `idle` or `apps.*`, or an
+  unknown page id under `apps`, is a 400 (the body decodes with unknown
+  fields rejected). `bot` stays top-level.
+- **Depth:** cinder drops a whole config nested deeper than 4 levels
+  (`config` is level 0), so `apps.<page>.<key>` is a scalar or an array of
+  scalars, never an object or an array of objects.
+- **Size:** the largest valid config with every v2 key at its longest is
+  969 B compact (731 B before), under the 1024 B a knob on today's firmware
+  reports; cinder raises `CFG_SETTINGS_MAX` to 2048 (cinder#255). A knob
+  still reporting 1024 gets a 400 for a PUT that grows past it, as for any
+  config.
+- **Old firmware** skips the unknown keys; old servers never send them. A
+  server downgrade loses the keys at its next registry write.
 
 ## Display rotation
 
@@ -941,6 +986,8 @@ Indented JSON; key order is the wire order.
 | `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |
 | `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
+| `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800 (969 B compact) |
+| `checkin_reply_config_v2.json` | A stale knob's checkin reply carrying that config |
 | `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5, `display.rotation` 180, `bot.weather_moments` false and `weather_every_min` 0, `swipe_pages` false), plus an unknown page id the knob must keep |
 
 The test also compares what the server stores for `checkin_req_full.json`

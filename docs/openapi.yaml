@@ -2130,6 +2130,15 @@ paths:
         `270`) to a value not in `caps.rotations` (missing = `[0]`). A
         legacy knob (no `caps`) gets no such check. Any knob
         `display.rotation` outside `0|90|180|270` is a 400.
+
+        Knob only, optional and never filled with defaults (absent = the
+        firmware's default): `idle{dim_after_s 0|30-86400, dim_level 1-255,
+        off_after_s 0|60-86400 and above dim_after_s}` and
+        `apps{pomodoro{focus_color, break_color: "#RRGGBB", stored upper case},
+        weather{faces: 1-7 unique of temp rain cast wind days sun air},
+        nowplaying{dim_after_s 60-1800}}`. An unknown key in them or an
+        unknown page id under `apps` is a 400 (DEVICE-PROTOCOL "Idle and
+        per-app options").
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:

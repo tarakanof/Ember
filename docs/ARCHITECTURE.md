@@ -3390,6 +3390,12 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `quiet{calm, dim_level 1-255}` (#343, cinder#28: what the knob does while
   the view says `quiet`; absent or null = `calm` true and `dim_level` 20,
   Ember's default night level; see DEVICE-PROTOCOL "Quiet hours"),
+  `idle{dim_after_s, dim_level, off_after_s}` and
+  `apps{pomodoro{focus_color, break_color}, weather{faces[]}, nowplaying{dim_after_s}}`
+  (#656, cinder#255-257: omitempty pointers the server never fills, so an
+  old record keeps its bytes and `config_version`; absent = the firmware's
+  default; unknown keys and page ids are a 400; see DEVICE-PROTOCOL "Idle
+  and per-app options"),
   `diagnostics` `off|basic|full` (default `off`; a record stored before #239
   loads as `off`; see "Knob diagnostics" below), `stats_interval_s`
   `30|60|120|300` and `live_interval_s` `2|5|10` (defaults 60 and 5, chosen
