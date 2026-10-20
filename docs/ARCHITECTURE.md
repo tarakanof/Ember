@@ -605,7 +605,7 @@ markers still get reaped.
   `POST /v1/usage`. On 401 (or any non-200/transient error) it just skips that
   poll and retries at the next tick — it keeps polling every ~5 min forever
   until the user re-auths via Claude Code, it never stops the loop.
-- **Claude Code mod producer — `producers/claude-code/mod`** (#253 phase 1,
+- **Claude Code mod producer — `producers/claude-code/mod`** (#253 phases 1-2,
   experimental, opt-in plugin `ember-mod@ember`). A hooks module that runs
   inside Claude Code (2.1.288+) and POSTs/DELETEs `/v1/status` with the Go
   producer's wire shapes, under its own source (`EMBER_MOD_SOURCE`, default
@@ -691,14 +691,36 @@ markers still get reaped.
   than being ignored, while a check that could not run keeps the previous
   config),
   and the `claude-hooks.disabled` kill switch is checked before every event
-  and before anything is spawned. Known divergences: a placeholder
-  `EMBER_SOURCE` silences the mod (Go derives a host id), and there is no
-  `optionalFields` unknown-field fallback, so an older server 400s its POSTs.
-  No gauges, `/v1/usage` or T3 detection yet. `test/parity.json` and
-  `test/transitions.json` (event sequences to exact wire bodies) are shared
-  with `mod_parity_test.go`, which drives `dispatchHookFrom`/`dispatchTick`;
-  the node side drives the `Tracker`, so CI pins Go against the `Tracker`
-  but not `register.ts`'s wiring (`test/mod.test.ts`, local only).
+  and before anything is spawned. Gauges (#668, phase 2): `session.measure`
+  (after each main-thread turn and when a rate window moves a whole point;
+  its input always carries every figure) sets the current session's
+  `context_pct` from `context.percent` and `rate_window_pct`,
+  `rate_reset_at` and the host-local `rate_reset_label` from the
+  `five_hour` entry of `rateLimits`, with Go's `Pct` rounding. The hook
+  returns `next(e)` at once and does this in the background, and nothing is
+  sent: the next hook POST or heartbeat carries the figures, as the
+  statusline marker does in Go, and they stick until a reading has newer
+  ones. A reading for a session the tracker doesn't hold is dropped (as
+  `enrichMarker` drops a render with no marker). `session.start` also reads
+  `$.session.usage()` once, for a session restored from a snapshot written
+  before phase 2. The figures ride the `$.state` snapshot (`contextPct`,
+  `ratePct` -1 and `rateResetAt` 0 mean unknown). `seven_day`, `spend_limit`
+  and `cost` have no `/v1/status` field and are not sent. The mod never
+  posts `/v1/usage`: it has no `account_key` (`$.session.identity()`
+  answers only an org-managed mod), so it would add a keyless second
+  "Claude" account, and a post replaces the account's whole report, so one
+  without `models` would wipe the OAuth poll's per-model windows. The Go
+  daemon keeps `/v1/usage`; with no fresh report the server's 5h fallback
+  reads the newest session with `rate_window_pct`, so the mod's rows count.
+  `test/parity.json` (including `gauges`: one reading as statusline JSON
+  and as `SessionUsage`) and `test/transitions.json` (event sequences, a
+  `statusline` reading included, to exact wire bodies) are shared with
+  `mod_parity_test.go`, which drives `dispatchHookFrom`, `dispatchTick` and
+  `enrichFromStatusline` and compares the `/v1/status` calls (the tick's
+  `/v1/usage` relay is Go-only); the node side drives the `Tracker`. CI's
+  mod job also runs `claude plugin validate --strict` and `claude plugin
+  test` (`test/mod.test.ts`, the `register.ts` wiring) on a pinned Claude
+  Code.
 - **Codex CLI producer — `cmd/ember-codex-producer`.** Codex has **no hook
   system**, so this is a long-lived **daemon that tails rollout JSONL**
   (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop
@@ -5148,9 +5170,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
 | Signal | Claude | Codex | Notes |
 |---|---|---|---|
 | state / tool / session | hooks | rollout JSONL | T3 Code: SQLite poll of `~/.t3/userdata` (no context, rate or usage) |
-| `context_pct` | statusline `context_window.used_percentage` | rollout token_count | transcript heuristic was removed (over-read) |
-| `rate_window_pct` (5h) | statusline `five_hour.used_percentage` | rollout `rate_limits.primary.used_percent` | |
-| `rate_reset_at` | statusline `…five_hour.resets_at` | rollout `…primary.resets_at` | epoch secs; countdown computed at render time (TZ-independent) |
+| `context_pct` | statusline `context_window.used_percentage` (mod: `session.measure` `context.percent`) | rollout token_count | transcript heuristic was removed (over-read) |
+| `rate_window_pct` (5h) | statusline `five_hour.used_percentage` (mod: `rateLimits[five_hour].percentUsed`) | rollout `rate_limits.primary.used_percent` | |
+| `rate_reset_at` | statusline `…five_hour.resets_at` (mod: `…resetsAt`, ISO to epoch) | rollout `…primary.resets_at` | epoch secs; countdown computed at render time (TZ-independent) |
 | `activity` / trail | hooks (`Tool: detail`, outcome suffix from PostToolUseFailure / PermissionDenied) | rollout (`exec:`/`edit:`/`web:`/`mcp:`) | shared `PrependTrail` ring buffer; `AnnotateTrail` marks an item's outcome |
 | `source_card` | producer.env `EMBER_SOURCE_CARD` | producer.env `EMBER_SOURCE_CARD` | `*bool`; absent = on; hides source-name card when false |
 | `session_bar` | producer.env `EMBER_SESSION_BAR` | producer.env `EMBER_SESSION_BAR` | `*bool`; absent = on; hides session-pixel bar when false |

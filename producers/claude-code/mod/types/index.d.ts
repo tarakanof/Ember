@@ -16,6 +16,10 @@ export type EmberModSession = {
   resumedAt: number
   agentInput: boolean
   parked: boolean
+  contextPct: number
+  ratePct: number
+  rateResetAt: number
+  rateResetLabel: string
 }
 
 export type EmberModSnapshot = {

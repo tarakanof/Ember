@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { On, SessionUsage } from 'claude-code'
 
 const HOME = '/Users/tester'
 const ENV_FILE = `${HOME}/.config/ember/producer.env`
@@ -73,6 +73,9 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
     agentsRuns: 0,
     sessionFiles: 1,
     listCalls: 0,
+    usage: { startedAt: 0, context: { window: 200000 }, rateLimits: [] } as SessionUsage,
+    usageCalls: 0,
+    sessionIdFails: false,
   }
   mock.env(on, { HOME, ...extraEnv })
   const clock = mock.clock(on, { now: 1_000_000 })
@@ -130,8 +133,16 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
   on('fs.exists', ($, e) => ({ value: e.path.endsWith('/claude-hooks.disabled') && ctl.killSwitch }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('classic.*', () => ({}))
-  on('session.id', () => ({ value: ctl.sessionId }))
+  on('session.id', () => {
+    if (ctl.sessionIdFails) throw new Error('no session')
+    return { value: ctl.sessionId }
+  })
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.cwd', () => ({ value: `${HOME}/proj` }))
+  on('session.usage', () => {
+    ctl.usageCalls++
+    return { value: ctl.usage }
+  })
   on('http.fetch', async ($, e) => {
     const method = e.init?.method ?? 'GET'
     sent.push({
@@ -841,4 +852,115 @@ test('a wait restored from $.state after a reload is polled without waiting for 
   ctl.sessionFiles++
   await seconds($, clock, 3)
   expect(sent.at(-1)?.body.state).toBe('running')
+})
+
+const RESET = '2026-05-12T19:37:13Z'
+const RESET_AT = 1778614633
+const RESET_LABEL = (() => {
+  const d = new Date(RESET_AT * 1000)
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+})()
+const MEASURED = {
+  context: { tokens: 83200, window: 200000, percent: 41.6 },
+  rateLimits: [
+    { kind: 'five_hour', percentUsed: 22.4, resetsAt: RESET },
+    { kind: 'seven_day', percentUsed: 61, resetsAt: '2026-05-19T15:00:00Z' },
+  ],
+  cost: { usd: 0.42 },
+  changed: ['context', 'rateLimits', 'cost'] as ('context' | 'rateLimits' | 'cost')[],
+}
+const GAUGES = { context_pct: 42, rate_window_pct: 22, rate_reset_at: RESET_AT, rate_reset_label: RESET_LABEL }
+const gaugeFields = (b: Record<string, unknown>) =>
+  Object.fromEntries(['context_pct', 'rate_window_pct', 'rate_reset_at', 'rate_reset_label', 'rate_week_pct', 'cost'].filter(k => k in b).map(k => [k, b[k]]))
+
+test('session.measure sends nothing itself; the next heartbeat carries the gauges', async ($, on) => {
+  const { sent, clock } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  const echoed = await $.session.measure(MEASURED)
+  await clock.settle()
+  expect(echoed.changed).toEqual(MEASURED.changed)
+  expect(sent).toHaveLength(1)
+  expect(gaugeFields(sent[0]?.body ?? {})).toEqual({})
+  await clock.advance(10_000)
+  expect(sent).toHaveLength(2)
+  expect(gaugeFields(sent[1]?.body ?? {})).toEqual(GAUGES)
+})
+
+test('the gauges stick to every later hook POST of the session', async ($, on) => {
+  const { sent, clock } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await $.session.measure(MEASURED)
+  await clock.settle()
+  await $.session.measure({ context: { window: 200000 }, rateLimits: [], changed: ['context'] })
+  await $.classic.Stop(STOP)
+  await clock.settle()
+  expect(sent.map(s => [s.body.state, gaugeFields(s.body)])).toEqual([
+    ['running', {}],
+    ['done', GAUGES],
+  ])
+})
+
+test('a measure before the first prompt posts nothing and is not kept', async ($, on) => {
+  const { sent, clock } = world(on)
+  await $.session.start(START)
+  await $.session.measure(MEASURED)
+  await clock.advance(10_000)
+  expect(sent).toEqual([])
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(gaugeFields(sent[0]?.body ?? {})).toEqual({})
+})
+
+test('EMBER_CONTEXT_PCT_ENABLED=off in producer.env drops context_pct and keeps the rate gauges', async ($, on) => {
+  const { sent, clock } = world(on, { ...TRUSTED, text: ENV_TEXT + 'EMBER_CONTEXT_PCT_ENABLED=off\n' })
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await $.session.measure(MEASURED)
+  await clock.advance(10_000)
+  expect(gaugeFields(sent.at(-1)?.body ?? {})).toEqual({ rate_window_pct: 22, rate_reset_at: RESET_AT, rate_reset_label: RESET_LABEL })
+})
+
+test('session.start reads $.session.usage() once so a session restored from $.state gets its gauges', async ($, on) => {
+  const held = heldState(on)
+  const { sent, clock, ctl } = world(on)
+  ctl.usage = { startedAt: 0, context: MEASURED.context, rateLimits: MEASURED.rateLimits, cost: MEASURED.cost }
+  const at = clock.now()
+  held.value = {
+    v: 1,
+    sessions: [['sess-1', { state: 'running', message: 'before reload', project: 'proj', changedAt: at - 5000, hookAt: at - 5000 }]],
+    strays: [],
+    permissionMode: '',
+    t3: '',
+  }
+  held.version = 1
+  await $.session.start(START)
+  await clock.advance(10_000)
+  expect(ctl.usageCalls).toBe(1)
+  expect(sent.map(s => [s.body.message, gaugeFields(s.body)])).toEqual([['before reload', GAUGES]])
+})
+
+test('the gauges survive a hot reload through $.state', async ($, on) => {
+  const held = heldState(on)
+  const { clock } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await $.session.measure(MEASURED)
+  await clock.settle()
+  const sessions = (held.value as { sessions: [string, Record<string, unknown>][] }).sessions
+  expect(sessions.map(([id, s]) => [id, s.contextPct, s.ratePct, s.rateResetAt, s.rateResetLabel])).toEqual([
+    ['sess-1', 42, 22, RESET_AT, RESET_LABEL],
+  ])
+})
+
+test('a measure whose session lookup fails still answers and posts nothing', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.sessionIdFails = true
+  await $.session.start(START)
+  const echoed = await $.session.measure(MEASURED)
+  await clock.advance(10_000)
+  expect(echoed.changed).toEqual(MEASURED.changed)
+  expect(sent).toEqual([])
 })

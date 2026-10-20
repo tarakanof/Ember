@@ -12,6 +12,7 @@ export type Config = {
   sourceCard: boolean
   sessionBar: boolean
   sendProject: boolean
+  contextPct: boolean
   contextNumber: boolean
   rateBottomBar: boolean
   rateReset: boolean
@@ -41,6 +42,10 @@ export type Wire = {
   message?: string
   source_color?: string
   activity?: string
+  context_pct?: number
+  rate_window_pct?: number
+  rate_reset_at?: number
+  rate_reset_label?: string
   context_number?: true
   rate_bottom_bar?: true
   rate_reset?: true
@@ -207,6 +212,7 @@ export function resolveConfig(inputs: ConfigInputs): ConfigResult {
       sourceCard: parseBool(env.EMBER_SOURCE_CARD, true),
       sessionBar: parseBool(env.EMBER_SESSION_BAR, true),
       sendProject: parseBool(env.EMBER_SEND_PROJECT, true),
+      contextPct: parseBool(env.EMBER_CONTEXT_PCT_ENABLED, true),
       contextNumber: parseBool(env.EMBER_CONTEXT_NUMBER_ENABLED, false),
       rateBottomBar: parseBool(env.EMBER_RATE_BOTTOM_BAR, false),
       rateReset: parseBool(env.EMBER_RATE_RESET, false),
@@ -402,6 +408,47 @@ export function agentsCLIUsable(versionOutput: string): boolean {
   return true
 }
 
+export type UsageReading = {
+  context?: { percent?: number }
+  rateLimits?: { kind: string; percentUsed: number; resetsAt?: string }[]
+}
+
+export type Gauges = Pick<Session, 'contextPct' | 'ratePct' | 'rateResetAt' | 'rateResetLabel'>
+
+export function pct(f: number): number {
+  return Math.min(Math.max(Math.round(f), 0), 100)
+}
+
+export function clockLabel(epochSec: number): string {
+  const d = new Date(epochSec * 1000)
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+}
+
+export function gaugesFromUsage(u: UsageReading): Partial<Gauges> {
+  const out: Partial<Gauges> = {}
+  const ctx = u.context?.percent
+  if (typeof ctx === 'number' && Number.isFinite(ctx)) out.contextPct = pct(ctx)
+  const five = (u.rateLimits ?? []).find(r => r.kind === 'five_hour')
+  if (five && typeof five.percentUsed === 'number' && Number.isFinite(five.percentUsed)) {
+    out.ratePct = pct(five.percentUsed)
+    const at = Math.floor(Date.parse(five.resetsAt ?? '') / 1000)
+    if (at > 0) {
+      out.rateResetAt = at
+      out.rateResetLabel = clockLabel(at)
+    }
+  }
+  return out
+}
+
+export function gaugeWire(g: Gauges, contextPct: boolean): Pick<Wire, 'context_pct' | 'rate_window_pct' | 'rate_reset_at' | 'rate_reset_label'> {
+  const out: Pick<Wire, 'context_pct' | 'rate_window_pct' | 'rate_reset_at' | 'rate_reset_label'> = {}
+  if (contextPct && g.contextPct >= 0) out.context_pct = g.contextPct
+  if (g.ratePct >= 0) out.rate_window_pct = g.ratePct
+  if (g.rateResetAt > 0) out.rate_reset_at = g.rateResetAt
+  if (g.rateResetLabel !== '') out.rate_reset_label = g.rateResetLabel
+  return out
+}
+
 export type Session = EmberModSession
 
 function dialogWait(s: Session): boolean {
@@ -426,6 +473,10 @@ const BLANK_SESSION: Session = {
   resumedAt: 0,
   agentInput: false,
   parked: false,
+  contextPct: -1,
+  ratePct: -1,
+  rateResetAt: 0,
+  rateResetLabel: '',
 }
 
 export function reviveSession(raw: unknown): Session | undefined {
@@ -493,6 +544,12 @@ export class Tracker {
     const s = this.sessions.get(id)
     const expired = !!s && (s.state === 'done' || s.state === 'error') && now - s.changedAt >= cfg.doneTTLSeconds * 1000
     return !s || s.parked || expired ? { method: 'DELETE', body: this.key(cfg, id) } : this.post(cfg, id, s)
+  }
+
+  measure(id: string, g: Partial<Gauges>): Effect[] {
+    const s = this.sessions.get(id)
+    if (s) Object.assign(s, g)
+    return []
   }
 
   sessionStart(id: string, source: string): Effect[] {
@@ -759,6 +816,7 @@ export class Tracker {
     if (s.message !== '') body.message = s.message
     if (cfg.sourceColor !== '') body.source_color = cfg.sourceColor
     if (s.activity !== '') body.activity = s.activity
+    Object.assign(body, gaugeWire(s, cfg.contextPct))
     if (cfg.contextNumber) body.context_number = true
     if (cfg.rateBottomBar) body.rate_bottom_bar = true
     if (cfg.rateReset) body.rate_reset = true

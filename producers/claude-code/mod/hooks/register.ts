@@ -15,6 +15,7 @@ import {
   dialogExpected,
   envFileProblem,
   failureOutcome,
+  gaugesFromUsage,
   isPlaceholderSource,
   bounded,
   normalizeHostName,
@@ -30,6 +31,7 @@ import {
   type Effect,
   type FetchLike,
   type Snapshot,
+  type UsageReading,
 } from './producer.ts'
 
 type Engine = EngineInterface
@@ -449,6 +451,14 @@ async function endSession($: Engine, st: ModState, rawSession: string, cwd: stri
   await Promise.race([Promise.all(sent), $.clock.sleep(SESSION_END_BUDGET_MS)])
 }
 
+async function measure($: Engine, st: ModState, reading: UsageReading | undefined): Promise<void> {
+  await ready($, st)
+  const usage = reading ?? (await $.session.usage())
+  const id = await sessionID(await $.session.id(), await $.session.cwd())
+  st.tracker.measure(id, gaugesFromUsage(usage))
+  persist($, st)
+}
+
 async function quietly(work: () => Promise<void>): Promise<void> {
   try {
     await work()
@@ -501,6 +511,12 @@ export const register: Register = on => {
     st.interactive = e.isInteractive
     start($, st, true)
     await quietly(() => ready($, st))
+    void quietly(() => measure($, st, undefined))
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('session.measure', ($, e, next) => {
+    void quietly(() => measure($, st, e))
     return next(e)
   }).catch(($, e, next) => next(e))
 

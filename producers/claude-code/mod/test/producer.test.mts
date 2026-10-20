@@ -15,6 +15,8 @@ import {
   dialogExpected,
   envFileProblem,
   failureOutcome,
+  gaugeWire,
+  gaugesFromUsage,
   normalizeHostName,
   agentsCLIUsable,
   parseAgents,
@@ -49,11 +51,31 @@ function config(env: Record<string, string> = {}): Config {
   return r.config
 }
 
+const NO_GAUGES = { contextPct: -1, ratePct: -1, rateResetAt: 0, rateResetLabel: '' }
+
+function inZone<T>(tz: string, work: () => T): T {
+  const prev = process.env.TZ
+  process.env.TZ = tz
+  try {
+    return work()
+  } finally {
+    if (prev === undefined) delete process.env.TZ
+    else process.env.TZ = prev
+  }
+}
+
 function states(effects: Effect[]): string[] {
   return effects.map(e => (e.method === 'POST' ? `${e.body.state}:${e.body.message ?? ''}` : 'DELETE'))
 }
 
 describe('parity with the Go producer (test/parity.json)', () => {
+  test('gauges: a SessionUsage reading maps to the wire fields the statusline gives Go', () => {
+    assert.ok(parity.gauges.length > 5)
+    for (const c of parity.gauges) {
+      const got = inZone(c.tz, () => gaugeWire({ ...NO_GAUGES, ...gaugesFromUsage(c.usage) }, config(c.env).contextPct))
+      assert.deepEqual(got, c.want, c.name)
+    }
+  })
   test('activityString', () => {
     for (const c of parity.activity) assert.equal(activityString(c.tool, c.input), c.want, c.tool)
   })
@@ -545,6 +567,8 @@ function drive(t: Tracker, cfg: Config, step: Step): Effect[] {
       return t.stopFailure(cfg, now, id, i.error ?? '', i.error_details ?? '', i.last_assistant_message ?? '', i.cwd)
     case 'session-end':
       return t.sessionEnd(cfg, id, i.reason)
+    case 'statusline':
+      return t.measure(id, inZone(transitions.tz, () => gaugesFromUsage(i.usage)))
   }
   throw new Error(`fixture event ${step.event} has no mod mapping`)
 }
@@ -561,6 +585,54 @@ describe('shared transitions with the Go producer (test/transitions.json)', () =
       })
     })
   }
+})
+
+describe('gauges on the tracker', () => {
+  const reading = {
+    context: { window: 200000, percent: 30 },
+    rateLimits: [{ kind: 'five_hour', percentUsed: 12, resetsAt: '2026-05-12T19:37:13Z' }],
+  }
+  const gauges = (effects: Effect[]) =>
+    effects.map(e => (e.method === 'POST' ? [e.body.context_pct, e.body.rate_window_pct, e.body.rate_reset_at] : 'DELETE'))
+  test('a reading for a session the tracker does not hold is dropped, as Go drops a render with no marker', () => {
+    const cfg = config()
+    const t = new Tracker()
+    t.measure('s1', gaugesFromUsage(reading))
+    assert.deepEqual(gauges(t.promptSubmit(cfg, 1000, 's1', 'go', '/repo')), [[undefined, undefined, undefined]])
+  })
+  test('a resumed or cleared session starts with no gauges, as Go removes the marker', () => {
+    const cfg = config()
+    const t = new Tracker()
+    t.promptSubmit(cfg, 1000, 's1', 'go', '/repo')
+    t.measure('s1', gaugesFromUsage(reading))
+    t.sessionStart('s1', 'resume')
+    assert.deepEqual(gauges(t.promptSubmit(cfg, 2000, 's1', 'again', '/repo')), [[undefined, undefined, undefined]])
+  })
+  test('EMBER_CONTEXT_PCT_ENABLED off keeps the rate gauges', () => {
+    const cfg = config({ EMBER_CONTEXT_PCT_ENABLED: 'off' })
+    const t = new Tracker()
+    t.promptSubmit(cfg, 1000, 's1', 'go', '/repo')
+    t.measure('s1', gaugesFromUsage(reading))
+    assert.deepEqual(gauges(t.tick(cfg, 2000)), [[undefined, 12, 1778614633]])
+  })
+  test('a phase-1 snapshot revives with no gauges', () => {
+    const snap = parseSnapshot({ v: 1, sessions: [['s1', { state: 'running', message: 'go', changedAt: 1, hookAt: 1 }]], strays: [] })
+    assert.ok(snap)
+    const t = new Tracker()
+    t.restore(snap.sessions)
+    assert.deepEqual(gauges(t.tick(config(), 2)), [[undefined, undefined, undefined]])
+  })
+  test('a snapshot keeps the gauges across a reload', () => {
+    const cfg = config()
+    const t = new Tracker()
+    t.promptSubmit(cfg, 1000, 's1', 'go', '/repo')
+    t.measure('s1', gaugesFromUsage(reading))
+    const snap = parseSnapshot(JSON.parse(JSON.stringify({ v: 1, sessions: t.entries(), strays: [] })))
+    assert.ok(snap)
+    const next = new Tracker()
+    next.restore(snap.sessions)
+    assert.deepEqual(gauges(next.tick(cfg, 2000)), [[30, 12, 1778614633]])
+  })
 })
 
 describe('snapshot for a hot reload', () => {

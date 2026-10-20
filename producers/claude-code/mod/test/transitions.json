@@ -1,4 +1,5 @@
 {
+  "tz": "UTC",
   "env": "EMBER_SOURCE=test-mbp\nEMBER_TOKEN=tok\n",
   "scenarios": [
     {
@@ -63,6 +64,20 @@
           "want": [{ "method": "POST", "body": { "source": "test-mbp", "tool": "claude", "session": "s4", "state": "done", "message": "Agent finished", "source_card": true, "session_bar": true, "project": "repo" } }] },
         { "at": 3, "event": "session-end", "input": { "session_id": "s4", "cwd": "/repo", "reason": "clear" },
           "want": [{ "method": "DELETE", "body": { "source": "test-mbp", "tool": "claude", "session": "s4" } }] }
+      ]
+    },
+    {
+      "name": "gauges from a reading ride the next hook and heartbeat, and stick",
+      "steps": [
+        {"at": 0, "event": "user-prompt-submit", "input": {"session_id": "s9", "cwd": "/repo", "prompt": "refactor"}, "want": [{"method": "POST", "body": {"source": "test-mbp", "tool": "claude", "session": "s9", "source_card": true, "session_bar": true, "project": "repo", "state": "running", "message": "refactor"}}]},
+        {"at": 1, "event": "statusline", "input": {"session_id": "s9", "cwd": "/repo", "statusline": {"context_window": {"used_percentage": 41.6}, "rate_limits": {"five_hour": {"used_percentage": 22.4, "resets_at": 1778614633}, "seven_day": {"used_percentage": 61, "resets_at": 1779202800}}}, "usage": {"context": {"tokens": 83200, "window": 200000, "percent": 41.6}, "rateLimits": [{"kind": "five_hour", "percentUsed": 22.4, "resetsAt": "2026-05-12T19:37:13Z"}, {"kind": "seven_day", "percentUsed": 61, "resetsAt": "2026-05-19T15:00:00Z"}], "cost": {"usd": 0.42}}}, "want": []},
+        {"at": 2, "event": "tick", "want": [{"method": "POST", "body": {"source": "test-mbp", "tool": "claude", "session": "s9", "source_card": true, "session_bar": true, "project": "repo", "state": "running", "message": "refactor", "context_pct": 42, "rate_window_pct": 22, "rate_reset_at": 1778614633, "rate_reset_label": "19:37"}}]},
+        {"at": 3, "event": "pre-tool-use", "input": {"session_id": "s9", "cwd": "/repo", "tool_name": "Read", "tool_input": {"file_path": "/repo/a.go"}, "tool_use_id": "toolu_90"}, "want": [{"method": "POST", "body": {"source": "test-mbp", "tool": "claude", "session": "s9", "source_card": true, "session_bar": true, "project": "repo", "state": "running", "message": "Read", "activity": "Read: a.go", "context_pct": 42, "rate_window_pct": 22, "rate_reset_at": 1778614633, "rate_reset_label": "19:37"}}]},
+        {"at": 4, "event": "statusline", "input": {"session_id": "s9", "cwd": "/repo", "statusline": {"context_window": {"used_percentage": null}}, "usage": {"context": {"window": 200000}, "rateLimits": []}}, "want": []},
+        {"at": 5, "event": "statusline", "input": {"session_id": "s8", "cwd": "/repo", "statusline": {"context_window": {"used_percentage": 41.6}, "rate_limits": {"five_hour": {"used_percentage": 22.4, "resets_at": 1778614633}, "seven_day": {"used_percentage": 61, "resets_at": 1779202800}}}, "usage": {"context": {"tokens": 83200, "window": 200000, "percent": 41.6}, "rateLimits": [{"kind": "five_hour", "percentUsed": 22.4, "resetsAt": "2026-05-12T19:37:13Z"}, {"kind": "seven_day", "percentUsed": 61, "resetsAt": "2026-05-19T15:00:00Z"}], "cost": {"usd": 0.42}}}, "want": []},
+        {"at": 6, "event": "statusline", "input": {"session_id": "s9", "cwd": "/repo", "statusline": {"context_window": {"used_percentage": 58}}, "usage": {"context": {"tokens": 116000, "window": 200000, "percent": 58}, "rateLimits": []}}, "want": []},
+        {"at": 7, "event": "stop", "input": {"session_id": "s9", "cwd": "/repo", "last_assistant_message": "Done.", "background_tasks": []}, "want": [{"method": "POST", "body": {"source": "test-mbp", "tool": "claude", "session": "s9", "source_card": true, "session_bar": true, "project": "repo", "state": "done", "message": "Done.", "context_pct": 58, "rate_window_pct": 22, "rate_reset_at": 1778614633, "rate_reset_label": "19:37"}}]},
+        {"at": 8, "event": "session-end", "input": {"session_id": "s9", "cwd": "/repo", "reason": "prompt_input_exit"}, "want": [{"method": "DELETE", "body": {"source": "test-mbp", "tool": "claude", "session": "s9"}}]}
       ]
     }
   ]

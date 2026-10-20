@@ -550,8 +550,9 @@ deploy that wants them persisted needs that writable volume mounted.
 
 `producers/claude-code/mod/` is a Claude Code mod (`ember-mod@ember`): a
 hooks module that runs inside Claude Code and reports the same states as the
-Go hooks, with no hook binary and no heartbeat daemon. Phase 1 only: states
-and the heartbeat, no context % or rate limits. It is off unless installed,
+Go hooks, with no hook binary and no heartbeat daemon. It reports the states,
+the heartbeat and (#668) the context % and 5-hour rate gauges; the account
+usage card still comes from the Go daemon. It is off unless installed,
 and it posts under its own source, so it never doubles the Go producer's
 rows. Needs Claude Code 2.1.288 or newer.
 
@@ -576,6 +577,45 @@ rows. Needs Claude Code 2.1.288 or newer.
   POST that gets `400 unknown field "project"` is sent again without it, and
   the mod leaves `project` out for an hour. Other fields and other 400s are
   not retried.
+- **Gauges.** `session.measure`, which Claude Code fires after each turn and
+  when a rate window moves a whole point, gives the mod what the statusline
+  gives Go: `context_pct` (context window fill), `rate_window_pct` and
+  `rate_reset_at` (the 5-hour window) and `rate_reset_label` (its reset as
+  local `HH:MM`). Same rounding and the same `EMBER_CONTEXT_PCT_ENABLED`
+  toggle. Like the statusline, a reading is only stored: the next hook POST
+  or heartbeat (at most 10 s) carries it, so the mod sends no extra request,
+  and the figures stick to the session until a newer reading. Nothing shows
+  before the session's first response (Claude Code has no figures yet). The
+  7-day window, spend limits and cost are read but not sent: `/v1/status`
+  has no field for them.
+- **Who owns the gauges when both run.** No overlap on `/v1/status`: each
+  producer's rows carry the gauges from its own source (Go's from the
+  statusline wrapper, the mod's from `session.measure`). `/v1/usage` (the
+  usage card: 5h, 7d, per model, per account) stays with the Go daemon: its
+  5-min OAuth poll, plus its statusline relay while the wrapper is
+  installed. The mod never posts `/v1/usage`. It can't compute the hashed
+  `account_key`, so it would add a second, keyless "Claude" account, and a
+  post replaces the account's whole report, so it would wipe the per-model
+  windows until the next poll. When no fresh report is in (daemon down,
+  OAuth 401), the usage card's 5h face falls back to the newest session
+  carrying `rate_window_pct`, from either producer.
+- **Dropping the statusline wrapper.** With the mod installed, the wrapper
+  is only needed for the Go producer's rows. To drop it, put your own
+  status line back:
+  ```sh
+  tmp=$(mktemp)
+  jq --slurpfile sl ~/.config/ember/wrapped-statusline.json '.statusLine = $sl[0]' \
+    ~/.claude/settings.json > "$tmp" && cat "$tmp" > ~/.claude/settings.json
+  rm "$tmp" ~/.config/ember/wrapped-statusline.json
+  ```
+  With no `wrapped-statusline.json` (you had no status line), delete
+  `statusLine` instead: `jq 'del(.statusLine)'`. Don't use `deconfigure`:
+  it also writes the kill switch, which silences the mod. What you lose: the
+  Go rows' context glass and 5h gauge, the statusline relay to `/v1/usage`
+  between OAuth polls, and the 7d window while the OAuth poll fails.
+  `ember-claude-producer configure` writes the wrapper again, and so do
+  Ember.app's install and **Fix Hooks**, which run it; redo the step after
+  either.
 - **Hot reload.** `/reload-plugins` (or an edit under `--plugin-dir`) keeps
   the tracker: it is mirrored to `$.state` (`ember-mod.snapshot`) after each
   event and tick, and the reloaded module restores it on its first event or
@@ -689,7 +729,9 @@ rows. Needs Claude Code 2.1.288 or newer.
   both rows) and ends within a few seconds of the answer (the Go row flips
   within a tick, the mod's within about 2 s, see above), long tools and long waits stay
   alive, `/clear` and exit DELETE both rows, and after a `kill -9` the mod's
-  row lingers up to `stale_seconds`. `claude agents --json` (`status`,
+  row lingers up to `stale_seconds`. Gauges: after a response, both rows
+  show the same `context_pct`, `rate_window_pct` and `rate_reset_label`
+  in `/state` within 10 s (add them to the `jq` line above). `claude agents --json` (`status`,
   `waitingFor`) is the ground truth for interactive waits.
 - **Tests.** What CI runs: `node --test
   producers/claude-code/mod/test/producer.test.mts` (the pure module only:
@@ -698,18 +740,21 @@ rows. Needs Claude Code 2.1.288 or newer.
   of `node --test`: it imports `claude-code/testing` and runs only under
   `claude plugin test`, so it needs Claude Code. Two fixtures are shared with Go: `test/parity.json`
   (activity strings, error labels, trails, env parsing, session ids, the
-  unknown-field match behind the older-server resend, host names to sources) and
-  `test/transitions.json` (event sequences, ticks included, to the exact
-  POST/DELETE bodies). `mod_parity_test.go` runs the real Go hooks
-  (`dispatchHookFrom`, `dispatchTick`) through it, and the node test runs the
+  unknown-field match behind the older-server resend, host names to sources,
+  and `gauges`: one reading as statusline JSON for Go and as `SessionUsage`
+  for the mod, with a time zone, to the wire fields) and
+  `test/transitions.json` (event sequences, ticks and `statusline` readings
+  included, to the exact `/v1/status` bodies). `mod_parity_test.go` runs the
+  real Go hooks (`dispatchHookFrom`, `dispatchTick`, `enrichFromStatusline`)
+  through it, and the node test runs the
   mod's `Tracker` through it via a test-only event mapping (`drive()`), so CI
-  catches the Go hooks and the mod's `Tracker` drifting apart. CI does **not**
-  cover `register.ts`, the wiring from Claude Code's hooks to the `Tracker`
+  catches the Go hooks and the mod's `Tracker` drifting apart.
+  `register.ts`, the wiring from Claude Code's hooks to the `Tracker`
   (which hook calls what, `trackLive`'s cwd, `tool.call` → `toolFinished`,
-  the config reload, the send limits): that is `test/mod.test.ts`, which
-  needs Claude Code and runs only locally, together with
+  `session.measure`, the config reload, the send limits), is
+  `test/mod.test.ts`, which CI's mod job runs with
   `claude plugin validate producers/claude-code/mod` and
-  `claude plugin test producers/claude-code/mod`. Run both with `HOME` and
+  `claude plugin test producers/claude-code/mod`. Locally, run both with `HOME` and
   `CLAUDE_CONFIG_DIR` pointed at a scratch directory so they never read your
   live `~/.claude`.
 
@@ -1156,7 +1201,7 @@ field the producer sets, not the data capture. See ARCHITECTURE → "spine".
 
 | Env var | Effect |
 |---|---|
-| `EMBER_CONTEXT_PCT_ENABLED` (default true) | context glass fill |
+| `EMBER_CONTEXT_PCT_ENABLED` (default true) | context glass fill (Go producer and the `ember-mod` mod) |
 | `EMBER_CONTEXT_NUMBER_ENABLED` | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
 | `EMBER_RATE_PCT_ENABLED` (default true) | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
 | `EMBER_RATE_BOTTOM_BAR` | 5h rate as the row-7 bottom bar |
