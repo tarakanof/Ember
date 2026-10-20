@@ -48,14 +48,6 @@ private func hookFixtures() -> URL {
     #expect(source(false, 3) == .settings)
     #expect(source(true, 3) == .both)
     #expect(source(false, 0) == .none)
-    func modSource(_ plugin: Bool, _ events: Int) -> ClaudeHookRegistration.Source {
-        ClaudeHookRegistration(pluginEnabled: plugin, settingsEvents: events, killSwitch: false, modEnabled: true).source
-    }
-    #expect(modSource(false, 0) == .mod)
-    #expect(modSource(true, 0) == .modAndPlugin)
-    #expect(modSource(false, 3) == .modAndSettings)
-    #expect(modSource(true, 3) == .modAndBoth)
-    #expect(ClaudeHookRegistration.read(settingsJSON: nil, killSwitch: false).source == .none)
 }
 
 @Test func claudeHooksNoticeOnlyWarnsWhileReporting() {
@@ -176,13 +168,34 @@ private func hookFixtures() -> URL {
     let json = Data(#"{"enabledPlugins":{"ember@ember":true,"ember-mod@ember":true}}"#.utf8)
     let both = ClaudeHookRegistration.read(settingsJSON: json, killSwitch: false)
     #expect(both.modEnabled && both.pluginEnabled)
-    #expect(both.source == .modAndPlugin)
+    #expect(both.source == .plugin)
     #expect(ClaudeHooksNotice.notice(for: both, reportingOn: true) == .fine)
     let off = Data(#"{"enabledPlugins":{"ember-mod@ember":false}}"#.utf8)
     #expect(!ClaudeHookRegistration.read(settingsJSON: off, killSwitch: false).modEnabled)
     let modOnly = ClaudeHookRegistration.read(settingsJSON: Data(#"{"enabledPlugins":{"ember-mod@ember":true}}"#.utf8), killSwitch: false)
-    #expect(modOnly.source == .mod)
+    #expect(modOnly.source == .none)
     #expect(ClaudeHooksNotice.notice(for: modOnly, reportingOn: true) == .fine)
     let triple = ClaudeHookRegistration(pluginEnabled: true, settingsEvents: 2, killSwitch: false, modEnabled: true)
     #expect(ClaudeHooksNotice.notice(for: triple, reportingOn: true) == .registeredTwice)
+}
+
+@Test func modSourceResolvesFromTheProducerEnv() {
+    func resolve(_ text: String) -> String? { ClaudeHookRegistration.resolveModSource(env: EnvFile(parsing: text)) }
+    #expect(resolve("EMBER_SOURCE=mbp\n") == "mbp-mod")
+    #expect(resolve("EMBER_SOURCE=mbp\nEMBER_MOD_SOURCE=desk-mod\n") == "desk-mod")
+    #expect(resolve("EMBER_MOD_SOURCE=only\n") == "only")
+    #expect(resolve("") == nil)
+    #expect(resolve("EMBER_SOURCE=Set-Me-To-This-Laptop-Id\n") == nil)
+}
+
+@Test func claudeHookRegistrationResolvesTheModSourceUnderHome() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("mod-src-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let env = "EMBER_SOURCE=mbp\n"
+    let settings = #"{"enabledPlugins":{"ember-mod@ember":true}}"#
+    let files = [home.appendingPathComponent(".claude/settings.json").path: Data(settings.utf8),
+                 home.appendingPathComponent(".config/ember/producer.env").path: Data(env.utf8)]
+    let got = ClaudeHookRegistration.read(home: home, readFile: { files[$0] }, fileExists: { _ in false })
+    #expect(got.modEnabled)
+    #expect(got.withModSource(ClaudeHookRegistration.resolveModSource(env: EnvFile(parsing: env))).modSource == "mbp-mod")
 }

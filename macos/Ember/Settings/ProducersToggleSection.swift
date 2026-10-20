@@ -109,10 +109,14 @@ struct ProducersToggleSection: View {
             case .settings: Text("Hooks: ~/.claude/settings.json")
             case .both: Text("Hooks: the ember@ember plugin and ~/.claude/settings.json")
             case .none: Text("Hooks: none registered")
-            case .mod: Text("Hooks: the ember-mod@ember mod (source <source>-mod)")
-            case .modAndPlugin: Text("Hooks: the ember-mod@ember mod (source <source>-mod) side by side with the ember@ember plugin")
-            case .modAndSettings: Text("Hooks: the ember-mod@ember mod (source <source>-mod) side by side with ~/.claude/settings.json")
-            case .modAndBoth: Text("Hooks: the ember-mod@ember mod (source <source>-mod), the ember@ember plugin and ~/.claude/settings.json")
+            }
+            if hooks.modEnabled {
+                if let source = hooks.modSource {
+                    Text("Also the ember-mod@ember mod, side by side, reporting as \(source)",
+                         comment: "Settings › Agents › Claude Code caption; the argument is the mod's source name, e.g. mbp-mod.")
+                } else {
+                    Text("Also the ember-mod@ember mod, silent until EMBER_SOURCE is set")
+                }
             }
             if hooks.killSwitch {
                 Text(reportingOn

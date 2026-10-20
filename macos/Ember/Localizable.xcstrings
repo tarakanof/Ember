@@ -670,6 +670,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Also the ember-mod@ember mod, side by side, reporting as %@" : {
+      "comment" : "Settings › Agents › Claude Code caption; the argument is the mod's source name, e.g. mbp-mod."
+    },
+    "Also the ember-mod@ember mod, silent until EMBER_SOURCE is set" : {},
     "Always" : {},
     "An ESP32 board is connected but isn't running cinder" : {},
     "An ESP32 board is connected but isn't running cinder." : {},
@@ -1351,10 +1355,6 @@
     "Hold the knob down and turn it, or swipe up or down, to change pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes." : {},
     "Home page" : {},
     "Hooks: none registered" : {},
-    "Hooks: the ember-mod@ember mod (source <source>-mod)" : {},
-    "Hooks: the ember-mod@ember mod (source <source>-mod) side by side with the ember@ember plugin" : {},
-    "Hooks: the ember-mod@ember mod (source <source>-mod) side by side with ~/.claude/settings.json" : {},
-    "Hooks: the ember-mod@ember mod (source <source>-mod), the ember@ember plugin and ~/.claude/settings.json" : {},
     "Hooks: the ember@ember plugin" : {},
     "Hooks: the ember@ember plugin and ~/.claude/settings.json" : {},
     "Hooks: ~/.claude/settings.json" : {},

@@ -6,40 +6,48 @@ public struct ClaudeHookRegistration: Sendable, Equatable {
         case settings
         case both
         case none
-        case mod
-        case modAndPlugin
-        case modAndSettings
-        case modAndBoth
     }
 
     public static let pluginID = "ember@ember"
     public static let modPluginID = "ember-mod@ember"
+    public static let sourcePlaceholder = "set-me-to-this-laptop-id"
 
     public let pluginEnabled: Bool
     public let settingsEvents: Int
     public let killSwitch: Bool
     public let settingsUnreadable: Bool
     public let modEnabled: Bool
+    public let modSource: String?
 
     public init(pluginEnabled: Bool, settingsEvents: Int, killSwitch: Bool, settingsUnreadable: Bool = false,
-                modEnabled: Bool = false) {
-        self.modEnabled = modEnabled
+                modEnabled: Bool = false, modSource: String? = nil) {
         self.pluginEnabled = pluginEnabled
         self.settingsEvents = settingsEvents
         self.killSwitch = killSwitch
         self.settingsUnreadable = settingsUnreadable
+        self.modEnabled = modEnabled
+        self.modSource = modSource
+    }
+
+    public static func resolveModSource(env: EnvFile) -> String? {
+        let explicit = env.get("EMBER_MOD_SOURCE").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !explicit.isEmpty { return explicit }
+        let base = env.get(SettingsKeys.source).trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty || base.lowercased() == sourcePlaceholder { return nil }
+        return base + "-mod"
+    }
+
+    public func withModSource(_ source: String?) -> ClaudeHookRegistration {
+        ClaudeHookRegistration(pluginEnabled: pluginEnabled, settingsEvents: settingsEvents, killSwitch: killSwitch,
+                               settingsUnreadable: settingsUnreadable, modEnabled: modEnabled, modSource: source)
     }
 
     public var source: Source {
-        switch (modEnabled, pluginEnabled, settingsEvents > 0) {
-        case (false, true, true): .both
-        case (false, true, false): .plugin
-        case (false, false, true): .settings
-        case (false, false, false): .none
-        case (true, false, false): .mod
-        case (true, true, false): .modAndPlugin
-        case (true, false, true): .modAndSettings
-        case (true, true, true): .modAndBoth
+        switch (pluginEnabled, settingsEvents > 0) {
+        case (true, true): .both
+        case (true, false): .plugin
+        case (false, true): .settings
+        case (false, false): .none
         }
     }
 
@@ -100,9 +108,9 @@ public enum ClaudeHooksNotice: Sendable, Equatable {
         if registration.settingsUnreadable { return .settingsUnreadable }
         if registration.killSwitch { return .paused }
         switch registration.source {
-        case .both, .modAndBoth: return .registeredTwice
-        case .none: return .missing
-        case .plugin, .settings, .mod, .modAndPlugin, .modAndSettings: return .fine
+        case .both: return .registeredTwice
+        case .none: return registration.modEnabled ? .fine : .missing
+        case .plugin, .settings: return .fine
         }
     }
 }

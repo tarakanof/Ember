@@ -473,7 +473,11 @@ public final class ProducerInstallService: Sendable {
     }
 
     public func claudeHookRegistration() -> ClaudeHookRegistration {
-        ClaudeHookRegistration.read(home: home, readFile: readFile, fileExists: fileExists)
+        let hooks = ClaudeHookRegistration.read(home: home, readFile: readFile, fileExists: fileExists)
+        guard hooks.modEnabled else { return hooks }
+        let env = readFile(home.appendingPathComponent(".config/ember/producer.env").path)
+            .flatMap { String(data: $0, encoding: .utf8) }.map { EnvFile(parsing: $0) }
+        return hooks.withModSource(env.flatMap(ClaudeHookRegistration.resolveModSource))
     }
 
     @concurrent
