@@ -591,6 +591,14 @@ rows. Needs Claude Code 2.1.288 or newer.
     ended or was parked, else the latest POST (so a late `running` can't
     stick after `done`). Heartbeat POSTs for a session wait while such a
     POST is younger than 60 s, then go out anyway.
+- **Tests.** `node --test producers/claude-code/mod/test/producer.test.mts`
+  covers the pure module; `claude plugin validate --strict
+  producers/claude-code/mod` and `claude plugin test producers/claude-code/mod`
+  cover `test/mod.test.ts` and the `register.ts` wiring. Neither needs an API
+  key or network. CI's "Claude mod producer" job runs all three with Claude
+  Code pinned by `npm i -g` (bump the version in `ci.yml` deliberately) and an
+  isolated `HOME`/`CLAUDE_CONFIG_DIR`; locally, run them under a scratch
+  `HOME` so they never touch `~/.claude`.
 - **One session only**, nothing installed:
   `claude --plugin-dir ~/Github/Ember/producers/claude-code/mod`.
 - **Every session**: `claude plugin marketplace update ember`,
