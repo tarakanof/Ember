@@ -97,21 +97,19 @@ jobs:
         run: node --test producers/claude-code/mod/test/producer.test.mts
 
       - name: Install Claude Code (pinned, runner only)
-        run: npm i -g @anthropic-ai/claude-code@2.1.304
+        run: npm i -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code@2.1.304
+
+      - name: Isolate HOME and CLAUDE_CONFIG_DIR
+        run: |
+          mkdir -p "$RUNNER_TEMP/claude-home/.claude"
+          echo "HOME=$RUNNER_TEMP/claude-home" >> "$GITHUB_ENV"
+          echo "CLAUDE_CONFIG_DIR=$RUNNER_TEMP/claude-home/.claude" >> "$GITHUB_ENV"
 
       - name: claude plugin validate --strict
-        run: |
-          export HOME="$RUNNER_TEMP/claude-home"
-          export CLAUDE_CONFIG_DIR="$HOME/.claude"
-          mkdir -p "$CLAUDE_CONFIG_DIR"
-          claude plugin validate --strict producers/claude-code/mod
+        run: claude plugin validate --strict producers/claude-code/mod
 
       - name: claude plugin test (test/mod.test.ts, register.ts wiring)
-        run: |
-          export HOME="$RUNNER_TEMP/claude-home"
-          export CLAUDE_CONFIG_DIR="$HOME/.claude"
-          mkdir -p "$CLAUDE_CONFIG_DIR"
-          claude plugin test producers/claude-code/mod
+        run: claude plugin test producers/claude-code/mod
 
   image-vcs:
     name: Docker image (clean VCS stamp)
