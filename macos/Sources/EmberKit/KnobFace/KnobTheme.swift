@@ -156,6 +156,16 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             public var radiusPx, pitchPx, dotRadiusPx: Double
             public var onColor, offColor: RGB
             public var faces: Int
+            public var listed: [KnobWeatherFaceID]? = nil
+
+            enum CodingKeys: String, CodingKey { case radiusPx, pitchPx, dotRadiusPx, onColor, offColor, faces }
+
+            func placement(of face: KnobWeatherFaceID) -> (dots: Dots, lit: Int?) {
+                guard let listed else { return (self, face.dot) }
+                var d = self
+                d.faces = listed.count
+                return (d, listed.firstIndex(of: face))
+            }
         }
         public struct Unit: Decodable, Sendable, Equatable {
             public var fontPx, gapPx: Double

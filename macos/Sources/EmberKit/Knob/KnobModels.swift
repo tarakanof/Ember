@@ -162,6 +162,10 @@ public struct KnobCaps: Codable, Equatable, Sendable {
 
     public static let statsIntervals = "stats_intervals"
     public static let wxMoments = "wx_moments"
+    public static let idleDim = "idle_dim"
+    public static let pomoColors = "pomo_colors"
+    public static let wxFaceList = "wx_face_list"
+    public static let npDim = "np_dim"
     public static let demo = "demo"
     public static let nowPlayingPage = "nowplaying"
 
@@ -361,6 +365,54 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         public init(calm: Bool, dimLevel: Int) { self.calm = calm; self.dimLevel = dimLevel }
     }
 
+    public struct Idle: Codable, Equatable, Sendable {
+        public var dimAfterS: Int?
+        public var dimLevel: Int?
+        public var offAfterS: Int?
+        enum CodingKeys: String, CodingKey {
+            case dimAfterS = "dim_after_s"
+            case dimLevel = "dim_level"
+            case offAfterS = "off_after_s"
+        }
+        public init(dimAfterS: Int? = nil, dimLevel: Int? = nil, offAfterS: Int? = nil) {
+            self.dimAfterS = dimAfterS; self.dimLevel = dimLevel; self.offAfterS = offAfterS
+        }
+        var isEmpty: Bool { dimAfterS == nil && dimLevel == nil && offAfterS == nil }
+    }
+
+    public struct Apps: Codable, Equatable, Sendable {
+        public struct Pomodoro: Codable, Equatable, Sendable {
+            public var focusColor: String?
+            public var breakColor: String?
+            enum CodingKeys: String, CodingKey {
+                case focusColor = "focus_color"
+                case breakColor = "break_color"
+            }
+            public init(focusColor: String? = nil, breakColor: String? = nil) {
+                self.focusColor = focusColor; self.breakColor = breakColor
+            }
+        }
+        public struct Weather: Codable, Equatable, Sendable {
+            public var faces: [String]?
+            public init(faces: [String]? = nil) { self.faces = faces }
+        }
+        public struct NowPlaying: Codable, Equatable, Sendable {
+            public var dimAfterS: Int?
+            enum CodingKeys: String, CodingKey { case dimAfterS = "dim_after_s" }
+            public init(dimAfterS: Int? = nil) { self.dimAfterS = dimAfterS }
+        }
+
+        public var pomodoro: Pomodoro?
+        public var weather: Weather?
+        public var nowplaying: NowPlaying?
+
+        public init(pomodoro: Pomodoro? = nil, weather: Weather? = nil, nowplaying: NowPlaying? = nil) {
+            self.pomodoro = pomodoro; self.weather = weather; self.nowplaying = nowplaying
+        }
+
+        var isEmpty: Bool { pomodoro == nil && weather == nil && nowplaying == nil }
+    }
+
     public struct Bot: Codable, Equatable, Sendable {
         public var sleepyAfterS: Int
         public var demoHoldS: Int
@@ -395,9 +447,11 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public var liveIntervalS: Int?
     public var display: Display?
     public var quiet: Quiet?
+    public var idle: Idle?
+    public var apps: Apps?
 
     enum CodingKeys: String, CodingKey {
-        case brightness, pages, home, bot, diagnostics, display, quiet
+        case brightness, pages, home, bot, diagnostics, display, quiet, idle, apps
         case pollMS = "poll_ms"
         case swipePages = "swipe_pages"
         case statsIntervalS = "stats_interval_s"
@@ -424,6 +478,8 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         liveIntervalS = try c.decodeIfPresent(Int.self, forKey: .liveIntervalS)
         display = try c.decodeIfPresent(Display.self, forKey: .display)
         quiet = try c.decodeIfPresent(Quiet.self, forKey: .quiet)
+        idle = try c.decodeIfPresent(Idle.self, forKey: .idle)
+        apps = try c.decodeIfPresent(Apps.self, forKey: .apps)
     }
 
     public static let defaults = KnobSettings(
@@ -450,6 +506,14 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         if proposed < weatherEveryFloor { return proposed < current && current <= weatherEveryFloor ? 0 : weatherEveryFloor }
         return (proposed.clamped(to: weatherEveryRange) / weatherEveryStep) * weatherEveryStep
     }
+    public static let idleDimDefault = 20
+    public static let idleDimLevelRange = 1...255
+    public static let idleDimAfterSteps = [60, 300, 600, 1800, 3600]
+    public static let idleOffAfterSteps = [600, 1800, 3600, 7200, 14400]
+    public static let nowPlayingDimDefault = 180
+    public static let nowPlayingDimRange = 60...1800
+    public static let nowPlayingDimChoices = [60, 180, 300, 600, 1800]
+    public static let weatherFaceIDs = KnobWeatherFaceID.allCases.map(\.rawValue)
     public static let statsIntervals = [30, 60, 120, 300]
     public static let liveIntervals = [2, 5, 10]
     public static let rotations = [0, 90, 180, 270]
@@ -474,6 +538,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
                 out[key] = n
             }
         }
+        for key in old.keys where new[key] == nil { out[key] = .null }
         return out
     }
 
@@ -485,6 +550,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         if s.brightness.floor > s.brightness.level { s.brightness.level = s.brightness.floor }
         if let dim = s.quiet?.dimLevel { s.quiet?.dimLevel = dim.clamped(to: Self.quietDimRange) }
         if let every = s.bot.weatherEveryMin { s.bot.weatherEveryMin = every.clamped(to: Self.weatherEveryRange) }
+        s.normalizeV2()
         if !s.pages.contains(where: \.on), !s.pages.isEmpty { s.pages[0].on = true }
         if !s.pages.contains(where: { $0.id == s.home && $0.on }), let first = s.pages.first(where: \.on) {
             s.home = first.id
@@ -516,6 +582,97 @@ public struct KnobSettings: Codable, Equatable, Sendable {
               let from = pages.firstIndex(where: { $0.id == id }),
               let to = pages.firstIndex(where: { $0.id == target }) else { return }
         pages.move(fromOffsets: [from], toOffset: to > from ? to + 1 : to)
+    }
+
+    mutating func normalizeV2() {
+        if var i = idle {
+            if let v = i.dimLevel { i.dimLevel = v.clamped(to: Self.idleDimLevelRange) }
+            if let d = i.dimAfterS, let o = i.offAfterS, d > 0, o > 0, o <= d { i.offAfterS = nil }
+            idle = i.isEmpty ? nil : i
+        }
+        if var a = apps {
+            if a.pomodoro?.focusColor == nil, a.pomodoro?.breakColor == nil { a.pomodoro = nil }
+            if let v = a.nowplaying?.dimAfterS { a.nowplaying?.dimAfterS = v.clamped(to: Self.nowPlayingDimRange) }
+            if a.nowplaying?.dimAfterS == nil { a.nowplaying = nil }
+            if var f = a.weather?.faces {
+                var seen = Set<String>()
+                f = f.filter { Self.weatherFaceIDs.contains($0) && seen.insert($0).inserted }
+                a.weather = f.isEmpty ? nil : .init(faces: f)
+            } else {
+                a.weather = nil
+            }
+            apps = a.isEmpty ? nil : a
+        }
+    }
+
+    public var weatherFacesListed: [String] { apps?.weather?.faces ?? Self.weatherFaceIDs }
+
+    public var weatherFaceRows: [(id: String, on: Bool)] {
+        let listed = weatherFacesListed
+        return listed.map { ($0, true) } + Self.weatherFaceIDs.filter { !listed.contains($0) }.map { ($0, false) }
+    }
+
+    public mutating func setWeatherFaces(rows: [(id: String, on: Bool)]) {
+        let faces = rows.filter { $0.on }.map(\.id)
+        guard !faces.isEmpty else { return }
+        if apps == nil { apps = Apps() }
+        apps?.weather = .init(faces: faces)
+    }
+
+    public mutating func setWeatherFace(_ id: String, on: Bool) {
+        var rows = weatherFaceRows
+        guard let i = rows.firstIndex(where: { $0.id == id }) else { return }
+        rows[i].on = on
+        setWeatherFaces(rows: rows)
+    }
+
+    public mutating func moveWeatherFace(_ id: String, by delta: Int) {
+        var rows = weatherFaceRows
+        guard let from = rows.firstIndex(where: { $0.id == id }), rows.indices.contains(from + delta) else { return }
+        rows.swapAt(from, from + delta)
+        setWeatherFaces(rows: rows)
+    }
+
+    public mutating func editIdle(_ change: (inout Idle) -> Void) {
+        var i = idle ?? Idle()
+        change(&i)
+        idle = i
+    }
+
+    public mutating func editPomodoro(_ change: (inout Apps.Pomodoro) -> Void) {
+        var p = apps?.pomodoro ?? .init()
+        change(&p)
+        if apps == nil { apps = Apps() }
+        apps?.pomodoro = p
+    }
+
+    public mutating func setNowPlayingDim(_ seconds: Int) {
+        if apps == nil { apps = Apps() }
+        apps?.nowplaying = .init(dimAfterS: seconds)
+    }
+
+    public static func idleDimAfterChoices(off: Int?, current: Int?) -> [Int] {
+        let o = off ?? 0
+        let allowed = idleDimAfterSteps.filter { o == 0 || $0 < o }
+        return [0] + choices(allowed, current: current.flatMap { $0 > 0 ? $0 : nil })
+    }
+
+    public static func idleOffAfterChoices(dim: Int?, current: Int?) -> [Int] {
+        let d = dim ?? 0
+        let allowed = idleOffAfterSteps.filter { $0 > d }
+        return [0] + choices(allowed, current: current.flatMap { $0 > 0 ? $0 : nil })
+    }
+
+    public func previewTheme(for knob: KnobDevice?) -> KnobTheme {
+        var t = KnobTheme.standard
+        if knob?.supports(feature: KnobCaps.pomoColors) == true {
+            if let c = apps?.pomodoro?.focusColor.flatMap(RGB.init(hex:)) { t.pomodoro.colors.focus = c }
+            if let c = apps?.pomodoro?.breakColor.flatMap(RGB.init(hex:)) { t.pomodoro.colors.break = c }
+        }
+        if knob?.supports(feature: KnobCaps.wxFaceList) == true {
+            t.weather.dots.listed = weatherFacesListed.compactMap(KnobWeatherFaceID.init(rawValue:))
+        }
+        return t
     }
 }
 

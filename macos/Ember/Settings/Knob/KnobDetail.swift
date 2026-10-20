@@ -66,6 +66,7 @@ struct KnobDetail: View {
         case .hardware(.display):
             KnobDisplaySection()
             KnobQuietSection()
+            KnobIdleSection()
         case .hardware(.behavior):
             KnobPollSection()
             KnobAdvancedSection(changeWiFi: { setup = .changeWiFi })
@@ -81,6 +82,7 @@ struct KnobDetail: View {
             Group {
                 KnobPageSection(app: app)
                 if app == .bot { KnobBotSection() }
+                KnobAppOptionsSection(app: app)
             }
             .disabled(!knob.settings.isLoaded)
         }

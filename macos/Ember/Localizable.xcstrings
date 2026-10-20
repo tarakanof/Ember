@@ -791,6 +791,7 @@
     "Bottom bar" : {},
     "Bounce" : {},
     "Break" : {},
+    "Break colour" : {},
     "Brightness" : {},
     "Brightness at startup" : {},
     "Built-in" : {},
@@ -856,6 +857,7 @@
       "extractionState" : "manual"
     },
     "Choose cinder.bin from a release build. If cinder.elf is next to it, Ember stores it too, for decoding crash dumps. Ember refuses builds that contain Wi-Fi or token secrets." : {},
+    "Choosing the weather faces needs newer knob firmware." : {},
     "Claude" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual",
@@ -899,6 +901,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Colours" : {},
     "Completed" : {},
     "Condition icon, temperature and a strip for the next ^[%lld hour](inflect: true), blue for cold to red for warm." : {
       "comment" : "Settings › Weather preview caption; the argument is the forecast length in hours."
@@ -1103,6 +1106,9 @@
     "Diagnostics" : {},
     "Diagnostics Settings" : {},
     "Diagnostics are off" : {},
+    "Dim after" : {},
+    "Dim level" : {},
+    "Dimming" : {},
     "Direction" : {},
     "Disabled row" : {},
     "Discover Clocks…" : {},
@@ -1237,6 +1243,7 @@
     "Exec" : {},
     "Expanded" : {},
     "Expands this group" : {},
+    "Faces" : {},
     "Factory Reset" : {},
     "Factory Reset…" : {},
     "Fahrenheit" : {},
@@ -1278,6 +1285,8 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Focus colour" : {},
+    "Focus colours need newer knob firmware." : {},
     "Focus melody" : {},
     "Focus minutes" : {},
     "Focus minutes by weekday and hour" : {},
@@ -1374,6 +1383,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "How long the knob waits before it dims the Now Playing page." : {},
     "How long your own status line command may run" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1413,6 +1423,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Idle dimming needs newer knob firmware." : {},
     "Idle or other" : {},
     "Idle time before the bot gets sleepy" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2035,6 +2046,8 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Same as clock" : {},
+    "Same as clock uses the knob's own colours." : {},
     "Same as text" : {},
     "Save Token" : {},
     "Saved" : {
@@ -2326,6 +2339,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The dim delay needs newer knob firmware." : {},
     "The dimmest the knob ever gets" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2554,7 +2568,10 @@
     "Turn On Diagnostics" : {},
     "Turn On Full Diagnostics" : {},
     "Turn it on in Settings › Sources › Focus." : {},
+    "Turn off after" : {},
     "Turning Sound off silences the clock completely, chimes included." : {},
+    "Turning the knob or touching it wakes it." : {},
+    "Turning the knob steps through the faces that are on, in this order. At least one stays on." : {},
     "Turns the knob's picture, in degrees" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

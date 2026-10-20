@@ -53,6 +53,7 @@ struct KnobPreviewData {
         guard case .loaded(let snap, _) = env.live.snapshot else { return nil }
         return KnobMood(sessions: snap.sessions, maxChars: KnobTheme.standard.bot.host.maxChars)
     }
+    var theme: KnobTheme { settings.previewTheme(for: env.knob.knob) }
     var pomodoro: PomoState? { env.live.pomodoro.value }
     var pomodoroFetchedAt: Date? { env.live.lastFetched(.pomodoroState) }
     var weather: WeatherState? { env.live.weather.value }
@@ -79,10 +80,10 @@ struct KnobPreviewData {
                         animated: animated, brightness: brightness)
         case "pomodoro":
             KnobPomoLive(state: pomodoro, fetchedAt: pomodoroFetchedAt, note: pomodoroNote, animated: animated,
-                         brightness: brightness)
+                         theme: theme, brightness: brightness)
         case "weather":
             KnobWeatherLive(face: weatherFace, since: weatherSince, animated: animated, windowVisible: windowVisible,
-                            brightness: brightness)
+                            theme: theme, brightness: brightness)
         case "nowplaying":
             KnobNowPlayingLive(state: nowPlaying?.state, offline: nowPlaying?.failed ?? false, offset: nowPlaying?.serverOffset ?? 0,
                                pictures: nowPlaying?.pictures ?? .init(),
@@ -139,17 +140,7 @@ struct KnobPreviewData {
         }
     }
 
-    private func weatherFaceName(_ f: KnobWeatherFaceID) -> Text {
-        switch f {
-        case .temp: Text("Temperature")
-        case .rain: Text("Rain now")
-        case .cast: Text("Rain forecast")
-        case .wind: Text("Wind")
-        case .days: Text("Next days")
-        case .sun: Text("Sun")
-        case .air: Text("Air")
-        }
-    }
+    private func weatherFaceName(_ f: KnobWeatherFaceID) -> Text { knobWeatherFaceTitle(f.rawValue) }
 
     private var nowPlayingCaption: Text {
         guard let s = nowPlaying?.state else {
