@@ -8,7 +8,7 @@
       "stats_intervals"
     ],
     "limits": {
-      "config_bytes": 1024,
+      "config_bytes": 2048,
       "view_bytes": 16383
     },
     "pages": [
