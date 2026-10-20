@@ -21,8 +21,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ember.Ember
-        MARKETING_VERSION: "0.71.0"
-        CURRENT_PROJECT_VERSION: "86"
+        MARKETING_VERSION: "0.72.0"
+        CURRENT_PROJECT_VERSION: "87"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Ember/Info.plist
         SWIFT_VERSION: "6.0"
