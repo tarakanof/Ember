@@ -469,12 +469,28 @@ private func provisionClosingTheWindowAfterAnUnreachableEvent(status: String? = 
 @Test func expectStopsWhenCancelled() async throws {
     let session = KnobSession(link: FakeKnob())
     await session.start()
-    let started = ContinuousClock.now
-    let t = Task { try await session.expect(timeout: .seconds(30)) { _ in Optional(1) } }
-    try await Task.sleep(for: .milliseconds(20))
-    t.cancel()
-    await #expect(throws: CancellationError.self) { _ = try await t.value }
-    #expect(ContinuousClock.now - started < .seconds(5))
+    let tripped = LockedFlag()
+    let watchdog = Task {
+        try await Task.sleep(for: .seconds(30))
+        tripped.set()
+        await session.close()
+    }
+    defer { watchdog.cancel() }
+    for yields in 0..<5 {
+        let t = Task { try await session.expect(timeout: .seconds(3600)) { _ in Optional(1) } }
+        for _ in 0..<yields { await Task.yield() }
+        t.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await t.value }
+        #expect(!tripped.value, "cancel did not wake expect; the watchdog closed the session")
+        if tripped.value { return }
+    }
+}
+
+private final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+    var value: Bool { lock.withLock { flag } }
+    func set() { lock.withLock { flag = true } }
 }
 
 @Test func cancelledSetupDoesNotReconnect() async throws {
