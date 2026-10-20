@@ -605,6 +605,26 @@ markers still get reaped.
   `POST /v1/usage`. On 401 (or any non-200/transient error) it just skips that
   poll and retries at the next tick — it keeps polling every ~5 min forever
   until the user re-auths via Claude Code, it never stops the loop.
+- **Claude Code mod producer — `producers/claude-code/mod`** (#253 phase 1,
+  experimental, opt-in plugin `ember-mod@ember`). A hooks module that runs
+  inside Claude Code (2.1.288+) and POSTs/DELETEs `/v1/status` with the Go
+  producer's wire shapes, under its own source (`EMBER_MOD_SOURCE`, default
+  `<EMBER_SOURCE>-mod`) so both can run side by side. `hooks/producer.ts` is
+  pure (env parsing, config, the session tracker, wire bodies);
+  `hooks/register.ts` adapts it onto `$`. Same mapping as `hook.go`
+  (`classic.*` events), with two differences: `tool.check` resolving to `ask`
+  (interactive, mode not `auto`/`dontAsk`/`bypassPermissions`) starts
+  `waiting` for that `tool_use_id`, and the awaited `tool.call` for that id
+  ends it, which replaces the fingerprint matching. `classic.PreToolUse`,
+  `tool.check` and `tool.call` carry no `session_id`, so the id comes from
+  `$.session.id()`. State lives in module memory; `$.clock.every(10 s)`
+  re-POSTs like `heartbeatPass` (done/error for `EMBER_DONE_TTL_SECONDS`, the
+  30 min notification-wait backstop, the `EMBER_HEARTBEAT_TTL_HOURS` reap).
+  The timer dies with the process, so a killed Claude Code is reaped by the
+  server's `stale_seconds`, not by a `ps` check. Every hook only observes: it
+  returns `next(e)` (or the verdict/result untouched) and its `.catch`
+  answers `next(e)`. No gauges, `/v1/usage`, agents-watcher corrections or
+  T3 detection yet. `test/parity.json` is shared with `mod_parity_test.go`.
 - **Codex CLI producer — `cmd/ember-codex-producer`.** Codex has **no hook
   system**, so this is a long-lived **daemon that tails rollout JSONL**
   (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop

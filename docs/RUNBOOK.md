@@ -542,6 +542,59 @@ store) and survive `/admin/reload`. Weather/reminders run regardless of whether
 Pomodoro is enabled — but they still write to the Pomodoro `db_path` store, so a
 deploy that wants them persisted needs that writable volume mounted.
 
+## Claude mod producer, side by side (experimental, #253)
+
+`producers/claude-code/mod/` is a Claude Code mod (`ember-mod@ember`): a
+hooks module that runs inside Claude Code and reports the same states as the
+Go hooks, with no hook binary and no heartbeat daemon. Phase 1 only: states
+and the heartbeat, no context % or rate limits. It is off unless installed,
+and it posts under its own source, so it never doubles the Go producer's
+rows. Needs Claude Code 2.1.288 or newer.
+
+- **Config.** It reads `~/.config/ember/producer.env` on `session.start`
+  and on every 10 s heartbeat: `EMBER_SERVER_URL` (empty or `auto` takes the
+  cached discovery result in `~/.local/state/ember/server.json`; the mod never
+  browses mDNS), `EMBER_TOKEN` (else the process env), the card and trail
+  toggles. Source: `EMBER_MOD_SOURCE`, else `<EMBER_SOURCE>-mod` (`mbp-mod`).
+  No source, no server URL or `~/.config/ember/claude-hooks.disabled` keeps it
+  silent. `$.fs` cannot read file modes, so unlike the Go reader it does not
+  refuse a `producer.env` that is not 0600.
+- **One session only**, nothing installed:
+  `claude --plugin-dir ~/Github/Ember/producers/claude-code/mod`.
+- **Every session**: `claude plugin marketplace update ember`,
+  `claude plugin install ember-mod@ember`, then `/reload-plugins` in running
+  sessions. Remove with `claude plugin uninstall ember-mod@ember`. Keep
+  `ember@ember` installed: the comparison needs both.
+- **Compare the timelines.** Each Claude session shows twice in `/state`,
+  `<source>/claude/<id>` from the Go producer and `<source>-mod/claude/<id>`
+  from the mod, with the same session id. Poll both and diff the
+  `state`/`state_since`/`message` columns:
+
+  ```sh
+  while :; do
+    curl -s "$EMBER_SERVER_URL/state" |
+      jq -r --arg t "$(date +%T)" '.sessions[] | select(.tool=="claude") |
+        "\($t) \(.source) \(.session[0:8]) \(.state) \(.state_since) \(.message // "")"'
+    sleep 2
+  done | tee ~/ember-mod-compare.log
+  ```
+
+  Things to check: `waiting` appears when the permission dialog opens and
+  ends when you answer it, long tools and long waits stay alive, `/clear`
+  and exit DELETE both rows, and a killed Claude (`kill -9`) drops the mod's
+  row only after the server's `display.stale_seconds` (default 300 s; the Go
+  daemon's `ps` check drops its row within about 10 s). `claude agents
+  --json` (`status`, `waitingFor`) is the ground truth for interactive waits.
+- **Tests.** `node --test producers/claude-code/mod/test/producer.test.mts`
+  (CI) covers the mapping and the HTTP send against a local stub.
+  `test/parity.json` is also read by `mod_parity_test.go`, so the mod and the
+  Go producer can't drift on activity strings, error labels, trails, env
+  parsing or session ids. Locally, with Claude Code (not on the CI runners):
+  `claude plugin validate producers/claude-code/mod` and
+  `claude plugin test producers/claude-code/mod` (engine-level tests in
+  `test/mod.test.ts`). Run both with `HOME` and `CLAUDE_CONFIG_DIR` pointed
+  at a scratch directory so they never read your live `~/.claude`.
+
 ## Headless / Linux producers
 
 The three Go producers run without Ember.app: on a Linux box running Claude
