@@ -26,6 +26,7 @@ export type ConfigInputs = {
   serverCache?: string
   killSwitch?: boolean
   envFileProblem?: string
+  hostName?: string
 }
 
 export type ConfigResult = { config: Config } | { disabled: string }
@@ -53,7 +54,7 @@ export type Effect = { method: 'POST'; body: Wire } | { method: 'DELETE'; body: 
 export type FetchLike = (
   url: string,
   init: { method: string; headers: Record<string, string>; body: string },
-) => Promise<{ ok: boolean; status: number }>
+) => Promise<{ ok: boolean; status: number; text?: string }>
 
 export const HEARTBEAT_MS = 10_000
 export const SESSION_END_BUDGET_MS = 800
@@ -113,9 +114,45 @@ function positiveInt(v: string | undefined, def: number): number {
   return n > 0 ? n : def
 }
 
-function isPlaceholderSource(v: string | undefined): boolean {
+export function isPlaceholderSource(v: string | undefined): boolean {
   const s = (v ?? '').trim()
   return s === '' || s.toLowerCase() === SOURCE_PLACEHOLDER
+}
+
+const MAX_SOURCE = 24
+
+const MODEL_ABBREV: Record<string, string> = {
+  'macbook-pro': 'mbp',
+  'macbook-air': 'mba',
+  macbook: 'mb',
+  mbp: 'mbp',
+  mba: 'mba',
+  'mac-mini': 'mini',
+  'mac-studio': 'studio',
+  'mac-pro': 'macpro',
+  imac: 'imac',
+}
+
+const MODEL_RE = /(?:^|-)(macbook-pro|macbook-air|macbook|mac-mini|mac-studio|mac-pro|imac|mbp|mba)(?:-(.+))?$/
+
+function shortHostID(h: string): string {
+  const m = MODEL_RE.exec(h)
+  if (m) {
+    const id = (MODEL_ABBREV[m[1] ?? ''] ?? '') + (m[2] ? '-' + m[2] : '')
+    if (id !== '' && !/^\d+$/.test(id)) return id
+  }
+  return h
+}
+
+export function normalizeHostName(raw: string): string {
+  let h = raw.trim().toLowerCase()
+  const dot = h.indexOf('.')
+  if (dot >= 0) h = h.slice(0, dot)
+  h = h.replace(/ /g, '-').replace(/[^a-z0-9_-]/g, '')
+  h = h.replace(/^[-_]+|[-_]+$/g, '')
+  h = shortHostID(h)
+  if (h.length > MAX_SOURCE) h = h.slice(0, MAX_SOURCE).replace(/^[-_]+|[-_]+$/g, '')
+  return h
 }
 
 function isAutoServerURL(v: string | undefined): boolean {
@@ -142,8 +179,9 @@ export function resolveConfig(inputs: ConfigInputs): ConfigResult {
   const modSource = (env.EMBER_MOD_SOURCE ?? '').trim()
   let source = modSource
   if (source === '') {
-    if (isPlaceholderSource(env.EMBER_SOURCE)) return { disabled: 'EMBER_SOURCE is not set' }
-    source = (env.EMBER_SOURCE ?? '').trim() + '-mod'
+    const base = isPlaceholderSource(env.EMBER_SOURCE) ? normalizeHostName(inputs.hostName ?? '') : (env.EMBER_SOURCE ?? '').trim()
+    if (base === '') return { disabled: 'EMBER_SOURCE is not set and no host name resolves' }
+    source = base + '-mod'
   }
   const prefer = (env.EMBER_SERVER_INSTANCE ?? '').trim()
   const serverURL = isAutoServerURL(env.EMBER_SERVER_URL)
@@ -681,16 +719,56 @@ export class Sender {
   }
 }
 
-export async function send(fetch: FetchLike, cfg: Config, effect: Effect): Promise<boolean> {
+export const DROPPED_FIELD_TTL_MS = 3_600_000
+
+const UNKNOWN_FIELD_RE = /unknown field \\?"([a-z_]+)\\?"/
+
+export class FieldDropper {
+  private readonly until = new Map<string, number>()
+
+  strip(effect: Effect, now: number): Effect {
+    if (effect.method !== 'POST') return effect
+    const body = { ...effect.body }
+    if ((this.until.get('project') ?? 0) > now) delete body.project
+    return { method: 'POST', body }
+  }
+
+  drop(field: string, now: number): boolean {
+    if (field !== 'project') return false
+    if (now >= (this.until.get(field) ?? 0)) this.until.set(field, now + DROPPED_FIELD_TTL_MS)
+    return true
+  }
+}
+
+export const optionalFields = new FieldDropper()
+
+export function unknownField(status: number, body: string): string {
+  if (status !== 400) return ''
+  return UNKNOWN_FIELD_RE.exec(body)?.[1] ?? ''
+}
+
+export async function send(
+  fetch: FetchLike,
+  cfg: Config,
+  effect: Effect,
+  dropper: FieldDropper = optionalFields,
+  clock: () => number = Date.now,
+): Promise<boolean> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (cfg.token !== '') headers.Authorization = 'Bearer ' + cfg.token
   try {
-    const res = await fetch(cfg.serverURL + '/v1/status', {
-      method: effect.method,
-      headers,
-      body: JSON.stringify(effect.body),
-    })
-    return res.ok
+    let current = dropper.strip(effect, clock())
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(cfg.serverURL + '/v1/status', {
+        method: current.method,
+        headers,
+        body: JSON.stringify(current.body),
+      })
+      if (res.ok || effect.method !== 'POST') return res.ok
+      const field = unknownField(res.status, typeof res.text === 'string' ? res.text : '')
+      if (field === '' || attempt >= 1 || !dropper.drop(field, clock())) return false
+      current = dropper.strip(effect, clock())
+    }
   } catch {
     return false
   }

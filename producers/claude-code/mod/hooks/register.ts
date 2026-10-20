@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 import {
+  FieldDropper,
   HEARTBEAT_MS,
   Sender,
   SESSION_END_BUDGET_MS,
@@ -8,6 +9,8 @@ import {
   dialogExpected,
   envFileProblem,
   failureOutcome,
+  isPlaceholderSource,
+  normalizeHostName,
   parseEnvFile,
   resolveConfig,
   send,
@@ -28,6 +31,9 @@ type ModState = {
   loading: Promise<void> | undefined
   beating: boolean
   uid: string | undefined
+  host: string
+  hostTriedAt: number | undefined
+  dropper: FieldDropper
   interactive: boolean
   permissionMode: string
   heartbeat: { cancel: () => void } | undefined
@@ -36,6 +42,12 @@ type ModState = {
 type Step = (cfg: Config, now: number, id: string) => Effect[]
 
 const STAT = ['/usr/bin/stat', '/bin/stat', 'stat']
+const HOST_COMMANDS = [
+  [['/usr/sbin/scutil', '--get', 'LocalHostName'], ['scutil', '--get', 'LocalHostName']],
+  [['/bin/hostname'], ['/usr/bin/hostname'], ['hostname']],
+]
+const HOST_TIMEOUT_MS = 150
+const HOST_RETRY_MS = 600_000
 const ID = ['/usr/bin/id', '/bin/id', 'id']
 
 async function readText($: Engine, path: string): Promise<string | undefined> {
@@ -46,10 +58,10 @@ async function readText($: Engine, path: string): Promise<string | undefined> {
   }
 }
 
-async function firstOutput($: Engine, argvs: string[][]): Promise<string> {
+async function firstOutput($: Engine, argvs: string[][], timeoutMs = 2000): Promise<string> {
   for (const argv of argvs) {
     try {
-      const r = await $.process.run(argv, { timeoutMs: 2000 })
+      const r = await $.process.run(argv, { timeoutMs })
       if (r.exitCode === 0) return r.stdout
     } catch {
       continue
@@ -65,6 +77,21 @@ async function currentUID($: Engine, st: ModState): Promise<string> {
     return uid
   }
   return st.uid
+}
+
+async function hostName($: Engine, st: ModState): Promise<string> {
+  const now = await $.clock.now()
+  if (st.hostTriedAt !== undefined && (st.host !== '' || now - st.hostTriedAt < HOST_RETRY_MS)) return st.host
+  st.hostTriedAt = now
+  st.host = ''
+  for (const argvs of HOST_COMMANDS) {
+    const name = normalizeHostName(await firstOutput($, argvs, HOST_TIMEOUT_MS))
+    if (name !== '') {
+      st.host = name
+      break
+    }
+  }
+  return st.host
 }
 
 async function readEnvFile($: Engine, st: ModState, path: string): Promise<{ text: string; problem: string }> {
@@ -100,8 +127,11 @@ async function resolve($: Engine, st: ModState): Promise<ConfigResult> {
   if (await $.fs.exists(killSwitchPath(home))) return { disabled: 'claude-hooks.disabled is present' }
   const envFile = await readEnvFile($, st, `${home}/.config/ember/producer.env`)
   const xdg = (await $.env.get('XDG_STATE_HOME')) ?? ''
+  const env = parseEnvFile(envFile.text)
+  const needsHost = (env.EMBER_MOD_SOURCE ?? '').trim() === '' && isPlaceholderSource(env.EMBER_SOURCE)
   return resolveConfig({
-    env: parseEnvFile(envFile.text),
+    env,
+    hostName: needsHost ? await hostName($, st) : undefined,
     home,
     processToken: await $.env.get('EMBER_TOKEN'),
     serverCache: await readText($, `${stateHome(home, xdg)}/ember/server.json`),
@@ -131,7 +161,7 @@ function fetcher($: Engine): FetchLike {
 
 function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: number, now: number, heartbeat = false): Promise<void>[] {
   const io = {
-    deliver: (effect: Effect) => send(fetcher($), cfg, effect),
+    deliver: (effect: Effect) => send(fetcher($), cfg, effect, st.dropper),
     timer: (ms: number) => $.clock.sleep(ms),
     reconcile: async (session: string) => {
       const at = await $.clock.now()
@@ -206,6 +236,9 @@ export const register: Register = on => {
     loading: undefined,
     beating: false,
     uid: undefined,
+    host: '',
+    hostTriedAt: undefined,
+    dropper: new FieldDropper(),
     interactive: false,
     permissionMode: '',
     heartbeat: undefined,

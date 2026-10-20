@@ -49,5 +49,25 @@
     { "raw": "8f3c2a1e-0b4d-4c55-9a7e-1234567890ab", "cwd": "/repo", "want": "8f3c2a1e-0b4d-4c55-9a7e-1234567890ab" },
     { "raw": "", "cwd": "/Users/dt/Github/Ember", "want": "8c79b54f25b278d9" },
     { "raw": "has/slash", "cwd": "/repo", "want": "83630750896a66f9" }
+  ],
+  "unknown_field": [
+    { "status": 400, "body": "{\"error\":\"json: unknown field \\\"project\\\"\"}", "want": "project" },
+    { "status": 400, "body": "json: unknown field \"project\"", "want": "project" },
+    { "status": 400, "body": "{\"error\":\"json: unknown field \\\"source_card\\\"\"}", "want": "source_card" },
+    { "status": 400, "body": "{\"error\":\"state is required\"}", "want": "" },
+    { "status": 500, "body": "json: unknown field \"project\"", "want": "" },
+    { "status": 400, "body": "json: unknown field \"Project\"", "want": "" }
+  ],
+  "host_name": [
+    { "raw": "Dmitrys-MacBook-Pro.local\n", "want": "mbp" },
+    { "raw": "MacBook Pro", "want": "mbp" },
+    { "raw": "Dmitry's MacBook Air M4", "want": "mba-m4" },
+    { "raw": "mac-mini-2", "want": "mini-2" },
+    { "raw": "studio-box.lan", "want": "studio-box" },
+    { "raw": "__dev_box__", "want": "dev_box" },
+    { "raw": "abcdefghij-abcdefghij-abcdefghij", "want": "abcdefghij-abcdefghij-ab" },
+    { "raw": "\u00dcn\u00ef", "want": "n" },
+    { "raw": "---", "want": "" },
+    { "raw": "", "want": "" }
   ]
 }
