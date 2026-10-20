@@ -21,6 +21,7 @@ enum KnobPaneFixtures {
                                session: URLSession(configuration: config), pathStatus: { .satisfied })
         env.knob.configure(service: KnobService(client: client))
         await env.knob.load()
+        await env.knob.pairing.refresh()
         return env
     }
 
@@ -50,8 +51,13 @@ enum KnobPaneFixtures {
             #"{"version":"\#(v)","build":"\#(build)","channel":"\#(channel)","elf":true,"idf_ver":"v5.5.1","project":"cinder","sha256":"00","size":1677721,"uploaded_at":"\#(iso(now.addingTimeInterval(-ago)))"}"#
         }
         let firmware = "[\(image("0.9.16", "b2c3d4e5", "release", 7_200)),\(image("0.9.15", "a1b2c3d4", "release", 172_800)),\(image("0.9.13", "c0ffee13", "test", 604_800)),\(image("0.9.12", "0badf00d", "test", 864_000).replacingOccurrences(of: #""elf":true"#, with: #""elf":false"#))]"
+        let claim = { (id: String, hw: String, known: String, ip: String, ago: TimeInterval) in
+            #"{"id":"\#(id)","hw_id":"\#(hw)","short_id":"\#(hw.suffix(6).uppercased())","fw":"0.9.110","ip":"\#(ip)","created_at":"\#(iso(now.addingTimeInterval(-ago)))","expires_at":"\#(iso(now.addingTimeInterval(600 - ago)))","known_device_id":\#(known)}"#
+        }
+        let claims = #"{"claims":[\#(claim("c_0a1b2c3d", "3cdc7561fc8c", #""knob-61fc8c""#, "192.0.2.61", 120)),\#(claim("c_5e6f7a8b", "3cdc7500aaaa", "null", "192.0.2.62", 30))]}"#
         return [
             "/v1/devices": #"{"devices":[\#(device)]}"#,
+            "/v1/devices/claims": claims,
             "/v1/devices/knob-61fc8c/config": config,
             "/v1/devices/knob-61fc8c/coredumps": dumps,
             "/v1/devices/knob-61fc8c/ota": ota,

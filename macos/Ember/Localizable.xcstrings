@@ -573,6 +573,7 @@
     "5h" : {
       "comment" : "Abbreviation for the 5-hour usage window (Usage card row, Agents table column). Keep it very short."
     },
+    "6 digits" : {},
     "7-day usage" : {},
     "7-day window" : {},
     "7d" : {
@@ -700,7 +701,11 @@
     },
     "Applies while quiet hours are on. Set the hours in Sounds & Alerts." : {},
     "Applying…" : {},
+    "Approve" : {},
     "Approve in Login Items…" : {},
+    "Approving replaces “%@”. Ember forgets that knob afterwards." : {
+      "comment" : "Settings › Knob pairing request warning; the argument is the name of the knob already set up."
+    },
     "Apps" : {},
     "Apps and Alerts are shares of the master volume. Alerts covers Ember's chimes and popups. Set Master to 0 to silence the clock completely." : {},
     "Apps volume" : {},
@@ -888,6 +893,7 @@
     "Clocks on Your Network" : {},
     "Clouds" : {},
     "Cloudy" : {},
+    "Code" : {},
     "Codex" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual",
@@ -995,6 +1001,9 @@
     "Couldn't join %@. Check the password; 5 GHz-only networks don't work." : {
       "comment" : "Knob setup error; the argument is the Wi-Fi network name."
     },
+    "Couldn't pair: %@" : {
+      "comment" : "Settings › Knob pairing request error; the argument is a short reason (\"Server unreachable\")."
+    },
     "Couldn't pause: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
@@ -1086,6 +1095,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Decline" : {},
     "Delete" : {},
     "Delete %@ from Ember?" : {
       "comment" : "Settings › Knob Firmware & updates: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\")."
@@ -1214,7 +1224,9 @@
     },
     "Ember removes the image and its ELF." : {},
     "Ember removes the image." : {},
+    "Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you pair it again. It will show a pairing code. Enter it here to pair it again without the cable." : {},
     "Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB." : {},
+    "Ember shows one knob. After this pairing it forgets the other knob and revokes its token." : {},
     "Ember shows one knob. After this setup it forgets the other knob and revokes its token." : {},
     "Ember's stored firmware changed while saving. Try again." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1477,6 +1489,9 @@
     },
     "Key" : {},
     "Knob" : {},
+    "Knob %@ wants to pair" : {
+      "comment" : "Settings › Knob pairing request; the argument is the knob's short ID (\"61FC8C\")."
+    },
     "Knob didn't respond to %@" : {
       "comment" : "Demo page status: the knob never started the scene within 10 seconds; the argument is the scene's title (\"Hop\")."
     },
@@ -1819,6 +1834,7 @@
       }
     },
     "Pages" : {},
+    "Pairing request" : {},
     "Panic" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2109,6 +2125,7 @@
     "Set by the EMBER_STATUSLINE_TIMEOUT_MS environment variable." : {},
     "Set up a knob to play demos on it." : {},
     "Settings" : {},
+    "Settings are kept." : {},
     "Settings…" : {},
     "Severe weather" : {},
     "Severe weather alert" : {},
@@ -2261,6 +2278,10 @@
     "Test" : {},
     "Test Connection" : {},
     "Text color" : {},
+    "That code is wrong, and the request is closed. The knob will show a new code." : {},
+    "That code is wrong. %lld tries left." : {
+      "comment" : "Settings › Knob pairing request; the argument is how many wrong codes the server still accepts for this request."
+    },
     "The Claude and Codex helpers send session status to the server. macOS asks for each helper separately." : {},
     "The Dashboard tracks these." : {},
     "The European Centre's high-resolution global model: worldwide, updated 4 times a day. No UV index; 15-minute rain is the hourly amount split evenly." : {
@@ -2481,6 +2502,7 @@
     "This replaces “%@”. Ember forgets that knob after setup." : {
       "comment" : "Knob setup warning; the argument is the name of the knob already set up."
     },
+    "This request expired. The knob will show a new code." : {},
     "This server can't reach a clock. Check the clock's address below or discover one." : {},
     "This server can't store knob firmware. Update the Ember server." : {},
     "This server doesn't support meetings. Update the Ember server." : {},
@@ -2584,6 +2606,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Type the 6-digit code the knob shows on its screen. Only approve a request you started." : {},
     "USB" : {},
     "USB reset (flashing or serial)" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2920,6 +2943,9 @@
     "frame from an unauthenticated station" : {
       "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
       "extractionState" : "manual"
+    },
+    "fw %@" : {
+      "comment" : "Settings › Knob pairing request; the argument is the firmware version (\"0.9.110\")."
     },
     "good" : {},
     "group key update timeout" : {

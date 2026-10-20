@@ -20,6 +20,19 @@ public struct KnobService: Sendable, Equatable {
                                  body: ["kind": KnobDevice.knobKind, "hw_id": hwID, "name": name])
     }
 
+    public func claims() async throws -> [KnobClaim] {
+        let list: KnobClaimList = try await client.get("/v1/devices/claims")
+        return list.claims
+    }
+
+    public func approveClaim(id: String, code: String) async throws -> KnobDevice {
+        try await client.request("POST", "/v1/devices/claims/\(Self.escape(id))/approve", body: ["code": code])
+    }
+
+    public func declineClaim(id: String) async throws {
+        try await client.send("POST", "/v1/devices/claims/\(Self.escape(id))/decline")
+    }
+
     public func config(id: String) async throws -> KnobSettings {
         try await client.get("/v1/devices/\(Self.escape(id))/config")
     }

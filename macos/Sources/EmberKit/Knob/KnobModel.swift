@@ -30,6 +30,7 @@ public final class KnobModel {
     public let ports: KnobSerialPorts
     public let ota: KnobOTAModel
     public let demo: KnobDemoModel
+    public let pairing: KnobPairingModel
     @ObservationIgnored public private(set) var service: KnobService
     @ObservationIgnored public let opener: any KnobLinkOpener
     @ObservationIgnored private let debounce: Duration
@@ -56,6 +57,7 @@ public final class KnobModel {
         self.sleep = sleep
         ota = KnobOTAModel(service: service)
         demo = KnobDemoModel(service: service)
+        pairing = KnobPairingModel(service: service)
         settings = Self.settingsModel(service, id: nil, debounce: debounce, sleep: sleep)
     }
 
@@ -67,6 +69,7 @@ public final class KnobModel {
         settings = Self.settingsModel(next, id: nil, debounce: debounce, sleep: sleep)
         ota.configure(service: next, device: nil)
         demo.configure(service: next, device: nil)
+        pairing.configure(service: next)
         Task { await load() }
     }
 
@@ -205,6 +208,14 @@ public final class KnobModel {
     public func didSetUp(_ device: KnobDevice, replacing old: KnobDevice?) async {
         if let old, old.id != device.id { try? await service.forget(id: old.id) }
         await load()
+    }
+
+    @discardableResult
+    public func approve(_ claim: KnobClaim, code: String) async -> Bool {
+        let old = pairing.replaces(claim, current: knob)
+        guard let device = await pairing.approve(claim, code: code) else { return false }
+        await didSetUp(device, replacing: old)
+        return true
     }
 
     public func clearError(_ action: KnobAction) { actionErrors[action] = nil }
