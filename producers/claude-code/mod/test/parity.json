@@ -1,0 +1,53 @@
+{
+  "activity": [
+    { "tool": "", "input": {}, "want": "" },
+    { "tool": "Bash", "input": { "command": "go test ./..." }, "want": "Bash: go test ./..." },
+    { "tool": "Bash", "input": {}, "want": "Bash" },
+    { "tool": "Bash", "input": { "command": "echo 0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890" }, "want": "Bash: echo 012345678901234567890123456789012345678901234567890123456789012345678" },
+    { "tool": "Edit", "input": { "file_path": "/repo/cmd/ember/main.go" }, "want": "Edit: main.go" },
+    { "tool": "NotebookEdit", "input": { "notebook_path": "/repo/nb/a.ipynb" }, "want": "NotebookEdit: a.ipynb" },
+    { "tool": "Read", "input": {}, "want": "Read" },
+    { "tool": "Grep", "input": { "pattern": "func main" }, "want": "Grep: func main" },
+    { "tool": "Glob", "input": { "pattern": "**/*.go" }, "want": "Glob: **/*.go" },
+    { "tool": "WebFetch", "input": { "url": "https://example.com" }, "want": "WebFetch" },
+    { "tool": "mcp__gh__issue", "input": { "title": "x" }, "want": "mcp__gh__issue" }
+  ],
+  "stop_failure": [
+    { "error": "rate_limit", "details": "", "last": "", "want": "rate limited" },
+    { "error": "overloaded", "details": "\n  try later\nmore", "last": "", "want": "API overloaded: try later" },
+    { "error": "brand_new_error", "details": "", "last": "", "want": "brand new error" },
+    { "error": "unknown", "details": "", "last": "last words", "want": "last words" },
+    { "error": "", "details": "", "last": "", "want": "error" }
+  ],
+  "failure_outcome": [
+    { "error": "Exit code 1\nstderr...", "interrupt": false, "want": "exit 1" },
+    { "error": "Exit code 127", "interrupt": false, "want": "exit 127" },
+    { "error": "Exit code 1234", "interrupt": false, "want": "failed" },
+    { "error": "boom", "interrupt": false, "want": "failed" },
+    { "error": "Exit code 1", "interrupt": true, "want": "aborted" }
+  ],
+  "prepend_trail": [
+    { "head": "Bash: ls", "prev": "", "want": "Bash: ls" },
+    { "head": "Edit: a.go", "prev": "Bash: ls", "want": "Edit: a.go · Bash: ls" },
+    { "head": "Bash: ls", "prev": "Bash: ls · Read: x", "want": "Bash: ls · Read: x" },
+    { "head": "", "prev": "Read: x", "want": "Read: x" },
+    { "head": "Bash: 01234567890123456789012345678901234567890123456789", "prev": "Read: aaaaaaaaaaaaaaaaaaaa · Read: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "want": "Bash: 01234567890123456789012345678901234567890123456789" },
+    { "head": "Read: c", "prev": "Read: aaaaaaaaaaaaaaaaaaaa · Read: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "want": "Read: c · Read: aaaaaaaaaaaaaaaaaaaa" }
+  ],
+  "annotate_trail": [
+    { "trail": "Bash: make · Read: x", "item": "Bash: make", "annotated": "Bash: make (exit 2)", "prepend": true, "want": "Bash: make (exit 2) · Read: x" },
+    { "trail": "Read: x", "item": "Bash: make", "annotated": "Bash: make (denied)", "prepend": true, "want": "Bash: make (denied) · Read: x" },
+    { "trail": "Read: x", "item": "Bash: make", "annotated": "Bash: make (denied)", "prepend": false, "want": "Read: x" }
+  ],
+  "env_file": [
+    {
+      "text": "# comment\nEMBER_SOURCE=mbp\n  EMBER_TOKEN = \"quoted value\" \nEMBER_SERVER_URL='http://h:3627'\nnoequals\n=novalue\nEMBER_EMPTY=\n",
+      "want": { "EMBER_SOURCE": "mbp", "EMBER_TOKEN": "quoted value", "EMBER_SERVER_URL": "http://h:3627", "EMBER_EMPTY": "" }
+    }
+  ],
+  "session_id": [
+    { "raw": "8f3c2a1e-0b4d-4c55-9a7e-1234567890ab", "cwd": "/repo", "want": "8f3c2a1e-0b4d-4c55-9a7e-1234567890ab" },
+    { "raw": "", "cwd": "/Users/dt/Github/Ember", "want": "8c79b54f25b278d9" },
+    { "raw": "has/slash", "cwd": "/repo", "want": "83630750896a66f9" }
+  ]
+}

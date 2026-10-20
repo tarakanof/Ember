@@ -98,28 +98,36 @@ func TestMarketplaceListsPlugin(t *testing.T) {
 	if err := json.Unmarshal(raw, &mp); err != nil {
 		t.Fatal(err)
 	}
-	if len(mp.Plugins) != 1 {
-		t.Fatalf("marketplace lists %d plugins, want 1", len(mp.Plugins))
+	want := map[string]string{
+		pluginID:          pluginDir,
+		"ember-mod@ember": filepath.Join(repoRoot, "producers", "claude-code", "mod"),
 	}
-	p := mp.Plugins[0]
-	if got := p.Name + "@" + mp.Name; got != pluginID {
-		t.Errorf("install id %q, want %q (doctor/configure look for it in enabledPlugins)", got, pluginID)
+	if len(mp.Plugins) != len(want) {
+		t.Fatalf("marketplace lists %d plugins, want %d", len(mp.Plugins), len(want))
 	}
-	if filepath.Clean(filepath.Join(repoRoot, p.Source)) != filepath.Clean(pluginDir) {
-		t.Errorf("marketplace source %q doesn't point at %s", p.Source, pluginDir)
-	}
-	var manifest struct {
-		Name string `json:"name"`
-	}
-	raw, err = os.ReadFile(filepath.Join(pluginDir, ".claude-plugin", "plugin.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(raw, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if manifest.Name != p.Name {
-		t.Errorf("plugin.json name %q != marketplace entry name %q", manifest.Name, p.Name)
+	for _, p := range mp.Plugins {
+		id := p.Name + "@" + mp.Name
+		dir, ok := want[id]
+		if !ok {
+			t.Errorf("unexpected install id %q (doctor/configure look for %q in enabledPlugins)", id, pluginID)
+			continue
+		}
+		if filepath.Clean(filepath.Join(repoRoot, p.Source)) != filepath.Clean(dir) {
+			t.Errorf("%s: marketplace source %q doesn't point at %s", id, p.Source, dir)
+		}
+		var manifest struct {
+			Name string `json:"name"`
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, ".claude-plugin", "plugin.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		if manifest.Name != p.Name {
+			t.Errorf("plugin.json name %q != marketplace entry name %q", manifest.Name, p.Name)
+		}
 	}
 }
 
