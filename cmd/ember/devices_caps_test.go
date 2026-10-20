@@ -24,7 +24,7 @@ var knobCapsFull = map[string]any{
 	"view":      []int{1, 1},
 	"pages":     []string{"bot", "pomodoro", "weather", "nowplaying"},
 	"features":  []string{"view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals"},
-	"limits":    map[string]any{"view_bytes": 16383, "config_bytes": 1024},
+	"limits":    map[string]any{"view_bytes": 16383, "config_bytes": 2048},
 	"rotations": []int{0, 180},
 }
 
@@ -228,7 +228,7 @@ func TestCapsKnobViewIsFilteredByCapsAndPages(t *testing.T) {
 	f := goldenViewFixture(t)
 	fullViewScenario(t, f)
 	caps := map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "weather"}, "features": []string{"view_wait"},
-		"limits": map[string]any{"view_bytes": 16383, "config_bytes": 1024}}
+		"limits": map[string]any{"view_bytes": 16383, "config_bytes": 2048}}
 	reply := postCapsCheckin(t, f, "0.10.0", caps)
 	if reply["caps_ack"] != true {
 		t.Fatalf("reply = %v, want caps_ack true", reply)
@@ -352,7 +352,7 @@ func TestCapsLimitFloors(t *testing.T) {
 			t.Errorf("limits %v: acked = %v, want %v", c.limits, got, c.ok)
 		}
 	}
-	if floor < 300 || floor > cinderCfgSettingsMax {
+	if floor < 300 || floor > legacyCfgSettingsMax {
 		t.Errorf("default config floor = %d B, want the default config's size under the knob's store", floor)
 	}
 }
@@ -508,7 +508,7 @@ func TestCapsAreStoredExposedAndClearedOnDowngrade(t *testing.T) {
 	postCapsCheckin(t, f, "0.10.0", knobCapsFull)
 	c := knobEffectiveCaps(t, f)
 	if c["source"] != capsSourceReported || !reflect.DeepEqual(c["pages"], []any{"bot", "pomodoro", "weather", "nowplaying"}) ||
-		!reflect.DeepEqual(c["limits"], map[string]any{"view_bytes": 16383.0, "config_bytes": 1024.0}) {
+		!reflect.DeepEqual(c["limits"], map[string]any{"view_bytes": 16383.0, "config_bytes": 2048.0}) {
 		t.Fatalf("effective_caps = %v", c)
 	}
 	postCapsCheckin(t, f, "0.6.0", nil)

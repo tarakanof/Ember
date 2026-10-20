@@ -195,7 +195,7 @@ func TestKnobQuietMergesFieldByField(t *testing.T) {
 	}
 }
 
-const cinderCfgSettingsMax = 1024
+const legacyCfgSettingsMax = 1024
 
 func TestKnobConfigFitsTheFirmwareStore(t *testing.T) {
 	s := defaultKnobSettings()
@@ -219,8 +219,8 @@ func TestKnobConfigFitsTheFirmwareStore(t *testing.T) {
 	if err := s.validate(); err != nil {
 		t.Fatalf("the largest valid config (%d B) is rejected: %v", len(b), err)
 	}
-	if len(b) > cinderCfgSettingsMax {
-		t.Fatalf("the largest valid config is %d B, over the knob's %d", len(b), cinderCfgSettingsMax)
+	if len(b) > legacyCfgSettingsMax {
+		t.Fatalf("the largest valid config is %d B, over the knob's %d", len(b), legacyCfgSettingsMax)
 	}
-	t.Logf("largest valid config: %d B of %d", len(b), cinderCfgSettingsMax)
+	t.Logf("largest valid config: %d B of %d", len(b), legacyCfgSettingsMax)
 }

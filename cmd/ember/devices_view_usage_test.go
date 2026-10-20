@@ -12,7 +12,7 @@ var knobCapsUsage = map[string]any{
 	"view":     []int{1, 1},
 	"pages":    []string{"bot"},
 	"features": []string{"usage", "view_wait"},
-	"limits":   map[string]any{"view_bytes": 16383, "config_bytes": 1024},
+	"limits":   map[string]any{"view_bytes": 16383, "config_bytes": 2048},
 }
 
 func putUsageAt(t *testing.T, f *viewFixture, tool string, u ToolUsage) {
@@ -102,7 +102,7 @@ func TestKnobViewWithoutTheUsageCapGolden(t *testing.T) {
 	usageViewScenario(t, f)
 	postCapsCheckin(t, f, "0.10.0", map[string]any{
 		"view": []int{1, 1}, "pages": []string{"bot"}, "features": []string{"view_wait"},
-		"limits": map[string]any{"view_bytes": 16383, "config_bytes": 1024},
+		"limits": map[string]any{"view_bytes": 16383, "config_bytes": 2048},
 	})
 	assertDeviceGolden(t, "view_usage_uncapped", goldenView(t, f))
 }

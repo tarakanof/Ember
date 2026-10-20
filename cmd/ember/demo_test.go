@@ -21,7 +21,7 @@ var knobCapsDemo = &deviceCaps{
 	View:     []int{1, 1},
 	Pages:    []string{"bot", "pomodoro", "weather", "nowplaying"},
 	Features: []string{featureDemo, featureNPCover, featureViewWait, featureWxFaces, featureWxMoments},
-	Limits:   &deviceCapsLimits{ViewBytes: 16383, ConfigBytes: 1024},
+	Limits:   &deviceCapsLimits{ViewBytes: 16383, ConfigBytes: 2048},
 }
 
 func demoFixture(t *testing.T) *viewFixture {

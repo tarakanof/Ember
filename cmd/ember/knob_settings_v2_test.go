@@ -243,13 +243,13 @@ func TestKnobV2LargestConfigFitsDepthAndSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b) > cinderCfgSettingsMax {
-		t.Fatalf("the largest valid v2 config is %d B, over the knob's %d", len(b), cinderCfgSettingsMax)
+	if len(b) > legacyCfgSettingsMax {
+		t.Fatalf("the largest valid v2 config is %d B, over the knob's %d", len(b), legacyCfgSettingsMax)
 	}
 	if d := configDepth(t, b); d > cinderConfigMaxDepth {
 		t.Fatalf("config nests %d levels with config as level 1, cinder drops more than %d", d, cinderConfigMaxDepth)
 	}
-	t.Logf("largest valid v2 config: %d B of %d", len(b), cinderCfgSettingsMax)
+	t.Logf("largest valid v2 config: %d B of %d", len(b), legacyCfgSettingsMax)
 }
 
 func TestCapsKnobV2OverConfigBytes400(t *testing.T) {
@@ -260,7 +260,7 @@ func TestCapsKnobV2OverConfigBytes400(t *testing.T) {
 
 	f := newViewFixture(t)
 	postCapsCheckin(t, f, "0.10.0", map[string]any{"view": []int{1, 1}, "pages": append([]string{"page-00000000000"}, pages...),
-		"rotations": []int{0, 90, 180, 270}, "limits": map[string]any{"config_bytes": cinderCfgSettingsMax}})
+		"rotations": []int{0, 90, 180, 270}, "limits": map[string]any{"config_bytes": legacyCfgSettingsMax}})
 	big, _ := json.Marshal(maxV2Settings())
 	resp, b := put(f, string(big))
 	mustOK(t, "the largest v2 config on a 1024 knob", resp, b)
