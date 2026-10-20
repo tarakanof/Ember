@@ -620,7 +620,29 @@ markers still get reaped.
   no agents watcher to flip it to `running` sooner. `classic.PreToolUse`,
   `tool.check` and `tool.call` carry no `session_id`, so the id comes from
   `$.session.id()`, hashed with `$.session.cwd()` when invalid, as classic
-  hooks hash theirs. State lives in module memory; `$.clock.every(10 s)`
+  hooks hash theirs. The tracker lives in module memory and is mirrored to
+  `$.state` (`ember-mod.snapshot`, declared in `types/index.d.ts`; plain JSON the host
+  keeps for the session, written after each event and tick), so a hot reload
+  (`/reload-plugins`) rebuilds it from there on first use instead of forgetting
+  in-flight sessions. The snapshot holds the sessions, the stray-POST start
+  times (kept only while younger than 60 s: the settle callbacks that clear
+  them died with the old code, so they just age out), `permission_mode` and the
+  T3 verdict. Not kept: the outbox (closures; the next heartbeat re-POSTs the
+  restored state), the config, `id -u` and the host id (re-read within a tick).
+  `$.state` is the session's, not durable: a restart of Claude Code starts empty.
+  T3 sessions (#216): `hooks/t3.ts` ports `spawnedByT3`. An SDK session
+  (`CLAUDE_CODE_ENTRYPOINT=sdk-ts` or `CLAUDE_AGENT_SDK_VERSION` set, read with
+  `$.env.get`) walks the process tree (`sh -c 'echo $PPID'` for the process
+  that spawned it, then `ps -o ppid=,comm=`, argv from `/proc/<pid>/cmdline` or
+  `ps -ww`) and, when the launcher is a T3 server, the mod posts nothing. The
+  verdict is taken once per process (Go pays per hook), under a 250 ms budget; a
+  failed lookup fails open and is retried at most every 30 s, and a later
+  match DELETEs the rows already posted. `test/parity.json` `t3` cases run
+  against both `spawnedByT3` and `detectT3`. Differences: darwin has no
+  `kern.procargs2` from a shell, so argv is rebuilt from `ps comm=` and
+  `args=` (a spaced executable stays whole, a spaced path in a later `node`
+  argument splits), and the walk starts at whatever process the engine
+  spawns `sh` from, assumed to be the `claude` process. `$.clock.every(10 s)`
   re-POSTs like `heartbeatPass` (done/error for `EMBER_DONE_TTL_SECONDS`, the
   30 min notification-wait backstop, the `EMBER_HEARTBEAT_TTL_HOURS` reap) and
   is skipped while the previous beat is still reloading. A reload builds the

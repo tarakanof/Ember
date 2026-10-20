@@ -1,3 +1,5 @@
+import type { EmberModSession, EmberModSnapshot } from '../types/index.d.ts'
+
 export type Env = Record<string, string>
 
 export type Config = {
@@ -362,24 +364,64 @@ export function dialogExpected(interactive: boolean, permissionMode: string): bo
   return interactive && !['auto', 'dontAsk', 'bypassPermissions'].includes(permissionMode)
 }
 
-export type Session = {
-  state: string
-  message: string
-  activity: string
-  project: string
-  changedAt: number
-  hookAt: number
-  pendingPermission: boolean
-  pendingTool: string
-  pendingToolUseId: string
-  askedTool: string
-  askedToolUseId: string
-  lastTool: string
-  lastToolUseId: string
-  resumedTool: string
-  resumedAt: number
-  agentInput: boolean
-  parked: boolean
+export type Session = EmberModSession
+
+const BLANK_SESSION: Session = {
+  state: '',
+  message: '',
+  activity: '',
+  project: '',
+  changedAt: 0,
+  hookAt: 0,
+  pendingPermission: false,
+  pendingTool: '',
+  pendingToolUseId: '',
+  askedTool: '',
+  askedToolUseId: '',
+  lastTool: '',
+  lastToolUseId: '',
+  resumedTool: '',
+  resumedAt: 0,
+  agentInput: false,
+  parked: false,
+}
+
+export function reviveSession(raw: unknown): Session | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  const out: Record<string, unknown> = { ...BLANK_SESSION }
+  for (const [key, blank] of Object.entries(BLANK_SESSION)) {
+    const v = r[key]
+    if (typeof v === typeof blank && (typeof v !== 'number' || Number.isFinite(v))) out[key] = v
+  }
+  const s = out as Session
+  return s.state === '' ? undefined : s
+}
+
+export type Snapshot = EmberModSnapshot
+
+export function parseSnapshot(raw: unknown): Snapshot | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  if (r.v !== 1) return undefined
+  const sessions: [string, Session][] = []
+  for (const entry of Array.isArray(r.sessions) ? r.sessions : []) {
+    if (!Array.isArray(entry) || typeof entry[0] !== 'string') continue
+    const s = reviveSession(entry[1])
+    if (s) sessions.push([entry[0], s])
+  }
+  const strays: [string, number[]][] = []
+  for (const entry of Array.isArray(r.strays) ? r.strays : []) {
+    if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !Array.isArray(entry[1])) continue
+    strays.push([entry[0], entry[1].filter((n): n is number => typeof n === 'number' && Number.isFinite(n))])
+  }
+  return {
+    v: 1,
+    sessions,
+    strays,
+    permissionMode: typeof r.permissionMode === 'string' ? r.permissionMode : '',
+    t3: r.t3 === 'yes' || r.t3 === 'no' ? r.t3 : '',
+  }
 }
 
 type Upsert = {
@@ -394,6 +436,14 @@ type Upsert = {
 
 export class Tracker {
   readonly sessions = new Map<string, Session>()
+
+  entries(): [string, Session][] {
+    return [...this.sessions].map(([id, s]) => [id, { ...s }])
+  }
+
+  restore(entries: [string, Session][]): void {
+    for (const [id, s] of entries) if (!this.sessions.has(id)) this.sessions.set(id, { ...s })
+  }
 
   reconcile(cfg: Config, now: number, id: string): Effect {
     const s = this.sessions.get(id)
@@ -561,25 +611,7 @@ export class Tracker {
   private upsert(cfg: Config, now: number, id: string, u: Upsert): Effect[] {
     const prev = this.sessions.get(id)
     if (prev && u.skip && u.skip(prev)) return []
-    const s: Session = prev ?? {
-      state: '',
-      message: '',
-      activity: '',
-      project: '',
-      changedAt: now,
-      hookAt: now,
-      pendingPermission: false,
-      pendingTool: '',
-      pendingToolUseId: '',
-      askedTool: '',
-      askedToolUseId: '',
-      lastTool: '',
-      lastToolUseId: '',
-      resumedTool: '',
-      resumedAt: 0,
-      agentInput: false,
-      parked: false,
-    }
+    const s: Session = prev ?? { ...BLANK_SESSION, changedAt: now, hookAt: now }
     const activity = truncate(u.activity ?? '', MAX_FIELD)
     s.activity = cfg.activityTrail && activity !== '' && prev ? prependTrail(activity, prev.activity) : activity
     if (u.cwd !== undefined && u.cwd !== '') s.project = projectFromCwd(u.cwd, cfg.home)
@@ -683,6 +715,17 @@ export class Sender {
       return Promise.resolve()
     }
     return this.outbox.push(key, () => this.attempt(effect, limitMs, io, now, 'stray'))
+  }
+
+  entries(): [string, number[]][] {
+    return [...this.strays].map(([key, starts]) => [key, [...starts]])
+  }
+
+  restore(entries: [string, number[]][], now: number): void {
+    for (const [key, starts] of entries) {
+      const fresh = starts.filter(at => now - at < STRAY_SKIP_MS)
+      if (fresh.length > 0 && !this.strays.has(key)) this.strays.set(key, fresh)
+    }
   }
 
   lateSends(): number {

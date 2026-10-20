@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -49,6 +50,16 @@ type modParity struct {
 	HostName []struct {
 		Raw, Want string
 	} `json:"host_name"`
+	T3 []struct {
+		Name  string            `json:"name"`
+		Env   map[string]string `json:"env"`
+		Procs map[string]struct {
+			Ppid int      `json:"ppid"`
+			Comm string   `json:"comm"`
+			Argv []string `json:"argv"`
+		} `json:"procs"`
+		Want bool `json:"want"`
+	} `json:"t3"`
 }
 
 func readModParity(t *testing.T) modParity {
@@ -124,6 +135,26 @@ func TestModParitySessionID(t *testing.T) {
 	for _, c := range readModParity(t).SessionID {
 		if got := sanitizeSessionID(c.Raw, c.Cwd); got != c.Want {
 			t.Errorf("sanitizeSessionID(%q, %q) = %q, fixture says %q", c.Raw, c.Cwd, got, c.Want)
+		}
+	}
+}
+
+func TestModParityT3(t *testing.T) {
+	cases := readModParity(t).T3
+	if len(cases) == 0 {
+		t.Fatal("parity.json has no t3 cases")
+	}
+	for _, c := range cases {
+		procs := map[int]t3FakeProc{}
+		for k, p := range c.Procs {
+			pid, err := strconv.Atoi(k)
+			if err != nil {
+				t.Fatalf("%s: pid %q: %v", c.Name, k, err)
+			}
+			procs[pid] = t3FakeProc{ppid: p.Ppid, comm: p.Comm, argv: p.Argv}
+		}
+		if got := fakeT3ProbeEnv(c.Env, procs, nil).spawnedByT3(context.Background()); got != c.Want {
+			t.Errorf("%s: spawnedByT3() = %v, fixture says %v", c.Name, got, c.Want)
 		}
 	}
 }

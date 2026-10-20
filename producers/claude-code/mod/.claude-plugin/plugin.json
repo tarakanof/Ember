@@ -10,5 +10,6 @@
   "homepage": "https://github.com/tarakanof/Ember/tree/main/producers/claude-code/mod",
   "repository": "https://github.com/tarakanof/Ember",
   "license": "MIT",
+  "types": "./types/index.d.ts",
   "keywords": ["ember", "awtrix", "status", "mod"]
 }

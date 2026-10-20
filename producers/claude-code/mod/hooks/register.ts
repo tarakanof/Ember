@@ -1,4 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
+import { T3_PROBE_BUDGET_MS, T3_RETRY_MS, argvFromPs, detectT3, parsePsInfo, type T3Probe, type T3Verdict } from './t3.ts'
 import {
   FieldDropper,
   HEARTBEAT_MS,
@@ -10,8 +11,10 @@ import {
   envFileProblem,
   failureOutcome,
   isPlaceholderSource,
+  bounded,
   normalizeHostName,
   parseEnvFile,
+  parseSnapshot,
   resolveConfig,
   send,
   sessionID,
@@ -20,9 +23,12 @@ import {
   type ConfigResult,
   type Effect,
   type FetchLike,
+  type Snapshot,
 } from './producer.ts'
 
 type Engine = EngineInterface
+
+const SNAPSHOT = { plugin: 'ember-mod', key: 'snapshot' } as const
 
 type ModState = {
   tracker: Tracker
@@ -37,6 +43,11 @@ type ModState = {
   interactive: boolean
   permissionMode: string
   heartbeat: { cancel: () => void } | undefined
+  restored: Promise<void> | undefined
+  saving: boolean
+  dirty: boolean
+  t3: T3Verdict
+  t3TriedAt: number | undefined
 }
 
 type Step = (cfg: Config, now: number, id: string) => Effect[]
@@ -49,6 +60,8 @@ const HOST_COMMANDS = [
 const HOST_TIMEOUT_MS = 150
 const HOST_RETRY_MS = 600_000
 const ID = ['/usr/bin/id', '/bin/id', 'id']
+const PS = ['/bin/ps', '/usr/bin/ps', 'ps']
+const SH = ['/bin/sh', '/usr/bin/sh', 'sh']
 
 async function readText($: Engine, path: string): Promise<string | undefined> {
   try {
@@ -171,13 +184,111 @@ function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: 
   return effects.map(effect => st.sender.push(effect, limitMs, io, now, heartbeat))
 }
 
+async function restore($: Engine, st: ModState): Promise<void> {
+  const snap = parseSnapshot((await $.state.get(SNAPSHOT)).value)
+  if (!snap) return
+  const now = await $.clock.now()
+  st.tracker.restore(snap.sessions)
+  st.sender.restore(snap.strays, now)
+  if (st.permissionMode === '') st.permissionMode = snap.permissionMode
+  if (st.t3 === 'unknown' && snap.t3 !== '') st.t3 = snap.t3
+}
+
+function ready($: Engine, st: ModState): Promise<void> {
+  st.restored ??= quietly(() => restore($, st))
+  return st.restored
+}
+
+function snapshot(st: ModState): Snapshot {
+  return {
+    v: 1,
+    sessions: st.tracker.entries(),
+    strays: st.sender.entries(),
+    permissionMode: st.permissionMode,
+    t3: st.t3 === 'unknown' ? '' : st.t3,
+  }
+}
+
+function persist($: Engine, st: ModState): void {
+  st.dirty = true
+  if (st.saving) return
+  st.saving = true
+  void (async () => {
+    try {
+      while (st.dirty) {
+        st.dirty = false
+        await quietly(async () => void (await $.state.set(SNAPSHOT, snapshot(st))))
+      }
+    } finally {
+      st.saving = false
+    }
+  })()
+}
+
+async function runFirst($: Engine, argvs: string[][], timeoutMs: number): Promise<string | undefined> {
+  for (const argv of argvs) {
+    try {
+      const r = await $.process.run(argv, { timeoutMs })
+      if (r.exitCode === 0) return r.stdout
+    } catch {
+      continue
+    }
+  }
+  return undefined
+}
+
+function t3Probe($: Engine): T3Probe {
+  const limit = T3_PROBE_BUDGET_MS
+  return {
+    isSDK: async () =>
+      (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === 'sdk-ts' || ((await $.env.get('CLAUDE_AGENT_SDK_VERSION')) ?? '') !== '',
+    start: async () => {
+      const out = await runFirst($, SH.map(sh => [sh, '-c', 'echo $PPID']), limit)
+      const pid = Number((out ?? '').trim())
+      return Number.isInteger(pid) && pid > 0 ? pid : undefined
+    },
+    info: async pid => {
+      const out = await runFirst($, PS.map(ps => [ps, '-o', 'ppid=,comm=', '-p', String(pid)]), limit)
+      return out === undefined ? undefined : parsePsInfo(out)
+    },
+    argv: async pid => {
+      const proc = await runFirst($, SH.map(sh => [sh, '-c', 'tr "\\0" "\\n" < /proc/$1/cmdline', 'sh', String(pid)]), limit)
+      if (proc !== undefined && proc.trim() !== '') return proc.replace(/\n$/, '').split('\n')
+      const comm = await runFirst($, PS.map(ps => [ps, '-ww', '-o', 'comm=', '-p', String(pid)]), limit)
+      const args = await runFirst($, PS.map(ps => [ps, '-ww', '-o', 'args=', '-p', String(pid)]), limit)
+      return comm === undefined || args === undefined || args.trim() === '' ? undefined : argvFromPs(comm, args)
+    },
+  }
+}
+
+async function silencedByT3($: Engine, st: ModState, cfg: Config): Promise<boolean> {
+  if (st.t3 === 'yes') return true
+  if (st.t3 === 'no') return false
+  const now = await $.clock.now()
+  if (st.t3TriedAt !== undefined && now - st.t3TriedAt < T3_RETRY_MS) return false
+  st.t3TriedAt = now
+  st.t3 = await bounded(detectT3(t3Probe($)), $.clock.sleep(T3_PROBE_BUDGET_MS), 'unknown' as T3Verdict).catch(() => 'unknown' as T3Verdict)
+  if (st.t3 !== 'yes') {
+    if (st.t3 === 'no') persist($, st)
+    return false
+  }
+  const gone = [...st.tracker.sessions.keys()]
+  st.tracker.sessions.clear()
+  for (const id of gone) emit($, st, cfg, [{ method: 'DELETE', body: { source: cfg.source, tool: 'claude', session: id } }], cfg.hookTimeoutMs, now)
+  persist($, st)
+  return true
+}
+
 async function track($: Engine, st: ModState, rawSession: string, cwd: string, step: Step): Promise<void> {
   start($, st, false)
+  await ready($, st)
   const cfg = await liveConfig($, st)
   if (!cfg) return
+  if (await silencedByT3($, st, cfg)) return
   const id = await sessionID(rawSession, cwd)
   const now = await $.clock.now()
   emit($, st, cfg, step(cfg, now, id), cfg.hookTimeoutMs, now)
+  persist($, st)
 }
 
 async function trackLive($: Engine, st: ModState, step: (cfg: Config, now: number, id: string, cwd: string) => Effect[]): Promise<void> {
@@ -190,21 +301,28 @@ async function beat($: Engine, st: ModState): Promise<void> {
   if (st.beating) return
   st.beating = true
   try {
+    await ready($, st)
     await quietly(() => load($, st))
     const cfg = st.config
     const now = await $.clock.now()
-    if (cfg) emit($, st, cfg, st.tracker.tick(cfg, now), TICK_SEND_TIMEOUT_MS, now, true)
+    if (cfg && st.t3 !== 'yes') {
+      emit($, st, cfg, st.tracker.tick(cfg, now), TICK_SEND_TIMEOUT_MS, now, true)
+      persist($, st)
+    }
   } finally {
     st.beating = false
   }
 }
 
 async function endSession($: Engine, st: ModState, rawSession: string, cwd: string, reason: string): Promise<void> {
+  await ready($, st)
   const cfg = await liveConfig($, st)
   if (!cfg) return
+  if (await silencedByT3($, st, cfg)) return
   const id = await sessionID(rawSession, cwd)
   const now = await $.clock.now()
   const sent = emit($, st, cfg, st.tracker.sessionEnd(cfg, id, reason), cfg.hookTimeoutMs, now)
+  persist($, st)
   if (sent.length === 0) return
   await Promise.race([Promise.all(sent), $.clock.sleep(SESSION_END_BUDGET_MS)])
 }
@@ -242,6 +360,11 @@ export const register: Register = on => {
     interactive: false,
     permissionMode: '',
     heartbeat: undefined,
+    restored: undefined,
+    saving: false,
+    dirty: false,
+    t3: 'unknown',
+    t3TriedAt: undefined,
   }
   const t = st.tracker
 
@@ -253,8 +376,10 @@ export const register: Register = on => {
 
   on('classic.SessionStart', async ($, e, next) => {
     await quietly(async () => {
+      await ready($, st)
       noteMode(st, e.permission_mode)
       t.sessionStart(await sessionID(e.session_id, e.cwd), e.source)
+      persist($, st)
     })
     return next(e)
   }).catch(($, e, next) => next(e))
