@@ -77,6 +77,7 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
     usageCalls: 0,
     usageHold: undefined as Gate | undefined,
     sessionIdFails: false,
+    psHold: undefined as Gate | undefined,
   }
   mock.env(on, { HOME, ...extraEnv })
   const clock = mock.clock(on, { now: 1_000_000 })
@@ -91,7 +92,7 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
       ? { value: { kind: 'file' as const, size: envFile.text.length, mtimeMs: 0, isLink: envFile.isLink } }
       : { deny: 'ENOENT' },
   )
-  on('process.run', ($, e) => {
+  on('process.run', async ($, e) => {
     ctl.runs.push([...e.argv])
     const bin = e.argv[0] ?? ''
     if (/(^|\/)(scutil|hostname)$/.test(bin)) {
@@ -105,6 +106,7 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
     }
     if (/(^|\/)ps$/.test(bin)) {
       ctl.psCalls++
+      if (ctl.psHold) await ctl.psHold.wait
       const proc = ctl.procs[e.argv[e.argv.length - 1] ?? '']
       if (!proc) return ran('', 1)
       if (e.argv.includes('ppid=,comm=')) return ran(`${proc.ppid} ${proc.comm}\n`)
@@ -664,6 +666,28 @@ test('a failed process lookup reports the session, and a later one that finds T3
   await $.classic.Stop(STOP)
   await clock.settle()
   expect(sent).toHaveLength(count)
+})
+
+test('an event that arrives while the T3 lookup runs waits for its verdict and posts nothing when it is T3', async ($, on) => {
+  const { sent, clock, ctl } = world(on, TRUSTED, SDK_ENV)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent.map(s => s.method)).toEqual(['POST'])
+  ctl.procs = t3Tree(T3_SERVER)
+  await clock.advance(30_000)
+  const held = gate()
+  ctl.psHold = held
+  const posted = sent.length
+  const first = $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  const second = $.classic.Stop(STOP)
+  await clock.settle()
+  expect(sent).toHaveLength(posted)
+  held.open()
+  await Promise.all([first, second])
+  await clock.settle()
+  expect(sent.slice(posted).map(s => s.method)).toEqual(['DELETE'])
 })
 
 function agentRows(status: string, waitingFor = '', sessionId = 'sess-1'): string {

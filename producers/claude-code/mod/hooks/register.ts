@@ -64,6 +64,7 @@ type ModState = {
   dirty: boolean
   t3: T3Verdict
   t3TriedAt: number | undefined
+  t3Lookup: Promise<boolean> | undefined
   readingSeq: number
   appliedSeq: number
 }
@@ -388,12 +389,7 @@ function t3Probe($: Engine): T3Probe {
   }
 }
 
-async function silencedByT3($: Engine, st: ModState, cfg: Config): Promise<boolean> {
-  if (st.t3 === 'yes') return true
-  if (st.t3 === 'no') return false
-  const now = await $.clock.now()
-  if (st.t3TriedAt !== undefined && now - st.t3TriedAt < T3_RETRY_MS) return false
-  st.t3TriedAt = now
+async function lookupT3($: Engine, st: ModState, cfg: Config, now: number): Promise<boolean> {
   st.t3 = await bounded(detectT3(t3Probe($)), $.clock.sleep(T3_PROBE_BUDGET_MS), 'unknown' as T3Verdict).catch(() => 'unknown' as T3Verdict)
   if (st.t3 !== 'yes') {
     if (st.t3 === 'no') persist($, st)
@@ -404,6 +400,22 @@ async function silencedByT3($: Engine, st: ModState, cfg: Config): Promise<boole
   for (const id of gone) emit($, st, cfg, [{ method: 'DELETE', body: { source: cfg.source, tool: 'claude', session: id } }], cfg.hookTimeoutMs, now)
   persist($, st)
   return true
+}
+
+async function silencedByT3($: Engine, st: ModState, cfg: Config): Promise<boolean> {
+  if (st.t3 === 'yes') return true
+  if (st.t3 === 'no') return false
+  const now = await $.clock.now()
+  if (st.t3Lookup) return st.t3Lookup
+  if (st.t3TriedAt !== undefined && now - st.t3TriedAt < T3_RETRY_MS) return false
+  st.t3TriedAt = now
+  const lookup = lookupT3($, st, cfg, now)
+  st.t3Lookup = lookup
+  try {
+    return await lookup
+  } finally {
+    st.t3Lookup = undefined
+  }
 }
 
 async function track($: Engine, st: ModState, rawSession: string, cwd: string, step: Step): Promise<void> {
@@ -511,6 +523,7 @@ export const register: Register = on => {
     dirty: false,
     t3: 'unknown',
     t3TriedAt: undefined,
+    t3Lookup: undefined,
     readingSeq: 0,
     appliedSeq: 0,
   }
