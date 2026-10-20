@@ -148,6 +148,11 @@ public struct KnobWeatherLive: View {
         self.brightness = brightness
     }
 
+    static func rest(_ face: KnobFace, animated: Bool, reduceMotion: Bool) -> (t: Double?, drift: Double?) {
+        guard animated, reduceMotion, case .weather = face else { return (nil, nil) }
+        return (KnobArrive.subRestS, 0)
+    }
+
     static func ticks(_ motion: KnobWeatherMotion, animated: Bool, onScreen: Bool, windowVisible: Bool) -> Bool {
         animated && onScreen && windowVisible && motion != .still
     }
@@ -161,7 +166,8 @@ public struct KnobWeatherLive: View {
                 }
                 .id(since)
             } else {
-                KnobFaceView(face, theme: theme, brightness: brightness).equatable()
+                let rest = Self.rest(face, animated: animated, reduceMotion: reduceMotion)
+                KnobFaceView(face, theme: theme, brightness: brightness, t: rest.t, drift: rest.drift).equatable()
             }
         }
         .onAppear { visible = true }

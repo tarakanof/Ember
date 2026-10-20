@@ -2,6 +2,8 @@ import CoreGraphics
 import Foundation
 
 public struct KnobTempFace: Equatable, Sendable {
+    public enum Hero: Sendable, Equatable { case none, sun, moon, moonSmall }
+
     public var value: Int?
     public var still: Bool
     public var lo: Int
@@ -10,9 +12,14 @@ public struct KnobTempFace: Equatable, Sendable {
     public var sub: String
     public var subColor: RGB?
     public var cloudBand: Int?
+    public var night = false
+    public var hero = Hero.none
+    public var moonPhase = 0
+    public var moonIllum = 0
+    public var stars = false
 
     public init(value: Double?, still: Bool = false, todayMinC: Double? = nil, todayMaxC: Double? = nil, sub: String = "",
-                subColor: RGB? = nil, cloudBand: Int? = nil,
+                subColor: RGB? = nil, cloudBand: Int? = nil, night: Bool = false, moon: WeatherState.Faces.Moon? = nil,
                 scale: KnobTheme.Weather.Scale = KnobTheme.standard.weather.scale) {
         self.still = still
         lo = Int(scale.loC)
@@ -28,6 +35,7 @@ public struct KnobTempFace: Equatable, Sendable {
         self.sub = sub
         self.subColor = subColor
         self.cloudBand = cloudBand
+        placeSky(night: night, moon: moon)
         if let mn = todayMinC, let mx = todayMaxC, mn.isFinite, mx.isFinite {
             hasRange = true
             lo = min(Self.whole(mn), v)
@@ -49,7 +57,23 @@ public struct KnobTempFace: Equatable, Sendable {
         let advice = look.night ? nil : uv.flatMap { Self.uvAdvice($0, theme.uv) }
         self.init(value: cur?.tempC, still: look.still, todayMinC: cur?.todayMinC, todayMaxC: cur?.todayMaxC,
                   sub: advice ?? Self.sky(look, band: cloud == nil ? nil : band),
-                  subColor: advice == nil ? nil : uv.map { Self.uvColor($0, theme.uv) }, cloudBand: band, scale: theme.scale)
+                  subColor: advice == nil ? nil : uv.map { Self.uvColor($0, theme.uv) }, cloudBand: band, night: look.night,
+                  moon: state?.faces?.moon, scale: theme.scale)
+    }
+
+    static let illumStep = 5
+
+    private mutating func placeSky(night: Bool, moon: WeatherState.Faces.Moon?) {
+        guard let band = cloudBand else { return }
+        self.night = night
+        if !night {
+            if band <= 1 { hero = .sun }
+        } else if let moon, moon.up == true, (0...99).contains(moon.phasePct), (0...100).contains(moon.illumPct), band < 4 {
+            hero = band < 3 ? .moon : .moonSmall
+            moonPhase = moon.phasePct
+            moonIllum = (moon.illumPct + Self.illumStep / 2) / Self.illumStep * Self.illumStep
+        }
+        stars = night && band <= 1
     }
 
     static func reading(_ v: Double?, max: Int) -> Int? {

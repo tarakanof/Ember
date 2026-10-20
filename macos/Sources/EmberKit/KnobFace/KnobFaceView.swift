@@ -33,9 +33,10 @@ public struct KnobFaceView: View, Equatable {
     let theme: KnobTheme
     let brightness: Double
     let t: Double?
+    let drift: Double?
 
-    public init(_ face: KnobFace, theme: KnobTheme = .standard, brightness: Double = 1, t: Double? = nil) {
-        self.face = face; self.theme = theme; self.brightness = brightness; self.t = t
+    public init(_ face: KnobFace, theme: KnobTheme = .standard, brightness: Double = 1, t: Double? = nil, drift: Double? = nil) {
+        self.face = face; self.theme = theme; self.brightness = brightness; self.t = t; self.drift = drift
         _ = KnobFaceRender.fontRegistered
     }
 
@@ -52,7 +53,7 @@ public struct KnobFaceView: View, Equatable {
             case .bot(let pose, let mood, let glint): KnobFaceRender.bot(pose, mood, glint: glint, theme, in: &ctx)
             case .pomodoro(let p): KnobFaceRender.pomodoro(p, theme, in: &ctx)
             case .nowPlaying(let n): KnobFaceRender.nowPlaying(n, theme, in: &ctx)
-            case .weather(let f): KnobFaceRender.weather(f, theme, t: t, in: &ctx)
+            case .weather(let f): KnobFaceRender.weather(f, theme, t: t, drift: drift, in: &ctx)
             case .rain(let f): KnobFaceRender.rain(f, theme, t: t, in: &ctx)
             case .cast(let f): KnobFaceRender.cast(f, theme, t: t, in: &ctx)
             case .wind(let f): KnobFaceRender.wind(f, theme, t: t, in: &ctx)
@@ -379,11 +380,12 @@ enum KnobFaceRender {
         }
     }
 
-    static func weather(_ f: KnobTempFace, _ theme: KnobTheme, t: Double? = nil, in ctx: inout GraphicsContext) {
+    static func weather(_ f: KnobTempFace, _ theme: KnobTheme, t: Double? = nil, drift: Double? = nil, in ctx: inout GraphicsContext) {
         let w = theme.weather, th = w.thermo
         let c = theme.screen.diameterPx / 2
         func disc(_ p: CGPoint, _ r: Double) -> Path { Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)) }
 
+        if t != nil { tempSkyBack(f, in: &ctx) }
         for k in 0..<w.dots.faces {
             ctx.fill(disc(KnobTempFace.dotPoint(k, w.dots, center: c), w.dots.dotRadiusPx),
                      with: .color(Color(k == KnobWeatherFaceID.temp.dot ? w.dots.onColor : w.dots.offColor)))
@@ -409,6 +411,7 @@ enum KnobFaceRender {
         } else {
             ctx.stroke(arc, with: ringShading(f, w, center: c), style: ringStyle)
         }
+        if let t { tempSkyFront(f, t: t, drift: drift ?? t - KnobArrive.seconds, in: &ctx) }
 
         let merc = f.valueColor(w, t: t)
         let top = f.mercuryTop(th, t: t)

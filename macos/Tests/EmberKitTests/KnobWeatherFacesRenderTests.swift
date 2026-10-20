@@ -391,6 +391,9 @@ private func sunFixture() -> (WeatherState, Date) {
 
 @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["KNOB_BENCH"] != nil))
 func weatherFacesDrawCostVersusTemp() throws {
+    let built = ContinuousClock.now
+    _ = KnobFaceRender.tempRays
+    print("KNOB_BENCH temp rays raster built once in \(String(format: "%.1f", (ContinuousClock.now - built) / .milliseconds(1)))ms")
     let (s, at) = sunFixture()
     var cast = KnobCastFace()
     cast.have = true; cast.hasCount = true; cast.hours = true; cast.count = 2; cast.variant = 3; cast.nowDeg = 75; cast.labelDeg = 110
@@ -408,10 +411,22 @@ func weatherFacesDrawCostVersusTemp() throws {
         ("cast", .cast(cast)), ("wind", .wind(wind)), ("days", .days(days)),
         ("sun", .sun(KnobSunFace(state: s, now: at))), ("air", .air(air)),
     ]
+    let moon = WeatherState.Faces.Moon(phasePct: 80, illumPct: 30, up: true)
+    let skies: [(String, KnobFace)] = [
+        ("temp-sun", .weather(KnobTempFace(value: 12, todayMinC: 6, todayMaxC: 15, sub: "Mostly sunny", cloudBand: 1))),
+        ("temp-moon", .weather(KnobTempFace(value: 12, todayMinC: 6, todayMaxC: 15, sub: "Clear", cloudBand: 0, night: true, moon: moon))),
+        ("temp-overcast", .weather(KnobTempFace(value: 12, todayMinC: 6, todayMaxC: 15, sub: "Overcast", cloudBand: 4))),
+    ]
     for t in [nil, 0.5, 1.4] as [Double?] {
         var report = ""
-        for (name, f) in faces { report += "\(name)=\(String(format: "%.2f", try drawCost(f, t: t, n: 300)))ms " }
+        for (name, f) in faces + skies { report += "\(name)=\(String(format: "%.2f", try drawCost(f, t: t, n: 300)))ms " }
         print("KNOB_BENCH t=\(t.map { String($0) } ?? "rest") \(report)")
+    }
+    for t in [60.0, 600, 3600] {
+        let replay = KnobTempDrift(KnobTempSky.bands[4]), t0 = ContinuousClock.now
+        for _ in 0..<20 { _ = replay.offsets(t: t - KnobArrive.seconds) }
+        let drift = (ContinuousClock.now - t0) / .milliseconds(20)
+        print("KNOB_BENCH t=\(Int(t)) temp-overcast=\(String(format: "%.2f", try drawCost(skies[2].1, t: t, n: 20)))ms drift-replay=\(String(format: "%.2f", drift))ms")
     }
 }
 
