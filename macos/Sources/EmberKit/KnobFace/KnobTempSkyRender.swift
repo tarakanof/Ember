@@ -34,14 +34,15 @@ extension KnobFaceRender {
 
     static func skyCloud(_ cl: KnobTempSky.Cloud) -> Path {
         guard let pts = KnobTempSky.shape(cl) else { return Path() }
-        var puffs = Path()
-        for q in cl.puffs {
-            let x = Double(q.x), y = Double(q.y), r = Double(q.r)
-            puffs.addEllipse(in: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r))
+        var p = Path()
+        p.move(to: CGPoint(x: Double(pts[0].x), y: Double(pts[0].y)))
+        for (k, q) in cl.puffs.enumerated() {
+            let c = CGPoint(x: Double(q.x), y: Double(q.y))
+            func angle(_ v: SIMD2<Float>) -> Angle { .radians(atan2(Double(v.y) - c.y, Double(v.x) - c.x)) }
+            p.addArc(center: c, radius: Double(q.r), startAngle: angle(pts[k]), endAngle: angle(pts[k + 1]), clockwise: false)
         }
-        var poly = polyline(pts.map { CGPoint(x: Double($0.x), y: Double($0.y)) })
-        poly.closeSubpath()
-        return puffs.union(poly).intersection(Path(CGRect(x: -1000, y: -1000, width: 3000, height: 1000 + Double(cl.base))))
+        p.closeSubpath()
+        return p
     }
 
     static func rimMask(_ from: Float, in ctx: inout GraphicsContext) {
@@ -113,7 +114,9 @@ extension KnobFaceRender {
         let side = Path(CGRect(x: m.waxing ? c.x : c.x - r - 1, y: c.y - r - 1, width: r + 1, height: 2 * r + 2))
         let lens = CGRect(x: c.x - rx, y: c.y - r, width: 2 * rx, height: 2 * r)
         let ell = m.rx < 0.5 ? Path(lens) : Path(ellipseIn: lens)
-        let lit = m.illum < 0.5 ? side.intersection(body).subtracting(ell) : side.union(ell).intersection(body)
+        let light = GraphicsContext.Shading.radialGradient(Gradient(colors: [Color(KnobTempSky.moonLight), Color(KnobTempSky.moonShade)]),
+                                                           center: CGPoint(x: Double(m.lightX), y: Double(m.lightY)), startRadius: 0,
+                                                           endRadius: Double(m.lightR))
         var g = ctx
         rimMask(KnobTempSky.heroFade, in: &g)
         g.opacity = Double(opa) / 255
@@ -123,9 +126,10 @@ extension KnobFaceRender {
                                                                                    .init(color: glow.opacity(0), location: 1)]),
                                                                   center: c, startRadius: 0, endRadius: Double(m.glowR)))
             l.fill(body, with: .color(.black))
-            let lc = CGPoint(x: Double(m.lightX), y: Double(m.lightY))
-            l.fill(lit, with: .radialGradient(Gradient(colors: [Color(KnobTempSky.moonLight), Color(KnobTempSky.moonShade)]),
-                                              center: lc, startRadius: 0, endRadius: Double(m.lightR)))
+            var lit = l
+            lit.clip(to: body)
+            lit.fill(side, with: light)
+            lit.fill(ell, with: m.illum < 0.5 ? .color(.black) : light)
         }
     }
 }

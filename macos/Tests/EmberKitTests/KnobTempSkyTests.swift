@@ -91,6 +91,12 @@ private func sky(_ band: Int, night: Bool = false, moon m: WeatherState.Faces.Mo
         for (i, cl) in band.clouds.enumerated() {
             let pts = try #require(KnobTempSky.shape(cl), "band \(b + 1) cloud \(i)")
             #expect(pts.flatMap { [$0.x.bitPattern, $0.y.bitPattern] } == cShapes[b][i], "band \(b + 1) cloud \(i)")
+            let path = KnobFaceRender.tempCloudPaths[b + 1][i], box = path.boundingRect
+            #expect(path == KnobFaceRender.skyCloud(cl), "prebuilt")
+            let top = cl.puffs.map { Double($0.y - $0.r) }.min() ?? 0
+            let left = cl.puffs.map { Double($0.x - $0.r) }.min() ?? 0, right = cl.puffs.map { Double($0.x + $0.r) }.max() ?? 0
+            #expect(abs(box.maxY - Double(cl.base)) < 0.05 && abs(box.minY - top) < 0.05 && box.minX >= left - 0.05 && box.maxX <= right + 0.05,
+                    "band \(b + 1) cloud \(i): the outline runs from the highest puff down to the base, inside the puffs")
         }
     }
     #expect(KnobTempSky.shape(.init(back: false, base: 100, puffs: [.init(x: 0, y: 0, r: 10)])) == nil, "a puff above the base is no cloud")
