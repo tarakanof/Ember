@@ -61,6 +61,7 @@ type ModState = {
   claudeBin: string | undefined
   restored: Promise<void> | undefined
   saving: boolean
+  saved: string | undefined
   dirty: boolean
   t3: T3Verdict
   t3TriedAt: number | undefined
@@ -238,7 +239,13 @@ function persist($: Engine, st: ModState): void {
     try {
       while (st.dirty) {
         st.dirty = false
-        await quietly(async () => void (await $.state.set(SNAPSHOT, snapshot(st))))
+        const snap = snapshot(st)
+        const text = JSON.stringify(snap)
+        if (text === st.saved) continue
+        await quietly(async () => {
+          await $.state.set(SNAPSHOT, snap)
+          st.saved = text
+        })
       }
     } finally {
       st.saving = false
@@ -527,6 +534,7 @@ export const register: Register = on => {
     claudeBin: undefined,
     restored: undefined,
     saving: false,
+    saved: undefined,
     dirty: false,
     t3: 'unknown',
     t3TriedAt: undefined,

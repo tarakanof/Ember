@@ -722,6 +722,20 @@ test('on macOS the T3 probe never tries /proc through a shell', async ($, on) =>
   expect(ctl.runs.filter(argv => argv.some(a => a.includes('/proc')))).toEqual([])
 })
 
+test('heartbeats with nothing changed do not rewrite the $.state snapshot', async ($, on) => {
+  const held = heldState(on)
+  const { clock } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  const written = held.version
+  expect(written).toBeGreaterThan(0)
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  expect(held.version).toBe(written)
+})
+
 function agentRows(status: string, waitingFor = '', sessionId = 'sess-1'): string {
   return JSON.stringify([{ pid: 7, kind: 'interactive', sessionId, cwd: `${HOME}/proj`, status, waitingFor }])
 }
