@@ -94,6 +94,28 @@ func (a *knobApps) clone() *knobApps {
 	return out
 }
 
+func (s *knobSettings) pruneEmptyV2() {
+	if i := s.Idle; i != nil && i.DimAfterS == nil && i.DimLevel == nil && i.OffAfterS == nil {
+		s.Idle = nil
+	}
+	a := s.Apps
+	if a == nil {
+		return
+	}
+	if p := a.Pomodoro; p != nil && p.FocusColor == nil && p.BreakColor == nil {
+		a.Pomodoro = nil
+	}
+	if w := a.Weather; w != nil && w.Faces == nil {
+		a.Weather = nil
+	}
+	if n := a.NowPlaying; n != nil && n.DimAfterS == nil {
+		a.NowPlaying = nil
+	}
+	if a.Pomodoro == nil && a.Weather == nil && a.NowPlaying == nil {
+		s.Apps = nil
+	}
+}
+
 func (s *knobSettings) normalizeColors() {
 	if s.Apps == nil || s.Apps.Pomodoro == nil {
 		return
@@ -137,9 +159,12 @@ func (s knobSettings) validateApps() error {
 		return nil
 	}
 	if p := a.Pomodoro; p != nil {
-		for field, c := range map[string]*string{"apps.pomodoro.focus_color": p.FocusColor, "apps.pomodoro.break_color": p.BreakColor} {
-			if c != nil && !knobColorPattern.MatchString(*c) {
-				return fmt.Errorf("%s %q must match %s", field, *c, knobColorPattern)
+		for _, f := range []struct {
+			name string
+			v    *string
+		}{{"apps.pomodoro.focus_color", p.FocusColor}, {"apps.pomodoro.break_color", p.BreakColor}} {
+			if f.v != nil && !knobColorPattern.MatchString(*f.v) {
+				return fmt.Errorf("%s %q must match %s", f.name, *f.v, knobColorPattern)
 			}
 		}
 	}

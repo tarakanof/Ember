@@ -465,7 +465,7 @@ func TestKnobConfigUnaffectedByClockRecord(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	m := mintKnob(t, srv, http.StatusCreated)
 	registeredClock(t, a, srv)
-	resp, b := devReq(t, srv, "PUT", "/v1/devices/"+m.ID+"/config", testToken, `{"icon_ids":[]}`)
+	resp, b := devReq(t, srv, "PUT", "/v1/devices/"+m.ID+"/config", testToken, `{"schema":1}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("knob PUT with a clock key = %d: %s", resp.StatusCode, b)
 	}

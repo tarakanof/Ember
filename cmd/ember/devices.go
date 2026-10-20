@@ -754,6 +754,7 @@ func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
 		return cur, fmt.Errorf("%w: %w", errSettingBody, err)
 	}
 	cur.normalizeColors()
+	cur.pruneEmptyV2()
 	cur.fillFlagDefaults()
 	cur.addKnownPages()
 	return cur, nil

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -122,34 +123,52 @@ func TestKnobV2MergeFieldByField(t *testing.T) {
 	}
 }
 
+const preV2StoredConfig = `{"brightness":{"follow_ember":false,"level":200,"floor":20,"startup":120},` +
+	`"pages":[{"id":"pomodoro","on":true},{"id":"bot","on":true},{"id":"nowplaying","on":true},{"id":"weather","on":false},{"id":"future-page","on":false}],` +
+	`"home":"pomodoro","swipe_pages":false,"poll_ms":3000,` +
+	`"bot":{"sleepy_after_s":600,"demo_hold_s":30,"source_label":false,"working_ring":false,"weather_moments":false,"weather_every_min":0},` +
+	`"diagnostics":"basic","stats_interval_s":120,"live_interval_s":2,"display":{"fast_link":false,"rotation":180},"quiet":{"calm":false,"dim_level":5}}`
+
 func TestKnobV2AbsentKeepsLegacyBytes(t *testing.T) {
-	f := newViewFixture(t)
-	stored := defaultKnobSettings()
-	legacy, err := json.Marshal(stored)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(legacy), `"idle"`) || strings.Contains(string(legacy), `"apps"`) {
-		t.Fatalf("an unset v2 block shows on the wire: %s", legacy)
-	}
 	var back knobSettings
-	if err := json.Unmarshal(legacy, &back); err != nil {
+	if err := json.Unmarshal([]byte(preV2StoredConfig), &back); err != nil {
 		t.Fatal(err)
 	}
 	back.fillDefaults()
 	again, _ := json.Marshal(back)
-	if string(again) != string(legacy) {
-		t.Fatalf("load/save changed the bytes\n got %s\nwant %s", again, legacy)
+	if string(again) != preV2StoredConfig {
+		t.Fatalf("load/save changed the bytes\n got %s\nwant %s", again, preV2StoredConfig)
 	}
-	_, v0, _ := f.app.devices.config(f.m.ID)
-	resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, `{}`)
-	mustOK(t, "empty put", resp, b)
-	cfg, v1, _ := f.app.devices.config(f.m.ID)
-	if v1 != v0 {
-		t.Fatalf("config_version %d -> %d on a no-op PUT", v0, v1)
+	f := newViewFixture(t)
+	putKnobConfig(t, f.srv, f.m.ID, preV2StoredConfig)
+	for _, patch := range []string{`{}`, `{"idle":{}}`, `{"idle":null}`, `{"apps":{}}`, `{"apps":{"pomodoro":{}}}`,
+		`{"apps":{"weather":{"faces":null}}}`, `{"apps":{"pomodoro":{"focus_color":null,"break_color":null}}}`} {
+		_, v0, _ := f.app.devices.config(f.m.ID)
+		resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, patch)
+		mustOK(t, patch, resp, b)
+		cfg, v1, _ := f.app.devices.config(f.m.ID)
+		if v1 != v0 {
+			t.Fatalf("%s: config_version %d -> %d", patch, v0, v1)
+		}
+		if now, _ := json.Marshal(cfg); string(now) != preV2StoredConfig {
+			t.Fatalf("%s: stored config changed\n got %s\nwant %s", patch, now, preV2StoredConfig)
+		}
 	}
-	if now, _ := json.Marshal(cfg); string(now) != string(legacy) {
-		t.Fatalf("stored config changed\n got %s\nwant %s", now, legacy)
+}
+
+func TestKnobV2ClearingTheLastFieldReturnsToAbsent(t *testing.T) {
+	cur := defaultKnobSettings()
+	legacy, _ := json.Marshal(cur)
+	got, err := mergeKnobSettings(cur.clone(), []byte(`{"idle":{"dim_level":40},"apps":{"pomodoro":{"focus_color":"#aabbcc"},"weather":{"faces":["sun"]},"nowplaying":{"dim_after_s":60}}}`))
+	if err != nil || got.Idle == nil || got.Apps == nil {
+		t.Fatalf("set: %v %+v", err, got)
+	}
+	got, err = mergeKnobSettings(got.clone(), []byte(`{"idle":{"dim_level":null},"apps":{"pomodoro":{"focus_color":null},"weather":{"faces":null},"nowplaying":{"dim_after_s":null}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if now, _ := json.Marshal(got); string(now) != string(legacy) {
+		t.Fatalf("clearing every field left residue\n got %s\nwant %s", now, legacy)
 	}
 }
 
@@ -171,13 +190,11 @@ func maxV2Settings() knobSettings {
 	s.Idle = &knobIdle{DimAfterS: new(86399), DimLevel: new(255), OffAfterS: new(86400)}
 	s.Apps = &knobApps{
 		Pomodoro:   &knobPomoApp{FocusColor: new("#FFFFFF"), BreakColor: new("#FFFFFF")},
-		Weather:    &knobWeatherApp{Faces: slicesCloneStrings(knobWeatherFaces)},
+		Weather:    &knobWeatherApp{Faces: slices.Clone(knobWeatherFaces)},
 		NowPlaying: &knobNPApp{DimAfterS: new(1800)},
 	}
 	return s
 }
-
-func slicesCloneStrings(in []string) []string { return append([]string(nil), in...) }
 
 func jsonDepth(v any) int {
 	switch x := v.(type) {
@@ -197,6 +214,26 @@ func jsonDepth(v any) int {
 	return 0
 }
 
+const cinderConfigMaxDepth = 4
+
+func configDepth(t *testing.T, b []byte) int {
+	t.Helper()
+	var tree any
+	if err := json.Unmarshal(b, &tree); err != nil {
+		t.Fatal(err)
+	}
+	return jsonDepth(tree)
+}
+
+func TestConfigDepthCountsConfigAsLevelOne(t *testing.T) {
+	if d := configDepth(t, []byte(`{"a":[{"b":{}},1]}`)); d != cinderConfigMaxDepth {
+		t.Fatalf("cinder's kept fixture has depth %d, want %d", d, cinderConfigMaxDepth)
+	}
+	if d := configDepth(t, []byte(`{"a":[{"b":{"c":1}}],"apps":{"weather":{"faces":[{"x":1}]}}}`)); d <= cinderConfigMaxDepth {
+		t.Fatalf("a 5-level config has depth %d, want over %d", d, cinderConfigMaxDepth)
+	}
+}
+
 func TestKnobV2LargestConfigFitsDepthAndSize(t *testing.T) {
 	s := maxV2Settings()
 	if err := s.validate(); err != nil {
@@ -209,12 +246,8 @@ func TestKnobV2LargestConfigFitsDepthAndSize(t *testing.T) {
 	if len(b) > cinderCfgSettingsMax {
 		t.Fatalf("the largest valid v2 config is %d B, over the knob's %d", len(b), cinderCfgSettingsMax)
 	}
-	var tree any
-	if err := json.Unmarshal(b, &tree); err != nil {
-		t.Fatal(err)
-	}
-	if d := jsonDepth(tree) - 1; d > 4 {
-		t.Fatalf("config nests %d levels below config, cinder drops more than 4", d)
+	if d := configDepth(t, b); d > cinderConfigMaxDepth {
+		t.Fatalf("config nests %d levels with config as level 1, cinder drops more than %d", d, cinderConfigMaxDepth)
 	}
 	t.Logf("largest valid v2 config: %d B of %d", len(b), cinderCfgSettingsMax)
 }
