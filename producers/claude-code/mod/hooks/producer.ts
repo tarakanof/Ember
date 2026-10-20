@@ -627,7 +627,7 @@ export class Tracker {
   }
 
   needsWatch(): boolean {
-    for (const s of this.sessions.values()) if (dialogWait(s) || this.resumedByWatch(s, this.seenNow)) return true
+    for (const s of this.sessions.values()) if (dialogWait(s) || this.recentlyResumed(s, this.seenNow)) return true
     return false
   }
 
@@ -644,7 +644,7 @@ export class Tracker {
     this.sightings.clear()
   }
 
-  private resumedByWatch(s: Session, now: number): boolean {
+  private recentlyResumed(s: Session, now: number): boolean {
     return s.state === 'running' && s.resumedAt !== 0 && s.hookAt === s.resumedAt && now - s.resumedAt <= RESUME_GRACE_MS
   }
 
@@ -655,7 +655,7 @@ export class Tracker {
       const row = rows.get(id)
       let want = ''
       if (row && dialogWait(s) && row.status === 'busy') want = 'running'
-      if (row && this.resumedByWatch(s, began) && row.status === 'waiting') want = 'waiting'
+      if (row && this.recentlyResumed(s, began) && row.status === 'waiting') want = 'waiting'
       if (want === '' || s.hookAt > began) {
         this.sightings.delete(id)
         continue
