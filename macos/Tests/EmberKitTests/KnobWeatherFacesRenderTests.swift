@@ -175,6 +175,32 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     }
 }
 
+@MainActor @Test func dayCloudOutlinesTheUnionNotItsParts() throws {
+    let d = w.days
+    let r = ImageRenderer(content: Canvas { ctx, _ in
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: 320, height: 320)), with: .color(.black))
+        ctx.scaleBy(x: 8, y: 8)
+        KnobFaceRender.dayIcon(.cloud, d, origin: .zero, in: &ctx)
+    }.frame(width: 320, height: 320))
+    r.scale = 1
+    let img = try #require(r.cgImage)
+    func at(_ x: Double, _ y: Double) -> RGB { pixel(img, Int((x * 8).rounded()), Int((y * 8).rounded())) }
+    #expect(near(at(19, 24), d.cloudLowFill, 6), "the body is the fill")
+    #expect(near(at(11.5, 25), d.cloudLowFill, 6), "no seam where one puff's rim runs inside another")
+    #expect(near(at(19, 30), d.cloudLowEdge, 6), "the flat base is edged")
+    #expect(near(at(19, 31.5), black, 6), "nothing hangs below the base")
+    #expect(near(at(19, 11), d.cloudLowEdge, 6), "the top puff is edged")
+}
+
+@Test func renderSourceHasNoPathBooleans() throws {
+    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Sources/EmberKit/KnobFace/KnobWeatherFacesRender.swift")
+    let src = try String(contentsOf: url, encoding: .utf8)
+    for op in ["subtracting", "union", "intersection", "symmetricDifference", "lineSubtracting", "lineIntersection", "normalized"] {
+        #expect(!src.contains(".\(op)("), "Path.\(op) differs between macOS 26 and 27; draw layers under a clip instead")
+    }
+}
+
 @MainActor @Test func sunFaceRendersTheDayGauge() throws {
     let (s, at) = sunFixture()
     let face = KnobSunFace(state: s, now: at)
