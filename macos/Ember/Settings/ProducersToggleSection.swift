@@ -110,6 +110,14 @@ struct ProducersToggleSection: View {
             case .both: Text("Hooks: the ember@ember plugin and ~/.claude/settings.json")
             case .none: Text("Hooks: none registered")
             }
+            if hooks.modEnabled {
+                if let source = hooks.modSource {
+                    Text("Also the ember-mod@ember mod, side by side, reporting as \(source)",
+                         comment: "Settings › Agents › Claude Code caption; the argument is the mod's source name, e.g. mbp-mod.")
+                } else {
+                    Text("Also the ember-mod@ember mod, with a host-name source")
+                }
+            }
             if hooks.killSwitch {
                 Text(reportingOn
                      ? "Paused by claude-hooks.disabled"

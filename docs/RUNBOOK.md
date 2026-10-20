@@ -173,7 +173,11 @@ off. `doctor` prints `claude agents cross-check: on (claude X at PATH)` or why
 it is inactive. The daemon log (`ember-tick.log`) records each correction.
 Settings › Agents shows the same thing under the Claude Code row ("Hooks: the
 ember@ember plugin", "~/.claude/settings.json", both, or none, plus "Paused"
-when the kill switch exists), reading the same files as `doctor`. With Claude
+when the kill switch exists, plus an "ember-mod@ember mod, side by side" line
+naming its source, `EMBER_MOD_SOURCE` or `<EMBER_SOURCE>-mod`, or "with a
+host-name source" when EMBER_SOURCE is unset), reading the same files as
+`doctor`. The mod beside the plugin is not "registered twice" (it posts under
+its own source); only the plugin plus settings.json hooks are. With Claude
 reporting on, registered twice, none (a plugin enabled only for a project
 isn't checked, as in `doctor`), or paused gets an orange warning and
 **Fix Hooks**, which runs the bundled `ember-claude-producer configure`; a
