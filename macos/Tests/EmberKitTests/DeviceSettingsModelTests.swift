@@ -270,6 +270,7 @@ private func ngServer() -> FakeClock {
     m.settings.draft.timeColor = nil
     m.settings.scheduleSave()
     await clock.advance(by: .milliseconds(600))
+    await eventually { m.settings.status == .saved }
     let put = try #require(fake.log.last { $0.method == "PUT" })
     #expect(put.path == "/v1/device/settings")
     #expect(put.body.count == 2)
@@ -279,6 +280,7 @@ private func ngServer() -> FakeClock {
     m.settings.draft.brightness = 10
     m.settings.scheduleSave()
     await clock.advance(by: .milliseconds(600))
+    await eventually { fake.log.filter { $0.method == "PUT" }.count == 2 }
     let second = try #require(fake.log.last { $0.method == "PUT" })
     #expect(second.body.count == 1)
     #expect(second.body["brightness"] as? Int == 10)
@@ -332,6 +334,7 @@ private func ngServer() -> FakeClock {
     m.settings.draft.alertVolume = 0
     m.settings.scheduleSave()
     await clock.advance(by: .milliseconds(600))
+    await eventually { m.settings.status == .saved }
     let put = try #require(fake.log.last { $0.method == "PUT" })
     #expect(put.body.count == 1)
     #expect(put.body["alertVolume"] as? Int == 0)
