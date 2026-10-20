@@ -358,3 +358,34 @@ func TestDeviceConfigGolden(t *testing.T) {
 	putKnobConfig(t, srv, m.ID, customKnobConfig)
 	assertDeviceGolden(t, "config_custom", get())
 }
+
+func TestDeviceConfigV2Golden(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	body, err := json.Marshal(maxV2Settings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	putKnobConfig(t, srv, m.ID, string(body))
+	resp, b := devReq(t, srv, "GET", "/v1/devices/self/config", m.Token, "")
+	assertDeviceGolden(t, "config_v2", mustOK(t, "self config", resp, b))
+}
+
+func TestDeviceCheckinConfigV2Golden(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	clk := &stepClock{now: time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)}
+	app.devices.now = clk.Now
+	m := mintKnob(t, srv, http.StatusCreated)
+	body, err := json.Marshal(maxV2Settings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	putKnobConfig(t, srv, m.ID, string(body))
+	minimal, _, _ := goldenCheckinRequests(t)
+	req, err := json.Marshal(minimal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, string(req))
+	assertDeviceGolden(t, "checkin_reply_config_v2", mustOK(t, "checkin", resp, b))
+}

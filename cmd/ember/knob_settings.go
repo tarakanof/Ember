@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 )
 
 var knobPageIDs = []string{"bot", "pomodoro", "weather", "nowplaying"}
@@ -28,6 +29,139 @@ type knobSettings struct {
 	LiveIntervalS  int            `json:"live_interval_s"`
 	Display        knobDisplay    `json:"display"`
 	Quiet          knobQuiet      `json:"quiet"`
+	Idle           *knobIdle      `json:"idle,omitempty"`
+	Apps           *knobApps      `json:"apps,omitempty"`
+}
+
+type knobIdle struct {
+	DimAfterS *int `json:"dim_after_s,omitempty"`
+	DimLevel  *int `json:"dim_level,omitempty"`
+	OffAfterS *int `json:"off_after_s,omitempty"`
+}
+
+type knobApps struct {
+	Pomodoro   *knobPomoApp    `json:"pomodoro,omitempty"`
+	Weather    *knobWeatherApp `json:"weather,omitempty"`
+	NowPlaying *knobNPApp      `json:"nowplaying,omitempty"`
+}
+
+type knobPomoApp struct {
+	FocusColor *string `json:"focus_color,omitempty"`
+	BreakColor *string `json:"break_color,omitempty"`
+}
+
+type knobWeatherApp struct {
+	Faces []string `json:"faces,omitempty"`
+}
+
+type knobNPApp struct {
+	DimAfterS *int `json:"dim_after_s,omitempty"`
+}
+
+var knobWeatherFaces = []string{"temp", "rain", "cast", "wind", "days", "sun", "air"}
+
+var knobColorPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+func (i *knobIdle) clone() *knobIdle {
+	if i == nil {
+		return nil
+	}
+	return &knobIdle{DimAfterS: clonePtr(i.DimAfterS), DimLevel: clonePtr(i.DimLevel), OffAfterS: clonePtr(i.OffAfterS)}
+}
+
+func (a *knobApps) clone() *knobApps {
+	if a == nil {
+		return nil
+	}
+	out := &knobApps{}
+	if a.Pomodoro != nil {
+		out.Pomodoro = &knobPomoApp{FocusColor: clonePtr(a.Pomodoro.FocusColor), BreakColor: clonePtr(a.Pomodoro.BreakColor)}
+	}
+	if a.Weather != nil {
+		out.Weather = &knobWeatherApp{Faces: slices.Clone(a.Weather.Faces)}
+	}
+	if a.NowPlaying != nil {
+		out.NowPlaying = &knobNPApp{DimAfterS: clonePtr(a.NowPlaying.DimAfterS)}
+	}
+	return out
+}
+
+func (s *knobSettings) normalizeColors() {
+	if s.Apps == nil || s.Apps.Pomodoro == nil {
+		return
+	}
+	for _, c := range []*string{s.Apps.Pomodoro.FocusColor, s.Apps.Pomodoro.BreakColor} {
+		if c != nil {
+			*c = strings.ToUpper(*c)
+		}
+	}
+}
+
+func (s knobSettings) validateIdle() error {
+	i := s.Idle
+	if i == nil {
+		return nil
+	}
+	if i.DimAfterS != nil && *i.DimAfterS != 0 {
+		if err := inRange("idle.dim_after_s", *i.DimAfterS, 30, 86400); err != nil {
+			return err
+		}
+	}
+	if i.DimLevel != nil {
+		if err := inRange("idle.dim_level", *i.DimLevel, 1, 255); err != nil {
+			return err
+		}
+	}
+	if i.OffAfterS != nil && *i.OffAfterS != 0 {
+		if err := inRange("idle.off_after_s", *i.OffAfterS, 60, 86400); err != nil {
+			return err
+		}
+		if i.DimAfterS != nil && *i.DimAfterS != 0 && *i.OffAfterS <= *i.DimAfterS {
+			return fmt.Errorf("idle.off_after_s %d must be > idle.dim_after_s %d", *i.OffAfterS, *i.DimAfterS)
+		}
+	}
+	return nil
+}
+
+func (s knobSettings) validateApps() error {
+	a := s.Apps
+	if a == nil {
+		return nil
+	}
+	if p := a.Pomodoro; p != nil {
+		for field, c := range map[string]*string{"apps.pomodoro.focus_color": p.FocusColor, "apps.pomodoro.break_color": p.BreakColor} {
+			if c != nil && !knobColorPattern.MatchString(*c) {
+				return fmt.Errorf("%s %q must match %s", field, *c, knobColorPattern)
+			}
+		}
+	}
+	if w := a.Weather; w != nil && w.Faces != nil {
+		if len(w.Faces) < 1 || len(w.Faces) > len(knobWeatherFaces) {
+			return fmt.Errorf("apps.weather.faces lists %d, want 1-%d", len(w.Faces), len(knobWeatherFaces))
+		}
+		for i, f := range w.Faces {
+			if !slices.Contains(knobWeatherFaces, f) {
+				return fmt.Errorf("apps.weather.faces %q must be one of %v", f, knobWeatherFaces)
+			}
+			if slices.Contains(w.Faces[:i], f) {
+				return fmt.Errorf("apps.weather.faces lists %q twice", f)
+			}
+		}
+	}
+	if n := a.NowPlaying; n != nil && n.DimAfterS != nil {
+		if err := inRange("apps.nowplaying.dim_after_s", *n.DimAfterS, 60, 1800); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type knobQuiet struct {
@@ -152,6 +286,8 @@ func (s knobSettings) clone() knobSettings {
 	s.Bot = s.Bot.clone()
 	s.Display = s.Display.clone()
 	s.Quiet = s.Quiet.clone()
+	s.Idle = s.Idle.clone()
+	s.Apps = s.Apps.clone()
 	if s.SwipePages != nil {
 		v := *s.SwipePages
 		s.SwipePages = &v
@@ -289,7 +425,10 @@ func (s knobSettings) validate() error {
 			return err
 		}
 	}
-	return nil
+	if err := s.validateIdle(); err != nil {
+		return err
+	}
+	return s.validateApps()
 }
 
 func (s knobSettings) validatePages() error {

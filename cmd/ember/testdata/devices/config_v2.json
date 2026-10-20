@@ -1,0 +1,93 @@
+{
+  "config_version": 2,
+  "config": {
+    "brightness": {
+      "follow_ember": false,
+      "level": 255,
+      "floor": 255,
+      "startup": 255
+    },
+    "pages": [
+      {
+        "id": "page-00000000000",
+        "on": true
+      },
+      {
+        "id": "page-00000000001",
+        "on": false
+      },
+      {
+        "id": "page-00000000002",
+        "on": false
+      },
+      {
+        "id": "page-00000000003",
+        "on": false
+      },
+      {
+        "id": "page-00000000004",
+        "on": false
+      },
+      {
+        "id": "page-00000000005",
+        "on": false
+      },
+      {
+        "id": "page-00000000006",
+        "on": false
+      },
+      {
+        "id": "page-00000000007",
+        "on": false
+      }
+    ],
+    "home": "page-00000000000",
+    "swipe_pages": false,
+    "poll_ms": 10000,
+    "bot": {
+      "sleepy_after_s": 86400,
+      "demo_hold_s": 600,
+      "source_label": false,
+      "working_ring": false,
+      "weather_moments": false,
+      "weather_every_min": 240
+    },
+    "diagnostics": "basic",
+    "stats_interval_s": 300,
+    "live_interval_s": 10,
+    "display": {
+      "fast_link": false,
+      "rotation": 270
+    },
+    "quiet": {
+      "calm": false,
+      "dim_level": 255
+    },
+    "idle": {
+      "dim_after_s": 86399,
+      "dim_level": 255,
+      "off_after_s": 86400
+    },
+    "apps": {
+      "pomodoro": {
+        "focus_color": "#FFFFFF",
+        "break_color": "#FFFFFF"
+      },
+      "weather": {
+        "faces": [
+          "temp",
+          "rain",
+          "cast",
+          "wind",
+          "days",
+          "sun",
+          "air"
+        ]
+      },
+      "nowplaying": {
+        "dim_after_s": 1800
+      }
+    }
+  }
+}
+
