@@ -6,6 +6,7 @@ import { describe, test } from 'node:test'
 
 import {
   Outbox,
+  bounded,
   Tracker,
   activityString,
   annotateTrail,
@@ -434,5 +435,28 @@ describe('Outbox', () => {
     })
     await box.push('s1', async () => void (ran = true))
     assert.equal(ran, true)
+  })
+})
+
+describe('bounded', () => {
+  test('a send that never settles gives up when the timer fires and frees its lane', async () => {
+    const box = new Outbox()
+    let fire: () => void = () => {}
+    const timer = new Promise<void>(resolve => (fire = resolve))
+    const results: boolean[] = []
+    void box.push('s1', async () => void results.push(await bounded(new Promise<boolean>(() => {}), timer, false)))
+    let next = false
+    const later = box.push('s1', async () => void (next = true))
+    fire()
+    await later
+    assert.deepEqual(results, [false])
+    assert.equal(next, true)
+  })
+  test('a timer that rejects never cuts a send short', async () => {
+    let finish: (v: boolean) => void = () => {}
+    const work = new Promise<boolean>(resolve => (finish = resolve))
+    const out = bounded(work, Promise.reject(new Error('aborted')), false)
+    finish(true)
+    assert.equal(await out, true)
   })
 })

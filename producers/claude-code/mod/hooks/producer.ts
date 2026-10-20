@@ -15,6 +15,7 @@ export type Config = {
   rateReset: boolean
   doneTTLSeconds: number
   heartbeatTTLHours: number
+  hookTimeoutMs: number
   home: string
 }
 
@@ -56,6 +57,7 @@ export type FetchLike = (
 
 export const HEARTBEAT_MS = 10_000
 export const SESSION_END_BUDGET_MS = 800
+export const TICK_SEND_TIMEOUT_MS = 5000
 export const WAIT_BACKSTOP_MS = 30 * 60_000
 export const RESUME_GRACE_MS = 15_000
 export const SOURCE_PLACEHOLDER = 'set-me-to-this-laptop-id'
@@ -164,6 +166,7 @@ export function resolveConfig(inputs: ConfigInputs): ConfigResult {
       rateReset: parseBool(env.EMBER_RATE_RESET, false),
       doneTTLSeconds: positiveInt(env.EMBER_DONE_TTL_SECONDS, 30),
       heartbeatTTLHours: positiveInt(env.EMBER_HEARTBEAT_TTL_HOURS, 6),
+      hookTimeoutMs: positiveInt(env.EMBER_HOOK_TIMEOUT_MS, 500),
       home: inputs.home,
     },
   }
@@ -606,6 +609,14 @@ export class Outbox {
     }
     this.lanes.delete(key)
   }
+}
+
+export function bounded<T>(work: Promise<T>, timer: Promise<void>, onTimeout: T): Promise<T> {
+  const expired = timer.then(
+    () => onTimeout,
+    () => new Promise<T>(() => {}),
+  )
+  return Promise.race([work, expired])
 }
 
 export async function send(fetch: FetchLike, cfg: Config, effect: Effect): Promise<boolean> {

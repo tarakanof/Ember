@@ -3,7 +3,9 @@ import {
   HEARTBEAT_MS,
   Outbox,
   SESSION_END_BUDGET_MS,
+  TICK_SEND_TIMEOUT_MS,
   Tracker,
+  bounded,
   dialogExpected,
   envFileProblem,
   failureOutcome,
@@ -34,8 +36,8 @@ type ModState = {
 
 type Step = (cfg: Config, now: number, id: string) => Effect[]
 
-const STAT = ['/usr/bin/stat', '/bin/stat']
-const ID = ['/usr/bin/id', '/bin/id']
+const STAT = ['/usr/bin/stat', '/bin/stat', 'stat']
+const ID = ['/usr/bin/id', '/bin/id', 'id']
 
 async function readText($: Engine, path: string): Promise<string | undefined> {
   try {
@@ -75,6 +77,7 @@ async function readEnvFile($: Engine, st: ModState, path: string): Promise<{ tex
   }
   if (info.isLink || info.kind !== 'file') return { text: '', problem: 'is not a regular file' }
   const uid = await currentUID($, st)
+  if (uid === '') throw new Error('id -u gave no answer')
   const statOut = await firstOutput(
     $,
     STAT.flatMap(bin => [
@@ -82,6 +85,7 @@ async function readEnvFile($: Engine, st: ModState, path: string): Promise<{ tex
       [bin, '-c', '%a %u', path],
     ]),
   )
+  if (statOut.trim() === '') throw new Error('stat gave no answer')
   const problem = envFileProblem(statOut, uid)
   if (problem !== '') return { text: '', problem }
   return { text: (await readText($, path)) ?? '', problem: '' }
@@ -126,8 +130,10 @@ function fetcher($: Engine): FetchLike {
   return (url, init) => $.http.fetch(url, init)
 }
 
-function emit($: Engine, st: ModState, cfg: Config, effects: Effect[]): Promise<void>[] {
-  return effects.map(effect => st.outbox.push(effect.body.session, () => send(fetcher($), cfg, effect)))
+function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: number): Promise<void>[] {
+  return effects.map(effect =>
+    st.outbox.push(effect.body.session, () => bounded(send(fetcher($), cfg, effect), $.clock.sleep(limitMs), false)),
+  )
 }
 
 async function track($: Engine, st: ModState, rawSession: string, cwd: string, step: Step): Promise<void> {
@@ -135,7 +141,7 @@ async function track($: Engine, st: ModState, rawSession: string, cwd: string, s
   const cfg = await liveConfig($, st)
   if (!cfg) return
   const id = await sessionID(rawSession, cwd)
-  emit($, st, cfg, step(cfg, await $.clock.now(), id))
+  emit($, st, cfg, step(cfg, await $.clock.now(), id), cfg.hookTimeoutMs)
 }
 
 async function trackLive($: Engine, st: ModState, step: (cfg: Config, now: number, id: string, cwd: string) => Effect[]): Promise<void> {
@@ -150,7 +156,7 @@ async function beat($: Engine, st: ModState): Promise<void> {
   try {
     await load($, st)
     const cfg = st.config
-    if (cfg) emit($, st, cfg, st.tracker.tick(cfg, await $.clock.now()))
+    if (cfg) emit($, st, cfg, st.tracker.tick(cfg, await $.clock.now()), TICK_SEND_TIMEOUT_MS)
   } finally {
     st.beating = false
   }
@@ -159,7 +165,7 @@ async function beat($: Engine, st: ModState): Promise<void> {
 async function endSession($: Engine, st: ModState, rawSession: string, cwd: string, reason: string): Promise<void> {
   const cfg = await liveConfig($, st)
   if (!cfg) return
-  const sent = emit($, st, cfg, st.tracker.sessionEnd(cfg, await sessionID(rawSession, cwd), reason))
+  const sent = emit($, st, cfg, st.tracker.sessionEnd(cfg, await sessionID(rawSession, cwd), reason), cfg.hookTimeoutMs)
   if (sent.length === 0) return
   await Promise.race([Promise.all(sent), $.clock.sleep(SESSION_END_BUDGET_MS)])
 }

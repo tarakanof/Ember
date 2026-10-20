@@ -627,21 +627,27 @@ markers still get reaped.
   config and swaps it in one step. Sends go through a per-session outbox:
   one in flight, only the newest pending one kept, so a DELETE never
   overtakes a POST (the race `postReconciled` repairs in Go) and a dead
-  server can't pile them up; SessionEnd waits for its DELETE at most 800 ms
-  (`sessionEndHTTPBudget`). The timer dies with the process, so a killed
+  server can't pile them up. Each send is bounded inside its queue slot
+  (`$.clock.sleep` race: `EMBER_HOOK_TIMEOUT_MS` for hook sends, 5 s like
+  `daemonHTTPTimeout` for tick sends), so a hung fetch releases the session;
+  SessionEnd waits at most 800 ms in all (`sessionEndHTTPBudget`). The timer dies with the process, so a killed
   Claude Code is reaped by the server's `stale_seconds`, not by a `ps`
   check. Every hook only observes: it returns `next(e)` (or the
   verdict/result untouched) and its `.catch` answers `next(e)`. Same guards
   as the Go path: `producer.env` must be a regular, non-symlink, 0600 file
-  owned by the user (`/usr/bin/stat`, and `/usr/bin/id -u` once, since `$.fs`
-  has no modes; a refused file disables the mod rather than being ignored),
+  owned by the user (`stat`, and `id -u` once, from `/usr/bin`, `/bin`, then
+  `PATH`, since `$.fs` has no modes; a refused file disables the mod rather
+  than being ignored, while a check that could not run keeps the previous
+  config),
   and the `claude-hooks.disabled` kill switch is checked before every event
   and before anything is spawned. Known divergences: a placeholder
   `EMBER_SOURCE` silences the mod (Go derives a host id), and there is no
   `optionalFields` unknown-field fallback, so an older server 400s its POSTs.
   No gauges, `/v1/usage` or T3 detection yet. `test/parity.json` and
   `test/transitions.json` (event sequences to exact wire bodies) are shared
-  with `mod_parity_test.go`, which drives `dispatchHookFrom`/`dispatchTick`.
+  with `mod_parity_test.go`, which drives `dispatchHookFrom`/`dispatchTick`;
+  the node side drives the `Tracker`, so CI pins Go against the `Tracker`
+  but not `register.ts`'s wiring (`test/mod.test.ts`, local only).
 - **Codex CLI producer — `cmd/ember-codex-producer`.** Codex has **no hook
   system**, so this is a long-lived **daemon that tails rollout JSONL**
   (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop

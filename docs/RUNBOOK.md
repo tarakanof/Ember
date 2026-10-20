@@ -560,9 +560,11 @@ rows. Needs Claude Code 2.1.288 or newer.
   the kill switch is checked again before every event, as each Go hook does.
   Like `ReadEnvFile`, it refuses a `producer.env` that is a symlink, not a
   regular file, not mode 0600 or not owned by you (`$.fs` has no modes, so a
-  reload runs `/usr/bin/stat`; `/usr/bin/id -u` runs once); a refused file
-  keeps it silent. A reload swaps the config in one step, so events during
-  it are not lost.
+  reload runs `stat`, and `id -u` runs once: `/usr/bin`, then `/bin`, then a
+  `PATH` lookup, for NixOS); a refused file keeps it silent. A reload swaps
+  the config in one step, and a check that could not run (`stat`/`id` missing,
+  timed out or silent) keeps the previous config, so events during a reload
+  are not lost.
 - **Where it differs from the Go producer** (phase 1):
   - An empty or placeholder `EMBER_SOURCE` with no `EMBER_MOD_SOURCE`
     silences the mod; Go derives a host id with `scutil`.
@@ -580,8 +582,10 @@ rows. Needs Claude Code 2.1.288 or newer.
   - A killed Claude Code (`kill -9`) is reaped by the server's
     `display.stale_seconds` (default 300 s), not a 10 s `ps` check.
   - Network sends are serialised per session (a DELETE never overtakes a
-    POST in flight) and coalesced (only the newest pending send waits), and
-    the SessionEnd DELETE is capped at 800 ms like Go's.
+    POST in flight) and coalesced (only the newest pending send waits). Each
+    send is bounded like Go's requests: `EMBER_HOOK_TIMEOUT_MS` (500 ms) for
+    hook sends, 5 s for heartbeat sends, after which the session's queue
+    moves on; SessionEnd waits at most 800 ms in all.
 - **One session only**, nothing installed:
   `claude --plugin-dir ~/Github/Ember/producers/claude-code/mod`.
 - **Every session**: `claude plugin marketplace update ember`,
@@ -622,18 +626,24 @@ rows. Needs Claude Code 2.1.288 or newer.
   alive, `/clear` and exit DELETE both rows, and after a `kill -9` the mod's
   row lingers up to `stale_seconds`. `claude agents --json` (`status`,
   `waitingFor`) is the ground truth for interactive waits.
-- **Tests.** `node --test producers/claude-code/mod/test/producer.test.mts`
-  (CI) covers the mapping, the outbox and the HTTP send against a local
-  stub. Two fixtures are shared with Go: `test/parity.json` (activity
-  strings, error labels, trails, env parsing, session ids) and
+- **Tests.** What CI runs: `node --test
+  producers/claude-code/mod/test/producer.test.mts` (the pure module: the
+  `Tracker`, the outbox, bounded sends, the HTTP send against a local stub)
+  and the Go tests. Two fixtures are shared with Go: `test/parity.json`
+  (activity strings, error labels, trails, env parsing, session ids) and
   `test/transitions.json` (event sequences, ticks included, to the exact
-  POST/DELETE bodies). `mod_parity_test.go` drives the real hooks
-  (`dispatchHookFrom`, `dispatchTick`) through them against a stub server, so
-  either side drifting fails CI. Locally, with Claude Code (not on the CI
-  runners): `claude plugin validate producers/claude-code/mod` and
-  `claude plugin test producers/claude-code/mod` (engine-level tests in
-  `test/mod.test.ts`). Run both with `HOME` and `CLAUDE_CONFIG_DIR` pointed
-  at a scratch directory so they never read your live `~/.claude`.
+  POST/DELETE bodies). `mod_parity_test.go` runs the real Go hooks
+  (`dispatchHookFrom`, `dispatchTick`) through it, and the node test runs the
+  mod's `Tracker` through it via a test-only event mapping (`drive()`), so CI
+  catches the Go hooks and the mod's `Tracker` drifting apart. CI does **not**
+  cover `register.ts`, the wiring from Claude Code's hooks to the `Tracker`
+  (which hook calls what, `trackLive`'s cwd, `tool.call` → `toolFinished`,
+  the config reload, the send limits): that is `test/mod.test.ts`, which
+  needs Claude Code and runs only locally, together with
+  `claude plugin validate producers/claude-code/mod` and
+  `claude plugin test producers/claude-code/mod`. Run both with `HOME` and
+  `CLAUDE_CONFIG_DIR` pointed at a scratch directory so they never read your
+  live `~/.claude`.
 
 ## Headless / Linux producers
 

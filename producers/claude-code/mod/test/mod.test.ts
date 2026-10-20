@@ -33,6 +33,9 @@ function world(on: On, envFile: EnvFile | null = TRUSTED) {
     fetch: {} as Record<string, Gate | undefined>,
     envReads: 0,
     runs: [] as string[][],
+    holdNext: undefined as Gate | undefined,
+    statFails: false,
+    absoluteMissing: false,
   }
   mock.env(on, { HOME })
   const clock = mock.clock(on, { now: 1_000_000 })
@@ -49,8 +52,11 @@ function world(on: On, envFile: EnvFile | null = TRUSTED) {
   )
   on('process.run', ($, e) => {
     ctl.runs.push([...e.argv])
-    if (e.argv[0] === '/usr/bin/id') return ran('501\n')
-    if (e.argv[0] === '/usr/bin/stat' && e.argv[1] === '-f' && envFile !== null) return ran(`${envFile.mode} ${envFile.owner}\n`)
+    const bin = e.argv[0] ?? ''
+    const usable = ctl.absoluteMissing ? !bin.startsWith('/') : bin.startsWith('/usr/bin/')
+    if (!usable) return ran('', 127)
+    if (bin.endsWith('id')) return ran('501\n')
+    if (bin.endsWith('stat') && e.argv[1] === '-f' && envFile !== null && !ctl.statFails) return ran(`${envFile.mode} ${envFile.owner}\n`)
     return ran('', 1)
   })
   on('fs.exists', ($, e) => ({ value: e.path.endsWith('/claude-hooks.disabled') && ctl.killSwitch }))
@@ -66,6 +72,9 @@ function world(on: On, envFile: EnvFile | null = TRUSTED) {
       auth: e.init?.headers?.Authorization ?? '',
       body: JSON.parse(e.init?.body ?? '{}') as Record<string, unknown>,
     })
+    const once = ctl.holdNext
+    ctl.holdNext = undefined
+    if (once) await once.wait
     const held = ctl.fetch[method]
     if (held) await held.wait
     done.push(method)
@@ -234,7 +243,7 @@ test('an event during a heartbeat reload still lands (the reload swaps the confi
   expect(sent.at(-1)?.body.state).toBe('done')
 })
 
-test('SessionEnd gives up on a stalled DELETE after 800 ms', async ($, on) => {
+test('SessionEnd gives up on a stalled DELETE after the 500 ms hook timeout, inside its 800 ms cap', async ($, on) => {
   const { sent, clock, ctl } = world(on)
   await $.session.start(START)
   await $.classic.UserPromptSubmit(PROMPT)
@@ -242,7 +251,7 @@ test('SessionEnd gives up on a stalled DELETE after 800 ms', async ($, on) => {
   ctl.fetch.DELETE = gate()
   let ended = false
   const end = $.classic.SessionEnd(END).then(() => (ended = true))
-  await clock.advance(799)
+  await clock.advance(499)
   expect(ended).toBe(false)
   await clock.advance(1)
   await end
@@ -300,7 +309,7 @@ test('id -u runs once, by absolute path, and only stat runs on later reloads', a
   await clock.advance(10_000)
   await clock.advance(10_000)
   expect(ctl.runs.filter(argv => argv[0] === '/usr/bin/id')).toHaveLength(1)
-  expect(ctl.runs.every(argv => argv[0]?.startsWith('/'))).toBe(true)
+  expect(ctl.runs.every(argv => argv[0]?.startsWith('/usr/bin/'))).toBe(true)
 })
 
 test('with the kill switch present nothing is spawned', async ($, on) => {
@@ -318,4 +327,43 @@ test('a session with no session.start still loads and heartbeats on its first ev
   await clock.settle()
   await clock.advance(10_000)
   expect(sent.map(s => s.body.state)).toEqual(['running', 'running'])
+})
+
+test('a hung send releases its session after the hook timeout, so later sends still go out', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  await $.session.start(START)
+  await clock.settle()
+  ctl.holdNext = gate()
+  await $.classic.UserPromptSubmit(PROMPT)
+  await $.classic.Stop(STOP)
+  await clock.settle()
+  expect(sent.map(s => s.body.state)).toEqual(['running'])
+  await clock.advance(500)
+  expect(sent.map(s => s.body.state)).toEqual(['running', 'done'])
+  const end = $.classic.SessionEnd(END)
+  await clock.advance(800)
+  await end
+  expect(sent.at(-1)?.method).toBe('DELETE')
+})
+
+test('a stat that gives no answer keeps the previous config instead of silencing the mod', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  ctl.statFails = true
+  await clock.advance(10_000)
+  await $.classic.Stop(STOP)
+  await clock.settle()
+  expect(sent.at(-1)?.body.state).toBe('done')
+})
+
+test('stat and id fall back to a PATH lookup when the absolute paths are missing', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.absoluteMissing = true
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent.map(s => s.body.state)).toEqual(['running'])
+  expect(ctl.runs.some(argv => argv[0] === 'stat')).toBe(true)
 })
