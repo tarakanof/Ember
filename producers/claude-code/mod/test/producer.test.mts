@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { describe, test } from 'node:test'
 
 import {
+  FieldDropper,
   Outbox,
   Sender,
   bounded,
@@ -14,6 +15,7 @@ import {
   dialogExpected,
   envFileProblem,
   failureOutcome,
+  normalizeHostName,
   parseEnvFile,
   prependTrail,
   projectFromCwd,
@@ -24,6 +26,7 @@ import {
   stopFailureMessage,
   type Config,
   type Effect,
+  unknownField,
 } from '../hooks/producer.ts'
 
 const parity = JSON.parse(readFileSync(new URL('./parity.json', import.meta.url), 'utf8'))
@@ -63,6 +66,12 @@ describe('parity with the Go producer (test/parity.json)', () => {
   test('session id', async () => {
     for (const c of parity.session_id) assert.equal(await sessionID(c.raw, c.cwd), c.want)
   })
+  test('unknownField', () => {
+    for (const c of parity.unknown_field) assert.equal(unknownField(c.status, c.body), c.want, c.body)
+  })
+  test('host name to source', () => {
+    for (const c of parity.host_name) assert.equal(normalizeHostName(c.raw), c.want, JSON.stringify(c.raw))
+  })
 })
 
 describe('resolveConfig', () => {
@@ -75,6 +84,23 @@ describe('resolveConfig', () => {
   test('a placeholder source keeps the mod silent', () => {
     const r = resolveConfig({ env: { EMBER_SOURCE: 'set-me-to-this-laptop-id', EMBER_SERVER_URL: 'http://h' }, home: HOME })
     assert.ok('disabled' in r)
+  })
+  test('a placeholder source resolves the host id like Go', () => {
+    const r = resolveConfig({ env: { EMBER_SOURCE: 'set-me-to-this-laptop-id', EMBER_SERVER_URL: 'http://h' }, home: HOME, hostName: 'Dmitrys-MacBook-Pro.local' })
+    assert.ok('config' in r)
+    assert.equal(r.config.source, 'mbp-mod')
+    const empty = resolveConfig({ env: { EMBER_SERVER_URL: 'http://h' }, home: HOME, hostName: 'studio-box' })
+    assert.ok('config' in empty)
+    assert.equal(empty.config.source, 'studio-box-mod')
+  })
+  test('a placeholder source with no resolvable host stays silent', () => {
+    const r = resolveConfig({ env: { EMBER_SOURCE: '', EMBER_SERVER_URL: 'http://h' }, home: HOME, hostName: '---' })
+    assert.ok('disabled' in r)
+  })
+  test('EMBER_MOD_SOURCE ignores the host name', () => {
+    const r = resolveConfig({ env: { EMBER_MOD_SOURCE: 'mod1', EMBER_SERVER_URL: 'http://h' }, home: HOME, hostName: 'studio-box' })
+    assert.ok('config' in r)
+    assert.equal(r.config.source, 'mod1')
   })
   test('the kill switch keeps the mod silent', () => {
     const r = resolveConfig({ env: { EMBER_SOURCE: 'mbp', EMBER_SERVER_URL: 'http://h' }, home: HOME, killSwitch: true })
@@ -326,6 +352,66 @@ test('send reports a refused connection as false instead of throwing', async () 
     throw new Error('ECONNREFUSED')
   }
   assert.equal(await send(failing, cfg, effect), false)
+})
+
+describe('send against an older server', () => {
+  const project = (t: Tracker, cfg: Config) => {
+    const [e] = t.promptSubmit(cfg, 0, 's1', 'go', `${HOME}/Ember`)
+    assert.ok(e && e.method === 'POST')
+    assert.equal(e.body.project, 'Ember')
+    return e
+  }
+  const strict = (calls: Record<string, unknown>[], rejects: string) => async (_url: string, init: { body: string }) => {
+    const body = JSON.parse(init.body) as Record<string, unknown>
+    calls.push(body)
+    if (rejects in body) return { ok: false, status: 400, text: `{"error":"json: unknown field \\"${rejects}\\""}` }
+    return { ok: true, status: 200, text: '{"ok":true}' }
+  }
+
+  test('resends without project and remembers it for an hour', async () => {
+    const cfg = config()
+    const e = project(new Tracker(), cfg)
+    const dropper = new FieldDropper()
+    const calls: Record<string, unknown>[] = []
+    assert.equal(await send(strict(calls, 'project'), cfg, e, dropper, () => 1000), true)
+    assert.deepEqual(calls.map(c => 'project' in c), [true, false])
+    assert.equal(await send(strict(calls, 'project'), cfg, e, dropper, () => 2000), true)
+    assert.deepEqual(calls.map(c => 'project' in c), [true, false, false])
+    assert.equal(await send(strict(calls, 'project'), cfg, e, dropper, () => 1000 + 3_600_000), true)
+    assert.deepEqual(calls.map(c => 'project' in c), [true, false, false, true, false])
+  })
+  test('does not retry other 400s or fields it cannot drop', async () => {
+    const cfg = config()
+    const e = project(new Tracker(), cfg)
+    const calls: Record<string, unknown>[] = []
+    const other = async (_url: string, init: { body: string }) => {
+      calls.push(JSON.parse(init.body))
+      return { ok: false, status: 400, text: '{"error":"state is required"}' }
+    }
+    assert.equal(await send(other, cfg, e, new FieldDropper(), () => 0), false)
+    assert.equal(calls.length, 1)
+    calls.length = 0
+    assert.equal(await send(strict(calls, 'source_card'), cfg, e, new FieldDropper(), () => 0), false)
+    assert.equal(calls.length, 1)
+  })
+  test('gives up after one resend when the server keeps rejecting', async () => {
+    const cfg = config()
+    const e = project(new Tracker(), cfg)
+    const calls: Record<string, unknown>[] = []
+    const always = async (_url: string, init: { body: string }) => {
+      calls.push(JSON.parse(init.body))
+      return { ok: false, status: 400, text: 'json: unknown field "project"' }
+    }
+    assert.equal(await send(always, cfg, e, new FieldDropper(), () => 0), false)
+    assert.equal(calls.length, 2)
+  })
+  test('a DELETE is sent once and untouched', async () => {
+    const cfg = config()
+    const calls: Record<string, unknown>[] = []
+    const d: Effect = { method: 'DELETE', body: { source: 'x', tool: 'claude', session: 's' } }
+    assert.equal(await send(strict(calls, 'project'), cfg, d, new FieldDropper(), () => 0), true)
+    assert.equal(calls.length, 1)
+  })
 })
 
 const transitions = JSON.parse(readFileSync(new URL('./transitions.json', import.meta.url), 'utf8'))

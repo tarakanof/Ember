@@ -36,6 +36,8 @@ function world(on: On, envFile: EnvFile | null = TRUSTED) {
     holdNext: undefined as Gate | undefined,
     statFails: false,
     absoluteMissing: false,
+    hostName: '',
+    rejectProject: false,
   }
   mock.env(on, { HOME })
   const clock = mock.clock(on, { now: 1_000_000 })
@@ -53,6 +55,7 @@ function world(on: On, envFile: EnvFile | null = TRUSTED) {
   on('process.run', ($, e) => {
     ctl.runs.push([...e.argv])
     const bin = e.argv[0] ?? ''
+    if (bin === 'scutil' && ctl.hostName !== '') return ran(ctl.hostName + '\n')
     const usable = ctl.absoluteMissing ? !bin.startsWith('/') : bin.startsWith('/usr/bin/')
     if (!usable) return ran('', 127)
     if (bin.endsWith('id')) return ran('501\n')
@@ -72,6 +75,9 @@ function world(on: On, envFile: EnvFile | null = TRUSTED) {
       auth: e.init?.headers?.Authorization ?? '',
       body: JSON.parse(e.init?.body ?? '{}') as Record<string, unknown>,
     })
+    if (ctl.rejectProject && e.init?.method === 'POST' && 'project' in JSON.parse(e.init?.body ?? '{}')) {
+      return { value: { status: 400, ok: false, headers: {}, text: '{"error":"json: unknown field \\"project\\""}' } }
+    }
     const once = ctl.holdNext
     ctl.holdNext = undefined
     if (once) await once.wait
@@ -109,6 +115,25 @@ test('a prompt posts running under the mod source with the bearer token', async 
       project: 'proj',
     },
   })
+})
+
+test('a placeholder EMBER_SOURCE posts under the host id', async ($, on) => {
+  const placeholder = { ...TRUSTED, text: 'EMBER_SOURCE=set-me-to-this-laptop-id\nEMBER_SERVER_URL=http://127.0.0.1:9\n' }
+  const { sent, clock, ctl } = world(on, placeholder)
+  ctl.hostName = 'Dmitrys-MacBook-Pro'
+  await $.session.start({ cwd: `${HOME}/proj`, surface: 'terminal', isInteractive: true })
+  await $.classic.UserPromptSubmit({ prompt: 'go', session_id: 'sess-1', cwd: `${HOME}/proj` })
+  await clock.settle()
+  expect(sent.map(s => s.body.source)).toEqual(['mbp-mod'])
+})
+
+test('a server that rejects project gets the POST again without it', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.rejectProject = true
+  await $.session.start({ cwd: `${HOME}/proj`, surface: 'terminal', isInteractive: true })
+  await $.classic.UserPromptSubmit({ prompt: 'go', session_id: 'sess-1', cwd: `${HOME}/proj` })
+  await clock.settle()
+  expect(sent.map(s => 'project' in s.body)).toEqual([true, false])
 })
 
 test('the heartbeat re-posts a running session every 10 s', async ($, on) => {

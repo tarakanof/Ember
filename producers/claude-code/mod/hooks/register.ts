@@ -8,6 +8,8 @@ import {
   dialogExpected,
   envFileProblem,
   failureOutcome,
+  isPlaceholderSource,
+  normalizeHostName,
   parseEnvFile,
   resolveConfig,
   send,
@@ -28,6 +30,7 @@ type ModState = {
   loading: Promise<void> | undefined
   beating: boolean
   uid: string | undefined
+  host: string | undefined
   interactive: boolean
   permissionMode: string
   heartbeat: { cancel: () => void } | undefined
@@ -67,6 +70,20 @@ async function currentUID($: Engine, st: ModState): Promise<string> {
   return st.uid
 }
 
+async function hostName($: Engine, st: ModState): Promise<string> {
+  if (!st.host) {
+    st.host = ''
+    for (const argv of [['scutil', '--get', 'LocalHostName'], ['hostname']]) {
+      const name = normalizeHostName(await firstOutput($, [argv]))
+      if (name !== '') {
+        st.host = name
+        break
+      }
+    }
+  }
+  return st.host
+}
+
 async function readEnvFile($: Engine, st: ModState, path: string): Promise<{ text: string; problem: string }> {
   let info: { kind: string; isLink: boolean }
   try {
@@ -100,8 +117,11 @@ async function resolve($: Engine, st: ModState): Promise<ConfigResult> {
   if (await $.fs.exists(killSwitchPath(home))) return { disabled: 'claude-hooks.disabled is present' }
   const envFile = await readEnvFile($, st, `${home}/.config/ember/producer.env`)
   const xdg = (await $.env.get('XDG_STATE_HOME')) ?? ''
+  const env = parseEnvFile(envFile.text)
+  const needsHost = (env.EMBER_MOD_SOURCE ?? '').trim() === '' && isPlaceholderSource(env.EMBER_SOURCE)
   return resolveConfig({
-    env: parseEnvFile(envFile.text),
+    env,
+    hostName: needsHost ? await hostName($, st) : undefined,
     home,
     processToken: await $.env.get('EMBER_TOKEN'),
     serverCache: await readText($, `${stateHome(home, xdg)}/ember/server.json`),
@@ -206,6 +226,7 @@ export const register: Register = on => {
     loading: undefined,
     beating: false,
     uid: undefined,
+    host: undefined,
     interactive: false,
     permissionMode: '',
     heartbeat: undefined,

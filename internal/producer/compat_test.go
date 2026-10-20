@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -133,5 +134,31 @@ func TestPostStopsResendingWhenTheServerKeepsRejectingTheDroppedField(t *testing
 	defer mu.Unlock()
 	if !errors.As(err, &se) || se.Code != http.StatusBadRequest || calls != 2 {
 		t.Fatalf("err = %v, calls = %d; want the 400 back after the one stripped resend", err, calls)
+	}
+}
+
+func TestUnknownFieldMatchesModParityFixture(t *testing.T) {
+	raw, err := os.ReadFile("../../producers/claude-code/mod/test/parity.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fx struct {
+		UnknownField []struct {
+			Status int    `json:"status"`
+			Body   string `json:"body"`
+			Want   string `json:"want"`
+		} `json:"unknown_field"`
+	}
+	if err := json.Unmarshal(raw, &fx); err != nil {
+		t.Fatal(err)
+	}
+	if len(fx.UnknownField) == 0 {
+		t.Fatal("fixture has no unknown_field cases")
+	}
+	for _, c := range fx.UnknownField {
+		got, _ := unknownField(&ServerError{Code: c.Status, Body: c.Body})
+		if got != c.Want {
+			t.Errorf("unknownField(%d, %q) = %q, fixture says %q", c.Status, c.Body, got, c.Want)
+		}
 	}
 }

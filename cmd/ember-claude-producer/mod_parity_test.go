@@ -46,6 +46,9 @@ type modParity struct {
 	SessionID []struct {
 		Raw, Cwd, Want string
 	} `json:"session_id"`
+	HostName []struct {
+		Raw, Want string
+	} `json:"host_name"`
 }
 
 func readModParity(t *testing.T) modParity {
@@ -121,6 +124,17 @@ func TestModParitySessionID(t *testing.T) {
 	for _, c := range readModParity(t).SessionID {
 		if got := sanitizeSessionID(c.Raw, c.Cwd); got != c.Want {
 			t.Errorf("sanitizeSessionID(%q, %q) = %q, fixture says %q", c.Raw, c.Cwd, got, c.Want)
+		}
+	}
+}
+
+func TestModParityHostName(t *testing.T) {
+	for _, c := range readModParity(t).HostName {
+		restore := producer.SetHostNameForTest(c.Raw)
+		got := producer.ResolveSource("")
+		restore()
+		if got != c.Want {
+			t.Errorf("source for host name %q = %q, fixture says %q", c.Raw, got, c.Want)
 		}
 	}
 }

@@ -555,7 +555,10 @@ rows. Needs Claude Code 2.1.288 or newer.
   and on every 10 s heartbeat: `EMBER_SERVER_URL` (empty or `auto` takes the
   cached discovery result in `~/.local/state/ember/server.json`; the mod never
   browses mDNS), `EMBER_TOKEN` (else the process env), the card and trail
-  toggles. Source: `EMBER_MOD_SOURCE`, else `<EMBER_SOURCE>-mod` (`mbp-mod`).
+  toggles. Source: `EMBER_MOD_SOURCE`, else `<EMBER_SOURCE>-mod` (`mbp-mod`); an empty
+  or placeholder `EMBER_SOURCE` resolves the host id as Go does (`scutil --get
+  LocalHostName`, then `hostname`, same normalising), and only a host that
+  yields nothing keeps it silent.
   No server URL or `~/.config/ember/claude-hooks.disabled` keeps it silent;
   the kill switch is checked again before every event, as each Go hook does.
   Like `ReadEnvFile`, it refuses a `producer.env` that is a symlink, not a
@@ -565,12 +568,11 @@ rows. Needs Claude Code 2.1.288 or newer.
   the config in one step, and a check that could not run (`stat`/`id` missing,
   timed out or silent) keeps the previous config, and events and heartbeats
   carry on with it, so nothing is lost or paused during a reload.
+- **Older servers.** Like `optionalFields` in `internal/producer/client.go`, a
+  POST that gets `400 unknown field "project"` is sent again without it, and
+  the mod leaves `project` out for an hour. Other fields and other 400s are
+  not retried.
 - **Where it differs from the Go producer** (phase 1):
-  - An empty or placeholder `EMBER_SOURCE` with no `EMBER_MOD_SOURCE`
-    silences the mod; Go derives a host id with `scutil`.
-  - No unknown-field fallback (`optionalFields` in
-    `internal/producer/client.go`): an older server that rejects a field 400s
-    every mod POST, silently.
   - `waiting` from a permission dialog ends when the approved tool
     **finishes** (the awaited `tool.call` resolves), not when you click
     Allow. The Go hook alone has the same timing (PostToolUse), but the Go
