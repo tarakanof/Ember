@@ -557,8 +557,11 @@ rows. Needs Claude Code 2.1.288 or newer.
   browses mDNS), `EMBER_TOKEN` (else the process env), the card and trail
   toggles. Source: `EMBER_MOD_SOURCE`, else `<EMBER_SOURCE>-mod` (`mbp-mod`).
   No source, no server URL or `~/.config/ember/claude-hooks.disabled` keeps it
-  silent. `$.fs` cannot read file modes, so unlike the Go reader it does not
-  refuse a `producer.env` that is not 0600.
+  silent, checked again before every event as each Go hook does. Like
+  `ReadEnvFile`, it refuses a `producer.env` that is a symlink, not a regular
+  file, not mode 0600 or not owned by you (`$.fs` has no modes, so it runs
+  `stat` and `id -u` on each reload, every 10 s); a refused file keeps it
+  silent.
 - **One session only**, nothing installed:
   `claude --plugin-dir ~/Github/Ember/producers/claude-code/mod`.
 - **Every session**: `claude plugin marketplace update ember`,

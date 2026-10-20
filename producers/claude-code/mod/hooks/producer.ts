@@ -24,6 +24,7 @@ export type ConfigInputs = {
   processToken?: string
   serverCache?: string
   killSwitch?: boolean
+  envFileProblem?: string
 }
 
 export type ConfigResult = { config: Config } | { disabled: string }
@@ -80,6 +81,13 @@ export function parseEnvFile(text: string): Env {
   return out
 }
 
+export function envFileProblem(statOutput: string, uid: string): string {
+  const [mode, owner] = statOutput.trim().split(/\s+/)
+  if (mode !== '600') return `permission must be 0600 (got 0${mode ?? '?'})`
+  if (owner === undefined || owner !== uid.trim()) return 'must be owned by the current user'
+  return ''
+}
+
 export function parseBool(v: string | undefined, def: boolean): boolean {
   switch ((v ?? '').toLowerCase()) {
     case 'true':
@@ -126,6 +134,7 @@ function cachedServerURL(raw: string | undefined, prefer: string): string {
 
 export function resolveConfig(inputs: ConfigInputs): ConfigResult {
   if (inputs.killSwitch) return { disabled: 'claude-hooks.disabled is present' }
+  if (inputs.envFileProblem) return { disabled: 'producer.env ' + inputs.envFileProblem }
   const env = inputs.env
   const modSource = (env.EMBER_MOD_SOURCE ?? '').trim()
   let source = modSource

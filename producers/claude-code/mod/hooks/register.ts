@@ -3,6 +3,7 @@ import {
   HEARTBEAT_MS,
   Tracker,
   dialogExpected,
+  envFileProblem,
   failureOutcome,
   parseEnvFile,
   resolveConfig,
@@ -34,21 +35,60 @@ async function readText($: Engine, path: string): Promise<string | undefined> {
   }
 }
 
-async function load($: Engine, st: ModState): Promise<void> {
-  const home = (await $.env.get('HOME')) ?? ''
-  if (home === '') {
-    st.config = undefined
-    return
+async function statLine($: Engine, path: string): Promise<string> {
+  for (const argv of [
+    ['stat', '-f', '%Lp %u', path],
+    ['stat', '-c', '%a %u', path],
+  ]) {
+    const r = await $.process.run(argv, { timeoutMs: 2000 })
+    if (r.exitCode === 0) return r.stdout
   }
+  return ''
+}
+
+async function readEnvFile($: Engine, path: string): Promise<{ text: string; problem: string }> {
+  let info: { kind: string; isLink: boolean }
+  try {
+    info = await $.fs.stat(path)
+  } catch {
+    return { text: '', problem: '' }
+  }
+  if (info.isLink || info.kind !== 'file') return { text: '', problem: 'is not a regular file' }
+  const uid = (await $.process.run(['id', '-u'], { timeoutMs: 2000 })).stdout
+  const problem = envFileProblem(await statLine($, path), uid)
+  if (problem !== '') return { text: '', problem }
+  return { text: (await readText($, path)) ?? '', problem: '' }
+}
+
+function killSwitchPath(home: string): string {
+  return `${home}/.config/ember/claude-hooks.disabled`
+}
+
+async function load($: Engine, st: ModState): Promise<void> {
+  st.config = undefined
+  const home = (await $.env.get('HOME')) ?? ''
+  if (home === '') return
+  const envFile = await readEnvFile($, `${home}/.config/ember/producer.env`)
   const xdg = (await $.env.get('XDG_STATE_HOME')) ?? ''
   const result = resolveConfig({
-    env: parseEnvFile((await readText($, `${home}/.config/ember/producer.env`)) ?? ''),
+    env: parseEnvFile(envFile.text),
     home,
     processToken: await $.env.get('EMBER_TOKEN'),
     serverCache: await readText($, `${stateHome(home, xdg)}/ember/server.json`),
-    killSwitch: await $.fs.exists(`${home}/.config/ember/claude-hooks.disabled`),
+    killSwitch: await $.fs.exists(killSwitchPath(home)),
+    envFileProblem: envFile.problem,
   })
   st.config = 'config' in result ? result.config : undefined
+}
+
+async function liveConfig($: Engine, st: ModState): Promise<Config | undefined> {
+  const cfg = st.config
+  if (!cfg) return undefined
+  if (await $.fs.exists(killSwitchPath(cfg.home))) {
+    st.config = undefined
+    return undefined
+  }
+  return cfg
 }
 
 function fetcher($: Engine): FetchLike {
@@ -62,7 +102,7 @@ function emit($: Engine, st: ModState, effects: Effect[]): void {
 }
 
 async function track($: Engine, st: ModState, rawSession: string, cwd: string, step: Step): Promise<void> {
-  const cfg = st.config
+  const cfg = await liveConfig($, st)
   if (!cfg) return
   const id = await sessionID(rawSession, cwd)
   emit($, st, step(cfg, await $.clock.now(), id))
@@ -80,7 +120,7 @@ async function beat($: Engine, st: ModState): Promise<void> {
 }
 
 async function endSession($: Engine, st: ModState, rawSession: string, cwd: string, reason: string): Promise<void> {
-  const cfg = st.config
+  const cfg = await liveConfig($, st)
   if (!cfg) return
   const effects = st.tracker.sessionEnd(cfg, await sessionID(rawSession, cwd), reason)
   await Promise.all(effects.map(effect => send(fetcher($), cfg, effect)))

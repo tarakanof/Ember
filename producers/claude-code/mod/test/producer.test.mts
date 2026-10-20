@@ -9,6 +9,7 @@ import {
   activityString,
   annotateTrail,
   dialogExpected,
+  envFileProblem,
   failureOutcome,
   parseEnvFile,
   prependTrail,
@@ -82,6 +83,17 @@ describe('resolveConfig', () => {
     assert.ok('config' in hit && hit.config.serverURL === 'http://10.0.0.2:3627')
     const miss = resolveConfig({ env: { EMBER_SOURCE: 'mbp', EMBER_SERVER_URL: 'auto' }, home: HOME, serverCache: cache })
     assert.ok('disabled' in miss)
+  })
+  test('an untrusted producer.env keeps the mod silent', () => {
+    const r = resolveConfig({ env: { EMBER_SOURCE: 'mbp', EMBER_SERVER_URL: 'http://h' }, home: HOME, envFileProblem: 'permission must be 0600 (got 0644)' })
+    assert.ok('disabled' in r)
+  })
+  test('envFileProblem matches the Go 0600 + owner rule', () => {
+    assert.equal(envFileProblem('600 501\n', '501\n'), '')
+    assert.match(envFileProblem('644 501', '501'), /0600/)
+    assert.match(envFileProblem('640 501', '501'), /0600/)
+    assert.match(envFileProblem('600 0', '501'), /owned/)
+    assert.match(envFileProblem('', '501'), /0600/)
   })
   test('the token falls back to the process env', () => {
     const r = resolveConfig({ env: { EMBER_SOURCE: 'mbp', EMBER_SERVER_URL: 'http://h' }, home: HOME, processToken: 'envtok' })

@@ -623,7 +623,11 @@ markers still get reaped.
   The timer dies with the process, so a killed Claude Code is reaped by the
   server's `stale_seconds`, not by a `ps` check. Every hook only observes: it
   returns `next(e)` (or the verdict/result untouched) and its `.catch`
-  answers `next(e)`. No gauges, `/v1/usage`, agents-watcher corrections or
+  answers `next(e)`. The same guards as the Go path: `producer.env` must be
+  a regular, non-symlink, 0600 file owned by the user (checked with `stat`
+  and `id -u`, since `$.fs` has no modes; a refused file disables the mod
+  rather than being ignored), and the `claude-hooks.disabled` kill switch is
+  checked before every event. No gauges, `/v1/usage`, agents-watcher corrections or
   T3 detection yet. `test/parity.json` is shared with `mod_parity_test.go`.
 - **Codex CLI producer — `cmd/ember-codex-producer`.** Codex has **no hook
   system**, so this is a long-lived **daemon that tails rollout JSONL**
