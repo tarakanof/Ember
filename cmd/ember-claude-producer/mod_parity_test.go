@@ -76,6 +76,13 @@ type modParity struct {
 		} `json:"procs"`
 		Want bool `json:"want"`
 	} `json:"t3"`
+	Gauges []struct {
+		Name       string            `json:"name"`
+		TZ         string            `json:"tz"`
+		Env        map[string]string `json:"env"`
+		Statusline json.RawMessage   `json:"statusline"`
+		Want       map[string]any    `json:"want"`
+	} `json:"gauges"`
 }
 
 func readModParity(t *testing.T) modParity {
@@ -234,12 +241,50 @@ func TestModParityHostName(t *testing.T) {
 	}
 }
 
+func statuslineGauges(in statuslineInput, env map[string]string, loc *time.Location) map[string]any {
+	got := map[string]any{}
+	if p, ok := extractContextPct(in); ok && contextPctEnabled(env) {
+		got["context_pct"] = float64(*p)
+	}
+	if p, ok := extractRatePct(in); ok {
+		got["rate_window_pct"] = float64(*p)
+	}
+	if at, ok := extractRateResetAt(in); ok {
+		got["rate_reset_at"] = float64(at)
+	}
+	if l, ok := extractRateResetLabel(in, loc); ok {
+		got["rate_reset_label"] = l
+	}
+	return got
+}
+
+func TestModParityGauges(t *testing.T) {
+	cases := readModParity(t).Gauges
+	if len(cases) == 0 {
+		t.Fatal("parity.json has no gauges cases")
+	}
+	for _, c := range cases {
+		loc, err := time.LoadLocation(c.TZ)
+		if err != nil {
+			t.Fatalf("%s: %v", c.Name, err)
+		}
+		in, ok := parseStatusline(c.Statusline)
+		if !ok {
+			t.Fatalf("%s: statusline does not parse", c.Name)
+		}
+		if got := statuslineGauges(in, c.Env, loc); !reflect.DeepEqual(got, c.Want) {
+			t.Errorf("%s: Go maps the statusline to %v, fixture says %v", c.Name, got, c.Want)
+		}
+	}
+}
+
 type wireCall struct {
 	Method string         `json:"method"`
 	Body   map[string]any `json:"body"`
 }
 
 type modTransitions struct {
+	TZ        string `json:"tz"`
 	Env       string `json:"env"`
 	Scenarios []struct {
 		Name  string `json:"name"`
@@ -261,11 +306,25 @@ func TestModParityTransitions(t *testing.T) {
 	if err := json.Unmarshal(raw, &fx); err != nil {
 		t.Fatalf("transitions.json: %v", err)
 	}
+	loc, err := time.LoadLocation(fx.TZ)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, sc := range fx.Scenarios {
 		t.Run(sc.Name, func(t *testing.T) {
 			var mu sync.Mutex
 			var got []wireCall
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v1/status":
+				case "/v1/usage":
+					w.WriteHeader(http.StatusNoContent)
+					return
+				default:
+					t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
 				b, _ := io.ReadAll(r.Body)
 				c := wireCall{Method: r.Method}
 				if err := json.Unmarshal(b, &c.Body); err != nil {
@@ -281,6 +340,7 @@ func TestModParityTransitions(t *testing.T) {
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_STATE_HOME", "")
 			t.Setenv("EMBER_TOKEN", "")
+			t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 			cfgDir := filepath.Join(home, ".config", "ember")
 			if err := os.MkdirAll(cfgDir, 0o700); err != nil {
 				t.Fatal(err)
@@ -304,9 +364,25 @@ func TestModParityTransitions(t *testing.T) {
 				mu.Lock()
 				got = nil
 				mu.Unlock()
-				if step.Event == "tick" {
+				switch step.Event {
+				case "tick":
 					dispatchTick(context.Background(), cfg)
-				} else {
+				case "statusline":
+					var reading struct {
+						SessionID  string          `json:"session_id"`
+						Cwd        string          `json:"cwd"`
+						Statusline json.RawMessage `json:"statusline"`
+					}
+					if err := json.Unmarshal(step.Input, &reading); err != nil {
+						t.Fatal(err)
+					}
+					in, ok := parseStatusline(reading.Statusline)
+					if !ok {
+						t.Fatalf("step %d: statusline does not parse", i)
+					}
+					in.SessionID, in.Cwd = reading.SessionID, reading.Cwd
+					enrichFromStatusline(in, statuslineEnv(), loc)
+				default:
 					dispatchHook(context.Background(), step.Event, step.Input, cfg)
 				}
 				mu.Lock()

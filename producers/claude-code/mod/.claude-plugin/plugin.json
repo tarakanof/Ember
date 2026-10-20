@@ -2,7 +2,7 @@
   "name": "ember-mod",
   "version": "0.1.0",
   "displayName": "Ember (mod producer, experimental)",
-  "description": "Experimental in-process Claude Code producer for Ember: reports session state from a hooks module, with no hook binary. Posts under its own source (EMBER_MOD_SOURCE, default <EMBER_SOURCE>-mod) so it runs beside ember@ember. Needs Claude Code 2.1.288+ and ~/.config/ember/producer.env.",
+  "description": "Experimental in-process Claude Code producer for Ember: reports session state, context % and the 5-hour rate gauge from a hooks module, with no hook binary. Posts under its own source (EMBER_MOD_SOURCE, default <EMBER_SOURCE>-mod) so it runs beside ember@ember. Needs Claude Code 2.1.288+ and ~/.config/ember/producer.env.",
   "author": {
     "name": "tarakanof",
     "url": "https://github.com/tarakanof"

@@ -15,6 +15,7 @@ import {
   dialogExpected,
   envFileProblem,
   failureOutcome,
+  gaugesFromUsage,
   isPlaceholderSource,
   bounded,
   normalizeHostName,
@@ -30,6 +31,7 @@ import {
   type Effect,
   type FetchLike,
   type Snapshot,
+  type UsageReading,
 } from './producer.ts'
 
 type Engine = EngineInterface
@@ -61,6 +63,8 @@ type ModState = {
   dirty: boolean
   t3: T3Verdict
   t3TriedAt: number | undefined
+  readingSeq: number
+  appliedSeq: number
 }
 
 type Step = (cfg: Config, now: number, id: string) => Effect[]
@@ -410,6 +414,7 @@ async function track($: Engine, st: ModState, rawSession: string, cwd: string, s
   const id = await sessionID(rawSession, cwd)
   const now = await $.clock.now()
   emit($, st, cfg, step(cfg, now, id), cfg.hookTimeoutMs, now)
+  if (st.tracker.wantsGauges(id)) void quietly(() => measure($, st, undefined))
   persist($, st)
 }
 
@@ -447,6 +452,17 @@ async function endSession($: Engine, st: ModState, rawSession: string, cwd: stri
   persist($, st)
   if (sent.length === 0) return
   await Promise.race([Promise.all(sent), $.clock.sleep(SESSION_END_BUDGET_MS)])
+}
+
+async function measure($: Engine, st: ModState, reading: UsageReading | undefined): Promise<void> {
+  const seq = ++st.readingSeq
+  await ready($, st)
+  const usage = reading ?? (await $.session.usage())
+  const id = await sessionID(await $.session.id(), await $.session.cwd())
+  if (seq < st.appliedSeq) return
+  st.appliedSeq = seq
+  st.tracker.measure(id, gaugesFromUsage(usage))
+  persist($, st)
 }
 
 async function quietly(work: () => Promise<void>): Promise<void> {
@@ -494,6 +510,8 @@ export const register: Register = on => {
     dirty: false,
     t3: 'unknown',
     t3TriedAt: undefined,
+    readingSeq: 0,
+    appliedSeq: 0,
   }
   const t = st.tracker
 
@@ -501,6 +519,12 @@ export const register: Register = on => {
     st.interactive = e.isInteractive
     start($, st, true)
     await quietly(() => ready($, st))
+    void quietly(() => measure($, st, undefined))
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('session.measure', ($, e, next) => {
+    void quietly(() => measure($, st, e))
     return next(e)
   }).catch(($, e, next) => next(e))
 

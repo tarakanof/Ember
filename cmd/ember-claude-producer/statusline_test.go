@@ -142,7 +142,7 @@ func TestExtractWeekResetAt(t *testing.T) {
 
 func TestExtractWeekResetLabel(t *testing.T) {
 	in, _ := parseStatusline([]byte(`{"rate_limits":{"seven_day":{"used_percentage":20,"resets_at":1778700000}}}`))
-	got, ok := extractWeekResetLabel(in)
+	got, ok := extractWeekResetLabel(in, time.Local)
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -151,7 +151,7 @@ func TestExtractWeekResetLabel(t *testing.T) {
 		t.Errorf("extractWeekResetLabel = %q, want %q", got, want)
 	}
 	none, _ := parseStatusline([]byte(`{"rate_limits":{"five_hour":{"used_percentage":20}}}`))
-	if _, ok := extractWeekResetLabel(none); ok {
+	if _, ok := extractWeekResetLabel(none, time.Local); ok {
 		t.Error("absent seven_day should report ok=false")
 	}
 }
@@ -600,11 +600,11 @@ func TestHookKeepsStatuslineChanged(t *testing.T) {
 
 func TestExtractRateResetLabel(t *testing.T) {
 	in, _ := parseStatusline([]byte(`{"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":1778614633}}}`))
-	l, ok := extractRateResetLabel(in)
+	l, ok := extractRateResetLabel(in, time.Local)
 	if want := time.Unix(1778614633, 0).Local().Format("15:04"); !ok || l != want {
 		t.Fatalf("label = %q %v, want %q", l, ok, want)
 	}
-	if _, ok := extractRateResetLabel(statuslineInput{}); ok {
+	if _, ok := extractRateResetLabel(statuslineInput{}, time.Local); ok {
 		t.Fatal("no rate limits must report ok=false")
 	}
 }

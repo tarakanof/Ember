@@ -497,7 +497,7 @@ func waitDone(t *testing.T, done <-chan struct{}, what string) {
 func renderAsync(in statuslineInput) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
-		enrichFromStatusline(in, nil)
+		enrichFromStatusline(in, nil, time.Local)
 		close(done)
 	}()
 	return done
@@ -630,7 +630,7 @@ func TestStatuslineRelayHoldsFiguresBackWhileTheirAccountIsParsed(t *testing.T) 
 	writeClaudeJSON(t, cfgDir, fakeClaudeJSON)
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	writeMarkerFile(t, h.sessionsDir(), "s", "")
-	enrichFromStatusline(statuslineWithFiveHour(t, "s", 20), nil)
+	enrichFromStatusline(statuslineWithFiveHour(t, "s", 20), nil, time.Local)
 	cfg, _ := loadConfig()
 	dispatchTick(context.Background(), cfg)
 	if got := relayed(t, h); got[personalKey].FiveHour == nil || got[personalKey].FiveHour.UsedPercent != 20 {
@@ -664,7 +664,7 @@ func TestStatuslineSkipsTheAccountRewriteWhenTheConfigIsUnchanged(t *testing.T) 
 	writeClaudeJSON(t, home, fakeClaudeJSON)
 	render := func(pct int) {
 		in, _ := parseStatusline([]byte(fmt.Sprintf(`{"session_id":"s","rate_limits":{"five_hour":{"used_percentage":%d}}}`, pct)))
-		enrichFromStatusline(in, nil)
+		enrichFromStatusline(in, nil, time.Local)
 	}
 	render(30)
 	p := filepath.Join(home, ".claude.json")
@@ -689,7 +689,7 @@ func TestStatuslineOlderRenderKeepsANewerRendersPendingToken(t *testing.T) {
 	writeClaudeJSON(t, cfgDir, fakeClaudeJSON)
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	mp := writeMarkerFile(t, h.sessionsDir(), "s", "")
-	enrichFromStatusline(statuslineWithFiveHour(t, "s", 20), nil)
+	enrichFromStatusline(statuslineWithFiveHour(t, "s", 20), nil, time.Local)
 	fifo := makeConfigFIFO(t, cfgDir)
 	done := renderAsync(statuslineWithFiveHour(t, "s", 50))
 	fifo.waitReader(t, "the older render")
@@ -754,7 +754,7 @@ func TestStatuslineLegacyPendingFlagHoldsTheSnapshotUntilARenderSettles(t *testi
 	writeClaudeJSON(t, cfgDir, fakeClaudeJSON)
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	mp := writeMarkerFile(t, h.sessionsDir(), "s", "")
-	enrichFromStatusline(statuslineWithFiveHour(t, "s", 20), nil)
+	enrichFromStatusline(statuslineWithFiveHour(t, "s", 20), nil, time.Local)
 	rewriteMarkerFields(t, mp, map[string]any{"usage_account_pending": true, "rate_window_pct": 90})
 	cfg, _ := loadConfig()
 	h.usageBodies = nil
@@ -764,7 +764,7 @@ func TestStatuslineLegacyPendingFlagHoldsTheSnapshotUntilARenderSettles(t *testi
 			t.Fatalf("relayed 90 under %q while a pre-upgrade render still held the account pending", key)
 		}
 	}
-	enrichFromStatusline(statuslineWithFiveHour(t, "s", 91), nil)
+	enrichFromStatusline(statuslineWithFiveHour(t, "s", 91), nil, time.Local)
 	if m := markerAt(t, mp); m.pending() || m.UsageAccountKey != personalKey {
 		t.Fatalf("marker = key %q token %d legacy %v, want the account re-parsed and settled",
 			m.UsageAccountKey, m.UsageAccountPending, m.UsageAccountLegacyPending)

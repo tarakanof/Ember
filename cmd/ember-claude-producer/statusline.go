@@ -62,12 +62,12 @@ func extractRateResetAt(in statuslineInput) (int64, bool) {
 	return in.RateLimits.FiveHour.ResetsAt, true
 }
 
-func extractRateResetLabel(in statuslineInput) (string, bool) {
+func extractRateResetLabel(in statuslineInput, loc *time.Location) (string, bool) {
 	at, ok := extractRateResetAt(in)
 	if !ok {
 		return "", false
 	}
-	return time.Unix(at, 0).Local().Format("15:04"), true
+	return clockLabel(time.Unix(at, 0), loc), true
 }
 
 func extractWeekPct(in statuslineInput) (*int, bool) {
@@ -85,12 +85,12 @@ func extractWeekResetAt(in statuslineInput) (int64, bool) {
 	return in.RateLimits.SevenDay.ResetsAt, true
 }
 
-func extractWeekResetLabel(in statuslineInput) (string, bool) {
+func extractWeekResetLabel(in statuslineInput, loc *time.Location) (string, bool) {
 	at, ok := extractWeekResetAt(in)
 	if !ok {
 		return "", false
 	}
-	return dayLabel(time.Unix(at, 0), time.Local), true
+	return dayLabel(time.Unix(at, 0), loc), true
 }
 
 func extractContextPct(in statuslineInput) (*int, bool) {
@@ -284,12 +284,12 @@ func statuslineMain(buf []byte, stdout io.Writer) {
 		wrapped <- nil
 	}
 	if parsed {
-		enrichFromStatusline(in, env)
+		enrichFromStatusline(in, env, time.Local)
 	}
 	_, _ = stdout.Write(<-wrapped)
 }
 
-func enrichFromStatusline(in statuslineInput, env map[string]string) {
+func enrichFromStatusline(in statuslineInput, env map[string]string, loc *time.Location) {
 	var ratePct, ctxPct, weekPct *int
 	var resetAt, weekResetAt *int64
 	var resetLabel, weekResetLabel string
@@ -299,7 +299,7 @@ func enrichFromStatusline(in statuslineInput, env map[string]string) {
 	if r, ok := extractRateResetAt(in); ok {
 		resetAt = &r
 	}
-	if l, ok := extractRateResetLabel(in); ok {
+	if l, ok := extractRateResetLabel(in, loc); ok {
 		resetLabel = l
 	}
 	if p, ok := extractWeekPct(in); ok {
@@ -308,7 +308,7 @@ func enrichFromStatusline(in statuslineInput, env map[string]string) {
 	if r, ok := extractWeekResetAt(in); ok {
 		weekResetAt = &r
 	}
-	if l, ok := extractWeekResetLabel(in); ok {
+	if l, ok := extractWeekResetLabel(in, loc); ok {
 		weekResetLabel = l
 	}
 	if contextPctEnabled(env) {
