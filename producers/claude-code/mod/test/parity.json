@@ -70,6 +70,19 @@
     { "raw": "---", "want": "" },
     { "raw": "", "want": "" }
   ],
+  "agents_parse": [
+    { "name": "interactive rows by session", "text": "[{\"pid\":1,\"cwd\":\"/a\",\"kind\":\"interactive\",\"sessionId\":\"s1\",\"status\":\"waiting\",\"waitingFor\":\"permission prompt\"},{\"pid\":2,\"sessionId\":\"s2\",\"status\":\"busy\"}]", "want": { "s1": "waiting", "s2": "busy" } },
+    { "name": "rows without a session or status are skipped", "text": "[{\"id\":\"ab\",\"sessionId\":\"s2\",\"state\":\"done\"},{\"pid\":3,\"status\":\"busy\"}]", "want": {} },
+    { "name": "an older CLI prints usage", "text": "Usage: claude agents", "want": null },
+    { "name": "not a list", "text": "{\"status\":\"busy\"}", "want": null }
+  ],
+  "agents_wait": [
+    { "name": "approved", "state": "waiting", "message": "approve Bash", "pending": true, "status": "busy", "want": { "state": "running", "message": "Bash" } },
+    { "name": "still waiting", "state": "waiting", "message": "approve Bash", "pending": true, "status": "waiting", "want": null },
+    { "name": "unknown status on a wait", "state": "waiting", "message": "approve Bash", "pending": true, "status": "", "want": null },
+    { "name": "a notification-only wait is the hooks'", "state": "waiting", "message": "usage limit", "pending": false, "status": "busy", "want": null },
+    { "name": "running and busy agree", "state": "running", "message": "Bash", "pending": false, "status": "busy", "want": null }
+  ],
   "t3": [
     {"name": "desktop app server", "env": {"CLAUDE_CODE_ENTRYPOINT": "sdk-ts"}, "procs": {"100": {"ppid": 99, "comm": "/bin/sh"}, "99": {"ppid": 98, "comm": "claude"}, "98": {"ppid": 97, "comm": "/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)", "argv": ["/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)", "--require", "/Applications/T3 Code (Alpha).app/Contents/Resources/app.asar/apps/desktop/dist-electron/compileCache.cjs", "/Applications/T3 Code (Alpha).app/Contents/Resources/app.asar/apps/server/dist/bin.mjs", "--bootstrap-fd", "3"]}, "97": {"ppid": 1, "comm": "/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)", "argv": ["/Applications/T3 Code (Alpha).app/Contents/MacOS/T3 Code (Alpha)"]}}, "want": true},
     {"name": "linux desktop server", "env": {"CLAUDE_CODE_ENTRYPOINT": "sdk-ts"}, "procs": {"100": {"ppid": 99, "comm": "sh"}, "99": {"ppid": 98, "comm": "claude"}, "98": {"ppid": 1, "comm": "t3code", "argv": ["/opt/T3 Code/t3code", "/opt/T3 Code/resources/app.asar/apps/server/dist/bin.mjs", "--bootstrap-fd", "3"]}}, "want": true},

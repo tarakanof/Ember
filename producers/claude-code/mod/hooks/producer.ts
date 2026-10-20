@@ -63,6 +63,11 @@ export const SESSION_END_BUDGET_MS = 800
 export const TICK_SEND_TIMEOUT_MS = 5000
 export const WAIT_BACKSTOP_MS = 30 * 60_000
 export const RESUME_GRACE_MS = 15_000
+export const AGENTS_WATCH_MS = 2000
+export const AGENTS_CONFIRM_MS = 1500
+export const AGENTS_CALL_TIMEOUT_MS = 5000
+export const AGENTS_FAIL_BACKOFF_MS = 300_000
+export const MIN_AGENTS_VERSION: [number, number, number] = [2, 1, 288]
 export const SOURCE_PLACEHOLDER = 'set-me-to-this-laptop-id'
 export const END_REASONS = ['logout', 'prompt_input_exit', 'other', 'clear', 'resume']
 
@@ -364,7 +369,41 @@ export function dialogExpected(interactive: boolean, permissionMode: string): bo
   return interactive && !['auto', 'dontAsk', 'bypassPermissions'].includes(permissionMode)
 }
 
+export function parseAgents(text: string): Map<string, string> | undefined {
+  let rows: unknown
+  try {
+    rows = JSON.parse(text.trim())
+  } catch {
+    return undefined
+  }
+  if (!Array.isArray(rows)) return undefined
+  const out = new Map<string, string>()
+  for (const row of rows) {
+    if (row === null || typeof row !== 'object') continue
+    const r = row as Record<string, unknown>
+    if (typeof r.sessionId === 'string' && r.sessionId !== '' && typeof r.status === 'string' && r.status !== '') {
+      out.set(r.sessionId, r.status)
+    }
+  }
+  return out
+}
+
+export function agentsCLIUsable(versionOutput: string): boolean {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(versionOutput)
+  if (!m) return false
+  for (let i = 0; i < 3; i++) {
+    const have = Number(m[i + 1])
+    const need = MIN_AGENTS_VERSION[i] ?? 0
+    if (have !== need) return have > need
+  }
+  return true
+}
+
 export type Session = EmberModSession
+
+function dialogWait(s: Session): boolean {
+  return s.state === 'waiting' && s.pendingPermission && !s.agentInput && !s.parked
+}
 
 const BLANK_SESSION: Session = {
   state: '',
@@ -436,6 +475,7 @@ type Upsert = {
 
 export class Tracker {
   readonly sessions = new Map<string, Session>()
+  private readonly sightings = new Map<string, { hookAt: number; at: number }>()
 
   entries(): [string, Session][] {
     return [...this.sessions].map(([id, s]) => [id, { ...s }])
@@ -513,6 +553,35 @@ export class Tracker {
     if (!s || s.state !== 'waiting' || !s.pendingPermission) return []
     const sameCall = s.pendingToolUseId !== '' ? s.pendingToolUseId === toolUseId : s.pendingTool === tool
     if (!sameCall) return []
+    return this.resume(cfg, now, id, s, tool)
+  }
+
+  dialogWaiting(): boolean {
+    for (const s of this.sessions.values()) if (dialogWait(s)) return true
+    return false
+  }
+
+  agentsCorrect(cfg: Config, began: number, now: number, rows: Map<string, string>): Effect[] {
+    const out: Effect[] = []
+    for (const [id, s] of this.sessions) {
+      if (!dialogWait(s) || rows.get(id) !== 'busy' || s.hookAt > began) {
+        this.sightings.delete(id)
+        continue
+      }
+      const seen = this.sightings.get(id)
+      if (!seen || seen.hookAt !== s.hookAt) {
+        this.sightings.set(id, { hookAt: s.hookAt, at: began })
+        continue
+      }
+      if (began - seen.at < AGENTS_CONFIRM_MS) continue
+      this.sightings.delete(id)
+      out.push(...this.resume(cfg, now, id, s, s.pendingTool || 'resumed'))
+    }
+    for (const id of [...this.sightings.keys()]) if (!this.sessions.has(id)) this.sightings.delete(id)
+    return out
+  }
+
+  private resume(cfg: Config, now: number, id: string, s: Session, tool: string): Effect[] {
     s.state = 'running'
     s.message = truncate(tool, MAX_FIELD)
     s.pendingPermission = false

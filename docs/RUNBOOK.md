@@ -596,13 +596,27 @@ rows. Needs Claude Code 2.1.288 or newer.
   and confirm `/state` shows only `t3/...` rows for it.
 - **Where it differs from the Go producer** (phase 1):
   - `waiting` from a permission dialog ends when the approved tool
-    **finishes** (the awaited `tool.call` resolves), not when you click
-    Allow. The Go hook alone has the same timing (PostToolUse), but the Go
-    daemon's agents watcher flips it to `running` within a tick; the mod has
-    no watcher yet. A long approved command therefore stays `waiting` on the
-    mod's row.
-  - A `permission_mode` change by Shift+Tab is seen at the next classic event,
-    so the first ask after switching into `auto` can show a short `waiting`.
+    **finishes** (the awaited `tool.call` resolves), as the Go hook alone
+    does, but the mod also runs the Go daemon's agents cross-check for it
+    (#669): while a session shows a dialog wait, a 2 s timer runs
+    `claude agents --json` (5 s timeout) and, once the session's row has
+    said `busy` on two polls at least 1.5 s apart with no event in between,
+    flips the row to `running`. So a long approved command leaves `waiting`
+    about 2 to 4 s after you click Allow. The cost is one `claude --version`
+    (once, to gate on 2.1.288 so an older CLI never takes `agents` as a
+    prompt) plus one `claude agents --json` spawn every 2 s only while a
+    dialog wait is open; no wait, no spawn. A failing or unparseable call
+    backs the poll off for 5 minutes. It runs on its own timer, never in a
+    hook, and only ends dialog waits (`pending` permission); it does not
+    start waits, turn `idle` rows into `done` or end Notification-only
+    waits, which the Go daemon also handles.
+  - A `permission_mode` change by Shift+Tab is seen at the next classic event.
+    Claude Code 2.1.304 gives a mod no event or noun for it (the API has no
+    mode-change event, `claude agents --json` carries no mode, and the
+    `SessionMode`/`PromptHint` render hooks only expose drawn text). The
+    effect of a stale mode is bounded by the cross-check above: after a
+    switch into `auto`, the first ask that the classifier answers shows
+    `waiting` for about 2 to 4 s, not until the tool ends.
   - A killed Claude Code (`kill -9`) is reaped by the server's
     `display.stale_seconds` (default 300 s), not a 10 s `ps` check.
   - Network sends are serialised per session and coalesced (only the
@@ -658,8 +672,8 @@ rows. Needs Claude Code 2.1.288 or newer.
   ```
 
   Things to check: `waiting` appears when the permission dialog opens (on
-  both rows) and ends when the approved tool finishes (the Go row may flip
-  back to `running` sooner, see above), long tools and long waits stay
+  both rows) and ends within a few seconds of the answer (the Go row flips
+  within a tick, the mod's within about 4 s, see above), long tools and long waits stay
   alive, `/clear` and exit DELETE both rows, and after a `kill -9` the mod's
   row lingers up to `stale_seconds`. `claude agents --json` (`status`,
   `waitingFor`) is the ground truth for interactive waits.

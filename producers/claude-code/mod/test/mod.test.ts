@@ -67,6 +67,10 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
     rejectProject: false,
     procs: {} as Record<string, Proc>,
     psCalls: 0,
+    claudeVersion: '2.1.305 (Claude Code)\n',
+    agents: '[]',
+    agentsFail: false,
+    agentsRuns: 0,
   }
   mock.env(on, { HOME, ...extraEnv })
   const clock = mock.clock(on, { now: 1_000_000 })
@@ -100,6 +104,13 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
       if (e.argv.includes('ppid=,comm=')) return ran(`${proc.ppid} ${proc.comm}\n`)
       if (e.argv.includes('comm=')) return ran(proc.comm + '\n')
       if (e.argv.includes('args=')) return ran((proc.argv ?? [proc.comm]).join(' ') + '\n')
+    }
+    if (/(^|\/)claude$/.test(bin)) {
+      if (e.argv[1] === '--version') return ran(ctl.claudeVersion)
+      if (e.argv[1] === 'agents') {
+        ctl.agentsRuns++
+        return ctl.agentsFail ? ran('', 1) : ran(ctl.agents)
+      }
     }
     const usable = ctl.absoluteMissing ? !bin.startsWith('/') : bin.startsWith('/usr/bin/')
     if (!usable) return ran('', 127)
@@ -616,4 +627,109 @@ test('a failed process lookup reports the session, and a later one that finds T3
   await $.classic.Stop(STOP)
   await clock.settle()
   expect(sent).toHaveLength(count)
+})
+
+function agentRows(status: string, sessionId = 'sess-1'): string {
+  return JSON.stringify([{ pid: 7, kind: 'interactive', sessionId, cwd: `${HOME}/proj`, status }])
+}
+
+async function openDialog($: Parameters<Parameters<typeof test>[1]>[0], on: On, clock: ReturnType<typeof world>['clock']) {
+  on('tool.check', () => ({ decision: 'ask', reason: 'needs approval' }))
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await $.tool.check({ tool: 'Bash', input: { command: 'make' }, tool_use_id: 'toolu_1' })
+  await clock.settle()
+}
+
+test('a busy row ends a permission wait before the approved tool finishes', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.agents = agentRows('busy')
+  await openDialog($, on, clock)
+  expect(sent.at(-1)?.body.state).toBe('waiting')
+  await clock.advance(2000)
+  expect(sent.at(-1)?.body.state).toBe('waiting')
+  await clock.advance(2000)
+  expect(sent.at(-1)?.body).toEqual(expect.objectContaining({ state: 'running', message: 'Bash' }))
+  expect(ctl.runs.filter(argv => argv[1] === 'agents' && argv[2] === '--json')).toHaveLength(2)
+})
+
+test('a waiting row keeps the wait, and the poll goes on', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.agents = agentRows('waiting')
+  await openDialog($, on, clock)
+  await clock.advance(2000)
+  await clock.advance(2000)
+  await clock.advance(2000)
+  expect(sent.map(s => s.body.state)).toEqual(['running', 'waiting'])
+  expect(ctl.agentsRuns).toBe(3)
+})
+
+test('a busy row seen once is not enough: it must hold for 1.5 s', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.agents = agentRows('busy')
+  await openDialog($, on, clock)
+  await clock.advance(2000)
+  ctl.agents = agentRows('waiting')
+  await clock.advance(2000)
+  expect(sent.at(-1)?.body.state).toBe('waiting')
+})
+
+test('the poll stops once the wait ends and never runs without a dialog wait', async ($, on) => {
+  const { clock, ctl } = world(on)
+  on('tool.check', () => ({ decision: 'ask', reason: 'needs approval' }))
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.advance(8000)
+  expect(ctl.agentsRuns).toBe(0)
+  expect(ctl.runs.some(argv => /claude$/.test(argv[0] ?? ''))).toBe(false)
+  ctl.agents = agentRows('busy')
+  await $.tool.check({ tool: 'Bash', input: { command: 'make' }, tool_use_id: 'toolu_1' })
+  await clock.advance(2000)
+  await clock.advance(2000)
+  const runs = ctl.agentsRuns
+  expect(runs).toBe(2)
+  await clock.advance(6000)
+  expect(ctl.agentsRuns).toBe(runs)
+})
+
+test('a classic PermissionRequest wait is ended the same way', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.agents = agentRows('busy')
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: { file_path: '/x' }, session_id: 'sess-1', cwd: `${HOME}/proj`, permission_mode: 'auto' })
+  await clock.settle()
+  expect(sent.at(-1)?.body.state).toBe('waiting')
+  await clock.advance(2000)
+  await clock.advance(2000)
+  expect(sent.at(-1)?.body).toEqual(expect.objectContaining({ state: 'running', message: 'Edit' }))
+})
+
+test('a CLI older than 2.1.288 is never asked for agents, and a failing call backs off for 5 minutes', async ($, on) => {
+  const { clock, ctl } = world(on)
+  ctl.claudeVersion = '2.1.287 (Claude Code)\n'
+  await openDialog($, on, clock)
+  await clock.advance(2000)
+  await clock.advance(2000)
+  expect(ctl.runs.some(argv => argv[1] === 'agents')).toBe(false)
+  ctl.claudeVersion = '2.1.305 (Claude Code)\n'
+  ctl.agentsFail = true
+  await clock.advance(300_000)
+  const failed = ctl.agentsRuns
+  expect(failed).toBeGreaterThan(0)
+  await clock.advance(2000)
+  await clock.advance(2000)
+  expect(ctl.agentsRuns).toBe(failed)
+})
+
+test('a busy row must be seen twice on the same wait: a new ask in between starts the count again', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.agents = agentRows('busy')
+  await openDialog($, on, clock)
+  await clock.advance(2000)
+  await $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: { file_path: '/x' }, session_id: 'sess-1', cwd: `${HOME}/proj` })
+  await clock.advance(2000)
+  expect(sent.at(-1)?.body).toEqual(expect.objectContaining({ state: 'waiting', message: 'approve Edit' }))
+  await clock.advance(2000)
+  expect(sent.at(-1)?.body).toEqual(expect.objectContaining({ state: 'running', message: 'Edit' }))
 })

@@ -1,18 +1,23 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { T3_PROBE_BUDGET_MS, T3_RETRY_MS, argvFromPs, detectT3, parsePsInfo, type T3Probe, type T3Verdict } from './t3.ts'
 import {
+  AGENTS_CALL_TIMEOUT_MS,
+  AGENTS_FAIL_BACKOFF_MS,
+  AGENTS_WATCH_MS,
   FieldDropper,
   HEARTBEAT_MS,
   Sender,
   SESSION_END_BUDGET_MS,
   TICK_SEND_TIMEOUT_MS,
   Tracker,
+  agentsCLIUsable,
   dialogExpected,
   envFileProblem,
   failureOutcome,
   isPlaceholderSource,
   bounded,
   normalizeHostName,
+  parseAgents,
   parseEnvFile,
   parseSnapshot,
   resolveConfig,
@@ -43,6 +48,10 @@ type ModState = {
   interactive: boolean
   permissionMode: string
   heartbeat: { cancel: () => void } | undefined
+  watch: { cancel: () => void } | undefined
+  watching: boolean
+  claudeBin: string | undefined
+  agentsBackoffUntil: number
   restored: Promise<void> | undefined
   saving: boolean
   dirty: boolean
@@ -210,6 +219,7 @@ function snapshot(st: ModState): Snapshot {
 }
 
 function persist($: Engine, st: ModState): void {
+  syncWatch($, st)
   st.dirty = true
   if (st.saving) return
   st.saving = true
@@ -223,6 +233,71 @@ function persist($: Engine, st: ModState): void {
       st.saving = false
     }
   })()
+}
+
+function claudeCandidates(home: string): string[] {
+  return [`${home}/.local/bin/claude`, 'claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude']
+}
+
+async function agentsOutput($: Engine, st: ModState, home: string): Promise<string | undefined> {
+  const run = async (argv: string[]) => {
+    try {
+      const r = await $.process.run(argv, { timeoutMs: AGENTS_CALL_TIMEOUT_MS })
+      return r.exitCode === 0 ? r.stdout : undefined
+    } catch {
+      return undefined
+    }
+  }
+  if (st.claudeBin === undefined) {
+    for (const bin of claudeCandidates(home)) {
+      if (agentsCLIUsable((await run([bin, '--version'])) ?? '')) {
+        st.claudeBin = bin
+        break
+      }
+    }
+  }
+  if (st.claudeBin === undefined) return undefined
+  const out = await run([st.claudeBin, 'agents', '--json'])
+  if (out === undefined) st.claudeBin = undefined
+  return out
+}
+
+function syncWatch($: Engine, st: ModState): void {
+  const wanted = st.config !== undefined && st.t3 !== 'yes' && st.tracker.dialogWaiting()
+  if (wanted && !st.watch) {
+    st.watch = $.clock.every(AGENTS_WATCH_MS, () => void quietly(() => watchPass($, st)))
+  } else if (!wanted && st.watch) {
+    st.watch.cancel()
+    st.watch = undefined
+  }
+}
+
+async function watchPass($: Engine, st: ModState): Promise<void> {
+  if (st.watching) return
+  st.watching = true
+  try {
+    const cfg = await liveConfig($, st)
+    if (!cfg || !st.tracker.dialogWaiting()) {
+      syncWatch($, st)
+      return
+    }
+    const began = await $.clock.now()
+    if (began < st.agentsBackoffUntil) return
+    const out = await agentsOutput($, st, cfg.home)
+    const rows = out === undefined ? undefined : parseAgents(out)
+    const now = await $.clock.now()
+    if (!rows) {
+      st.agentsBackoffUntil = now + AGENTS_FAIL_BACKOFF_MS
+      return
+    }
+    const effects = st.tracker.agentsCorrect(cfg, began, now, rows)
+    if (effects.length > 0) {
+      emit($, st, cfg, effects, cfg.hookTimeoutMs, now)
+      persist($, st)
+    }
+  } finally {
+    st.watching = false
+  }
 }
 
 async function runFirst($: Engine, argvs: string[][], timeoutMs: number): Promise<string | undefined> {
@@ -360,6 +435,10 @@ export const register: Register = on => {
     interactive: false,
     permissionMode: '',
     heartbeat: undefined,
+    watch: undefined,
+    watching: false,
+    claudeBin: undefined,
+    agentsBackoffUntil: 0,
     restored: undefined,
     saving: false,
     dirty: false,
