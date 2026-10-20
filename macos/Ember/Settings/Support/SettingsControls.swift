@@ -134,6 +134,7 @@ struct InheritableColorRow: View {
     @Binding var hex: String?
     let inherited: String
     let supportsInherit: Bool
+    var inheritLabel: LocalizedStringKey = "Same as text"
 
     var body: some View {
         if supportsInherit {
@@ -143,7 +144,7 @@ struct InheritableColorRow: View {
                         get: { hex != nil },
                         set: { custom in hex = custom ? (hex ?? inherited) : nil }
                     )) {
-                        Text("Same as text").tag(false)
+                        Text(inheritLabel).tag(false)
                         Text("Custom").tag(true)
                     } label: {
                         Text(title)

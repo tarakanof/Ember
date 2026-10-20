@@ -47,6 +47,9 @@ struct KnobDisplaySection: View {
                 } else {
                     Text("The knob stays at this brightness. It never goes below the minimum, except during quiet hours. Set the hours in Sounds & Alerts.")
                 }
+                if knob.knob?.supports(feature: KnobCaps.idleDim) == false {
+                    Text("Idle dimming needs newer knob firmware.")
+                }
                 SaveErrorFooter(error: knob.settings.saveError)
             }
         }
@@ -80,6 +83,45 @@ struct KnobQuietSection: View {
             } footer: {
                 SectionFooter(text: "Applies while quiet hours are on. Set the hours in Sounds & Alerts.",
                               error: knob.settings.saveError)
+            }
+            .disabled(!knob.settings.isLoaded)
+        }
+    }
+}
+
+struct KnobIdleSection: View {
+    @Environment(AppEnvironment.self) private var env
+
+    var body: some View {
+        let knob = env.knob
+        if knob.knob?.supports(feature: KnobCaps.idleDim) == true {
+            let idle = knob.settings.draft.idle
+            let dim = idle?.dimAfterS ?? 0
+            let off = idle?.offAfterS ?? 0
+            Section {
+                Picker("Dim after", selection: Binding(
+                    get: { dim },
+                    set: { v in knob.edit { $0.editIdle { $0.dimAfterS = v } } })) {
+                    ForEach(KnobSettings.idleDimAfterChoices(off: off, current: dim), id: \.self) { sec in
+                        sec == 0 ? Text("Never").tag(sec) : Text(verbatim: DurationText.interval(sec)).tag(sec)
+                    }
+                }
+                PercentSliderRow(title: "Dim level", percent: Binding(
+                    get: { DeviceUnits.brightnessPercent(raw: idle?.dimLevel ?? KnobSettings.idleDimDefault) },
+                    set: { p in knob.edit { $0.editIdle { $0.dimLevel = DeviceUnits.brightnessRaw(percent: p) } } }),
+                    range: 1...100)
+                    .disabled(dim == 0)
+                Picker("Turn off after", selection: Binding(
+                    get: { off },
+                    set: { v in knob.edit { $0.editIdle { $0.offAfterS = v } } })) {
+                    ForEach(KnobSettings.idleOffAfterChoices(dim: dim, current: off), id: \.self) { sec in
+                        sec == 0 ? Text("Never").tag(sec) : Text(verbatim: DurationText.interval(sec)).tag(sec)
+                    }
+                }
+            } header: {
+                Text("Idle")
+            } footer: {
+                SectionFooter(text: "Turning the knob or touching it wakes it.", error: knob.settings.saveError)
             }
             .disabled(!knob.settings.isLoaded)
         }
@@ -299,6 +341,107 @@ struct KnobBotSection: View {
     }
 }
 
+struct KnobAppOptionsSection: View {
+    @Environment(AppEnvironment.self) private var env
+    let app: AppID
+
+    var body: some View {
+        let knob = env.knob
+        switch app {
+        case .focus where knob.knob?.supports(feature: KnobCaps.pomoColors) == true:
+            focus(knob)
+        case .weather where knob.knob?.supports(feature: KnobCaps.wxFaceList) == true:
+            weather(knob)
+        case .nowplaying where knob.knob?.supports(feature: KnobCaps.npDim) == true:
+            nowPlaying(knob)
+        default:
+            EmptyView()
+        }
+    }
+
+    private func focus(_ knob: KnobModel) -> some View {
+        let p = knob.settings.draft.apps?.pomodoro
+        let theme = KnobTheme.standard.pomodoro.colors
+        return Section {
+            InheritableColorRow(title: "Focus colour", hex: Binding(
+                get: { p?.focusColor },
+                set: { v in knob.edit { $0.editPomodoro { $0.focusColor = v } } }),
+                inherited: theme.focus.hex, supportsInherit: true, inheritLabel: "Same as clock")
+            InheritableColorRow(title: "Break colour", hex: Binding(
+                get: { p?.breakColor },
+                set: { v in knob.edit { $0.editPomodoro { $0.breakColor = v } } }),
+                inherited: theme.break.hex, supportsInherit: true, inheritLabel: "Same as clock")
+        } header: {
+            Text("Colours")
+        } footer: {
+            SectionFooter(text: "Same as clock uses the knob's own colours.", error: knob.settings.saveError)
+        }
+    }
+
+    private func weather(_ knob: KnobModel) -> some View {
+        let rows = knob.settings.draft.weatherFaceRows
+        let lastOn = rows.filter { $0.on }.count == 1
+        return Section {
+            ForEach(rows, id: \.id) { row in
+                HStack {
+                    Toggle(isOn: Binding(
+                        get: { row.on },
+                        set: { on in knob.edit { $0.setWeatherFace(row.id, on: on) } })) {
+                        knobWeatherFaceTitle(row.id)
+                    }
+                    .disabled(row.on && lastOn)
+                    Button { knob.edit { $0.moveWeatherFace(row.id, by: -1) } } label: {
+                        Image(systemName: "chevron.up")
+                    }
+                    .disabled(!knob.settings.draft.canMoveWeatherFace(row.id, by: -1))
+                    .accessibilityLabel(Text("Move Up"))
+                    Button { knob.edit { $0.moveWeatherFace(row.id, by: 1) } } label: {
+                        Image(systemName: "chevron.down")
+                    }
+                    .disabled(!knob.settings.draft.canMoveWeatherFace(row.id, by: 1))
+                    .accessibilityLabel(Text("Move Down"))
+                }
+                .buttonStyle(.borderless)
+            }
+        } header: {
+            Text("Faces")
+        } footer: {
+            SectionFooter(text: "Turning the knob steps through the faces that are on, in this order. At least one stays on.",
+                          error: knob.settings.saveError)
+        }
+    }
+
+    private func nowPlaying(_ knob: KnobModel) -> some View {
+        let current = knob.settings.draft.apps?.nowplaying?.dimAfterS ?? KnobSettings.nowPlayingDimDefault
+        return Section {
+            Picker("Dim after", selection: Binding(
+                get: { current },
+                set: { v in knob.edit { $0.setNowPlayingDim(v) } })) {
+                ForEach(KnobSettings.choices(KnobSettings.nowPlayingDimChoices, current: current), id: \.self) { sec in
+                    Text(verbatim: DurationText.interval(sec)).tag(sec)
+                }
+            }
+        } header: {
+            Text("Dimming")
+        } footer: {
+            SectionFooter(text: "How long the knob waits before it dims the Now Playing page.", error: knob.settings.saveError)
+        }
+    }
+}
+
+func knobWeatherFaceTitle(_ id: String) -> Text {
+    switch id {
+    case "temp": Text("Temperature")
+    case "rain": Text("Rain now")
+    case "cast": Text("Rain forecast")
+    case "wind": Text("Wind")
+    case "days": Text("Next days")
+    case "sun": Text("Sun")
+    case "air": Text("Air")
+    default: Text(verbatim: id.capitalized)
+    }
+}
+
 struct KnobPageSection: View {
     @Environment(AppEnvironment.self) private var env
     let app: AppID
@@ -329,9 +472,22 @@ struct KnobPageSection: View {
                         Button("Edit Pages…") { showSettings(.device(knob.knob?.id ?? DeviceKind.knob.placeholderID, .apps)) }
                             .buttonStyle(.link)
                     }
+                    if let note = knobNeedsNewerFirmware(app, knob: knob.knob) {
+                        Text(note)
+                    }
                     SaveErrorFooter(error: knob.settings.saveError)
                 }
             }
         }
+    }
+}
+
+func knobNeedsNewerFirmware(_ app: AppID, knob: KnobDevice?) -> LocalizedStringKey? {
+    guard let knob else { return nil }
+    switch app {
+    case .focus where !knob.supports(feature: KnobCaps.pomoColors): return "Focus colours need newer knob firmware."
+    case .weather where !knob.supports(feature: KnobCaps.wxFaceList): return "Choosing the weather faces needs newer knob firmware."
+    case .nowplaying where !knob.supports(feature: KnobCaps.npDim): return "The dim delay needs newer knob firmware."
+    default: return nil
     }
 }

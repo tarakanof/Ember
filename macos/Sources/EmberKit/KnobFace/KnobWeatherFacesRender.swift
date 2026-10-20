@@ -4,11 +4,11 @@ import SwiftUI
 extension KnobFaceRender {
     static func disc(_ p: CGPoint, _ r: Double) -> Path { Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)) }
 
-    static func faceDots(_ lit: Int, _ w: KnobTheme.Weather, in ctx: inout GraphicsContext) {
-        let c = 233.0
-        for k in 0..<w.dots.faces {
-            ctx.fill(disc(KnobTempFace.dotPoint(k, w.dots, center: c), w.dots.dotRadiusPx),
-                     with: .color(Color(k == lit ? w.dots.onColor : w.dots.offColor)))
+    static func faceDots(_ face: KnobWeatherFaceID, _ w: KnobTheme.Weather, center c: Double = 233.0, in ctx: inout GraphicsContext) {
+        let (dots, lit) = w.dots.placement(of: face)
+        for k in 0..<dots.faces {
+            ctx.fill(disc(KnobTempFace.dotPoint(k, dots, center: c), dots.dotRadiusPx),
+                     with: .color(Color(k == lit ? dots.onColor : dots.offColor)))
         }
     }
 
@@ -111,7 +111,7 @@ extension KnobFaceRender {
 
     static func rain(_ f: KnobRainFace, _ theme: KnobTheme, t: Double? = nil, in ctx: inout GraphicsContext) {
         let w = theme.weather
-        faceDots(1, w, in: &ctx)
+        faceDots(.rain, w, in: &ctx)
         if !f.dry { drops(f, w, k: t.map { KnobArrive.frame($0) } ?? 0, opacity: KnobArrive.spriteOpacity(t), in: &ctx) }
         umbrella(w.rain.umbrellaColor, in: &ctx)
         gauge(f.pop == nil ? nil : { f.ringColor($0, w) }, w, in: &ctx)
@@ -237,7 +237,7 @@ extension KnobFaceRender {
 
     static func cast(_ f: KnobCastFace, _ theme: KnobTheme, t time: Double? = nil, in ctx: inout GraphicsContext) {
         let w = theme.weather, t = w.cast, fr = f.frame(t: time)
-        faceDots(2, w, in: &ctx)
+        faceDots(.cast, w, in: &ctx)
         castClouds(f, w, frame: fr, in: &ctx)
         let center = CGPoint(x: 233, y: 233), style = StrokeStyle(lineWidth: w.ring.widthPx, lineCap: .butt)
         func arc(_ a: Double, _ b: Double) -> Path {
@@ -394,7 +394,7 @@ extension KnobFaceRender {
 
     static func wind(_ f: KnobWindFace, _ theme: KnobTheme, t time: Double? = nil, in ctx: inout GraphicsContext) {
         let w = theme.weather, t = w.wind
-        faceDots(3, w, in: &ctx)
+        faceDots(.wind, w, in: &ctx)
         let m = KnobWindFace.mount(level: f.level), px = m.x - KnobWindFace.arm, top = m.y - KnobWindFace.poleTop
         let base = KnobWindFace.baseY, pole = Color(t.poleColor)
         ctx.fill(Path(roundedRect: CGRect(x: px - 3.5, y: top, width: 7, height: base - 6 - top), cornerRadius: 3.5), with: .color(pole))
@@ -433,7 +433,7 @@ extension KnobFaceRender {
 
     static func days(_ f: KnobDaysFace, _ theme: KnobTheme, t time: Double? = nil, in ctx: inout GraphicsContext) {
         let w = theme.weather, t = w.days
-        faceDots(4, w, in: &ctx)
+        faceDots(.days, w, in: &ctx)
         var ring = Path()
         ring.addEllipse(in: CGRect(x: 233 - w.ring.radiusPx, y: 233 - w.ring.radiusPx, width: 2 * w.ring.radiusPx,
                                    height: 2 * w.ring.radiusPx))
@@ -527,7 +527,7 @@ extension KnobFaceRender {
 
     static func sun(_ f: KnobSunFace, _ theme: KnobTheme, t time: Double? = nil, in ctx: inout GraphicsContext) {
         let w = theme.weather, t = w.sun
-        faceDots(5, w, in: &ctx)
+        faceDots(.sun, w, in: &ctx)
         let center = CGPoint(x: t.cxPx, y: t.cyPx)
         let fr = time.map { KnobSunFace.frame(t: KnobArrive.quantised($0, fps: KnobArrive.fps)) } ?? KnobSunFace.rest
         if f.hero {
@@ -580,7 +580,7 @@ extension KnobFaceRender {
         airEnds(w, in: &ctx)
         if f.wilted { flowerWilted(in: &ctx) } else { flowerHealthy(in: &ctx) }
         if f.wilted, let t { fallingPetal(KnobAirFace.petal(k: KnobArrive.frame(t)), in: &ctx) }
-        faceDots(6, w, in: &ctx)
+        faceDots(.air, w, in: &ctx)
         valueUnit(f.valueText(t: t), f.valueColor(w, t: t), unit: f.unit, unitColor: w.air.unitColor, theme: theme, in: &ctx)
         if f.have { gaugeMarker(f.fraction, t: t, w, in: &ctx) }
         sub(f.sub, f.subColor(w), opacity: KnobArrive.subOpacity(t), theme: theme, in: &ctx)

@@ -386,10 +386,7 @@ enum KnobFaceRender {
         func disc(_ p: CGPoint, _ r: Double) -> Path { Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)) }
 
         if t != nil { tempSkyBack(f, in: &ctx) }
-        for k in 0..<w.dots.faces {
-            ctx.fill(disc(KnobTempFace.dotPoint(k, w.dots, center: c), w.dots.dotRadiusPx),
-                     with: .color(Color(k == KnobWeatherFaceID.temp.dot ? w.dots.onColor : w.dots.offColor)))
-        }
+        faceDots(.temp, w, center: c, in: &ctx)
 
         let head = CGPoint(x: c, y: th.headYPx + th.dyPx), bulb = CGPoint(x: c, y: th.bulbYPx + th.dyPx)
         let tube = CGRect(x: c - th.tubeHalfWPx, y: th.tubeMidYPx - th.tubeHalfHPx + th.dyPx,
