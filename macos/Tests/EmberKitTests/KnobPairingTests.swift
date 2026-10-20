@@ -19,6 +19,7 @@ private final class FakePairingServer: @unchecked Sendable {
     private var _attemptsLeft = 4
     private var _code = "482913"
     private var _approveStatus: Int?
+    private var _features = #"["lan_pair"]"#
     private var _declineStatus: Int?
 
     init(claims: [String], devices: [String] = []) { _claims = claims; _devices = devices }
@@ -27,6 +28,7 @@ private final class FakePairingServer: @unchecked Sendable {
     func setClaimsStatus(_ s: Int) { lock.withLock { _claimsStatus = s } }
     func setApproveStatus(_ s: Int) { lock.withLock { _approveStatus = s } }
     func setDeclineStatus(_ s: Int) { lock.withLock { _declineStatus = s } }
+    func setFeatures(_ f: String) { lock.withLock { _features = f } }
     func setClaims(_ c: [String]) { lock.withLock { _claims = c } }
 
     func handle(_ req: URLRequest) -> (HTTPURLResponse, Data) {
@@ -39,6 +41,8 @@ private final class FakePairingServer: @unchecked Sendable {
             case ("GET", "/v1/devices/claims"):
                 if _claimsStatus != 200 { return (okResponse(req.url!, status: _claimsStatus), Data(#"{"error":"not found"}"#.utf8)) }
                 return (okResponse(req.url!), Data(#"{"claims":[\#(_claims.joined(separator: ","))]}"#.utf8))
+            case ("GET", "/version"):
+                return (okResponse(req.url!), Data(#"{"binary":"ember","version":"0.71.0","features":\#(_features)}"#.utf8))
             case ("GET", "/v1/devices"):
                 return (okResponse(req.url!), Data(#"{"devices":[\#(_devices.joined(separator: ","))]}"#.utf8))
             case ("POST", let p) where p.hasPrefix("/v1/devices/claims/") && p.hasSuffix("/approve"):
@@ -221,4 +225,27 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
     let m = pairingModel(server)
     await m.pairing.refresh()
     #expect(!m.pairing.isAvailable)
+}
+
+@MainActor
+@Test func pairingIsHiddenWhenVersionLacksLanPairAndNeverAsksForClaims() async {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    server.setFeatures(#"["firmware_delete_keep"]"#)
+    let m = pairingModel(server)
+    await m.pairing.refresh()
+    #expect(!m.pairing.isAvailable && m.pairing.claims.isEmpty)
+    #expect(!server.requests.contains { $0.path == "/v1/devices/claims" })
+}
+
+@MainActor
+@Test func approvingAClaimOfAKnobThatAlreadyPairedDropsItWithAMessage() async {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    let m = pairingModel(server)
+    await m.pairing.refresh()
+    let claim = m.pairing.claims[0]
+    server.setApproveStatus(409)
+    server.setClaims([])
+    #expect(await m.approve(claim, code: "482913") == false)
+    #expect(m.pairing.failures[claim.id] == .alreadyPaired)
+    #expect(m.pairing.claims.isEmpty)
 }

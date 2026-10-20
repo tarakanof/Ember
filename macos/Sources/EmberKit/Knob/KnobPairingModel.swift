@@ -35,6 +35,7 @@ public enum KnobPairingFailure: Equatable, Sendable {
     case wrongCode(attemptsLeft: Int)
     case gone
     case alreadyApproved
+    case alreadyPaired
     case other(FeedError)
 }
 
@@ -58,6 +59,7 @@ public final class KnobPairingModel {
     public private(set) var failures: [String: KnobPairingFailure] = [:]
 
     @ObservationIgnored public private(set) var service: KnobService
+    @ObservationIgnored private var gateOpen = false
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
 
@@ -76,10 +78,19 @@ public final class KnobPairingModel {
     public func configure(service next: KnobService) {
         guard next != service else { return }
         service = next
-        claims = []; isAvailable = true; running = []; failures = [:]
+        claims = []; isAvailable = true; running = []; failures = [:]; gateOpen = false
     }
 
     public func refresh() async {
+        if !gateOpen {
+            guard let info = try? await service.serverVersion() else { return }
+            guard info.supports(VersionInfo.lanPair) else {
+                isAvailable = false
+                claims = []
+                return
+            }
+            gateOpen = true
+        }
         do {
             let list = try await service.claims()
             claims = list
@@ -115,6 +126,9 @@ public final class KnobPairingModel {
         } catch let APIError.http(status, body) where status == 400 {
             failures[claim.id] = Self.attemptsLeft(body).map { .wrongCode(attemptsLeft: $0) } ?? .other(FeedError(APIError.http(status: status, body: body)))
             if case .wrongCode(0)? = failures[claim.id] { await refresh() }
+        } catch let APIError.http(status, _) where status == 409 {
+            failures[claim.id] = .alreadyPaired
+            await refresh()
         } catch let APIError.http(status, _) where status == 404 {
             failures[claim.id] = .gone
             await refresh()

@@ -11,10 +11,15 @@ enum KnobPaneFixtures {
         ("knob-pane-behavior", .hardware(.behavior), 560),
     ]
 
-    static func environment(now: Date) async -> AppEnvironment {
+    static func environment(now: Date, empty: Bool = false) async -> AppEnvironment {
         let env = AppEnvironment(producerEnvPath: FileManager.default.temporaryDirectory
             .appending(path: "ember-knob-fixture-\(UUID().uuidString).env"))
-        KnobFixtureURLProtocol.responses = responses(now: now)
+        var table = responses(now: now)
+        if empty {
+            table["/v1/devices"] = #"{"devices":[]}"#
+            table["/v1/devices/claims"] = table["/v1/devices/claims"]?.replacingOccurrences(of: "3cdc7500aaaa", with: "3cdc7561fc8c").replacingOccurrences(of: "00AAAA", with: "61FC8C")
+        }
+        KnobFixtureURLProtocol.responses = table
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [KnobFixtureURLProtocol.self]
         let client = APIClient(baseURL: URL(string: "http://\(KnobFixtureURLProtocol.host)"), token: "fixture",
@@ -58,6 +63,7 @@ enum KnobPaneFixtures {
         return [
             "/v1/devices": #"{"devices":[\#(device)]}"#,
             "/v1/devices/claims": claims,
+            "/version": #"{"binary":"ember","version":"0.71.0","features":["lan_pair"]}"#,
             "/v1/devices/knob-61fc8c/config": config,
             "/v1/devices/knob-61fc8c/coredumps": dumps,
             "/v1/devices/knob-61fc8c/ota": ota,
@@ -73,6 +79,11 @@ enum KnobPaneFixtures {
                 await render(KnobDetail(page: page.page).environment(env), height: page.height, scheme: scheme,
                              to: out.appending(path: name))
             }
+        }
+        let emptyEnv = await environment(now: now, empty: true)
+        for scheme in [ColorScheme.light, .dark] {
+            await render(KnobDetail(page: .hardware(.status)).environment(emptyEnv), height: 560, scheme: scheme,
+                         to: out.appending(path: "knob-pane-empty-pairing-\(scheme == .dark ? "dark" : "light").png"))
         }
         let defaults = UserDefaults.standard
         let collapsed = defaults.string(forKey: SettingsGroup.storageKey)

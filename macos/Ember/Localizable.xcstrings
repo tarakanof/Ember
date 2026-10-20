@@ -2498,6 +2498,7 @@
     "This clock has no speaker." : {},
     "This clock style draws no weekday bar; the Date app still does." : {},
     "This clock style has no room for seconds or AM/PM." : {},
+    "This knob already paired." : {},
     "This knob's bootloader can't roll back. Flash it once over USB (see cinder docs/workflow.md)." : {},
     "This replaces “%@”. Ember forgets that knob after setup." : {
       "comment" : "Knob setup warning; the argument is the name of the knob already set up."

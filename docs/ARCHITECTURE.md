@@ -3640,12 +3640,16 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   falls back to the old fw semver floors (`KnobCaps.legacy*Floors`), kept
   for two releases.
 - **Pairing requests (#659):** `KnobPairingModel` (owned by `KnobModel.pairing`)
-  polls `GET /v1/devices/claims` every 3 s while `KnobDetail` is on screen and
-  stops for good on a 404/405 (older server: the UI stays hidden). The
+  reads `/version` and polls `GET /v1/devices/claims` every 3 s while
+  `KnobDetail` is on screen only when `features` lists `lan_pair`; it stops for
+  good on that gate or a 404/405 from the list (older server: the UI stays
+  hidden). The
   Pairing request section (top of Status, above the empty state when no knob is
   registered) takes the 6-digit code (spaces allowed) and calls
   `POST /v1/devices/claims/{id}/approve`; a 400 `wrong_code` carries
-  `attempts_left`, a 404 means the claim expired. Decline is
+  `attempts_left`, a 404 means the claim expired, a 409 `already_paired` drops
+  the claim ("this knob already paired"). A 409 `claim_approved` on decline
+  shows "already approved". Decline is
   `POST .../decline`. Approving a claim whose `hw_id` differs from the
   registered knob shows the one-knob replace confirm, then `didSetUp` forgets
   the old record. The Forget dialog adds the pair-again sentence only when the

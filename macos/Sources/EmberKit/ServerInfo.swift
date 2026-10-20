@@ -11,6 +11,7 @@ public struct VersionInfo: Codable, Sendable {
 
     public static let firmwareDeleteKeep = "firmware_delete_keep"
     public static let deviceAppEnabled = "device_app_enabled"
+    public static let lanPair = "lan_pair"
 
     enum CodingKeys: String, CodingKey {
         case binary, version, revision, dirty, features
