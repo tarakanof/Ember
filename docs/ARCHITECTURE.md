@@ -610,25 +610,38 @@ markers still get reaped.
   inside Claude Code (2.1.288+) and POSTs/DELETEs `/v1/status` with the Go
   producer's wire shapes, under its own source (`EMBER_MOD_SOURCE`, default
   `<EMBER_SOURCE>-mod`) so both can run side by side. `hooks/producer.ts` is
-  pure (env parsing, config, the session tracker, wire bodies);
+  pure (env parsing, config, the session tracker, wire bodies, the outbox);
   `hooks/register.ts` adapts it onto `$`. Same mapping as `hook.go`
   (`classic.*` events), with two differences: `tool.check` resolving to `ask`
   (interactive, mode not `auto`/`dontAsk`/`bypassPermissions`) starts
   `waiting` for that `tool_use_id`, and the awaited `tool.call` for that id
-  ends it, which replaces the fingerprint matching. `classic.PreToolUse`,
+  ends it, which replaces the fingerprint matching for *which* call; *when*
+  is unchanged (the approved tool finishing, like PostToolUse), and there is
+  no agents watcher to flip it to `running` sooner. `classic.PreToolUse`,
   `tool.check` and `tool.call` carry no `session_id`, so the id comes from
-  `$.session.id()`. State lives in module memory; `$.clock.every(10 s)`
+  `$.session.id()`, hashed with `$.session.cwd()` when invalid, as classic
+  hooks hash theirs. State lives in module memory; `$.clock.every(10 s)`
   re-POSTs like `heartbeatPass` (done/error for `EMBER_DONE_TTL_SECONDS`, the
-  30 min notification-wait backstop, the `EMBER_HEARTBEAT_TTL_HOURS` reap).
-  The timer dies with the process, so a killed Claude Code is reaped by the
-  server's `stale_seconds`, not by a `ps` check. Every hook only observes: it
-  returns `next(e)` (or the verdict/result untouched) and its `.catch`
-  answers `next(e)`. The same guards as the Go path: `producer.env` must be
-  a regular, non-symlink, 0600 file owned by the user (checked with `stat`
-  and `id -u`, since `$.fs` has no modes; a refused file disables the mod
-  rather than being ignored), and the `claude-hooks.disabled` kill switch is
-  checked before every event. No gauges, `/v1/usage`, agents-watcher corrections or
-  T3 detection yet. `test/parity.json` is shared with `mod_parity_test.go`.
+  30 min notification-wait backstop, the `EMBER_HEARTBEAT_TTL_HOURS` reap) and
+  is skipped while the previous beat is still reloading. A reload builds the
+  config and swaps it in one step. Sends go through a per-session outbox:
+  one in flight, only the newest pending one kept, so a DELETE never
+  overtakes a POST (the race `postReconciled` repairs in Go) and a dead
+  server can't pile them up; SessionEnd waits for its DELETE at most 800 ms
+  (`sessionEndHTTPBudget`). The timer dies with the process, so a killed
+  Claude Code is reaped by the server's `stale_seconds`, not by a `ps`
+  check. Every hook only observes: it returns `next(e)` (or the
+  verdict/result untouched) and its `.catch` answers `next(e)`. Same guards
+  as the Go path: `producer.env` must be a regular, non-symlink, 0600 file
+  owned by the user (`/usr/bin/stat`, and `/usr/bin/id -u` once, since `$.fs`
+  has no modes; a refused file disables the mod rather than being ignored),
+  and the `claude-hooks.disabled` kill switch is checked before every event
+  and before anything is spawned. Known divergences: a placeholder
+  `EMBER_SOURCE` silences the mod (Go derives a host id), and there is no
+  `optionalFields` unknown-field fallback, so an older server 400s its POSTs.
+  No gauges, `/v1/usage` or T3 detection yet. `test/parity.json` and
+  `test/transitions.json` (event sequences to exact wire bodies) are shared
+  with `mod_parity_test.go`, which drives `dispatchHookFrom`/`dispatchTick`.
 - **Codex CLI producer — `cmd/ember-codex-producer`.** Codex has **no hook
   system**, so this is a long-lived **daemon that tails rollout JSONL**
   (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop
