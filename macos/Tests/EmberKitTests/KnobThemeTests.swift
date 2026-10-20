@@ -637,7 +637,8 @@ private func allChecks() -> [Check] {
         one(wph, #"#define WX_DOT_OFF "# + hex, "weather.dots.off_color"),
         Check(file: wfh, pattern: #"typedef enum \{ (WXF_TEMP(?:, WXF_[A-Z]+)*), WXF_N \} wx_face_id_t;"#,
               keys: [("weather.dots.faces", { String($0[1].split(separator: ",").count) })]),
-        Check(file: wp, pattern: #"wx_paint_thermo\(&bg\);\s+wx_paint_face_dots\(&bg, t->face, WXF_N\);"#, keys: []),
+        Check(file: wp, pattern: #"wx_paint_thermo\(&bg\);\s+wx_paint_temp_dots\(&bg, t\);"#, keys: []),
+        Check(file: wp, pattern: #"if \(t->dots_n > 0\) wx_paint_face_dots\(im, t->dots_k, t->dots_n\);\s+else wx_paint_face_dots\(im, t->face, WXF_N\);"#, keys: []),
         Check(file: wp, pattern: #"lut\[i\] = wx_rgb565\(grey \? 0x[0-9A-Fa-f]{6} : wx_temp_rgb\(\(float\)lo \+ \(float\)\(hi - lo\) \* i / RING_STEPS\)\);"#,
               keys: []),
         Check(file: wp, pattern: #"float d = top < bulb \? top : bulb;\s+return rect < d \? rect : d;"#, keys: []),
@@ -652,10 +653,12 @@ private func allChecks() -> [Check] {
         c.append(Check(file: file, pattern: #"\.line_height = (\d+),\s+\.base_line = (\d+),"#,
                        keys: [("font.metrics.\(px).line_height_px", g(1)), ("font.metrics.\(px).baseline_px", g(2))]))
     }
-    for (key, def) in [("focus", "FOCUS"), ("break", "BREAK"), ("other", "OTHER"), ("idle_track", "IDLE_TRACK"),
+    for (key, def) in [("other", "OTHER"), ("idle_track", "IDLE_TRACK"),
                        ("text", "TEXT"), ("text_dim", "TEXT_DIM"), ("note", "NOTE")] {
         c.append(one(pv, "#define COL_\(def) " + hex, "pomodoro.colors.\(key)"))
     }
+    c.append(one(pv, #"POMO_PHASE_FOCUS \? \(s_col_set \? s_col_focus : "# + hex + #"\)"#, "pomodoro.colors.focus"))
+    c.append(one(pv, #"pomo_phase_is_break\(s->phase\) \? \(s_col_set \? s_col_break : "# + hex + #"\)"#, "pomodoro.colors.break"))
     c += [
         one(nc, #"#define FACE_DISK_R "# + num, "nowplaying.backdrop_disk_radius_px"),
         Check(file: nv, pattern: #"\.r = (\d+), \.hw = (\d+)"#,
