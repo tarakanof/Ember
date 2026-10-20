@@ -3525,7 +3525,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   drop to the next quarter degree or the marker to the next pixel (the
   marker's pi is `(float)M_PI`, `Float(Double.pi)`, not the rounded-down
   `Float.pi`). With no t (the Pages overview, Reduce Motion) the faces
-  draw the rest pose above. `KnobWeatherMemo.shownAt`
+  draw the rest pose above; under Reduce Motion the Temperature face
+  instead draws its settled frame (`KnobWeatherLive.rest`: t at 1.8 s,
+  every arrival and the sub-line fade done, drift time 0), so its sky
+  shows at rest. `KnobWeatherMemo.shownAt`
   is the show time, like cinder's `s_t`: it resets on page open (a fresh
   memo) and when a reported face changes, not when the preview's own AUTO
   pick steps to another face or the data refreshes, and a clock set back
@@ -3541,7 +3544,8 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   cinder's 30 fps paint throttle end) when a sub-line shows, 22/15 s
   for the sun; a face with neither a value nor a sub-line nor a hero is
   still. The Temperature sky (#648, `KnobTempSky.swift`,
-  `KnobTempSkyRender.swift`) draws only with a t, under the thermometer's
+  `KnobTempSkyRender.swift`) draws only with a t (the Pages overview
+  and other static callers stay without it), under the thermometer's
   mercury and labels: `wx_temp.c`'s hero rules (by day the sun up to
   band 1; by night a moon with `moon.up` true, phase 0-99 and
   illumination 0-100 rounded to `WX_ILLUM_STEP`, small behind band 3,

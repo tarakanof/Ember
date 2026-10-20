@@ -245,3 +245,34 @@ private let cinderPixels: [(face: KnobTempFace, x: Int, y: Int, rgb: RGB)] = [
     #expect(pixel(start, x, y) == black && pixel(start, 116, 116) == black, "no hero or cloud at t 0")
     #expect(near(pixel(start, 140, 185), RGB(r: 87, g: 65, b: 26), 12), "the rays are background: no fade")
 }
+
+@Test func reduceMotionSettlesTheTemperatureSky() {
+    #expect(KnobWeatherLive.rest(.weather(sky(1)), animated: true, reduceMotion: true) == (KnobArrive.subRestS, 0.0))
+    #expect(KnobArrive.subOpacity(KnobArrive.subRestS) == 255 && KnobArrive.spriteOpacity(KnobArrive.subRestS) == 255
+        && KnobArrive.eased(KnobArrive.subRestS) == 1 && KnobArrive.count(21, KnobArrive.subRestS) == 21, "every arrival has settled")
+    #expect(KnobTempDrift(KnobTempSky.bands[4]).offsets(t: 0) == KnobTempDrift(KnobTempSky.bands[4]).rest, "the clouds at rest")
+    #expect(KnobWeatherLive.rest(.weather(sky(1)), animated: true, reduceMotion: false) == (nil, nil), "animating: the timeline gives t")
+    #expect(KnobWeatherLive.rest(.weather(sky(1)), animated: false, reduceMotion: true) == (nil, nil), "the page strip stays the static rest pose")
+    #expect(KnobWeatherLive.rest(.rain(KnobRainFace(dry: false, intensity: 2, pop: 60)), animated: true, reduceMotion: true) == (nil, nil),
+            "the other faces' rest pose is their t-less draw")
+}
+
+@MainActor @Test func reduceMotionDrawsTheSettledSkyOverTheRestPose() throws {
+    for f in [sky(1), sky(4), sky(0, night: true, moon: moon)] {
+        let rest = KnobWeatherLive.rest(.weather(f), animated: true, reduceMotion: true)
+        let r = ImageRenderer(content: KnobFaceView(.weather(f), t: rest.t, drift: rest.drift).frame(width: 466, height: 466)
+            .environment(\.colorScheme, .dark))
+        r.scale = 1
+        let settled = try #require(r.cgImage), bare = try render(f, t: nil)
+        let below = 230 * 466 * 4
+        if f.hero == .none && !f.stars {
+            #expect(Array(bytes(settled)[below...]) == Array(bytes(bare)[below...]), "band \(f.cloudBand ?? -1): the value, sub-line and gauge at rest")
+        }
+        for p in cinderPixels where p.face == f && !(p.x == 279 && p.y == 136) {
+            #expect(near(pixel(settled, p.x, p.y), p.rgb, 12), "band \(f.cloudBand ?? -1) \(f.hero) at \(p.x),\(p.y)")
+        }
+    }
+    let sun = try #require(ImageRenderer(content: KnobFaceView(.weather(sky(1)), t: KnobArrive.subRestS, drift: 0).frame(width: 466, height: 466)
+        .environment(\.colorScheme, .dark)).cgImage)
+    #expect(pixel(sun, 279, 136) == black && near(pixel(sun, 289, 136), RGB(r: 224, g: 236, b: 240), 12), "the cloud sits at its rest place")
+}

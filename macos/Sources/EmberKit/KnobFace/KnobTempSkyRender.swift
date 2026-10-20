@@ -65,7 +65,7 @@ extension KnobFaceRender {
         }
     }
 
-    static func tempSkyFront(_ f: KnobTempFace, t: Double, in ctx: inout GraphicsContext) {
+    static func tempSkyFront(_ f: KnobTempFace, t: Double, drift d: Double, in ctx: inout GraphicsContext) {
         guard let band = KnobTempSky.band(f), let b = f.cloudBand else { return }
         let opa = KnobArrive.spriteOpacity(t)
         guard opa > 0 else { return }
@@ -74,7 +74,7 @@ extension KnobFaceRender {
         case .moon, .moonSmall: moonHero(f, opa, in: &ctx)
         case .none: break
         }
-        let drift = KnobTempDrift(band).offsets(t: t - KnobArrive.seconds), tone = KnobTempSky.tones[KnobTempSky.tone(f, band)]
+        let drift = KnobTempDrift(band).offsets(t: d), tone = KnobTempSky.tones[KnobTempSky.tone(f, band)]
         for (i, cl) in band.clouds.enumerated() {
             var c = ctx
             c.translateBy(x: Double(drift[i].dx), y: Double(drift[i].dy))
