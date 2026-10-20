@@ -20,7 +20,7 @@ var knobCapsFaces = map[string]any{
 	"view":     []int{1, 1},
 	"pages":    []string{"bot", "weather"},
 	"features": []string{"view_wait", "wx_faces"},
-	"limits":   map[string]any{"view_bytes": 16383, "config_bytes": 1024},
+	"limits":   map[string]any{"view_bytes": 16383, "config_bytes": 2048},
 }
 
 type facesProviders struct {

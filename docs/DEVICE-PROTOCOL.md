@@ -112,7 +112,8 @@ Since #341 the knob may say what it can do in every checkin (cinder#27):
 - `limits` (optional, each key optional, 0 = unknown): the largest body in
   bytes the firmware holds. `view_bytes` is the view buffer less its NUL
   (cinder `RESP_MAX` 16 KiB → 16383); `config_bytes` is the config as the
-  knob stores it, compact JSON (cinder `CFG_SETTINGS_MAX`, 2048 since cinder#255; 1024 before). Floors:
+  knob stores it, compact JSON (cinder `CFG_SETTINGS_MAX`, 2048 since
+  cinder#255; 1024 before). Floors:
   `view_bytes` ≥ 4096 (a full view without `nowplaying` is under 700 B;
   the rest is headroom for long host labels and future fields) and
   `config_bytes` ≥ the default config's compact size (512 B today; it
@@ -535,8 +536,8 @@ knob view. The knob has no speaker, so on the knob quiet is display only:
 - **Old firmware** skips both unknown keys. The config grows by 37 B: the
   default config was 434 B and the largest valid one 648 B (447 B and
   663 B since `display.rotation`), under cinder's
-  `CFG_SETTINGS_MAX` (1024 B; 2048 B on current firmware), which `TestKnobConfigFitsTheFirmwareStore`
-  pins.
+  `CFG_SETTINGS_MAX` as it was before cinder#255 (1024 B; 2048 B on current
+  firmware). `TestKnobConfigFitsTheFirmwareStore` pins only the 1024 bound.
 
 ## Idle and per-app options
 
