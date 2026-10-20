@@ -592,10 +592,12 @@ build keeps using the Go producer.
   and the figures stick to the session until a newer reading. Nothing shows
   before the session's first response (Claude Code has no figures yet). A
   `five_hour` window with a reset but no percent is sent as 0 % with its
-  reset, as Go reads it. After `/compact`, `/resume` or `--resume` (a
-  non-`startup` SessionStart forgets the session, as Go removes the
-  marker), the session's next hook reads `$.session.usage()` once in the
-  background, so its row has gauges within 10 s instead of after the turn;
+  reset, as Go reads it. The first hook of every session the mod tracks with
+  no gauges (a new session, or one a non-`startup` SessionStart after
+  `/compact`, `/resume` or `--resume` forgot, as Go removes the marker)
+  reads `$.session.usage()` once in the background, so its row has gauges
+  within 10 s instead of after the turn (on a new session before its first
+  response it returns nothing);
   a reading that answers after a newer `session.measure` is dropped. The
   7-day window, spend limits and cost are read but not sent: `/v1/status`
   has no field for them.
@@ -658,13 +660,18 @@ build keeps using the Go producer.
   Go ones (dev/checkout T3 servers and an inherited SDK env), plus: argv on
   macOS comes from `ps`, so a space inside a later `node` argument breaks the
   `node .../t3` match. To check a T3 thread, run T3 with the mod installed
-  and confirm `/state` shows only `t3/...` rows for it.
+  and confirm `/state` shows only `t3/...` rows for it. Not yet checked on a
+  real T3 thread (owner): confirm that `sh -c 'echo $PPID'`, run by the mod's
+  `$.process.run`, prints the `claude` process's pid (compare with `ps -o
+  ppid= -p <that pid>` and the T3 server above it). If the engine spawns
+  `sh` from a helper instead, the walk sees `claude` as the launcher and
+  caches `no` for the life of the process, so the T3 thread is double-listed.
 - **Where it differs from the Go producer** (phase 1):
   - `waiting` from a permission dialog ends when the approved tool
     **finishes** (the awaited `tool.call` resolves), as the Go hook alone
     does, but the mod also runs the Go daemon's agents cross-check for it
     (#669). While a session shows a dialog wait (and for 15 s after a
-    flip), a 1 s timer stats `${CLAUDE_CONFIG_DIR:-~/.claude}/sessions/*.json`
+    resume), a 1 s timer stats `${CLAUDE_CONFIG_DIR:-~/.claude}/sessions/*.json`
     (no spawn) and runs `claude agents --json` (5 s timeout) only when that
     listing changed, when a confirmation is due, or as a 60 s fallback, the
     same triggers as Go's `step`. Once the session's row has said `busy` on

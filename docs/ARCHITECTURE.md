@@ -620,7 +620,8 @@ markers still get reaped.
   (#669, `watchPass` in `register.ts`, `Tracker.agentsCorrect`) ends it
   sooner. The 2.1.304 API has no "dialog answered" or "mode changed" event, so
   the mod ports the Go watcher's core. While a session is `waiting` on a
-  permission dialog, and for 15 s after a flip, a 1 s `$.clock.every` timer
+  permission dialog, and for 15 s after any resume (a watcher flip or the
+  approved tool finishing), a 1 s `$.clock.every` timer
   (started and cancelled from `persist`, never from a hook; restarted on
   restore) fingerprints `<config dir>/sessions/*.json` with `$.fs.list` (name,
   mtime, size) and runs `claude agents --json` (5 s timeout; `claude
@@ -629,8 +630,10 @@ markers still get reaped.
   change, a due confirmation or a 60 s fallback, as `step` does. It flips the
   row to `running` after two `busy` sightings of the same wait at least 1.5 s
   apart, and back to `waiting` (message `waitingFor`) on two `waiting`
-  sightings within 15 s of a flip with no event since (`wantFor`'s
-  `case "waiting"`). A row fetched before a newer event is ignored. A failed
+  sightings within 15 s of a resume with no event since (`wantFor`'s
+  `case "waiting"`). Go's reverse rule has no time limit while the marker is
+  `running`; the mod's is bounded by that 15 s window (`RESUME_GRACE_MS`). A
+  row fetched before a newer event is ignored. A failed
   or unparseable call clears the sightings, cancels the timer and re-arms it
   after 5 min. `parseAgents` and the wait rule share `test/parity.json` cases
   with `agents.go` (`agents_parse`, `agents_wait`). It does not start waits
@@ -642,7 +645,8 @@ markers still get reaped.
   `$.session.id()`, hashed with `$.session.cwd()` when invalid, as classic
   hooks hash theirs. The tracker lives in module memory and is mirrored to
   `$.state` (`ember-mod.snapshot`, declared in `types/index.d.ts`; plain JSON the host
-  keeps for the session, written after each event and tick), so a hot reload
+  keeps for the session, written after each event and tick that changed it), so
+  a hot reload
   (`/reload-plugins`) rebuilds it from there on first use instead of forgetting
   in-flight sessions. The snapshot holds the sessions, the stray-POST start
   times (kept only while younger than 60 s: the settle callbacks that clear
@@ -653,11 +657,15 @@ markers still get reaped.
   T3 sessions (#216): `hooks/t3.ts` ports `spawnedByT3`. An SDK session
   (`CLAUDE_CODE_ENTRYPOINT=sdk-ts` or `CLAUDE_AGENT_SDK_VERSION` set, read with
   `$.env.get`) walks the process tree (`sh -c 'echo $PPID'` for the process
-  that spawned it, then `ps -o ppid=,comm=`, argv from `/proc/<pid>/cmdline` or
-  `ps -ww`) and, when the launcher is a T3 server, the mod posts nothing. The
-  verdict is taken once per process (Go pays per hook), under a 250 ms budget; a
-  failed lookup fails open and is retried at most every 30 s, and a later
-  match DELETEs the rows already posted. `test/parity.json` `t3` cases run
+  that spawned it, then, where `/proc` exists, `/proc/<pid>/stat` and
+  `cmdline` read with `$.fs`; otherwise `ps -o ppid=,comm=` and `ps -ww`, with
+  no `/proc` attempt through a shell) and, when the launcher is a T3 server, the
+  mod posts
+  nothing. The verdict is taken once per process (Go pays per hook), under a 250 ms budget;
+  events that arrive while it runs await the same lookup, so none can POST
+  after the DELETE of a late match. A failed lookup fails open and is retried
+  at most every 30 s, and a later match DELETEs the rows already posted. A
+  `no` verdict sticks for the process. `test/parity.json` `t3` cases run
   against both `spawnedByT3` and `detectT3`. Differences: darwin has no
   `kern.procargs2` from a shell, so argv is rebuilt from `ps comm=` and
   `args=` (a spaced executable stays whole, a spaced path in a later `node`
@@ -712,8 +720,9 @@ markers still get reaped.
   reading was applied is dropped, so a slow `usage()` can't overwrite a
   `session.measure`. The engine refuses at load time any module that hooks
   an event it doesn't know, so `session.measure` can't be gated per
-  version; it was live-probed on 2.1.288, the mod's floor. The figures ride the `$.state` snapshot (`contextPct`,
-  `ratePct` -1 and `rateResetAt` 0 mean unknown). `seven_day`, `spend_limit`
+  version; it was live-probed on 2.1.288, the mod's floor. The figures ride
+  the `$.state` snapshot (`contextPct`, `ratePct` -1 and `rateResetAt` 0 mean
+  unknown). `seven_day`, `spend_limit`
   and `cost` have no `/v1/status` field and are not sent. The mod never
   posts `/v1/usage`: it has no `account_key` (`$.session.identity()`
   answers only an org-managed mod), so it would add a keyless second
