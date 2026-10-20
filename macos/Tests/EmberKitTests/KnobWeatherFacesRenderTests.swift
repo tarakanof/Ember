@@ -175,6 +175,56 @@ private func markerRing(_ img: CGImage, _ p: CGPoint) -> Bool {
     }
 }
 
+@MainActor @Test func dayCloudOutlinesTheUnionNotItsParts() throws {
+    let d = w.days
+    let r = ImageRenderer(content: Canvas { ctx, _ in
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: 320, height: 320)), with: .color(.black))
+        ctx.scaleBy(x: 8, y: 8)
+        KnobFaceRender.dayIcon(.cloud, d, origin: .zero, in: &ctx)
+    }.frame(width: 320, height: 320))
+    r.scale = 1
+    let img = try #require(r.cgImage)
+    func at(_ x: Double, _ y: Double) -> RGB { pixel(img, Int((x * 8).rounded()), Int((y * 8).rounded())) }
+    #expect(near(at(19, 24), d.cloudLowFill, 6), "the body is the fill")
+    #expect(near(at(11.5, 25), d.cloudLowFill, 6), "no seam where one puff's rim runs inside another")
+    #expect(near(at(19, 30), d.cloudLowEdge, 6), "the flat base is edged")
+    #expect(near(at(19, 31.5), black, 6), "nothing hangs below the base")
+    #expect(near(at(19, 11), d.cloudLowEdge, 6), "the top puff is edged")
+}
+
+@MainActor @Test func castDropKeepsItsOutlineWhereTheTailMeetsTheHead() throws {
+    let r = ImageRenderer(content: Canvas { ctx, _ in
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: 60, height: 40)), with: .color(Color(red: 0.4, green: 0.4, blue: 0.4)))
+        ctx.translateBy(x: 40, y: 20)
+        ctx.fill(KnobFaceRender.dropPath, with: .color(Color(RGB(r: 0x5C, g: 0x9C, b: 0xE0))))
+        ctx.stroke(KnobFaceRender.dropPath, with: .color(.black), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
+    }.frame(width: 60, height: 40))
+    r.scale = 1
+    let img = try #require(r.cgImage)
+    func at(_ x: Int, _ y: Int) -> RGB { pixel(img, 40 + x, 20 + y) }
+    for x in [-4, -2, -1] { #expect(near(at(x, 6), black, 12), "the lower rim at x=\(x) is outlined, as the old union render drew it") }
+    #expect(near(at(-4, -6), RGB(r: 21, g: 36, b: 52), 12), "the upper rim's inner half at x=-4")
+    #expect(near(at(-2, -6), RGB(r: 78, g: 133, b: 190), 12), "the upper rim's inner half at x=-2")
+    #expect(near(at(-3, 0), RGB(r: 92, g: 156, b: 224), 4), "the body is the fill")
+}
+
+@Test func renderSourcesHaveNoPathBooleans() throws {
+    let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Sources/EmberKit/KnobFace")
+    let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil).filter { $0.pathExtension == "swift" }
+    #expect(files.count > 5)
+    let always = try NSRegularExpression(pattern: #"\.(subtracting|symmetricDifference|lineSubtracting|lineIntersection)\(|\.normalized\(eoFill"#)
+    let setLike = try NSRegularExpression(pattern: #"\.(union|intersection)\("#)
+    for f in files {
+        for (n, line) in try String(contentsOf: f, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            let l = String(line), range = NSRange(l.startIndex..., in: l)
+            let setUse = l.contains("CGRect") || l.contains("Set(") || l.contains("Set<") || l.contains("IndexSet")
+            let hit = always.firstMatch(in: l, range: range) != nil || (!setUse && setLike.firstMatch(in: l, range: range) != nil)
+            #expect(!hit, "\(f.lastPathComponent):\(n + 1): Path booleans differ between macOS 26 and 27; draw layers under a clip instead")
+        }
+    }
+}
+
 @MainActor @Test func sunFaceRendersTheDayGauge() throws {
     let (s, at) = sunFixture()
     let face = KnobSunFace(state: s, now: at)
