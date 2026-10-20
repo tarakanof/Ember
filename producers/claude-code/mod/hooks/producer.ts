@@ -357,9 +357,10 @@ type Upsert = {
 export class Tracker {
   readonly sessions = new Map<string, Session>()
 
-  reconcile(cfg: Config, id: string): Effect {
+  reconcile(cfg: Config, now: number, id: string): Effect {
     const s = this.sessions.get(id)
-    return !s || s.parked ? { method: 'DELETE', body: this.key(cfg, id) } : this.post(cfg, id, s)
+    const expired = !!s && (s.state === 'done' || s.state === 'error') && now - s.changedAt >= cfg.doneTTLSeconds * 1000
+    return !s || s.parked || expired ? { method: 'DELETE', body: this.key(cfg, id) } : this.post(cfg, id, s)
   }
 
   sessionStart(id: string, source: string): Effect[] {
@@ -627,8 +628,10 @@ export function bounded<T>(work: Promise<T>, timer: Promise<void>, onTimeout: T)
 export type SendIO = {
   deliver: (effect: Effect) => Promise<boolean>
   timer: (ms: number) => Promise<void>
-  reconcile: (session: string) => Effect
+  reconcile: (session: string) => Effect | Promise<Effect>
 }
+
+type Watch = 'none' | 'stray' | 'repair'
 
 export const STRAY_SKIP_MS = 60_000
 
@@ -641,7 +644,7 @@ export class Sender {
     if (heartbeat && effect.method === 'POST' && (this.strays.get(key) ?? []).some(at => now - at < STRAY_SKIP_MS)) {
       return Promise.resolve()
     }
-    return this.outbox.push(key, () => this.attempt(effect, limitMs, io, now, true))
+    return this.outbox.push(key, () => this.attempt(effect, limitMs, io, now, 'stray'))
   }
 
   lateSends(): number {
@@ -650,26 +653,30 @@ export class Sender {
     return n
   }
 
-  private async attempt(effect: Effect, limitMs: number, io: SendIO, now: number, watch: boolean): Promise<boolean> {
+  private async attempt(effect: Effect, limitMs: number, io: SendIO, now: number, watch: Watch): Promise<boolean> {
     const delivery = io.deliver(effect)
     const settled = await bounded(
       delivery.then(ok => ({ ok, timedOut: false })),
       io.timer(limitMs),
       { ok: false, timedOut: true },
     )
-    if (watch && settled.timedOut && effect.method === 'POST') this.watchLate(effect.body.session, delivery, limitMs, io, now)
+    if (watch !== 'none' && settled.timedOut && effect.method === 'POST') {
+      this.watchLate(effect, delivery, limitMs, io, now, watch === 'repair')
+    }
     return settled.ok
   }
 
-  private watchLate(key: string, delivery: Promise<boolean>, limitMs: number, io: SendIO, now: number): void {
+  private watchLate(effect: Effect, delivery: Promise<boolean>, limitMs: number, io: SendIO, now: number, isRepair: boolean): void {
+    const key = effect.body.session
     const starts = this.strays.get(key) ?? []
     starts.push(now)
     this.strays.set(key, starts)
-    void delivery.then(() => {
+    void delivery.then(async () => {
       starts.splice(starts.indexOf(now), 1)
       if (starts.length === 0) this.strays.delete(key)
-      const repair = io.reconcile(key)
-      void this.outbox.push(key, () => this.attempt(repair, limitMs, io, now, false))
+      const repair = await io.reconcile(key)
+      if (isRepair && repair.method === 'POST' && repair.body.state === effect.body.state) return
+      void this.outbox.push(key, () => this.attempt(repair, limitMs, io, now, repair.method === 'POST' && !isRepair ? 'repair' : 'none'))
     })
   }
 }

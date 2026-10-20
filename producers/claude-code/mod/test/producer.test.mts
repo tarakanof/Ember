@@ -543,6 +543,94 @@ describe('Sender', () => {
     assert.equal(sender.lateSends(), 0)
   })
 
+  function manual() {
+    const calls: { effect: Effect; land: (ok?: boolean) => void; expire: () => void }[] = []
+    const timers: (() => void)[] = []
+    const rows = new Map<string, string>()
+    const log: string[] = []
+    const io = {
+      deliver: (effect: Effect) =>
+        new Promise<boolean>(resolve => {
+          calls.push({
+            effect,
+            land: (ok = true) => {
+              if (effect.method === 'POST') rows.set(effect.body.session, effect.body.state)
+              else rows.delete(effect.body.session)
+              log.push(effect.method === 'POST' ? `POST ${effect.body.state}` : 'DELETE')
+              resolve(ok)
+            },
+            expire: () => timers[calls.length - 1]?.(),
+          })
+        }),
+      timer: () => new Promise<void>(resolve => timers.push(resolve)),
+      reconcile: (): Effect => current,
+    }
+    let current: Effect = post('done')
+    return { calls, timers, rows, log, io, setCurrent: (e: Effect) => void (current = e) }
+  }
+  const flush = () => new Promise<void>(resolve => setImmediate(resolve))
+
+  test('a repair POST that lands after the DELETE is deleted again', async () => {
+    const m = manual()
+    const sender = new Sender()
+    void sender.push(post('running'), 20, m.io, 0)
+    await flush()
+    m.timers[0]()
+    await flush()
+    m.calls[0].land()
+    await flush()
+    assert.equal(m.calls[1].effect.method, 'POST')
+    m.timers[1]()
+    await flush()
+    m.setCurrent(del)
+    void sender.push(del, 20, m.io, 1)
+    await flush()
+    m.calls[2].land()
+    m.timers[2]()
+    await flush()
+    m.calls[1].land()
+    await flush()
+    assert.equal(m.calls[3].effect.method, 'DELETE')
+    m.calls[3].land()
+    m.timers[3]()
+    await flush()
+    assert.equal(m.log.join(' -> '), 'POST running -> DELETE -> POST done -> DELETE')
+    assert.equal(m.rows.has('s1'), false)
+    assert.equal(sender.lateSends(), 0)
+  })
+
+  test('a slow repair POST that lands over a newer state sends that state once more', async () => {
+    const m = manual()
+    const sender = new Sender()
+    void sender.push(post('running'), 20, m.io, 0)
+    await flush()
+    m.timers[0]()
+    await flush()
+    m.calls[0].land()
+    await flush()
+    m.timers[1]()
+    await flush()
+    m.setCurrent(post('running'))
+    m.calls[1].land()
+    await flush()
+    assert.equal(m.calls[2].effect.method === 'POST' && m.calls[2].effect.body.state, 'running')
+    m.calls[2].land()
+    m.timers[2]()
+    await flush()
+    assert.equal(m.calls.length, 3)
+    assert.equal(m.rows.get('s1'), 'running')
+    assert.equal(sender.lateSends(), 0)
+  })
+
+  test('a stray settling after the done TTL deletes the row instead of re-posting done', () => {
+    const t = new Tracker()
+    const cfg = config()
+    t.promptSubmit(cfg, 0, 's1', 'x', HOME)
+    t.stop(cfg, 1000, 's1', '', HOME)
+    assert.equal(t.reconcile(cfg, 2000, 's1').method, 'POST')
+    assert.equal(t.reconcile(cfg, 1000 + 30_000, 's1').method, 'DELETE')
+  })
+
   test('heartbeat POSTs wait for a stray younger than 60 s, then go out; DELETEs never wait', async () => {
     const delivered: string[] = []
     let first = true
