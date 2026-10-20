@@ -53,11 +53,13 @@ public struct KnobAirFace: Equatable, Sendable {
         return KnobWeatherObs.ramp(Double(aqi - s[i - 1]) / Double(s[i] - s[i - 1]), c[i - 1], c[i])
     }
 
-    public var valueText: String { have ? "\(aqi)" : "--" }
+    public var valueText: String { valueText(t: nil) }
+
+    func valueText(t: Double?) -> String { have ? "\(KnobArrive.count(aqi, t))" : "--" }
 
     public var unit: String? { have ? "AQI" : nil }
 
-    public func valueColor(_ w: KnobTheme.Weather) -> RGB { have ? Self.color(aqi, w.air) : w.stillColor }
+    public func valueColor(_ w: KnobTheme.Weather, t: Double? = nil) -> RGB { have ? Self.color(KnobArrive.count(aqi, t), w.air) : w.stillColor }
 
     public var sub: String { have ? Self.word(band) : "" }
 

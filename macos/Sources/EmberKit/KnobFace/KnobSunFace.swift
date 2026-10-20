@@ -126,9 +126,12 @@ public struct KnobSunFace: Equatable, Sendable {
 
     public var hero: Bool { have || polar == .day }
 
-    public var valueText: String {
+    public var valueText: String { valueText(t: nil) }
+
+    func valueText(t: Double?) -> String {
         guard have && hasNow && unit != nil else { return "--" }
-        return hours ? KnobCount.text(hours: true, count: count) : "\(count)"
+        let v = KnobArrive.count(count, t)
+        return hours ? KnobCount.text(hours: true, count: v) : "\(v)"
     }
 
     public func valueColor(_ w: KnobTheme.Weather) -> RGB { have && hasNow && unit != nil ? w.sun.valueColor : w.stillColor }

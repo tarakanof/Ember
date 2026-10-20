@@ -98,7 +98,7 @@ public struct KnobTempFace: Equatable, Sendable {
         return min(max(Double(value - lo) / Double(hi - lo), 0), 1)
     }
 
-    public func valueText() -> String { value.map(Self.degrees) ?? "--°" }
+    public func valueText(t: Double? = nil) -> String { value.map { Self.degrees(KnobArrive.count($0, t)) } ?? "--°" }
 
     public enum Caption: Equatable, Sendable {
         case noData
@@ -111,9 +111,9 @@ public struct KnobTempFace: Equatable, Sendable {
         return still ? .stale(sky: sub, temp: valueText()) : .current(sky: sub, temp: valueText())
     }
 
-    public func valueColor(_ theme: KnobTheme.Weather) -> RGB {
+    public func valueColor(_ theme: KnobTheme.Weather, t: Double? = nil) -> RGB {
         guard let value, !still else { return theme.stillColor }
-        return Self.color(Double(value), theme.scale)
+        return Self.color(Double(KnobArrive.count(value, t)), theme.scale)
     }
 
     static func degrees(_ v: Int) -> String { v < 0 ? "\u{2212}\(-v)°" : "\(v)°" }
@@ -155,11 +155,6 @@ public struct KnobTempFace: Equatable, Sendable {
         }
         let a = rgb[i - 1], b = rgb[i]
         return RGB(r: ch(a.r, b.r), g: ch(a.g, b.g), b: ch(a.b, b.b))
-    }
-
-    public static func gaugePoint(_ fraction: Double, _ theme: KnobTheme.Weather, center: Double) -> CGPoint {
-        let a = (theme.ring.fromDeg + theme.ring.sweepDeg * fraction) * .pi / 180
-        return CGPoint(x: center + theme.ring.radiusPx * sin(a), y: center - theme.ring.radiusPx * cos(a))
     }
 
     public static func mercuryTop(_ c: Double, _ t: KnobTheme.Weather.Thermo) -> Double {

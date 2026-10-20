@@ -257,11 +257,11 @@ private func save(_ img: CGImage, _ name: String) {
     let rr = w.ring.radiusPx
     #expect(near(pixel(img, 233, Int(233 - rr)), KnobTempFace.color(Double(day.lo) + Double(day.hi - day.lo) / 2, w.scale), 40),
             "ring top is the range's middle colour")
-    let start = KnobTempFace.gaugePoint(0.02, w, center: 233), end = KnobTempFace.gaugePoint(0.98, w, center: 233)
+    let start = KnobFaceRender.gaugeMarkerPoint(0.02, t: nil, w), end = KnobFaceRender.gaugeMarkerPoint(0.98, t: nil, w)
     #expect(near(pixel(img, Int(start.x), Int(start.y)), KnobTempFace.color(Double(day.lo), w.scale), 40))
     #expect(near(pixel(img, Int(end.x), Int(end.y)), KnobTempFace.color(Double(day.hi), w.scale), 40))
     #expect(near(pixel(img, 233, Int(233 + rr)), .init(r: 0, g: 0, b: 0), 8), "no ring in the bottom gap")
-    let marker = KnobTempFace.gaugePoint(day.fraction, w, center: 233)
+    let marker = KnobFaceRender.gaugeMarkerPoint(day.fraction, t: nil, w)
     #expect(near(pixel(img, Int(marker.x.rounded()), Int(marker.y.rounded())), .init(r: 0, g: 0, b: 0), 8), "marker hole")
     #expect(near(pixel(img, Int(marker.x.rounded() + w.marker.ringRadiusPx), Int(marker.y.rounded())), w.marker.color, 40))
     let merc = KnobTempFace.color(14, w.scale)

@@ -102,13 +102,13 @@ public struct KnobCastFace: Equatable, Sendable {
         (hours, count) = Self.round(at - s.now)
         let m = Int(mod(at + off, 86_400) / 60)
         label = m % 60 != 0 ? String(format: "%02d:%02d", m / 60, m % 60) : String(format: "%02d", m / 60)
-        let d = nowDeg + Double(at - s.now) / 120
-        labelDeg = d.truncatingRemainder(dividingBy: 360)
+        let now = Float(nowDeg), d = now + Float(at - s.now) / 120
+        labelDeg = Double(d.truncatingRemainder(dividingBy: 360))
         if s.wet {
-            toDeg = d - 1.5 > nowDeg ? d - 1.5 : nowDeg
+            toDeg = Double(d - 1.5 > now ? d - 1.5 : now)
         } else {
             let cs = 30 * (d / 30).rounded(.down) + 1.5
-            toDeg = max(d, cs) + 1.5
+            toDeg = Double(max(d, cs) + 1.5)
         }
         sub = "#\(t.color.hex.dropFirst()) \(Self.words(snow, variant, cap: false))# \(s.wet ? "until" : "at") "
             + String(format: "%02d:%02d", m / 60, m % 60)
@@ -120,9 +120,12 @@ public struct KnobCastFace: Equatable, Sendable {
         return (true, max(Int((s + 900) / 1800), 2))
     }
 
-    public var valueText: String {
+    public var valueText: String { valueText(t: nil) }
+
+    func valueText(t: Double?) -> String {
         guard hasCount || dry else { return "--" }
-        return dry ? "\(count / 2)+" : KnobCount.text(hours: hours, count: count)
+        let k = t.map { KnobArrive.countStep(count, KnobArrive.quantised($0, fps: KnobArrive.fps)) } ?? count, v = min(max(k, 0), count)
+        return dry && v == count ? "\(count / 2)+" : KnobCount.text(hours: hours, count: v)
     }
 
     public var unit: String? { hasCount || dry ? (hours ? "h" : "min") : nil }

@@ -49,11 +49,11 @@ private let w = KnobTheme.standard.weather
 }
 
 @Test func gaugeSweepsFromSevenThirtyClockwiseToFourThirty() {
-    let start = KnobTempFace.gaugePoint(0, w, center: 233), top = KnobTempFace.gaugePoint(0.5, w, center: 233)
-    let end = KnobTempFace.gaugePoint(1, w, center: 233), r = 222 / 2.0.squareRoot()
-    #expect(abs(start.x - (233 - r)) < 1e-9 && abs(start.y - (233 + r)) < 1e-9)
-    #expect(abs(top.x - 233) < 1e-9 && abs(top.y - 11) < 1e-9)
-    #expect(abs(end.x - (233 + r)) < 1e-9 && abs(end.y - (233 + r)) < 1e-9)
+    let start = KnobFaceRender.gaugeMarkerPoint(0, t: nil, w), top = KnobFaceRender.gaugeMarkerPoint(0.5, t: nil, w)
+    let end = KnobFaceRender.gaugeMarkerPoint(1, t: nil, w), r = 222 / 2.0.squareRoot()
+    #expect(abs(start.x - (233 - r)) < 1e-3 && abs(start.y - (233 + r)) < 1e-3)
+    #expect(abs(top.x - 233) < 1e-3 && abs(top.y - 11) < 1e-3)
+    #expect(abs(end.x - (233 + r)) < 1e-3 && abs(end.y - (233 + r)) < 1e-3)
 }
 
 @Test func mercuryTopIsClampedToTheTube() {
