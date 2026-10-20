@@ -265,19 +265,17 @@ extension KnobFaceRender {
         }
     }
 
-    static let dropTailPath: Path = {
+    static let dropPath: Path = {
         let p = KnobCastFace.dropTail
         func flip(_ q: CGPoint) -> CGPoint { CGPoint(x: q.x, y: -q.y) }
-        var tail = Path()
-        tail.move(to: p[0])
-        tail.addCurve(to: p[3], control1: p[1], control2: p[2])
-        tail.addLine(to: flip(p[3]))
-        tail.addCurve(to: p[0], control1: flip(p[2]), control2: flip(p[1]))
-        tail.closeSubpath()
-        return tail
+        var t = Path()
+        t.move(to: p[0])
+        t.addCurve(to: p[3], control1: p[1], control2: p[2])
+        t.addArc(center: .zero, radius: KnobCastFace.dropHead, startAngle: .degrees(90), endAngle: .degrees(-90), clockwise: true)
+        t.addCurve(to: p[0], control1: flip(p[2]), control2: flip(p[1]))
+        t.closeSubpath()
+        return t
     }()
-
-    static let dropHeadPath = disc(.zero, KnobCastFace.dropHead)
 
     static func castDrop(_ d: KnobCastFace.Drop, _ color: RGB, in ctx: inout GraphicsContext) {
         let at = KnobCastFace.ringPoint(d.deg)
@@ -285,15 +283,8 @@ extension KnobFaceRender {
         c.translateBy(x: at.x, y: at.y)
         c.rotate(by: .degrees(d.deg))
         faded(d.opa, in: &c) { g in
-            let line = StrokeStyle(lineWidth: 2, lineJoin: .round)
-            g.fill(dropTailPath, with: .color(Color(color)))
-            g.fill(dropHeadPath, with: .color(Color(color)))
-            var outside = g
-            outside.clip(to: dropHeadPath, options: .inverse)
-            outside.stroke(dropTailPath, with: .color(.black), style: line)
-            outside = g
-            outside.clip(to: dropTailPath, options: .inverse)
-            outside.stroke(dropHeadPath, with: .color(.black), style: line)
+            g.fill(dropPath, with: .color(Color(color)))
+            g.stroke(dropPath, with: .color(.black), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
         }
     }
 
@@ -309,16 +300,17 @@ extension KnobFaceRender {
 
     static func buildCloud(_ base: Double, _ circles: [(Double, Double, Double)]) -> DayCloud {
         var shapes = circles.map { Path(ellipseIn: CGRect(x: $0.0 - $0.2, y: $0.1 - $0.2, width: 2 * $0.2, height: 2 * $0.2)) }
-        var floor = CGPoint(x: 0, y: base)
+        var floorFrom = 0.0, floorTo = base
         if let first = circles.first, let last = circles.last {
             shapes.append(Path(CGRect(x: first.0, y: first.1, width: last.0 - first.0, height: base - first.1)))
             func edge(_ c: (Double, Double, Double), _ sign: Double) -> Double {
                 let dy = base - c.1
                 return c.0 + sign * (c.2 * c.2 > dy * dy ? (c.2 * c.2 - dy * dy).squareRoot() : 0)
             }
-            floor = CGPoint(x: edge(first, -1), y: edge(last, 1))
+            floorFrom = edge(first, -1)
+            floorTo = edge(last, 1)
         }
-        return DayCloud(shapes: shapes, base: base, floorFrom: floor.x, floorTo: floor.y)
+        return DayCloud(shapes: shapes, base: base, floorFrom: floorFrom, floorTo: floorTo)
     }
 
     struct DayCloud: Equatable {
