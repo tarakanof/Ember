@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { T3_PROBE_BUDGET_MS, T3_RETRY_MS, argvFromPs, detectT3, parsePsInfo, type T3Probe, type T3Verdict } from './t3.ts'
+import { T3_PROBE_BUDGET_MS, T3_RETRY_MS, argvFromCmdline, argvFromPs, detectT3, parsePsInfo, parseProcStat, type T3Probe, type T3Verdict } from './t3.ts'
 import {
   AGENTS_CALL_TIMEOUT_MS,
   AGENTS_FAIL_BACKOFF_MS,
@@ -367,6 +367,9 @@ async function runFirst($: Engine, argvs: string[][], timeoutMs: number): Promis
 
 function t3Probe($: Engine): T3Probe {
   const limit = T3_PROBE_BUDGET_MS
+  let procfs: Promise<boolean> | undefined
+  const hasProc = () => (procfs ??= $.fs.exists('/proc/self/stat').catch(() => false))
+  const procText = async (pid: number, file: string) => ((await hasProc()) ? readText($, `/proc/${pid}/${file}`) : undefined)
   return {
     isSDK: async () =>
       (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === 'sdk-ts' || ((await $.env.get('CLAUDE_AGENT_SDK_VERSION')) ?? '') !== '',
@@ -376,12 +379,16 @@ function t3Probe($: Engine): T3Probe {
       return Number.isInteger(pid) && pid > 0 ? pid : undefined
     },
     info: async pid => {
+      const stat = await procText(pid, 'stat')
+      const fromProc = stat === undefined ? undefined : parseProcStat(stat)
+      if (fromProc) return fromProc
       const out = await runFirst($, PS.map(ps => [ps, '-o', 'ppid=,comm=', '-p', String(pid)]), limit)
       return out === undefined ? undefined : parsePsInfo(out)
     },
     argv: async pid => {
-      const proc = await runFirst($, SH.map(sh => [sh, '-c', 'tr "\\0" "\\n" < /proc/$1/cmdline', 'sh', String(pid)]), limit)
-      if (proc !== undefined && proc.trim() !== '') return proc.replace(/\n$/, '').split('\n')
+      const cmdline = await procText(pid, 'cmdline')
+      const fromProc = cmdline === undefined ? undefined : argvFromCmdline(cmdline)
+      if (fromProc) return fromProc
       const comm = await runFirst($, PS.map(ps => [ps, '-ww', '-o', 'comm=', '-p', String(pid)]), limit)
       const args = await runFirst($, PS.map(ps => [ps, '-ww', '-o', 'args=', '-p', String(pid)]), limit)
       return comm === undefined || args === undefined || args.trim() === '' ? undefined : argvFromPs(comm, args)

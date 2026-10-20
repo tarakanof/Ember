@@ -58,6 +58,22 @@ export function parsePsInfo(out: string): ProcInfo | undefined {
   return { ppid: Number(ppid), comm: fields.slice(1).join(' ') }
 }
 
+export function parseProcStat(text: string): ProcInfo | undefined {
+  const open = text.indexOf('(')
+  const close = text.lastIndexOf(')')
+  if (open < 0 || close < open) return undefined
+  const rest = text.slice(close + 1).trim().split(/\s+/)
+  const ppid = rest[1] ?? ''
+  if (!/^\d+$/.test(ppid)) return undefined
+  return { ppid: Number(ppid), comm: text.slice(open + 1, close) }
+}
+
+export function argvFromCmdline(text: string): string[] | undefined {
+  const argv = text.split('\0')
+  if (argv[argv.length - 1] === '') argv.pop()
+  return argv.length === 0 || argv[0] === '' ? undefined : argv
+}
+
 async function walkPastShells(start: number, info: T3Probe['info']): Promise<{ pid: number; ppid: number } | undefined> {
   let cur = start
   for (let i = 0; i < MAX_WALK && cur > 1; i++) {

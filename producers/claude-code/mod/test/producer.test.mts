@@ -36,7 +36,7 @@ import {
   unknownField,
 } from '../hooks/producer.ts'
 import * as producerModule from '../hooks/producer.ts'
-import { argvFromPs, detectT3, isT3ServerArgv, parsePsInfo, type T3Probe } from '../hooks/t3.ts'
+import { argvFromCmdline, argvFromPs, detectT3, isT3ServerArgv, parsePsInfo, parseProcStat, type T3Probe } from '../hooks/t3.ts'
 
 const row = (status: string, waitingFor = '') => ({ status, waitingFor })
 
@@ -191,6 +191,18 @@ describe('T3 spawn detection (#216), parity with the Go producer', () => {
     assert.deepEqual(parsePsInfo('412  T3   Code  (Alpha)\n'), { ppid: 412, comm: 'T3 Code (Alpha)' })
     assert.equal(parsePsInfo(''), undefined)
     assert.equal(parsePsInfo('PPID COMMAND'), undefined)
+  })
+})
+
+describe('/proc parsing', () => {
+  test('stat gives ppid and a comm with spaces and parentheses', () => {
+    assert.deepEqual(parseProcStat('98 (T3 Code (Alpha)) S 1 1 1 0'), { ppid: 1, comm: 'T3 Code (Alpha)' })
+    assert.equal(parseProcStat('junk'), undefined)
+    assert.equal(parseProcStat('1 (x) S abc'), undefined)
+  })
+  test('cmdline splits on NUL and rejects an empty file', () => {
+    assert.deepEqual(argvFromCmdline('node\0/x/t3\0serve\0'), ['node', '/x/t3', 'serve'])
+    assert.equal(argvFromCmdline(''), undefined)
   })
 })
 

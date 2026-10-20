@@ -78,10 +78,16 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
     usageHold: undefined as Gate | undefined,
     sessionIdFails: false,
     psHold: undefined as Gate | undefined,
+    proc: undefined as Record<string, { stat: string; cmdline: string }> | undefined,
   }
   mock.env(on, { HOME, ...extraEnv })
   const clock = mock.clock(on, { now: 1_000_000 })
   on('fs.read', async ($, e) => {
+    const procPath = /^\/proc\/(\d+)\/(stat|cmdline)$/.exec(e.path)
+    if (procPath) {
+      const entry = ctl.proc?.[procPath[1] ?? '']
+      return entry ? { value: procPath[2] === 'stat' ? entry.stat : entry.cmdline } : { deny: 'ENOENT' }
+    }
     if (e.path !== ENV_FILE || envFile === null) return { deny: 'ENOENT' }
     ctl.envReads++
     if (ctl.envRead) await ctl.envRead.wait
@@ -133,7 +139,9 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
       value: [{ name: '7.json', kind: 'file' as const, size: 40, mtimeMs: ctl.sessionFiles, isLink: false }],
     }
   })
-  on('fs.exists', ($, e) => ({ value: e.path.endsWith('/claude-hooks.disabled') && ctl.killSwitch }))
+  on('fs.exists', ($, e) => ({
+    value: e.path.endsWith('/claude-hooks.disabled') ? ctl.killSwitch : e.path === '/proc/self/stat' && ctl.proc !== undefined,
+  }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('classic.*', () => ({}))
   on('session.id', () => {
@@ -688,6 +696,30 @@ test('an event that arrives while the T3 lookup runs waits for its verdict and p
   await Promise.all([first, second])
   await clock.settle()
   expect(sent.slice(posted).map(s => s.method)).toEqual(['DELETE'])
+})
+
+test('on Linux the T3 walk reads /proc through the file API and spawns no ps', async ($, on) => {
+  const { sent, clock, ctl } = world(on, TRUSTED, SDK_ENV)
+  ctl.proc = {
+    '100': { stat: '100 (sh) S 99 1 1 0', cmdline: 'sh\0-c\0echo $PPID\0' },
+    '99': { stat: '99 (claude) S 98 1 1 0', cmdline: 'claude\0' },
+    '98': { stat: '98 (T3 Code (Alpha)) S 1 1 1 0', cmdline: T3_SERVER.join('\0') + '\0' },
+  }
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(sent).toEqual([])
+  expect(ctl.psCalls).toBe(0)
+  expect(ctl.runs.some(argv => argv.includes('-c') && argv.some(a => a.includes('/proc')))).toBe(false)
+})
+
+test('on macOS the T3 probe never tries /proc through a shell', async ($, on) => {
+  const { clock, ctl } = world(on, TRUSTED, SDK_ENV)
+  ctl.procs = t3Tree(['node', '/Users/u/agent/run.mjs'])
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(ctl.runs.filter(argv => argv.some(a => a.includes('/proc')))).toEqual([])
 })
 
 function agentRows(status: string, waitingFor = '', sessionId = 'sess-1'): string {
