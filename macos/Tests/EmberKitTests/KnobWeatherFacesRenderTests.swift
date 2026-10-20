@@ -522,3 +522,35 @@ private let cinderCastPixels: [[Int]] = [
         #expect(near(drawn, want, 12), "variant \(v) side \(side) at \(x),\(y): \(drawn), cinder \(want)")
     }
 }
+
+@MainActor private func rayBytes(_ draw: @escaping (inout GraphicsContext) -> Void) throws -> [UInt8] {
+    let r = ImageRenderer(content: Canvas { ctx, _ in
+        ctx.fill(Path(CGRect(x: 0, y: 0, width: 466, height: 466)), with: .color(.black))
+        draw(&ctx)
+    }.frame(width: 466, height: 466))
+    r.scale = 1
+    let img = try #require(r.cgImage)
+    var px = [UInt8](repeating: 0, count: 466 * 466 * 4)
+    px.withUnsafeMutableBytes {
+        CGContext(data: $0.baseAddress, width: 466, height: 466, bitsPerComponent: 8, bytesPerRow: 466 * 4,
+                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            .draw(img, in: CGRect(x: 0, y: 0, width: 466, height: 466))
+    }
+    return px
+}
+
+@MainActor @Test func cachedSunRaysMatchTheDirectFanAcrossTheArrival() throws {
+    let sun = th.weather.sun
+    #expect(KnobFaceRender.sunRaysRaster != nil)
+    var seen = Set<Int>()
+    for k in 0...Int((KnobSunFace.raysInS + 0.2) * KnobSunFace.fps) {
+        let rays = KnobSunFace.frame(t: Double(k) / KnobSunFace.fps).rays
+        guard rays > 0, seen.insert(rays).inserted else { continue }
+        let o = rays < 255 ? Double(rays) / 255 : 1
+        let direct = try rayBytes { KnobFaceRender.sunRaysDirect(sun, opacity: o, in: &$0) }
+        let cached = try rayBytes { KnobFaceRender.sunRays(sun, opacity: o, in: &$0) }
+        let worst = zip(direct, cached).map { abs(Int($0) - Int($1)) }.max() ?? 0
+        #expect(worst <= (rays == 255 ? 0 : 1), "rays \(rays): worst channel diff \(worst)")
+    }
+    #expect(seen.count > 5)
+}

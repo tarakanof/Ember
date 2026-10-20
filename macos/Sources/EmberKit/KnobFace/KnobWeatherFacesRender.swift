@@ -504,19 +504,7 @@ extension KnobFaceRender {
         if f.hero {
             var clipped = ctx
             clipped.clip(to: Path(CGRect(x: 0, y: 0, width: 466, height: t.clipYPx)))
-            var rays = clipped
-            if fr.rays < 255 { rays.opacity = Double(fr.rays) / 255 }
-            for k in 0..<13 where fr.rays > 0 {
-                let a = (-168 + 13 * Double(k)) * .pi / 180, r1 = t.radiusPx + 12, r2 = k % 2 == 1 ? 130.0 : 170
-                var c = rays
-                func ga(_ r: Double) -> Double { r / 170 <= 0.3 ? 0.55 : max(0.55 * (1 - (r / 170 - 0.3) / 0.7), 0) }
-                let p1 = CGPoint(x: center.x + r1 * cos(a), y: center.y + r1 * sin(a))
-                let p2 = CGPoint(x: center.x + r2 * cos(a), y: center.y + r2 * sin(a))
-                let gold = Color(t.goldColor)
-                c.stroke(line(p1, p2), with: .linearGradient(Gradient(colors: [gold.opacity(ga(r1)), gold.opacity(ga(r2))]),
-                                                             startPoint: p1, endPoint: p2),
-                         style: StrokeStyle(lineWidth: k % 2 == 1 ? 3 : 3.5, lineCap: .round))
-            }
+            if fr.rays > 0 { sunRays(t, opacity: fr.rays < 255 ? Double(fr.rays) / 255 : 1, in: &ctx) }
             var c = clipped
             if fr.dy != 0 { c.translateBy(x: 0, y: Double(fr.dy)) }
             c.fill(disc(center, 74), with: .color(Color(t.goldColor).opacity(0.12)))
