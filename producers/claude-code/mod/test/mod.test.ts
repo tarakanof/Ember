@@ -736,6 +736,19 @@ test('heartbeats with nothing changed do not rewrite the $.state snapshot', asyn
   expect(held.version).toBe(written)
 })
 
+test('session.start answers without waiting for the snapshot read', async ($, on) => {
+  const read = gate()
+  on('state.get', async () => {
+    await read.wait
+    return { value: { value: undefined, version: 0 } }
+  })
+  on('state.set', () => ({ value: { isSet: true as const, version: 1 } }))
+  const { clock } = world(on)
+  await $.session.start(START)
+  read.open()
+  await clock.settle()
+})
+
 function agentRows(status: string, waitingFor = '', sessionId = 'sess-1'): string {
   return JSON.stringify([{ pid: 7, kind: 'interactive', sessionId, cwd: `${HOME}/proj`, status, waitingFor }])
 }

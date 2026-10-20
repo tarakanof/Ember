@@ -547,7 +547,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     st.interactive = e.isInteractive
     start($, st, true)
-    await quietly(() => ready($, st))
+    void quietly(() => ready($, st))
     void quietly(() => measure($, st, undefined))
     return next(e)
   }).catch(($, e, next) => next(e))
