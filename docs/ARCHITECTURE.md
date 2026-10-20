@@ -3534,10 +3534,11 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   side's clouds move by `wx_cast_breathe` (−4, +3 or 0 px) and fade to
   the rim from their `fade_from`, drawn from the same traced outline as
   the temperature sky (`KnobCastFace.Cloud.sky` converts each to a
-  `KnobTempSky.Cloud`; no Path booleans); the gloom pulse is at rest. The windsock
-  is in pose A with the streak rows and leaves `wx_wind_frame(level, 0)`
-  shows; with no wind data it hangs still in pose B with neither, as on
-  the knob. `KnobWeatherHeroes.swift` holds the tables
+  `KnobTempSky.Cloud`; no Path booleans); the gloom pulse is at rest. The
+  windsock is in pose A with the streak rows and leaves
+  `wx_wind_frame(level, 0)` shows; with no wind data it hangs still in
+  pose B with neither, as on the knob. `KnobWeatherHeroes.swift` holds the
+  tables
   (`KnobRainFace.sheets`, `KnobCastFace.sheets`, `clouds`, `tones`,
   `breathe`, `KnobWindFace.geo`) and the frame-0 maths;
   `KnobWeatherHeroParityTests` parses cinder's C initialisers and
