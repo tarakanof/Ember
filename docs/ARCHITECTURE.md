@@ -3549,8 +3549,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   built once from the per-pixel formula in `Float` (keep-out boxes and
   rim fade; alpha bit-equal to cinder's), the stars, the sun and the
   phase-cut moon as vectors and gradients, and `wx_clouds_for`'s bands as
-  paths from `wx_cloud_shape`'s polygon (puffs and polygon, cut at the
-  base). Each cloud is one sprite with its own rim fade, composited
+  outlines traced through `wx_cloud_shape`'s points (each puff's arc to
+  the next point, then the base), with no path booleans, since macOS 26
+  and 27 disagree on their result. Each cloud is one sprite with its own rim fade, composited
   before the fade so its outline doesn't show through the fill; hero and
   clouds fade in on `wx_arrive(tf)`. Colours stay 8-bit where the panel
   is RGB565. The drift replays `wx_drift_step` at `WX_DRIFT_FPS` from
