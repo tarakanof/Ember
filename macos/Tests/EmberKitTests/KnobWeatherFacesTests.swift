@@ -210,6 +210,22 @@ private func wetUntil(_ until: Int64) -> WeatherState {
     #expect(KnobCastFace.labelPlace(180, w: 30, h: 27, avoid: CGRect(x: 160, y: 400, width: 146, height: 33), gap: 2) == nil)
 }
 
+@Test func castRestMarkerAndLabelComputeInFloatLikeCinder() {
+    func ring(_ d: Double) -> [Double] {
+        let p = KnobCastFace.ringPoint(d)
+        return [p.x.rounded(), p.y.rounded()]
+    }
+    func place(_ d: Double) -> [Double]? {
+        KnobCastFace.labelPlace(d, w: 30, h: 27, avoid: .zero, gap: 2).map { [$0.x, $0.y] }
+    }
+    #expect(ring(258.7) == [15, 276], "C rounds 276.499939 down, Double says 276.500044")
+    #expect(ring(75) == [447, 176] && ring(0) == [233, 11])
+    #expect(place(60) == [374, 121], "C: 121.00 after float, Double lands on 120")
+    #expect(place(258.7) == [39, 258])
+    #expect(place(240) == [62, 319], "unfused C; a fused esp32s3 build can land on 318")
+    #expect(place(0) == [218, 32] && place(90) == [401, 220] && place(270) == [35, 220])
+}
+
 private func windState(_ kmh: Int?, _ dir: Int?) -> WeatherState {
     var f = faces()
     f.windKmh = kmh
@@ -450,19 +466,4 @@ extension WeatherState {
         f(&s)
         return s
     }
-}
-
-@Test func castRestMarkerAndLabelComputeInFloatLikeCinder() {
-    func ring(_ d: Double) -> [Double] {
-        let p = KnobCastFace.ringPoint(d)
-        return [p.x.rounded(), p.y.rounded()]
-    }
-    func place(_ d: Double) -> [Double]? {
-        KnobCastFace.labelPlace(d, w: 30, h: 27, avoid: .zero, gap: 2).map { [$0.x, $0.y] }
-    }
-    #expect(ring(258.7) == [15, 276], "C rounds 276.499939 down, Double says 276.500044")
-    #expect(ring(75) == [447, 176] && ring(0) == [233, 11])
-    #expect(place(60) == [374, 121], "C: 121.00 after float, Double lands on 120")
-    #expect(place(258.7) == [39, 258])
-    #expect(place(0) == [218, 32] && place(90) == [401, 220] && place(270) == [35, 220])
 }
