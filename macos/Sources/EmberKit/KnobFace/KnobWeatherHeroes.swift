@@ -56,6 +56,10 @@ extension KnobCastFace {
         var back: Bool
         var base: Double
         var circles: [Puff]
+
+        var sky: KnobTempSky.Cloud {
+            .init(back: back, base: Float(base), puffs: circles.map { .init(x: Float($0.x), y: Float($0.y), r: Float($0.r)) })
+        }
     }
 
     struct Puff: Equatable {

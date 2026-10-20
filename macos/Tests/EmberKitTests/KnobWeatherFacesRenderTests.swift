@@ -455,7 +455,7 @@ func weatherFacesDrawCostVersusTemp() throws {
     for (v, sides) in KnobCastFace.clouds.enumerated() {
         for (si, side) in sides.enumerated() {
             for (ci, cl) in side.clouds.enumerated() {
-                let sky = KnobTempSky.Cloud(back: cl.back, base: Float(cl.base), puffs: cl.circles.map { .init(x: Float($0.x), y: Float($0.y), r: Float($0.r)) })
+                let sky = cl.sky
                 #expect(KnobTempSky.shape(sky) != nil, "cast cloud \(v) \(si) \(ci) is a cloud")
                 #expect(KnobFaceRender.castCloudPaths[v][si][ci] == KnobFaceRender.skyCloud(sky))
             }
