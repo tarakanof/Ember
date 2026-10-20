@@ -98,7 +98,7 @@ public struct KnobTempFace: Equatable, Sendable {
         return min(max(Double(value - lo) / Double(hi - lo), 0), 1)
     }
 
-    public func valueText() -> String { value.map(Self.degrees) ?? "--°" }
+    public func valueText(t: Double? = nil) -> String { value.map { Self.degrees(KnobArrive.count($0, t)) } ?? "--°" }
 
     public enum Caption: Equatable, Sendable {
         case noData
@@ -111,9 +111,9 @@ public struct KnobTempFace: Equatable, Sendable {
         return still ? .stale(sky: sub, temp: valueText()) : .current(sky: sub, temp: valueText())
     }
 
-    public func valueColor(_ theme: KnobTheme.Weather) -> RGB {
+    public func valueColor(_ theme: KnobTheme.Weather, t: Double? = nil) -> RGB {
         guard let value, !still else { return theme.stillColor }
-        return Self.color(Double(value), theme.scale)
+        return Self.color(Double(KnobArrive.count(value, t)), theme.scale)
     }
 
     static func degrees(_ v: Int) -> String { v < 0 ? "\u{2212}\(-v)°" : "\(v)°" }

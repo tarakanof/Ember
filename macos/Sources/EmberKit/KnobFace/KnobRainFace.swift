@@ -81,7 +81,9 @@ public struct KnobRainFace: Equatable, Sendable {
         r.colors[min(max(intensity, 1), r.colors.count) - 1]
     }
 
-    public var valueText: String { pop.map(String.init) ?? "--" }
+    public var valueText: String { valueText(t: nil) }
+
+    func valueText(t: Double?) -> String { pop.map { String(KnobArrive.count($0, t)) } ?? "--" }
 
     public func valueColor(_ w: KnobTheme.Weather) -> RGB { pop == nil ? w.stillColor : Self.color(intensity, w.rain) }
 

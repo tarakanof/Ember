@@ -120,9 +120,12 @@ public struct KnobCastFace: Equatable, Sendable {
         return (true, max(Int((s + 900) / 1800), 2))
     }
 
-    public var valueText: String {
+    public var valueText: String { valueText(t: nil) }
+
+    func valueText(t: Double?) -> String {
         guard hasCount || dry else { return "--" }
-        return dry ? "\(count / 2)+" : KnobCount.text(hours: hours, count: count)
+        let k = t.map { KnobArrive.countStep(count, KnobArrive.quantised($0, fps: KnobArrive.fps)) } ?? count, v = min(max(k, 0), count)
+        return dry && v == count ? "\(count / 2)+" : KnobCount.text(hours: hours, count: v)
     }
 
     public var unit: String? { hasCount || dry ? (hours ? "h" : "min") : nil }

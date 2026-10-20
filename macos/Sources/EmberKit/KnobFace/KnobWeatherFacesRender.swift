@@ -80,9 +80,12 @@ extension KnobFaceRender {
         }
     }
 
-    static func sub(_ markup: String, _ color: RGB, top: Double? = nil, theme: KnobTheme, in ctx: inout GraphicsContext) {
+    static func sub(_ markup: String, _ color: RGB, top: Double? = nil, opacity: Int = 255, theme: KnobTheme, in ctx: inout GraphicsContext) {
+        guard opacity > 0 else { return }
         let s = theme.weather.sub
-        runs(KnobSubMarkup.runs(markup), s.fontPx, base: color, top: top ?? s.yPx, theme: theme, in: &ctx)
+        var c = ctx
+        if opacity < 255 { c.opacity = Double(opacity) / 255 }
+        runs(KnobSubMarkup.runs(markup), s.fontPx, base: color, top: top ?? s.yPx, theme: theme, in: &c)
     }
 
     static func ends(_ lo: String, _ loColor: RGB, _ hi: String, _ hiColor: RGB, theme: KnobTheme, in ctx: inout GraphicsContext) {
@@ -105,12 +108,12 @@ extension KnobFaceRender {
         umbrella(w.rain.umbrellaColor, in: &ctx)
         gauge(f.pop == nil ? nil : { f.ringColor($0, w) }, w, in: &ctx)
         let vc = f.valueColor(w)
-        valueUnit(f.valueText, vc, unit: "%", unitColor: vc, theme: theme, in: &ctx)
+        valueUnit(f.valueText(t: t), vc, unit: "%", unitColor: vc, theme: theme, in: &ctx)
         if f.pop != nil {
             ends("0%", w.rain.endColor, "100%", KnobRainFace.color(f.intensity, w.rain), theme: theme, in: &ctx)
-            gaugeMarker(f.fraction, w, in: &ctx)
+            gaugeMarker(f.fraction * KnobArrive.eased(t), w, in: &ctx)
         }
-        sub(f.sub, w.sub.color, theme: theme, in: &ctx)
+        sub(f.sub, w.sub.color, opacity: KnobArrive.subOpacity(t), theme: theme, in: &ctx)
     }
 
     static func fade(_ box: CGRect, _ ramp: Double) -> GraphicsContext.Shading {
@@ -238,9 +241,10 @@ extension KnobFaceRender {
         for (lo, hi) in KnobCastFace.cells() { ctx.stroke(arc(lo, hi), with: .color(Color(t.cellColor)), style: style) }
         for s in f.segments { ctx.stroke(arc(s.from, s.to), with: .color(Color(KnobRainFace.color(s.intensity, w.rain))), style: style) }
         let vc = f.valueColor(w)
-        valueUnit(f.valueText, vc, unit: f.unit, unitColor: vc, theme: theme, in: &ctx)
+        valueUnit(f.valueText(t: time), vc, unit: f.unit, unitColor: vc, theme: theme, in: &ctx)
         if f.have { marker(at: KnobCastFace.ringPoint(f.nowDeg), w, in: &ctx) }
-        sub(f.sub, w.sub.color, theme: theme, in: &ctx)
+        if let d = f.drop(t: time) { castDrop(d, t.color, in: &ctx) }
+        sub(f.sub, w.sub.color, opacity: KnobArrive.subOpacity(time), theme: theme, in: &ctx)
         guard f.hasCount else { return }
         let subW = KnobSubMarkup.runs(f.sub).map { textWidth($0.text, w.sub.fontPx, theme: theme) }.reduce(0, +).rounded()
         let sm = theme.font.metrics(w.sub.fontPx), lm = theme.font.metrics(t.labelFontPx)
@@ -250,6 +254,28 @@ extension KnobFaceRender {
             var c = ctx
             c.opacity = Double(fr.label) / 255
             label(f.label, t.labelFontPx, t.color, centerX: at.x, anchor: 0, top: at.y, theme: theme, in: &c)
+        }
+    }
+
+    static let dropPath: Path = {
+        let p = KnobCastFace.dropTail
+        func flip(_ q: CGPoint) -> CGPoint { CGPoint(x: q.x, y: -q.y) }
+        var tail = Path()
+        tail.move(to: p[0])
+        tail.addCurve(to: p[3], control1: p[1], control2: p[2])
+        tail.addLine(to: flip(p[3]))
+        tail.addCurve(to: p[0], control1: flip(p[2]), control2: flip(p[1]))
+        tail.closeSubpath()
+        return tail.union(disc(.zero, KnobCastFace.dropHead))
+    }()
+
+    static func castDrop(_ d: KnobCastFace.Drop, _ color: RGB, in ctx: inout GraphicsContext) {
+        let at = KnobCastFace.ringPoint(d.deg)
+        let p = dropPath.applying(CGAffineTransform(rotationAngle: d.deg * .pi / 180).concatenating(CGAffineTransform(translationX: at.x, y: at.y)))
+        var c = ctx
+        faded(d.opa, in: &c) { g in
+            g.fill(p, with: .color(Color(color)))
+            g.stroke(p, with: .color(.black), lineWidth: 2)
         }
     }
 
@@ -338,7 +364,7 @@ extension KnobFaceRender {
         ctx.fill(Path(roundedRect: CGRect(x: px, y: m.y - 3, width: KnobWindFace.arm, height: 6), cornerRadius: 3), with: .color(pole))
         ctx.fill(Path(roundedRect: CGRect(x: px - 24, y: base - 7, width: 48, height: 7), cornerRadius: 3.5), with: .color(pole))
         ctx.fill(disc(CGPoint(x: px, y: top), 5.5), with: .color(pole))
-        let sock = f.valueColor(w), opa = KnobArrive.spriteOpacity(time)
+        let sock = f.valueColor(w, t: time), opa = KnobArrive.spriteOpacity(time)
         let fr = KnobWindFace.frame(level: f.level, k: f.have ? time.map { KnobArrive.frame($0) } ?? 0 : nil)
         for (r, s) in fr.streaks.enumerated() where s.opa * opa / 255 > 0 {
             let a = KnobWindFace.streakStart(level: f.level, row: r), len = Double(KnobWindFace.geo(level: f.level).rows[r].len)
@@ -360,12 +386,12 @@ extension KnobFaceRender {
             ctx.fill(outline.applying(at), with: .color(Color(t.leafColor).opacity(Double(l.opa * opa / 255) / 255)))
         }
         gauge(f.have ? { f.ringColor($0, w) } : nil, w, in: &ctx)
-        valueUnit(f.valueText, sock, unit: f.have ? "km/h" : nil, unitColor: t.unitColor, theme: theme, in: &ctx)
+        valueUnit(f.valueText(t: time), sock, unit: f.have ? "km/h" : nil, unitColor: t.unitColor, theme: theme, in: &ctx)
         if f.have {
             ends("0", KnobWindFace.color(0, t), "\(t.gaugeKmh)+", KnobWindFace.color(t.gaugeKmh, t), theme: theme, in: &ctx)
-            gaugeMarker(f.fraction, w, in: &ctx)
+            gaugeMarker(f.fraction * KnobArrive.eased(time), w, in: &ctx)
         }
-        sub(f.sub, w.sub.color, theme: theme, in: &ctx)
+        sub(f.sub, w.sub.color, opacity: KnobArrive.subOpacity(time), theme: theme, in: &ctx)
     }
 
     static func days(_ f: KnobDaysFace, _ theme: KnobTheme, t time: Double? = nil, in ctx: inout GraphicsContext) {
@@ -506,10 +532,10 @@ extension KnobFaceRender {
                            with: .color(Color(t.horizonColor)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
             }
             ends(f.rise, t.horizonColor, f.set, t.horizonColor, theme: theme, in: &ctx)
-            if f.hasNow { gaugeMarker(f.fraction, w, in: &ctx) }
+            if f.hasNow { gaugeMarker(f.fraction * KnobArrive.eased(time), w, in: &ctx) }
         }
-        valueUnit(f.valueText, f.valueColor(w), unit: f.valueText == "--" ? nil : f.unit, unitColor: t.unitColor, theme: theme, in: &ctx)
-        sub(f.sub, f.subColor, theme: theme, in: &ctx)
+        valueUnit(f.valueText(t: time), f.valueColor(w), unit: f.valueText == "--" ? nil : f.unit, unitColor: t.unitColor, theme: theme, in: &ctx)
+        sub(f.sub, f.subColor, opacity: KnobArrive.subOpacity(time), theme: theme, in: &ctx)
     }
 
     static func air(_ f: KnobAirFace, _ theme: KnobTheme, t: Double? = nil, in ctx: inout GraphicsContext) {
@@ -519,9 +545,9 @@ extension KnobFaceRender {
         if f.wilted { flowerWilted(in: &ctx) } else { flowerHealthy(in: &ctx) }
         if f.wilted, let t { fallingPetal(KnobAirFace.petal(k: KnobArrive.frame(t)), in: &ctx) }
         faceDots(6, w, in: &ctx)
-        valueUnit(f.valueText, f.valueColor(w), unit: f.unit, unitColor: w.air.unitColor, theme: theme, in: &ctx)
-        if f.have { gaugeMarker(f.fraction, w, in: &ctx) }
-        sub(f.sub, f.subColor(w), theme: theme, in: &ctx)
+        valueUnit(f.valueText(t: t), f.valueColor(w, t: t), unit: f.unit, unitColor: w.air.unitColor, theme: theme, in: &ctx)
+        if f.have { gaugeMarker(f.fraction * KnobArrive.eased(t), w, in: &ctx) }
+        sub(f.sub, f.subColor(w), opacity: KnobArrive.subOpacity(t), theme: theme, in: &ctx)
     }
 
     static func petal(_ cx: Double, _ cy: Double, _ rx: Double, _ ry: Double, rot: Double, about p: CGPoint) -> Path {

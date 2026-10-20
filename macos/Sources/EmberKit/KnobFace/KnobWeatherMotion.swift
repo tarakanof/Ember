@@ -9,20 +9,49 @@ enum KnobWeatherMotion: Equatable, Sendable {
     init(_ face: KnobFace, reduceMotion: Bool = false) {
         guard !reduceMotion else { self = .still; return }
         switch face {
-        case .rain(let f): self = f.dry ? .still : .loop
-        case .cast(let f): self = (1...3).contains(f.variant) ? .loop : .still
-        case .wind(let f): self = f.have ? .loop : .still
-        case .air(let f): self = f.wilted ? .loop : .still
-        case .sun(let f): self = f.hero ? .arrival(until: KnobSunFace.restS) : .still
+        case .weather(let f): self = f.value == nil ? .still : .arrival(until: KnobArrive.restS(sub: f.sub))
+        case .rain(let f): self = !f.dry ? .loop : f.pop != nil || !f.sub.isEmpty ? .arrival(until: KnobArrive.restS(sub: f.sub)) : .still
+        case .cast(let f): self = (1...3).contains(f.variant) ? .loop : f.sub.isEmpty ? .still : .arrival(until: KnobArrive.subRestS)
+        case .wind(let f): self = f.have ? .loop : .arrival(until: KnobArrive.restS(sub: f.sub))
+        case .air(let f): self = f.wilted ? .loop : f.have ? .arrival(until: KnobArrive.restS(sub: f.sub)) : .still
+        case .sun(let f):
+            self = f.hero || !f.sub.isEmpty ? .arrival(until: max(f.hero ? KnobSunFace.restS : 0, KnobArrive.restS(sub: f.sub))) : .still
         case .days(let f): self = f.have ? .arrival(until: KnobArrive.restS) : .still
-        case .bot, .pomodoro, .nowPlaying, .weather: self = .still
+        case .bot, .pomodoro, .nowPlaying: self = .still
         }
     }
 }
 
 enum KnobArrive {
-    static let seconds = 1.32, fps = 30.0, fadeFps = 15.0, countMax = 30
-    static let restS = (seconds * fps).rounded(.up) / fps
+    static let seconds = 1.32, fps = 30.0, fadeFps = 15.0, countMax = 30, subFadeS = 0.48
+    static let restS = (seconds * fps).rounded(.up) / fps, subRestS = seconds + subFadeS
+
+    static func restS(sub: String) -> Double { sub.isEmpty ? restS : subRestS }
+
+    static func eased(_ t: Double?) -> Double { t.map { ease(quantised($0, fps: fps)) } ?? 1 }
+
+    static func count(_ v: Int, _ t: Double?) -> Int {
+        guard let t else { return v }
+        return countValue(v, countStep(countN(v), quantised(t, fps: fps)))
+    }
+
+    static func subOpacity(_ t: Double?) -> Int {
+        guard let t else { return 255 }
+        let sf = (t - seconds) / subFadeS
+        return !(sf > 0) ? 0 : sf >= 1 ? 255 : 85 * (1 + Int(sf * 3))
+    }
+
+    static func bezier(_ p: Double, x1: Double, x2: Double) -> Double {
+        guard p > 0 else { return 0 }
+        if p >= 1 { return 1 }
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<40 {
+            let u = (lo + hi) / 2, v = 1 - u
+            if 3 * v * v * u * x1 + 3 * v * u * u * x2 + u * u * u < p { lo = u } else { hi = u }
+        }
+        let u = (lo + hi) / 2
+        return 3 * (1 - u) * u * u + u * u * u
+    }
 
     static func ease(_ t: Double) -> Double {
         guard t > 0 else { return 0 }
@@ -119,10 +148,9 @@ extension KnobCastFace {
 
     static let slideS = 0.96, gateS = 0.96, gateEndS = 1.14, labelEndS = 1.32, gloomSteps = 4
 
-    static func ramp(_ t: Double, _ t0: Double, _ t1: Double) -> Int {
-        let f = t <= t0 ? 0 : t >= t1 ? 1 : (t - t0) / (t1 - t0)
-        return Int((255 * f).rounded())
-    }
+    static func progress(_ t: Double, _ t0: Double, _ t1: Double) -> Double { t <= t0 ? 0 : t >= t1 ? 1 : (t - t0) / (t1 - t0) }
+
+    static func ramp(_ t: Double, _ t0: Double, _ t1: Double) -> Int { Int((255 * progress(t, t0, t1)).rounded()) }
 
     static func gateOpacity(_ t: Double) -> Int { ramp(t, gateS, gateEndS) }
 
@@ -140,6 +168,27 @@ extension KnobCastFace {
         return Frame(k: k, dx: sheets.indices.map { Self.breathe(variant: variant, side: $0, k: k) },
                      gloom: Self.gloom(variant: variant, k: k), gate: fade.map(Self.gateOpacity) ?? 255,
                      label: fade.map(Self.labelOpacity) ?? 255, sprite: KnobArrive.spriteOpacity(t))
+    }
+
+    struct Drop: Equatable { var deg: Double; var opa: Int }
+
+    static let dropInS = 0.18, dropOutS = 1.2, dropHead = 7.0
+    static let dropTail = [CGPoint(x: -15, y: 0), CGPoint(x: -9, y: 1.5), CGPoint(x: -6.5, y: 7), CGPoint(x: 0, y: 7)]
+
+    static func ease(_ p: Double) -> Double { KnobArrive.bezier(p, x1: 0.45, x2: 0.25) }
+
+    static func dropOpacity(_ t: Double) -> Int {
+        guard t >= 0, t < dropOutS else { return 0 }
+        if t < dropInS { return ramp(t, 0, dropInS) }
+        return t <= slideS ? 255 : Int((255 * (1 - progress(t, slideS, dropOutS))).rounded())
+    }
+
+    func drop(t: Double?) -> Drop? {
+        guard let t, hasCount else { return nil }
+        let ta = KnobArrive.quantised(t, fps: KnobArrive.fps), opa = Self.dropOpacity(ta)
+        guard opa > 0 else { return nil }
+        let deg = Float(nowDeg) + Float(toDeg - nowDeg) * Float(Self.ease(ta / Self.slideS))
+        return Drop(deg: Double((deg * 4).rounded()) / 4, opa: opa)
     }
 }
 
@@ -183,17 +232,7 @@ extension KnobAirFace {
 
     static let petalFrames = 105, petalPhase = 30, petalBox = 20, petalAt = CGPoint(x: 250, y: 202)
 
-    static func ease(_ p: Double) -> Double {
-        guard p > 0 else { return 0 }
-        if p >= 1 { return 1 }
-        var lo = 0.0, hi = 1.0
-        for _ in 0..<40 {
-            let u = (lo + hi) / 2, v = 1 - u
-            if 3 * v * v * u * 0.42 + 3 * v * u * u * 0.58 + u * u * u < p { lo = u } else { hi = u }
-        }
-        let u = (lo + hi) / 2
-        return 3 * (1 - u) * u * u + u * u * u
-    }
+    static func ease(_ p: Double) -> Double { KnobArrive.bezier(p, x1: 0.42, x2: 0.58) }
 
     static func petal(k: Int) -> Petal {
         guard k >= 0 else { return Petal(x: 0, y: 0, rot: 0, opa: 0) }
@@ -202,5 +241,13 @@ extension KnobAirFace {
         let op = t < 0.08 ? ease(t / 0.08) : t < 0.9 ? 1 : 1 - ease((t - 0.9) / 0.1)
         return Petal(x: Int((petalAt.x + 14 * (1 - u)).rounded()) - petalBox / 2, y: Int((petalAt.y - 58 * (1 - u)).rounded()) - petalBox / 2,
                      rot: Int((5 * u).rounded()), opa: Int((255 * op).rounded()))
+    }
+}
+
+extension KnobTempFace {
+    func mercuryTop(_ th: KnobTheme.Weather.Thermo, t: Double?) -> Double {
+        let top = value.map { Self.mercuryTop(Double($0), th) } ?? th.mercuryBottomPx, a = KnobArrive.eased(t)
+        guard a < 1 else { return top }
+        return ((th.mercuryBottomPx - (th.mercuryBottomPx - top) * a) * 2).rounded() / 2
     }
 }

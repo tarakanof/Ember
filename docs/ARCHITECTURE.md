@@ -3453,8 +3453,8 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `wx_temp.c`, `wx_paint.c`, #430: colour-scale gauge ring with its
   marker, thermometer and mercury, value, today's low and high, sky
   sub-line, face dots; today's range is `current.today_min_c`/`today_max_c`
-  of `/v1/weather/state`; the sky, clouds, hero, count-up arrival, drift
-  and burn-in shift are not drawn; the sub-line follows `wx_temp.c`
+  of `/v1/weather/state`; the sky, clouds, hero, drift and burn-in shift
+  are not drawn; the sub-line follows `wx_temp.c`
   (#578): `current.cloud_pct` picks the `sky_word` band, held near an edge
   by `WX_BAND_HYST` while the preview stays up, the condition's word
   without it, and by day `current.uv` ≥ 3 replaces it with
@@ -3503,7 +3503,20 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   the cast strips, `wx_cast_breathe`, `wx_cast_gloom` and the rain gate
   and label fade; `wx_wind_frame` under the fade; `wx_air_petal` on the
   wilted flower; `wx_sun_frame` (rise and rays) and `wx_days_frame` (row
-  fade, slide and count-up). With no t (the Pages overview, Reduce
+  fade, slide and count-up). `temp_face.c` `paint()`'s own arrival is
+  drawn on every face too (#644): the value counts up
+  (`wx_count_value`/`wx_count_step` on `ta`; wind, air and Temperature
+  colour by the counted value, the wind sock with them; the forecast
+  steps `wx_cast_step_text` to "12+"), the gauge marker eases to
+  `frac * wx_arrive(ta)` (the forecast marker stays at now), the
+  Temperature mercury rises to `wx_merc_top` on the same ease in half-px
+  steps, the forecast's teardrop (`KnobFaceRender.dropPath`, prebuilt
+  from `wx_paint_drop`'s bezier and 7 px head) slides from now to the
+  spell along `wx_cast_ease` and fades out by `WX_CAST_DROP_OUT_S`, the
+  sub-line fades in at 85, 170, 255 from 1.32 s (`SUB_FADE_S`), and the
+  sock fades in without wind data. The half-px mercury step applies
+  only while the ease runs, so the settled top is the rest pose's
+  unrounded one. With no t (the Pages overview, Reduce
   Motion) the faces draw the rest pose above. `KnobWeatherMemo.shownAt`
   is the show time, like cinder's `s_t`: it resets on page open (a fresh
   memo) and when a reported face changes, not when the preview's own AUTO
@@ -3514,12 +3527,14 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `KnobWeatherSchedule` ticks at 15 fps, mid-frame on the show's frame
   grid, only while the view is on screen in a visible, active window
   (the feeds' `WindowVisibilityReader` signal) and the face moves: loops
-  (rain, cast, wind with data, wilted air) tick on, arrivals (sun, days)
-  stop on the first frame that equals the rest pose. Temperature stays
-  static (the preview draws none of its sky, so its cloud drift has
-  nothing to move), as do the cast's sliding drop, every face's value
-  count-up, marker ease, mercury rise and sub-line fade, and the weather
-  moments,
+  (rain, cast, wind with data, wilted air) tick on, arrivals stop on the
+  first frame that equals the rest pose: 4/3 s for the counts and fades,
+  1.8 s (`WX_ARRIVE_S + SUB_FADE_S`, cinder's own repaint window) when a
+  sub-line shows, 22/15 s for the sun; a face with neither a value nor a
+  sub-line nor a hero is still. What stays static: the Temperature sky
+  (hero, clouds and scene) and so its `WX_DRIFT_FPS` cloud drift, whose
+  paths cinder seeds from `esp_random()`, the burn-in shift, the face
+  cross-fade `fo`, and the weather moments,
   and `nowplaying_view.c`
   for the now-playing page, #284: backdrop disk, ring, album, artist avatar
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;

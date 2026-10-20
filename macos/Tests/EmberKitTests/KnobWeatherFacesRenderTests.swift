@@ -297,6 +297,66 @@ private func frame(_ k: Int) -> Double { (Double(k) + 0.5) / 15 }
     #expect(!same(petal, try render(.air(wilted))), "no petal at rest")
 }
 
+@MainActor @Test func temperatureArrivalCountsUpRaisesTheMercuryAndSettles() throws {
+    let f = KnobTempFace(value: 21, todayMinC: 6, todayMaxC: 25, sub: "Clear")
+    let rest = try render(.weather(f)), start = try render(.weather(f), t: 0), mid = try render(.weather(f), t: 0.5)
+    #expect(same(try render(.weather(f), t: 3), rest), "the arrival settles on the rest pose")
+    let th = w.thermo, tube = CGPoint(x: 233, y: (KnobTempFace.mercuryTop(21, th) + th.mercuryBottomPx) / 2 + th.dyPx)
+    #expect(near(pixel(rest, tube), KnobTempFace.color(21, w.scale), 30) && near(pixel(start, tube), black, 10), "the mercury rises from the bulb")
+    #expect(markerRing(start, KnobTempFace.gaugePoint(0, w, center: 233)) && !markerRing(start, KnobTempFace.gaugePoint(f.fraction, w, center: 233)))
+    #expect(markerRing(mid, KnobTempFace.gaugePoint(f.fraction * KnobArrive.eased(0.5), w, center: 233)), "the marker eases along the ring")
+    #expect(has(mid, KnobTempFace.color(15, w.scale), rows: 210..<300, cols: 150..<320, tol: 12)
+        && !has(mid, KnobTempFace.color(21, w.scale), rows: 210..<300, cols: 150..<320, tol: 4), "15° on the way to 21°")
+}
+
+@MainActor @Test func subLineFadesInAfterTheArrivalOnEveryFace() throws {
+    let rows = 302..<335, cols = 150..<320
+    let temp = KnobFace.weather(KnobTempFace(value: 21, sub: "Clear"))
+    let rain = KnobFace.rain(KnobRainFace(dry: false, intensity: 3, pop: 80, sub: "Heavy rain"))
+    for f in [temp, rain] {
+        #expect(!has(try render(f, t: 1.3), w.sub.color, rows: rows, cols: cols, tol: 40), "hidden until 1.32 s: \(f)")
+        let third = try render(f, t: 1.4)
+        #expect(has(third, scaled(w.sub.color, 85.0 / 255), rows: rows, cols: cols, tol: 12)
+            && !has(third, w.sub.color, rows: rows, cols: cols, tol: 40), "a third in: \(f)")
+        #expect(has(try render(f, t: 1.7), w.sub.color, rows: rows, cols: cols, tol: 12), "full from 1.64 s: \(f)")
+    }
+}
+
+@MainActor @Test func gaugeFacesEaseTheirMarkerAndCountUp() throws {
+    let dry = KnobRainFace(dry: true, intensity: 1, pop: 40, sub: "Dry now")
+    #expect(markerRing(try render(.rain(dry), t: 0.5), KnobTempFace.gaugePoint(0.4 * KnobArrive.eased(0.5), w, center: 233)))
+    #expect(same(try render(.rain(dry), t: 3), try render(.rain(dry))))
+    var wind = KnobWindFace()
+    wind.have = true; wind.kmh = 30; wind.level = 2; wind.fraction = 0.6
+    let start = try render(.wind(wind), t: 0)
+    #expect(markerRing(start, KnobTempFace.gaugePoint(0, w, center: 233)))
+    #expect(has(start, KnobWindFace.color(0, w.wind), rows: 210..<300, cols: 150..<320, tol: 8)
+        && !has(start, KnobWindFace.color(30, w.wind), rows: 210..<300, cols: 150..<320, tol: 8), "0 km/h in its colour")
+    var air = KnobAirFace()
+    air.have = true; air.aqi = 42; air.band = 2; air.fraction = 0.42
+    #expect(markerRing(try render(.air(air), t: 0.5), KnobTempFace.gaugePoint(0.42 * KnobArrive.eased(0.5), w, center: 233)))
+    let still = KnobWindFace()
+    let mid = KnobWindFace.sockQuads(level: 0, pose: 1)[0]
+    let at = CGPoint(x: mid.map(\.x).reduce(0, +) / 4, y: mid.map(\.y).reduce(0, +) / 4)
+    let faded = try render(.wind(still), t: 0), settled = try render(.wind(still), t: 3), still0 = try render(.wind(still))
+    #expect(near(pixel(faded, at), black, 10) && same(settled, still0), "without data the sock fades in")
+}
+
+@MainActor @Test func castDropSlidesAlongTheRingDuringTheArrival() throws {
+    var c = KnobCastFace()
+    c.have = true; c.hasCount = true; c.hours = true; c.count = 5; c.variant = 2; c.wet = false; c.nowDeg = 75; c.toDeg = 153
+    c.label = "17"; c.labelDeg = 151.5; c.sub = "rain at 17:00"
+    let head = KnobCastFace.ringPoint(134.25)
+    let mid = try render(.cast(c), t: 0.5), rest = try render(.cast(c))
+    #expect(near(pixel(mid, head), w.cast.color, 30), "the drop's head on the ring")
+    #expect(!near(pixel(rest, head), w.cast.color, 60), "no drop at rest")
+    let a = 134.25 * .pi / 180
+    #expect(near(pixel(mid, CGPoint(x: head.x - 10 * cos(a), y: head.y - 10 * sin(a))), w.cast.color, 40), "its tail trails up the ring")
+    #expect(near(pixel(mid, CGPoint(x: head.x + 7 * cos(a), y: head.y + 7 * sin(a))), black, 30), "a black rim round the head")
+    let late = try render(.cast(c), t: 1.25)
+    #expect(!near(pixel(late, KnobCastFace.ringPoint(153)), w.cast.color, 60), "gone by 1.2 s")
+}
+
 private func sunFixture() -> (WeatherState, Date) {
     let mid: Int64 = 1_781_996_400
     let at = Date(timeIntervalSince1970: TimeInterval(mid + 10 * 3600 + 1800))
@@ -311,10 +371,10 @@ private func sunFixture() -> (WeatherState, Date) {
     return (s, at)
 }
 
-@MainActor private func drawCost(_ f: KnobFace, n: Int) throws -> Double {
-    _ = try render(f)
+@MainActor private func drawCost(_ f: KnobFace, t: Double? = nil, n: Int) throws -> Double {
+    _ = try render(f, t: t)
     let t0 = ContinuousClock.now
-    for _ in 0..<n { _ = try render(f) }
+    for _ in 0..<n { _ = try render(f, t: t) }
     return (ContinuousClock.now - t0) / .milliseconds(n)
 }
 
@@ -337,9 +397,11 @@ func weatherFacesDrawCostVersusTemp() throws {
         ("cast", .cast(cast)), ("wind", .wind(wind)), ("days", .days(days)),
         ("sun", .sun(KnobSunFace(state: s, now: at))), ("air", .air(air)),
     ]
-    var report = ""
-    for (name, f) in faces { report += "\(name)=\(String(format: "%.2f", try drawCost(f, n: 300)))ms " }
-    print("KNOB_BENCH \(report)")
+    for t in [nil, 0.5, 1.4] as [Double?] {
+        var report = ""
+        for (name, f) in faces { report += "\(name)=\(String(format: "%.2f", try drawCost(f, t: t, n: 300)))ms " }
+        print("KNOB_BENCH t=\(t.map { String($0) } ?? "rest") \(report)")
+    }
 }
 
 @Test func prebuiltCloudPathsMatchADirectBuild() {

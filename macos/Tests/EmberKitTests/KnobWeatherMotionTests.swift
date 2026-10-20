@@ -120,12 +120,25 @@ private func rain(_ kind: KnobRainFace.Kind = .rain, _ intensity: Int = 3) -> Kn
     let days = KnobDaysFace(rows: [.init(wday: 1, icon: .rain, lo: 9, hi: 14)])
     #expect(KnobWeatherMotion(.rain(rain())) == .loop && KnobWeatherMotion(.rain(KnobRainFace(dry: true, intensity: 1))) == .still)
     #expect(KnobWeatherMotion(.cast(cast)) == .loop && KnobWeatherMotion(.cast(KnobCastFace())) == .still)
-    #expect(KnobWeatherMotion(.wind(wind)) == .loop && KnobWeatherMotion(.wind(KnobWindFace())) == .still)
+    #expect(KnobWeatherMotion(.wind(wind)) == .loop)
     #expect(KnobWeatherMotion(.air(wilted)) == .loop && KnobWeatherMotion(.air(KnobAirFace())) == .still)
     #expect(KnobWeatherMotion(.sun(sun)) == .arrival(until: 22.0 / 15) && KnobSunFace.restS == 22.0 / 15 && KnobArrive.restS == 4.0 / 3)
+    sun.sub = "golden hour 18:30"
+    #expect(KnobWeatherMotion(.sun(sun)) == .arrival(until: 1.8), "the sub-line fades in until 1.8 s")
     #expect(KnobWeatherMotion(.days(days)) == .arrival(until: 4.0 / 3) && KnobWeatherMotion(.days(KnobDaysFace())) == .still)
-    #expect(KnobWeatherMotion(.weather(KnobTempFace(value: 12))) == .still, "Temperature stays static")
-    for f in [KnobFace.rain(rain()), .cast(cast), .wind(wind), .air(wilted), .sun(sun), .days(days)] {
+    #expect(KnobWeatherMotion(.weather(KnobTempFace(value: 12))) == .arrival(until: 4.0 / 3), "the value counts up, the mercury rises")
+    #expect(KnobWeatherMotion(.weather(KnobTempFace(value: 12, sub: "Clear"))) == .arrival(until: KnobArrive.subRestS) && KnobArrive.subRestS == 1.8)
+    #expect(KnobWeatherMotion(.weather(KnobTempFace(value: nil))) == .still, "no data: nothing moves")
+    #expect(KnobWeatherMotion(.wind(KnobWindFace())) == .arrival(until: 4.0 / 3), "no wind data: the sock still fades in")
+    var calm = KnobAirFace()
+    calm.have = true; calm.aqi = 20
+    #expect(KnobWeatherMotion(.air(calm)) == .arrival(until: 1.8), "the AQI counts up, its band word fades in")
+    #expect(KnobWeatherMotion(.rain(KnobRainFace(dry: true, intensity: 1, pop: 40, sub: "Dry now"))) == .arrival(until: 1.8))
+    var unsure = KnobCastFace()
+    unsure.sub = KnobCastFace.noForecast
+    #expect(KnobWeatherMotion(.cast(unsure)) == .arrival(until: 1.8))
+    for f in [KnobFace.rain(rain()), .cast(cast), .wind(wind), .air(wilted), .sun(sun), .days(days), .weather(KnobTempFace(value: 12)),
+              .wind(KnobWindFace()), .air(calm)] {
         #expect(KnobWeatherMotion(f, reduceMotion: true) == .still, "Reduce Motion: \(f)")
     }
 }
@@ -229,4 +242,73 @@ private func windy(_ kmh: Int, aqi: Int? = nil) -> WeatherState {
 @Test func faceViewWithoutAFrameIsTheRestPose() {
     let f = KnobFace.rain(rain())
     #expect(KnobFaceView(f, t: 1) != KnobFaceView(f, t: 2), "a new frame redraws")
+}
+
+@Test func subLineFadesInThreeStepsAfterTheArrival() {
+    #expect(KnobArrive.subOpacity(nil) == 255, "the rest pose")
+    #expect([0, 1.32, 1.33, 1.47, 1.49, 1.63, 1.65, 1.8, 5].map { KnobArrive.subOpacity($0) } == [0, 0, 85, 85, 170, 170, 255, 255, 255])
+    #expect(KnobArrive.subOpacity(-1) == 0 && KnobArrive.subOpacity(.nan) == 0)
+}
+
+private let arrivalTimes = [0, 0.1, 0.5, 1.0, 1.3, 1.34]
+
+@Test func valuesCountUpAndMarkersEaseOnTheArrivalClock() {
+    #expect(arrivalTimes.map { KnobArrive.count(21, $0) } == [0, 4, 15, 20, 20, 21])
+    #expect(arrivalTimes.map { KnobArrive.count(-6, $0) } == [0, -1, -4, -5, -5, -6])
+    #expect(arrivalTimes.map { KnobArrive.count(45, $0) } == [0, 8, 33, 43, 43, 45])
+    #expect(KnobArrive.count(21, nil) == 21 && KnobArrive.eased(nil) == 1)
+    let a = [0, 0.210489885, 0.760271447, 0.985752845, 0.999996522, 1]
+    #expect(zip(arrivalTimes.map { KnobArrive.eased($0) }, a).allSatisfy { abs($0 - $1) < 1e-8 })
+}
+
+@Test func everyFaceCountsItsValueUpLikeCinder() {
+    let temp = KnobTempFace(value: 21)
+    #expect(arrivalTimes.map { temp.valueText(t: $0) } == ["0°", "4°", "15°", "20°", "20°", "21°"] && temp.valueText() == "21°")
+    #expect(temp.valueColor(wx, t: 0.5) == KnobTempFace.color(15, wx.scale), "the colour follows the counted value")
+    #expect(KnobTempFace(value: -6).valueText(t: 0.5) == "\u{2212}4°")
+    #expect(arrivalTimes.map { rain().valueText(t: $0) } == ["0", "14", "59", "77", "77", "80"] && rain().valueText == "80")
+    var wind = KnobWindFace()
+    wind.have = true; wind.kmh = 18
+    #expect(arrivalTimes.map { wind.valueText(t: $0) } == ["0", "3", "13", "17", "17", "18"])
+    #expect(wind.valueColor(wx, t: 0) == KnobWindFace.color(0, wx.wind) && wind.valueColor(wx, t: nil) == KnobWindFace.color(18, wx.wind))
+    #expect(KnobWindFace().valueText(t: 0.5) == "--")
+    var air = KnobAirFace()
+    air.have = true; air.aqi = 42
+    #expect(arrivalTimes.map { air.valueText(t: $0) } == ["0", "7", "31", "40", "40", "42"])
+    #expect(air.valueColor(wx, t: 0.5) == KnobAirFace.color(31, wx.air))
+    var dry = KnobCastFace()
+    dry.have = true; dry.dry = true; dry.hours = true; dry.count = 24
+    #expect(arrivalTimes.map { dry.valueText(t: $0) } == ["0", "2½", "9", "11½", "11½", "12+"])
+    var soon = KnobCastFace()
+    soon.have = true; soon.hasCount = true; soon.hours = true; soon.count = 5
+    #expect(arrivalTimes.map { soon.valueText(t: $0) } == ["0", "½", "1½", "2", "2", "2½"])
+    soon.hours = false; soon.count = 9
+    #expect(arrivalTimes.map { soon.valueText(t: $0) } == ["0", "5", "30", "40", "40", "45"])
+    #expect(KnobCastFace().valueText(t: 0.5) == "--")
+    var sun = KnobSunFace(state: nil, now: .now)
+    sun.have = true; sun.hasNow = true; sun.hours = true; sun.count = 18; sun.unit = "h left"
+    #expect(arrivalTimes.map { sun.valueText(t: $0) } == ["0", "1½", "6½", "8½", "8½", "9"])
+    sun.hours = false; sun.count = 45; sun.unit = "min"
+    #expect(arrivalTimes.map { sun.valueText(t: $0) } == ["0", "8", "33", "43", "43", "45"])
+}
+
+@Test func theMercuryRisesOnTheArrivalEase() {
+    let th = wx.thermo, temp = KnobTempFace(value: 21)
+    #expect(arrivalTimes.map { temp.mercuryTop(th, t: $0) } == [184, 173.5, 145.5, 134.5, 133.5, KnobTempFace.mercuryTop(21, th)],
+            "half-pixel steps on the way, the rest pose's top once the ease is done")
+    #expect(temp.mercuryTop(th, t: nil) == KnobTempFace.mercuryTop(21, th) && KnobTempFace(value: nil).mercuryTop(th, t: 0.5) == th.mercuryBottomPx)
+}
+
+@Test func castDropSlidesFromNowToTheRainAndFadesOut() {
+    var c = KnobCastFace()
+    c.have = true; c.hasCount = true; c.nowDeg = 75; c.toDeg = 153
+    let ts = [0, 0.1, 0.3, 0.5, 0.9, 1.0, 1.1, 1.19, 1.2, 2]
+    let drops = ts.map { c.drop(t: $0) }
+    #expect(drops.map { $0?.deg } == [nil, 76.75, 99, 134.25, 152.75, 153, 153, 153, nil, nil])
+    #expect(drops.map { $0?.opa } == [nil, 142, 255, 255, 255, 212, 106, 35, nil, nil])
+    #expect(c.drop(t: nil) == nil, "no drop at rest")
+    #expect(abs(KnobCastFace.ease(0.5) - 0.729354536) < 1e-8 && KnobCastFace.ease(0) == 0 && KnobCastFace.ease(2) == 1)
+    #expect([0, 0.09, 0.5, 1.08, 1.2, 9, .nan].map(KnobCastFace.dropOpacity) == [0, 128, 255, 127, 0, 0, 0])
+    c.hasCount = false
+    #expect(c.drop(t: 0.5) == nil, "no count: no drop")
 }

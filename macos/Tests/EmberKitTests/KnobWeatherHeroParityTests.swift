@@ -419,3 +419,65 @@ private let face = "../../main/temp_face.c"
         + #"petal\(im, NULL, 0, WX_PETAL_X, WX_PETAL_Y, 4\.5f, 8, 86\.0f - 50\.0f \+ 10\.0f \* \(float\)rot, WX_PETAL_X, WX_PETAL_Y, &pe\);"#)
     try code(face, #"wx_air_petal\(aq->wilted && fo == 255 \? \(int\)floor\(s_t \* WX_AIR_FPS\) : -1, &p\);"#)
 }
+
+@Test(cinder) func arrivalCountsMarkersAndSubFadeMatchCinder() throws {
+    #expect(try define(face, "SUB_FADE_S") == KnobArrive.subFadeS)
+    try code(face, #"double sf = \(s_t - WX_ARRIVE_S\) / SUB_FADE_S;\s*"#
+        + #"int sub_opa = \(sf <= 0 \? 0 : sf >= 1 \? 255 : 85 \* \(1 \+ \(int\)\(sf \* 3\)\)\) \* fo / 255;"#)
+    try code(face, #"if \(s_t < WX_ARRIVE_S \+ SUB_FADE_S && tick == s_tick"#)
+    try code(face, #"double ta = floor\(s_t \* ARRIVE_FPS\) / ARRIVE_FPS;\s*double a = wx_arrive\(ta\);"#)
+    try code(face, #"int v = wx_count_value\(aq->aqi, wx_count_step\(wx_count_n\(aq->aqi\), ta\)\);.*?set_value\(txt, wx_air_rgb\(v\)\);.*?"#
+        + #"set_marker\(aq->frac \* \(float\)a, aq->have\);"#)
+    try code(face, #"const char \*unit = wx_sun_value\(sn, wx_count_step\(wx_sun_count_n\(sn\), ta\), txt, sizeof txt\);.*?"#
+        + #"set_marker\(sn->frac \* \(float\)a, sn->have && sn->has_now\);"#)
+    try code(face, #"int v = wx_count_value\(w->kmh, wx_count_step\(wx_count_n\(w->kmh\), ta\)\);\s*rgb = wx_wind_rgb\(v\);.*?"#
+        + #"set_marker\(w->frac \* \(float\)a, w->have\);\s*set_wind\(w, rgb, fo, sprite_opa\);"#)
+    try code(face, #"const char \*unit = wx_cast_value\(c, wx_count_step\(wx_cast_count_n\(c\), ta\), txt, sizeof txt, &rgb\);.*?"#
+        + #"place_marker\(mx, my, c->have\);\s*set_drop\(c, ta, fo\);"#)
+    try code(face, #"int k = wx_count_step\(wx_count_n\(r->pop\), ta\);\s*snprintf\(txt, sizeof txt, "%d", wx_count_value\(r->pop, k\)\);.*?"#
+        + #"set_marker\(r->pop / 100\.0f \* \(float\)a, r->has_pop\);"#)
+    try code(face, #"int k = wx_count_step\(wx_count_n\(t->value\), ta\);\s*int v = wx_count_value\(t->value, k\);\s*"#
+        + #"uint32_t rgb = t->still \? GREY_RGB : wx_temp_rgb\(\(float\)v\);"#)
+    try code(face, #"if \(temp\) set_marker\(t->frac \* \(float\)a, t->have\);"#)
+    try code(face, #"int q = \(int\)lroundf\(top \* 2\);.*?wx_paint_mercury\(&s_thermo_img, q / 2\.0f, rgb\);"#)
+    try code("wx_cast.c", #"int wx_cast_count_n\(const wx_cast_t \*c\) \{ return c->has_count \|\| c->dry \? c->count : 0; \}"#)
+    try code("wx_cast.c", #"int v = k < 0 \? 0 : k > c->count \? c->count : k;\s*if \(c->dry && v == c->count\) snprintf\(buf, n, "%d\+", c->count / 2\);\s*"#
+        + #"else wx_cast_count_text\(c->hours, v, buf, n\);"#)
+    try code("wx_sun.c", #"int wx_sun_count_n\(const wx_sun_t \*s\) \{ return wx_count_n\(s->count\); \}"#)
+    try code("wx_sun.c", #"int v = wx_count_value\(s->count, k\);\s*if \(s->hours\) wx_cast_count_text\(true, v, buf, n\);\s*else snprintf\(buf, n, "%d", v\);"#)
+}
+
+@Test(cinder) func castDropMatchesCinder() throws {
+    #expect(try define("include/wx_cast.h", "WX_CAST_DROP_IN_S") == KnobCastFace.dropInS)
+    #expect(try define("include/wx_cast.h", "WX_CAST_DROP_OUT_S") == KnobCastFace.dropOutS)
+    #expect(try define("wx_paint.c", "DROP_HEAD") == KnobCastFace.dropHead && define("wx_paint.c", "DROP_TAIL") == -KnobCastFace.dropTail[0].x)
+    try code("wx_cast.c", #"double x = 3 \* v \* v \* u \* 0\.45 \+ 3 \* v \* u \* u \* 0\.25 \+ u \* u \* u;.*?return 3 \* v \* u \* u \+ u \* u \* u;"#)
+    try code("wx_cast.c", #"return c->now_deg \+ \(c->to_deg - c->now_deg\) \* \(float\)wx_cast_ease\(t / WX_CAST_SLIDE_S\);"#)
+    try code("wx_cast.c", #"if \(!\(t >= 0\) \|\| t >= WX_CAST_DROP_OUT_S\) return 0;\s*"#
+        + #"if \(t < WX_CAST_DROP_IN_S\) return ramp\(t, 0, WX_CAST_DROP_IN_S, true\);\s*"#
+        + #"return t <= WX_CAST_SLIDE_S \? 255 : ramp\(t, WX_CAST_SLIDE_S, WX_CAST_DROP_OUT_S, false\);"#)
+    try code(face, #"int opa = c->has_count \? wx_cast_drop_opa\(ta\) \* fo / 255 : 0;\s*show_obj\(s_drop, opa > 0\);\s*if \(opa <= 0\) return;\s*"#
+        + #"int q = \(int\)lroundf\(wx_cast_drop_deg\(c, ta\) \* 4\);"#)
+    try code(face, #"s_marker = canvas\(s_root, LV_COLOR_FORMAT_RGB565A8\);\s*s_drop = canvas\(s_root, LV_COLOR_FORMAT_RGB565A8\);"#)
+    try code("wx_paint.c", #"wx_cast_ring_xy\(deg, &hx, &hy\);.*?const float a = deg \* DEG, ca = cosf\(a\), sa = sinf\(a\);\s*"#
+        + #"const uint16_t blue = wx_rgb565\(WX_CAST_RGB\);.*?float lx = dx \* ca \+ dy \* sa, ly = -dx \* sa \+ dy \* ca;\s*"#
+        + #"float d = hypotf\(lx, ly\) - DROP_HEAD;\s*if \(lx < -DROP_TAIL\) d = fminf\(d, hypotf\(lx \+ DROP_TAIL, ly\)\);\s*"#
+        + #"else if \(lx <= 0\) d = fminf\(d, fabsf\(ly\) - drop_hw_at\(lx\)\);\s*int i = y \* im->w \+ x;\s*"#
+        + #"put\(im, i, 0, cov\(d - 1\)\);\s*put\(im, i, blue, cov\(d \+ 1\)\);"#)
+    try code("wx_cast.c", #"\*x = 233\.0f \+ 222\.0f \* sinf\(a\);\s*\*y = 233\.0f - 222\.0f \* cosf\(a\);"#)
+    let hw = try table("wx_paint.c", "const float wx_drop_hw[WX_DROP_HW_N]").items
+    #expect(hw.count == Int(try define("include/wx_paint.h", "WX_DROP_HW_N")))
+    let p = KnobCastFace.dropTail
+    for (i, v) in hw.enumerated() {
+        guard case .num(let want) = v else { Issue.record("wx_drop_hw[\(i)]: \(v)"); continue }
+        let x = p[0].x + (p[3].x - p[0].x) * Double(i) / Double(hw.count - 1)
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<60 {
+            let u = (lo + hi) / 2, w = 1 - u
+            if w * w * w * p[0].x + 3 * w * w * u * p[1].x + 3 * w * u * u * p[2].x + u * u * u * p[3].x < x { lo = u } else { hi = u }
+        }
+        let u = (lo + hi) / 2, w = 1 - u
+        let y = w * w * w * p[0].y + 3 * w * w * u * p[1].y + 3 * w * u * u * p[2].y + u * u * u * p[3].y
+        #expect(abs(y - want) < 1e-3, "the drop tail at x \(x): \(y), cinder \(want)")
+    }
+}

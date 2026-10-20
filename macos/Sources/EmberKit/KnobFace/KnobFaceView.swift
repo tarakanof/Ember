@@ -52,7 +52,7 @@ public struct KnobFaceView: View, Equatable {
             case .bot(let pose, let mood, let glint): KnobFaceRender.bot(pose, mood, glint: glint, theme, in: &ctx)
             case .pomodoro(let p): KnobFaceRender.pomodoro(p, theme, in: &ctx)
             case .nowPlaying(let n): KnobFaceRender.nowPlaying(n, theme, in: &ctx)
-            case .weather(let t): KnobFaceRender.weather(t, theme, in: &ctx)
+            case .weather(let f): KnobFaceRender.weather(f, theme, t: t, in: &ctx)
             case .rain(let f): KnobFaceRender.rain(f, theme, t: t, in: &ctx)
             case .cast(let f): KnobFaceRender.cast(f, theme, t: t, in: &ctx)
             case .wind(let f): KnobFaceRender.wind(f, theme, t: t, in: &ctx)
@@ -379,7 +379,7 @@ enum KnobFaceRender {
         }
     }
 
-    static func weather(_ f: KnobTempFace, _ theme: KnobTheme, in ctx: inout GraphicsContext) {
+    static func weather(_ f: KnobTempFace, _ theme: KnobTheme, t: Double? = nil, in ctx: inout GraphicsContext) {
         let w = theme.weather, th = w.thermo
         let c = theme.screen.diameterPx / 2
         func disc(_ p: CGPoint, _ r: Double) -> Path { Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)) }
@@ -410,8 +410,8 @@ enum KnobFaceRender {
             ctx.stroke(arc, with: ringShading(f, w, center: c), style: ringStyle)
         }
 
-        let merc = f.valueColor(w)
-        let top = f.value.map { KnobTempFace.mercuryTop(Double($0), th) } ?? th.mercuryBottomPx
+        let merc = f.valueColor(w, t: t)
+        let top = f.mercuryTop(th, t: t)
         let hh = (th.mercuryBottomPx - top) / 2, mid = (top + th.mercuryBottomPx) / 2 + th.dyPx
         let reach = max(hh - th.mercuryHalfWPx, 0) + th.mercuryHalfWPx
         ctx.fill(Path(roundedRect: CGRect(x: c - th.mercuryHalfWPx, y: mid - reach, width: 2 * th.mercuryHalfWPx, height: 2 * reach),
@@ -426,7 +426,7 @@ enum KnobFaceRender {
         }
 
         let v = w.value
-        spacedLabel(f.valueText(), v.fontPx, merc, centerX: c + degreeShift(v, theme), spacing: v.letterSpacePx, top: v.yPx,
+        spacedLabel(f.valueText(t: t), v.fontPx, merc, centerX: c + degreeShift(v, theme), spacing: v.letterSpacePx, top: v.yPx,
                     theme: theme, in: &ctx)
         if f.value != nil && f.hasRange {
             let e = w.ends, d = theme.screen.diameterPx
@@ -435,10 +435,15 @@ enum KnobFaceRender {
             label(KnobTempFace.degrees(f.hi), e.fontPx, KnobTempFace.color(Double(f.hi), w.scale), centerX: d - e.xPx, anchor: 1,
                   top: e.yPx, theme: theme, in: &ctx)
         }
-        label(f.sub, w.sub.fontPx, f.subColor ?? w.sub.color, centerX: c, top: w.sub.yPx, theme: theme, in: &ctx)
+        let subOpa = KnobArrive.subOpacity(t)
+        if subOpa > 0 {
+            var sc = ctx
+            if subOpa < 255 { sc.opacity = Double(subOpa) / 255 }
+            label(f.sub, w.sub.fontPx, f.subColor ?? w.sub.color, centerX: c, top: w.sub.yPx, theme: theme, in: &sc)
+        }
 
         if f.value != nil {
-            let p = KnobTempFace.gaugePoint(f.fraction, w, center: c)
+            let p = KnobTempFace.gaugePoint(f.fraction * KnobArrive.eased(t), w, center: c)
             let at = CGPoint(x: p.x.rounded(), y: p.y.rounded())
             ctx.fill(disc(at, w.marker.discRadiusPx), with: .color(.black))
             ctx.stroke(disc(at, w.marker.ringRadiusPx), with: .color(Color(w.marker.color)), lineWidth: w.marker.ringWidthPx)

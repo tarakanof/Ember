@@ -60,9 +60,11 @@ public struct KnobWindFace: Equatable, Sendable {
         return above && below ? shown : l
     }
 
-    public var valueText: String { have ? "\(kmh)" : "--" }
+    public var valueText: String { valueText(t: nil) }
 
-    public func valueColor(_ w: KnobTheme.Weather) -> RGB { have ? Self.color(kmh, w.wind) : w.stillColor }
+    func valueText(t: Double?) -> String { have ? "\(KnobArrive.count(kmh, t))" : "--" }
+
+    public func valueColor(_ w: KnobTheme.Weather, t: Double? = nil) -> RGB { have ? Self.color(KnobArrive.count(kmh, t), w.wind) : w.stillColor }
 
     public func ringColor(_ f: Double, _ w: KnobTheme.Weather) -> RGB {
         have ? Self.color(Int((Double(w.wind.gaugeKmh) * f).rounded()), w.wind) : w.ring.trackColor
