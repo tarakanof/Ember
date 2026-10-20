@@ -616,8 +616,28 @@ markers still get reaped.
   (interactive, mode not `auto`/`dontAsk`/`bypassPermissions`) starts
   `waiting` for that `tool_use_id`, and the awaited `tool.call` for that id
   ends it, which replaces the fingerprint matching for *which* call; *when*
-  is unchanged (the approved tool finishing, like PostToolUse), and there is
-  no agents watcher to flip it to `running` sooner. `classic.PreToolUse`,
+  is the approved tool finishing (like PostToolUse), so an agents cross-check
+  (#669, `watchPass` in `register.ts`, `Tracker.agentsCorrect`) ends it
+  sooner. The 2.1.304 API has no "dialog answered" or "mode changed" event, so
+  the mod ports the Go watcher's core. While a session is `waiting` on a
+  permission dialog, and for 15 s after a flip, a 1 s `$.clock.every` timer
+  (started and cancelled from `persist`, never from a hook; restarted on
+  restore) fingerprints `<config dir>/sessions/*.json` with `$.fs.list` (name,
+  mtime, size) and runs `claude agents --json` (5 s timeout; `claude
+  --version` first, gated on 2.1.288 with cached verdicts, binary found at
+  `~/.local/bin`, `PATH`, Homebrew, `/usr/local/bin`) only on a fingerprint
+  change, a due confirmation or a 60 s fallback, as `step` does. It flips the
+  row to `running` after two `busy` sightings of the same wait at least 1.5 s
+  apart, and back to `waiting` (message `waitingFor`) on two `waiting`
+  sightings within 15 s of a flip with no event since (`wantFor`'s
+  `case "waiting"`). A row fetched before a newer event is ignored. A failed
+  or unparseable call clears the sightings, cancels the timer and re-arms it
+  after 5 min. `parseAgents` and the wait rule share `test/parity.json` cases
+  with `agents.go` (`agents_parse`, `agents_wait`). It does not start waits
+  from `running` or turn `idle` into `done` (Go does). A Shift+Tab mode
+  change has no source (agents rows carry no mode), so the mode is still read
+  from classic events; the cross-check bounds a stale one (a
+  classifier-answered ask in `auto` shows `waiting` for seconds). `classic.PreToolUse`,
   `tool.check` and `tool.call` carry no `session_id`, so the id comes from
   `$.session.id()`, hashed with `$.session.cwd()` when invalid, as classic
   hooks hash theirs. The tracker lives in module memory and is mirrored to

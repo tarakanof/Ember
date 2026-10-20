@@ -50,6 +50,22 @@ type modParity struct {
 	HostName []struct {
 		Raw, Want string
 	} `json:"host_name"`
+	AgentsParse []struct {
+		Name string            `json:"name"`
+		Text string            `json:"text"`
+		Want map[string]string `json:"want"`
+	} `json:"agents_parse"`
+	AgentsWait []struct {
+		Name    string `json:"name"`
+		State   string `json:"state"`
+		Message string `json:"message"`
+		Pending bool   `json:"pending"`
+		Status  string `json:"status"`
+		Want    *struct {
+			State   string `json:"state"`
+			Message string `json:"message"`
+		} `json:"want"`
+	} `json:"agents_wait"`
 	T3 []struct {
 		Name  string            `json:"name"`
 		Env   map[string]string `json:"env"`
@@ -155,6 +171,54 @@ func TestModParityT3(t *testing.T) {
 		}
 		if got := fakeT3ProbeEnv(c.Env, procs, nil).spawnedByT3(context.Background()); got != c.Want {
 			t.Errorf("%s: spawnedByT3() = %v, fixture says %v", c.Name, got, c.Want)
+		}
+	}
+}
+
+func TestModParityAgentsParse(t *testing.T) {
+	cases := readModParity(t).AgentsParse
+	if len(cases) == 0 {
+		t.Fatal("no agents_parse cases in parity.json")
+	}
+	for _, c := range cases {
+		rows, err := parseAgents([]byte(c.Text))
+		if c.Want == nil {
+			if err == nil {
+				t.Errorf("%s: want an error", c.Name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", c.Name, err)
+			continue
+		}
+		got := map[string]string{}
+		for id, r := range rows {
+			got[id] = r.Status
+		}
+		if !reflect.DeepEqual(got, c.Want) {
+			t.Errorf("%s: got %v, fixture says %v", c.Name, got, c.Want)
+		}
+	}
+}
+
+func TestModParityAgentsWait(t *testing.T) {
+	cases := readModParity(t).AgentsWait
+	if len(cases) == 0 {
+		t.Fatal("no agents_wait cases in parity.json")
+	}
+	for _, c := range cases {
+		var m marker
+		m.State, m.Message = c.State, c.Message
+		if c.Pending {
+			m.PendingPermission = "fp"
+		}
+		got, ok := wantFor(m, agentRow{SessionID: "s", Status: c.Status})
+		switch {
+		case c.Want == nil && ok:
+			t.Errorf("%s: Go corrects to %+v, fixture says no correction", c.Name, got)
+		case c.Want != nil && (!ok || got.state != c.Want.State || got.message != c.Want.Message):
+			t.Errorf("%s: Go gives %+v,%v, fixture says %+v", c.Name, got, ok, *c.Want)
 		}
 	}
 }

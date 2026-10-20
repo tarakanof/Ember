@@ -596,13 +596,30 @@ rows. Needs Claude Code 2.1.288 or newer.
   and confirm `/state` shows only `t3/...` rows for it.
 - **Where it differs from the Go producer** (phase 1):
   - `waiting` from a permission dialog ends when the approved tool
-    **finishes** (the awaited `tool.call` resolves), not when you click
-    Allow. The Go hook alone has the same timing (PostToolUse), but the Go
-    daemon's agents watcher flips it to `running` within a tick; the mod has
-    no watcher yet. A long approved command therefore stays `waiting` on the
-    mod's row.
-  - A `permission_mode` change by Shift+Tab is seen at the next classic event,
-    so the first ask after switching into `auto` can show a short `waiting`.
+    **finishes** (the awaited `tool.call` resolves), as the Go hook alone
+    does, but the mod also runs the Go daemon's agents cross-check for it
+    (#669). While a session shows a dialog wait (and for 15 s after a
+    flip), a 1 s timer stats `${CLAUDE_CONFIG_DIR:-~/.claude}/sessions/*.json`
+    (no spawn) and runs `claude agents --json` (5 s timeout) only when that
+    listing changed, when a confirmation is due, or as a 60 s fallback, the
+    same triggers as Go's `step`. Once the session's row has said `busy` on
+    two calls at least 1.5 s apart with no event in between, the row flips to
+    `running`; a `waiting` row seen the same way within 15 s of a flip puts
+    the wait back (Go's reverse correction). A long approved command leaves
+    `waiting` about 2 s after you click Allow. Spawn rate: a dialog open and
+    quiet costs one spawn a minute; an answer costs about two. A
+    `claude --version` runs once per candidate binary (verdicts are cached) to
+    gate on 2.1.288 so an older CLI never takes `agents` as a prompt. A failed
+    call drops the pending sightings, cancels the timer and re-arms it after
+    5 minutes. It never runs in a hook, and it does not start waits or turn
+    `idle` rows into `done`, which the Go daemon also does.
+  - A `permission_mode` change by Shift+Tab is seen at the next classic event.
+    Claude Code 2.1.304 gives a mod no event or noun for it (the API has no
+    mode-change event, `claude agents --json` carries no mode, and the
+    `SessionMode`/`PromptHint` render hooks only expose drawn text). The
+    effect of a stale mode is bounded by the cross-check above: after a
+    switch into `auto`, the first ask that the classifier answers shows
+    `waiting` for a few seconds, not until the tool ends.
   - A killed Claude Code (`kill -9`) is reaped by the server's
     `display.stale_seconds` (default 300 s), not a 10 s `ps` check.
   - Network sends are serialised per session and coalesced (only the
@@ -657,9 +674,20 @@ rows. Needs Claude Code 2.1.288 or newer.
   done | tee ~/ember-mod-compare.log
   ```
 
+  The real spawn is only faked in CI. Check it once in a live session with
+  the mod installed: open a permission dialog (`Bash` with a command not
+  allowed by rules), click Allow on a command that runs for 30 s, and expect
+  the mod's row back to `running` within about 2 s while the tool runs. The
+  spawned `claude agents --json` inherits the session's environment and
+  working directory (the Go daemon runs under launchd instead), so confirm it
+  returns rows and fires no hooks and starts no session: `/state` must show no
+  extra row, and the hook log (`~/.local/state/ember/`) no new events at that
+  moment. The mod has no poll toggle, so if it misbehaves, uninstall
+  `ember-mod@ember` and report it.
+
   Things to check: `waiting` appears when the permission dialog opens (on
-  both rows) and ends when the approved tool finishes (the Go row may flip
-  back to `running` sooner, see above), long tools and long waits stay
+  both rows) and ends within a few seconds of the answer (the Go row flips
+  within a tick, the mod's within about 2 s, see above), long tools and long waits stay
   alive, `/clear` and exit DELETE both rows, and after a `kill -9` the mod's
   row lingers up to `stale_seconds`. `claude agents --json` (`status`,
   `waitingFor`) is the ground truth for interactive waits.

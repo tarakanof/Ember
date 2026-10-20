@@ -67,6 +67,12 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
     rejectProject: false,
     procs: {} as Record<string, Proc>,
     psCalls: 0,
+    claudeVersion: '2.1.305 (Claude Code)\n',
+    agents: '[]',
+    agentsFail: false,
+    agentsRuns: 0,
+    sessionFiles: 1,
+    listCalls: 0,
   }
   mock.env(on, { HOME, ...extraEnv })
   const clock = mock.clock(on, { now: 1_000_000 })
@@ -101,11 +107,25 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
       if (e.argv.includes('comm=')) return ran(proc.comm + '\n')
       if (e.argv.includes('args=')) return ran((proc.argv ?? [proc.comm]).join(' ') + '\n')
     }
+    if (/(^|\/)claude$/.test(bin)) {
+      if (e.argv[1] === '--version') return ran(ctl.claudeVersion)
+      if (e.argv[1] === 'agents') {
+        ctl.agentsRuns++
+        return ctl.agentsFail ? ran('', 1) : ran(ctl.agents)
+      }
+    }
     const usable = ctl.absoluteMissing ? !bin.startsWith('/') : bin.startsWith('/usr/bin/')
     if (!usable) return ran('', 127)
     if (bin.endsWith('id')) return ran('501\n')
     if (bin.endsWith('stat') && e.argv[1] === '-f' && envFile !== null && !ctl.statFails) return ran(`${envFile.mode} ${envFile.owner}\n`)
     return ran('', 1)
+  })
+  on('fs.list', ($, e) => {
+    if (!e.path.endsWith('/.claude/sessions')) return { deny: 'ENOENT' }
+    ctl.listCalls++
+    return {
+      value: [{ name: '7.json', kind: 'file' as const, size: 40, mtimeMs: ctl.sessionFiles, isLink: false }],
+    }
   })
   on('fs.exists', ($, e) => ({ value: e.path.endsWith('/claude-hooks.disabled') && ctl.killSwitch }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -616,4 +636,209 @@ test('a failed process lookup reports the session, and a later one that finds T3
   await $.classic.Stop(STOP)
   await clock.settle()
   expect(sent).toHaveLength(count)
+})
+
+function agentRows(status: string, waitingFor = '', sessionId = 'sess-1'): string {
+  return JSON.stringify([{ pid: 7, kind: 'interactive', sessionId, cwd: `${HOME}/proj`, status, waitingFor }])
+}
+
+type Clock = ReturnType<typeof world>['clock']
+
+async function openDialog($: Parameters<Parameters<typeof test>[1]>[0], on: On, clock: Clock) {
+  on('tool.check', () => ({ decision: 'ask', reason: 'needs approval' }))
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await $.tool.check({ tool: 'Bash', input: { command: 'make' }, tool_use_id: 'toolu_1' })
+  await clock.settle()
+}
+
+async function seconds($: unknown, clock: Clock, n: number) {
+  for (let i = 0; i < n; i++) await clock.advance(1000)
+}
+
+const agentCalls = (ctl: { runs: string[][] }) => ctl.runs.filter(argv => argv[1] === 'agents').length
+
+test('an answered dialog ends the wait: a session-file change triggers one call, a second confirms', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  await openDialog($, on, clock)
+  await seconds($, clock, 3)
+  expect(agentCalls(ctl)).toBe(0)
+  expect(sent.at(-1)?.body.state).toBe('waiting')
+  ctl.agents = agentRows('busy')
+  ctl.sessionFiles++
+  await seconds($, clock, 1)
+  expect(sent.at(-1)?.body.state).toBe('waiting')
+  await seconds($, clock, 2)
+  expect(sent.at(-1)?.body).toEqual(expect.objectContaining({ state: 'running', message: 'Bash' }))
+  expect(agentCalls(ctl)).toBe(2)
+})
+
+test('with no session-file change and no confirmation due, nothing is spawned until the 60 s fallback', async ($, on) => {
+  const { clock, ctl } = world(on)
+  ctl.agents = agentRows('waiting', 'permission prompt')
+  await openDialog($, on, clock)
+  await seconds($, clock, 50)
+  expect(agentCalls(ctl)).toBe(0)
+  await seconds($, clock, 15)
+  expect(agentCalls(ctl)).toBe(1)
+})
+
+test('the poll never runs without a dialog wait and stops when it ends', async ($, on) => {
+  const { clock, ctl } = world(on)
+  on('tool.check', () => ({ decision: 'ask', reason: 'needs approval' }))
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await seconds($, clock, 8)
+  expect(ctl.listCalls).toBe(0)
+  expect(ctl.runs.some(argv => /claude$/.test(argv[0] ?? ''))).toBe(false)
+  ctl.agents = agentRows('busy')
+  await $.tool.check({ tool: 'Bash', input: { command: 'make' }, tool_use_id: 'toolu_1' })
+  await seconds($, clock, 1)
+  ctl.sessionFiles++
+  await seconds($, clock, 3)
+  await seconds($, clock, 20)
+  const lists = ctl.listCalls
+  await seconds($, clock, 5)
+  expect(ctl.listCalls).toBe(lists)
+})
+
+test('a row that says waiting again right after a flip puts the wait back', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  await openDialog($, on, clock)
+  await seconds($, clock, 1)
+  ctl.agents = agentRows('busy')
+  ctl.sessionFiles++
+  await seconds($, clock, 3)
+  expect(sent.at(-1)?.body.state).toBe('running')
+  ctl.agents = agentRows('waiting', 'permission prompt')
+  ctl.sessionFiles++
+  await seconds($, clock, 3)
+  expect(sent.at(-1)?.body).toEqual(expect.objectContaining({ state: 'waiting', message: 'permission prompt' }))
+})
+
+test('the poll stops 15 s after a flip that nothing contradicts', async ($, on) => {
+  const { clock, ctl } = world(on)
+  await openDialog($, on, clock)
+  await seconds($, clock, 1)
+  ctl.agents = agentRows('busy')
+  ctl.sessionFiles++
+  await seconds($, clock, 3)
+  await seconds($, clock, 14)
+  const lists = ctl.listCalls
+  expect(lists).toBeGreaterThan(0)
+  await seconds($, clock, 4)
+  const after = ctl.listCalls
+  await seconds($, clock, 5)
+  expect(ctl.listCalls).toBe(after)
+})
+
+test('a classic PermissionRequest wait is ended the same way', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.agents = agentRows('busy')
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: { file_path: '/x' }, session_id: 'sess-1', cwd: `${HOME}/proj`, permission_mode: 'auto' })
+  await clock.settle()
+  await seconds($, clock, 1)
+  ctl.sessionFiles++
+  await seconds($, clock, 3)
+  expect(sent.at(-1)?.body).toEqual(expect.objectContaining({ state: 'running', message: 'Edit' }))
+})
+
+test('a failed call drops the sightings, stops the timer for 5 minutes, then a lone busy row cannot flip at once', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  await openDialog($, on, clock)
+  await seconds($, clock, 1)
+  ctl.agents = agentRows('busy')
+  ctl.sessionFiles++
+  await seconds($, clock, 1)
+  ctl.agentsFail = true
+  ctl.sessionFiles++
+  await seconds($, clock, 1)
+  expect(agentCalls(ctl)).toBe(2)
+  const lists = ctl.listCalls
+  await seconds($, clock, 60)
+  expect(ctl.listCalls).toBe(lists)
+  ctl.agentsFail = false
+  await clock.advance(250_000)
+  await seconds($, clock, 1)
+  ctl.sessionFiles++
+  await seconds($, clock, 1)
+  expect(sent.at(-1)?.body.state).toBe('waiting')
+})
+
+test('a CLI older than 2.1.288 is never asked for agents and its version is checked once', async ($, on) => {
+  const { clock, ctl } = world(on)
+  ctl.claudeVersion = '2.1.287 (Claude Code)\n'
+  await openDialog($, on, clock)
+  await seconds($, clock, 1)
+  ctl.sessionFiles++
+  await seconds($, clock, 2)
+  const versions = ctl.runs.filter(argv => argv[1] === '--version').length
+  expect(versions).toBeGreaterThan(0)
+  expect(agentCalls(ctl)).toBe(0)
+  await clock.advance(300_000)
+  await seconds($, clock, 1)
+  ctl.sessionFiles++
+  await seconds($, clock, 2)
+  expect(ctl.runs.filter(argv => argv[1] === '--version')).toHaveLength(versions)
+})
+
+test('a new ask between sightings starts the count again', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  ctl.agents = agentRows('busy')
+  await openDialog($, on, clock)
+  await seconds($, clock, 1)
+  ctl.sessionFiles++
+  await seconds($, clock, 1)
+  await $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: { file_path: '/x' }, session_id: 'sess-1', cwd: `${HOME}/proj` })
+  await seconds($, clock, 1)
+  expect(sent.at(-1)?.body).toEqual(expect.objectContaining({ state: 'waiting', message: 'approve Edit' }))
+  ctl.sessionFiles++
+  await seconds($, clock, 3)
+  expect(sent.at(-1)?.body).toEqual(expect.objectContaining({ state: 'running', message: 'Edit' }))
+})
+
+test('a wait restored from $.state after a reload is polled without waiting for the next event', async ($, on) => {
+  const held = heldState(on)
+  const { sent, clock, ctl } = world(on)
+  const at = clock.now()
+  held.value = {
+    v: 1 as const,
+    sessions: [
+      [
+        'sess-1',
+        {
+          state: 'waiting',
+          message: 'approve Bash',
+          activity: '',
+          project: 'proj',
+          changedAt: at - 3000,
+          hookAt: at - 3000,
+          pendingPermission: true,
+          pendingTool: 'Bash',
+          pendingToolUseId: 'toolu_1',
+          askedTool: 'Bash',
+          askedToolUseId: 'toolu_1',
+          lastTool: 'Bash',
+          lastToolUseId: 'toolu_1',
+          resumedTool: '',
+          resumedAt: 0,
+          agentInput: false,
+          parked: false,
+        },
+      ],
+    ],
+    strays: [],
+    permissionMode: '',
+    t3: '' as const,
+  }
+  held.version = 1
+  ctl.agents = agentRows('busy')
+  await $.session.start(START)
+  await clock.settle()
+  await seconds($, clock, 1)
+  ctl.sessionFiles++
+  await seconds($, clock, 3)
+  expect(sent.at(-1)?.body.state).toBe('running')
 })

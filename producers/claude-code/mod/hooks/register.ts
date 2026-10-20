@@ -1,18 +1,24 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { T3_PROBE_BUDGET_MS, T3_RETRY_MS, argvFromPs, detectT3, parsePsInfo, type T3Probe, type T3Verdict } from './t3.ts'
 import {
+  AGENTS_CALL_TIMEOUT_MS,
+  AGENTS_FAIL_BACKOFF_MS,
+  AGENTS_FALLBACK_MS,
+  AGENTS_WATCH_MS,
   FieldDropper,
   HEARTBEAT_MS,
   Sender,
   SESSION_END_BUDGET_MS,
   TICK_SEND_TIMEOUT_MS,
   Tracker,
+  agentsCLIUsable,
   dialogExpected,
   envFileProblem,
   failureOutcome,
   isPlaceholderSource,
   bounded,
   normalizeHostName,
+  parseAgents,
   parseEnvFile,
   parseSnapshot,
   resolveConfig,
@@ -43,6 +49,13 @@ type ModState = {
   interactive: boolean
   permissionMode: string
   heartbeat: { cancel: () => void } | undefined
+  watch: { cancel: () => void } | undefined
+  watching: boolean
+  backingOff: boolean
+  lastPrint: string | undefined
+  lastCall: number
+  cliVerdict: Map<string, boolean>
+  claudeBin: string | undefined
   restored: Promise<void> | undefined
   saving: boolean
   dirty: boolean
@@ -192,6 +205,7 @@ async function restore($: Engine, st: ModState): Promise<void> {
   st.sender.restore(snap.strays, now)
   if (st.permissionMode === '') st.permissionMode = snap.permissionMode
   if (st.t3 === 'unknown' && snap.t3 !== '') st.t3 = snap.t3
+  void st.loading?.then(() => syncWatch($, st))
 }
 
 function ready($: Engine, st: ModState): Promise<void> {
@@ -210,6 +224,7 @@ function snapshot(st: ModState): Snapshot {
 }
 
 function persist($: Engine, st: ModState): void {
+  syncWatch($, st)
   st.dirty = true
   if (st.saving) return
   st.saving = true
@@ -223,6 +238,113 @@ function persist($: Engine, st: ModState): void {
       st.saving = false
     }
   })()
+}
+
+function claudeCandidates(home: string): string[] {
+  return [`${home}/.local/bin/claude`, 'claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude']
+}
+
+async function agentsOutput($: Engine, st: ModState, home: string): Promise<string | undefined> {
+  const run = async (argv: string[]) => {
+    try {
+      const r = await $.process.run(argv, { timeoutMs: AGENTS_CALL_TIMEOUT_MS })
+      return r.exitCode === 0 ? r.stdout : undefined
+    } catch {
+      return undefined
+    }
+  }
+  if (st.claudeBin === undefined) {
+    for (const bin of claudeCandidates(home)) {
+      let usable = st.cliVerdict.get(bin)
+      if (usable === undefined) {
+        usable = agentsCLIUsable((await run([bin, '--version'])) ?? '')
+        st.cliVerdict.set(bin, usable)
+      }
+      if (usable) {
+        st.claudeBin = bin
+        break
+      }
+    }
+  }
+  if (st.claudeBin === undefined) return undefined
+  const out = await run([st.claudeBin, 'agents', '--json'])
+  if (out === undefined) {
+    st.cliVerdict.delete(st.claudeBin)
+    st.claudeBin = undefined
+  }
+  return out
+}
+
+async function sessionsFingerprint($: Engine, home: string): Promise<string> {
+  const dir = (((await $.env.get('CLAUDE_CONFIG_DIR')) ?? '') || `${home}/.claude`) + '/sessions'
+  try {
+    const entries = await $.fs.list(dir)
+    return entries
+      .filter(e => e.name.endsWith('.json'))
+      .map(e => `${e.name}:${e.mtimeMs}:${e.size}`)
+      .sort()
+      .join('|')
+  } catch {
+    return ''
+  }
+}
+
+function stopWatch(st: ModState): void {
+  st.watch?.cancel()
+  st.watch = undefined
+  st.lastPrint = undefined
+  st.lastCall = 0
+}
+
+function syncWatch($: Engine, st: ModState): void {
+  const wanted = st.config !== undefined && st.t3 !== 'yes' && !st.backingOff && st.tracker.needsWatch()
+  if (wanted && !st.watch) {
+    st.watch = $.clock.every(AGENTS_WATCH_MS, () => void quietly(() => watchPass($, st)))
+  } else if (!wanted && st.watch) {
+    stopWatch(st)
+  }
+}
+
+function failWatch($: Engine, st: ModState): void {
+  st.tracker.agentsFailed()
+  st.backingOff = true
+  stopWatch(st)
+  $.clock.after(AGENTS_FAIL_BACKOFF_MS, () => {
+    st.backingOff = false
+    syncWatch($, st)
+  })
+}
+
+async function watchPass($: Engine, st: ModState): Promise<void> {
+  if (st.watching) return
+  st.watching = true
+  try {
+    const cfg = await liveConfig($, st)
+    const began = await $.clock.now()
+    st.tracker.observe(began)
+    if (!cfg || !st.tracker.needsWatch()) {
+      syncWatch($, st)
+      return
+    }
+    const print = await sessionsFingerprint($, cfg.home)
+    const changed = st.lastPrint !== undefined && print !== st.lastPrint
+    st.lastPrint = print
+    if (st.lastCall === 0) st.lastCall = began
+    if (!changed && !st.tracker.confirmDue(began) && began - st.lastCall < AGENTS_FALLBACK_MS) return
+    st.lastCall = began
+    const out = await agentsOutput($, st, cfg.home)
+    const rows = out === undefined ? undefined : parseAgents(out)
+    const now = await $.clock.now()
+    if (!rows) {
+      failWatch($, st)
+      return
+    }
+    const effects = st.tracker.agentsCorrect(cfg, began, now, rows)
+    if (effects.length > 0) emit($, st, cfg, effects, cfg.hookTimeoutMs, now)
+    persist($, st)
+  } finally {
+    st.watching = false
+  }
 }
 
 async function runFirst($: Engine, argvs: string[][], timeoutMs: number): Promise<string | undefined> {
@@ -360,6 +482,13 @@ export const register: Register = on => {
     interactive: false,
     permissionMode: '',
     heartbeat: undefined,
+    watch: undefined,
+    watching: false,
+    backingOff: false,
+    lastPrint: undefined,
+    lastCall: 0,
+    cliVerdict: new Map(),
+    claudeBin: undefined,
     restored: undefined,
     saving: false,
     dirty: false,
@@ -371,6 +500,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     st.interactive = e.isInteractive
     start($, st, true)
+    await quietly(() => ready($, st))
     return next(e)
   }).catch(($, e, next) => next(e))
 
