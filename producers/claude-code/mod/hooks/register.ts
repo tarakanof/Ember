@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 import {
+  FieldDropper,
   HEARTBEAT_MS,
   Sender,
   SESSION_END_BUDGET_MS,
@@ -30,7 +31,9 @@ type ModState = {
   loading: Promise<void> | undefined
   beating: boolean
   uid: string | undefined
-  host: string | undefined
+  host: string
+  hostTriedAt: number | undefined
+  dropper: FieldDropper
   interactive: boolean
   permissionMode: string
   heartbeat: { cancel: () => void } | undefined
@@ -39,6 +42,12 @@ type ModState = {
 type Step = (cfg: Config, now: number, id: string) => Effect[]
 
 const STAT = ['/usr/bin/stat', '/bin/stat', 'stat']
+const HOST_COMMANDS = [
+  [['/usr/sbin/scutil', '--get', 'LocalHostName'], ['scutil', '--get', 'LocalHostName']],
+  [['/bin/hostname'], ['/usr/bin/hostname'], ['hostname']],
+]
+const HOST_TIMEOUT_MS = 150
+const HOST_RETRY_MS = 600_000
 const ID = ['/usr/bin/id', '/bin/id', 'id']
 
 async function readText($: Engine, path: string): Promise<string | undefined> {
@@ -49,10 +58,10 @@ async function readText($: Engine, path: string): Promise<string | undefined> {
   }
 }
 
-async function firstOutput($: Engine, argvs: string[][]): Promise<string> {
+async function firstOutput($: Engine, argvs: string[][], timeoutMs = 2000): Promise<string> {
   for (const argv of argvs) {
     try {
-      const r = await $.process.run(argv, { timeoutMs: 2000 })
+      const r = await $.process.run(argv, { timeoutMs })
       if (r.exitCode === 0) return r.stdout
     } catch {
       continue
@@ -71,14 +80,15 @@ async function currentUID($: Engine, st: ModState): Promise<string> {
 }
 
 async function hostName($: Engine, st: ModState): Promise<string> {
-  if (!st.host) {
-    st.host = ''
-    for (const argv of [['scutil', '--get', 'LocalHostName'], ['hostname']]) {
-      const name = normalizeHostName(await firstOutput($, [argv]))
-      if (name !== '') {
-        st.host = name
-        break
-      }
+  const now = await $.clock.now()
+  if (st.hostTriedAt !== undefined && (st.host !== '' || now - st.hostTriedAt < HOST_RETRY_MS)) return st.host
+  st.hostTriedAt = now
+  st.host = ''
+  for (const argvs of HOST_COMMANDS) {
+    const name = normalizeHostName(await firstOutput($, argvs, HOST_TIMEOUT_MS))
+    if (name !== '') {
+      st.host = name
+      break
     }
   }
   return st.host
@@ -151,7 +161,7 @@ function fetcher($: Engine): FetchLike {
 
 function emit($: Engine, st: ModState, cfg: Config, effects: Effect[], limitMs: number, now: number, heartbeat = false): Promise<void>[] {
   const io = {
-    deliver: (effect: Effect) => send(fetcher($), cfg, effect),
+    deliver: (effect: Effect) => send(fetcher($), cfg, effect, st.dropper),
     timer: (ms: number) => $.clock.sleep(ms),
     reconcile: async (session: string) => {
       const at = await $.clock.now()
@@ -226,7 +236,9 @@ export const register: Register = on => {
     loading: undefined,
     beating: false,
     uid: undefined,
-    host: undefined,
+    host: '',
+    hostTriedAt: undefined,
+    dropper: new FieldDropper(),
     interactive: false,
     permissionMode: '',
     heartbeat: undefined,

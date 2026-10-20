@@ -647,7 +647,8 @@ rows. Needs Claude Code 2.1.288 or newer.
   against a local stub) and the Go tests. `test/mod.test.ts` is **not** part
   of `node --test`: it imports `claude-code/testing` and runs only under
   `claude plugin test`, so it needs Claude Code. Two fixtures are shared with Go: `test/parity.json`
-  (activity strings, error labels, trails, env parsing, session ids) and
+  (activity strings, error labels, trails, env parsing, session ids, the
+  unknown-field match behind the older-server resend, host names to sources) and
   `test/transitions.json` (event sequences, ticks included, to the exact
   POST/DELETE bodies). `mod_parity_test.go` runs the real Go hooks
   (`dispatchHookFrom`, `dispatchTick`) through it, and the node test runs the

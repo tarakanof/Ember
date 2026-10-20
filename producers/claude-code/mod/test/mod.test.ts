@@ -37,6 +37,7 @@ function world(on: On, envFile: EnvFile | null = TRUSTED) {
     statFails: false,
     absoluteMissing: false,
     hostName: '',
+    hostRuns: 0,
     rejectProject: false,
   }
   mock.env(on, { HOME })
@@ -55,7 +56,11 @@ function world(on: On, envFile: EnvFile | null = TRUSTED) {
   on('process.run', ($, e) => {
     ctl.runs.push([...e.argv])
     const bin = e.argv[0] ?? ''
-    if (bin === 'scutil' && ctl.hostName !== '') return ran(ctl.hostName + '\n')
+    if (/(^|\/)(scutil|hostname)$/.test(bin)) {
+      ctl.hostRuns++
+      if (bin.endsWith('scutil') && ctl.hostName !== '') return ran(ctl.hostName + '\n')
+      return ran('', 127)
+    }
     const usable = ctl.absoluteMissing ? !bin.startsWith('/') : bin.startsWith('/usr/bin/')
     if (!usable) return ran('', 127)
     if (bin.endsWith('id')) return ran('501\n')
@@ -125,6 +130,23 @@ test('a placeholder EMBER_SOURCE posts under the host id', async ($, on) => {
   await $.classic.UserPromptSubmit({ prompt: 'go', session_id: 'sess-1', cwd: `${HOME}/proj` })
   await clock.settle()
   expect(sent.map(s => s.body.source)).toEqual(['mbp-mod'])
+})
+
+test('a host that resolves to nothing is looked up once, then again after 10 minutes', async ($, on) => {
+  const placeholder = { ...TRUSTED, text: 'EMBER_SOURCE=\nEMBER_SERVER_URL=http://127.0.0.1:9\n' }
+  const { sent, clock, ctl } = world(on, placeholder)
+  await $.session.start({ cwd: `${HOME}/proj`, surface: 'terminal', isInteractive: true })
+  await $.classic.UserPromptSubmit({ prompt: 'go', session_id: 'sess-1', cwd: `${HOME}/proj` })
+  await clock.settle()
+  const first = ctl.hostRuns
+  expect(first).toBeGreaterThan(0)
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  expect(ctl.hostRuns).toBe(first)
+  await clock.advance(600_000)
+  expect(ctl.hostRuns).toBeGreaterThan(first)
+  expect(sent).toHaveLength(0)
 })
 
 test('a server that rejects project gets the POST again without it', async ($, on) => {
