@@ -670,10 +670,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "Also the ember-mod@ember mod, reporting as this Mac's host name plus -mod" : {},
     "Also the ember-mod@ember mod, side by side, reporting as %@" : {
       "comment" : "Settings › Agents › Claude Code caption; the argument is the mod's source name, e.g. mbp-mod."
     },
+    "Also the ember-mod@ember mod, with a host-name source" : {},
     "Always" : {},
     "An ESP32 board is connected but isn't running cinder" : {},
     "An ESP32 board is connected but isn't running cinder." : {},

@@ -174,6 +174,7 @@ private func hookFixtures() -> URL {
     #expect(!ClaudeHookRegistration.read(settingsJSON: off, killSwitch: false).modEnabled)
     let modOnly = ClaudeHookRegistration.read(settingsJSON: Data(#"{"enabledPlugins":{"ember-mod@ember":true}}"#.utf8), killSwitch: false)
     #expect(modOnly.source == .none)
+    #expect(ClaudeHookRegistration.read(settingsJSON: nil, killSwitch: false).source == .none)
     #expect(ClaudeHooksNotice.notice(for: modOnly, reportingOn: true) == .fine)
     let triple = ClaudeHookRegistration(pluginEnabled: true, settingsEvents: 2, killSwitch: false, modEnabled: true)
     #expect(ClaudeHooksNotice.notice(for: triple, reportingOn: true) == .registeredTwice)
@@ -188,14 +189,17 @@ private func hookFixtures() -> URL {
     #expect(resolve("EMBER_SOURCE=Set-Me-To-This-Laptop-Id\n") == nil)
 }
 
-@Test func claudeHookRegistrationResolvesTheModSourceUnderHome() throws {
-    let home = FileManager.default.temporaryDirectory.appendingPathComponent("mod-src-\(UUID().uuidString)")
-    defer { try? FileManager.default.removeItem(at: home) }
-    let env = "EMBER_SOURCE=mbp\n"
+@Test func serviceResolvesTheModSourceFromProducerEnvUnderHome() {
     let settings = #"{"enabledPlugins":{"ember-mod@ember":true}}"#
-    let files = [home.appendingPathComponent(".claude/settings.json").path: Data(settings.utf8),
-                 home.appendingPathComponent(".config/ember/producer.env").path: Data(env.utf8)]
-    let got = ClaudeHookRegistration.read(home: home, readFile: { files[$0] }, fileExists: { _ in false })
-    #expect(got.modEnabled)
-    #expect(got.withModSource(ClaudeHookRegistration.resolveModSource(env: EnvFile(parsing: env))).modSource == "mbp-mod")
+    func hooks(_ env: String?, mod: Bool = true) -> ClaudeHookRegistration {
+        var files = ["/Users/x/.claude/settings.json": mod ? settings : "{}"]
+        if let env { files["/Users/x/.config/ember/producer.env"] = env }
+        return service(files: files).claudeHookRegistration()
+    }
+    #expect(hooks("EMBER_SOURCE=mbp\n").modSource == "mbp-mod")
+    #expect(hooks("EMBER_SOURCE=mbp\nEMBER_MOD_SOURCE=desk-mod\n").modSource == "desk-mod")
+    #expect(hooks("EMBER_SOURCE=set-me-to-this-laptop-id\n").modSource == nil)
+    #expect(hooks(nil).modSource == nil)
+    #expect(hooks("EMBER_SOURCE=mbp\n", mod: false).modSource == nil)
+    #expect(hooks("EMBER_SOURCE=mbp\n").modEnabled)
 }
