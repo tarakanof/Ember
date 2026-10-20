@@ -48,6 +48,13 @@ private func hookFixtures() -> URL {
     #expect(source(false, 3) == .settings)
     #expect(source(true, 3) == .both)
     #expect(source(false, 0) == .none)
+    func modSource(_ plugin: Bool, _ events: Int) -> ClaudeHookRegistration.Source {
+        ClaudeHookRegistration(pluginEnabled: plugin, settingsEvents: events, killSwitch: false, modEnabled: true).source
+    }
+    #expect(modSource(false, 0) == .mod)
+    #expect(modSource(true, 0) == .modAndPlugin)
+    #expect(modSource(false, 3) == .modAndSettings)
+    #expect(modSource(true, 3) == .modAndBoth)
     #expect(ClaudeHookRegistration.read(settingsJSON: nil, killSwitch: false).source == .none)
 }
 
@@ -163,4 +170,19 @@ private func hookFixtures() -> URL {
                                 undetected: [.codex, .t3])
     #expect(!snap.showsSettings(for: .codex))
     #expect(snap.showsSettings(for: .t3))
+}
+
+@Test func claudeModSitsBesideThePluginWithoutWarning() {
+    let json = Data(#"{"enabledPlugins":{"ember@ember":true,"ember-mod@ember":true}}"#.utf8)
+    let both = ClaudeHookRegistration.read(settingsJSON: json, killSwitch: false)
+    #expect(both.modEnabled && both.pluginEnabled)
+    #expect(both.source == .modAndPlugin)
+    #expect(ClaudeHooksNotice.notice(for: both, reportingOn: true) == .fine)
+    let off = Data(#"{"enabledPlugins":{"ember-mod@ember":false}}"#.utf8)
+    #expect(!ClaudeHookRegistration.read(settingsJSON: off, killSwitch: false).modEnabled)
+    let modOnly = ClaudeHookRegistration.read(settingsJSON: Data(#"{"enabledPlugins":{"ember-mod@ember":true}}"#.utf8), killSwitch: false)
+    #expect(modOnly.source == .mod)
+    #expect(ClaudeHooksNotice.notice(for: modOnly, reportingOn: true) == .fine)
+    let triple = ClaudeHookRegistration(pluginEnabled: true, settingsEvents: 2, killSwitch: false, modEnabled: true)
+    #expect(ClaudeHooksNotice.notice(for: triple, reportingOn: true) == .registeredTwice)
 }

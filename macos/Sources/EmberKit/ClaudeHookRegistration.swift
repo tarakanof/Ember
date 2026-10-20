@@ -6,16 +6,24 @@ public struct ClaudeHookRegistration: Sendable, Equatable {
         case settings
         case both
         case none
+        case mod
+        case modAndPlugin
+        case modAndSettings
+        case modAndBoth
     }
 
     public static let pluginID = "ember@ember"
+    public static let modPluginID = "ember-mod@ember"
 
     public let pluginEnabled: Bool
     public let settingsEvents: Int
     public let killSwitch: Bool
     public let settingsUnreadable: Bool
+    public let modEnabled: Bool
 
-    public init(pluginEnabled: Bool, settingsEvents: Int, killSwitch: Bool, settingsUnreadable: Bool = false) {
+    public init(pluginEnabled: Bool, settingsEvents: Int, killSwitch: Bool, settingsUnreadable: Bool = false,
+                modEnabled: Bool = false) {
+        self.modEnabled = modEnabled
         self.pluginEnabled = pluginEnabled
         self.settingsEvents = settingsEvents
         self.killSwitch = killSwitch
@@ -23,11 +31,15 @@ public struct ClaudeHookRegistration: Sendable, Equatable {
     }
 
     public var source: Source {
-        switch (pluginEnabled, settingsEvents > 0) {
-        case (true, true): .both
-        case (true, false): .plugin
-        case (false, true): .settings
-        case (false, false): .none
+        switch (modEnabled, pluginEnabled, settingsEvents > 0) {
+        case (false, true, true): .both
+        case (false, true, false): .plugin
+        case (false, false, true): .settings
+        case (false, false, false): .none
+        case (true, false, false): .mod
+        case (true, true, false): .modAndPlugin
+        case (true, false, true): .modAndSettings
+        case (true, true, true): .modAndBoth
         }
     }
 
@@ -37,9 +49,10 @@ public struct ClaudeHookRegistration: Sendable, Equatable {
         }
         let root = data.starts(with: [0xEF, 0xBB, 0xBF]) ? nil
             : (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        return ClaudeHookRegistration(pluginEnabled: pluginEnabled(root ?? [:]),
+        return ClaudeHookRegistration(pluginEnabled: pluginEnabled(root ?? [:], id: pluginID),
                                       settingsEvents: producerHookEvents(root ?? [:]),
-                                      killSwitch: killSwitch, settingsUnreadable: root == nil)
+                                      killSwitch: killSwitch, settingsUnreadable: root == nil,
+                                      modEnabled: pluginEnabled(root ?? [:], id: modPluginID))
     }
 
     public static func read(home: URL, readFile: (String) -> Data?, fileExists: (String) -> Bool) -> ClaudeHookRegistration {
@@ -51,9 +64,9 @@ public struct ClaudeHookRegistration: Sendable, Equatable {
 
     private static let producerNames = ["ember-claude-producer", "awtrix-claude-producer"]
 
-    private static func pluginEnabled(_ root: [String: Any]) -> Bool {
+    private static func pluginEnabled(_ root: [String: Any], id: String) -> Bool {
         guard let plugins = root["enabledPlugins"] as? [String: Any],
-              let value = plugins[pluginID] as? NSNumber else { return false }
+              let value = plugins[id] as? NSNumber else { return false }
         return CFGetTypeID(value) == CFBooleanGetTypeID() && value.boolValue
     }
 
@@ -87,9 +100,9 @@ public enum ClaudeHooksNotice: Sendable, Equatable {
         if registration.settingsUnreadable { return .settingsUnreadable }
         if registration.killSwitch { return .paused }
         switch registration.source {
-        case .both: return .registeredTwice
+        case .both, .modAndBoth: return .registeredTwice
         case .none: return .missing
-        case .plugin, .settings: return .fine
+        case .plugin, .settings, .mod, .modAndPlugin, .modAndSettings: return .fine
         }
     }
 }
