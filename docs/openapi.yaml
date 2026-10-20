@@ -1025,7 +1025,7 @@ paths:
                     type: string
                   features:
                     type: array
-                    description: Capabilities clients gate on. `firmware_delete_keep` means `DELETE /v1/firmware/{version}` takes `?keep=protected`; `device_app_enabled` means `PUT /v1/device/apps/{name}/enabled` exists.
+                    description: Capabilities clients gate on. `firmware_delete_keep` means `DELETE /v1/firmware/{version}` takes `?keep=protected`; `device_app_enabled` means `PUT /v1/device/apps/{name}/enabled` exists; `lan_pair` means the knob claim routes (`/v1/devices/claim…`, `/v1/devices/claims…`) exist (a server without it answers them 401 or 405).
                     items:
                       type: string
                   clock_disabled:
@@ -2030,7 +2030,7 @@ paths:
         Claims waiting for the owner (#658), oldest first. Never carries the
         code or the claim key; an approved claim is left out. Claims live in
         memory only, so a restart empties the list. A server from before #658
-        answers 404, which Ember.app reads as "no LAN pairing".
+        answers 405, so Ember.app gates on `lan_pair` in `/version` `features`.
       x-master-only: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
@@ -2063,8 +2063,11 @@ paths:
         any rotation revoked, config and version kept). The token is not in
         this reply; the knob collects it on its next poll. Spaces in `code`
         are ignored. Approving an approved claim again with its code is 200
-        with the same device and mints nothing. The fifth wrong code drops
-        the claim.
+        with the same device and mints nothing; a wrong code on an approved
+        claim is 400 and costs no try. The fifth wrong code drops a pending
+        claim. A successful approve drops every other claim for that
+        `hw_id`. A server without `lan_pair` in `/version` `features`
+        answers 401 or 405 here.
       x-master-only: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       requestBody:
@@ -2107,6 +2110,12 @@ paths:
               example:
                 error: wrong_code
                 attempts_left: 3
+        "409":
+          description: "`already_paired`: the record checked in within the last 5 minutes, so approving would revoke a live knob; the claim is dropped. Carries `Retry-After`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2121,7 +2130,8 @@ paths:
       operationId: declineDeviceClaim
       summary: Decline a pairing claim
       description: |
-        Drops the claim; its knob's next poll is 404. A `POST`, not `DELETE
+        Drops a pending claim; its knob's next poll is 404. An approved
+        claim is 409. A `POST`, not `DELETE
         /v1/devices/claims/{id}`: that pattern would collide with `DELETE
         /v1/devices/{id}/demo` in the router.
       x-master-only: true
@@ -2129,6 +2139,12 @@ paths:
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
+        "409":
+          description: "`claim_approved`: the token is already minted. To undo an approval, delete the device."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2989,8 +3005,12 @@ paths:
         At most 2 pending claims per source (an IPv4 address, or an IPv6 /64
         so one host can't rotate addresses) and 16 in all; past that 429,
         and no claim is evicted. Bodies over 4 KiB are 413. 409 `already_paired` while that `hw_id`'s
-        record checked in within the last 5 minutes. `Cache-Control:
-        no-store`. Rate-limited per IP like the other unauthenticated routes.
+        record checked in within the last 5 minutes. 409 and 429 carry
+        `Retry-After`. The same `hw_id` and `claim_key` again returns the
+        same claim (200) without taking a slot. `Cache-Control: no-store`.
+        Rate-limited per IP like the other unauthenticated routes. Call it
+        only when `GET /version` lists `lan_pair`: an older server answers
+        401 here.
       security: []
       requestBody:
         required: true
@@ -3035,6 +3055,24 @@ paths:
               examples:
                 claim_reply:
                   externalValue: ../cmd/ember/testdata/devices/claim_reply.json
+        "200":
+          description: The same claim again (same `hw_id` and `claim_key`), with the seconds it has left.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [claim_id, code, expires_in_s, poll_s]
+                properties:
+                  claim_id:
+                    type: string
+                    pattern: "^c_[0-9a-f]{8}$"
+                  code:
+                    type: string
+                    pattern: "^[0-9]{6}$"
+                  expires_in_s:
+                    type: integer
+                  poll_s:
+                    type: integer
         "400":
           $ref: "#/components/responses/BadRequest"
         "409":
@@ -3055,8 +3093,9 @@ paths:
         approval every poll returns the same token until the first request
         made with it, which deletes the claim; an approved claim lasts 10
         minutes from the approval. An unknown, expired, declined or dropped
-        claim and a wrong key all get the same 404, and the knob opens a new
-        claim with a new key. Bodies over 4 KiB are 413.
+        claim, a superseded one, an approved one whose token was revoked
+        since, and a wrong key all get the same 404, and the knob opens a
+        new claim with a new key. Bodies over 4 KiB are 413.
       security: []
       requestBody:
         required: true

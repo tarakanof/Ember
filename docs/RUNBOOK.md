@@ -107,7 +107,9 @@ docker run -d --name ember --restart unless-stopped -p 3627:3627 \
   (the production/Unraid path; see "Discovery & mDNS" and "Docker Hub release").
   Also in `-p` bridge mode every client arrives from the Docker gateway IP, so
   the clock's `/hooks/awtrix/*` calls share one rate-limit bucket with the Macs'
-  `/v1` traffic (60 burst, 5/s).
+  `/v1` traffic (60 burst, 5/s), and the knob LAN re-pair's per-source cap of
+  2 pending claims becomes the server's whole cap (ARCHITECTURE "Device
+  registry").
 - **TLS (optional).** `EMBER_TLS_CERT_FILE` and `EMBER_TLS_KEY_FILE` must both
   be set (HTTPS) or neither (HTTP); exactly one is a startup error. The pair is
   parsed eagerly, so a malformed PEM, unreadable file or key/cert mismatch fails
