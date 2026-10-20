@@ -20,6 +20,7 @@ export type EmberModSession = {
   ratePct: number
   rateResetAt: number
   rateResetLabel: string
+  gaugesAsked: boolean
 }
 
 export type EmberModSnapshot = {

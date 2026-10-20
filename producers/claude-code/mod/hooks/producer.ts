@@ -410,7 +410,7 @@ export function agentsCLIUsable(versionOutput: string): boolean {
 
 export type UsageReading = {
   context?: { percent?: number }
-  rateLimits?: { kind: string; percentUsed: number; resetsAt?: string }[]
+  rateLimits?: { kind: string; percentUsed?: number | null; resetsAt?: string }[]
 }
 
 export type Gauges = Pick<Session, 'contextPct' | 'ratePct' | 'rateResetAt' | 'rateResetLabel'>
@@ -429,8 +429,8 @@ export function gaugesFromUsage(u: UsageReading): Partial<Gauges> {
   const ctx = u.context?.percent
   if (typeof ctx === 'number' && Number.isFinite(ctx)) out.contextPct = pct(ctx)
   const five = (u.rateLimits ?? []).find(r => r.kind === 'five_hour')
-  if (five && typeof five.percentUsed === 'number' && Number.isFinite(five.percentUsed)) {
-    out.ratePct = pct(five.percentUsed)
+  if (five) {
+    out.ratePct = pct(typeof five.percentUsed === 'number' && Number.isFinite(five.percentUsed) ? five.percentUsed : 0)
     const at = Math.floor(Date.parse(five.resetsAt ?? '') / 1000)
     if (at > 0) {
       out.rateResetAt = at
@@ -477,6 +477,7 @@ const BLANK_SESSION: Session = {
   ratePct: -1,
   rateResetAt: 0,
   rateResetLabel: '',
+  gaugesAsked: false,
 }
 
 export function reviveSession(raw: unknown): Session | undefined {
@@ -550,6 +551,13 @@ export class Tracker {
     const s = this.sessions.get(id)
     if (s) Object.assign(s, g)
     return []
+  }
+
+  wantsGauges(id: string): boolean {
+    const s = this.sessions.get(id)
+    if (!s || s.gaugesAsked || s.contextPct >= 0 || s.ratePct >= 0) return false
+    s.gaugesAsked = true
+    return true
   }
 
   sessionStart(id: string, source: string): Effect[] {

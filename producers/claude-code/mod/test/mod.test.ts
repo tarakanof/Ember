@@ -75,6 +75,7 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
     listCalls: 0,
     usage: { startedAt: 0, context: { window: 200000 }, rateLimits: [] } as SessionUsage,
     usageCalls: 0,
+    usageHold: undefined as Gate | undefined,
     sessionIdFails: false,
   }
   mock.env(on, { HOME, ...extraEnv })
@@ -139,9 +140,11 @@ function world(on: On, envFile: EnvFile | null = TRUSTED, extraEnv: Record<strin
   })
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.cwd', () => ({ value: `${HOME}/proj` }))
-  on('session.usage', () => {
+  on('session.usage', async () => {
     ctl.usageCalls++
-    return { value: ctl.usage }
+    const answer = ctl.usage
+    if (ctl.usageHold) await ctl.usageHold.wait
+    return { value: answer }
   })
   on('http.fetch', async ($, e) => {
     const method = e.init?.method ?? 'GET'
@@ -963,4 +966,47 @@ test('a measure whose session lookup fails still answers and posts nothing', asy
   await clock.advance(10_000)
   expect(echoed.changed).toEqual(MEASURED.changed)
   expect(sent).toEqual([])
+})
+
+test('a usage() read that answers after a newer session.measure does not overwrite it', async ($, on) => {
+  const held = heldState(on)
+  const { sent, clock, ctl } = world(on)
+  const at = clock.now()
+  held.value = {
+    v: 1,
+    sessions: [['sess-1', { state: 'running', message: 'before reload', project: 'proj', changedAt: at - 5000, hookAt: at - 5000 }]],
+    strays: [],
+    permissionMode: '',
+    t3: '',
+  }
+  held.version = 1
+  const late = gate()
+  ctl.usageHold = late
+  ctl.usage = { startedAt: 0, context: { window: 200000, percent: 20 }, rateLimits: [{ kind: 'five_hour', percentUsed: 5, resetsAt: RESET }] }
+  await $.session.start(START)
+  await clock.settle()
+  expect(ctl.usageCalls).toBe(1)
+  await $.session.measure(MEASURED)
+  await clock.settle()
+  late.open()
+  await clock.advance(10_000)
+  expect(gaugeFields(sent.at(-1)?.body ?? {})).toEqual(GAUGES)
+})
+
+test('after /compact forgets the session, its next hook reads usage() so the heartbeat has gauges before the turn ends', async ($, on) => {
+  const { sent, clock, ctl } = world(on)
+  await $.session.start(START)
+  await $.classic.UserPromptSubmit(PROMPT)
+  await $.session.measure(MEASURED)
+  await clock.settle()
+  ctl.usage = { startedAt: 0, context: { window: 200000, percent: 3 }, rateLimits: MEASURED.rateLimits }
+  await $.classic.SessionStart({ source: 'compact', session_id: 'sess-1', cwd: `${HOME}/proj` })
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  const before = ctl.usageCalls
+  await clock.advance(10_000)
+  expect(gaugeFields(sent.at(-1)?.body ?? {})).toEqual({ ...GAUGES, context_pct: 3 })
+  await $.classic.UserPromptSubmit(PROMPT)
+  await clock.settle()
+  expect(ctl.usageCalls).toBe(before)
 })

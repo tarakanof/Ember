@@ -63,6 +63,8 @@ type ModState = {
   dirty: boolean
   t3: T3Verdict
   t3TriedAt: number | undefined
+  readingSeq: number
+  appliedSeq: number
 }
 
 type Step = (cfg: Config, now: number, id: string) => Effect[]
@@ -412,6 +414,7 @@ async function track($: Engine, st: ModState, rawSession: string, cwd: string, s
   const id = await sessionID(rawSession, cwd)
   const now = await $.clock.now()
   emit($, st, cfg, step(cfg, now, id), cfg.hookTimeoutMs, now)
+  if (st.tracker.wantsGauges(id)) void quietly(() => measure($, st, undefined))
   persist($, st)
 }
 
@@ -452,9 +455,12 @@ async function endSession($: Engine, st: ModState, rawSession: string, cwd: stri
 }
 
 async function measure($: Engine, st: ModState, reading: UsageReading | undefined): Promise<void> {
+  const seq = ++st.readingSeq
   await ready($, st)
   const usage = reading ?? (await $.session.usage())
   const id = await sessionID(await $.session.id(), await $.session.cwd())
+  if (seq < st.appliedSeq) return
+  st.appliedSeq = seq
   st.tracker.measure(id, gaugesFromUsage(usage))
   persist($, st)
 }
@@ -504,6 +510,8 @@ export const register: Register = on => {
     dirty: false,
     t3: 'unknown',
     t3TriedAt: undefined,
+    readingSeq: 0,
+    appliedSeq: 0,
   }
   const t = st.tracker
 
