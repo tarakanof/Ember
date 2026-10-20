@@ -3381,8 +3381,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   read or decode at boot, the registry stays empty and refuses every write
   and device auth with 500 until restart, so the blob is never overwritten and
   can be repaired by hand; doctor's `devices` check fails with the error.
-  Plaintext tokens are never stored or logged; only the mint response and a
-  checkin carrying `new_token` contain one (`Cache-Control: no-store`).
+  Plaintext tokens are never stored or logged; only the mint response, a
+  checkin carrying `new_token` and an approved claim poll contain one
+  (`Cache-Control: no-store`).
 - **Tokens:** `ekd_` + 32 random bytes, base64url (47 chars). Lookup hashes
   the bearer and compares against every record's hashes with
   `subtle.ConstantTimeCompare` (no early exit). `POST /v1/devices` with a known
@@ -3433,6 +3434,77 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   unbound. `docs/openapi.yaml`
   records each operation's credentials; `openapi_test.go` checks every
   registered route against it (route × credential table).
+- **LAN re-pair (#658):** `claimRegistry` (`devices_claims.go`), in memory
+  only with its own lock, so a restart drops every claim and the knob's next
+  poll is 404. A knob with an Ember URL but no valid token posts `POST
+  /v1/devices/claim {hw_id, fw, claim_key}` (unauthenticated,
+  `rateLimit`); the claim (`c_` + 8 random hex) gets a 6-digit code from
+  `crypto/rand` (rejection-sampled, unique among live claims) and lives 10
+  min. The server keeps the SHA-256 of `claim_key` and compares it and the
+  code with `subtle.ConstantTimeCompare`. Caps: 2 live claims per source
+  and 16 in all; past that 429, never an eviction, so a flood can't push
+  out the real knob's claim. The source is the socket address (never a
+  forwarded header), unmapped and without its zone, and an IPv6 address
+  counts by its /64, because one host can take any number of addresses in
+  its prefix. Expired claims are pruned under the lock before the count,
+  and the count and insert share that lock. Claim and poll bodies stop at
+  4 KiB (413). What stays open: whoever holds 8 sources (8 IPv4 addresses
+  or 8 /64s) can keep all 16 slots full, by design of "no eviction", so
+  the knob falls back to USB; the shared per-IP rate limiter
+  (`IPLimiter`) still keys by exact address, as on every route. In Docker
+  bridge mode (`-p`) every client arrives from the gateway address, so the
+  per-source cap of 2 is the whole server's cap: one client holding 2
+  claims (or a knob that rebooted twice) blocks every other claim until
+  they expire, and the 16 never comes into play. Production runs
+  `--network host` (the Unraid template's `Network: host`), where the
+  sources are real. Link-local IPv6 is one `fe80::/64` for the whole LAN,
+  the same effect for IPv6-only clients; cinder uses IPv4. 409 `already_paired` while that `hw_id`'s
+  record checked in within 5 min (a live knob never claims). The owner
+  lists pending claims (`GET /v1/devices/claims`) and approves one with the
+  code from the knob's screen (`POST …/claims/{id}/approve`, master only:
+  approval mints a knob token like `POST /v1/devices`). Both sides find
+  the routes through the server feature `lan_pair` in the open `/version`
+  `features`: an older server answers the claim routes 401 (the `/v1/`
+  owner catch-all) and the list 405, never 404. Approve runs, all under
+  the claim lock: an approved claim first (the right code is 200 with the
+  same device, a wrong one 400 that costs no try, so typos can't drop a
+  claim whose token is already minted); then the code (five wrong ones
+  drop a pending claim); then the live check again, so an old claim can't
+  revoke a knob that paired another way in between (409 `already_paired`,
+  the claim dropped); then `provision()`: a new record, or a re-provision
+  (new token, old one and any rotation revoked, config and version kept,
+  epoch bumped). Every other claim for that `hw_id` is then dropped as
+  superseded, because the mint just revoked whatever they could deliver.
+  The plaintext token stays on the claim, and every keyed poll (`POST
+  /v1/devices/claim/poll`) returns it until the first request
+  authenticated with it, which deletes the claim (`deviceAuthWith` calls
+  `claims.collect`), as with rotation delivery. A poll first checks that
+  the token is still the record's (`tokenCurrent`), so a device deleted or
+  re-provisioned after the approval makes the claim 404 and frees its
+  slot. An approved claim lasts 10 min from the approval. Decline drops a
+  pending claim; an approved one is 409 `claim_approved` (the token
+  exists; undo by deleting the device). Approve and decline take the
+  same lock, so a race ends as exactly one of "approved, decline 409" or
+  "declined, approve 404". A re-post with the same `hw_id` and
+  `claim_key` returns the same claim (200) without taking a slot, so a
+  knob that lost the reply doesn't burn its source's cap. 409 and 429
+  carry `Retry-After`: the end of the 5-min live window, or the expiry of
+  the claim that blocks the cap. `onExpire` runs under the claim lock and
+  must not block or call back into the registry. Every poll 404 (unknown,
+  expired, declined, dropped, superseded, revoked, wrong key) has one body. Logs: `device claim created|refused|code rejected|approved|declined|expired|collected`
+  with `claim_id`, `hw_id`, IP; never the code, key or token
+  (`TestClaimSecretsNeverLogged`). Threat model: the code on the physical
+  knob's screen is the proof of presence, and a rogue LAN claim's code
+  exists only in the rogue's reply; brute force needs `EMBER_TOKEN`. The
+  claim's 409 is an accepted oracle: it costs no slot and says only that
+  a MAC checked in within 5 min, which ARP and the `knob-xxxxxx` name
+  already show on the LAN, and 48 bits leave only targeted probes. Token
+  delivery is plain HTTP on the LAN, the same exposure as checkin
+  `new_token`. Decline is a `POST …/decline`, not `DELETE
+  /v1/devices/claims/{id}`: Go's mux rejects that pattern next to `DELETE
+  /v1/devices/{id}/demo` (both match `/v1/devices/claims/demo`). Device ids
+  are `knob-`, `clock-` or `client-` prefixed, so none is `claim` or
+  `claims`.
 - **Rotation:** `POST /v1/devices/{id}/rotate` (202) only marks the record.
   The first checkin made with the old token mints the pending token and returns
   it as `new_token`; later old-token checkins get the **same** token again

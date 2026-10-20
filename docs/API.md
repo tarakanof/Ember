@@ -44,7 +44,21 @@ poll carried it in the last 50 s and the current caps list the token,
 absent otherwise, #609, DEVICE-PROTOCOL
 "Shown page"; the `PATCH` reply too; no change long-poll, so a client
 polls the list),
-`GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340), `GET/PUT
+`GET /v1/clients` (`{"clients":[…]}`, same record shape; 404 before #340),
+knob pairing claims (#658, master token only, every client token 403;
+ARCHITECTURE "Device registry"): `GET /v1/devices/claims`
+(`{"claims":[{id, hw_id, short_id, fw, ip, created_at, expires_at,
+known_device_id|null}]}`, pending only, never the code or key; a server
+before #658 answers 405, so gate on `lan_pair` in `/version` `features`),
+`POST /v1/devices/claims/{id}/approve` `{code, name?}` (200 the
+`DeviceView`, no token, and every other claim for that `hw_id` is dropped;
+400 `{"error":"wrong_code","attempts_left"}`, the fifth wrong code drops a
+pending claim, while a wrong code on an approved claim costs no try; 409
+`already_paired` with `Retry-After` when the record checked in within the
+last 5 min, which drops the claim; 404 unknown or expired; again with the
+code: 200, nothing minted) and `POST /v1/devices/claims/{id}/decline`
+(204; 409 `claim_approved` once approved: to undo an approval, `DELETE` the
+device), `GET/PUT
 /v1/devices/{id}/config` (same merge; includes `swipe_pages` (bool, default
 true), `quiet{calm, dim_level}`, optional `idle{dim_after_s, dim_level, off_after_s}`
 and `apps{pomodoro, weather, nowplaying}` (#656, DEVICE-PROTOCOL "Idle and
@@ -238,7 +252,8 @@ units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
 `-update`) are also EmberKit's decode fixtures. Operator: `/admin/doctor`, `/admin/reload`,
 `/version` (`binary`, `version`, `revision`, `dirty`, `go_version`,
 `features`: server capabilities clients gate on, today
-`firmware_delete_keep` and `device_app_enabled`; `clock_disabled: true` under `EMBER_CLOCK=off`, omitted
+`firmware_delete_keep`, `device_app_enabled` and `lan_pair` (the knob claim
+routes, #658); `clock_disabled: true` under `EMBER_CLOCK=off`, omitted
 otherwise, read without clock I/O), `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
 `GET /v1/devices/self/config`, `PUT /v1/devices/self/coredump?id=<dump>`
 (the core dump a checkin asked for: `application/octet-stream`, ≤128 KiB or
@@ -252,7 +267,15 @@ single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
 a malformed value is ignored, never a 400); `"quiet":true` while quiet hours are on, and a waiting
 poll wakes at the quiet-hours edges — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
 on any knob config change or rotation and on any clock record or clock config change). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
-the Plex poller). Device-only (unauthenticated): `POST /hooks/awtrix/button`
+the Plex poller). Knob LAN re-pair (unauthenticated, rate-limited, #658, DEVICE-PROTOCOL
+"Scope"; only when `/version` `features` lists `lan_pair`, since an older
+server answers 401): `POST /v1/devices/claim` `{hw_id, fw, claim_key}` (201
+`{claim_id, code, expires_in_s, poll_s}`; 200 with the same claim for the
+same `hw_id` and `claim_key`; 409 `already_paired` while the record checked
+in within 5 min; 429 past 2 pending claims per source, an IPv4 address or
+an IPv6 /64, or 16 in all; both with `Retry-After`; 413 over 4 KiB) and
+`POST /v1/devices/claim/poll` `{claim_id, claim_key}` (202 pending, 200 with
+the token until its first use, else 404). Device-only (unauthenticated): `POST /hooks/awtrix/button`
 (NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG
 the form `button=…&state=1|0&uid` — both accepted; `select` accepted as an
 alias for `middle`; Pomodoro maps middle=play/pause/resume, left=stop,

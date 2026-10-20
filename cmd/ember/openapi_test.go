@@ -159,7 +159,7 @@ func specTargets(op specOp, clientID, knobID string) []specTarget {
 	if !op.auth.masterOnly {
 		return []specTarget{{method: method, path: fill(knobID)}}
 	}
-	if !strings.Contains(route, "{id}") {
+	if !strings.HasPrefix(route, "/v1/devices/{id}") {
 		return []specTarget{{method: method, path: fill(clientID), masterOnly: true}}
 	}
 	return []specTarget{

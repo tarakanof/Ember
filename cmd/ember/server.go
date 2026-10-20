@@ -137,6 +137,9 @@ func (a *App) routeTable() (http.Handler, []string) {
 	writeMux.Handle("GET /v1/devices", http.HandlerFunc(a.handleDevicesList))
 	writeMux.Handle("POST /v1/devices", http.HandlerFunc(a.handleDevicesCreate))
 	writeMux.Handle("GET /v1/clients", http.HandlerFunc(a.handleClientsList))
+	writeMux.Handle("GET /v1/devices/claims", http.HandlerFunc(a.handleDeviceClaimsList))
+	writeMux.Handle("POST /v1/devices/claims/{id}/approve", http.HandlerFunc(a.handleDeviceClaimApprove))
+	writeMux.Handle("POST /v1/devices/claims/{id}/decline", http.HandlerFunc(a.handleDeviceClaimDecline))
 	writeMux.Handle("PATCH /v1/devices/{id}", http.HandlerFunc(a.handleDevicePatch))
 	writeMux.Handle("DELETE /v1/devices/{id}", http.HandlerFunc(a.handleDeviceDelete))
 	writeMux.Handle("GET /v1/devices/{id}/config", http.HandlerFunc(a.handleDeviceConfigGetOwner))
@@ -163,6 +166,8 @@ func (a *App) routeTable() (http.Handler, []string) {
 	writeMux.Handle("DELETE /v1/firmware/{version}", http.HandlerFunc(a.handleFirmwareDelete))
 	mux.Handle("/v1/", rateLimit(a, requireAuth(a, a.logger, writeMux)))
 
+	mux.Handle("POST /v1/devices/claim", rateLimit(a, http.HandlerFunc(a.handleDeviceClaim)))
+	mux.Handle("POST /v1/devices/claim/poll", rateLimit(a, http.HandlerFunc(a.handleDeviceClaimPoll)))
 	mux.Handle("POST /v1/devices/self/checkin", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceCheckin))))
 	mux.Handle("PUT /v1/devices/self/coredump", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleCoredumpUpload))))
 	mux.Handle("GET /v1/devices/self/firmware/{version}", rateLimit(a, requireDevice(a, a.perDevice(a.firmwareLimit, http.HandlerFunc(a.handleFirmwareDownload)))))

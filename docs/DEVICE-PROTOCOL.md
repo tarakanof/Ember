@@ -11,7 +11,7 @@ fixtures both repos test against.
 
 ## Scope
 
-Every route the knob calls, all with its device token (`ekd_…`):
+Every route the knob calls with its device token (`ekd_…`); the LAN re-pair routes below take none:
 
 | Route | What |
 |---|---|
@@ -24,6 +24,37 @@ Every route the knob calls, all with its device token (`ekd_…`):
 | `POST /v1/nowplaying/control` | Player control, optional `Idempotency-Key`. |
 | `POST /v1/controls/action` | A gesture for the Mac-controller page (#515, cinder#144; firmware page not built yet): `{"gesture":"push|double_push|long_push|turn","steps":±1..20}`, `steps` only for `turn`. Optional `Idempotency-Key`. The knob names a gesture, never an action; actions live on the target Mac. Reply `controls_action.json` (202); 200 `{"status":"duplicate"}`; 503 when no Mac is set or it isn't listening (don't retry); 429 `Retry-After`. |
 | `GET /v1/nowplaying/art?kind=&size=&v=` | Art for the view's `art_version`: `kind` `album`/`artist`/`backdrop`/`cover`, `size` the square edge in px from a fixed list per kind (album 240 or 120, artist 64 or 120, backdrop 466, cover 466; default the first, anything else 400; `cover` is the prepared circle, "Prepared cover"), `v` the `art_version` (public, no token). `v` equal to the current `art_version` (for `cover`, the `cover_version`) gives `public, max-age=86400, immutable` for every kind, `artist` included; any other `v`, or none, gives `no-cache`. |
+
+**Unauthenticated: LAN re-pair** (#658). A knob with Wi-Fi and an Ember
+URL but no valid token (none stored, or a 401 on a checkin or view poll)
+calls these without a token, but only after `GET /version` (open, no
+token) lists `lan_pair` in `features`. They are its only unauthenticated
+writes (the art and the legacy reads are open reads). Both are
+rate-limited per IP.
+
+| Route | What |
+|---|---|
+| `POST /v1/devices/claim` | `{hw_id, fw, claim_key}` → 201 `{claim_id, code, expires_in_s: 600, poll_s: 5}` (`no-store`). `claim_key` is 32 random bytes as 43 unpadded base64url characters, kept in RAM and never logged; the server stores its SHA-256. The knob shows `code` (6 digits). The same `hw_id` and `claim_key` again (a lost reply) → 200 with the same claim and the seconds it has left; it takes no new slot. 409 `already_paired` while that `hw_id`'s record checked in within 5 min; 429 at 2 pending claims per source (an IPv4 address or an IPv6 /64) or 16 in all (nothing is evicted) and on the rate limit. Both refusals carry `Retry-After`. Bodies over 4 KiB are 413. |
+| `POST /v1/devices/claim/poll` | `{claim_id, claim_key}` every `poll_s` → 202 `{"state":"pending","expires_in_s"}`, or 200 `{"state":"approved","device_id","name","token"}` (`no-store`). Every poll gets the same token until the first request made with it, which deletes the claim; the knob stores `dev_id` and token and checks in at once. 404 (one body for all) for an unknown, expired, declined, dropped or superseded claim, a wrong key, or an approved claim whose token was revoked since (device deleted or re-provisioned): open a new claim with a new key. |
+
+**Knob retry rules.** Before the first claim, and again every hour while
+it isn't there, read `GET /version`: without `lan_pair` in `features`
+(a server before #658 answers the claim routes with 401 from the
+owner-auth catch-all, never 404 or 405) keep "Not paired" and don't call
+the claim routes, because a 401 there must not read as "token rejected,
+claim again". On a 201 or 200 show the code and poll every `poll_s`. On a
+lost claim reply, re-post the same body (same key): 200 returns the same
+claim. On 409 or 429 wait `Retry-After` seconds (409: until the record's
+last checkin is 5 min old; 429: until the claim blocking the cap
+expires), then claim again with a new key. On a poll 404 claim again at
+once with a new key. After a reboot the old key is gone, so the old claim
+just expires (up to 10 min); two quick reboots can meet a 429 from the
+knob's own dead claims, which `Retry-After` covers.
+
+The owner approves in Ember.app with the code (`POST
+/v1/devices/claims/{id}/approve`, master token; API.md). A claim lasts 10
+minutes, and 10 minutes from its approval once approved. Claims live in
+server memory, so a restart drops them and the next poll is 404.
 
 The knob learns of a config change or a rotation when the view's `epoch` or
 `config_version` moves, then checks in. The epoch is shared by every device
@@ -74,6 +105,22 @@ and fall under the same rules as the view.
 5. **Goldens are the contract.** Any change to the view, checkin or config
    shape updates the fixtures below in the same PR, and the PR says so, so
    cinder can sync them.
+
+**Claim routes and the rules** (#658). Rule 1: they are new, so old
+firmware never calls them. An old server does not answer them with 404 or
+405: `POST /v1/devices/claim` and `…/claim/poll` get 401 (they fall into
+the owner-auth `/v1/` catch-all) and `GET /v1/devices/claims` gets 405
+(it matches `PATCH`/`DELETE /v1/devices/{id}`). So both sides gate on the
+server feature `lan_pair` in the open `GET /version` `features`, not on a
+status code. Rule 2: they have no version field, so a breaking change
+needs a new route. Rule 3: a server can't see caps before pairing, so the
+knob gates on the server's `/version` feature; Ember.app gates its claim
+UI on that feature too, and its Forget text on the knob's `lan_pair` caps
+token. Rule 4: approve is idempotent per claim (again with the code: 200,
+the same device, nothing minted; a wrong code on an approved claim is 400
+and costs no try). The claim POST is idempotent per `hw_id` and
+`claim_key` (200, the same claim); a new key opens a new claim. Rule 5:
+`claim_*.json` below.
 
 **`mood.lead_project` (#485, #493).** Optional string, the `project` of
 the newest session in the winning state (≤32 characters: a folder name or
@@ -209,6 +256,7 @@ pre-releases the same way):
 | `demo` | Plays the view's `demo` block and reports `demo_id`/`demo_state` ("Demo mode") | `demo` is sent only with this token; `POST …/demo` is 409 without it; Ember.app's Demo page needs it |
 | `usage` | Parses the view's `usage` block and shows the usage screens ("Usage") | `usage` is sent only with this token |
 | `shown` | Adds `?shown=<page>[:<face>]` to its view polls ("Shown page") | `shown` is read only with this token; the owner's device entry carries `shown` while fresh |
+| `lan_pair` | Re-pairs over the LAN with a code when it has a URL but no valid token (`POST /v1/devices/claim`, #658) | Ember.app's Forget dialog says the knob will show a pairing code only with this token; the server doesn't read it. Not to be confused with the server's own `lan_pair` in `GET /version` `features`, which says the claim routes exist |
 
 Page ids in `caps.pages` need no registry: they are the config's page ids;
 Ember.app lists a knob app only when its page is in `effective_caps.pages`.
@@ -989,6 +1037,10 @@ Indented JSON; key order is the wire order.
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
 | `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800 (969 B compact) |
 | `checkin_reply_config_v2.json` | A stale knob's checkin reply carrying that config |
+| `claim_req.json` | A claim request: a fake `hw_id` (locally administered), `fw`, a fake 43-character `claim_key` |
+| `claim_reply.json` | The 201 reply, id `c_0123abcd` and code `482913` from a scripted random source |
+| `claim_poll_pending.json` | A poll before approval: `pending`, `expires_in_s` 600 |
+| `claim_poll_approved.json` | A poll after approval: `approved`, `device_id`, `name` and a fake `ekd_TEST…` token of a real token's length |
 | `config_custom.json` | Every setting changed (`quiet` calm off, `dim_level` 5, `display.rotation` 180, `bot.weather_moments` false and `weather_every_min` 0, `swipe_pages` false), plus an unknown page id the knob must keep |
 
 The test also compares what the server stores for `checkin_req_full.json`
@@ -996,6 +1048,7 @@ The test also compares what the server stores for `checkin_req_full.json`
 field the server stops reading fails it. `TestDeviceViewHeadersContract` pins
 the view and checkin header names and the 304 behaviour. Regenerate after an
 intended change with `go test ./cmd/ember -run 'Golden|Caps|LegacyFirmware|DemoScene|KnobShown' -update`
+(`TestDeviceClaimGolden` writes the `claim_*.json` files)
 and review the diff.
 
 **cinder side** (cinder#24): `firmware/test/host/fixtures/ember/` holds a copy
