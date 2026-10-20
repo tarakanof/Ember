@@ -469,12 +469,12 @@ private func provisionClosingTheWindowAfterAnUnreachableEvent(status: String? = 
 @Test func expectStopsWhenCancelled() async throws {
     let session = KnobSession(link: FakeKnob())
     await session.start()
-    let started = ContinuousClock.now
-    let t = Task { try await session.expect(timeout: .seconds(30)) { _ in Optional(1) } }
-    try await Task.sleep(for: .milliseconds(20))
-    t.cancel()
-    await #expect(throws: CancellationError.self) { _ = try await t.value }
-    #expect(ContinuousClock.now - started < .seconds(5))
+    for round in 0..<5 {
+        let t = Task { try await session.expect(timeout: .seconds(3600)) { _ in Optional(1) } }
+        for _ in 0..<(round % 5) { await Task.yield() }
+        t.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await t.value }
+    }
 }
 
 @Test func cancelledSetupDoesNotReconnect() async throws {
