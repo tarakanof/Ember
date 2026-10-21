@@ -19,6 +19,8 @@ private final class FakePairingServer: @unchecked Sendable {
     private var _attemptsLeft = 4
     private var _code = "482913"
     private var _approveStatus: Int?
+    private let listGate = DispatchSemaphore(value: 0)
+    private var _holdList = false
     private var _features = #"["lan_pair"]"#
     private var _declineStatus: Int?
 
@@ -29,14 +31,26 @@ private final class FakePairingServer: @unchecked Sendable {
     func setApproveStatus(_ s: Int) { lock.withLock { _approveStatus = s } }
     func setDeclineStatus(_ s: Int) { lock.withLock { _declineStatus = s } }
     func setFeatures(_ f: String) { lock.withLock { _features = f } }
+    func holdNextList() { lock.withLock { _holdList = true } }
+    func releaseList() { listGate.signal() }
+    func setWrongCodeLeft(_ n: Int) { lock.withLock { _attemptsLeft = n } }
     func setClaims(_ c: [String]) { lock.withLock { _claims = c } }
 
     func handle(_ req: URLRequest) -> (HTTPURLResponse, Data) {
         let body = String(decoding: req.httpBody ?? req.httpBodyStreamData() ?? Data(), as: UTF8.self)
         let method = req.httpMethod ?? "GET"
         let path = req.url!.path
+        if method == "GET", path == "/v1/devices/claims" {
+            let hold = lock.withLock { let h = _holdList; _holdList = false; return h }
+            let snapshot = lock.withLock { _claims }
+            lock.withLock { _requests.append((method, path, body)) }
+            if hold {
+                listGate.wait()
+                return (okResponse(req.url!), Data(#"{"claims":[\#(snapshot.joined(separator: ","))]}"#.utf8))
+            }
+        }
         return lock.withLock {
-            _requests.append((method, path, body))
+            if !(method == "GET" && path == "/v1/devices/claims") { _requests.append((method, path, body)) }
             switch (method, path) {
             case ("GET", "/v1/devices/claims"):
                 if _claimsStatus != 200 { return (okResponse(req.url!, status: _claimsStatus), Data(#"{"error":"not found"}"#.utf8)) }
@@ -103,7 +117,7 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
     await m.pairing.refresh()
     #expect(!m.pairing.isAvailable && m.pairing.claims.isEmpty)
     await m.pairing.poll()
-    #expect(server.requests.filter { $0.path == "/v1/devices/claims" }.count == 1)
+    #expect(server.requests.filter { $0.path == "/v1/devices/claims" }.count == 2)
 }
 
 @Test func pairingCodeAcceptsSpacesAndOnlySixDigits() {
@@ -159,8 +173,8 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
     server.setApproveStatus(404)
     server.setClaims([])
     #expect(await m.approve(claim, code: "482913") == false)
-    #expect(m.pairing.failures[claim.id] == .gone)
-    #expect(m.pairing.claims.isEmpty)
+    #expect(m.pairing.notices.map(\.failure) == [.gone] && m.pairing.notices.map(\.knob) == ["61FC8C"])
+    #expect(m.pairing.claims.isEmpty && m.pairing.isVisible)
 }
 
 @MainActor
@@ -215,7 +229,7 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
     server.setDeclineStatus(409)
     server.setClaims([])
     await m.pairing.decline(claim)
-    #expect(m.pairing.failures[claim.id] == .alreadyApproved)
+    #expect(m.pairing.notices.map(\.failure) == [.alreadyApproved] && m.pairing.isVisible)
 }
 
 @MainActor
@@ -246,6 +260,110 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
     server.setApproveStatus(409)
     server.setClaims([])
     #expect(await m.approve(claim, code: "482913") == false)
-    #expect(m.pairing.failures[claim.id] == .alreadyPaired)
+    #expect(m.pairing.notices.map(\.failure) == [.alreadyPaired])
+    #expect(m.pairing.claims.isEmpty && m.pairing.isVisible)
+    await m.pairing.refresh()
+    #expect(m.pairing.notices.map(\.failure) == [.alreadyPaired])
+}
+
+@MainActor
+@Test func fifthWrongCodeClosesTheClaimWithANoticeThatSurvivesRefresh() async {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    server.setWrongCodeLeft(0)
+    let m = pairingModel(server)
+    await m.pairing.refresh()
+    let claim = m.pairing.claims[0]
+    server.setClaims([])
+    #expect(await m.approve(claim, code: "000000") == false)
+    await m.pairing.refresh()
+    #expect(m.pairing.notices.map(\.failure) == [.wrongCode(attemptsLeft: 0)] && m.pairing.isVisible)
+}
+
+@MainActor
+@Test func aNoticeIsDismissedByTheUser() async {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    let m = pairingModel(server)
+    await m.pairing.refresh()
+    server.setApproveStatus(404)
+    server.setClaims([])
+    _ = await m.approve(m.pairing.claims[0], code: "482913")
+    m.pairing.dismiss(m.pairing.notices[0])
+    #expect(m.pairing.notices.isEmpty && !m.pairing.isVisible)
+}
+
+@MainActor
+@Test func aNoticeExpiresAfterItsTimeToLive() async throws {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    let gate = AsyncGate()
+    let svc = KnobService(client: stubbedClient(token: "t") { server.handle($0) })
+    let p = KnobPairingModel(service: svc, interval: .seconds(3), noticeTTL: .seconds(10), sleep: { d in
+        if d == .seconds(10) { await gate.wait() }
+    })
+    await p.refresh()
+    server.setApproveStatus(404)
+    _ = await p.approve(p.claims[0], code: "482913")
+    #expect(p.notices.count == 1)
+    await gate.open()
+    for _ in 0..<50 where !p.notices.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(p.notices.isEmpty)
+}
+
+private actor AsyncGate {
+    private var opened = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    func open() {
+        opened = true
+        waiters.forEach { $0.resume() }
+        waiters = []
+    }
+}
+
+@MainActor
+@Test func pollingReadsVersionAgainSoAServerUpgradeShowsPairing() async {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    server.setFeatures("[]")
+    let m = pairingModel(server)
+    await m.pairing.refresh()
+    #expect(!m.pairing.isAvailable)
+    server.setFeatures(#"["lan_pair"]"#)
+    let task = Task { await m.pairing.poll() }
+    for _ in 0..<100 where m.pairing.claims.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+    task.cancel()
+    #expect(m.pairing.isAvailable && m.pairing.claims.map(\.id) == ["c_0a1b2c3d"])
+}
+
+@MainActor
+@Test func aListReadStartedBeforeApprovalDoesNotBringTheClaimBack() async throws {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    let m = pairingModel(server)
+    await m.pairing.refresh()
+    let claim = m.pairing.claims[0]
+    server.holdNextList()
+    let stale = Task { await m.pairing.refresh() }
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(await m.approve(claim, code: "482913"))
+    server.releaseList()
+    await stale.value
     #expect(m.pairing.claims.isEmpty)
+}
+
+@MainActor
+@Test func refreshesRunOneAtATime() async throws {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    let m = pairingModel(server)
+    await m.pairing.refresh()
+    let before = server.requests.filter { $0.path == "/v1/devices/claims" }.count
+    server.holdNextList()
+    let a = Task { await m.pairing.refresh() }
+    try await Task.sleep(for: .milliseconds(50))
+    let b = Task { await m.pairing.refresh() }
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(server.requests.filter { $0.path == "/v1/devices/claims" }.count == before + 1)
+    server.releaseList()
+    await a.value; await b.value
+    #expect(server.requests.filter { $0.path == "/v1/devices/claims" }.count == before + 2)
 }

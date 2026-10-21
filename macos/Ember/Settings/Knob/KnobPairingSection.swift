@@ -6,16 +6,55 @@ struct KnobPairingSection: View {
 
     var body: some View {
         let pairing = env.knob.pairing
-        if pairing.isAvailable, !pairing.claims.isEmpty {
+        if pairing.isVisible {
             Section {
+                ForEach(pairing.notices) { notice in
+                    KnobPairingNoticeRow(notice: notice)
+                }
                 ForEach(pairing.claims) { claim in
                     KnobClaimRow(claim: claim)
                 }
             } header: {
                 Text("Pairing request")
             } footer: {
-                Text("Type the 6-digit code the knob shows on its screen. Only approve a request you started.")
+                if !pairing.claims.isEmpty {
+                    Text("Type the 6-digit code the knob shows on its screen. Only approve a request you started.")
+                }
             }
+        }
+    }
+}
+
+private struct KnobPairingNoticeRow: View {
+    @Environment(AppEnvironment.self) private var env
+    let notice: KnobPairingNotice
+
+    var body: some View {
+        HStack {
+            Label {
+                switch notice.failure {
+                case .alreadyPaired:
+                    Text("Knob \(notice.knob) already paired.",
+                         comment: "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\").")
+                case .gone:
+                    Text("The request from knob \(notice.knob) expired. It will show a new code.",
+                         comment: "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\").")
+                case .wrongCode:
+                    Text("The request from knob \(notice.knob) is closed after too many wrong codes. It will show a new code.",
+                         comment: "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\").")
+                case .alreadyApproved:
+                    Text("The request from knob \(notice.knob) was already approved.",
+                         comment: "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\").")
+                case .other(let error):
+                    Text("Couldn't pair: \(Text(error.message))",
+                         comment: "Settings › Knob pairing request error; the argument is a short reason (\"Server unreachable\").")
+                }
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+            }
+            .foregroundStyle(.orange)
+            Spacer()
+            Button("Dismiss") { env.knob.pairing.dismiss(notice) }
         }
     }
 }
@@ -53,13 +92,15 @@ private struct KnobClaimRow: View {
                 Image(systemName: "dial.medium")
             }
             HStack {
+                Text("Code")
                 TextField("Code", text: $code, prompt: Text("6 digits"))
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
                     .monospaced()
                     .frame(width: 110)
                     .onSubmit(approve)
                     .disabled(busy)
                 Button("Approve", action: approve)
-                    .keyboardShortcut(.defaultAction)
                     .disabled(busy || !KnobPairingCode.isValid(code))
                 Button("Decline", role: .destructive) { Task { await model.pairing.decline(claim) } }
                     .disabled(busy)
@@ -111,17 +152,11 @@ private struct KnobClaimRow: View {
             case .wrongCode(let left) where left > 0:
                 Text("That code is wrong. \(left) tries left.",
                      comment: "Settings › Knob pairing request; the argument is how many wrong codes the server still accepts for this request.")
-            case .wrongCode:
-                Text("That code is wrong, and the request is closed. The knob will show a new code.")
-            case .gone:
-                Text("This request expired. The knob will show a new code.")
-            case .alreadyApproved:
-                Text("This request was already approved.")
-            case .alreadyPaired:
-                Text("This knob already paired.")
             case .other(let error):
                 Text("Couldn't pair: \(Text(error.message))",
                      comment: "Settings › Knob pairing request error; the argument is a short reason (\"Server unreachable\").")
+            case .wrongCode, .gone, .alreadyApproved, .alreadyPaired:
+                EmptyView()
             }
         } icon: {
             Image(systemName: "exclamationmark.triangle.fill")

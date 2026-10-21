@@ -31,6 +31,12 @@ struct KnobClaimList: Decodable {
     var claims: [KnobClaim]
 }
 
+public struct KnobPairingNotice: Equatable, Sendable, Identifiable {
+    public let id: UUID
+    public let knob: String
+    public let failure: KnobPairingFailure
+}
+
 public enum KnobPairingFailure: Equatable, Sendable {
     case wrongCode(attemptsLeft: Int)
     case gone
@@ -57,33 +63,61 @@ public final class KnobPairingModel {
     public private(set) var isAvailable = true
     public private(set) var running: Set<String> = []
     public private(set) var failures: [String: KnobPairingFailure] = [:]
+    public private(set) var notices: [KnobPairingNotice] = []
+
+    public var isVisible: Bool { isAvailable && (!claims.isEmpty || !notices.isEmpty) }
 
     @ObservationIgnored public private(set) var service: KnobService
     @ObservationIgnored private var gateOpen = false
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var epoch = 0
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private let interval: Duration
+    @ObservationIgnored private let noticeTTL: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
 
     public static let pollEvery: Duration = .seconds(3)
+    public static let noticeFor: Duration = .seconds(10)
 
     public convenience init(service: KnobService) {
-        self.init(service: service, interval: Self.pollEvery, sleep: { try await Task.sleep(for: $0) })
+        self.init(service: service, interval: Self.pollEvery, noticeTTL: Self.noticeFor,
+                  sleep: { try await Task.sleep(for: $0) })
     }
 
-    init(service: KnobService, interval: Duration, sleep: @escaping @Sendable (Duration) async throws -> Void) {
+    init(service: KnobService, interval: Duration, noticeTTL: Duration = KnobPairingModel.noticeFor,
+         sleep: @escaping @Sendable (Duration) async throws -> Void) {
         self.service = service
         self.interval = interval
+        self.noticeTTL = noticeTTL
         self.sleep = sleep
     }
 
     public func configure(service next: KnobService) {
         guard next != service else { return }
         service = next
-        claims = []; isAvailable = true; running = []; failures = [:]; gateOpen = false
+        generation += 1
+        claims = []; isAvailable = true; running = []; failures = [:]; notices = []; gateOpen = false
+    }
+
+    public func dismiss(_ notice: KnobPairingNotice) {
+        notices.removeAll { $0.id == notice.id }
     }
 
     public func refresh() async {
+        while let inFlight = refreshTask { await inFlight.value }
+        let task = Task { @MainActor in
+            await self.load()
+            self.refreshTask = nil
+        }
+        refreshTask = task
+        await task.value
+    }
+
+    private func load() async {
+        let gen = generation, mark = epoch
+        func current() -> Bool { gen == generation && mark == epoch }
         if !gateOpen {
-            guard let info = try? await service.serverVersion() else { return }
+            guard let info = try? await service.serverVersion(), gen == generation else { return }
             guard info.supports(VersionInfo.lanPair) else {
                 isAvailable = false
                 claims = []
@@ -93,16 +127,20 @@ public final class KnobPairingModel {
         }
         do {
             let list = try await service.claims()
+            guard current() else { return }
             claims = list
             isAvailable = true
             failures = failures.filter { id, _ in list.contains { $0.id == id } || self.running.contains(id) }
         } catch let APIError.http(status, _) where status == 404 || status == 405 {
+            guard gen == generation else { return }
             isAvailable = false
             claims = []
         } catch {}
     }
 
     public func poll() async {
+        gateOpen = false
+        isAvailable = true
         while !Task.isCancelled && isAvailable {
             await refresh()
             try? await sleep(interval)
@@ -120,21 +158,25 @@ public final class KnobPairingModel {
         defer { running.remove(claim.id) }
         do {
             let device = try await service.approveClaim(id: claim.id, code: KnobPairingCode.normalized(code))
+            epoch += 1
             failures[claim.id] = nil
             claims.removeAll { $0.id == claim.id }
             return device
         } catch let APIError.http(status, body) where status == 400 {
-            failures[claim.id] = Self.attemptsLeft(body).map { .wrongCode(attemptsLeft: $0) } ?? .other(FeedError(APIError.http(status: status, body: body)))
-            if case .wrongCode(0)? = failures[claim.id] { await refresh() }
+            epoch += 1
+            if let left = Self.attemptsLeft(body) {
+                if left > 0 { failures[claim.id] = .wrongCode(attemptsLeft: left) } else { close(claim, .wrongCode(attemptsLeft: 0)) }
+            } else {
+                failures[claim.id] = .other(FeedError(APIError.http(status: status, body: body)))
+            }
         } catch let APIError.http(status, _) where status == 409 {
-            failures[claim.id] = .alreadyPaired
-            await refresh()
+            close(claim, .alreadyPaired)
         } catch let APIError.http(status, _) where status == 404 {
-            failures[claim.id] = .gone
-            await refresh()
+            close(claim, .gone)
         } catch {
             failures[claim.id] = .other(FeedError(error))
         }
+        await refresh()
         return nil
     }
 
@@ -144,15 +186,29 @@ public final class KnobPairingModel {
         defer { running.remove(claim.id) }
         do {
             try await service.declineClaim(id: claim.id)
+            epoch += 1
             failures[claim.id] = nil
             claims.removeAll { $0.id == claim.id }
         } catch let APIError.http(status, _) where status == 404 {
+            epoch += 1
             claims.removeAll { $0.id == claim.id }
         } catch let APIError.http(status, _) where status == 409 {
-            failures[claim.id] = .alreadyApproved
+            close(claim, .alreadyApproved)
             await refresh()
         } catch {
             failures[claim.id] = .other(FeedError(error))
+        }
+    }
+
+    private func close(_ claim: KnobClaim, _ failure: KnobPairingFailure) {
+        epoch += 1
+        failures[claim.id] = nil
+        claims.removeAll { $0.id == claim.id }
+        let notice = KnobPairingNotice(id: UUID(), knob: claim.shortID, failure: failure)
+        notices.append(notice)
+        Task { @MainActor in
+            try? await sleep(noticeTTL)
+            dismiss(notice)
         }
     }
 

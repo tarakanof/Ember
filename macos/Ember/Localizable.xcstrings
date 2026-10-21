@@ -1489,6 +1489,9 @@
     },
     "Key" : {},
     "Knob" : {},
+    "Knob %@ already paired." : {
+      "comment" : "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\")."
+    },
     "Knob %@ wants to pair" : {
       "comment" : "Settings › Knob pairing request; the argument is the knob's short ID (\"61FC8C\")."
     },
@@ -2278,7 +2281,6 @@
     "Test" : {},
     "Test Connection" : {},
     "Text color" : {},
-    "That code is wrong, and the request is closed. The knob will show a new code." : {},
     "That code is wrong. %lld tries left." : {
       "comment" : "Settings › Knob pairing request; the argument is how many wrong codes the server still accepts for this request."
     },
@@ -2446,6 +2448,15 @@
     "The overlay draws rain, snow or storms over whatever is showing." : {},
     "The reminder shows for the time above, then the clock carries on." : {},
     "The reminder stays on the clock until you press its middle button." : {},
+    "The request from knob %@ expired. It will show a new code." : {
+      "comment" : "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\")."
+    },
+    "The request from knob %@ is closed after too many wrong codes. It will show a new code." : {
+      "comment" : "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\")."
+    },
+    "The request from knob %@ was already approved." : {
+      "comment" : "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\")."
+    },
     "The screen stays dark while the knob boots, then lights at this level until your brightness setting takes over. Default: 60 percent." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2498,13 +2509,10 @@
     "This clock has no speaker." : {},
     "This clock style draws no weekday bar; the Date app still does." : {},
     "This clock style has no room for seconds or AM/PM." : {},
-    "This knob already paired." : {},
     "This knob's bootloader can't roll back. Flash it once over USB (see cinder docs/workflow.md)." : {},
     "This replaces “%@”. Ember forgets that knob after setup." : {
       "comment" : "Knob setup warning; the argument is the name of the knob already set up."
     },
-    "This request expired. The knob will show a new code." : {},
-    "This request was already approved." : {},
     "This server can't reach a clock. Check the clock's address below or discover one." : {},
     "This server can't store knob firmware. Update the Ember server." : {},
     "This server doesn't support meetings. Update the Ember server." : {},

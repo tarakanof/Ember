@@ -17,7 +17,7 @@ enum KnobPaneFixtures {
         var table = responses(now: now)
         if empty {
             table["/v1/devices"] = #"{"devices":[]}"#
-            table["/v1/devices/claims"] = table["/v1/devices/claims"]?.replacingOccurrences(of: "3cdc7500aaaa", with: "3cdc7561fc8c").replacingOccurrences(of: "00AAAA", with: "61FC8C")
+            table["/v1/devices/claims"] = table["/v1/devices/claims"]?.replacingOccurrences(of: "3cdc7500aaaa", with: "3cdc7561fc8c").replacingOccurrences(of: "00AAAA", with: "61FC8C").replacingOccurrences(of: #""known_device_id":"knob-61fc8c""#, with: #""known_device_id":null"#)
         }
         KnobFixtureURLProtocol.responses = table
         let config = URLSessionConfiguration.ephemeral
