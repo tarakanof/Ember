@@ -286,11 +286,8 @@ private struct KnobPreviewFeeds: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .task {
-                guard page == nil || page == "weather" else { return }
-                await env.live.track(.weather)
-            }
-            .task(id: "\(env.connection.serverURL?.absoluteString ?? "")|\(overviewNeedsNowPlaying)") {
+            .holdsLive(.weather, in: env.live, while: page == nil || page == "weather")
+            .task(id: "\(env.connection.serverURL?.absoluteString ?? "")|\(page ?? "")|\(overviewNeedsNowPlaying)") {
                 let overview = page == nil
                 guard page == "nowplaying" || (overview && overviewNeedsNowPlaying) else { return }
                 let feed = KnobNowPlayingFeed(client: env.connection.client, thumbnail: overview)
