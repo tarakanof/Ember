@@ -173,7 +173,7 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
     server.setApproveStatus(404)
     server.setClaims([])
     #expect(await m.approve(claim, code: "482913") == false)
-    #expect(m.pairing.notices.map(\.failure) == [.gone] && m.pairing.notices.map(\.knob) == ["61FC8C"])
+    #expect(m.pairing.notices.map(\.closure) == [.gone] && m.pairing.notices.map(\.knob) == ["61FC8C"])
     #expect(m.pairing.claims.isEmpty && m.pairing.isVisible)
 }
 
@@ -229,7 +229,7 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
     server.setDeclineStatus(409)
     server.setClaims([])
     await m.pairing.decline(claim)
-    #expect(m.pairing.notices.map(\.failure) == [.alreadyApproved] && m.pairing.isVisible)
+    #expect(m.pairing.notices.map(\.closure) == [.alreadyApproved] && m.pairing.isVisible)
 }
 
 @MainActor
@@ -260,10 +260,10 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
     server.setApproveStatus(409)
     server.setClaims([])
     #expect(await m.approve(claim, code: "482913") == false)
-    #expect(m.pairing.notices.map(\.failure) == [.alreadyPaired])
+    #expect(m.pairing.notices.map(\.closure) == [.alreadyPaired])
     #expect(m.pairing.claims.isEmpty && m.pairing.isVisible)
     await m.pairing.refresh()
-    #expect(m.pairing.notices.map(\.failure) == [.alreadyPaired])
+    #expect(m.pairing.notices.map(\.closure) == [.alreadyPaired])
 }
 
 @MainActor
@@ -276,7 +276,7 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
     server.setClaims([])
     #expect(await m.approve(claim, code: "000000") == false)
     await m.pairing.refresh()
-    #expect(m.pairing.notices.map(\.failure) == [.wrongCode(attemptsLeft: 0)] && m.pairing.isVisible)
+    #expect(m.pairing.notices.map(\.closure) == [.wrongCodes] && m.pairing.isVisible)
 }
 
 @MainActor
@@ -292,34 +292,36 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
 }
 
 @MainActor
-@Test func aNoticeExpiresAfterItsTimeToLive() async throws {
+@Test func aNoticeOnlyAgesWhileThePaneIsPolling() async throws {
     let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
-    let gate = AsyncGate()
     let svc = KnobService(client: stubbedClient(token: "t") { server.handle($0) })
-    let p = KnobPairingModel(service: svc, interval: .seconds(3), noticeTTL: .seconds(10), sleep: { d in
-        if d == .seconds(10) { await gate.wait() }
+    let p = KnobPairingModel(service: svc, interval: .seconds(3), noticeTTL: .seconds(10), sleep: { _ in
+        try await Task.sleep(for: .milliseconds(1))
     })
     await p.refresh()
     server.setApproveStatus(404)
     _ = await p.approve(p.claims[0], code: "482913")
+    try await Task.sleep(for: .milliseconds(100))
     #expect(p.notices.count == 1)
-    await gate.open()
-    for _ in 0..<50 where !p.notices.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    let polling = Task { await p.poll() }
+    for _ in 0..<200 where !p.notices.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    polling.cancel()
     #expect(p.notices.isEmpty)
 }
 
-private actor AsyncGate {
-    private var opened = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-    func wait() async {
-        if opened { return }
-        await withCheckedContinuation { waiters.append($0) }
-    }
-    func open() {
-        opened = true
-        waiters.forEach { $0.resume() }
-        waiters = []
-    }
+@MainActor
+@Test func cancellingPollMidSleepDoesNotAgeNotices() async throws {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    let svc = KnobService(client: stubbedClient(token: "t") { server.handle($0) })
+    let p = KnobPairingModel(service: svc, interval: .seconds(3), noticeTTL: .seconds(3), sleep: { try await Task.sleep(for: $0) })
+    await p.refresh()
+    server.setApproveStatus(404)
+    _ = await p.approve(p.claims[0], code: "482913")
+    let polling = Task { await p.poll() }
+    try await Task.sleep(for: .milliseconds(200))
+    polling.cancel()
+    await polling.value
+    #expect(p.notices.count == 1)
 }
 
 @MainActor
