@@ -71,6 +71,72 @@ func TestDeviceCheckinRecordsTheDiag(t *testing.T) {
 	}
 }
 
+func TestDeviceCheckinStoresTheIdleBlockVerbatim(t *testing.T) {
+	for name, idle := range map[string]deviceIdle{
+		`{"state":"dim","input_age_s":125,"wake":"touch"}`:    {State: "dim", InputAgeS: 125, Wake: "touch"},
+		`{"state":"awake","input_age_s":0,"wake":""}`:         {State: "awake"},
+		`{"state":"sleepy","input_age_s":7,"wake":"gesture"}`: {State: "sleepy", InputAgeS: 7, Wake: "gesture"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			app, post := newDiagKnob(t)
+			post(`{"idle":` + name + `}`)
+			got := storedDiag(app)
+			if got == nil || got.Idle == nil || *got.Idle != idle {
+				t.Fatalf("diag = %+v, want idle %+v", got, idle)
+			}
+		})
+	}
+}
+
+func TestDeviceListingShowsTheIdleBlock(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	body := `{"fw":"0.9.13","diag":{"idle":{"state":"off","input_age_s":0,"wake":""}}}`
+	if resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, body); resp.StatusCode != http.StatusOK {
+		t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
+	}
+	_, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
+	if !strings.Contains(string(b), `"diag":{"idle":{"state":"off","input_age_s":0,"wake":""}}`) {
+		t.Fatalf("listing: %s", b)
+	}
+}
+
+func TestDeviceCheckinDropsOnlyAnInvalidIdleBlock(t *testing.T) {
+	for name, idle := range map[string]string{
+		"negative age": `{"state":"dim","input_age_s":-1,"wake":""}`,
+		"long state":   `{"state":"` + strings.Repeat("a", 33) + `","input_age_s":1,"wake":""}`,
+		"long wake":    `{"state":"dim","input_age_s":1,"wake":"` + strings.Repeat("a", 33) + `"}`,
+		"wrong type":   `{"state":"dim","input_age_s":"1","wake":""}`,
+		"not object":   `[1]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			app, post := newDiagKnob(t)
+			post(strings.TrimSuffix(fullDiag, "}") + `,"idle":` + idle + `}`)
+			got := storedDiag(app)
+			if got == nil || got.Idle != nil || got.Boots != 42 || got.Crash == nil || got.Crash.Task != "ember" || got.StackFree["lvgl"] != 2304 {
+				t.Fatalf("diag = %+v", got)
+			}
+		})
+	}
+}
+
+func TestBadIdleKeepsTheRebootHistory(t *testing.T) {
+	app, post := newDiagKnob(t)
+	post(`{"boots":1,"reset_reason":"poweron"}`)
+	post(`{"boots":2,"reset_reason":"sw","idle":{"state":"dim","input_age_s":-1,"wake":""}}`)
+	if got := storedDiag(app); got == nil || got.Reboots != 1 || got.PrevResetReason != "poweron" || got.Idle != nil {
+		t.Fatalf("diag = %+v", got)
+	}
+}
+
+func TestDeviceCheckinWithoutIdleKeepsItNil(t *testing.T) {
+	app, post := newDiagKnob(t)
+	post(fullDiag)
+	if got := storedDiag(app); got == nil || got.Idle != nil {
+		t.Fatalf("diag = %+v", got)
+	}
+}
+
 func TestDeviceCheckinKeepsAnEmptyDiag(t *testing.T) {
 	app, post := newDiagKnob(t)
 	post(`{}`)

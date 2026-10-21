@@ -70,9 +70,10 @@ public struct KnobDiag: Codable, Equatable, Sendable {
     public var reboots: Int?
     public var prevResetReason: String?
     public var rebootsSinceSeen: Int?
+    public var idle: KnobIdle?
 
     enum CodingKeys: String, CodingKey {
-        case boots, crash, reboots
+        case boots, crash, reboots, idle
         case heapInternalMin = "heap_internal_min"
         case heapLargestMin = "heap_largest_min"
         case resetReason = "reset_reason"
@@ -83,10 +84,12 @@ public struct KnobDiag: Codable, Equatable, Sendable {
 
     public init(boots: Int? = nil, crash: KnobCrash? = nil, heapInternalMin: Int? = nil,
                 heapLargestMin: Int? = nil, resetReason: String? = nil, stackFree: [String: Int]? = nil,
-                reboots: Int? = nil, prevResetReason: String? = nil, rebootsSinceSeen: Int? = nil) {
+                reboots: Int? = nil, prevResetReason: String? = nil, rebootsSinceSeen: Int? = nil,
+                idle: KnobIdle? = nil) {
         self.boots = boots; self.crash = crash; self.heapInternalMin = heapInternalMin
         self.heapLargestMin = heapLargestMin; self.resetReason = resetReason; self.stackFree = stackFree
         self.reboots = reboots; self.prevResetReason = prevResetReason; self.rebootsSinceSeen = rebootsSinceSeen
+        self.idle = idle
     }
 
     public var unseenRestarts: Int? {
@@ -97,6 +100,48 @@ public struct KnobDiag: Codable, Equatable, Sendable {
     public var largestBlockMin: Int? {
         guard let n = heapLargestMin, n > 0 else { return nil }
         return n
+    }
+}
+
+public struct KnobIdle: Codable, Equatable, Sendable {
+    public var state: String
+    public var inputAgeS: Int
+    public var wake: String
+
+    enum CodingKeys: String, CodingKey {
+        case state, wake
+        case inputAgeS = "input_age_s"
+    }
+
+    public init(state: String, inputAgeS: Int, wake: String = "") {
+        self.state = state; self.inputAgeS = inputAgeS; self.wake = wake
+    }
+
+    public func lastActivity(seenAt: Date) -> Date {
+        seenAt.addingTimeInterval(-Double(max(0, inputAgeS)))
+    }
+
+    public static func stateLabel(_ raw: String) -> String? {
+        switch raw {
+        case "": nil
+        case "awake": String(localized: "Awake")
+        case "dim": String(localized: "Dimmed")
+        case "off": String(localized: "Off")
+        default: raw
+        }
+    }
+
+    public static func wakeLabel(_ raw: String) -> String? {
+        switch raw {
+        case "": nil
+        case "touch": String(localized: "Touch")
+        case "encoder": String(localized: "Turn or press")
+        case "mood": String(localized: "Agent activity")
+        case "demo": String(localized: "Demo")
+        case "ota_face": String(localized: "Update screen")
+        case "ota_trial": String(localized: "Update trial")
+        default: raw
+        }
     }
 }
 

@@ -85,8 +85,8 @@ struct KnobStatusSection: View {
                 LabeledContent("Reconnects") { reconnects(wifi) }
                     .help("Times the knob lost Wi-Fi since it started. Each one starts a reconnect.")
             }
-            if let diag = checkin?.diag {
-                diagRows(diag)
+            if let diag = checkin?.diag, let seen = checkin?.seenAt {
+                diagRows(diag, seenAt: seen, online: knob.isOnline(now: .now))
             }
             if let mhz = checkin?.linkMHz, mhz > 0 {
                 LabeledContent("Display link") {
@@ -193,7 +193,7 @@ struct KnobStatusSection: View {
                     comment: "Settings › Knob: Wi-Fi reconnects since the knob started, then the last disconnect's ESP-IDF reason code this app has no words for (\"3 (last: reason 250)\").")
     }
 
-    @ViewBuilder private func diagRows(_ diag: KnobDiag) -> some View {
+    @ViewBuilder private func diagRows(_ diag: KnobDiag, seenAt: Date, online: Bool) -> some View {
         if let reset = diag.resetReason?.nonEmpty {
             LabeledContent("Last restart") { resetText(reset, diag) }
                 .help("Why the knob last started, as ESP-IDF reports it.")
@@ -201,6 +201,20 @@ struct KnobStatusSection: View {
         if let boots = diag.boots, boots > 0 {
             LabeledContent("Boots") { bootsText(boots, reboots: diag.reboots ?? 0) }
                 .help("Times the knob has started since its flash was erased.")
+        }
+        if online, let idle = diag.idle {
+            if let state = KnobIdle.stateLabel(idle.state) {
+                LabeledContent("Screen") { Text(verbatim: state) }
+                    .help("Whether the knob's screen is awake, dimmed or off from inactivity.")
+            }
+            LabeledContent("Last activity") {
+                Text(idle.lastActivity(seenAt: seenAt), format: .relative(presentation: .named))
+            }
+            .help("When the knob's inactivity timer last restarted: a touch, a turn or press, or the knob waking for a mood, demo or update screen.")
+            if let wake = KnobIdle.wakeLabel(idle.wake) {
+                LabeledContent("Last wake") { Text(verbatim: wake) }
+                    .help("What last woke the knob's screen.")
+            }
         }
     }
 

@@ -76,6 +76,7 @@ type App struct {
 	knobStats     *knobStatsStore
 	wifiDrops     checkinDropLog
 	diagDrops     checkinDropLog
+	idleDrops     checkinDropLog
 	coredumps     *coredumpStore
 	knobFW        *firmwareStore
 	ota           otaLive
