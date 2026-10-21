@@ -1516,15 +1516,11 @@
       "comment" : "Demo page status: the knob rebooted while a scene was sent or playing, so the server dropped the demo and its queue; the argument is the scene's title (\"Hop\")."
     },
     "Knob stats unavailable" : {},
-    "Knob turned" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
-      "extractionState" : "manual"
-    },
     "LED matrix" : {},
     "Largest block" : {},
     "Last 7 days" : {},
+    "Last activity" : {},
     "Last check-in" : {},
-    "Last input" : {},
     "Last press" : {},
     "Last reminder didn't reach the clock: %@" : {
       "comment" : "Settings › Calendar: why the last reminder failed (a short error message)."
@@ -2549,7 +2545,6 @@
     "Time & Date" : {},
     "Time per app" : {},
     "Time range" : {},
-    "Time since the knob's inactivity timer last restarted." : {},
     "Time until the 5-hour window resets." : {},
     "Times the knob has started since its flash was erased." : {},
     "Times the knob lost Wi-Fi since it started. Each one starts a reconnect." : {},
@@ -2629,6 +2624,10 @@
     "Turn On Full Diagnostics" : {},
     "Turn it on in Settings › Sources › Focus." : {},
     "Turn off after" : {},
+    "Turn or press" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Turning Sound off silences the clock completely, chimes included." : {},
     "Turning the knob or touching it wakes it." : {},
     "Turning the knob steps through the faces that are on, in this order. At least one stays on." : {},
@@ -2830,6 +2829,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "When the knob's inactivity timer last restarted: a touch, a turn or press, or the knob waking for a mood, demo or update screen." : {},
     "When usage cards join the rotation is set in Sources › Agents. Server-wide." : {},
     "When you focus" : {},
     "Where the server gets conditions and the forecast" : {

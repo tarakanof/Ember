@@ -60,14 +60,6 @@ func (d deviceDiag) validate() error {
 	case len(d.StackFree) > diagStackTaskMax:
 		return errors.New("stack_free must have at most 32 tasks")
 	}
-	if i := d.Idle; i != nil {
-		switch {
-		case i.InputAgeS < 0:
-			return errors.New("idle.input_age_s must be >= 0")
-		case len(i.State) > diagIdleTextMax || len(i.Wake) > diagIdleTextMax:
-			return errors.New("idle.state and idle.wake must be at most 32 bytes")
-		}
-	}
 	if c := d.Crash; c != nil {
 		switch {
 		case c.Reason != "" && !diagReasonPattern.MatchString(c.Reason):
@@ -93,6 +85,16 @@ func (d deviceDiag) validate() error {
 		if free < 0 {
 			return errors.New("stack_free values must be >= 0")
 		}
+	}
+	return nil
+}
+
+func (i deviceIdle) validate() error {
+	switch {
+	case i.InputAgeS < 0:
+		return errors.New("input_age_s must be >= 0")
+	case len(i.State) > diagIdleTextMax || len(i.Wake) > diagIdleTextMax:
+		return errors.New("state and wake must be at most 32 bytes")
 	}
 	return nil
 }

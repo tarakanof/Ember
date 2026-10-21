@@ -3307,7 +3307,8 @@ paths:
                       type: object
                       description: >-
                         Screen idle state (cinder#273). Unknown `state` and `wake` strings are
-                        stored and shown as sent.
+                        stored and shown as sent; a key left out is stored as empty or 0. An
+                        invalid block is dropped alone, the rest of `diag` is kept.
                       properties:
                         state:
                           type: string

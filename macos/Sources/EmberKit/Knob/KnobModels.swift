@@ -117,8 +117,13 @@ public struct KnobIdle: Codable, Equatable, Sendable {
         self.state = state; self.inputAgeS = inputAgeS; self.wake = wake
     }
 
-    public static func stateLabel(_ raw: String) -> String {
+    public func lastActivity(seenAt: Date) -> Date {
+        seenAt.addingTimeInterval(-Double(max(0, inputAgeS)))
+    }
+
+    public static func stateLabel(_ raw: String) -> String? {
         switch raw {
+        case "": nil
         case "awake": String(localized: "Awake")
         case "dim": String(localized: "Dimmed")
         case "off": String(localized: "Off")
@@ -130,7 +135,7 @@ public struct KnobIdle: Codable, Equatable, Sendable {
         switch raw {
         case "": nil
         case "touch": String(localized: "Touch")
-        case "encoder": String(localized: "Knob turned")
+        case "encoder": String(localized: "Turn or press")
         case "mood": String(localized: "Agent activity")
         case "demo": String(localized: "Demo")
         case "ota_face": String(localized: "Update screen")

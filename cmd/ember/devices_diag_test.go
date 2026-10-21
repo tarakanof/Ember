@@ -101,6 +101,34 @@ func TestDeviceListingShowsTheIdleBlock(t *testing.T) {
 	}
 }
 
+func TestDeviceCheckinDropsOnlyAnInvalidIdleBlock(t *testing.T) {
+	for name, idle := range map[string]string{
+		"negative age": `{"state":"dim","input_age_s":-1,"wake":""}`,
+		"long state":   `{"state":"` + strings.Repeat("a", 33) + `","input_age_s":1,"wake":""}`,
+		"long wake":    `{"state":"dim","input_age_s":1,"wake":"` + strings.Repeat("a", 33) + `"}`,
+		"wrong type":   `{"state":"dim","input_age_s":"1","wake":""}`,
+		"not object":   `[1]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			app, post := newDiagKnob(t)
+			post(strings.TrimSuffix(fullDiag, "}") + `,"idle":` + idle + `}`)
+			got := storedDiag(app)
+			if got == nil || got.Idle != nil || got.Boots != 42 || got.Crash == nil || got.Crash.Task != "ember" || got.StackFree["lvgl"] != 2304 {
+				t.Fatalf("diag = %+v", got)
+			}
+		})
+	}
+}
+
+func TestBadIdleKeepsTheRebootHistory(t *testing.T) {
+	app, post := newDiagKnob(t)
+	post(`{"boots":1,"reset_reason":"poweron"}`)
+	post(`{"boots":2,"reset_reason":"sw","idle":{"state":"dim","input_age_s":-1,"wake":""}}`)
+	if got := storedDiag(app); got == nil || got.Reboots != 1 || got.PrevResetReason != "poweron" || got.Idle != nil {
+		t.Fatalf("diag = %+v", got)
+	}
+}
+
 func TestDeviceCheckinWithoutIdleKeepsItNil(t *testing.T) {
 	app, post := newDiagKnob(t)
 	post(fullDiag)
@@ -134,10 +162,6 @@ func TestDeviceCheckinDropsAnInvalidDiagButKeepsTheCheckin(t *testing.T) {
 		"stack task utf8":    `{"stack_free":{"задача":1}}`,
 		"stack negative":     `{"stack_free":{"ember":-1}}`,
 		"stack too many":     manyStacks(33),
-		"idle negative age":  `{"idle":{"state":"dim","input_age_s":-1,"wake":""}}`,
-		"idle long state":    `{"idle":{"state":"` + strings.Repeat("a", 33) + `","input_age_s":1,"wake":""}}`,
-		"idle long wake":     `{"idle":{"state":"dim","input_age_s":1,"wake":"` + strings.Repeat("a", 33) + `"}}`,
-		"idle wrong type":    `{"idle":{"state":"dim","input_age_s":"1","wake":""}}`,
 		"wrong type":         `{"boots":"42"}`,
 		"not object":         `[1]`,
 	} {

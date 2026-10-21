@@ -5071,13 +5071,17 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `awake`, `dim` or `off`, `input_age_s` the seconds since the knob's idle
   clock last restarted, `wake` what last woke the screen (`touch`, `encoder`,
   `mood`, `demo`, `ota_face`, `ota_trial`, or `""`). Stored as
-  `last_checkin.diag.idle`, latest checkin only, in the same shape (all three
-  keys always present); older firmware omits it and the app shows nothing.
-  Strings the server doesn't know are stored and shown as sent; a negative
-  `input_age_s`, a `state` or `wake` over 32 bytes or a wrong type drops the
-  whole `diag` like any other invalid key. The app shows Crash (only while
-  present), Last restart, Boots, Lowest free memory and, with `idle`, Screen,
-  Last input and Last wake (only when `wake` is set) rows)
+  `last_checkin.diag.idle`, latest checkin only, always with all three keys (a
+  key the knob left out reads as `""` or 0); older firmware omits it and the
+  app shows nothing. Strings the server doesn't know are stored and shown as
+  sent. `idle` is decoded as a part of its own: a negative `input_age_s`, a
+  `state` or `wake` over 32 bytes or a wrong type drops only `idle` (logged
+  like `wifi`, `diag.idle dropped`), so crash, boots and the reboot history
+  of the rest of `diag` survive. The app shows Crash (only while present),
+  Last restart, Boots, Lowest free memory and, with `idle` while the knob is
+  online, Screen (hidden when `state` is empty), Last activity (relative to
+  the checkin's `seen_at` minus `input_age_s`, so it keeps ticking between
+  checkins) and Last wake (only when `wake` is set) rows)
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus

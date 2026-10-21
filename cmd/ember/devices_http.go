@@ -334,6 +334,7 @@ func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	a.knobStats.forget(id)
 	a.wifiDrops.forget(id)
 	a.diagDrops.forget(id)
+	a.idleDrops.forget(id)
 	a.otaDrops.forget(id)
 	a.capsDrops.forget(id)
 	a.viewOverLimit.forget(id)
@@ -503,9 +504,18 @@ func decodeCheckinPart[T checkinPart](a *App, r *http.Request, name string, raw 
 }
 
 func (a *App) decodeDeviceDiag(r *http.Request, raw json.RawMessage) *deviceDiag {
+	var rawIdle json.RawMessage
+	var parts map[string]json.RawMessage
+	if json.Unmarshal(raw, &parts) == nil {
+		if rawIdle = parts["idle"]; rawIdle != nil {
+			delete(parts, "idle")
+			raw, _ = json.Marshal(parts)
+		}
+	}
 	d := decodeCheckinPart[deviceDiag](a, r, "diag", raw, &a.diagDrops)
 	if d != nil {
 		d.Reboots, d.PrevResetReason, d.RebootsSinceSeen = 0, "", 0
+		d.Idle = decodeCheckinPart[deviceIdle](a, r, "diag.idle", rawIdle, &a.idleDrops)
 	}
 	return d
 }
