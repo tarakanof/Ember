@@ -307,7 +307,7 @@ private struct KnobPreviewFeeds: ViewModifier {
                 }
                 let knob = env.knob
                 let feed = KnobShownFeed(client: env.connection.client, seed: knob.devices,
-                                         onDevices: { knob.adopt(devices: $0) })
+                                         onDevices: { knob.adopt(devices: $0, at: $1) })
                 shown = feed
                 weatherNow = .now
                 feed.setVisible(visible)

@@ -73,12 +73,12 @@ public final class KnobShownFeed {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private(set) var refreshing = false
     @ObservationIgnored private let fetch: @Sendable () async throws -> [KnobDevice]
-    @ObservationIgnored private let onDevices: @MainActor ([KnobDevice]) -> Void
+    @ObservationIgnored private let onDevices: @MainActor ([KnobDevice], Date) -> Void
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
 
     public init(seed: [KnobDevice] = [], fetch: @escaping @Sendable () async throws -> [KnobDevice],
-                onDevices: @escaping @MainActor ([KnobDevice]) -> Void = { _ in },
+                onDevices: @escaping @MainActor ([KnobDevice], Date) -> Void = { _, _ in },
                 now: @escaping @Sendable () -> Date = Date.init,
                 sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.fetch = fetch; self.onDevices = onDevices; self.now = now; self.sleep = sleep
@@ -87,7 +87,7 @@ public final class KnobShownFeed {
     }
 
     public convenience init(client: APIClient, seed: [KnobDevice] = [],
-                            onDevices: @escaping @MainActor ([KnobDevice]) -> Void = { _ in }) {
+                            onDevices: @escaping @MainActor ([KnobDevice], Date) -> Void = { _, _ in }) {
         let service = KnobService(client: client)
         self.init(seed: seed, fetch: { try await service.devices() }, onDevices: onDevices)
     }
@@ -124,11 +124,12 @@ public final class KnobShownFeed {
         refreshing = true
         defer { refreshing = false }
         do {
+            let startedAt = now()
             let devices = try await fetch()
             guard !Task.isCancelled else { return }
             lastRead = now()
             failures = 0
-            onDevices(devices)
+            onDevices(devices, startedAt)
             follow.follow(devices)
         } catch {
             guard !Task.isCancelled, !(error is CancellationError) else { return }
