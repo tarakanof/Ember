@@ -894,3 +894,31 @@ func TestClaimReplySaysTenMinutesOnAClockThatMoves(t *testing.T) {
 		t.Fatalf("expires_in_s = %d on a fresh claim, want 600", c.ExpiresInS)
 	}
 }
+
+func TestClaimApproveAndDeclineOfADeletedDeviceDropTheClaim(t *testing.T) {
+	for _, op := range []string{"approve", "decline"} {
+		t.Run(op, func(t *testing.T) {
+			f := newClaimFixture(t)
+			c := f.open(t, testClaimKey)
+			if resp, b := f.approve(t, c.ClaimID, c.Code, ""); resp.StatusCode != http.StatusOK {
+				t.Fatalf("approve = %d: %s", resp.StatusCode, b)
+			}
+			if resp, b := devReq(t, f.srv, "DELETE", "/v1/devices/knob-61fc8c", testToken, ""); resp.StatusCode != http.StatusNoContent {
+				t.Fatalf("delete device = %d: %s", resp.StatusCode, b)
+			}
+			var resp *http.Response
+			var b []byte
+			if op == "approve" {
+				resp, b = f.approve(t, c.ClaimID, c.Code, "")
+			} else {
+				resp, b = devReq(t, f.srv, "POST", "/v1/devices/claims/"+c.ClaimID+"/decline", testToken, "")
+			}
+			if resp.StatusCode != http.StatusNotFound {
+				t.Fatalf("%s a claim whose device was deleted = %d, want 404: %s", op, resp.StatusCode, b)
+			}
+			if n := len(f.app.claims.claims); n != 0 {
+				t.Fatalf("the claim kept its slot: %d left", n)
+			}
+		})
+	}
+}

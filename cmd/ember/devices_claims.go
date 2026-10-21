@@ -234,13 +234,17 @@ type claimMinter struct {
 	mint      func(hwID string) (deviceView, string, bool, error)
 }
 
-func (r *claimRegistry) approve(id, code string, m claimMinter) (deviceClaim, []deviceClaim, error) {
+func (r *claimRegistry) approve(id, code string, m claimMinter, current func(deviceID, tokenHash string) bool) (deviceClaim, []deviceClaim, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.now()
 	r.pruneLocked(now)
 	c := r.claims[id]
 	if c == nil {
+		return deviceClaim{}, nil, errClaimNotFound
+	}
+	if c.approved != nil && !current(c.approved.view.ID, c.approved.tokenHash) {
+		delete(r.claims, id)
 		return deviceClaim{}, nil, errClaimNotFound
 	}
 	right := subtle.ConstantTimeCompare([]byte(strings.ReplaceAll(code, " ", "")), []byte(c.code)) == 1
@@ -278,7 +282,7 @@ func (r *claimRegistry) approve(id, code string, m claimMinter) (deviceClaim, []
 	return *c, superseded, nil
 }
 
-func (r *claimRegistry) decline(id string) (deviceClaim, error) {
+func (r *claimRegistry) decline(id string, current func(deviceID, tokenHash string) bool) (deviceClaim, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.pruneLocked(r.now())
@@ -287,6 +291,10 @@ func (r *claimRegistry) decline(id string) (deviceClaim, error) {
 		return deviceClaim{}, errClaimNotFound
 	}
 	if c.approved != nil {
+		if !current(c.approved.view.ID, c.approved.tokenHash) {
+			delete(r.claims, id)
+			return deviceClaim{}, errClaimNotFound
+		}
 		return *c, errClaimApproved
 	}
 	delete(r.claims, id)
@@ -524,7 +532,7 @@ func (a *App) handleDeviceClaimApprove(w http.ResponseWriter, r *http.Request) {
 		mint: func(hwID string) (deviceView, string, bool, error) {
 			return a.devices.provision(hwID, name)
 		},
-	})
+	}, a.devices.tokenCurrent)
 	var wrong wrongCodeError
 	var live alreadyPairedError
 	switch {
@@ -559,7 +567,7 @@ func (a *App) handleDeviceClaimDecline(w http.ResponseWriter, r *http.Request) {
 	if !a.requireMasterForClients(w, r) {
 		return
 	}
-	c, err := a.claims.decline(r.PathValue("id"))
+	c, err := a.claims.decline(r.PathValue("id"), a.devices.tokenCurrent)
 	if errors.Is(err, errClaimApproved) {
 		writeError(w, http.StatusConflict, err)
 		return

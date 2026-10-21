@@ -3473,7 +3473,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   revoke a knob that paired another way in between (409 `already_paired`,
   the claim dropped); then `provision()`: a new record, or a re-provision
   (new token, old one and any rotation revoked, config and version kept,
-  epoch bumped). Every other claim for that `hw_id` is then dropped as
+  epoch bumped; a checkin in flight between the live check and the mint
+  can still be revoked, since only one token is ever valid and the knob
+  re-pairs). Every other claim for that `hw_id` is then dropped as
   superseded, because the mint just revoked whatever they could deliver.
   The plaintext token stays on the claim, and every keyed poll (`POST
   /v1/devices/claim/poll`) returns it until the first request
@@ -3481,9 +3483,11 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `claims.collect`), as with rotation delivery. A poll first checks that
   the token is still the record's (`tokenCurrent`), so a device deleted or
   re-provisioned after the approval makes the claim 404 and frees its
-  slot. An approved claim lasts 10 min from the approval. Decline drops a
-  pending claim; an approved one is 409 `claim_approved` (the token
-  exists; undo by deleting the device). Approve and decline take the
+  slot. Approve and decline run the same check on an approved claim, so
+  one whose device was deleted or re-provisioned is dropped and answers 404
+  instead of the stale view or 409. An approved claim lasts 10 min from the
+  approval. Decline drops a pending claim; an approved one is 409
+  `claim_approved` (the token exists; undo by deleting the device). Approve and decline take the
   same lock, so a race ends as exactly one of "approved, decline 409" or
   "declined, approve 404". A re-post with the same `hw_id` and
   `claim_key` returns the same claim (200) without taking a slot, so a
