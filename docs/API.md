@@ -58,7 +58,8 @@ pending claim, while a wrong code on an approved claim costs no try; 409
 last 5 min, which drops the claim; 404 unknown or expired; again with the
 code: 200, nothing minted) and `POST /v1/devices/claims/{id}/decline`
 (204; 409 `claim_approved` once approved: to undo an approval, `DELETE` the
-device), `GET/PUT
+device; an approved claim whose device was deleted or re-provisioned is
+dropped and answers 404 on approve and decline), `GET/PUT
 /v1/devices/{id}/config` (same merge; includes `swipe_pages` (bool, default
 true), `quiet{calm, dim_level}`, optional `idle{dim_after_s, dim_level, off_after_s}`
 and `apps{pomodoro, weather, nowplaying}` (#656, DEVICE-PROTOCOL "Idle and

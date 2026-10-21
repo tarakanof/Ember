@@ -3078,7 +3078,7 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
         "429":
-          description: Rate limit (`Retry-After`) or the pending-claim caps.
+          description: Rate limit or the pending-claim caps. Both carry `Retry-After`.
           content:
             application/json:
               schema:
