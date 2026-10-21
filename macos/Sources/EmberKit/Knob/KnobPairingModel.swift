@@ -133,7 +133,7 @@ public final class KnobPairingModel {
             guard let info = try? await service.serverVersion(), gen == generation else { return }
             guard info.supports(VersionInfo.lanPair) else {
                 isAvailable = false
-            notices = []; noticeAge = [:]
+                notices = []; noticeAge = [:]
                 claims = []
                 return
             }
