@@ -96,9 +96,10 @@ public final class KnobModel {
     }
 
     public static let reloadEvery: TimeInterval = 15
+    public static let reuseWindow: TimeInterval = reloadEvery / 2
 
     public func reloadDue(now: Date = Date()) -> Bool {
-        listReadAt.map { now.timeIntervalSince($0) >= Self.reloadEvery } ?? true
+        listReadAt.map { now.timeIntervalSince($0) >= Self.reuseWindow } ?? true
     }
 
     public func adopt(devices list: [KnobDevice], at: Date = Date()) {

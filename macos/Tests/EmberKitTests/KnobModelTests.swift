@@ -458,14 +458,14 @@ final class CountingOpener: KnobLinkOpener, @unchecked Sendable {
     #expect(m.devices.isEmpty && m.reloadDue(now: t0), "nothing adopted before the first load")
     await m.load()
     let loaded = try #require(m.knob)
-    #expect(!m.reloadDue(now: Date()) && m.reloadDue(now: Date().addingTimeInterval(KnobModel.reloadEvery)))
+    #expect(!m.reloadDue(now: Date()) && m.reloadDue(now: Date().addingTimeInterval(KnobModel.reuseWindow)))
     var renamed = loaded
     renamed.name = "Shelf knob"
     let other = KnobDevice(id: "knob-000001", hwID: "000000000001", name: "Old", createdAt: Date(timeIntervalSince1970: 0))
     m.adopt(devices: [renamed, other], at: t0.addingTimeInterval(100))
     #expect(m.knob?.name == "Shelf knob" && m.devices.count == 2, "the preview's poll refreshes the list")
-    #expect(!m.reloadDue(now: t0.addingTimeInterval(110)), "so the 15 s reload is skipped")
-    #expect(m.reloadDue(now: t0.addingTimeInterval(115)))
+    #expect(!m.reloadDue(now: t0.addingTimeInterval(105)), "so a reload right after it is skipped")
+    #expect(m.reloadDue(now: t0.addingTimeInterval(100 + KnobModel.reuseWindow)))
     var newer = KnobDevice(id: "knob-new", hwID: "000000000009", name: "New", createdAt: loaded.createdAt.addingTimeInterval(60))
     newer.kind = KnobDevice.knobKind
     m.adopt(devices: [renamed, newer], at: t0.addingTimeInterval(200))
@@ -486,11 +486,21 @@ final class CountingOpener: KnobLinkOpener, @unchecked Sendable {
     #expect(paths.contains("/v1/devices/knob-61fc8c/config"), "settings still reload")
     #expect(paths.contains { $0.contains("ota") }, "OTA progress still reloads")
     #expect(paths.contains { $0.contains("coredumps") }, "coredumps still reload")
-    m.adopt(devices: [k], at: Date().addingTimeInterval(-KnobModel.reloadEvery))
+    m.adopt(devices: [k], at: Date().addingTimeInterval(-KnobModel.reuseWindow))
     let mid = fake.log.count
     await m.load(reuseFreshList: true)
     #expect(fake.log.dropFirst(mid).map(\.1).contains("/v1/devices"), "no recent list: the reload fetches it")
     let last = fake.log.count
     await m.load()
     #expect(fake.log.dropFirst(last).map(\.1).contains("/v1/devices"), "a plain load always fetches the list")
+}
+
+@MainActor
+@Test func theFifteenSecondTickIsNeverSkippedByTheLoadThatRacedItsSleep() async throws {
+    let fake = FakeRegistry()
+    let m = model(fake)
+    await m.load()
+    let sleepStartedBeforeTheLoadFinished: TimeInterval = 1
+    let tick = Date().addingTimeInterval(KnobModel.reloadEvery - sleepStartedBeforeTheLoadFinished)
+    #expect(m.reloadDue(now: tick), "the tick must refetch the list, or the Status row waits another 15 s")
 }
