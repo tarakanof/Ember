@@ -518,3 +518,18 @@ final class CountingOpener: KnobLinkOpener, @unchecked Sendable {
     await m.load()
     #expect(fake.log.dropFirst(last).map(\.1).contains("/v1/devices"), "a plain load always fetches the list")
 }
+
+@Test func knobDiagDecodesTheIdleBlockAndLabelsItVerbatimWhenUnknown() throws {
+    let d = JSONDecoder()
+    let base = #""seen_at":"2026-10-06T10:00:00Z","fw":"0.9.107","ip":"","rssi":-74,"heap_internal_free":1,"heap_internal_largest":1,"uptime_s":1,"applied_version":1"#
+    d.dateDecodingStrategy = .iso8601
+    let c = try d.decode(KnobCheckin.self, from: Data(("{" + base + #","diag":{"idle":{"state":"dim","input_age_s":125,"wake":"touch"}}}"#).utf8))
+    #expect(c.diag?.idle == KnobIdle(state: "dim", inputAgeS: 125, wake: "touch"))
+    #expect(KnobIdle.stateLabel("dim") == "Dimmed")
+    #expect(KnobIdle.stateLabel("sleepy") == "sleepy")
+    #expect(KnobIdle.wakeLabel("") == nil)
+    #expect(KnobIdle.wakeLabel("encoder") == "Knob turned")
+    #expect(KnobIdle.wakeLabel("gesture") == "gesture")
+    let old = try d.decode(KnobCheckin.self, from: Data(("{" + base + #","diag":{}}"#).utf8))
+    #expect(old.diag?.idle == nil)
+}

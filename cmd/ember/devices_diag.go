@@ -9,6 +9,7 @@ import (
 const (
 	diagTaskNameMax  = 16
 	diagStackTaskMax = 32
+	diagIdleTextMax  = 32
 	coredumpMaxBytes = 128 << 10
 )
 
@@ -22,6 +23,13 @@ type deviceDiag struct {
 	Reboots          int64          `json:"reboots,omitempty"`
 	PrevResetReason  string         `json:"prev_reset_reason,omitempty"`
 	RebootsSinceSeen int64          `json:"reboots_since_seen,omitempty"`
+	Idle             *deviceIdle    `json:"idle,omitempty"`
+}
+
+type deviceIdle struct {
+	State     string `json:"state"`
+	InputAgeS int64  `json:"input_age_s"`
+	Wake      string `json:"wake"`
 }
 
 type deviceCrash struct {
@@ -51,6 +59,14 @@ func (d deviceDiag) validate() error {
 		return errors.New("reset_reason must be 1..24 of a-z, 0-9, _")
 	case len(d.StackFree) > diagStackTaskMax:
 		return errors.New("stack_free must have at most 32 tasks")
+	}
+	if i := d.Idle; i != nil {
+		switch {
+		case i.InputAgeS < 0:
+			return errors.New("idle.input_age_s must be >= 0")
+		case len(i.State) > diagIdleTextMax || len(i.Wake) > diagIdleTextMax:
+			return errors.New("idle.state and idle.wake must be at most 32 bytes")
+		}
 	}
 	if c := d.Crash; c != nil {
 		switch {
@@ -103,6 +119,10 @@ func (d *deviceDiag) clone() *deviceDiag {
 		c.Crash = &crash
 	}
 	c.StackFree = maps.Clone(d.StackFree)
+	if d.Idle != nil {
+		idle := *d.Idle
+		c.Idle = &idle
+	}
 	return &c
 }
 

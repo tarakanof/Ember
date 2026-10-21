@@ -647,6 +647,10 @@
       "extractionState" : "manual"
     },
     "Agent active time per day by Mac" : {},
+    "Agent activity" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Agent needs attention" : {},
     "Agent sessions" : {},
     "Agent time" : {},
@@ -775,6 +779,10 @@
       "comment" : "VoiceOver chart summary: average focus time per finished week (\"6h 15m\")."
     },
     "Average of the finished weeks; this week is still filling up." : {},
+    "Awake" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Back" : {},
     "Background" : {},
     "Background Items" : {},
@@ -1122,6 +1130,10 @@
     "Diagnostics are off" : {},
     "Dim after" : {},
     "Dim level" : {},
+    "Dimmed" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Dimming" : {},
     "Direction" : {},
     "Disabled row" : {},
@@ -1504,10 +1516,15 @@
       "comment" : "Demo page status: the knob rebooted while a scene was sent or playing, so the server dropped the demo and its queue; the argument is the scene's title (\"Hop\")."
     },
     "Knob stats unavailable" : {},
+    "Knob turned" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "LED matrix" : {},
     "Largest block" : {},
     "Last 7 days" : {},
     "Last check-in" : {},
+    "Last input" : {},
     "Last press" : {},
     "Last reminder didn't reach the clock: %@" : {
       "comment" : "Settings › Calendar: why the last reminder failed (a short error message)."
@@ -1516,6 +1533,7 @@
     "Last update didn't reach the server: %@" : {
       "comment" : "Settings › Music: why the last Apple Music update failed (a short error message)."
     },
+    "Last wake" : {},
     "Latest" : {
       "comment" : "Settings › Knob Firmware & updates image row badge (blue): the highest version stored on Ember."
     },
@@ -2084,6 +2102,7 @@
       "extractionState" : "manual"
     },
     "Scan Again" : {},
+    "Screen" : {},
     "Scroll" : {},
     "Scroll speed" : {},
     "Scrolling" : {},
@@ -2530,6 +2549,7 @@
     "Time & Date" : {},
     "Time per app" : {},
     "Time range" : {},
+    "Time since the knob's inactivity timer last restarted." : {},
     "Time until the 5-hour window resets." : {},
     "Times the knob has started since its flash was erased." : {},
     "Times the knob lost Wi-Fi since it started. Each one starts a reconnect." : {},
@@ -2588,6 +2608,10 @@
     "Tool Glyphs" : {},
     "Tool glyphs" : {},
     "Tool icon and machine name in the source color." : {},
+    "Touch" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Track" : {},
     "Transition" : {},
     "Transition length" : {},
@@ -2643,6 +2667,10 @@
     "Update Available: %@" : {
       "comment" : "Settings › Clock: button to a newer firmware version; the argument is the version (\"1.2.0\")."
     },
+    "Update screen" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Update the Ember server to let an app follow the text color again." : {},
     "Update the Ember server to mute the clock or set its volume here." : {},
     "Update the Ember server to see the clock's hardware stats." : {},
@@ -2651,6 +2679,10 @@
     "Update the clock's firmware to NG 1.1 or later to mute it or set its volume here." : {},
     "Update to %@" : {
       "comment" : "Settings › Knob Firmware row button; the argument is the newer firmware version stored on Ember (\"Update to 0.9.14\")."
+    },
+    "Update trial" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
     },
     "Updated" : {},
     "Updated %@" : {
@@ -2770,6 +2802,7 @@
     "Weekday Bar" : {},
     "Weekly goal" : {},
     "Weekly window usage." : {},
+    "What last woke the knob's screen." : {},
     "What the bottom row of each agent card shows" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2803,6 +2836,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Whether the knob's screen is awake, dimmed or off from inactivity." : {},
     "Which kinds of Codex sessions report" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

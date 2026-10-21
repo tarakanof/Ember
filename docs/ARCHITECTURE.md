@@ -5066,8 +5066,18 @@ draws-if-present in `internal/render`, add a menu checkbox.
   reason not 1..24 of `a-z0-9_`, a `pc` not lower-case `0x` plus 1..8 hex
   digits, a task name not 1..16 printable ASCII characters, an `id` not 8
   lower-case hex, a `size` outside 1..131072, only one of the two, more than 32
-  `stack_free` tasks, a wrong type. The app shows Crash (only while present),
-  Last restart, Boots and Lowest free memory rows)
+  `stack_free` tasks, a wrong type. Since cinder#273 (Ember#722) `diag` may
+  carry `"idle":{"state":"dim","input_age_s":125,"wake":"touch"}`: `state`
+  `awake`, `dim` or `off`, `input_age_s` the seconds since the knob's idle
+  clock last restarted, `wake` what last woke the screen (`touch`, `encoder`,
+  `mood`, `demo`, `ota_face`, `ota_trial`, or `""`). Stored as
+  `last_checkin.diag.idle`, latest checkin only, in the same shape (all three
+  keys always present); older firmware omits it and the app shows nothing.
+  Strings the server doesn't know are stored and shown as sent; a negative
+  `input_age_s`, a `state` or `wake` over 32 bytes or a wrong type drops the
+  whole `diag` like any other invalid key. The app shows Crash (only while
+  present), Last restart, Boots, Lowest free memory and, with `idle`, Screen,
+  Last input and Last wake (only when `wake` is set) rows)
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus

@@ -202,6 +202,18 @@ struct KnobStatusSection: View {
             LabeledContent("Boots") { bootsText(boots, reboots: diag.reboots ?? 0) }
                 .help("Times the knob has started since its flash was erased.")
         }
+        if let idle = diag.idle {
+            LabeledContent("Screen") { Text(verbatim: KnobIdle.stateLabel(idle.state)) }
+                .help("Whether the knob's screen is awake, dimmed or off from inactivity.")
+            LabeledContent("Last input") {
+                Text(Duration.seconds(idle.inputAgeS).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow)))
+            }
+            .help("Time since the knob's inactivity timer last restarted.")
+            if let wake = KnobIdle.wakeLabel(idle.wake) {
+                LabeledContent("Last wake") { Text(verbatim: wake) }
+                    .help("What last woke the knob's screen.")
+            }
+        }
     }
 
     private func crashRow(_ crash: KnobCrash, device: String) -> some View {

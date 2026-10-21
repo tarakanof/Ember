@@ -71,6 +71,44 @@ func TestDeviceCheckinRecordsTheDiag(t *testing.T) {
 	}
 }
 
+func TestDeviceCheckinStoresTheIdleBlockVerbatim(t *testing.T) {
+	for name, idle := range map[string]deviceIdle{
+		`{"state":"dim","input_age_s":125,"wake":"touch"}`:    {State: "dim", InputAgeS: 125, Wake: "touch"},
+		`{"state":"awake","input_age_s":0,"wake":""}`:         {State: "awake"},
+		`{"state":"sleepy","input_age_s":7,"wake":"gesture"}`: {State: "sleepy", InputAgeS: 7, Wake: "gesture"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			app, post := newDiagKnob(t)
+			post(`{"idle":` + name + `}`)
+			got := storedDiag(app)
+			if got == nil || got.Idle == nil || *got.Idle != idle {
+				t.Fatalf("diag = %+v, want idle %+v", got, idle)
+			}
+		})
+	}
+}
+
+func TestDeviceListingShowsTheIdleBlock(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	body := `{"fw":"0.9.13","diag":{"idle":{"state":"off","input_age_s":0,"wake":""}}}`
+	if resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, body); resp.StatusCode != http.StatusOK {
+		t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
+	}
+	_, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
+	if !strings.Contains(string(b), `"diag":{"idle":{"state":"off","input_age_s":0,"wake":""}}`) {
+		t.Fatalf("listing: %s", b)
+	}
+}
+
+func TestDeviceCheckinWithoutIdleKeepsItNil(t *testing.T) {
+	app, post := newDiagKnob(t)
+	post(fullDiag)
+	if got := storedDiag(app); got == nil || got.Idle != nil {
+		t.Fatalf("diag = %+v", got)
+	}
+}
+
 func TestDeviceCheckinKeepsAnEmptyDiag(t *testing.T) {
 	app, post := newDiagKnob(t)
 	post(`{}`)
@@ -96,6 +134,10 @@ func TestDeviceCheckinDropsAnInvalidDiagButKeepsTheCheckin(t *testing.T) {
 		"stack task utf8":    `{"stack_free":{"задача":1}}`,
 		"stack negative":     `{"stack_free":{"ember":-1}}`,
 		"stack too many":     manyStacks(33),
+		"idle negative age":  `{"idle":{"state":"dim","input_age_s":-1,"wake":""}}`,
+		"idle long state":    `{"idle":{"state":"` + strings.Repeat("a", 33) + `","input_age_s":1,"wake":""}}`,
+		"idle long wake":     `{"idle":{"state":"dim","input_age_s":1,"wake":"` + strings.Repeat("a", 33) + `"}}`,
+		"idle wrong type":    `{"idle":{"state":"dim","input_age_s":"1","wake":""}}`,
 		"wrong type":         `{"boots":"42"}`,
 		"not object":         `[1]`,
 	} {

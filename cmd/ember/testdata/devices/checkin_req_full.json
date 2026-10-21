@@ -12,6 +12,11 @@
     },
     "heap_internal_min": 30120,
     "heap_largest_min": 22528,
+    "idle": {
+      "input_age_s": 125,
+      "state": "dim",
+      "wake": "touch"
+    },
     "reset_reason": "panic",
     "stack_free": {
       "ember": 1220,

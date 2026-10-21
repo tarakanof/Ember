@@ -3303,6 +3303,24 @@ paths:
                     reset_reason:
                       type: string
                       pattern: "^[a-z0-9_]{1,24}$"
+                    idle:
+                      type: object
+                      description: >-
+                        Screen idle state (cinder#273). Unknown `state` and `wake` strings are
+                        stored and shown as sent.
+                      properties:
+                        state:
+                          type: string
+                          maxLength: 32
+                          description: awake, dim or off.
+                        input_age_s:
+                          type: integer
+                          minimum: 0
+                          description: Seconds since the idle clock last restarted.
+                        wake:
+                          type: string
+                          maxLength: 32
+                          description: touch, encoder, mood, demo, ota_face, ota_trial or empty.
                     stack_free:
                       type: object
                       maxProperties: 32
