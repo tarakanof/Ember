@@ -324,7 +324,7 @@ private final class Devices: @unchecked Sendable {
 @MainActor @Test func shownFeedKeepsTheAnswerOnlyAcrossFailures() async {
     let d = Devices()
     var handed: [[KnobDevice]] = []
-    let feed = KnobShownFeed(fetch: { try d.read() }, onDevices: { handed.append($0) }, now: { d.clock })
+    let feed = KnobShownFeed(fetch: { try d.read() }, onDevices: { list, _ in handed.append(list) }, now: { d.clock })
     await feed.refresh()
     #expect(feed.face == nil)
     d.list = [knob("a", seen("weather", "rain"))]
@@ -435,7 +435,7 @@ private final class Devices: @unchecked Sendable {
         let list = try d.read()
         await MainActor.run { box.feed?.setVisible(false) }
         return list
-    }, onDevices: { _ in handed += 1 }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
+    }, onDevices: { _, _ in handed += 1 }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
     box.feed = feed
     feed.setVisible(true)
     try await until(d.calls == 1)

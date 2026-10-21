@@ -37,7 +37,8 @@ public final class KnobModel {
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var probeTask: Task<Void, Never>?
     @ObservationIgnored public var portBusy = false
-    @ObservationIgnored private var listReadAt: Date?
+    @ObservationIgnored private var adoptedAt: Date?
+    @ObservationIgnored private var listStartedAt: Date?
     @ObservationIgnored var probeTimeouts = KnobProvisioner.Timeouts()
 
     public var all: [any SaveStatusReporting] { [settings] }
@@ -65,6 +66,7 @@ public final class KnobModel {
         guard next != service else { return }
         settings.cancelPendingSave()
         service = next
+        adoptedAt = nil; listStartedAt = nil
         knob = nil; devices = []; coredumps = []; coredumpsLoaded = false; isLoaded = false; loadError = nil; actionErrors = [:]
         settings = Self.settingsModel(next, id: nil, debounce: debounce, sleep: sleep)
         ota.configure(service: next, device: nil)
@@ -76,12 +78,13 @@ public final class KnobModel {
     public func load(reuseFreshList: Bool = false) async {
         if !(reuseFreshList && !reloadDue()) {
             do {
+                let startedAt = Date()
                 let list = try await service.devices()
+                listStartedAt = startedAt
                 devices = list
                 apply(KnobDevice.current(in: list))
                 isLoaded = true
                 loadError = nil
-                listReadAt = Date()
             } catch {
                 loadError = FeedError(error)
                 return
@@ -98,12 +101,13 @@ public final class KnobModel {
     public static let reloadEvery: TimeInterval = 15
 
     public func reloadDue(now: Date = Date()) -> Bool {
-        listReadAt.map { now.timeIntervalSince($0) >= Self.reloadEvery } ?? true
+        adoptedAt.map { now.timeIntervalSince($0) >= Self.reloadEvery } ?? true
     }
 
     public func adopt(devices list: [KnobDevice], at: Date = Date()) {
         guard isLoaded, KnobDevice.current(in: list)?.id == knob?.id else { return }
-        listReadAt = at
+        guard listStartedAt.map({ at >= $0 }) ?? true, adoptedAt.map({ at >= $0 }) ?? true else { return }
+        adoptedAt = at
         if list != devices { devices = list }
         let current = KnobDevice.current(in: list)
         if current != knob { knob = current }
