@@ -11,7 +11,7 @@ func mapThread(th thread) (state, message string, reportable bool) {
 	if th.Archived {
 		return "", "", false
 	}
-	if th.PendingKind != "" && th.PendingKind != "auth_refresh" {
+	if th.PendingKind != "" && th.PendingKind != "auth_refresh" && !softPendingWhileRunning(th) {
 		return "waiting", pendingMessage(th.PendingKind), true
 	}
 	if th.Schema == 1 {
@@ -34,6 +34,17 @@ func mapThread(th thread) (state, message string, reportable bool) {
 		return "done", "", true
 	}
 	return "", "", false
+}
+
+func softPendingWhileRunning(th thread) bool {
+	if !th.SoftPending || th.PendingKind != "user_input" {
+		return false
+	}
+	status := th.Active
+	if status == "" {
+		status = th.Status
+	}
+	return status == "preparing" || status == "starting" || status == "running"
 }
 
 func mapV1(th thread) (string, string, bool) {
