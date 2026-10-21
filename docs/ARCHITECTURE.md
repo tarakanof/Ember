@@ -874,11 +874,15 @@ markers still get reaped.
   id, activity = thread title, tool `t3` ("T3" glyph, the 3 in the state
   colour). Mapping, aligned with T3's own `agentAwareness`: a pending runtime
   request other than `auth_refresh` → `waiting` (even on a settled thread:
-  Codex `user_input` requests outlive the turn). With no pending runtime
-  request of any kind, or only a non-blocking one (T3 ≥ 0.1.1: payload
-  `responseCapability.type = 'message'`, judged on the newest pending request),
-  the newest `waiting` `secret_request` turn item of a
-  preparing/starting/running/waiting run is a pending `user_input` → `waiting` "needs input", stamped `startedAt ?? updated_at`, unless that
+  Codex `user_input` requests outlive the turn), except that from migration 63
+  (T3 ≥ 0.1.1) a non-blocking `user_input` request (payload
+  `responseCapability.type = 'message'`) on a preparing/starting/running run
+  maps from the run (`running`), as in T3's `agentAwareness`. With no pending
+  runtime request of any kind (from migration 63 also: only a non-blocking
+  one, judged on the newest pending request), the newest `waiting`
+  `secret_request` turn item of a preparing/starting/running/waiting run is a
+  pending `user_input` → `waiting` "needs input", stamped
+  `startedAt ?? updated_at`, unless that
   newest item has no node; run status preparing / starting / running /
   **waiting** → `running` (a run "waiting" is post-turn drain such as
   checkpoint capture, not the user). Like T3's `activityRunStatus ?? status`,

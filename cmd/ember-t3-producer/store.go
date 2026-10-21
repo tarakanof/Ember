@@ -26,6 +26,7 @@ type thread struct {
 	Status          string
 	Active          string
 	HoldsCompletion bool
+	SoftPending     bool
 	PendingKind     string
 	LastError       string
 	Archived        bool
@@ -141,7 +142,15 @@ func readTables(ctx context.Context, db *sql.DB, path string, schema int, tables
 	if err := db.QueryRowContext(ctx, `SELECT max(migration_id) FROM effect_sql_migrations`).Scan(&mig); err == nil {
 		snap.Migration = int(mig.Int64)
 	}
-	rows, err := db.QueryContext(ctx, query)
+	var args []any
+	if schema == 2 {
+		gate := 0
+		if snap.Migration >= t3PendingSemanticsMigration {
+			gate = 1
+		}
+		args = append(args, gate)
+	}
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such column") || strings.Contains(err.Error(), "no such table") {
 			return snapshot{}, fmt.Errorf("%w: %v", errUnknownSchema, err)
@@ -155,16 +164,16 @@ func readTables(ctx context.Context, db *sql.DB, path string, schema int, tables
 			status, pending, lastErr, archived sql.NullString
 			stamps                             [3]sql.NullString
 			active                             sql.NullString
-			holds                              sql.NullInt64
+			holds, soft                        sql.NullInt64
 		)
-		if err := rows.Scan(&id, &title, &status, &pending, &lastErr, &archived, &stamps[0], &stamps[1], &stamps[2], &active, &holds); err != nil {
+		if err := rows.Scan(&id, &title, &status, &pending, &lastErr, &archived, &stamps[0], &stamps[1], &stamps[2], &active, &holds, &soft); err != nil {
 			return snapshot{}, fmt.Errorf("scan %s: %w", filepath.Base(path), err)
 		}
 		th := thread{
 			ID: id, Title: title, Schema: schema,
 			Status: status.String, PendingKind: pending.String, LastError: lastErr.String,
 			Archived: archived.Valid && archived.String != "",
-			Active:   active.String, HoldsCompletion: holds.Int64 != 0,
+			Active:   active.String, HoldsCompletion: holds.Int64 != 0, SoftPending: soft.Int64 != 0,
 		}
 		for _, s := range stamps {
 			if t, ok := parseStamp(s.String); ok && t.After(th.ChangedAt) {
@@ -202,10 +211,13 @@ SELECT
   NULL,
   NULL,
   NULL,
+  0,
   0
 FROM projection_threads t
 LEFT JOIN projection_thread_sessions s ON s.thread_id = t.thread_id
 WHERE t.deleted_at IS NULL`
+
+const t3PendingSemanticsMigration = 63
 
 const queryV2 = `
 WITH secret AS (
@@ -273,7 +285,12 @@ SELECT
     OR EXISTS (SELECT 1 FROM json_each(t.payload_json, '$.pullRequests') pr
       WHERE json_extract(pr.value, '$.watch') IS NOT NULL
         AND json_extract(pr.value, '$.source') IS NOT 'stack-dismissed')
-  ) THEN 1 ELSE 0 END
+  ) THEN 1 ELSE 0 END,
+  CASE WHEN ?1 = 0 OR secret.thread_id IS NOT NULL THEN 0 ELSE COALESCE(
+    (SELECT json_extract(q.payload_json, '$.responseCapability.type') IS 'message'
+      FROM orchestration_v2_projection_runtime_requests q
+      WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'
+      ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1), 0) END
 FROM orchestration_v2_projection_threads t
 LEFT JOIN orchestration_v2_projection_runs presented ON presented.run_id = (
   SELECT c.run_id FROM orchestration_v2_projection_runs c
@@ -281,7 +298,7 @@ LEFT JOIN orchestration_v2_projection_runs presented ON presented.run_id = (
     AND NOT (c.status = 'queued' AND json_extract(c.payload_json, '$.queueHeld') IS 1)
   ORDER BY c.ordinal DESC, c.run_id DESC LIMIT 1)
 LEFT JOIN secret ON secret.thread_id = t.thread_id AND secret.node_id IS NOT NULL
-  AND NOT COALESCE((SELECT json_extract(q.payload_json, '$.responseCapability.type') IS NOT 'message'
+  AND NOT COALESCE((SELECT (?1 = 0 OR json_extract(q.payload_json, '$.responseCapability.type') IS NOT 'message')
     FROM orchestration_v2_projection_runtime_requests q
     WHERE q.thread_id = t.thread_id AND q.status = 'pending'
     ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1), 0)

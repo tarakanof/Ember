@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -212,7 +213,7 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('q7', 't-secret-msg', 'n', 'command', 'pending', '2026-10-02T10:03:20.000Z', '{"responseCapability":{"type":"message"}}'),
 		 ('q8', 't-secret-msg-nonode', 'n', 'command', 'pending', '2026-10-02T10:03:20.000Z', '{"responseCapability":{"type":"message"}}'),
 		 ('q9', 't-secret-msg-old', 'n', 'command', 'pending', '2026-10-02T10:03:10.000Z', '{"responseCapability":{"type":"message"}}'),
-		 ('q10', 't-secret-msg-old', 'n', 'user_input', 'pending', '2026-10-02T10:03:20.000Z', '{"responseCapability":{"type":"live"}}')`,
+		 ('q10', 't-secret-msg-old', 'n', 'command', 'pending', '2026-10-02T10:03:20.000Z', '{"responseCapability":{"type":"live"}}')`,
 		`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, run_id, node_id, ordinal, type, status, updated_at, payload_json) VALUES
 		 ('i-child', 't-fail', 'r5', 'child', 1, 'error', 'failed', '2026-10-02T10:03:59.000Z', '{"failure":{"message":"subagent failed"}}'),
 		 ('i-root', 't-fail', 'r5', 'root-5', 2, 'error', 'failed', '2026-10-02T10:03:58.000Z', '{"failure":{"message":"usage limit reached"}}'),
@@ -302,7 +303,7 @@ func TestReadSnapshotV2(t *testing.T) {
 		"t-secret-wait":       {status: "waiting", active: "waiting", pending: "user_input", changed: at("10:03:45")},
 		"t-secret-msg":        {status: "running", active: "running", pending: "user_input", changed: at("10:03:40")},
 		"t-secret-msg-nonode": {status: "running", active: "running", pending: "command", changed: at("10:03:20")},
-		"t-secret-msg-old":    {status: "running", active: "running", pending: "user_input", changed: at("10:03:20")},
+		"t-secret-msg-old":    {status: "running", active: "running", pending: "command", changed: at("10:03:20")},
 		"t-secret-prep":       {status: "preparing", active: "preparing", pending: "user_input", changed: at("10:03:45")},
 	}
 	for id, want := range cases {
@@ -433,7 +434,7 @@ func TestQueryV2UsesRecoveryIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	rows, err := db.Query("EXPLAIN QUERY PLAN " + queryV2)
+	rows, err := db.Query("EXPLAIN QUERY PLAN "+queryV2, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,5 +635,45 @@ func TestDaemonPollClosesHandleWhileT3IsDown(t *testing.T) {
 	}
 	if d.store.db != nil {
 		t.Fatal("handle must be closed while T3 is down")
+	}
+}
+
+func TestPendingSemanticsFollowMigrationGate(t *testing.T) {
+	cases := []struct {
+		migration                         int
+		wantSecretKind, wantSecretMessage string
+		wantSoftState                     string
+	}{
+		{62, "command", "approve command", "waiting"},
+		{63, "user_input", "needs input", "running"},
+	}
+	for _, c := range cases {
+		home := t.TempDir()
+		makeDB(t, home, "statev2.sqlite", "schema_v2.sql",
+			fmt.Sprintf(`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (%d, 'x')`, c.migration),
+			`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json, provider_instance_id) VALUES
+			 ('t-sec', 'p', 'a', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', '{}', 'codex'),
+			 ('t-soft', 'p', 'b', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', '{}', 'codex')`,
+			`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, payload_json) VALUES
+			 ('r1', 't-sec', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', '{}'),
+			 ('r2', 't-soft', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', '{}')`,
+			`INSERT INTO orchestration_v2_projection_runtime_requests (runtime_request_id, thread_id, node_id, kind, status, created_at, payload_json) VALUES
+			 ('q1', 't-sec', 'n', 'command', 'pending', '2026-10-02T10:03:20.000Z', '{"responseCapability":{"type":"message"}}'),
+			 ('q2', 't-soft', 'n', 'user_input', 'pending', '2026-10-02T10:03:20.000Z', '{"responseCapability":{"type":"message"}}')`,
+			`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, run_id, node_id, ordinal, type, status, updated_at, payload_json) VALUES
+			 ('s1', 't-sec', 'r1', 'n1', 1, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{}')`,
+		)
+		snap, err := readSnapshot(context.Background(), home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := byID(snap.Threads)
+		state, msg, _ := mapThread(got["t-sec"])
+		if got["t-sec"].PendingKind != c.wantSecretKind || state != "waiting" || msg != c.wantSecretMessage {
+			t.Errorf("migration %d t-sec = %q %q %q, want %q waiting %q", c.migration, got["t-sec"].PendingKind, state, msg, c.wantSecretKind, c.wantSecretMessage)
+		}
+		if state, _, _ := mapThread(got["t-soft"]); state != c.wantSoftState {
+			t.Errorf("migration %d t-soft state = %q, want %q", c.migration, state, c.wantSoftState)
+		}
 	}
 }
