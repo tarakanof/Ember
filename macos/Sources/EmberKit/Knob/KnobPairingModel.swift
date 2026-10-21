@@ -133,6 +133,7 @@ public final class KnobPairingModel {
             guard let info = try? await service.serverVersion(), gen == generation else { return }
             guard info.supports(VersionInfo.lanPair) else {
                 isAvailable = false
+            notices = []; noticeAge = [:]
                 claims = []
                 return
             }
@@ -147,6 +148,7 @@ public final class KnobPairingModel {
         } catch let APIError.http(status, _) where status == 404 || status == 405 {
             guard gen == generation else { return }
             isAvailable = false
+            notices = []; noticeAge = [:]
             claims = []
         } catch {}
     }
@@ -156,7 +158,7 @@ public final class KnobPairingModel {
         isAvailable = true
         while !Task.isCancelled && isAvailable {
             await refresh()
-            try? await sleep(interval)
+            do { try await sleep(interval) } catch { break }
             ageNotices()
         }
     }

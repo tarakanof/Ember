@@ -310,6 +310,21 @@ private func pairingModel(_ server: FakePairingServer) -> KnobModel {
 }
 
 @MainActor
+@Test func cancellingPollMidSleepDoesNotAgeNotices() async throws {
+    let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
+    let svc = KnobService(client: stubbedClient(token: "t") { server.handle($0) })
+    let p = KnobPairingModel(service: svc, interval: .seconds(3), noticeTTL: .seconds(3), sleep: { try await Task.sleep(for: $0) })
+    await p.refresh()
+    server.setApproveStatus(404)
+    _ = await p.approve(p.claims[0], code: "482913")
+    let polling = Task { await p.poll() }
+    try await Task.sleep(for: .milliseconds(200))
+    polling.cancel()
+    await polling.value
+    #expect(p.notices.count == 1)
+}
+
+@MainActor
 @Test func pollingReadsVersionAgainSoAServerUpgradeShowsPairing() async {
     let server = FakePairingServer(claims: [claimJSON(id: "c_0a1b2c3d", hw: "3cdc7561fc8c", known: nil)])
     server.setFeatures("[]")
