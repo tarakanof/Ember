@@ -34,14 +34,18 @@ struct KnobClaimList: Decodable {
 public struct KnobPairingNotice: Equatable, Sendable, Identifiable {
     public let id: UUID
     public let knob: String
-    public let failure: KnobPairingFailure
+    public let closure: KnobPairingClosure
 }
 
-public enum KnobPairingFailure: Equatable, Sendable {
-    case wrongCode(attemptsLeft: Int)
+public enum KnobPairingClosure: Equatable, Sendable {
+    case wrongCodes
     case gone
     case alreadyApproved
     case alreadyPaired
+}
+
+public enum KnobPairingRejection: Equatable, Sendable {
+    case wrongCode(attemptsLeft: Int)
     case other(FeedError)
 }
 
@@ -62,7 +66,7 @@ public final class KnobPairingModel {
     public private(set) var claims: [KnobClaim] = []
     public private(set) var isAvailable = true
     public private(set) var running: Set<String> = []
-    public private(set) var failures: [String: KnobPairingFailure] = [:]
+    public private(set) var failures: [String: KnobPairingRejection] = [:]
     public private(set) var notices: [KnobPairingNotice] = []
 
     public var isVisible: Bool { isAvailable && (!claims.isEmpty || !notices.isEmpty) }
@@ -71,6 +75,7 @@ public final class KnobPairingModel {
     @ObservationIgnored private var gateOpen = false
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var epoch = 0
+    @ObservationIgnored private var noticeAge: [UUID: Duration] = [:]
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private let noticeTTL: Duration
@@ -96,11 +101,19 @@ public final class KnobPairingModel {
         guard next != service else { return }
         service = next
         generation += 1
-        claims = []; isAvailable = true; running = []; failures = [:]; notices = []; gateOpen = false
+        claims = []; isAvailable = true; running = []; failures = [:]; notices = []; noticeAge = [:]; gateOpen = false
     }
 
     public func dismiss(_ notice: KnobPairingNotice) {
         notices.removeAll { $0.id == notice.id }
+        noticeAge[notice.id] = nil
+    }
+
+    private func ageNotices() {
+        for notice in notices {
+            let age = (noticeAge[notice.id] ?? .zero) + interval
+            if age >= noticeTTL { dismiss(notice) } else { noticeAge[notice.id] = age }
+        }
     }
 
     public func refresh() async {
@@ -144,6 +157,7 @@ public final class KnobPairingModel {
         while !Task.isCancelled && isAvailable {
             await refresh()
             try? await sleep(interval)
+            ageNotices()
         }
     }
 
@@ -165,7 +179,7 @@ public final class KnobPairingModel {
         } catch let APIError.http(status, body) where status == 400 {
             epoch += 1
             if let left = Self.attemptsLeft(body) {
-                if left > 0 { failures[claim.id] = .wrongCode(attemptsLeft: left) } else { close(claim, .wrongCode(attemptsLeft: 0)) }
+                if left > 0 { failures[claim.id] = .wrongCode(attemptsLeft: left) } else { close(claim, .wrongCodes) }
             } else {
                 failures[claim.id] = .other(FeedError(APIError.http(status: status, body: body)))
             }
@@ -200,16 +214,12 @@ public final class KnobPairingModel {
         }
     }
 
-    private func close(_ claim: KnobClaim, _ failure: KnobPairingFailure) {
+    private func close(_ claim: KnobClaim, _ closure: KnobPairingClosure) {
         epoch += 1
         failures[claim.id] = nil
         claims.removeAll { $0.id == claim.id }
-        let notice = KnobPairingNotice(id: UUID(), knob: claim.shortID, failure: failure)
+        let notice = KnobPairingNotice(id: UUID(), knob: claim.shortID, closure: closure)
         notices.append(notice)
-        Task { @MainActor in
-            try? await sleep(noticeTTL)
-            dismiss(notice)
-        }
     }
 
     private static func attemptsLeft(_ body: String) -> Int? {

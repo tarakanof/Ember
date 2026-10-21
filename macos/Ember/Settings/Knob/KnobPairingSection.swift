@@ -32,22 +32,19 @@ private struct KnobPairingNoticeRow: View {
     var body: some View {
         HStack {
             Label {
-                switch notice.failure {
+                switch notice.closure {
                 case .alreadyPaired:
                     Text("Knob \(notice.knob) already paired.",
                          comment: "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\").")
                 case .gone:
                     Text("The request from knob \(notice.knob) expired. It will show a new code.",
                          comment: "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\").")
-                case .wrongCode:
+                case .wrongCodes:
                     Text("The request from knob \(notice.knob) is closed after too many wrong codes. It will show a new code.",
                          comment: "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\").")
                 case .alreadyApproved:
                     Text("The request from knob \(notice.knob) was already approved.",
                          comment: "Settings › Knob pairing notice; the argument is the knob's short ID (\"61FC8C\").")
-                case .other(let error):
-                    Text("Couldn't pair: \(Text(error.message))",
-                         comment: "Settings › Knob pairing request error; the argument is a short reason (\"Server unreachable\").")
                 }
             } icon: {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -84,6 +81,8 @@ private struct KnobClaimRow: View {
                         }
                         Text(verbatim: "·")
                         Text(claim.createdAt, format: .relative(presentation: .named))
+                        Text(verbatim: "·")
+                        Text(verbatim: "#" + claim.id.dropFirst(2).prefix(4))
                     }
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -146,17 +145,15 @@ private struct KnobClaimRow: View {
         }
     }
 
-    @ViewBuilder private func failureLabel(_ failure: KnobPairingFailure) -> some View {
+    @ViewBuilder private func failureLabel(_ failure: KnobPairingRejection) -> some View {
         Label {
             switch failure {
-            case .wrongCode(let left) where left > 0:
+            case .wrongCode(let left):
                 Text("That code is wrong. \(left) tries left.",
                      comment: "Settings › Knob pairing request; the argument is how many wrong codes the server still accepts for this request.")
             case .other(let error):
                 Text("Couldn't pair: \(Text(error.message))",
                      comment: "Settings › Knob pairing request error; the argument is a short reason (\"Server unreachable\").")
-            case .wrongCode, .gone, .alreadyApproved, .alreadyPaired:
-                EmptyView()
             }
         } icon: {
             Image(systemName: "exclamationmark.triangle.fill")
