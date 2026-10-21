@@ -26,10 +26,16 @@ func mapThread(th thread) (state, message string, reportable bool) {
 	case "preparing", "starting", "running", "waiting":
 		return "running", "", true
 	case "failed":
+		if th.Dismissed {
+			return "", "", false
+		}
 		return "error", errorMessage(th.LastError), true
 	case "completed":
 		if th.HoldsCompletion {
 			return "running", "", true
+		}
+		if th.Dismissed {
+			return "", "", false
 		}
 		return "done", "", true
 	}
