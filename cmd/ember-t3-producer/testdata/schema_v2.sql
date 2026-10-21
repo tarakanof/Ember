@@ -1,6 +1,8 @@
--- Subset of T3 Code v0.1.0 <T3CODE_HOME>/userdata/statev2.sqlite (migrations 55-62),
+-- Subset of T3 Code v0.1.1 <T3CODE_HOME>/userdata/statev2.sqlite (migrations 55-67),
 -- transcribed from apps/server/src/persistence/Migrations/055_OrchestrationV2.ts, its
 -- OrchestrationV2/*.ts steps, 060 and 062: the tables ember-t3-producer reads and every index on them.
+-- 063-067 add nothing to these tables (063 drops V1 projections, 064 and 066 rewrite payload_json
+-- and events, 065 indexes provider_turns, 067 adds scheduled-task webhook tables).
 CREATE TABLE effect_sql_migrations (
   migration_id INTEGER PRIMARY KEY NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

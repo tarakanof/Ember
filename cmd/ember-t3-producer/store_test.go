@@ -104,7 +104,7 @@ func TestReadSnapshotV2(t *testing.T) {
 	home := t.TempDir()
 	makeDB(t, home, "state.sqlite", "schema_v1.sql")
 	makeDB(t, home, "statev2.sqlite", "schema_v2.sql",
-		`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (55, 'OrchestrationV2'), (56, 'RemoveRedundantProjectionIndexes'), (62, 'ThreadFailureLookupIndex')`,
+		`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (55, 'OrchestrationV2'), (56, 'RemoveRedundantProjectionIndexes'), (62, 'ThreadFailureLookupIndex'), (67, 'WebhookDedupe')`,
 		`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, archived_at, deleted_at, payload_json, provider_instance_id) VALUES
 		 ('t-run', 'p', 'Add dark mode', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-05T09:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-wait', 'p', 'Ship it', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
@@ -140,6 +140,9 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('t-secret-multi', 'p', 'Newest secret has no node', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-secret-upd', 'p', 'Secret without startedAt', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-secret-wait', 'p', 'Secret in waiting run', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-secret-msg', 'p', 'Message-only request and secret', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-secret-msg-nonode', 'p', 'Message-only request, secret without node', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-secret-msg-old', 'p', 'Blocking request newer than message-only', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-secret-prep', 'p', 'Secret in preparing run', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-pr-failed', 'p', 'Failed while watching PR', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"pullRequests":[{"number":10,"source":"manual","watch":{}}]}', 'codex'),
 		 ('t-del', 'p', 'Deleted', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, '2026-10-02T10:00:00.000Z', '{}', 'codex')`,
@@ -179,6 +182,9 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('r32', 't-secret-multi', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
 		 ('r33', 't-secret-upd', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
 		 ('r34', 't-secret-wait', 1, 'codex', 'waiting', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r37', 't-secret-msg', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r38', 't-secret-msg-nonode', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r39', 't-secret-msg-old', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
 		 ('r35', 't-secret-prep', 1, 'codex', 'preparing', '2026-10-02T10:03:00.000Z', NULL, '{}'),
 		 ('r36', 't-pr-failed', 1, 'codex', 'failed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}')`,
 		`INSERT INTO orchestration_v2_projection_provider_threads (provider_thread_id, thread_id, provider, status, updated_at, payload_json) VALUES
@@ -202,7 +208,11 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('q3', 't-auth', 'n', 'command', 'pending', '2026-10-02T10:03:10.000Z', '{}'),
 		 ('q4', 't-auth', 'n', 'auth_refresh', 'pending', '2026-10-02T10:03:20.000Z', '{}'),
 		 ('q5', 't-secret-req', 'n', 'command', 'pending', '2026-10-02T10:03:20.000Z', '{}'),
-		 ('q6', 't-secret-auth', 'n', 'auth_refresh', 'pending', '2026-10-02T10:03:20.000Z', '{}')`,
+		 ('q6', 't-secret-auth', 'n', 'auth_refresh', 'pending', '2026-10-02T10:03:20.000Z', '{}'),
+		 ('q7', 't-secret-msg', 'n', 'command', 'pending', '2026-10-02T10:03:20.000Z', '{"responseCapability":{"type":"message"}}'),
+		 ('q8', 't-secret-msg-nonode', 'n', 'command', 'pending', '2026-10-02T10:03:20.000Z', '{"responseCapability":{"type":"message"}}'),
+		 ('q9', 't-secret-msg-old', 'n', 'command', 'pending', '2026-10-02T10:03:10.000Z', '{"responseCapability":{"type":"message"}}'),
+		 ('q10', 't-secret-msg-old', 'n', 'user_input', 'pending', '2026-10-02T10:03:20.000Z', '{"responseCapability":{"type":"live"}}')`,
 		`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, run_id, node_id, ordinal, type, status, updated_at, payload_json) VALUES
 		 ('i-child', 't-fail', 'r5', 'child', 1, 'error', 'failed', '2026-10-02T10:03:59.000Z', '{"failure":{"message":"subagent failed"}}'),
 		 ('i-root', 't-fail', 'r5', 'root-5', 2, 'error', 'failed', '2026-10-02T10:03:58.000Z', '{"failure":{"message":"usage limit reached"}}'),
@@ -217,6 +227,9 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('sec-multi-new', 't-secret-multi', 'r32', NULL, 2, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{}'),
 		 ('sec-upd', 't-secret-upd', 'r33', 'n-33', 1, 'secret_request', 'waiting', '2026-10-02T10:03:45.000Z', '{}'),
 		 ('sec-wait', 't-secret-wait', 'r34', 'n-34', 1, 'secret_request', 'waiting', '2026-10-02T10:03:45.000Z', '{}'),
+		 ('sec-msg', 't-secret-msg', 'r37', 'n-37', 1, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{"startedAt":"2026-10-02T10:03:40.000Z"}'),
+		 ('sec-msg-nonode', 't-secret-msg-nonode', 'r38', NULL, 1, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{}'),
+		 ('sec-msg-old', 't-secret-msg-old', 'r39', 'n-39', 1, 'secret_request', 'waiting', '2026-10-02T10:03:50.000Z', '{"startedAt":"2026-10-02T10:03:40.000Z"}'),
 		 ('sec-prep', 't-secret-prep', 'r35', 'n-35', 1, 'secret_request', 'waiting', '2026-10-02T10:03:45.000Z', '{}')`,
 		`INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, provider, status, updated_at, payload_json, provider_instance_id) VALUES
 		 ('s-fail', 't-fail', 'codex', 'error', '2026-10-02T10:04:00.000Z', '{}', 'codex'),
@@ -232,8 +245,8 @@ func TestReadSnapshotV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Schema != 2 || snap.Migration != 62 {
-		t.Fatalf("schema/migration = %d/%d, want 2/62", snap.Schema, snap.Migration)
+	if snap.Schema != 2 || snap.Migration != 67 {
+		t.Fatalf("schema/migration = %d/%d, want 2/67", snap.Schema, snap.Migration)
 	}
 	got := byID(snap.Threads)
 	for _, id := range []string{"t-del", "t-sub"} {
@@ -253,41 +266,44 @@ func TestReadSnapshotV2(t *testing.T) {
 		holds, archived                  bool
 		changed                          time.Time
 	}{
-		"t-run":           {status: "running", active: "running", changed: at("10:03:00")},
-		"t-wait":          {status: "waiting", active: "waiting", changed: at("10:03:00")},
-		"t-done-ask":      {status: "completed", pending: "user_input", changed: at("10:04:30")},
-		"t-fail":          {status: "failed", lastErr: "usage limit reached", changed: at("10:04:00")},
-		"t-fail-sess":     {status: "failed", lastErr: "rate limited", changed: at("10:04:00")},
-		"t-held":          {status: "completed", changed: at("10:04:00")},
-		"t-arch":          {archived: true},
-		"t-idle":          {},
-		"t-auth":          {status: "running", active: "running", pending: "command", changed: at("10:03:10")},
-		"t-settled":       {status: "completed", changed: at("10:04:00")},
-		"t-fork":          {},
-		"t-q":             {status: "queued", active: "running", changed: at("10:04:00")},
-		"t-bg-roster":     {status: "completed", holds: true, changed: at("10:04:00")},
-		"t-bg-other":      {status: "completed", changed: at("10:04:00")},
-		"t-bg-cmd":        {status: "completed", changed: at("10:04:00")},
-		"t-bg-sub":        {status: "completed", holds: true, changed: at("10:04:00")},
-		"t-bg-persist":    {status: "completed", changed: at("10:04:00")},
-		"t-bg-nokind":     {status: "completed", holds: true, changed: at("10:04:00")},
-		"t-bg-unk":        {status: "completed", holds: true, changed: at("10:04:00")},
-		"t-bg-noid":       {status: "completed", changed: at("10:04:00")},
-		"t-bg-failed":     {status: "failed", changed: at("10:04:00")},
-		"t-bg-rolled":     {status: "completed", changed: at("10:06:00")},
-		"t-secret":        {status: "running", active: "running", pending: "user_input", changed: at("10:03:40")},
-		"t-secret-done":   {status: "completed", changed: at("10:04:00")},
-		"t-secret-nonode": {status: "running", active: "running", changed: at("10:03:00")},
-		"t-pr-watch":      {status: "completed", holds: true, changed: at("10:04:00")},
-		"t-pr-dismissed":  {status: "completed", changed: at("10:04:00")},
-		"t-pr-nowatch":    {status: "completed", changed: at("10:04:00")},
-		"t-pr-failed":     {status: "failed", changed: at("10:04:00")},
-		"t-secret-req":    {status: "running", active: "running", pending: "command", changed: at("10:03:20")},
-		"t-secret-auth":   {status: "running", active: "running", changed: at("10:03:00")},
-		"t-secret-multi":  {status: "running", active: "running", changed: at("10:03:00")},
-		"t-secret-upd":    {status: "running", active: "running", pending: "user_input", changed: at("10:03:45")},
-		"t-secret-wait":   {status: "waiting", active: "waiting", pending: "user_input", changed: at("10:03:45")},
-		"t-secret-prep":   {status: "preparing", active: "preparing", pending: "user_input", changed: at("10:03:45")},
+		"t-run":               {status: "running", active: "running", changed: at("10:03:00")},
+		"t-wait":              {status: "waiting", active: "waiting", changed: at("10:03:00")},
+		"t-done-ask":          {status: "completed", pending: "user_input", changed: at("10:04:30")},
+		"t-fail":              {status: "failed", lastErr: "usage limit reached", changed: at("10:04:00")},
+		"t-fail-sess":         {status: "failed", lastErr: "rate limited", changed: at("10:04:00")},
+		"t-held":              {status: "completed", changed: at("10:04:00")},
+		"t-arch":              {archived: true},
+		"t-idle":              {},
+		"t-auth":              {status: "running", active: "running", pending: "command", changed: at("10:03:10")},
+		"t-settled":           {status: "completed", changed: at("10:04:00")},
+		"t-fork":              {},
+		"t-q":                 {status: "queued", active: "running", changed: at("10:04:00")},
+		"t-bg-roster":         {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-other":          {status: "completed", changed: at("10:04:00")},
+		"t-bg-cmd":            {status: "completed", changed: at("10:04:00")},
+		"t-bg-sub":            {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-persist":        {status: "completed", changed: at("10:04:00")},
+		"t-bg-nokind":         {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-unk":            {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-noid":           {status: "completed", changed: at("10:04:00")},
+		"t-bg-failed":         {status: "failed", changed: at("10:04:00")},
+		"t-bg-rolled":         {status: "completed", changed: at("10:06:00")},
+		"t-secret":            {status: "running", active: "running", pending: "user_input", changed: at("10:03:40")},
+		"t-secret-done":       {status: "completed", changed: at("10:04:00")},
+		"t-secret-nonode":     {status: "running", active: "running", changed: at("10:03:00")},
+		"t-pr-watch":          {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-pr-dismissed":      {status: "completed", changed: at("10:04:00")},
+		"t-pr-nowatch":        {status: "completed", changed: at("10:04:00")},
+		"t-pr-failed":         {status: "failed", changed: at("10:04:00")},
+		"t-secret-req":        {status: "running", active: "running", pending: "command", changed: at("10:03:20")},
+		"t-secret-auth":       {status: "running", active: "running", changed: at("10:03:00")},
+		"t-secret-multi":      {status: "running", active: "running", changed: at("10:03:00")},
+		"t-secret-upd":        {status: "running", active: "running", pending: "user_input", changed: at("10:03:45")},
+		"t-secret-wait":       {status: "waiting", active: "waiting", pending: "user_input", changed: at("10:03:45")},
+		"t-secret-msg":        {status: "running", active: "running", pending: "user_input", changed: at("10:03:40")},
+		"t-secret-msg-nonode": {status: "running", active: "running", pending: "command", changed: at("10:03:20")},
+		"t-secret-msg-old":    {status: "running", active: "running", pending: "user_input", changed: at("10:03:20")},
+		"t-secret-prep":       {status: "preparing", active: "preparing", pending: "user_input", changed: at("10:03:45")},
 	}
 	for id, want := range cases {
 		th, ok := got[id]

@@ -224,10 +224,10 @@ SELECT
   t.title,
   presented.status,
   COALESCE(
+    CASE WHEN secret.thread_id IS NOT NULL THEN 'user_input' END,
     (SELECT q.kind FROM orchestration_v2_projection_runtime_requests q
       WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'
-      ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1),
-    CASE WHEN secret.thread_id IS NOT NULL THEN 'user_input' END),
+      ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1)),
   COALESCE(
     (SELECT json_extract(ps.payload_json, '$.lastError') FROM orchestration_v2_projection_provider_sessions ps
       INNER JOIN orchestration_v2_projection_provider_session_bindings b
@@ -243,9 +243,9 @@ SELECT
   presented.requested_at,
   presented.completed_at,
   COALESCE(
+    secret.stamp,
     (SELECT max(q.created_at) FROM orchestration_v2_projection_runtime_requests q
-      WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'),
-    secret.stamp),
+      WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh')),
   (SELECT a.status FROM orchestration_v2_projection_runs a
     WHERE a.thread_id = t.thread_id AND a.status IN ('preparing', 'starting', 'running', 'waiting')
     ORDER BY a.ordinal DESC, a.run_id DESC LIMIT 1),
@@ -281,8 +281,10 @@ LEFT JOIN orchestration_v2_projection_runs presented ON presented.run_id = (
     AND NOT (c.status = 'queued' AND json_extract(c.payload_json, '$.queueHeld') IS 1)
   ORDER BY c.ordinal DESC, c.run_id DESC LIMIT 1)
 LEFT JOIN secret ON secret.thread_id = t.thread_id AND secret.node_id IS NOT NULL
-  AND NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_runtime_requests q
-    WHERE q.thread_id = t.thread_id AND q.status = 'pending')
+  AND NOT COALESCE((SELECT json_extract(q.payload_json, '$.responseCapability.type') IS NOT 'message'
+    FROM orchestration_v2_projection_runtime_requests q
+    WHERE q.thread_id = t.thread_id AND q.status = 'pending'
+    ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1), 0)
 WHERE t.deleted_at IS NULL
   AND json_extract(t.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'`
 

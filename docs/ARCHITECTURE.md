@@ -875,9 +875,10 @@ markers still get reaped.
   colour). Mapping, aligned with T3's own `agentAwareness`: a pending runtime
   request other than `auth_refresh` → `waiting` (even on a settled thread:
   Codex `user_input` requests outlive the turn). With no pending runtime
-  request of any kind (T3 ≥ 0.1.0), the newest `waiting` `secret_request` turn
-  item of a preparing/starting/running/waiting run is a pending `user_input` →
-  `waiting` "needs input", stamped `startedAt ?? updated_at`, unless that
+  request of any kind, or only a non-blocking one (T3 ≥ 0.1.1: payload
+  `responseCapability.type = 'message'`, judged on the newest pending request),
+  the newest `waiting` `secret_request` turn item of a
+  preparing/starting/running/waiting run is a pending `user_input` → `waiting` "needs input", stamped `startedAt ?? updated_at`, unless that
   newest item has no node; run status preparing / starting / running /
   **waiting** → `running` (a run "waiting" is post-turn drain such as
   checkpoint capture, not the user). Like T3's `activityRunStatus ?? status`,
@@ -935,9 +936,9 @@ markers still get reaped.
   reuses `modernc.org/sqlite` (already the server's only dependency), needs no
   credentials, works whether T3 runs as the desktop app or `t3 serve`, and is
   testable with synthesised fixtures. Its cost is coupling to internal
-  projection tables that churn (62 migrations by v0.1.0): the queries are reduced copies
+  projection tables that churn (67 migrations by v0.1.1): the queries are reduced copies
   of T3's own shell queries, the newest verified migration per schema is
-  pinned (`pinnedMigrations`: v1 54, v2 62) and a newer one is logged once and
+  pinned (`pinnedMigrations`: v1 54, v2 67) and a newer one is logged once and
   still read, and a missing table or column is a soft failure (log once a
   minute, back off to 60 s, never post or delete on a bad read).
 
