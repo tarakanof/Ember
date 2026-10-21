@@ -888,6 +888,10 @@ markers still get reaped.
   checkpoint capture, not the user). Like T3's `activityRunStatus ?? status`,
   the newest preparing/starting/running/waiting run of any ordinal wins over
   the presented run, and a presented `queued` run is not activity (→ DELETE).
+  From migration 63 (T3 ≥ 0.1.1) a `done` or `error` thread the user dismissed
+  (thread payload `settledOverride = 'settled'`, a field v0.1.0 also stores but
+  never used to hide) is not reportable, as in T3's `agentAwareness`; running,
+  waiting and completion-holding threads stay visible (#710).
   A `completed` run stays `running` while background work that wakes the agent
   is open (`backgroundWorkHoldsCompletion`: roster task of the active provider
   thread with kind other than `command`, or an active subagent /

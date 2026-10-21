@@ -677,3 +677,32 @@ func TestPendingSemanticsFollowMigrationGate(t *testing.T) {
 		}
 	}
 }
+
+func TestDismissedThreadsDropFromReportFromMigration63(t *testing.T) {
+	for _, mig := range []int{62, 63} {
+		home := t.TempDir()
+		makeDB(t, home, "statev2.sqlite", "schema_v2.sql",
+			fmt.Sprintf(`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (%d, 'x')`, mig),
+			`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json, provider_instance_id) VALUES
+			 ('t-done', 'p', 'a', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', '{"settledOverride":"settled"}', 'codex'),
+			 ('t-fail', 'p', 'b', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', '{"settledOverride":"settled"}', 'codex'),
+			 ('t-live', 'p', 'c', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', '{"settledOverride":"settled"}', 'codex'),
+			 ('t-open', 'p', 'd', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', '{}', 'codex')`,
+			`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, completed_at, payload_json) VALUES
+			 ('r1', 't-done', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+			 ('r2', 't-fail', 1, 'codex', 'failed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+			 ('r3', 't-live', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+			 ('r4', 't-open', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}')`,
+		)
+		snap, err := readSnapshot(context.Background(), home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := byID(snap.Threads)
+		for id, want := range map[string]bool{"t-done": mig < 63, "t-fail": mig < 63, "t-live": true, "t-open": true} {
+			if _, _, rep := mapThread(got[id]); rep != want {
+				t.Errorf("migration %d %s reportable = %v, want %v", mig, id, rep, want)
+			}
+		}
+	}
+}

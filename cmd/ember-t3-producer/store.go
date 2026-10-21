@@ -27,6 +27,7 @@ type thread struct {
 	Active          string
 	HoldsCompletion bool
 	SoftPending     bool
+	Dismissed       bool
 	PendingKind     string
 	LastError       string
 	Archived        bool
@@ -164,9 +165,9 @@ func readTables(ctx context.Context, db *sql.DB, path string, schema int, tables
 			status, pending, lastErr, archived sql.NullString
 			stamps                             [3]sql.NullString
 			active                             sql.NullString
-			holds, soft                        sql.NullInt64
+			holds, soft, dismissed             sql.NullInt64
 		)
-		if err := rows.Scan(&id, &title, &status, &pending, &lastErr, &archived, &stamps[0], &stamps[1], &stamps[2], &active, &holds, &soft); err != nil {
+		if err := rows.Scan(&id, &title, &status, &pending, &lastErr, &archived, &stamps[0], &stamps[1], &stamps[2], &active, &holds, &soft, &dismissed); err != nil {
 			return snapshot{}, fmt.Errorf("scan %s: %w", filepath.Base(path), err)
 		}
 		th := thread{
@@ -174,6 +175,7 @@ func readTables(ctx context.Context, db *sql.DB, path string, schema int, tables
 			Status: status.String, PendingKind: pending.String, LastError: lastErr.String,
 			Archived: archived.Valid && archived.String != "",
 			Active:   active.String, HoldsCompletion: holds.Int64 != 0, SoftPending: soft.Int64 != 0,
+			Dismissed: dismissed.Int64 != 0,
 		}
 		for _, s := range stamps {
 			if t, ok := parseStamp(s.String); ok && t.After(th.ChangedAt) {
@@ -211,6 +213,7 @@ SELECT
   NULL,
   NULL,
   NULL,
+  0,
   0,
   0
 FROM projection_threads t
@@ -290,7 +293,8 @@ SELECT
     (SELECT json_extract(q.payload_json, '$.responseCapability.type') IS 'message'
       FROM orchestration_v2_projection_runtime_requests q
       WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'
-      ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1), 0) END
+      ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1), 0) END,
+  CASE WHEN ?1 = 1 AND json_extract(t.payload_json, '$.settledOverride') IS 'settled' THEN 1 ELSE 0 END
 FROM orchestration_v2_projection_threads t
 LEFT JOIN orchestration_v2_projection_runs presented ON presented.run_id = (
   SELECT c.run_id FROM orchestration_v2_projection_runs c
