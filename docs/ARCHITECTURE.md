@@ -3643,6 +3643,21 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   outside `rotations` as unsupported); a server without `effective_caps`
   falls back to the old fw semver floors (`KnobCaps.legacy*Floors`), kept
   for two releases.
+- **Pairing requests (#659):** `KnobPairingModel` (owned by `KnobModel.pairing`)
+  reads `/version` and polls `GET /v1/devices/claims` every 3 s while
+  `KnobDetail` is on screen only when `features` lists `lan_pair`; it stops for
+  good on that gate or a 404/405 from the list (older server: the UI stays
+  hidden). The
+  Pairing request section (top of Status, above the empty state when no knob is
+  registered) takes the 6-digit code (spaces allowed) and calls
+  `POST /v1/devices/claims/{id}/approve`; a 400 `wrong_code` carries
+  `attempts_left`, a 404 means the claim expired, a 409 `already_paired` drops
+  the claim ("this knob already paired"). A 409 `claim_approved` on decline
+  shows "already approved". Decline is
+  `POST .../decline`. Approving a claim whose `hw_id` differs from the
+  registered knob shows the one-knob replace confirm, then `didSetUp` forgets
+  the old record. The Forget dialog adds the pair-again sentence only when the
+  knob's caps list `lan_pair`.
 - **Knob page previews (#240):** Settings › Knob › Apps draws each page's
   466 px round face in SwiftUI (EmberKit `KnobFace/`), the way `PanelPreview`
   shows the clock's frames, but drawn locally: the knob renders on-device and

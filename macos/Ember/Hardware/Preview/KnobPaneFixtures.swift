@@ -11,16 +11,22 @@ enum KnobPaneFixtures {
         ("knob-pane-behavior", .hardware(.behavior), 560),
     ]
 
-    static func environment(now: Date) async -> AppEnvironment {
+    static func environment(now: Date, empty: Bool = false) async -> AppEnvironment {
         let env = AppEnvironment(producerEnvPath: FileManager.default.temporaryDirectory
             .appending(path: "ember-knob-fixture-\(UUID().uuidString).env"))
-        KnobFixtureURLProtocol.responses = responses(now: now)
+        var table = responses(now: now)
+        if empty {
+            table["/v1/devices"] = #"{"devices":[]}"#
+            table["/v1/devices/claims"] = table["/v1/devices/claims"]?.replacingOccurrences(of: "3cdc7500aaaa", with: "3cdc7561fc8c").replacingOccurrences(of: "00AAAA", with: "61FC8C").replacingOccurrences(of: #""known_device_id":"knob-61fc8c""#, with: #""known_device_id":null"#)
+        }
+        KnobFixtureURLProtocol.responses = table
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [KnobFixtureURLProtocol.self]
         let client = APIClient(baseURL: URL(string: "http://\(KnobFixtureURLProtocol.host)"), token: "fixture",
                                session: URLSession(configuration: config), pathStatus: { .satisfied })
         env.knob.configure(service: KnobService(client: client))
         await env.knob.load()
+        await env.knob.pairing.refresh()
         return env
     }
 
@@ -50,8 +56,14 @@ enum KnobPaneFixtures {
             #"{"version":"\#(v)","build":"\#(build)","channel":"\#(channel)","elf":true,"idf_ver":"v5.5.1","project":"cinder","sha256":"00","size":1677721,"uploaded_at":"\#(iso(now.addingTimeInterval(-ago)))"}"#
         }
         let firmware = "[\(image("0.9.16", "b2c3d4e5", "release", 7_200)),\(image("0.9.15", "a1b2c3d4", "release", 172_800)),\(image("0.9.13", "c0ffee13", "test", 604_800)),\(image("0.9.12", "0badf00d", "test", 864_000).replacingOccurrences(of: #""elf":true"#, with: #""elf":false"#))]"
+        let claim = { (id: String, hw: String, known: String, ip: String, ago: TimeInterval) in
+            #"{"id":"\#(id)","hw_id":"\#(hw)","short_id":"\#(hw.suffix(6).uppercased())","fw":"0.9.110","ip":"\#(ip)","created_at":"\#(iso(now.addingTimeInterval(-ago)))","expires_at":"\#(iso(now.addingTimeInterval(600 - ago)))","known_device_id":\#(known)}"#
+        }
+        let claims = #"{"claims":[\#(claim("c_0a1b2c3d", "3cdc7561fc8c", #""knob-61fc8c""#, "192.0.2.61", 120)),\#(claim("c_5e6f7a8b", "3cdc7500aaaa", "null", "192.0.2.62", 30))]}"#
         return [
             "/v1/devices": #"{"devices":[\#(device)]}"#,
+            "/v1/devices/claims": claims,
+            "/version": #"{"binary":"ember","version":"0.71.0","features":["lan_pair"]}"#,
             "/v1/devices/knob-61fc8c/config": config,
             "/v1/devices/knob-61fc8c/coredumps": dumps,
             "/v1/devices/knob-61fc8c/ota": ota,
@@ -67,6 +79,11 @@ enum KnobPaneFixtures {
                 await render(KnobDetail(page: page.page).environment(env), height: page.height, scheme: scheme,
                              to: out.appending(path: name))
             }
+        }
+        let emptyEnv = await environment(now: now, empty: true)
+        for scheme in [ColorScheme.light, .dark] {
+            await render(KnobDetail(page: .hardware(.status)).environment(emptyEnv), height: 560, scheme: scheme,
+                         to: out.appending(path: "knob-pane-empty-pairing-\(scheme == .dark ? "dark" : "light").png"))
         }
         let defaults = UserDefaults.standard
         let collapsed = defaults.string(forKey: SettingsGroup.storageKey)

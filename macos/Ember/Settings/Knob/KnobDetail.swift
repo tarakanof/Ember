@@ -23,6 +23,7 @@ struct KnobDetail: View {
                              retry: { await knob.load() })
             if knob.isLoaded {
                 if knob.knob == nil {
+                    KnobPairingSection()
                     KnobEmptySection(setUp: { setup = .setup })
                 } else {
                     content
@@ -43,6 +44,9 @@ struct KnobDetail: View {
                 try? await Task.sleep(for: .seconds(KnobModel.reloadEvery))
                 await knob.load(reuseFreshList: true)
             }
+        }
+        .task(id: knob.isLoaded) {
+            if knob.isLoaded { await knob.pairing.poll() }
         }
         .onAppear { Task { await knob.probePorts(retryFailed: true) } }
         .onChange(of: knob.ports.ports) { _, _ in Task { await knob.probePorts() } }

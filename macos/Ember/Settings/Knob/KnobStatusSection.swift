@@ -13,6 +13,7 @@ struct KnobStatusSection: View {
         let model = env.knob
         if let knob = model.knob {
             let checkin = knob.lastCheckin
+            KnobPairingSection()
             statusGroup(knob, model: model)
             KnobFirmwareSection(checkin: checkin)
             diagnosticsGroup(knob, checkin: checkin)
@@ -67,7 +68,11 @@ struct KnobStatusSection: View {
             Button("Forget Knob", role: .destructive) { Task { await model.forget() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB.")
+            if knob.supports(feature: "lan_pair") {
+                Text("Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you pair it again. It will show a pairing code. Enter it here to pair it again without the cable.")
+            } else {
+                Text("Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB.")
+            }
         }
     }
 
