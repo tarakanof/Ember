@@ -510,7 +510,7 @@ components:
       description: |
         The day clock (#729). The same shape is the knob view's `day` block.
         Optional keys are absent when zero or false.
-      required: [state, stop_at, on_min, break_min, over_min, agents]
+      required: [state, stop_at, on_min, break_min, over_min, agents, utc_offset]
       properties:
         state:
           type: string
@@ -549,6 +549,9 @@ components:
         agents:
           type: integer
           description: Sessions running now.
+        utc_offset:
+          type: integer
+          description: "The day clock's zone offset from UTC in seconds at the time of the answer (DST included); the zone of every `HH:MM` here."
         break_hint:
           type: boolean
           description: "On the clock for `day.break_hint_minutes` without a break."

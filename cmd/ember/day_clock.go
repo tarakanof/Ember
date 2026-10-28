@@ -61,6 +61,7 @@ type knobDay struct {
 	OfferStart          string          `json:"offer_start,omitempty"`
 	RepliesOffLastNight int             `json:"replies_off_last_night,omitempty"`
 	Agents              int             `json:"agents"`
+	UTCOffset           int             `json:"utc_offset"`
 	BreakHint           bool            `json:"break_hint,omitempty"`
 	Summary             *knobDaySummary `json:"summary,omitempty"`
 }
@@ -444,7 +445,8 @@ func (a *App) dayBlock(now time.Time, agents int) *knobDay {
 	d := &a.day
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	k := &knobDay{State: "off", StopAt: d.stopTarget(cfg.defaultStop()), Agents: agents}
+	_, off := now.In(cal.Loc).Zone()
+	k := &knobDay{State: "off", StopAt: d.stopTarget(cfg.defaultStop()), Agents: agents, UTCOffset: off}
 	if p := d.open; p != nil {
 		k.State, k.Started, k.StopAt = "on", hhmm(p.Start), p.StopAt
 		k.OnMin = p.OnSec(now) / 60
