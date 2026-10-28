@@ -11,7 +11,7 @@
     },
     {
       "name": "Check (Go)",
-      "command": "test -z \"$(gofmt -l .)\" || { gofmt -l .; exit 1; }; go vet ./... && go test ./... -race",
+      "command": "u=\"$(git ls-files -z '*.go' | xargs -0 gofmt -l)\"; { test -z \"$u\" || { printf '%s\\n' \"$u\"; false; }; } && go vet ./... && go test ./... -race",
       "icon": "test"
     },
     {
