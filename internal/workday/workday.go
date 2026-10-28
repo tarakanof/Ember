@@ -198,11 +198,17 @@ func (c Calendar) ResolveAt(hhmm string, now time.Time) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	n := now.In(c.Loc)
-	at := time.Date(n.Year(), n.Month(), n.Day(), h, m, 0, 0, c.Loc)
-	if at.After(now) {
-		at = time.Date(n.Year(), n.Month(), n.Day()-1, h, m, 0, 0, c.Loc)
+	var best time.Time
+	for back := 0; back <= 1; back++ {
+		base := time.Date(n.Year(), n.Month(), n.Day()-back, h, m, 0, 0, c.Loc)
+		for _, at := range []time.Time{base.Add(-time.Hour), base, base.Add(time.Hour)} {
+			l := at.In(c.Loc)
+			if l.Hour() == h && l.Minute() == m && l.Day() == base.Day() && !at.After(now) && at.After(best) {
+				best = at
+			}
+		}
 	}
-	return at, true
+	return best, !best.IsZero()
 }
 
 func (c Calendar) InRange(p Period, grace time.Duration) bool {

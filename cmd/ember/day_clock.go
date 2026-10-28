@@ -301,7 +301,7 @@ func (d *dayTracker) stopTarget(def string) string {
 	return def
 }
 
-func (a *App) noteDaySessionReaped(s Session) {
+func (a *App) noteDaySessionEnded(s Session) {
 	if (s.State != "done" && s.State != "waiting") || !a.dayOn() {
 		return
 	}

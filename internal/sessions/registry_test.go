@@ -151,11 +151,16 @@ func TestDeleteAndClear(t *testing.T) {
 	h.Upsert(sess("a", "running"))
 	h.Upsert(sess("b", "waiting"))
 
-	v := h.Delete(sess("a", "").Key())
+	v, gone, had := h.Delete(sess("a", "").Key())
 	if got := keys(v); !slices.Equal(got, []string{"b"}) {
 		t.Fatalf("after Delete = %v, want [b]", got)
 	}
-	h.Delete("never/was/here")
+	if !had || gone.State != "running" {
+		t.Fatalf("Delete returned %+v %v, want the running session", gone, had)
+	}
+	if _, _, had := h.Delete("never/was/here"); had {
+		t.Fatal("Delete of an unknown key reported a session")
+	}
 
 	if v := h.Clear(); len(v.Sessions) != 0 {
 		t.Fatalf("after Clear = %v, want none", keys(v))
@@ -211,7 +216,7 @@ func TestDeleteOfStaleSessionIsNotAReap(t *testing.T) {
 	h := newHarness()
 	h.Upsert(sess("a", "running"))
 	h.clk.Advance(26 * time.Second)
-	if v := h.Delete(sess("a", "").Key()); len(v.Sessions) != 0 {
+	if v, _, _ := h.Delete(sess("a", "").Key()); len(v.Sessions) != 0 {
 		t.Fatalf("after Delete = %v, want none", keys(v))
 	}
 	if len(h.reaped) != 0 {

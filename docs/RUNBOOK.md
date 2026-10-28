@@ -981,7 +981,8 @@ clock".
   ```
 
 - **Replies** are counted from session state: `done`/`waiting` → `running` on
-  a session the server already knew (or reaped within the last 24 h). A new
+  a session the server already knew (or reaped or deleted within the last
+  24 h). A new
   session never counts. Expect a few false positives (a T3 thread resumed by
   a delegated child or a schedule; a background task waking a done Claude
   session).

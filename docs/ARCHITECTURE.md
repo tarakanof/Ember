@@ -1633,10 +1633,12 @@ the clock are counted, not blocked. No prompt text is involved anywhere.
   whose prior state was `done` or `waiting` and that posts `running` is one
   reply, at most one row per session per minute. New sessions never count,
   which keeps `codex exec`, SDK reviews and `claude -p` out. A done session
-  is reaped 30 s after its last post (`done_ttl_seconds`), long before most
-  replies, so the server remembers reaped `done`/`waiting` keys for 24 h
-  from their last update (`onSessionReaped` → `noteDaySessionReaped`, in
-  memory) and treats a later `running` on that key as a reply. Accepted
+  is reaped 30 s after its last post (`done_ttl_seconds`), and the Codex and
+  T3 producers `DELETE` a done session once their 5-min window ends, both
+  long before most replies. So the server remembers reaped or deleted
+  `done`/`waiting` keys for 24 h from their last update (`onSessionReaped`
+  and `App.Delete` → `noteDaySessionEnded`, in memory) and treats a later
+  `running` on that key as a reply. Accepted
   false positives: a T3 thread resumed by a delegated child or a schedule, a
   Claude session woken by a background task after it posted `done`. Misses:
   a reply more than 24 h after the session went quiet, or after a restart

@@ -23,7 +23,7 @@ func (a *App) sessionPolicy() sessions.Policy {
 }
 
 func (a *App) onSessionReaped(r sessions.Reaped) {
-	a.noteDaySessionReaped(r.Session)
+	a.noteDaySessionEnded(r.Session)
 	a.changes.notify(topicSessions)
 	a.metrics.incSessionEvicted()
 	a.logger.Warn("session reaped",
@@ -54,7 +54,10 @@ func (a *App) Clear() Render {
 }
 
 func (a *App) Delete(key string) Render {
-	v := a.sessions.Delete(key)
+	v, old, had := a.sessions.Delete(key)
+	if had {
+		a.noteDaySessionEnded(old)
+	}
 	a.changes.notify(topicSessions)
 	return a.moodOf(v).Render
 }

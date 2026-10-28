@@ -335,6 +335,23 @@ func TestReplyToAReapedDoneSessionStillCounts(t *testing.T) {
 	}
 }
 
+func TestReplyToADeletedDoneSessionStillCounts(t *testing.T) {
+	f := newDayFixture(t, "", dayAt(10, 9, 0))
+	f.status(t, "s1", "running")
+	f.status(t, "s1", "done")
+	f.status(t, "s2", "running")
+	for _, key := range []string{"s1", "s2"} {
+		resp, b := devReq(t, f.srv, "DELETE", "/v1/status", testToken, `{"source":"mbp","tool":"claude","session":"`+key+`"}`)
+		mustOK(t, "delete", resp, b)
+	}
+	f.clk.advance(10 * time.Minute)
+	f.status(t, "s1", "running")
+	f.status(t, "s2", "running")
+	if n := f.replies(t); n != 1 {
+		t.Fatalf("replies = %d, want 1 for the deleted done session only", n)
+	}
+}
+
 func TestStartBeforeTheLastDayEventIsRejected(t *testing.T) {
 	f := newDayFixture(t, "", dayAt(10, 10, 0))
 	f.call(t, "POST", "/v1/day/start", "", http.StatusOK)

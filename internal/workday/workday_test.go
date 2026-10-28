@@ -260,3 +260,16 @@ func TestDayBoundaryHoldsAcrossDST(t *testing.T) {
 		t.Errorf("stop on the spring-forward day = %v", got)
 	}
 }
+
+func TestResolveAtInTheAutumnOverlap(t *testing.T) {
+	now := time.Date(2026, 10, 25, 2, 45, 0, 0, time.FixedZone("CEST", 2*3600)).In(berlin)
+	got, ok := cal.ResolveAt("02:30", now)
+	if want := now.Add(-15 * time.Minute); !ok || !got.Equal(want) {
+		t.Fatalf("02:30 at %v = %v, want %v", now, got, want)
+	}
+	later := now.Add(time.Hour)
+	got, _ = cal.ResolveAt("02:50", later)
+	if want := later.Add(-55 * time.Minute); !got.Equal(want) {
+		t.Fatalf("02:50 at %v = %v, want the latest past %v", later, got, want)
+	}
+}
