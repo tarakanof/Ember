@@ -1215,7 +1215,8 @@ without relaunch. Hybrid layout:
   Sounds & Alerts), **Sources** (Agents, Focus, Weather, Calendar, Music: where
   data comes from, set once) and **Devices** (Clock and Knob, each with its
   hardware pages and an Apps subtree holding that device's presentation of
-  each source; a source pane and its device apps bind the same config model,
+  each source; the knob's Day Clock app (when its caps list the `day` page)
+  has no source and links to the Day Clock pane instead (#739); a source pane and its device apps bind the same config model,
   so a pending edit shows in both; the selection and expanded nodes persist
   in `UserDefaults`, and a route under a device still loading is held, not
   replaced by the fallback); the title follows the pane, the

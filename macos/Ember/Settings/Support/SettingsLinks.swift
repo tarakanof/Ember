@@ -26,6 +26,20 @@ struct SourceLinkSection: View {
     }
 }
 
+struct DayClockLinkSection: View {
+    var body: some View {
+        Section {
+            LabeledContent {
+                Button("Day Clock Settings…") { showSettings(.app(.dayClock)) }
+            } label: {
+                Label { Text(AppPane.dayClock.title) } icon: { Image(systemName: AppPane.dayClock.systemImage) }
+            }
+        } footer: {
+            Text("The stop time, break hint and quiet when off are set once in Day Clock. This page sets only whether this knob shows the day clock.")
+        }
+    }
+}
+
 struct ShownOnSection: View {
     @Environment(\.settingsTree) private var tree
     let source: SourceID

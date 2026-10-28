@@ -78,6 +78,7 @@ extension AppID {
         switch self {
         case .agents:   "Agents"
         case .bot:      "Bot"
+        case .day:      "Day Clock"
         case .focus:    "Focus"
         case .weather:  "Weather"
         case .calendar: "Calendar"
@@ -89,6 +90,7 @@ extension AppID {
         switch self {
         case .agents:   "sparkles"
         case .bot:      "face.smiling"
+        case .day:      "clock.badge.checkmark"
         case .focus:    "timer"
         case .weather:  "cloud.sun"
         case .calendar: "calendar"

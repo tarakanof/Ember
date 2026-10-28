@@ -1141,6 +1141,9 @@
     "Date" : {},
     "Day" : {},
     "Day Clock" : {},
+    "Day Clock Settings…" : {
+      "comment" : "Button on a knob's Day Clock app page: opens the app-wide Day Clock settings pane."
+    },
     "Day clock" : {},
     "Day clock is off" : {},
     "Day clock, last 28 days" : {},
@@ -2592,6 +2595,9 @@
     "The server was started with the clock turned off (EMBER_CLOCK=off). Turn it back on to manage the clock here." : {},
     "The server's activity overlay is off, so new agent time isn't stored." : {},
     "The source names this Mac on the clock; up to 4 characters fit best. The token must match the server's EMBER_TOKEN." : {},
+    "The stop time, break hint and quiet when off are set once in Day Clock. This page sets only whether this knob shows the day clock." : {
+      "comment" : "Footer under the Day Clock link on a knob's Day Clock app page."
+    },
     "The tune the clock plays" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

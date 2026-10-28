@@ -211,6 +211,7 @@ func showKnobHardware(_ knobID: String) {
 func knobPageTitle(_ id: String) -> LocalizedStringKey {
     switch id {
     case "bot": "Bot"
+    case "day": "Day Clock"
     case "pomodoro": "Pomodoro"
     case "weather": "Weather"
     case "nowplaying": "Now Playing"
