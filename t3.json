@@ -1,0 +1,28 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "defaultThreadEnvMode": "worktree",
+  "scripts": [
+    {
+      "name": "Link local context",
+      "command": "for f in AGENTS.local.md CLAUDE.local.md; do [ -e \"$f\" ] || [ ! -f \"$T3CODE_PROJECT_ROOT/$f\" ] || ln -s \"$T3CODE_PROJECT_ROOT/$f\" \"$f\"; done",
+      "icon": "configure",
+      "runOnWorktreeCreate": true,
+      "async": false
+    },
+    {
+      "name": "Check (Go)",
+      "command": "test -z \"$(gofmt -l .)\" || { gofmt -l .; exit 1; }; go vet ./... && go test ./... -race",
+      "icon": "test"
+    },
+    {
+      "name": "Check (app)",
+      "command": "swift test --package-path macos && scripts/strings.sh check",
+      "icon": "test"
+    },
+    {
+      "name": "Codex review",
+      "command": "codex review --base origin/main",
+      "icon": "lint"
+    }
+  ]
+}
