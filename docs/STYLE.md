@@ -119,7 +119,7 @@ Localization `comment:` arguments are translator notes, not code comments; keep 
 - `README.md` — how to run it, basic config, endpoints. Skimmable in 60 seconds.
 - `AGENTS.md` — hard rules and the docs map; `docs/WORKFLOW.md` — how a change ships. The single source of truth every AI assistant (Claude Code included) loads; there is no `CLAUDE.md`.
 - `docs/STYLE.md` — this file.
-- `Specs/<project>/` (Obsidian vault) — design contracts + matching implementation plans for non-trivial work, dated.
+- `Design Specs/<project>/` (Obsidian vault) — design contracts + matching implementation plans for non-trivial work, dated.
 - Inline docs (godoc) — only the exceptions in §9.
 
 When in doubt, write the spec, then point at it from the code's commit message. Don't paste the spec into the code.
@@ -347,7 +347,7 @@ When writing producer hooks (sub-project B/C):
 
 ### Specs are not tracked
 
-Specs, plans and brainstorm notes live in the Obsidian vault (`Specs/ember/`, see [`WORKFLOW.md`](WORKFLOW.md)); `docs/superpowers/` is gitignored. The repo ships the implementation and its docs.
+Specs, plans and brainstorm notes live in the Obsidian vault (`Design Specs/ember/`, see [`WORKFLOW.md`](WORKFLOW.md)); `docs/superpowers/` is gitignored. The repo ships the implementation and its docs.
 
 ---
 
