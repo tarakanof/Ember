@@ -1603,7 +1603,7 @@ offer, and the knob's `pomo` block (`knobPomo`) is `null` when off and sends
 ### Day clock — `internal/workday`, `cmd/ember/day_*.go` (#729)
 
 A workday the user starts and stops on the knob, with a stop time set at
-clock-in (spec: vault `Design Specs/ember/2026-10-27-work-tracking-design.md`).
+clock-in (spec: vault `Personal/Ember/Specs/2026-10-27-work-tracking-design.md`).
 Agents are never stopped; off the clock Ember is quiet, and replies sent off
 the clock are counted, not blocked. No prompt text is involved anywhere.
 
@@ -2433,7 +2433,7 @@ counter).
 ### Now playing — `internal/nowplaying`, `cmd/ember/nowplaying*.go` (#226)
 
 Music state and pictures for the knob's now-playing page (cinder #14).
-Design note: Obsidian `Specs/ember/2026-10-05-now-playing-design.md`.
+Design note: Obsidian `Personal/Ember/Specs/2026-10-05-now-playing-design.md`.
 
 - **Model** (`internal/nowplaying.Registry`, pure): one entry per
   `(source, player)`; a report is `{source, player, state
@@ -3966,7 +3966,7 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
 
 The TC001 is a registry record of kind `awtrix-ng`, so both displays are
 addressed as `/v1/devices/{id}`. Phases 2 and 4 of the per-device apps spec
-(`Specs/ember/2026-10-04-per-device-apps-design.md` in the vault): the
+(`Personal/Ember/Specs/2026-10-04-per-device-apps-design.md` in the vault): the
 record carries identity, liveness and `config_version`; its presentation
 config is stored as the clock's own config row (#232), with the old
 endpoints as aliases. Before the migration (no clock record yet, or a failed
@@ -4546,7 +4546,7 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
 ### Knob firmware updates — `cmd/ember/firmware*.go`, `devices_ota*.go` (#225)
 
 Over-the-air updates for the cinder knob (firmware side: tarakanof/cinder#10;
-design: `Specs/cinder/2026-10-06-knob-ota-design.md`). Ember
+design: `Personal/cinder/Specs/2026-10-06-knob-ota-design.md`). Ember
 hosts the images, decides when to offer one, serves it, and tracks the
 knob's progress; the knob downloads, verifies the pinned SHA-256, installs
 when no Pomodoro runs, and confirms or rolls back by itself. Ember never

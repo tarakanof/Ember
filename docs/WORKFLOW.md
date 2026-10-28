@@ -8,9 +8,9 @@ they apply at every step.
 
 - File a GitHub issue for every change. Write the user's decisions on the issue.
 - A non-trivial design gets a spec in the Obsidian vault, never in the repo:
-  `Design Specs/ember/YYYY-MM-DD-<topic>-design.md` (vault path in
+  `Personal/Ember/Specs/YYYY-MM-DD-<topic>-design.md` (vault path in
   `AGENTS.local.md`). Link it from the issue. Firmware specs go in
-  `Design Specs/cinder/`.
+  `Personal/cinder/Specs/`.
 - Research (APIs, other projects, resource cost) runs in a subagent; its result
   goes into the spec, and the issue gets a short summary.
 
@@ -132,8 +132,10 @@ they apply at every step.
 
 ## Obsidian vault
 
-- Specs live in `Design Specs/ember/` and `Design Specs/cinder/`. When a spec's
-  work ships, add a status line at its top (versions, issues closed).
-- Open items live in GitHub issues; the repo has no `TODO.md` and the vault no
-  task note.
+- Project task note `AI/Tasks/Ember.md`: current status and the canonical
+  open-items list (the repo has no `TODO.md`).
+- Before vault updates read `AI/SCHEMA.md` and `AI/Rules/{Core,Security}.md`.
+  When meaningful work lands, update the task note, `AI/Dashboard.md` if status
+  or priority changed, and append a line to `AI/log.md`.
+- When a spec's work ships, add a status line at its top (versions, issues closed).
 - `docs/superpowers/` stays gitignored so specs cannot land in the repo.

@@ -438,7 +438,7 @@ OTA, reset, setup and join screens are not scenes.
 
 What the knob has on screen (#609, cinder#245), so Ember.app's knob
 preview can follow its page and weather face. Design:
-`Specs/ember/2026-10-19-knob-shown-face-design.md` in the vault.
+`Personal/Ember/Specs/2026-10-19-knob-shown-face-design.md` in the vault.
 
 **Request.** A knob with `shown` in its caps adds
 `shown=<page>[:<face>]` to every view request, plain polls, long polls and

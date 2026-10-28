@@ -18,5 +18,6 @@ live in the public repo.
 
 ## Documentation / vault
 
-- Obsidian vault path: `<path-to-vault>` (specs and plans under
-  `Design Specs/ember/`, firmware specs under `Design Specs/cinder/`).
+- Obsidian vault path: `<path-to-vault>` (project task note: `AI/Tasks/Ember.md`;
+  specs and plans under `Personal/Ember/Specs/`, firmware specs under
+  `Personal/cinder/Specs/`).
