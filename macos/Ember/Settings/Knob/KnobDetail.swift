@@ -37,7 +37,8 @@ struct KnobDetail: View {
             async let a: Void = env.settings.pomodoro.load()
             async let b: Void = env.settings.weather.load()
             async let c: Void = env.settings.controls.load()
-            _ = await (a, b, c)
+            async let d: Void = env.settings.day.load()
+            _ = await (a, b, c, d)
         }
         .task {
             while !Task.isCancelled {
