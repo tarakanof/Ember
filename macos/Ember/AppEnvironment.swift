@@ -140,11 +140,12 @@ public final class AppEnvironment {
         permissions = PermissionsModel(sources: AppPermissionSources(
             connection: connection, producers: producers, reminders: watcher, location: location, music: music))
         #if DEBUG
-        if HardwareSnapshotRenderer.isRequested { return }
+        if HardwareSnapshotRenderer.isRequested || DashboardSnapshotRenderer.isRequested { return }
         #endif
         live.configure(client: client)
         settings.connectionEnv.onSaved = { [weak self] _, _ in self?.reloadConnection() }
         clockConfig.legacy = settings
+        settings.onDaySaved = { [live] in Task { await live.refreshNow(.dayState, .dayHistory, .dayWeeks) } }
         settings.onClockSourceSaved = { [clockConfig] in Task { await clockConfig.load() } }
         settings.producerTuning.onSaved = { [producers] saved, previous in
             guard let previous, saved.changesCodex(from: previous) else { return }

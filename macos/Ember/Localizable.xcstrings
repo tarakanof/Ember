@@ -1,6 +1,7 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "" : {},
     "%@" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual",
@@ -63,17 +64,6 @@
     "%@ 5h limit reached · resets %@" : {
       "comment" : "Menu usage row: tool name, then when the used-up 5-hour window resets.",
       "extractionState" : "manual"
-    },
-    "%@ active, ^[%lld session](inflect: true)" : {
-      "comment" : "VoiceOver, Work hours chart: active time (\"5h 10m\"), then the number of focus sessions.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ active, ^[%2$lld session](inflect: true)"
-          }
-        }
-      }
     },
     "%@ at %@" : {
       "comment" : "Settings › Knob Crash row: the crash reason and the program counter (\"Panic at 0x4201a2b3\").",
@@ -178,6 +168,28 @@
     "%@ on %@ — %@" : {
       "comment" : "An agent session: tool name, the Mac it runs on, then its state (\"Claude on m4 — Running\").",
       "extractionState" : "manual"
+    },
+    "%@ on the clock · %@ breaks" : {
+      "comment" : "Hover on a day: time on the clock, then time on breaks, both durations.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ on the clock · %2$@ breaks"
+          }
+        }
+      }
+    },
+    "%@ on the clock, ^[%lld reply](inflect: true) off the clock" : {
+      "comment" : "VoiceOver summary of a day: time on the clock (a duration), then the off-clock reply count.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ on the clock, ^[%2$lld reply](inflect: true) off the clock"
+          }
+        }
+      }
     },
     "%@ over 7 days." : {
       "comment" : "VoiceOver chart summary: total agent time over the last 7 days (\"12h 40m\")."
@@ -339,6 +351,17 @@
       "comment" : "Menu header: the lead session's project, its state, then the Mac it runs on (\"learn-language — Waiting · m4\").",
       "extractionState" : "manual"
     },
+    "%@ → %@" : {
+      "comment" : "Hover on a day: clock-in time, arrow, clock-out time or \"now\".",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ → %2$@"
+          }
+        }
+      }
+    },
     "%@, %@" : {
       "comment" : "VoiceOver, Usage card row: tool name, then which window (\"Claude, 5-hour window\").",
       "localizations" : {
@@ -427,6 +450,9 @@
     },
     "%@, status unknown" : {
       "comment" : "VoiceOver label of a Settings sidebar device whose reachability isn't known yet: its name (and kind, \"Desk knob, Knob\")."
+    },
+    "%@, stopped automatically" : {
+      "comment" : "VoiceOver label of a table cell: the clock-out time of a day that ended automatically."
     },
     "%@, unreachable" : {
       "comment" : "VoiceOver label of a Settings sidebar device whose server didn't answer: its name (and kind, \"Desk knob, Knob\")."
@@ -525,6 +551,17 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "%lld of %lld days in range" : {
+      "comment" : "This week's score: days stopped by the stop time, then days worked.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld days in range"
           }
         }
       }
@@ -731,6 +768,8 @@
     },
     "At once" : {},
     "Attention hold" : {},
+    "Auto clock-out" : {},
+    "Auto-stop" : {},
     "Automatic (release builds, when the knob is idle)" : {},
     "Automatic brightness" : {},
     "Automatic updates are on: if %@ is newer than the knob's firmware, the knob installs it once it has been idle for 10 minutes." : {
@@ -809,6 +848,8 @@
     "Bounce" : {},
     "Break" : {},
     "Break colour" : {},
+    "Break hint" : {},
+    "Breaks" : {},
     "Brightness" : {},
     "Brightness at startup" : {},
     "Built-in" : {},
@@ -849,6 +890,7 @@
     "Channel %lld" : {
       "comment" : "Settings › Knob Diagnostics: the Wi-Fi channel the knob uses (\"Channel 6\")."
     },
+    "Chart" : {},
     "Check Again" : {},
     "Check Ember every" : {},
     "Checked %@" : {
@@ -895,6 +937,7 @@
       "extractionState" : "manual"
     },
     "Clock display" : {},
+    "Clock in and out on the knob. While you're off the clock Ember stays quiet, and the Dashboard shows when your days end against your stop time." : {},
     "Clock stats unavailable" : {},
     "Clock style" : {},
     "Clock unreachable" : {},
@@ -1097,13 +1140,21 @@
     "Daily goal met" : {},
     "Date" : {},
     "Day" : {},
+    "Day Clock" : {},
+    "Day clock" : {},
+    "Day clock is off" : {},
+    "Day clock, last 28 days" : {},
     "Day number" : {},
     "Day, month, year" : {},
+    "Days in range" : {},
+    "Days worked" : {},
+    "Days you stopped by your stop time, with a little grace" : {},
     "Debugger reset" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
     "Decline" : {},
+    "Default stop time" : {},
     "Delete" : {},
     "Delete %@ from Ember?" : {
       "comment" : "Settings › Knob Firmware & updates: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\")."
@@ -1180,6 +1231,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Each day" : {},
     "Each device has its own look for this source." : {},
     "Each device with a speaker sets its own sounds. Quiet hours apply to all of them. The knob has no speaker: it dims and calms its bot instead, set in its Display settings." : {},
     "Edit %@ on %@" : {
@@ -1244,6 +1296,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Enable Day Clock" : {},
     "Enable Pomodoro" : {},
     "Enable weather" : {},
     "End" : {},
@@ -1371,6 +1424,7 @@
     },
     "Goals" : {},
     "Good" : {},
+    "Grace" : {},
     "Green under 70%, amber, red from 90%." : {},
     "Hardware" : {},
     "Hardware stats" : {},
@@ -1460,6 +1514,7 @@
     "Idle. Push the knob to start a focus round." : {},
     "Idle: no agent is working." : {},
     "Imperial (°F)" : {},
+    "In range" : {},
     "In use" : {},
     "Include Claude Code's Codex runs" : {},
     "Install" : {},
@@ -1681,6 +1736,7 @@
       "comment" : "Menu next-event row: event title, then a time tomorrow.",
       "extractionState" : "manual"
     },
+    "No" : {},
     "No Claude Code, Codex or T3 Code found on this Mac." : {},
     "No Claude hooks are registered in ~/.claude/settings.json (a plugin enabled only for a project isn't checked), so Claude Code sessions may not report." : {},
     "No ELF" : {
@@ -1696,6 +1752,8 @@
     "No daily goal set" : {},
     "No data in this range" : {},
     "No data yet" : {},
+    "No days on the clock this week" : {},
+    "No days on the clock yet" : {},
     "No firmware stored on Ember yet." : {},
     "No focus sessions yet — click Start Focus to begin" : {},
     "No info here" : {},
@@ -1706,10 +1764,10 @@
     "No observation yet" : {},
     "No server URL" : {},
     "No server found?" : {},
+    "No stops yet" : {},
     "No usage reported yet" : {},
     "No usage reported yet — agents report it as they run" : {},
     "No weather from Ember yet." : {},
-    "No work" : {},
     "None" : {},
     "None yet" : {},
     "Not asked yet" : {},
@@ -1717,6 +1775,10 @@
     "Not available — the feature is off or the server is too old." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
+    },
+    "Not clocked in" : {},
+    "Not clocked in, ^[%lld reply](inflect: true) off the clock" : {
+      "comment" : "VoiceOver summary of a day without a clock-in; the argument is the off-clock reply count."
     },
     "Not delivered yet" : {},
     "Not found on this Mac. You can turn it on now; it reports once the app runs." : {},
@@ -1757,6 +1819,9 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Off the clock" : {},
+    "Off the clock last night" : {},
+    "Off-clock replies" : {},
     "Off. %@" : {
       "comment" : "VoiceOver, a Settings preview of a clock panel that is turned off; the argument is the panel's description."
     },
@@ -1793,10 +1858,12 @@
     },
     "On" : {},
     "On Every Card" : {},
+    "On a break" : {},
     "On a clear night the conditions tile shows tonight's moon phase instead of the weather icon. Default: on." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "On the clock" : {},
     "On the knob" : {
       "comment" : "Settings › Knob Firmware & updates image row badge (green): the knob runs this build."
     },
@@ -1857,6 +1924,7 @@
       "extractionState" : "manual"
     },
     "Password" : {},
+    "Past the stop time" : {},
     "Pause" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2003,6 +2071,11 @@
     "Replace “%@”?" : {
       "comment" : "Knob setup confirm title; the argument is the name of the knob already set up (\"Desk knob\")."
     },
+    "Replies off the clock" : {},
+    "Replies to agents after you clocked out, last night" : {},
+    "Replies to agents while you were clocked out" : {},
+    "Reply" : {},
+    "Reply off the clock" : {},
     "Report this Mac's agent activity" : {},
     "Reporting" : {},
     "Reporting is on, but macOS isn't running its background helper. Repair registers it again." : {},
@@ -2112,6 +2185,7 @@
     "Sensor Calibration" : {},
     "Sensors" : {},
     "Separator" : {},
+    "Series" : {},
     "Server" : {},
     "Server URL" : {},
     "Server error" : {},
@@ -2235,6 +2309,7 @@
     },
     "Start on Monday" : {},
     "Start the next phase automatically" : {},
+    "Started" : {},
     "Startup" : {},
     "State" : {},
     "Status" : {},
@@ -2249,6 +2324,17 @@
       "extractionState" : "manual"
     },
     "Stop after" : {},
+    "Stop target" : {},
+    "Stop target %@" : {
+      "comment" : "Hover on a day: the stop time set, as a clock time."
+    },
+    "Stop time" : {},
+    "Stop time against the stop target" : {},
+    "Stopped" : {},
+    "Stopped %@" : {
+      "comment" : "Hover on a stop-time point: when the day ended, as a clock time."
+    },
+    "Stopped automatically" : {},
     "Stops the clock's buttons from switching apps" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2281,6 +2367,10 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Table" : {},
+    "Target %@" : {
+      "comment" : "Hover on a stop-time point: the stop target, as a clock time."
+    },
     "Task watchdog" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2301,6 +2391,7 @@
     },
     "The Claude and Codex helpers send session status to the server. macOS asks for each helper separately." : {},
     "The Dashboard tracks these." : {},
+    "The Day Clock needs a newer Ember server. Update the server." : {},
     "The European Centre's high-resolution global model: worldwide, updated 4 times a day. No UV index; 15-minute rain is the hourly amount split evenly." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2436,6 +2527,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The knob opens on the default stop time when you clock in. The break hint appears after that long on the clock without a break. Past your stop time with no reply for the auto clock-out time, the day ends by itself. A day counts as in range when you stop within the grace time of your stop time." : {},
     "The knob picks up the new token on its next check-in, within a minute if it's online. The old token stops working once the knob uses the new one, or after 24 hours." : {},
     "The knob rejected the Ember address. Use http://address:port, without https or a path." : {},
     "The knob rejected the Wi-Fi settings. Check the network name and password." : {},
@@ -2539,6 +2631,7 @@
     "This server has no demo scenes. Update the Ember server." : {},
     "This server has no knob registry. Update the Ember server." : {},
     "This source is off, so this app shows nothing. Turn it on in the source's settings." : {},
+    "This week" : {},
     "Thunderstorm" : {},
     "Tiles" : {},
     "Time" : {},
@@ -2552,6 +2645,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "To" : {},
     "To use %@, set %@ on the server and restart it." : {
       "comment" : "Weather provider hint: a provider name, then the environment variable that holds its API key",
       "localizations" : {
@@ -2622,6 +2716,7 @@
     },
     "Turn On Diagnostics" : {},
     "Turn On Full Diagnostics" : {},
+    "Turn it on in Settings › Day Clock." : {},
     "Turn it on in Settings › Sources › Focus." : {},
     "Turn off after" : {},
     "Turn or press" : {
@@ -2743,6 +2838,7 @@
     },
     "VS Code" : {},
     "Very weak" : {},
+    "View" : {},
     "Volume" : {},
     "Waiting" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2795,12 +2891,14 @@
       "extractionState" : "manual"
     },
     "Week" : {},
+    "Week of" : {},
     "Week of %@" : {
       "comment" : "VoiceOver chart axis: a week, named by its first day (\"Sep 21\")."
     },
     "Weekday Bar" : {},
     "Weekly goal" : {},
     "Weekly window usage." : {},
+    "Weeks" : {},
     "What last woke the knob's screen." : {},
     "What the bottom row of each agent card shows" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2870,8 +2968,6 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "Work hours" : {},
-    "Work hours per day" : {},
     "Working: an agent is running." : {},
     "Worldwide, free and without a key for non-commercial use, up to 10,000 calls a day. Rain comes in 15-minute steps. Air quality always comes from Open-Meteo. The model below decides what you get." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2904,7 +3000,21 @@
       "comment" : "Settings › Calendar: how many calendar feeds the server is configured with."
     },
     "^[%lld day](inflect: true)" : {
-      "comment" : "A number of days (a streak, or rows on the Work hours card)."
+      "comment" : "A number of days (a streak)."
+    },
+    "^[%lld reply](inflect: true)" : {
+      "comment" : "Count of replies to agents made while off the clock; the argument is the count."
+    },
+    "^[%lld reply](inflect: true) off the clock · %lld on" : {
+      "comment" : "Hover on a day: replies to agents off the clock (counted), then replies on the clock (a number).",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "^[%1$lld reply](inflect: true) off the clock · %2$lld on"
+          }
+        }
+      }
     },
     "^[%lld session](inflect: true)" : {
       "comment" : "Settings › Focus: the daily goal in focus sessions."
@@ -2928,6 +3038,9 @@
       "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
       "extractionState" : "manual"
     },
+    "after %lld min" : {
+      "comment" : "Break hint setting value: minutes on the clock before the hint."
+    },
     "association comeback time too long" : {
       "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
       "extractionState" : "manual"
@@ -2946,6 +3059,12 @@
     },
     "avg %@ / week" : {
       "comment" : "12-week card header: average focus time per finished week (\"6h 15m\")."
+    },
+    "avg %@ before target" : {
+      "comment" : "Stop time card: average distance before the stop target; the argument is a duration."
+    },
+    "avg %@ past target" : {
+      "comment" : "Stop time card: average distance past the stop target; the argument is a duration."
     },
     "beacon timeout" : {
       "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
@@ -3052,9 +3171,11 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
+    "now" : {},
     "of %lld" : {
       "comment" : "Inside the Focus ring, under the sessions done: the daily goal (\"of 8\")."
     },
+    "on target on average" : {},
     "pending" : {},
     "poor" : {},
     "rate-limited" : {
@@ -3158,9 +3279,7 @@
       "comment" : "Settings › Agents failure when moving Claude while its settings file can't be parsed.",
       "extractionState" : "manual"
     },
-    "· ^[%lld session](inflect: true)" : {
-      "comment" : "Work hours chart label after the active time: the number of focus sessions."
-    }
+    "—" : {}
   },
   "version" : "1.0"
 }

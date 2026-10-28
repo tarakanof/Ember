@@ -2,6 +2,7 @@ import Foundation
 
 public enum AppPane: String, CaseIterable, Sendable {
     case general, connection, permissions, sounds
+    case dayClock = "day-clock"
 }
 
 public enum SourceID: String, CaseIterable, Sendable {

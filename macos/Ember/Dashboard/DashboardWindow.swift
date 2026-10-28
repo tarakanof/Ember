@@ -10,7 +10,7 @@ struct DashboardWindow: View {
     @State private var isVisible = true
 
     static let heldFeeds: [Feed] = [.stats, .usage, .meetings, .clockHealth, .screen, .activity,
-                                    .workhours, .heatmap, .weather]
+                                    .heatmap, .weather, .dayState, .dayHistory, .dayWeeks]
 
     var body: some View {
         NavigationStack {
@@ -55,7 +55,8 @@ struct DashboardWindow: View {
     private func loadConfigs() async {
         async let pomodoro: Void = env.settings.pomodoro.load()
         async let meetings: Void = env.settings.meetings.load()
-        _ = await (pomodoro, meetings)
+        async let day: Void = env.settings.day.load()
+        _ = await (pomodoro, meetings, day)
     }
 
     private func refresh() {
@@ -117,7 +118,10 @@ struct LiveDashboardSource: DashboardSource, Equatable {
     var clockHealth: Loadable<ClockHealth> { env.live.clockHealth }
     var weather: Loadable<WeatherState> { env.live.weather }
     var activity: Loadable<ActivitySummary> { env.live.activity }
-    var workhours: Loadable<WorkHours> { env.live.workhours }
+    var dayState: Loadable<DayState> { env.live.dayState }
+    var dayHistory: Loadable<DayHistory> { env.live.dayHistory }
+    var dayWeeks: Loadable<DayWeeks> { env.live.dayWeeks }
+    var dayEnabledSetting: Bool? { env.settings.day.applied?.enabled }
     var heatmap: Loadable<Heatmap> { env.live.heatmap }
     var reminders: [UpcomingItem] {
         env.reminderWatcher.upcoming.map {

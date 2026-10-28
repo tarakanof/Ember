@@ -26,7 +26,9 @@ enum DashboardFixtures {
         d.clockHealth = .loaded(golden("clock_health"), at: loadedAt)
         d.weather = .loaded(weather, at: loadedAt)
         d.activity = .loaded(activity(days: 7), at: loadedAt)
-        d.workhours = .loaded(workHours(days: 14), at: loadedAt)
+        d.dayState = .loaded(dayState, at: loadedAt)
+        d.dayHistory = .loaded(dayHistory(days: 28), at: loadedAt)
+        d.dayWeeks = .loaded(dayWeeks(from: dayHistory(days: 28)), at: loadedAt)
         d.heatmap = .loaded(heatmap(days: 84), at: loadedAt)
         d.reminders = [UpcomingItem(id: "r|1", kind: .reminder, title: "Call the bank",
                                     date: now.addingTimeInterval(4 * 3600))]
@@ -43,7 +45,9 @@ enum DashboardFixtures {
         d.pomodoro = .loaded(pomo(phase: "idle", running: false, remaining: 0, planned: 0, round: 0), at: loadedAt)
         d.stats = .loaded(stats(days: 2), at: loadedAt)
         d.activity = .loaded(golden("activity_summary"), at: loadedAt)
-        d.workhours = .loaded(workHours(days: 2, of: 14), at: loadedAt)
+        d.dayState = .loaded(dayState(phase: "off"), at: loadedAt)
+        d.dayHistory = .loaded(dayHistory(days: 2), at: loadedAt)
+        d.dayWeeks = .loaded(dayWeeks(from: dayHistory(days: 2)), at: loadedAt)
         d.heatmap = .loaded(heatmap(days: 2), at: loadedAt)
         d.meetings = .loaded(MeetingsState(), at: loadedAt)
         d.reminders = []
@@ -56,6 +60,7 @@ enum DashboardFixtures {
         d.activity = .failed(.featureOff, last: nil, lastAt: nil)
         d.clockHealth = .failed(.featureOff, last: nil, lastAt: nil)
         d.weather = .failed(.featureOff, last: nil, lastAt: nil)
+        d.dayState = .failed(.featureOff, last: nil, lastAt: nil)
         var s = stats(days: 120)
         s.weekly = []
         s.completion = CompletionStat()
@@ -65,11 +70,16 @@ enum DashboardFixtures {
         return d
     }
 
+    static var dayOff: DashboardData {
+        var d = established
+        d.dayState = .loaded(dayState(phase: "off", enabled: false), at: loadedAt)
+        return d
+    }
+
     static var pomodoroOff: DashboardData {
         var d = established
         d.pomodoro = .failed(.featureOff, last: nil, lastAt: nil)
         d.stats = .failed(.featureOff, last: nil, lastAt: nil)
-        d.workhours = .failed(.featureOff, last: nil, lastAt: nil)
         d.heatmap = .failed(.featureOff, last: nil, lastAt: nil)
         return d
     }
@@ -97,7 +107,9 @@ enum DashboardFixtures {
         d.clockHealth = .failed(.offline, last: nil, lastAt: nil)
         d.weather = .failed(.offline, last: nil, lastAt: nil)
         d.activity = .failed(.offline, last: nil, lastAt: nil)
-        d.workhours = .failed(.offline, last: nil, lastAt: nil)
+        d.dayState = .failed(.offline, last: nil, lastAt: nil)
+        d.dayHistory = .failed(.offline, last: nil, lastAt: nil)
+        d.dayWeeks = .failed(.offline, last: nil, lastAt: nil)
         d.heatmap = .failed(.offline, last: nil, lastAt: nil)
         d.now = now
         d.calendar = calendar
@@ -240,28 +252,87 @@ enum DashboardFixtures {
         return Heatmap(grid: grid, calendar: calendarBuckets, days: 84)
     }
 
-    static func workHours(days: Int, of total: Int? = nil) -> WorkHours {
-        let count = total ?? days
-        let rows: [String] = (0..<count).map { back in
-            let d = calendar.date(byAdding: .day, value: -back, to: now)!
-            let key = DayKey.key(d, in: calendar)
-            let m = back < days ? focusMinutes(back: back) : 0
-            guard m > 0 else {
-                return #"{"date":"\#(key)","work_start":null,"work_end":null,"span_sec":0,"active_sec":0,"break_sec":0,"sessions":0,"longest_sec":0}"#
-            }
-            let startH = 8.0 + noise(back * 3) * 2.5
-            let endH = back == 0 ? 10.4 : min(23.5, startH + Double(m) / 60 * 1.6 + 1.5 + noise(back * 5) * 3)
-            let start = calendar.startOfDay(for: d).addingTimeInterval(startH * 3600)
-            let end = calendar.startOfDay(for: d).addingTimeInterval(endH * 3600)
-            let f = ISO8601DateFormatter()
-            f.timeZone = calendar.timeZone
-            let span = Int(end.timeIntervalSince(start))
-            return #"{"date":"\#(key)","work_start":"\#(f.string(from: start))","work_end":"\#(f.string(from: end))","span_sec":\#(span),"active_sec":\#(m * 60 + 1800),"break_sec":\#(max(0, span - m * 60)),"sessions":\#(m / 25 + 2),"longest_sec":1500}"#
-        }
-        let json = #"{"days":[\#(rows.joined(separator: ","))],"gap_min":30,"include_activity":true}"#
+    private static func iso(_ date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.timeZone = calendar.timeZone
+        return f.string(from: date)
+    }
+
+    private static func at(_ back: Int, hours: Double) -> Date {
+        calendar.startOfDay(for: calendar.date(byAdding: .day, value: -back, to: now)!).addingTimeInterval(hours * 3600)
+    }
+
+    private static func clockString(_ hours: Double) -> String {
+        let minutes = Int((hours * 60).rounded())
+        return String(format: "%02d:%02d", (minutes / 60) % 24, minutes % 60)
+    }
+
+    private static func decodeDay<T: Decodable>(_ json: String) -> T {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try! decoder.decode(WorkHours.self, from: Data(json.utf8))
+        return try! decoder.decode(T.self, from: Data(json.utf8))
+    }
+
+    static var dayState: DayState { dayState(phase: "on") }
+
+    static func dayState(phase: String, enabled: Bool = true) -> DayState {
+        let started = phase == "off" ? "" : "09:40"
+        return decodeDay(#"{"enabled":\#(enabled),"state":"\#(phase)","started":"\#(started)","stop_at":"00:00","on_min":50,"replies_off_last_night":5}"#)
+    }
+
+    static func dayHistory(days: Int) -> DayHistory {
+        let rows: [String] = (0..<days).map { back in
+            let d = calendar.date(byAdding: .day, value: -back, to: now)!
+            let key = DayKey.key(d, in: calendar)
+            let weekday = calendar.component(.weekday, from: d)
+            let weekend = weekday == 1 || weekday == 7
+            let n = noise(back * 17 + 3)
+            let target = 24 + min(1.0, Double(max(0, back - 4)) / 24)
+            if back == 0 {
+                return #"{"date":"\#(key)","start":"\#(iso(at(0, hours: 9.67)))","stop":null,"stop_target":"\#(clockString(target))","on_sec":3000,"break_sec":0,"breaks":[],"auto":false,"in_range":null,"replies_on":14,"replies_off":0,"first_reply":"\#(iso(at(0, hours: 9.7)))","last_reply":"\#(iso(at(0, hours: 10.4)))"}"#
+            }
+            if back == 9 || n < (weekend ? 0.5 : 0.06) {
+                let replies = back == 9 ? 6 : (n < 0.2 ? 3 : 0)
+                let times = (0..<replies).map { "\"\(iso(at(back, hours: 21.2 + Double($0) * 0.3)))\"" }
+                return #"{"date":"\#(key)","start":null,"stop":null,"stop_target":null,"on_sec":0,"break_sec":0,"breaks":[],"auto":false,"in_range":null,"replies_on":0,"replies_off":\#(replies),"first_reply":null,"last_reply":null,"replies_off_at":[\#(times.joined(separator: ","))]}"#
+            }
+            let start = 10 + noise(back * 5 + 1) * 2.5
+            let over = noise(back * 7 + 2) * Double(back) / 14 - 0.3
+            let stop = target + over
+            let auto = back % 6 == 2
+            let breaks = [(14 + noise(back) * 1.2, 0.5 + noise(back + 1) * 0.5), (19.5 + noise(back + 2), 0.4)]
+                .prefix(back % 3 == 0 ? 1 : 2)
+            let breakTotal = breaks.reduce(0.0) { $0 + $1.1 }
+            let breaksJSON = breaks.map { #"{"start":"\#(iso(at(back, hours: $0.0)))","end":"\#(iso(at(back, hours: $0.0 + $0.1)))"}"# }
+            let off = over > 0.1 ? 2 + Int(noise(back * 3) * 8) : Int(noise(back * 3) * 3)
+            let offTimes = (0..<off).map { "\"\(iso(at(back, hours: stop + 0.15 + Double($0) * 0.2)))\"" }
+            let inRange = stop <= target + 0.25
+            let onSec = Int((stop - start - breakTotal) * 3600)
+            return #"{"date":"\#(key)","start":"\#(iso(at(back, hours: start)))","stop":"\#(iso(at(back, hours: stop)))","stop_target":"\#(clockString(target))","on_sec":\#(onSec),"break_sec":\#(Int(breakTotal * 3600)),"breaks":[\#(breaksJSON.joined(separator: ","))],"auto":\#(auto),"in_range":\#(inRange),"replies_on":\#(120 + Int(n * 120)),"replies_off":\#(off),"first_reply":"\#(iso(at(back, hours: start + 0.1)))","last_reply":"\#(iso(at(back, hours: stop + 0.1)))","replies_off_at":[\#(offTimes.joined(separator: ","))]}"#
+        }
+        return decodeDay(#"{"days":[\#(rows.joined(separator: ","))]}"#)
+    }
+
+    static func dayWeeks(from history: DayHistory) -> DayWeeks {
+        var weeks: [String: (worked: Int, inRange: Int, on: Int, brk: Int, off: Int)] = [:]
+        for day in history.days {
+            guard let d = DayKey.date(day.date, in: calendar) else { continue }
+            let key = DayKey.weekKey(d, in: calendar)
+            var w = weeks[key, default: (0, 0, 0, 0, 0)]
+            if day.start != nil {
+                w.worked += 1
+                if day.inRange == true { w.inRange += 1 }
+            }
+            w.on += day.onSec
+            w.brk += day.breakSec
+            w.off += day.repliesOff
+            weeks[key] = w
+        }
+        let rows = weeks.keys.sorted().map { k -> String in
+            let w = weeks[k]!
+            return #"{"week":"\#(k)","days_worked":\#(w.worked),"days_in_range":\#(w.inRange),"on_sec":\#(w.on),"replies_off":\#(w.off)}"#
+        }
+        return decodeDay(#"{"weeks":[\#(rows.joined(separator: ","))]}"#)
     }
 
     static func activity(days: Int) -> ActivitySummary {

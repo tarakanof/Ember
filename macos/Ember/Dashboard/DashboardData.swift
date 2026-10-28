@@ -14,7 +14,10 @@ protocol DashboardSource {
     var clockHealth: Loadable<ClockHealth> { get }
     var weather: Loadable<WeatherState> { get }
     var activity: Loadable<ActivitySummary> { get }
-    var workhours: Loadable<WorkHours> { get }
+    var dayState: Loadable<DayState> { get }
+    var dayHistory: Loadable<DayHistory> { get }
+    var dayWeeks: Loadable<DayWeeks> { get }
+    var dayEnabledSetting: Bool? { get }
     var heatmap: Loadable<Heatmap> { get }
     var reminders: [UpcomingItem] { get }
     var remindersEnabled: Bool { get }
@@ -28,6 +31,8 @@ protocol DashboardSource {
 extension DashboardSource {
     var showsWeather: Bool { weather.value?.enabled != false }
     var showsUpcoming: Bool { meetingsEnabled != false || remindersEnabled }
+    var showsDay: Bool { dayState.error != .featureOff || dayEnabledSetting == false }
+    var showsDayHistory: Bool { dayState.error != .featureOff && dayState.value?.enabled != false }
     var showsUsage: Bool { usage.isLoading || !usageRows.isEmpty }
 
     var usageRows: [UsageRow] {
@@ -58,7 +63,10 @@ struct DashboardData: DashboardSource {
     var clockHealth: Loadable<ClockHealth> = .loading
     var weather: Loadable<WeatherState> = .loading
     var activity: Loadable<ActivitySummary> = .loading
-    var workhours: Loadable<WorkHours> = .loading
+    var dayState: Loadable<DayState> = .loading
+    var dayHistory: Loadable<DayHistory> = .loading
+    var dayWeeks: Loadable<DayWeeks> = .loading
+    var dayEnabledSetting: Bool?
     var heatmap: Loadable<Heatmap> = .loading
     var reminders: [UpcomingItem] = []
     var remindersEnabled = false

@@ -1238,7 +1238,7 @@ stale). `RefreshCoordinator` runs one loop per active feed:
 |---|---|---|
 | A, always | `state`, `pomodoroState` | 3 s; 15 s after 3 failures, 60 s after 10 |
 | B, always | `stats`, `usage`, `meetings`, `apps` | 60 s; 30 s (`stats`, `usage`) while a view holds them |
-| C, only while held | `screen` 1 s, `clockHealth` 15 s, `weather`/`activity`/`workhours`/`heatmap` 5 min | — |
+| C, only while held | `screen` 1 s, `clockHealth` 15 s, `dayState` 15 s, `weather`/`activity`/`heatmap`/`dayHistory`/`dayWeeks` 5 min | — |
 
 A view holds feeds for its lifetime with `.task { await env.live.track(…) }`
 (refcounted). A feed has at most one request in flight; a second caller joins
@@ -3379,8 +3379,14 @@ feed's route is in `LiveModel`'s fetch switch.
 
 **The Dashboard window (#111)** is a card grid (`macos/Ember/Dashboard/`):
 Clock (live mirror + next/previous/dismiss/power), Focus, Usage, Upcoming,
-Agents, Last 7 days, 12 weeks, Work hours, When you focus (weekday × hour
-heatmap + 12-week strip), Agent time, Weather. Device hardware health is not
+Day (Today, This week, the 28-day Each day strip, Stop time, Weeks; from
+`/v1/day/{state,history,weeks}`, hidden on a server without them, and
+`day.enabled` off leaves only Today with a link to Settings › Day Clock),
+Agents, Last 7 days, 12 weeks, When you focus (weekday × hour heatmap +
+12-week strip), Agent time, Weather. The strip's axis is 06:00–04:00 (hours
+6…28, wall-clock, DST-safe); days and weeks, never streaks. Debug-only
+`EMBER_DASHBOARD_SNAPSHOTS=<dir>` renders the Day cards from fixtures through
+an off-screen window (build with a scratch bundle id). Device hardware health is not
 here: it lives in Settings › Devices › {Clock, Knob} › Hardware (see
 "Hardware pages", #246). 3/2/1 columns
 at ≥1040/≥700 pt; a wide card waits for a half-filled row to fill. Every

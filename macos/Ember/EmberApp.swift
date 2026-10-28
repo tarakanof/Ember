@@ -90,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         #if DEBUG
         HardwareSnapshotRenderer.runIfRequested()
+        DashboardSnapshotRenderer.runIfRequested()
         #endif
         NSApp.setActivationPolicy(.accessory)
         BotAnimator.shared.activationPolicyDidChange(.accessory)

@@ -62,9 +62,25 @@ private struct CardPreview<Content: View>: View {
     let d = f.established
     CardPreview { TwelveWeeksCard(stats: d.stats, now: d.now, calendar: d.calendar) }
 }
-#Preview("Work hours") {
+#Preview("Day — today") {
     let d = f.established
-    CardPreview(width: 900) { WorkHoursCard(workhours: d.workhours, now: d.now, calendar: d.calendar) }
+    CardPreview { DayTodayCard(state: d.dayState, now: d.now, calendar: d.calendar) }
+}
+#Preview("Day — this week") {
+    let d = f.established
+    CardPreview { DayWeekCard(weeks: d.dayWeeks, now: d.now, calendar: d.calendar) }
+}
+#Preview("Day — each day") {
+    let d = f.established
+    CardPreview(width: 900) { DayStripCard(history: d.dayHistory, now: d.now, calendar: d.calendar) }
+}
+#Preview("Day — stop time") {
+    let d = f.established
+    CardPreview(width: 900) { StopTrendCard(history: d.dayHistory, now: d.now, calendar: d.calendar) }
+}
+#Preview("Day — weeks") {
+    let d = f.established
+    CardPreview(width: 900) { DayWeeksCard(weeks: d.dayWeeks, now: d.now, calendar: d.calendar) }
 }
 #Preview("When you focus") {
     let d = f.established

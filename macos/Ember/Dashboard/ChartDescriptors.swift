@@ -43,28 +43,43 @@ struct TrendDescriptor: AXChartDescriptorRepresentable {
     }
 }
 
-struct WorkHoursDescriptor: AXChartDescriptorRepresentable {
-    let chart: WorkHoursChart
-    let label: (WorkHoursChart.Row) -> String
-    let summary: (WorkHoursChart.Row) -> String
+struct DayStripDescriptor: AXChartDescriptorRepresentable {
+    let strip: DayStrip
+    let label: (DayStrip.Row) -> String
+    let time: (Double?) -> String
+    let summary: (DayStrip.Row) -> String
 
     func makeChartDescriptor() -> AXChartDescriptor {
-        let names = chart.rows.map(label)
+        let names = strip.rows.map(label)
         let x = AXCategoricalDataAxisDescriptor(title: String(localized: "Day"), categoryOrder: names)
-        let hour: (Double) -> String = { value in
-            let minutes = Int((value * 60).rounded())
-            let d = Calendar.current.date(bySettingHour: (minutes / 60) % 24, minute: minutes % 60, second: 0,
-                                          of: DashboardReference.day) ?? DashboardReference.day
-            return d.formatted(date: .omitted, time: .shortened)
-        }
-        let y = AXNumericDataAxisDescriptor(title: String(localized: "Hour of day"),
-                                            range: chart.hourDomain, gridlinePositions: [], valueDescriptionProvider: hour)
-        let starts = AXDataSeriesDescriptor(name: String(localized: "Start"), isContinuous: false,
-                                            dataPoints: chart.rows.map { AXDataPoint(x: label($0), y: $0.start, label: summary($0)) })
-        let ends = AXDataSeriesDescriptor(name: String(localized: "End"), isContinuous: false,
-                                          dataPoints: chart.rows.map { AXDataPoint(x: label($0), y: $0.end) })
-        return AXChartDescriptor(title: String(localized: "Work hours"), summary: nil,
-                                 xAxis: x, yAxis: y, additionalAxes: [], series: [starts, ends])
+        let y = AXNumericDataAxisDescriptor(title: String(localized: "Hour of day"), range: DayStrip.axis,
+                                            gridlinePositions: []) { time($0) }
+        let starts = AXDataSeriesDescriptor(name: String(localized: "Started"), isContinuous: false,
+                                            dataPoints: strip.rows.map { AXDataPoint(x: label($0), y: $0.start, label: summary($0)) })
+        let stops = AXDataSeriesDescriptor(name: String(localized: "Stopped"), isContinuous: false,
+                                           dataPoints: strip.rows.map { AXDataPoint(x: label($0), y: $0.stop) })
+        let targets = AXDataSeriesDescriptor(name: String(localized: "Stop target"), isContinuous: false,
+                                             dataPoints: strip.rows.map { AXDataPoint(x: label($0), y: $0.target) })
+        return AXChartDescriptor(title: String(localized: "Day clock"), summary: nil,
+                                 xAxis: x, yAxis: y, additionalAxes: [], series: [starts, stops, targets])
+    }
+}
+
+struct StopTrendDescriptor: AXChartDescriptorRepresentable {
+    let trend: StopTrend
+    let calendar: Calendar
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let names = trend.points.map { $0.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()) }
+        let x = AXCategoricalDataAxisDescriptor(title: String(localized: "Day"), categoryOrder: names)
+        let y = AXNumericDataAxisDescriptor(title: String(localized: "Hour of day"), range: trend.hourDomain,
+                                            gridlinePositions: []) { clockText(hours: $0, calendar: calendar) }
+        let stops = AXDataSeriesDescriptor(name: String(localized: "Stopped"), isContinuous: true,
+                                           dataPoints: zip(names, trend.points).map { AXDataPoint(x: $0, y: $1.stop) })
+        let targets = AXDataSeriesDescriptor(name: String(localized: "Stop target"), isContinuous: true,
+                                             dataPoints: zip(names, trend.points).map { AXDataPoint(x: $0, y: $1.target) })
+        return AXChartDescriptor(title: String(localized: "Stop time"), summary: nil,
+                                 xAxis: x, yAxis: y, additionalAxes: [], series: [stops, targets])
     }
 }
 

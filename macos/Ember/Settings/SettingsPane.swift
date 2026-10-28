@@ -8,6 +8,7 @@ extension AppPane {
         case .connection:  "Connection"
         case .permissions: "Permissions"
         case .sounds:      "Sounds & Alerts"
+        case .dayClock:    "Day Clock"
         }
     }
 
@@ -17,6 +18,7 @@ extension AppPane {
         case .connection:  "network"
         case .permissions: "hand.raised"
         case .sounds:      "bell.badge"
+        case .dayClock:    "clock.badge.checkmark"
         }
     }
 }

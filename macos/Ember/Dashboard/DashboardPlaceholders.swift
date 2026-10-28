@@ -43,13 +43,23 @@ enum DashboardPlaceholders {
         return Heatmap(grid: grid, calendar: cal.reversed(), days: 84)
     }()
 
-    static let workhours: WorkHours = {
-        let days = (0..<7).map { back -> String in
+    static let dayState: DayState = decode(#"{"enabled":true,"state":"on","started":"10:00","stop_at":"00:00","on_min":240,"replies_off_last_night":4}"#)
+
+    static let dayHistory: DayHistory = {
+        let days = (0..<28).map { back -> String in
             let d = day(back)
-            let start = iso(d.addingTimeInterval(9 * 3600)), end = iso(d.addingTimeInterval(17 * 3600))
-            return #"{"date":"\#(DayKey.key(d, in: calendar))","work_start":"\#(start)","work_end":"\#(end)","span_sec":28800,"active_sec":18000,"break_sec":3600,"sessions":6,"longest_sec":1500}"#
+            let start = iso(d.addingTimeInterval(11 * 3600)), stop = iso(d.addingTimeInterval(24.3 * 3600))
+            return #"{"date":"\#(DayKey.key(d, in: calendar))","start":"\#(start)","stop":"\#(stop)","stop_target":"00:00","on_sec":43200,"break_sec":3600,"in_range":false,"replies_on":80,"replies_off":2}"#
         }
-        return decode(#"{"days":[\#(days.joined(separator: ","))],"gap_min":30,"include_activity":true}"#)
+        return decode(#"{"days":[\#(days.joined(separator: ","))]}"#)
+    }()
+
+    static let dayWeeks: DayWeeks = {
+        let weeks = (0..<8).map { back -> String in
+            let d = calendar.date(byAdding: .weekOfYear, value: -back, to: today)!
+            return #"{"week":"\#(DayKey.weekKey(d, in: calendar))","days_worked":5,"days_in_range":3,"on_sec":144000,"replies_off":12}"#
+        }
+        return decode(#"{"weeks":[\#(weeks.joined(separator: ","))]}"#)
     }()
 
     static let snapshot: Snapshot = {

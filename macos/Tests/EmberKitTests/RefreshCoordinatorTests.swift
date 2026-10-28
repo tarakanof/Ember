@@ -233,10 +233,12 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     #expect(Feed.meetings.heldCadence == .seconds(60))
     #expect(Feed.screen.heldCadence == .seconds(1))
     #expect(Feed.clockHealth.heldCadence == .seconds(15))
-    for f in [Feed.weather, .activity, .workhours, .heatmap] {
+    for f in [Feed.weather, .activity, .heatmap, .dayHistory, .dayWeeks] {
         #expect(f.tier == .c)
         #expect(f.heldCadence == .seconds(300))
     }
+    #expect(Feed.dayState.tier == .c)
+    #expect(Feed.dayState.heldCadence == .seconds(15))
     #expect(Feed.alwaysOn == [.state, .pomodoroState, .stats, .usage, .meetings, .apps])
 }
 
