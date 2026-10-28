@@ -276,8 +276,8 @@ enum DashboardFixtures {
     static var dayState: DayState { dayState(phase: "on") }
 
     static func dayState(phase: String, enabled: Bool = true) -> DayState {
-        let started = phase == "off" ? "null" : "\"\(iso(at(0, hours: 9.67)))\""
-        return decodeDay(#"{"enabled":\#(enabled),"state":"\#(phase)","started_at":\#(started),"stop_at":"00:00","on_sec":3000,"replies_off_last_night":5}"#)
+        let started = phase == "off" ? "" : "09:40"
+        return decodeDay(#"{"enabled":\#(enabled),"state":"\#(phase)","started":"\#(started)","stop_at":"00:00","on_min":50,"replies_off_last_night":5}"#)
     }
 
     static func dayHistory(days: Int) -> DayHistory {
@@ -330,7 +330,7 @@ enum DashboardFixtures {
         }
         let rows = weeks.keys.sorted().map { k -> String in
             let w = weeks[k]!
-            return #"{"week":"\#(k)","days_worked":\#(w.worked),"days_in_range":\#(w.inRange),"on_sec":\#(w.on),"break_sec":\#(w.brk),"replies_off":\#(w.off)}"#
+            return #"{"week":"\#(k)","days_worked":\#(w.worked),"days_in_range":\#(w.inRange),"on_sec":\#(w.on),"replies_off":\#(w.off)}"#
         }
         return decodeDay(#"{"weeks":[\#(rows.joined(separator: ","))]}"#)
     }

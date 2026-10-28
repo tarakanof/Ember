@@ -81,8 +81,8 @@ struct DayTodayCard: View {
             }
             Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
                 GridRow {
-                    DayFact(title: "Started", value: active ? (s.startedAt.map(timeText) ?? "—") : "—")
-                    DayFact(title: "On the clock", value: active ? DurationText.minutes(s.onSec / 60) : "—")
+                    DayFact(title: "Started", value: active ? (s.started.flatMap { clockText(hhmm: $0, calendar: calendar) } ?? "—") : "—")
+                    DayFact(title: "On the clock", value: active ? DurationText.minutes(s.onMin) : "—")
                 }
                 GridRow {
                     DayFact(title: "Stop target", value: s.stopAt.flatMap { clockText(hhmm: $0, calendar: calendar) } ?? "—")
@@ -94,11 +94,6 @@ struct DayTodayCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func timeText(_ date: Date) -> String {
-        var style = Date.FormatStyle(date: .omitted, time: .shortened)
-        style.timeZone = calendar.timeZone
-        return date.formatted(style.locale(calendar.locale ?? .current))
-    }
 }
 
 struct DayWeekCard: View {
@@ -191,7 +186,7 @@ struct DayStripCard: View {
                 if let target = r.target { Text("Stop target \(time(target))", comment: "Hover on a day: the stop time set, as a clock time.") }
                 Text("\(DurationText.minutes(r.onSec / 60)) on the clock · \(DurationText.minutes(r.breakSec / 60)) breaks", comment: "Hover on a day: time on the clock, then time on breaks, both durations.")
                 if r.auto { Text("Stopped automatically") }
-                if let inRange = r.inRange { Text(inRange ? "In range" : "Past the stop time") }
+                if r.stop != nil, let inRange = r.inRange { Text(inRange ? "In range" : "Past the stop time") }
             } else {
                 Text("Not clocked in")
             }
@@ -298,7 +293,7 @@ struct DayStripCard: View {
             TableColumn("Breaks") { r in Text(verbatim: r.hasClock ? DurationText.minutes(r.breakSec / 60) : "—").monospacedDigit() }
             TableColumn("Off-clock replies") { r in Text(verbatim: r.repliesOff.formatted()).monospacedDigit() }
             TableColumn("In range") { r in
-                Text(r.inRange.map { $0 ? "Yes" : "No" } ?? "—")
+                Text(r.stop != nil ? (r.inRange.map { $0 ? "Yes" : "No" } ?? "—") : "—")
             }
         }
     }
@@ -441,7 +436,7 @@ struct DayWeeksCard: View {
                 Text("Days worked")
                 Text("Days in range")
                 Text("On the clock")
-                Text("Breaks")
+                if t.hasBreaks { Text("Breaks") }
                 Text("Replies off the clock")
             }
             .font(.caption)
@@ -454,7 +449,7 @@ struct DayWeeksCard: View {
                     Text(r.daysWorked.formatted())
                     Text(r.daysWorked == 0 ? "—" : r.daysInRange.formatted())
                     Text(verbatim: r.daysWorked == 0 ? "—" : DurationText.minutes(r.onSec / 60))
-                    Text(verbatim: r.daysWorked == 0 ? "—" : DurationText.minutes(r.breakSec / 60))
+                    if t.hasBreaks { Text(verbatim: r.breakSec.map { DurationText.minutes($0 / 60) } ?? "—") }
                     Text(r.repliesOff.formatted())
                 }
                 .accessibilityElement(children: .combine)

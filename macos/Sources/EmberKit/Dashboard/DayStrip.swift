@@ -48,7 +48,8 @@ public struct DayStrip: Equatable, Sendable {
         let wall = { (date: Date) in Self.wallHours(date, since: midnight, calendar: calendar) }
         let start = d.start.map(wall)
         let stop = d.stop.map(wall)
-        let end = stop ?? (isToday ? wall(now) : start)
+        let stillOpen = d.start.map { now.timeIntervalSince($0) < 36 * 3600 } ?? false
+        let end = stop ?? (stillOpen ? wall(now) : start)
         var spans: [Span] = []
         if let start, let end {
             var cursor = start
@@ -150,7 +151,7 @@ public struct DayWeekTable: Equatable, Sendable {
         public let daysWorked: Int
         public let daysInRange: Int
         public let onSec: Int
-        public let breakSec: Int
+        public let breakSec: Int?
         public let repliesOff: Int
         public var id: String { key }
     }
@@ -159,9 +160,10 @@ public struct DayWeekTable: Equatable, Sendable {
     public let thisWeek: Row?
 
     public var isEmpty: Bool { !rows.contains { $0.daysWorked > 0 || $0.repliesOff > 0 } }
+    public var hasBreaks: Bool { rows.contains { $0.breakSec != nil } }
 
     public init(weeks: [DayWeeks.Week], count: Int = 8, now: Date, calendar: Calendar) {
-        let currentKey = DayKey.weekKey(now, in: calendar)
+        let currentKey = DayKey.weekKey(now.addingTimeInterval(-Double(DayStrip.dayStartHour) * 3600), in: calendar)
         let dated: [Row] = weeks.compactMap { w in
             guard let start = DayKey.weekStart(w.key, in: calendar) ?? DayKey.date(w.key, in: calendar) else { return nil }
             let key = DayKey.weekKey(start, in: calendar)

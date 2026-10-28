@@ -55,7 +55,8 @@ struct DashboardWindow: View {
     private func loadConfigs() async {
         async let pomodoro: Void = env.settings.pomodoro.load()
         async let meetings: Void = env.settings.meetings.load()
-        _ = await (pomodoro, meetings)
+        async let day: Void = env.settings.day.load()
+        _ = await (pomodoro, meetings, day)
     }
 
     private func refresh() {
@@ -120,6 +121,7 @@ struct LiveDashboardSource: DashboardSource, Equatable {
     var dayState: Loadable<DayState> { env.live.dayState }
     var dayHistory: Loadable<DayHistory> { env.live.dayHistory }
     var dayWeeks: Loadable<DayWeeks> { env.live.dayWeeks }
+    var dayEnabledSetting: Bool? { env.settings.day.applied?.enabled }
     var heatmap: Loadable<Heatmap> { env.live.heatmap }
     var reminders: [UpcomingItem] {
         env.reminderWatcher.upcoming.map {

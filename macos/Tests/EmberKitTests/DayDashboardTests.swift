@@ -18,7 +18,7 @@ private func decode<T: Decodable>(_ json: String) async throws -> T {
 }
 
 private let stateJSON = #"""
-{"enabled":true,"state":"break","started_at":"2026-10-27T10:05:00+01:00","stop_at":"00:00","on_sec":9000,"replies_off_last_night":7}
+{"enabled":true,"state":"break","started":"10:05","stop_at":"00:00","on_min":150,"break_min":15,"replies_off_last_night":7}
 """#
 
 private let historyJSON = #"""
@@ -38,15 +38,15 @@ private let historyJSON = #"""
 @Test func dayStateDecodes() async throws {
     let s: DayState = try await decode(stateJSON)
     #expect(s.phase == .onBreak)
-    #expect(s.startedAt == iso("2026-10-27T10:05:00+01:00"))
+    #expect(s.started == "10:05")
     #expect(s.stopAt == "00:00")
-    #expect(s.onSec == 9000)
+    #expect(s.onMin == 150 && s.breakMin == 15)
     #expect(s.repliesOffLastNight == 7)
 }
 
 @Test func dayStateToleratesOffAndUnknownPhases() async throws {
-    let off: DayState = try await decode(#"{"state":"off","started_at":"0001-01-01T00:00:00Z"}"#)
-    #expect(off.phase == .off && off.startedAt == nil && off.enabled && off.repliesOffLastNight == 0)
+    let off: DayState = try await decode(#"{"state":"off","started":""}"#)
+    #expect(off.phase == .off && off.started == nil && off.enabled && off.repliesOffLastNight == 0)
     let odd: DayState = try await decode(#"{"state":"paused"}"#)
     #expect(odd.phase == .off)
 }
@@ -68,6 +68,7 @@ private let historyJSON = #"""
     """#)
     #expect(w.weeks[0].key == "2026-W44" && w.weeks[0].daysInRange == 2 && w.weeks[0].repliesOff == 19)
     #expect(w.weeks[1].key == "2026-10-19" && w.weeks[1].onSec == 0)
+    #expect(w.weeks[0].breakSec == 7200 && w.weeks[1].breakSec == nil)
 }
 
 @Test func dayConfigRoundTrips() throws {
@@ -149,13 +150,16 @@ private func strip(_ now: String = "2026-10-27T13:30:00+01:00") async throws -> 
 
 @Test func weekTableOrdersNewestFirstAndFindsThisWeek() async throws {
     let w: DayWeeks = try await decode(#"""
-    {"weeks":[{"week":"2026-W42","days_worked":5,"days_in_range":1,"on_sec":1,"break_sec":1,"replies_off":9},
-              {"week":"2026-W44","days_worked":2,"days_in_range":2,"on_sec":7200,"break_sec":600,"replies_off":0},
-              {"week":"2026-W43","days_worked":6,"days_in_range":3,"on_sec":2,"break_sec":2,"replies_off":4}]}
+    {"weeks":[{"week":"2026-W42","days_worked":5,"days_in_range":1,"on_sec":1,"replies_off":9},
+              {"week":"2026-W44","days_worked":2,"days_in_range":2,"on_sec":7200,"replies_off":0},
+              {"week":"2026-W43","days_worked":6,"days_in_range":3,"on_sec":2,"replies_off":4}]}
     """#)
     let table = DayWeekTable(weeks: w.weeks, count: 2, now: iso("2026-10-28T09:00:00+01:00"), calendar: calendar())
     #expect(table.rows.map(\.key) == ["2026-W44", "2026-W43"])
     #expect(table.thisWeek?.daysInRange == 2 && table.thisWeek?.daysWorked == 2)
+    #expect(!table.hasBreaks)
+    let afterMidnight = DayWeekTable(weeks: w.weeks, now: iso("2026-11-02T01:30:00+01:00"), calendar: calendar())
+    #expect(afterMidnight.thisWeek?.key == "2026-W44")
     let later = DayWeekTable(weeks: w.weeks, now: iso("2026-11-09T09:00:00+01:00"), calendar: calendar())
     #expect(later.thisWeek == nil)
 }

@@ -8,16 +8,18 @@ public struct DayState: Decodable, Sendable, Equatable {
 
     public var enabled: Bool
     public var phase: Phase
-    public var startedAt: Date?
+    public var started: String?
     public var stopAt: String?
-    public var onSec: Int
+    public var onMin: Int
+    public var breakMin: Int
     public var repliesOffLastNight: Int
 
     enum CodingKeys: String, CodingKey {
         case enabled, state
-        case startedAt = "started_at"
+        case started
         case stopAt = "stop_at"
-        case onSec = "on_sec"
+        case onMin = "on_min"
+        case breakMin = "break_min"
         case repliesOffLastNight = "replies_off_last_night"
     }
 
@@ -25,9 +27,10 @@ public struct DayState: Decodable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         phase = Phase(rawValue: try c.decodeIfPresent(String.self, forKey: .state) ?? "") ?? .off
-        startedAt = DayClock.realDate(try c.decodeIfPresent(Date.self, forKey: .startedAt))
+        started = try c.decodeIfPresent(String.self, forKey: .started).flatMap { $0.isEmpty ? nil : $0 }
         stopAt = try c.decodeIfPresent(String.self, forKey: .stopAt)
-        onSec = try c.decodeIfPresent(Int.self, forKey: .onSec) ?? 0
+        onMin = try c.decodeIfPresent(Int.self, forKey: .onMin) ?? 0
+        breakMin = try c.decodeIfPresent(Int.self, forKey: .breakMin) ?? 0
         repliesOffLastNight = try c.decodeIfPresent(Int.self, forKey: .repliesOffLastNight) ?? 0
     }
 }
@@ -96,7 +99,7 @@ public struct DayWeeks: Decodable, Sendable, Equatable {
         public var daysWorked: Int
         public var daysInRange: Int
         public var onSec: Int
-        public var breakSec: Int
+        public var breakSec: Int?
         public var repliesOff: Int
         public var id: String { key }
 
@@ -118,7 +121,7 @@ public struct DayWeeks: Decodable, Sendable, Equatable {
             daysWorked = try c.decodeIfPresent(Int.self, forKey: .daysWorked) ?? 0
             daysInRange = try c.decodeIfPresent(Int.self, forKey: .daysInRange) ?? 0
             onSec = try c.decodeIfPresent(Int.self, forKey: .onSec) ?? 0
-            breakSec = try c.decodeIfPresent(Int.self, forKey: .breakSec) ?? 0
+            breakSec = try c.decodeIfPresent(Int.self, forKey: .breakSec)
             repliesOff = try c.decodeIfPresent(Int.self, forKey: .repliesOff) ?? 0
         }
     }

@@ -43,7 +43,7 @@ enum DashboardPlaceholders {
         return Heatmap(grid: grid, calendar: cal.reversed(), days: 84)
     }()
 
-    static let dayState: DayState = decode(#"{"enabled":true,"state":"on","started_at":"\#(iso(today.addingTimeInterval(10 * 3600)))","stop_at":"00:00","on_sec":14400,"replies_off_last_night":4}"#)
+    static let dayState: DayState = decode(#"{"enabled":true,"state":"on","started":"10:00","stop_at":"00:00","on_min":240,"replies_off_last_night":4}"#)
 
     static let dayHistory: DayHistory = {
         let days = (0..<28).map { back -> String in
@@ -57,7 +57,7 @@ enum DashboardPlaceholders {
     static let dayWeeks: DayWeeks = {
         let weeks = (0..<8).map { back -> String in
             let d = calendar.date(byAdding: .weekOfYear, value: -back, to: today)!
-            return #"{"week":"\#(DayKey.weekKey(d, in: calendar))","days_worked":5,"days_in_range":3,"on_sec":144000,"break_sec":14400,"replies_off":12}"#
+            return #"{"week":"\#(DayKey.weekKey(d, in: calendar))","days_worked":5,"days_in_range":3,"on_sec":144000,"replies_off":12}"#
         }
         return decode(#"{"weeks":[\#(weeks.joined(separator: ","))]}"#)
     }()
