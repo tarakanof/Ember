@@ -534,6 +534,29 @@ func TestDayBlockKeepsTheLatestBreaks(t *testing.T) {
 	}
 }
 
+func TestDayBlockCarriesTheDayZoneOffset(t *testing.T) {
+	f := newDayFixture(t, "", dayAt(10, 9, 0))
+	if k := f.state(t); k.UTCOffset != 3600 {
+		t.Fatalf("off in CET: utc_offset = %d, want 3600", k.UTCOffset)
+	}
+	if k := f.call(t, "POST", "/v1/day/start", `{"stop_at":"18:00"}`, http.StatusOK); k.UTCOffset != 3600 {
+		t.Fatalf("start reply: utc_offset = %d, want 3600", k.UTCOffset)
+	}
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Skipf("no zoneinfo: %v", err)
+	}
+	f.app.zone = berlin
+	f.clk.set(time.Date(2026, 10, 24, 22, 0, 0, 0, berlin))
+	if k := f.state(t); k.UTCOffset != 7200 {
+		t.Fatalf("before the DST change: utc_offset = %d, want 7200", k.UTCOffset)
+	}
+	f.clk.set(time.Date(2026, 10, 25, 9, 0, 0, 0, berlin))
+	if k := f.state(t); k.UTCOffset != 3600 {
+		t.Fatalf("after the DST change: utc_offset = %d, want 3600", k.UTCOffset)
+	}
+}
+
 func seedDayWeek(t *testing.T, a *App) {
 	t.Helper()
 	ev := []workday.Event{

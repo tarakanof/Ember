@@ -22,6 +22,7 @@
     "break_min": 0,
     "over_min": 140,
     "agents": 0,
+    "utc_offset": 0,
     "break_hint": true
   }
 }

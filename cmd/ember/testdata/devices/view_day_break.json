@@ -27,6 +27,7 @@
         "14:35"
       ]
     ],
-    "agents": 0
+    "agents": 0,
+    "utc_offset": 0
   }
 }

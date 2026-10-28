@@ -603,7 +603,7 @@ so old firmware never sees them.
 **View block.** `day` is sent only to a knob whose caps list the `day`
 page with the page on, while `day.enabled` (absent, never `null`,
 otherwise; never for a legacy knob). Optional keys are absent when zero or
-false. Times are server-local `HH:MM`.
+false. Times are server-local `HH:MM` in the day clock's zone (`utc_offset`).
 
 | Key | Meaning |
 |---|---|
@@ -617,6 +617,7 @@ false. Times are server-local `HH:MM`.
 | `offer_start` | off only: the first reply of the day, for 60 min or until a start or dismiss (Offer face) |
 | `replies_off_last_night` | off only, when the last clock-out was before today's day start: replies since that clock-out |
 | `agents` | sessions running now |
+| `utc_offset` | always: Ember's day-clock zone offset in seconds at the answer's time (DST included). With `X-Ember-Now` it gives the time the day clock's `HH:MM` values are in; the weather block's `utc_offset` is the weather location's and may differ (#736) |
 | `break_hint` | on for `day.break_hint_minutes` (90) without a break |
 | `summary` | `{on_min, in_range, week_in_range, week_days}`, for 5 s after `POST /v1/day/stop` (not after an auto stop); `week_*` count the ISO week's worked days and days in range |
 
