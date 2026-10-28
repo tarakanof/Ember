@@ -1664,7 +1664,8 @@ the clock are counted, not blocked. No prompt text is involved anywhere.
   `day` page with the page on; never for a legacy knob): see
   DEVICE-PROTOCOL "Day clock". `on_min`, `break_min` and `over_min` move each
   minute while on, so the view's ETag does too; the 5 s long-poll recheck
-  delivers it. The block is the last one `fit` drops before `mood`.
+  delivers it. `breaks` lists the open period's finished breaks (the latest
+  16, `dayKnobBreaks`) so the knob can draw them as gaps. The block is the last one `fit` drops before `mood`.
 - **History** (`GET /v1/day/history`, `/weeks`) is recomputed from events and
   replies per request (`workday.Calendar.Days`, `Weeks`): a day's `start` is
   its first clock-in, `stop`/`stop_target`/`auto`/`in_range` come from its

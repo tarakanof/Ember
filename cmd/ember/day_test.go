@@ -492,6 +492,48 @@ func TestDayBlockShowsBreakHintAndOvertime(t *testing.T) {
 	}
 }
 
+func TestDayBlockListsFinishedBreaks(t *testing.T) {
+	f := newDayFixture(t, "", dayAt(10, 9, 0))
+	f.call(t, "POST", "/v1/day/start", `{"stop_at":"18:00"}`, http.StatusOK)
+	if k := f.state(t); k.Breaks != nil {
+		t.Fatalf("no break yet = %+v", k.Breaks)
+	}
+	f.clk.advance(3 * time.Hour)
+	f.call(t, "POST", "/v1/day/break", "", http.StatusOK)
+	f.clk.advance(40 * time.Minute)
+	f.call(t, "POST", "/v1/day/resume", "", http.StatusOK)
+	f.clk.advance(2 * time.Hour)
+	f.call(t, "POST", "/v1/day/break", "", http.StatusOK)
+	if k := f.state(t); len(k.Breaks) != 1 || k.Breaks[0] != [2]string{"12:00", "12:40"} {
+		t.Fatalf("on a second break = %+v, want only the finished one", k.Breaks)
+	}
+	f.clk.advance(15 * time.Minute)
+	f.call(t, "POST", "/v1/day/resume", "", http.StatusOK)
+	k := f.state(t)
+	if want := [][2]string{{"12:00", "12:40"}, {"14:40", "14:55"}}; len(k.Breaks) != 2 || k.Breaks[0] != want[0] || k.Breaks[1] != want[1] {
+		t.Fatalf("breaks = %+v, want %v", k.Breaks, want)
+	}
+	f.call(t, "POST", "/v1/day/stop", "", http.StatusOK)
+	if k := f.state(t); k.Breaks != nil {
+		t.Fatalf("off = %+v, want no breaks", k.Breaks)
+	}
+}
+
+func TestDayBlockKeepsTheLatestBreaks(t *testing.T) {
+	f := newDayFixture(t, "", dayAt(10, 6, 0))
+	f.call(t, "POST", "/v1/day/start", `{"stop_at":"23:00"}`, http.StatusOK)
+	for i := 0; i < dayKnobBreaks+2; i++ {
+		f.clk.advance(20 * time.Minute)
+		f.call(t, "POST", "/v1/day/break", "", http.StatusOK)
+		f.clk.advance(5 * time.Minute)
+		f.call(t, "POST", "/v1/day/resume", "", http.StatusOK)
+	}
+	k := f.state(t)
+	if len(k.Breaks) != dayKnobBreaks || k.Breaks[0] != [2]string{"07:10", "07:15"} {
+		t.Fatalf("%d breaks, first %v; want %d, the oldest two dropped (07:10 is the third)", len(k.Breaks), k.Breaks[0], dayKnobBreaks)
+	}
+}
+
 func seedDayWeek(t *testing.T, a *App) {
 	t.Helper()
 	ev := []workday.Event{
@@ -620,6 +662,24 @@ func TestKnobDayGolden(t *testing.T) {
 	resp, b = devReq(t, f.srv, "POST", "/v1/day/stop", f.m.Token, "")
 	mustOK(t, "stop", resp, b)
 	assertDeviceGolden(t, "view_day_summary", goldenView(t, f))
+}
+
+func TestKnobDayBreakGolden(t *testing.T) {
+	f := dayKnobFixture(t)
+	act := func(path, body string) {
+		t.Helper()
+		resp, b := devReq(t, f.srv, "POST", path, f.m.Token, body)
+		mustOK(t, path, resp, b)
+	}
+	act("/v1/day/start", `{"stop_at":"20:00"}`)
+	f.clk.advance(2 * time.Hour)
+	act("/v1/day/break", "")
+	f.clk.advance(35 * time.Minute)
+	act("/v1/day/resume", "")
+	f.clk.advance(90 * time.Minute)
+	act("/v1/day/break", "")
+	f.clk.advance(12 * time.Minute)
+	assertDeviceGolden(t, "view_day_break", goldenView(t, f))
 }
 
 func TestRestartKeepsAnOpenDayAfterManyStopTimeChanges(t *testing.T) {

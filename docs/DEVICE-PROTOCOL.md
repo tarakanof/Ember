@@ -613,6 +613,7 @@ false. Times are server-local `HH:MM`.
 | `on_min` | minutes on the clock since clock-in, breaks excluded; 0 while off |
 | `break_min` | while `break`, the current break; otherwise all breaks since clock-in |
 | `over_min` | minutes past the stop time (on or break); 0 before it. Past stop = `on` with `over_min` > 0 |
+| `breaks` | on or break: the finished breaks since clock-in as `[["HH:MM","HH:MM"], ...]`, oldest first, the latest 16; the running break is not in it (`break_min`). For the ring's gaps (#734) |
 | `offer_start` | off only: the first reply of the day, for 60 min or until a start or dismiss (Offer face) |
 | `replies_off_last_night` | off only, when the last clock-out was before today's day start: replies since that clock-out |
 | `agents` | sessions running now |
@@ -1084,6 +1085,7 @@ Indented JSON; key order is the wire order.
 | `view_day_off.json` | A knob with the `day` page in caps (`bot`, `day`, `weather`): `day` off before any clock-in (no `quiet`), two agents |
 | `view_day_on.json` | The same knob 14 h 20 min after clock-in: `over_min` 140, `break_hint` |
 | `view_day_summary.json` | Right after `stop`: `"quiet": true`, `day` off with its `summary` |
+| `view_day_break.json` | On a second break: one finished break in `breaks`, the running one in `break_min` |
 | `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |
 | `config_default.json` | `GET …/self/config` for a new knob (pages `bot`, `day`, `weather`, then `nowplaying` and `pomodoro` off), `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
