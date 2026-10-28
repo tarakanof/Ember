@@ -82,7 +82,8 @@ struct KnobDetail: View {
             KnobControlsSection()
         case .app(let app):
             if let source = AppCatalog.source(of: app) { SourceLinkSection(source: source, isOff: isOff(source)) }
-            if let page = AppCatalog.knobPage(app) { KnobAppPreviewSection(page: page) }
+            if app == .day { DayClockLinkSection() }
+            if let page = AppCatalog.knobPage(app), app != .day { KnobAppPreviewSection(page: page) }
             Group {
                 KnobPageSection(app: app)
                 if app == .bot { KnobBotSection() }

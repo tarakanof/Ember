@@ -34,7 +34,7 @@ public enum AppCatalog {
             return [.agents, .focus, .weather, .calendar]
         case .knob:
             let pages = Set(supportedPages ?? knobDefaultPages)
-            return [AppID.bot, .focus, .weather, .nowplaying].filter { knobPage($0).map(pages.contains) ?? false }
+            return [AppID.bot, .day, .focus, .weather, .nowplaying].filter { knobPage($0).map(pages.contains) ?? false }
         }
     }
 
@@ -45,12 +45,14 @@ public enum AppCatalog {
         case .weather: .weather
         case .calendar: .calendar
         case .nowplaying: .music
+        case .day: nil
         }
     }
 
     public static func knobPage(_ app: AppID) -> String? {
         switch app {
         case .bot: "bot"
+        case .day: "day"
         case .focus: "pomodoro"
         case .weather: "weather"
         case .nowplaying: "nowplaying"

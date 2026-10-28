@@ -22,6 +22,7 @@ private let unreachableKnob = SettingsDevice(id: "knob", kind: .knob, name: "Kno
     (.device("knob-61fc8c", .hardware(.health)), "device/knob-61fc8c/hardware/health"),
     (.device("clock", .apps), "device/clock/apps"),
     (.device("clock", .app(.weather)), "device/clock/app/weather"),
+    (.device("knob-61fc8c", .app(.day)), "device/knob-61fc8c/app/day"),
 ])
 func routeRoundTripsThroughItsPath(route: SettingsRoute, path: String) {
     #expect(route.stored == path)
@@ -81,8 +82,16 @@ func unknownStoredValueFallsBackToConnection(name: String) {
     #expect(AppCatalog.knobPage(.nowplaying) == "nowplaying" && AppCatalog.source(of: .nowplaying) == .music)
 }
 
+@Test func knobWithTheDayPageShowsTheDayClockApp() {
+    let pages = ["bot", "day", "weather", "nowplaying", "pomodoro"]
+    #expect(AppCatalog.apps(.knob, supportedPages: pages) == [.bot, .day, .focus, .weather, .nowplaying])
+    #expect(AppCatalog.knobPage(.day) == "day" && AppCatalog.source(of: .day) == nil)
+    #expect(!AppCatalog.apps(.knob).contains(.day))
+    #expect(!AppCatalog.apps(.clock).contains(.day))
+}
+
 @Test func everyAppHasASource() {
-    for app in AppID.allCases { #expect(AppCatalog.source(of: app) != nil) }
+    for app in AppID.allCases where app != .day { #expect(AppCatalog.source(of: app) != nil) }
 }
 
 @Test func treeGroupsAppSourcesAndDevices() {
