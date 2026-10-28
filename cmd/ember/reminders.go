@@ -70,7 +70,7 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 		n.sound = noticeSound{rtttl: defaultReminderSound}
 	}
 	now := a.coord.clk.Now()
-	quiet := a.coord.quietAt(now)
+	quiet := a.quietAt(now)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	if err := a.coord.showNoticeQuiet(ctx, n, quiet); err != nil {
@@ -142,7 +142,7 @@ func (a *App) checkReminderLoop(ctx context.Context, now time.Time) {
 		return
 	}
 	expired := !now.Before(until)
-	quiet := a.coord.quietAt(now)
+	quiet := a.quietAt(now)
 	if !expired && !quiet {
 		return
 	}

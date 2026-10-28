@@ -55,7 +55,8 @@ func requiredScope(pattern string) string {
 	case "POST /v1/status", "DELETE /v1/status", "POST /v1/usage", "POST /v1/notify", "POST /v1/reminders/fire":
 		return scopeIngest
 	case "GET /v1/apps", "GET /v1/pomodoro/config", "GET /v1/usage/config", "GET /v1/display/config",
-		"GET /v1/brightness/config", "GET /v1/quiet/config", "GET /v1/clock/stats":
+		"GET /v1/brightness/config", "GET /v1/quiet/config", "GET /v1/clock/stats",
+		"GET /v1/day/config", "GET /v1/day/history", "GET /v1/day/weeks":
 		return scopeRead
 	default:
 		return scopeAdmin

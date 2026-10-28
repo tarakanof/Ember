@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -299,7 +300,7 @@ func TestDeviceConfigPutMergesAndBumpsVersion(t *testing.T) {
 	}
 	var got knobSettings
 	_ = json.Unmarshal(b, &got)
-	if got.PollMS != 3000 || got.Brightness.Level != 100 || got.Home != "bot" || len(got.Pages) != 4 {
+	if got.PollMS != 3000 || got.Brightness.Level != 100 || got.Home != "bot" || len(got.Pages) != 5 {
 		t.Fatalf("merged = %+v", got)
 	}
 	if app.devices.epochValue() == epoch0 {
@@ -495,9 +496,8 @@ func TestDeviceConfigPutMergesNestedObjects(t *testing.T) {
 		t.Fatalf("pages put = %d: %s", resp.StatusCode, b)
 	}
 	_ = json.Unmarshal(b, &got)
-	wantPages := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "pomodoro"}, {ID: "nowplaying"}}
-	if len(got.Pages) != 4 || got.Pages[0] != wantPages[0] || got.Pages[1] != wantPages[1] ||
-		got.Pages[2] != wantPages[2] || got.Pages[3] != wantPages[3] {
+	wantPages := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "day"}, {ID: "nowplaying"}, {ID: "pomodoro"}}
+	if !reflect.DeepEqual(got.Pages, wantPages) {
 		t.Fatalf("pages replaced = %+v, want %+v", got.Pages, wantPages)
 	}
 	for _, body := range []string{`{"brightness":{"lvl":1}}`, `{"colour":"red"}`} {

@@ -16,11 +16,12 @@ Every route the knob calls with its device token (`ekd_…`); the LAN re-pair ro
 | Route | What |
 |---|---|
 | `POST /v1/devices/self/checkin` | Health report in, optionally with `caps` ("Capabilities" below); reply carries `config_version`, `caps_ack` when the caps were accepted, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
-| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `usage` (with the `usage` feature while an account has a snapshot, "Usage"), `diag_live_until` (live mode only) and `demo` (with the `demo` feature while a demo is set, "Demo mode"). `?demo_id=&demo_state=` report on the demo; `?shown=<page>[:<face>]` reports what the knob shows ("Shown page"). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
+| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `usage` (with the `usage` feature while an account has a snapshot, "Usage"), `diag_live_until` (live mode only), `demo` (with the `demo` feature while a demo is set, "Demo mode") and `day` (with the `day` page in caps and on while the day clock is enabled, "Day clock"). `?demo_id=&demo_state=` report on the demo; `?shown=<page>[:<face>]` reports what the knob shows ("Shown page"). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
 | `GET /v1/devices/self/config` | `{config_version, config}`, the same pair a stale checkin carries. |
 | `PUT /v1/devices/self/coredump?id=` | The core dump a checkin asked for. |
 | `GET /v1/devices/self/firmware/{version}` | The image the checkin's `ota` offer names. |
 | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` | Pomodoro actions; the reply is the timer status (`pomodoro_action.json`). |
+| `GET /v1/day/state`, `POST /v1/day/{start,break,resume,stop}`, `PUT /v1/day/stop_at`, `POST /v1/day/offer/dismiss` | Day clock (#729, "Day clock"); the reply is the `day` block (`day_action.json`). |
 | `POST /v1/nowplaying/control` | Player control, optional `Idempotency-Key`. |
 | `POST /v1/controls/action` | A gesture for the Mac-controller page (#515, cinder#144; firmware page not built yet): `{"gesture":"push|double_push|long_push|turn","steps":±1..20}`, `steps` only for `turn`. Optional `Idempotency-Key`. The knob names a gesture, never an action; actions live on the target Mac. Reply `controls_action.json` (202); 200 `{"status":"duplicate"}`; 503 when no Mac is set or it isn't listening (don't retry); 429 `Retry-After`. |
 | `GET /v1/nowplaying/art?kind=&size=&v=` | Art for the view's `art_version`: `kind` `album`/`artist`/`backdrop`/`cover`, `size` the square edge in px from a fixed list per kind (album 240 or 120, artist 64 or 120, backdrop 466, cover 466; default the first, anything else 400; `cover` is the prepared circle, "Prepared cover"), `v` the `art_version` (public, no token). `v` equal to the current `art_version` (for `cover`, the `cover_version`) gives `public, max-age=86400, immutable` for every kind, `artist` included; any other `v`, or none, gives `no-cache`. |
@@ -98,7 +99,9 @@ and fall under the same rules as the view.
    Ember.app gates on `effective_caps`; its fw semver floors stay only as the
    fallback for a server that sends none, for two releases.
 4. **Actions are idempotent or take `Idempotency-Key`.** A knob never replays
-   a press made while offline. Today `pause`, `resume` and `stop` are
+   a press made while offline. The day clock's actions are all idempotent
+   (a repeat answers the state unchanged, or 409 for `break`/`resume` while
+   off). Today Pomodoro `pause`, `resume` and `stop` are
    idempotent and `nowplaying/control` and `controls/action` dedupe on their key; `start` restarts
    the phase and `skip` advances again, so a knob must not retry those
    blindly. A new action route follows the rule.
@@ -198,10 +201,10 @@ dropped caps, `caps_error`; absent for the clock and on servers before
 - **View:** `v` = min(server max, `caps.view[1]`); the server max is 1. Only
   blocks whose page is in `caps.pages` and on in the knob's `pages` are sent
   (`bot` → `mood`, `pomodoro` → `pomo`, `weather` → `weather`, `nowplaying`
-  → `nowplaying`); a left-out block is absent, while a kept `pomo` or
-  `weather` is still `null` when its feature is off. A body over
-  `limits.view_bytes` drops the weather detail ("Weather detail"), then
-  `nowplaying`, then `weather`, then `pomo`; `mood` stays. If it is still
+  → `nowplaying`, `day` → `day`); a left-out block is absent, while a kept `pomo` or
+  `weather` is still `null` when its feature is off (`day` is absent instead).
+  A body over `limits.view_bytes` drops the weather detail ("Weather detail"), then
+  `nowplaying`, then `usage`, then `weather`, then `pomo`, then `day`; `mood` stays. If it is still
   over, the server serves it and logs once per device (`knob view over
   its caps view_bytes`) until it fits again.
 - **Config PUT** (owner): 400 when it turns on a page that is not in
@@ -568,8 +571,8 @@ token, so it never gets the block.
 ## Quiet hours
 
 Quiet hours are server state (`quiet_hours`, `GET/PUT /v1/quiet/config`),
-read through one rule, `Config.quietAt`, by both the clock adapter and the
-knob view. The knob has no speaker, so on the knob quiet is display only:
+read through one rule, `App.quietAt`, by both the clock adapter and the
+knob view. Off the day clock counts as quiet too ("Day clock"). The knob has no speaker, so on the knob quiet is display only:
 
 - **View:** `"quiet": true` while the window is on; absent otherwise (never
   `false`), so a view outside quiet hours is byte-identical to before #343.
@@ -587,6 +590,50 @@ knob view. The knob has no speaker, so on the knob quiet is display only:
   663 B since `display.rotation`), under cinder's
   `CFG_SETTINGS_MAX` as it was before cinder#255 (1024 B; 2048 B on current
   firmware). `TestKnobConfigFitsTheFirmwareStore` pins only the 1024 bound.
+
+## Day clock
+
+The `day` page (#729, cinder#283) clocks the workday in and out. It
+replaces `pomodoro` in a new knob's default pages (`bot`, `day`,
+`weather`, `nowplaying` off, `pomodoro` off); a stored config gains `day`
+as an off page at the end, like `nowplaying` did, without a
+`config_version` bump. Rule 1: the block, the routes and the page are new,
+so old firmware never sees them.
+
+**View block.** `day` is sent only to a knob whose caps list the `day`
+page with the page on, while `day.enabled` (absent, never `null`,
+otherwise; never for a legacy knob). Optional keys are absent when zero or
+false. Times are server-local `HH:MM`.
+
+| Key | Meaning |
+|---|---|
+| `state` | `off`, `on` or `break` |
+| `started` | clock-in; absent while off |
+| `stop_at` | today's stop time (may pass midnight); while off, the one Set opens at: the last one used, else `day.default_stop` |
+| `on_min` | minutes on the clock since clock-in, breaks excluded; 0 while off |
+| `break_min` | while `break`, the current break; otherwise all breaks since clock-in |
+| `over_min` | minutes past the stop time (on or break); 0 before it. Past stop = `on` with `over_min` > 0 |
+| `offer_start` | off only: the first reply of the day, for 60 min or until a start or dismiss (Offer face) |
+| `replies_off_last_night` | off only, when the last clock-out was before today's day start: replies since that clock-out |
+| `agents` | sessions running now |
+| `break_hint` | on for `day.break_hint_minutes` (90) without a break |
+| `summary` | `{on_min, in_range, week_in_range, week_days}`, for 5 s after `POST /v1/day/stop` (not after an auto stop); `week_*` count the ISO week's worked days and days in range |
+
+`on_min`, `break_min` and `over_min` move each minute, so the view's ETag
+does; a long poll gets them within its 5 s recheck. While off (after the
+first clock-in on record) the view also carries `"quiet": true`.
+
+**Actions** (device token, or the owner/`control` token). Every reply is
+the block above (`day_action.json`); 404 while the day clock is disabled.
+
+| Route | Body | Repeat |
+|---|---|---|
+| `POST /v1/day/start` | `{"stop_at":"HH:MM"?, "at":"HH:MM"?}`; `at` back-dates (the offer, ±5 min turns) to the latest past `HH:MM`, 400 before the last day event | no-op while on or on a break |
+| `POST /v1/day/break` | — | no-op on a break; 409 while off |
+| `POST /v1/day/resume` | — | no-op while on; 409 while off |
+| `POST /v1/day/stop` | — | no-op while off |
+| `PUT /v1/day/stop_at` | `{"stop_at":"HH:MM"}` (400 otherwise) | sets it again |
+| `POST /v1/day/offer/dismiss` | — | no-op; no new offer until the next day |
 
 ## Idle and per-app options
 
@@ -1033,8 +1080,12 @@ Indented JSON; key order is the wire order.
 | `checkin_reply_caps.json` | Caps accepted: `config_version` and `caps_ack` |
 | `checkin_reply_rotation.json` | `new_token` from a real rotation, the token replaced by a dummy of the same length |
 | `pomodoro_action.json` | A Pomodoro action reply (pause during a short break) |
+| `day_action.json` | A day clock action reply (`start` at 12:00 with stop `00:00`, two agents running) |
+| `view_day_off.json` | A knob with the `day` page in caps (`bot`, `day`, `weather`): `day` off before any clock-in (no `quiet`), two agents |
+| `view_day_on.json` | The same knob 14 h 20 min after clock-in: `over_min` 140, `break_hint` |
+| `view_day_summary.json` | Right after `stop`: `"quiet": true`, `day` off with its `summary` |
 | `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |
-| `config_default.json` | `GET …/self/config` for a new knob, `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
+| `config_default.json` | `GET …/self/config` for a new knob (pages `bot`, `day`, `weather`, then `nowplaying` and `pomodoro` off), `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
 | `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800 (969 B compact) |
 | `checkin_reply_config_v2.json` | A stale knob's checkin reply carrying that config |

@@ -57,6 +57,7 @@ type coordinator struct {
 	idleSince time.Time
 
 	snapshot func() Snapshot
+	quiet    func(time.Time) bool
 
 	pomoView func() (render.PomodoroView, bool)
 

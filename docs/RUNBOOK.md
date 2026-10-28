@@ -952,6 +952,42 @@ curl -X PUT http://<hostname>.local/api/v1/system \
   `curl -X POST -H 'Content-Type: application/json' -d '{"button":"middle","state":true}' http://localhost:3627/hooks/awtrix/button`
   (should start a focus).
 
+## Day clock (#729)
+
+Clock the workday in and out on the knob's `day` page (cinder#283), or by
+hand. Design: ARCHITECTURE "Day clock"; knob contract: DEVICE-PROTOCOL "Day
+clock".
+
+- **Config** (`config.json` `day`, or `GET/PUT /v1/day/config`, store key
+  `day_json`, live without a restart): `enabled` (true), `default_stop`
+  (`"00:00"`), `break_hint_minutes` (90, 0 = off), `auto_stop_minutes` (30),
+  `grace_minutes` (15). Days split at `pomodoro.day_start_hour` (4).
+- **Quiet when off.** After the first clock-in the server records, Ember is
+  quiet whenever the day is off: notices without sound, no chime, the clock's
+  quiet LED, `"quiet": true` for the knob. Sessions are untouched. A server
+  that never saw a clock-in (just upgraded, knob page not flashed yet) keeps
+  its sounds. `PUT /v1/day/config {"enabled":false}` turns the whole feature
+  off, including the quiet.
+- **By hand** (token from `producer.env`, never echoed):
+
+  ```sh
+  set -a; . ~/.config/ember/producer.env; set +a
+  auth="Authorization: Bearer $EMBER_TOKEN"
+  curl -s -H "$auth" -X POST "$EMBER_SERVER_URL/v1/day/start" -d '{"stop_at":"23:00"}'
+  curl -s -H "$auth" -X POST "$EMBER_SERVER_URL/v1/day/break"
+  curl -s -H "$auth" -X POST "$EMBER_SERVER_URL/v1/day/resume"
+  curl -s -H "$auth" -X POST "$EMBER_SERVER_URL/v1/day/stop"
+  curl -s -H "$auth" "$EMBER_SERVER_URL/v1/day/history?days=7"
+  ```
+
+- **Replies** are counted from session state: `done`/`waiting` → `running` on
+  a session the server already knew (or reaped within the last 24 h). A new
+  session never counts. Expect a few false positives (a T3 thread resumed by
+  a delegated child or a schedule; a background task waking a done Claude
+  session).
+- **Smoke run:** a scratch store and port as usual; the day tables live in
+  the same sqlite file (`pomodoro.db_path`).
+
 ## Knob device registry (`/v1/devices`)
 
 The cinder knob authenticates with its own **device token** (`ekd_…`), never
@@ -1719,6 +1755,12 @@ all `[OK]`. For Unraid, see `README.md` → "Unraid install" + the
 (`Specs/ember/`).
 
 ## Upgrade notes
+
+**Day clock (#729).** New tables `day_events` and `day_replies` in the
+store, created on start. Nothing goes quiet until the first clock-in. A new
+knob's default pages put `day` where `pomodoro` was (Pomodoro stays, off);
+an existing knob's stored config gains `day` as an off page, with no config
+push. Turn the page on in Ember.app once the firmware has it.
 
 **Clock presentation moves to the clock config (#232).** The TC001's
 presentation settings (weather tiles and popups, icon ids, meeting tile and

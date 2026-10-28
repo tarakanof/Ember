@@ -23,6 +23,7 @@ func (a *App) sessionPolicy() sessions.Policy {
 }
 
 func (a *App) onSessionReaped(r sessions.Reaped) {
+	a.noteDaySessionReaped(r.Session)
 	a.changes.notify(topicSessions)
 	a.metrics.incSessionEvicted()
 	a.logger.Warn("session reaped",
@@ -36,7 +37,9 @@ func (a *App) onSessionReaped(r sessions.Reaped) {
 
 func (a *App) Upsert(req StatusRequest) (Render, string) {
 	before := a.moodState()
-	v, prior := a.sessions.Upsert(req.normalized())
+	s := req.normalized()
+	v, prior := a.sessions.Upsert(s)
+	a.noteDayReply(s, prior, a.dayNow())
 	after := a.moodOf(v)
 	if after.Render != before.Render || after.Lead != before.Lead {
 		a.changes.notify(topicSessions)

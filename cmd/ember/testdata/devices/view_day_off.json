@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "epoch": 1,
+  "config_version": 1,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 2,
+    "done": 0,
+    "source": "mbp"
+  },
+  "weather": null,
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "day": {
+    "state": "off",
+    "stop_at": "00:00",
+    "on_min": 0,
+    "break_min": 0,
+    "over_min": 0,
+    "agents": 2
+  }
+}

@@ -63,5 +63,6 @@
     "use_native_icons": false
   },
   "quiet_hours": { "enabled": false, "start": "22:00", "end": "08:00" },
+  "day": { "enabled": true, "default_stop": "00:00", "break_hint_minutes": 90, "auto_stop_minutes": 30, "grace_minutes": 15 },
   "brightness": { "floor": 10, "ceiling": 255, "night_level": 20, "day_level": 255, "lux_dark": 1, "lux_bright": 200, "ema_alpha": 0.3, "hysteresis": 8, "stale_seconds": 120, "twilight_minutes": 45 }
 }
