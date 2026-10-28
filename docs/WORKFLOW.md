@@ -20,6 +20,12 @@ they apply at every step.
   `git worktree add ~/Github/Ember-wt/<slug> -b <type>/<issue>-<slug> origin/main`.
   Never edit the main checkout while a change is in flight. Branch names must be
   new: `git branch -a | grep <slug>` first.
+- T3 Code: `t3.json` defines the project actions. A new T3 worktree links
+  `AGENTS.local.md` and `CLAUDE.local.md` from the main checkout; "Check (Go)"
+  and "Check (app)" run the Go and app pre-push checks below (`strings.sh check`
+  runs `xcodegen` and the unsigned build itself). T3 applies the file only on
+  import (the thread header's action menu → "From t3.json"); import again after
+  it changes.
 - Independent issues run in parallel, one subagent per issue, each in its own
   worktree. The subagent implements, pushes and opens the PR; it does not merge.
 - Dependent PRs stack (`--base` the earlier branch) and retarget to `main` when
