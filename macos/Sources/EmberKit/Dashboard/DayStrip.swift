@@ -69,7 +69,7 @@ public struct DayStrip: Equatable, Sendable {
         let weekday = calendar.component(.weekday, from: midnight)
         return Row(key: d.date, date: midnight, isToday: isToday, isWeekend: weekday == 1 || weekday == 7,
                    start: start, stop: stop,
-                   target: d.stopTarget.flatMap { resolveTarget($0, midnight: midnight, calendar: calendar) },
+                   target: d.stopTarget.flatMap { resolveTarget($0, midnight: midnight, calendar: calendar) }.map(clamp),
                    spans: spans.compactMap(clamped), dots: dotTimes.map { clamp(wall($0)) },
                    auto: d.auto, inRange: d.inRange, onSec: d.onSec, breakSec: d.breakSec,
                    repliesOn: d.repliesOn, repliesOff: d.repliesOff)

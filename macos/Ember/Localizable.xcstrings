@@ -3000,7 +3000,7 @@
       "comment" : "Settings › Calendar: how many calendar feeds the server is configured with."
     },
     "^[%lld day](inflect: true)" : {
-      "comment" : "A number of days (a streak, or rows on the Work hours card)."
+      "comment" : "A number of days (a streak)."
     },
     "^[%lld reply](inflect: true)" : {
       "comment" : "Count of replies to agents made while off the clock; the argument is the count."

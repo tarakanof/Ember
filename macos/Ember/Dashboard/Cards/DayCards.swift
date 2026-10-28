@@ -74,6 +74,7 @@ struct DayTodayCard: View {
     private func content(_ s: DayState) -> some View {
         let p = phase(s)
         let active = s.phase != .off
+        let off = !active
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 Circle().fill(p.color).frame(width: 9, height: 9).accessibilityHidden(true)
@@ -86,7 +87,7 @@ struct DayTodayCard: View {
                 }
                 GridRow {
                     DayFact(title: "Stop target", value: s.stopAt.flatMap { clockText(hhmm: $0, calendar: calendar) } ?? "—")
-                    DayFact(title: "Off the clock last night", value: s.repliesOffLastNight.formatted(),
+                    DayFact(title: "Off the clock last night", value: off || s.repliesOffLastNight > 0 ? s.repliesOffLastNight.formatted() : "—",
                             help: "Replies to agents after you clocked out, last night")
                 }
             }
