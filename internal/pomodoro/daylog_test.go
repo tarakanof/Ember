@@ -34,16 +34,40 @@ func TestDayEventsRoundTripInOrder(t *testing.T) {
 	if len(all) != 4 || all[0].Kind != workday.Start || all[0].Value != "18:00" || !all[0].At.Equal(t0) {
 		t.Fatalf("between = %+v", all)
 	}
-	started, err := s.DayStarted()
+}
+
+func TestDayEventsFromLastStartKeepAnOpenPeriodWhole(t *testing.T) {
+	s := openTestStore(t)
+	t0 := time.Unix(1_761_000_000, 0)
+	record := func(e workday.Event) {
+		t.Helper()
+		if err := s.RecordDayEvent(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record(workday.Event{At: t0, Kind: workday.Start, Value: "18:00"})
+	record(workday.Event{At: t0.Add(time.Hour), Kind: workday.Stop})
+	record(workday.Event{At: t0.Add(2 * time.Hour), Kind: workday.Start, Value: "20:00"})
+	for i := range 300 {
+		record(workday.Event{At: t0.Add(2*time.Hour + time.Duration(i)*time.Second), Kind: workday.StopAt, Value: "21:00"})
+	}
+	got, started, err := s.DayEventsFromLastStart()
 	if err != nil || !started {
-		t.Fatalf("DayStarted = %v %v, want true", started, err)
+		t.Fatalf("started = %v %v", started, err)
+	}
+	if len(got) != 301 || got[0].Kind != workday.Start || got[0].Value != "20:00" {
+		t.Fatalf("events = %d, first %+v", len(got), got[0])
 	}
 }
 
-func TestDayStartedIsFalseOnAnEmptyStore(t *testing.T) {
+func TestDayEventsFromLastStartOnAStoreWithoutAStart(t *testing.T) {
 	s := openTestStore(t)
-	if started, err := s.DayStarted(); err != nil || started {
-		t.Fatalf("DayStarted = %v %v, want false", started, err)
+	if err := s.RecordDayEvent(workday.Event{At: time.Unix(1_761_000_000, 0), Kind: workday.StopAt, Value: "19:00"}); err != nil {
+		t.Fatal(err)
+	}
+	got, started, err := s.DayEventsFromLastStart()
+	if err != nil || started || len(got) != 1 || got[0].Value != "19:00" {
+		t.Fatalf("events = %+v started %v %v, want the stop_at and no start", got, started, err)
 	}
 }
 

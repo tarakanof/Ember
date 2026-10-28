@@ -169,13 +169,15 @@ type Calendar struct {
 }
 
 func (c Calendar) DayStart(t time.Time) time.Time {
-	d := t.In(c.Loc).Add(-time.Duration(c.DayStartHour) * time.Hour)
-	return time.Date(d.Year(), d.Month(), d.Day(), c.DayStartHour, 0, 0, 0, c.Loc)
+	l := t.In(c.Loc)
+	ds := time.Date(l.Year(), l.Month(), l.Day(), c.DayStartHour, 0, 0, 0, c.Loc)
+	if t.Before(ds) {
+		ds = time.Date(l.Year(), l.Month(), l.Day()-1, c.DayStartHour, 0, 0, 0, c.Loc)
+	}
+	return ds
 }
 
-func (c Calendar) DayKey(t time.Time) string {
-	return t.In(c.Loc).Add(-time.Duration(c.DayStartHour) * time.Hour).Format("2006-01-02")
-}
+func (c Calendar) DayKey(t time.Time) string { return c.DayStart(t).Format("2006-01-02") }
 
 func (c Calendar) StopInstant(start time.Time, hhmm string) (time.Time, bool) {
 	h, m, ok := ParseHHMM(hhmm)

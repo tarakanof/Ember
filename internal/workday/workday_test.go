@@ -236,3 +236,27 @@ func TestWeeksRollUpDays(t *testing.T) {
 		t.Errorf("W44 = %+v", weeks[0])
 	}
 }
+
+func TestDayBoundaryHoldsAcrossDST(t *testing.T) {
+	cases := []struct {
+		at   time.Time
+		want string
+	}{
+		{time.Date(2026, 3, 29, 3, 59, 0, 0, berlin), "2026-03-28"},
+		{time.Date(2026, 3, 29, 4, 30, 0, 0, berlin), "2026-03-29"},
+		{time.Date(2026, 10, 25, 3, 30, 0, 0, berlin), "2026-10-24"},
+		{time.Date(2026, 10, 25, 4, 0, 0, 0, berlin), "2026-10-25"},
+	}
+	for _, c := range cases {
+		if got := cal.DayKey(c.at); got != c.want {
+			t.Errorf("DayKey(%v) = %s, want %s", c.at, got, c.want)
+		}
+		if ds := cal.DayStart(c.at); ds.After(c.at) || ds.Hour() != 4 {
+			t.Errorf("DayStart(%v) = %v", c.at, ds)
+		}
+	}
+	start := time.Date(2026, 3, 29, 10, 0, 0, 0, berlin)
+	if got, _ := cal.StopInstant(start, "18:00"); !got.Equal(time.Date(2026, 3, 29, 18, 0, 0, 0, berlin)) {
+		t.Errorf("stop on the spring-forward day = %v", got)
+	}
+}

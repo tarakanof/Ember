@@ -16,7 +16,6 @@ var (
 )
 
 const (
-	dayEventsLoaded  = 200
 	dayOfferFor      = time.Hour
 	daySummaryFor    = 5 * time.Second
 	dayReplyThrottle = time.Minute
@@ -95,11 +94,7 @@ func (a *App) loadDay() error {
 	if a.store == nil {
 		return nil
 	}
-	events, err := a.store.LastDayEvents(dayEventsLoaded)
-	if err != nil {
-		return err
-	}
-	armed, err := a.store.DayStarted()
+	events, armed, err := a.store.DayEventsFromLastStart()
 	if err != nil {
 		return err
 	}

@@ -53,16 +53,20 @@ func (s *Store) queryDayEvents(query string, args ...any) ([]workday.Event, erro
 	return out, rows.Err()
 }
 
-func (s *Store) DayStarted() (bool, error) {
-	var one int
-	err := s.db.QueryRow(`SELECT 1 FROM day_events WHERE kind = ? LIMIT 1`, string(workday.Start)).Scan(&one)
+func (s *Store) DayEventsFromLastStart() (events []workday.Event, started bool, err error) {
+	var at, id int64
+	err = s.db.QueryRow(`SELECT at, id FROM day_events WHERE kind = ? ORDER BY at DESC, id DESC LIMIT 1`,
+		string(workday.Start)).Scan(&at, &id)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return false, nil
+		events, err = s.LastDayEvents(1)
+		return events, false, err
 	case err != nil:
-		return false, fmt.Errorf("day started: %w", err)
+		return nil, false, fmt.Errorf("last day start: %w", err)
 	}
-	return true, nil
+	events, err = s.queryDayEvents(
+		`SELECT at, kind, value FROM day_events WHERE at > ? OR (at = ? AND id >= ?) ORDER BY at, id`, at, at, id)
+	return events, true, err
 }
 
 func (s *Store) RecordDayReply(r workday.Reply) error {

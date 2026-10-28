@@ -1613,11 +1613,14 @@ the clock are counted, not blocked. No prompt text is involved anywhere.
   folds events, ordered by `(at, id)`, into periods (start, end, stop time,
   breaks, auto); events outside a period are ignored. Every new event's `at`
   is at least the previous one's, so replay order matches write order. On
-  start (`ensureStore` → `loadDay`) the server replays its last 200 events:
-  the open period (if any), the last stop time used, the last clock-out, and
-  the replies since it. A restart therefore keeps the day state; it drops
+  start (`ensureStore` → `loadDay`) the server replays the events from the
+  last `start` on (`DayEventsFromLastStart`, so an open period is always
+  whole): the open period (if any), the last stop time used, the last
+  clock-out, and the replies since it. A restart therefore keeps the day state; it drops
   only the start offer and the reaped-session memory below.
-- **Times.** Server local time; days by `pomodoro.day_start_hour` (4).
+- **Times.** Server local time; days by `pomodoro.day_start_hour` (4), the
+  boundary built as a local wall time (`Calendar.DayStart`), so it stays at
+  04:00 across DST changes.
   `stop_at` is `HH:MM` resolved inside the start's logical day
   (`(day start, day start + 24 h]`), so `00:00` after an 11:00 start is the
   coming midnight. `start {at}` resolves `HH:MM` to the latest past instant
@@ -1648,7 +1651,7 @@ the clock are counted, not blocked. No prompt text is involved anywhere.
   last event). Also at the next day start (04:00) whatever the replies.
   No summary for an auto stop.
 - **Quiet when off.** `App.quietAt(t) = Config.quietAt(t) || dayQuiet()`,
-  where `dayQuiet` is `day.enabled`, a clock-in on record (`DayStarted`, so
+  where `dayQuiet` is `day.enabled`, a clock-in on record (so
   a server that never saw one, such as one updated before the knob page
   ships, keeps its sounds) and no open period. The coordinator reads it
   through its `quiet` hook (notice sound, chime, quiet LED), the reminder

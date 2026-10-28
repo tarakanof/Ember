@@ -604,3 +604,18 @@ func TestKnobDayGolden(t *testing.T) {
 	mustOK(t, "stop", resp, b)
 	assertDeviceGolden(t, "view_day_summary", goldenView(t, f))
 }
+
+func TestRestartKeepsAnOpenDayAfterManyStopTimeChanges(t *testing.T) {
+	f := newDayFixture(t, "", dayAt(10, 10, 0))
+	f.call(t, "POST", "/v1/day/start", `{"stop_at":"18:00"}`, http.StatusOK)
+	for range 210 {
+		f.call(t, "PUT", "/v1/day/stop_at", `{"stop_at":"18:15"}`, http.StatusOK)
+	}
+	g := f.restart(t)
+	if k := g.state(t); k.State != "on" || k.Started != "10:00" || k.StopAt != "18:15" {
+		t.Fatalf("after restart = %+v", k)
+	}
+	if g.app.quietAt(g.clk.Now()) {
+		t.Fatal("quiet after restart while on the clock")
+	}
+}
