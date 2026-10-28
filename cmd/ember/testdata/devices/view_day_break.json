@@ -1,0 +1,32 @@
+{
+  "v": 1,
+  "epoch": 1,
+  "config_version": 1,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 0,
+    "done": 0,
+    "source": ""
+  },
+  "weather": null,
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "day": {
+    "state": "break",
+    "started": "12:00",
+    "stop_at": "20:00",
+    "on_min": 210,
+    "break_min": 12,
+    "over_min": 0,
+    "breaks": [
+      [
+        "14:00",
+        "14:35"
+      ]
+    ],
+    "agents": 0
+  }
+}

@@ -23,6 +23,7 @@ const (
 	daySweepInterval = time.Hour
 	dayTickInterval  = 15 * time.Second
 	dayEndedMemory   = 24 * time.Hour
+	dayKnobBreaks    = 16
 )
 
 type dayTracker struct {
@@ -56,6 +57,7 @@ type knobDay struct {
 	OnMin               int             `json:"on_min"`
 	BreakMin            int             `json:"break_min"`
 	OverMin             int             `json:"over_min"`
+	Breaks              [][2]string     `json:"breaks,omitempty"`
 	OfferStart          string          `json:"offer_start,omitempty"`
 	RepliesOffLastNight int             `json:"replies_off_last_night,omitempty"`
 	Agents              int             `json:"agents"`
@@ -449,6 +451,14 @@ func (a *App) dayBlock(now time.Time, agents int) *knobDay {
 		k.BreakMin = p.BreakSec(now) / 60
 		if p.OnBreak() {
 			k.State, k.BreakMin = "break", p.CurrentBreakSec(now)/60
+		}
+		for _, b := range p.Breaks {
+			if !b.End.IsZero() {
+				k.Breaks = append(k.Breaks, [2]string{hhmm(b.Start), hhmm(b.End)})
+			}
+		}
+		if n := len(k.Breaks); n > dayKnobBreaks {
+			k.Breaks = k.Breaks[n-dayKnobBreaks:]
 		}
 		if stop, ok := cal.StopInstant(p.Start, p.StopAt); ok && now.After(stop) {
 			k.OverMin = int(now.Sub(stop) / time.Minute)

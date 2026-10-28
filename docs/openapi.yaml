@@ -530,6 +530,16 @@ components:
         over_min:
           type: integer
           description: Minutes past the stop time while on or on a break; 0 otherwise.
+        breaks:
+          type: array
+          maxItems: 16
+          description: "While on or on a break, the finished breaks since clock-in as local `HH:MM` pairs, oldest first, the latest 16; the running break is not in it."
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: string
         offer_start:
           type: string
           description: "Local `HH:MM` of the first reply of the day while off; present for 60 min or until a start or dismiss."
