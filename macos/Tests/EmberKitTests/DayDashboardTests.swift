@@ -91,7 +91,10 @@ private func strip(_ now: String = "2026-10-27T13:30:00+01:00") async throws -> 
     let night = s.rows[1]
     #expect(night.start == 11 && night.stop == 24 + 1.0 / 3)
     #expect(night.target == 24)
-    #expect(night.spans == [.init(from: 11, to: 15), .init(from: 16, to: 24 + 1.0 / 3)])
+    let nightEnd: Double = 24 + 1.0 / 3
+    let first = DayStrip.Span(from: 11, to: 15)
+    let second = DayStrip.Span(from: 16, to: nightEnd)
+    #expect(night.spans == [first, second])
     #expect(night.dots == [24.5, 24 + 50.0 / 60])
     #expect(night.auto && night.inRange == false)
 }
@@ -117,7 +120,10 @@ private func strip(_ now: String = "2026-10-27T13:30:00+01:00") async throws -> 
     let today = try await strip().rows[2]
     #expect(today.isToday && today.stop == nil)
     #expect(today.target == 24)
-    #expect(today.spans == [.init(from: 10 + 5.0 / 60, to: 12), .init(from: 12.25, to: 13.5)])
+    let openStart: Double = 10 + 5.0 / 60
+    let before = DayStrip.Span(from: openStart, to: 12)
+    let after = DayStrip.Span(from: 12.25, to: 13.5)
+    #expect(today.spans == [before, after])
 }
 
 @Test func stripResolvesClockTargetsPastMidnightAndEmphasisesWeekends() async throws {
