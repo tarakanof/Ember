@@ -61,6 +61,7 @@ struct KnobDetail: View {
         case .focus: return s.pomodoro.isLoaded && !s.pomodoro.draft.enabled
         case .weather: return s.weather.isLoaded && !s.weather.draft.enabled
         case .calendar: return s.meetings.isLoaded && !s.meetings.draft.enabled
+        case .dayClock: return s.day.isLoaded && !s.day.draft.enabled
         case .agents, .music: return false
         }
     }
@@ -82,7 +83,6 @@ struct KnobDetail: View {
             KnobControlsSection()
         case .app(let app):
             if let source = AppCatalog.source(of: app) { SourceLinkSection(source: source, isOff: isOff(source)) }
-            if app == .day { DayClockLinkSection() }
             if let page = AppCatalog.knobPage(app), app != .day { KnobAppPreviewSection(page: page) }
             Group {
                 KnobPageSection(app: app)

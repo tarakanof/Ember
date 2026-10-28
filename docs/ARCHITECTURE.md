@@ -1212,11 +1212,12 @@ without relaunch. Hybrid layout:
   power needs 0.28+), the animated bot or tool glyph as its icon, a
   fixed-width sidebar `Settings` window (height resizable only, like System
   Settings; three groups: **App** (General, Connection, Permissions,
-  Sounds & Alerts), **Sources** (Agents, Focus, Weather, Calendar, Music: where
-  data comes from, set once) and **Devices** (Clock and Knob, each with its
-  hardware pages and an Apps subtree holding that device's presentation of
-  each source; the knob's Day Clock app (when its caps list the `day` page)
-  has no source and links to the Day Clock pane instead (#739); a source pane and its device apps bind the same config model,
+  Sounds & Alerts), **Sources** (Agents, Day Clock, Focus, Weather, Calendar,
+  Music: where data comes from, set once; Day Clock moved there from App in
+  #741, and a stored `app/day-clock` selection opens it) and **Devices** (Clock
+  and Knob, each with its hardware pages and an Apps subtree holding that
+  device's presentation of each source; the knob's Day Clock app shows only
+  when its caps list the `day` page (#739); a source pane and its device apps bind the same config model,
   so a pending edit shows in both; the selection and expanded nodes persist
   in `UserDefaults`, and a route under a device still loading is held, not
   replaced by the fallback); the title follows the pane, the

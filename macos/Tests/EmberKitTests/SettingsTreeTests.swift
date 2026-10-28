@@ -16,6 +16,7 @@ private let unreachableKnob = SettingsDevice(id: "knob", kind: .knob, name: "Kno
 @Test(arguments: [
     (SettingsRoute.app(.general), "app/general"),
     (.source(.weather), "source/weather"),
+    (.source(.dayClock), "source/day-clock"),
     (.device("clock", .hardware(.timeDate)), "device/clock/hardware/time-date"),
     (.device("knob-61fc8c", .hardware(.display)), "device/knob-61fc8c/hardware/display"),
     (.device("clock", .hardware(.health)), "device/clock/hardware/health"),
@@ -46,6 +47,7 @@ func routeRoundTripsThroughItsPath(route: SettingsRoute, path: String) {
     ("calendar", .source(.calendar)),
     ("meetings", .source(.calendar)),
     ("reminders", .source(.calendar)),
+    ("app/day-clock", .source(.dayClock)),
 ])
 func legacyPaneNameMapsToRoute(name: String, want: SettingsRoute) {
     #expect(SettingsRoute(stored: name) == want)
@@ -85,19 +87,26 @@ func unknownStoredValueFallsBackToConnection(name: String) {
 @Test func knobWithTheDayPageShowsTheDayClockApp() {
     let pages = ["bot", "day", "weather", "nowplaying", "pomodoro"]
     #expect(AppCatalog.apps(.knob, supportedPages: pages) == [.bot, .day, .focus, .weather, .nowplaying])
-    #expect(AppCatalog.knobPage(.day) == "day" && AppCatalog.source(of: .day) == nil)
+    #expect(AppCatalog.knobPage(.day) == "day" && AppCatalog.source(of: .day) == .dayClock)
     #expect(!AppCatalog.apps(.knob).contains(.day))
     #expect(!AppCatalog.apps(.clock).contains(.day))
 }
 
 @Test func everyAppHasASource() {
-    for app in AppID.allCases where app != .day { #expect(AppCatalog.source(of: app) != nil) }
+    for app in AppID.allCases { #expect(AppCatalog.source(of: app) != nil) }
+}
+
+@Test func theKnobsDayAppIsShownOnTheDayClockSource() {
+    var k = knob
+    k.supportedPages = ["bot", "day", "weather"]
+    let shown = SettingsTree(devices: [clock, k]).apps(showing: .dayClock)
+    #expect(shown.map(\.route) == [.device(k.id, .app(.day))])
 }
 
 @Test func treeGroupsAppSourcesAndDevices() {
     let tree = SettingsTree(devices: [clock, knob])
-    #expect(tree.app == [.app(.general), .app(.connection), .app(.permissions), .app(.sounds), .app(.dayClock)])
-    #expect(tree.sources == [.source(.agents), .source(.focus), .source(.weather), .source(.calendar), .source(.music)])
+    #expect(tree.app == [.app(.general), .app(.connection), .app(.permissions), .app(.sounds)])
+    #expect(tree.sources == [.source(.agents), .source(.dayClock), .source(.focus), .source(.weather), .source(.calendar), .source(.music)])
     #expect(tree.devices.map(\.id) == ["clock", "knob-61fc8c"])
     let c = tree.devices[0]
     #expect(c.route == .device("clock", .hardware(.status)))

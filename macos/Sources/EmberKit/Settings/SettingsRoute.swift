@@ -2,11 +2,12 @@ import Foundation
 
 public enum AppPane: String, CaseIterable, Sendable {
     case general, connection, permissions, sounds
-    case dayClock = "day-clock"
 }
 
 public enum SourceID: String, CaseIterable, Sendable {
-    case agents, focus, weather, calendar
+    case agents
+    case dayClock = "day-clock"
+    case focus, weather, calendar
     case music
 }
 
@@ -92,6 +93,7 @@ public enum SettingsRoute: Hashable, Sendable {
         case "focus", "pomodoro": .source(.focus)
         case "weather": .source(.weather)
         case "calendar", "meetings", "reminders": .source(.calendar)
+        case "app/day-clock": .source(.dayClock)
         default: nil
         }
     }

@@ -45,7 +45,7 @@ public enum AppCatalog {
         case .weather: .weather
         case .calendar: .calendar
         case .nowplaying: .music
-        case .day: nil
+        case .day: .dayClock
         }
     }
 
