@@ -180,3 +180,28 @@ extension DayHistory.Day {
         return try! d.decode(DayHistory.Day.self, from: Data(json.utf8))
     }
 }
+
+private func serverFixture(_ name: String) throws -> Data {
+    try Data(contentsOf: URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().appendingPathComponent("testdata/day/\(name).json"))
+}
+
+@Test func decodesTheMergedServersResponses() async throws {
+    let state: DayState = try await decode(String(decoding: try serverFixture("state_on"), as: UTF8.self))
+    #expect(state.phase == .on && state.started == "11:43" && state.stopAt == "23:30" && state.enabled)
+    let history: DayHistory = try await decode(String(decoding: try serverFixture("history"), as: UTF8.self))
+    #expect(history.days.count == 10)
+    #expect(history.days[0].start != nil && history.days[0].stop == nil && history.days[0].stopTarget == "23:30")
+    let quiet = try #require(history.days.first { $0.date == "2026-10-23" })
+    #expect(quiet.start == nil && quiet.stopTarget == nil && quiet.repliesOff == 3)
+    #expect(history.days[1].breaks.count == 1 && history.days[1].stopTarget == "00:00")
+    let weeks: DayWeeks = try await decode(String(decoding: try serverFixture("weeks"), as: UTF8.self))
+    #expect(weeks.weeks.map(\.key) == ["2026-W44", "2026-W43", "2026-W42"])
+    let config: DayConfig = try await decode(String(decoding: try serverFixture("config"), as: UTF8.self))
+    #expect(config == DayConfig())
+    let strip = DayStrip(days: history.days, now: iso("2026-10-28T12:00:00+01:00"), calendar: calendar())
+    #expect(strip.rows.count == 10 && !strip.isEmpty)
+    #expect(strip.rows.last?.hasClock == true && strip.rows.last?.spans.isEmpty == false)
+    let quietRow = try #require(strip.rows.first { $0.key == "2026-10-23" })
+    #expect(!quietRow.hasClock && quietRow.spans.isEmpty && quietRow.dots.count == 2)
+}
