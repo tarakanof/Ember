@@ -1,0 +1,10 @@
+{
+  "state": "on",
+  "started": "12:00",
+  "stop_at": "00:00",
+  "on_min": 0,
+  "break_min": 0,
+  "over_min": 0,
+  "agents": 2
+}
+

@@ -25,7 +25,12 @@ func clampQueryInt(r *http.Request, key string, def, lo, hi int) int {
 	return v
 }
 
-func (a *App) statsLoc() *time.Location { return time.Local }
+func (a *App) statsLoc() *time.Location {
+	if a.zone != nil {
+		return a.zone
+	}
+	return time.Local
+}
 
 func (a *App) statsNow() time.Time {
 	if a.statsClock != nil {

@@ -113,6 +113,9 @@ func validateConfig(cfg Config) error {
 	if err := validateQuietHours(cfg.QuietHours); err != nil {
 		return err
 	}
+	if err := validateDay(cfg.Day); err != nil {
+		return err
+	}
 	if err := cfg.Brightness.resolved().validate(); err != nil {
 		return fmt.Errorf("%w: brightness.%v", ErrConfigValidate, err)
 	}
@@ -187,6 +190,7 @@ type Config struct {
 	Pomodoro          PomodoroConfig               `json:"pomodoro"`
 	Weather           WeatherConfig                `json:"weather"`
 	Meetings          MeetingsConfig               `json:"meetings"`
+	Day               DayConfig                    `json:"day"`
 	UsageWidget       *bool                        `json:"usage_widget,omitempty"`
 	UsagePerModel     *bool                        `json:"usage_per_model,omitempty"`
 	LimitAlarm        *bool                        `json:"limit_alarm,omitempty"`
@@ -340,6 +344,7 @@ func defaultConfig() Config {
 			WeeklyGoalDays:           5,
 			WorkHoursIncludeActivity: true,
 		},
+		Day: defaultDayConfig(),
 	}
 }
 
@@ -437,4 +442,5 @@ func (c *Config) applyDefaults() {
 
 	c.Weather.applyDefaults()
 	c.Meetings.applyDefaults()
+	c.Day.fillAbsent()
 }

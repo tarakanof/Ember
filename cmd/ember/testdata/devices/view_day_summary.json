@@ -1,0 +1,32 @@
+{
+  "v": 1,
+  "epoch": 1,
+  "config_version": 1,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 0,
+    "done": 0,
+    "source": ""
+  },
+  "weather": null,
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "quiet": true,
+  "day": {
+    "state": "off",
+    "stop_at": "00:00",
+    "on_min": 0,
+    "break_min": 0,
+    "over_min": 0,
+    "agents": 0,
+    "summary": {
+      "on_min": 860,
+      "in_range": false,
+      "week_in_range": 0,
+      "week_days": 1
+    }
+  }
+}

@@ -1598,6 +1598,80 @@ offer, and the knob's `pomo` block (`knobPomo`) is `null` when off and sends
 `ends_at` while counting, `remaining_sec` otherwise. The action replies and
 `GET /v1/pomodoro/state` stay the engine `Status`, behind the same on check.
 
+### Day clock — `internal/workday`, `cmd/ember/day_*.go` (#729)
+
+A workday the user starts and stops on the knob, with a stop time set at
+clock-in (spec: vault `Design Specs/ember/2026-10-27-work-tracking-design.md`).
+Agents are never stopped; off the clock Ember is quiet, and replies sent off
+the clock are counted, not blocked. No prompt text is involved anywhere.
+
+- **Events, not state.** The store (`internal/pomodoro/daylog.go`, same
+  sqlite file) keeps `day_events(at, kind, value)` with kinds `start`
+  (value: the stop time), `break`, `resume`, `stop`, `auto_stop`, `stop_at`
+  (value: the new stop time), and `day_replies(at, source, tool,
+  session_key)`; both are pruned at 400 days by the day tick. `workday.Replay`
+  folds events, ordered by `(at, id)`, into periods (start, end, stop time,
+  breaks, auto); events outside a period are ignored. Every new event's `at`
+  is at least the previous one's, so replay order matches write order. On
+  start (`ensureStore` → `loadDay`) the server replays the events from the
+  last `start` on (`DayEventsFromLastStart`, so an open period is always
+  whole): the open period (if any), the last stop time used, the last
+  clock-out, and the replies since it. A restart therefore keeps the day state; it drops
+  only the start offer and the reaped-session memory below.
+- **Times.** Server local time; days by `pomodoro.day_start_hour` (4), the
+  boundary built as a local wall time (`Calendar.DayStart`), so it stays at
+  04:00 across DST changes.
+  `stop_at` is `HH:MM` resolved inside the start's logical day
+  (`(day start, day start + 24 h]`), so `00:00` after an 11:00 start is the
+  coming midnight. `start {at}` resolves `HH:MM` to the latest past instant
+  and is refused before the last day event.
+- **Actions** (`/v1/day/*`, control or device token, like Pomodoro). `start`
+  while on, `break` on a break, `resume` while on, `stop` while off and
+  `offer/dismiss` without an offer are no-ops that answer the state; `break`
+  and `resume` while off are 409. The reply is always the `day` block shape.
+- **Reply detection** (`noteDayReply`, called from `App.Upsert`). A session
+  whose prior state was `done` or `waiting` and that posts `running` is one
+  reply, at most one row per session per minute. New sessions never count,
+  which keeps `codex exec`, SDK reviews and `claude -p` out. A done session
+  is reaped 30 s after its last post (`done_ttl_seconds`), and the Codex and
+  T3 producers `DELETE` a done session once their 5-min window ends, both
+  long before most replies. So the server remembers reaped or deleted
+  `done`/`waiting` keys for 24 h from their last update (`onSessionReaped`
+  and `App.Delete` → `noteDaySessionEnded`, in memory) and treats a later
+  `running` on that key as a reply. Accepted
+  false positives: a T3 thread resumed by a delegated child or a schedule, a
+  Claude session woken by a background task after it posted `done`. Misses:
+  a reply more than 24 h after the session went quiet, or after a restart
+  that dropped the memory.
+- **Offer start.** Off, and no clock-in yet in this logical day: the first
+  reply sets `offer_start` for 60 min, until a start or a dismiss; once
+  raised, no new offer that day. Confirming is `start {at: offer_start}`, so
+  the period (and the replies in it) is back-dated. In memory only.
+- **Auto clock-out** (`dayTick`, every 15 s from `StartCoordinator`, and once
+  at start-up). On or on a break, past the stop time, with no reply for
+  `day.auto_stop_minutes` (30): `auto_stop` at max(stop time, last reply,
+  last event). Also at the next day start (04:00) whatever the replies.
+  No summary for an auto stop.
+- **Quiet when off.** `App.quietAt(t) = Config.quietAt(t) || dayQuiet()`,
+  where `dayQuiet` is `day.enabled`, a clock-in on record (so
+  a server that never saw one, such as one updated before the knob page
+  ships, keeps its sounds) and no open period. The coordinator reads it
+  through its `quiet` hook (notice sound, chime, quiet LED), the reminder
+  handler and loop guard call it, and the knob view's `quiet` uses it. Each
+  day change calls `dayChanged`: `topicDay` wakes knob long polls and a
+  coordinator tick refreshes the LED, like a quiet-hours edge.
+- **Knob `day` block** (`dayBlock`, only for a knob whose caps list the
+  `day` page with the page on; never for a legacy knob): see
+  DEVICE-PROTOCOL "Day clock". `on_min`, `break_min` and `over_min` move each
+  minute while on, so the view's ETag does too; the 5 s long-poll recheck
+  delivers it. The block is the last one `fit` drops before `mood`.
+- **History** (`GET /v1/day/history`, `/weeks`) is recomputed from events and
+  replies per request (`workday.Calendar.Days`, `Weeks`): a day's `start` is
+  its first clock-in, `stop`/`stop_target`/`auto`/`in_range` come from its
+  last period, `in_range` is `stop <= stop target + day.grace_minutes`.
+  A reply inside any period (bounds included) is on the clock, otherwise off;
+  replies count toward their own logical day.
+
 ### Weather — `cmd/ember/weather.go`, `weather_providers.go`
 
 A standalone widget that shows current conditions. The server fetches them
@@ -5176,8 +5250,10 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `time`) as Unix seconds, left out when the provider sent none (see
   DEVICE-PROTOCOL.md "Weather observation time");
   `brightness` is the read-only `/v1/display/brightness` level and `night`;
-  `"quiet":true` follows it while quiet hours are on (#343, left out
-  otherwise, so a view outside the window keeps its bytes).
+  `"quiet":true` follows `App.quietAt` (quiet hours, #343, or off the day
+  clock, #729; left out otherwise, so a view outside the window keeps its
+  bytes); `day` is the day clock ("Day clock" above), only with the `day`
+  page in caps and on.
   `epoch` and `config_version` replace the `/state` epoch header: the knob
   checks in when either moves. Every answer carries `X-Ember-Now` (server
   Unix seconds, also on 304), the anchor for `ends_at`, so
@@ -5275,7 +5351,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (`tryUpdateConfig`: every settings PUT; `/admin/reload` stores directly and
   notifies config + Pomodoro after its engine resync), usage (every accepted
   `POST /v1/usage`; the waiter rebuilds and keeps waiting when the bytes
-  did not move). `notify` takes only
+  did not move), day (`dayChanged`: every day action, auto clock-out,
+  off-clock reply, day settings). `notify` takes only
   its own lock and never blocks, so callers may hold theirs. Fields that move
   with the clock alone (sun-schedule brightness, weather going stale, live
   mode ending) are caught by a 5 s recheck inside the wait. Quiet hours are
@@ -5681,10 +5758,11 @@ event after the window. `clockPublisher` is ungated; only `NewApp` builds it
 and only the notice code may call its `Notify`/`PlayRTTTL`
 (`clock_access_guard_test.go` enforces both), so a new sound source needs no
 per-feature check. The menu's explicit `/v1/device/audio/test` bypasses the
-gate on purpose. The rule itself is app state: `Config.quietAt(t)`
-(`quiet_config.go`), read by the clock adapter through `coordinator.quietAt`
-and by the knob view (`"quiet":true`, #343), so both devices agree on the
-window. Every caller passes server wall-clock local time (the coordinator
+gate on purpose. The rule itself is app state: `App.quietAt(t)`, which is
+`Config.quietAt(t)` (`quiet_config.go`) or off the day clock (#729, "Day
+clock"), read by the clock adapter through `coordinator.quietAt` (its
+`quiet` hook) and by the knob view (`"quiet":true`, #343), so both devices
+agree on the window. Every caller passes server wall-clock local time (the coordinator
 clock, the view's `now`), because `quietActive` reads `Hour()`/`Minute()`
 with no zone conversion.
 
@@ -5702,7 +5780,7 @@ reminder loop guard dismisses a looping alarm at quiet-hours start, so a gated
 dismiss would leave it ringing all night (`TestDismissNoticeIgnoresQuietHours`).
 Every quiet decision (notice sound, the chime, the reminder loop's arm and
 stop, the corner-LED quiet indicator) goes through `coordinator.quietAt`, read
-on the coordinator clock, which delegates to `Config.quietAt`. The reminder
+on the coordinator clock, which delegates to `App.quietAt`. The reminder
 handler samples it once, before the push, and hands that value to
 `showNoticeQuiet`, so the alarm's sound and its loop guard always agree: quiet
 hours starting during a slow push still leave a loud loop guarded, and quiet

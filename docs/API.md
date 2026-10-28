@@ -12,8 +12,10 @@ client tokens (`ekc_…`) and knob tokens are minted only by the master token wi
 listed by `GET /v1/clients`, owner or `admin`, kept out of the device
 registry since #340) and pass only their scopes: `ingest` (`POST`/`DELETE /v1/status`,
 `POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire`), `control`
-(`POST /v1/pomodoro/{start,pause,resume,stop,skip}`), `read` (the non-secret
-settings GETs: apps, pomodoro/usage/display/brightness/quiet config,
+(`POST /v1/pomodoro/{start,pause,resume,stop,skip}`, the day clock's
+`GET /v1/day/state` and actions), `read` (the non-secret
+settings GETs: apps, pomodoro/usage/display/brightness/quiet/day config,
+`/v1/day/{history,weeks}`,
 `/v1/clock/stats`), `admin` (every bearer `/v1/` route except client-token
 management). Wrong scope is 403. An optional `"sources":[…]` at mint (1-16,
 each ≤64 chars, needs `ingest`; 400 with `admin`, which could still `POST /v1/clear`) binds the token: `POST`/`DELETE
@@ -33,7 +35,14 @@ source".
 Server routes, grouped by auth. Behavior and wire shapes: [`ARCHITECTURE.md`](ARCHITECTURE.md) "Wire protocol". Setup and toggles: [`RUNBOOK.md`](RUNBOOK.md).
 
 Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
-`POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}` and
+`POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}`, the
+day clock (#729, ARCHITECTURE "Day clock"): `GET /v1/day/state`, `POST
+/v1/day/{start,break,resume,stop}` (`start` takes optional `{stop_at, at}`,
+local `HH:MM`; `at` back-dates to the latest past `HH:MM`, 400 before the
+last day event), `PUT /v1/day/stop_at {stop_at}` and `POST
+/v1/day/offer/dismiss`, each replying with the day state (the knob view's
+`day` block shape, `day_action.json`; 404 while `day.enabled` is false, 409
+for `break`/`resume` while off, the other repeats are no-ops), and
 `POST /v1/nowplaying/control` (also accept a knob device token; control takes an
 optional `Idempotency-Key`), `GET/POST /v1/devices` (`GET` lists devices
 only; a pre-#340 server also lists clients there, `kind: client`; each knob
@@ -126,6 +135,14 @@ can't play is a 400: a name outside `[A-Za-z0-9_-]{1,32}`, or RTTTL that
 isn't `name:defaults:notes` with a 1–24 character name and at most 512
 characters; a value already stored is kept and never blocks other edits),
 `GET/PUT /v1/apps` (per-tool clock visibility),
+`GET/PUT /v1/day/config` (`enabled`, `default_stop`, `break_hint_minutes`
+0-600, `auto_stop_minutes` 5-240, `grace_minutes` 0-120),
+`GET /v1/day/history?days=N` (1-120, default 14; `{"days":[…]}` newest first,
+one per local day: `date`, `start`, `stop`, `stop_target`, `on_sec`,
+`break_sec`, `auto`, `in_range`, `replies_on`, `replies_off`, `first_reply`,
+`last_reply`, `breaks[{start, end}]`), `GET /v1/day/weeks?weeks=N` (1-52,
+default 8; `{"weeks":[{week, days_worked, days_in_range, on_sec,
+replies_off}]}`, ISO weeks newest first),
 `POST /v1/usage` (optional `account_key`, 16 hex characters hashed on the
 Mac, and `plan`; one entry per tool and account, newest wins, dropped after 7
 days; each writer, a client token or the master token, keeps 8 per tool

@@ -39,6 +39,21 @@ CREATE TABLE IF NOT EXISTS activity (
   state        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_activity_recorded ON activity(recorded_at);
+CREATE TABLE IF NOT EXISTS day_events (
+  id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  at    INTEGER NOT NULL,
+  kind  TEXT NOT NULL,
+  value TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_day_events_at ON day_events(at);
+CREATE TABLE IF NOT EXISTS day_replies (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  at          INTEGER NOT NULL,
+  source      TEXT NOT NULL,
+  tool        TEXT NOT NULL,
+  session_key TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_day_replies_at ON day_replies(at);
 `
 
 func Open(path string) (*Store, error) {

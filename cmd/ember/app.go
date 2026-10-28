@@ -43,6 +43,9 @@ type App struct {
 	engine *pomodoro.Engine
 	store  *pomodoro.Store
 
+	day      dayTracker
+	dayClock func() time.Time
+
 	reminderHeldUntil atomic.Int64
 	reminderLoop      reminderLoop
 
@@ -56,6 +59,7 @@ type App struct {
 
 	statsCache statsCache
 	statsClock func() time.Time
+	zone       *time.Location
 
 	settings appSettings
 
@@ -207,6 +211,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.publisher = publisher
 	a.coord = newCoordinator(cfg, a.cfg.Load, publisher, realClock{}, logger, a.metrics)
 	a.coord.snapshot = a.Snapshot
+	a.coord.quiet = a.quietAt
 	a.coord.onPublishResult = a.recordPublish
 	a.hiddenApps = map[string]bool{}
 	a.coord.hiddenApps = a.hiddenAppsSet
@@ -288,6 +293,14 @@ func (a *App) StartCoordinator(ctx context.Context) {
 		pomoC = pt.C
 	}
 
+	var dayC <-chan time.Time
+	if a.store != nil {
+		dt := time.NewTicker(dayTickInterval)
+		defer dt.Stop()
+		dayC = dt.C
+		a.dayTick(a.dayNow())
+	}
+
 	a.coord.Send(coordCmd{kind: cmdTick})
 	for {
 		select {
@@ -298,6 +311,8 @@ func (a *App) StartCoordinator(ctx context.Context) {
 			a.coord.Send(coordCmd{kind: cmdTick})
 		case <-pomoC:
 			a.pomoTick()
+		case <-dayC:
+			a.dayTick(a.dayNow())
 		}
 	}
 }

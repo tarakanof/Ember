@@ -90,6 +90,9 @@ func (a *App) ensureStore(path string) error {
 		a.logger.Warn("knob firmware store load incomplete", "err", err)
 	}
 	a.coord.setSettingsKV(store)
+	if err := a.loadDay(); err != nil {
+		a.logger.Warn("day clock state not restored", "err", err)
+	}
 	return nil
 }
 

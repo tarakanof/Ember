@@ -505,6 +505,55 @@ components:
         round:
           type: integer
           description: Completed focus phases in the current cycle.
+    DayState:
+      type: object
+      description: |
+        The day clock (#729). The same shape is the knob view's `day` block.
+        Optional keys are absent when zero or false.
+      required: [state, stop_at, on_min, break_min, over_min, agents]
+      properties:
+        state:
+          type: string
+          enum: ["off", "on", "break"]
+        started:
+          type: string
+          description: Clock-in, local `HH:MM`; absent while off.
+        stop_at:
+          type: string
+          description: "Today's stop time, local `HH:MM` (may pass midnight); while off, the last one used or `day.default_stop`."
+        on_min:
+          type: integer
+          description: Minutes on the clock since clock-in, breaks excluded; 0 while off.
+        break_min:
+          type: integer
+          description: "While `state` is `break`, the current break; otherwise all breaks since clock-in."
+        over_min:
+          type: integer
+          description: Minutes past the stop time while on or on a break; 0 otherwise.
+        offer_start:
+          type: string
+          description: "Local `HH:MM` of the first reply of the day while off; present for 60 min or until a start or dismiss."
+        replies_off_last_night:
+          type: integer
+          description: While off and the last clock-out was before today's day start, the replies since that clock-out.
+        agents:
+          type: integer
+          description: Sessions running now.
+        break_hint:
+          type: boolean
+          description: "On the clock for `day.break_hint_minutes` without a break."
+        summary:
+          type: object
+          description: Only for 5 s after a clock-out by `POST /v1/day/stop`.
+          properties:
+            on_min:
+              type: integer
+            in_range:
+              type: boolean
+            week_in_range:
+              type: integer
+            week_days:
+              type: integer
     DeviceView:
       type: object
       description: "A device record (a knob or the clock), or a client token (`kind: client`), without token material."
@@ -1817,6 +1866,281 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/day/state:
+    get:
+      tags: [control]
+      operationId: getDayState
+      summary: The day clock
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      responses:
+        "200":
+          description: The day clock now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/day/start:
+    post:
+      tags: [control]
+      operationId: dayStart
+      summary: Clock in
+      description: "A no-op while on or on a break."
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stop_at:
+                  type: string
+                  description: "Local `HH:MM`; default the last one used, else `day.default_stop`."
+                at:
+                  type: string
+                  description: "Back-dates the start to the latest past local `HH:MM` (the offer); not before the last day event."
+      responses:
+        "200":
+          description: The day clock after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayState"
+              examples:
+                day_action:
+                  externalValue: ../cmd/ember/testdata/devices/day_action.json
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/day/break:
+    post:
+      tags: [control]
+      operationId: dayBreak
+      summary: Take a break
+      description: "A no-op on a break; 409 while off."
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      responses:
+        "200":
+          description: The day clock after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayState"
+              examples:
+                day_action:
+                  externalValue: ../cmd/ember/testdata/devices/day_action.json
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/day/resume:
+    post:
+      tags: [control]
+      operationId: dayResume
+      summary: End the break
+      description: "A no-op while on; 409 while off."
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      responses:
+        "200":
+          description: The day clock after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayState"
+              examples:
+                day_action:
+                  externalValue: ../cmd/ember/testdata/devices/day_action.json
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/day/stop:
+    post:
+      tags: [control]
+      operationId: dayStop
+      summary: Clock out
+      description: "A no-op while off."
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      responses:
+        "200":
+          description: The day clock after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayState"
+              examples:
+                day_action:
+                  externalValue: ../cmd/ember/testdata/devices/day_action.json
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/day/stop_at:
+    put:
+      tags: [control]
+      operationId: dayStopAt
+      summary: Set the stop time
+      description: "Today's stop time while on, else the one the next start opens at."
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stop_at]
+              properties:
+                stop_at:
+                  type: string
+                  description: Local `HH:MM`.
+      responses:
+        "200":
+          description: The day clock after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayState"
+              examples:
+                day_action:
+                  externalValue: ../cmd/ember/testdata/devices/day_action.json
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/day/offer/dismiss:
+    post:
+      tags: [control]
+      operationId: dayOfferDismiss
+      summary: Dismiss the start offer
+      description: "No new offer until the next day."
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      responses:
+        "200":
+          description: The day clock after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayState"
+              examples:
+                day_action:
+                  externalValue: ../cmd/ember/testdata/devices/day_action.json
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/day/history:
+    get:
+      tags: [read]
+      operationId: getDayHistory
+      summary: Day clock history
+      description: |
+        `{"days":[…]}`, one entry per local day (by `pomodoro.day_start_hour`),
+        newest first: `date`, `start`, `stop`, `stop_target` (null on a day
+        without a clock-in), `on_sec`, `break_sec`, `auto`, `in_range`,
+        `replies_on`, `replies_off`, `first_reply`, `last_reply`, `breaks`
+        (`[{start, end|null}]`).
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 120
+            default: 14
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/day/weeks:
+    get:
+      tags: [read]
+      operationId: getDayWeeks
+      summary: Day clock weeks
+      description: |
+        `{"weeks":[{week, days_worked, days_in_range, on_sec, replies_off}]}`,
+        ISO weeks, newest first.
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      parameters:
+        - name: weeks
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 52
+            default: 8
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/day/config:
+    get:
+      tags: [settings]
+      operationId: getDayConfig
+      summary: Day clock settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putDayConfig
+      summary: Merge day clock settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

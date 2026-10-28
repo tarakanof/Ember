@@ -100,6 +100,9 @@ type notice struct {
 }
 
 func (c *coordinator) quietAt(t time.Time) bool {
+	if c.quiet != nil {
+		return c.quiet(t)
+	}
 	return c.loadCfg().quietAt(t)
 }
 

@@ -27,6 +27,7 @@ type knobView struct {
 	Usage         *knobUsage             `json:"usage,omitempty"`
 	DiagLiveUntil *int64                 `json:"diag_live_until,omitempty"`
 	Demo          *knobDemo              `json:"demo,omitempty"`
+	Day           *knobDay               `json:"day,omitempty"`
 }
 
 type knobMood struct {
@@ -98,7 +99,10 @@ type knobNowPlaying struct {
 	CoverLight   bool   `json:"cover_light,omitempty"`
 }
 
-const knobNowPlayingPage = "nowplaying"
+const (
+	knobNowPlayingPage = "nowplaying"
+	knobDayPage        = "day"
+)
 
 type knobLight struct {
 	Level int  `json:"level"`
@@ -138,7 +142,7 @@ func (a *App) buildKnobView(id string, now time.Time) ([]byte, string, string, e
 		Pomo:          block(a.knobPomo(now)),
 		Weather:       block(a.knobWeatherFor(now, detail)),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},
-		Quiet:         a.cfg.Load().quietAt(now),
+		Quiet:         a.quietAt(now),
 		DiagLiveUntil: a.knobLiveUnix(id, st.cfg.Diagnostics, now),
 	}
 	if st.cfg.pageOn(knobNowPlayingPage) {
@@ -152,6 +156,9 @@ func (a *App) buildKnobView(id string, now time.Time) ([]byte, string, string, e
 	}
 	if st.caps.hasFeature(featureDemo) {
 		v.Demo = a.knobDemo(id, v, now)
+	}
+	if st.caps != nil && st.caps.hasPage(knobDayPage) && st.cfg.pageOn(knobDayPage) {
+		v.Day = a.dayBlock(now, m.Running)
 	}
 	body, err := json.Marshal(v)
 	if err != nil {
@@ -201,6 +208,7 @@ func (v *knobView) fit(body []byte, limit int) ([]byte, error) {
 		func() { v.Usage = nil },
 		func() { v.Weather.on = false },
 		func() { v.Pomo.on = false },
+		func() { v.Day = nil },
 	}
 	for _, drop := range drops {
 		if limit <= 0 || len(body) <= limit {

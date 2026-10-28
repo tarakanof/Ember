@@ -14,10 +14,11 @@ const (
 	topicNowPlaying
 	topicDemo
 	topicUsage
+	topicDay
 	topicCount = iota
 )
 
-var changeTopicNames = [topicCount]string{"sessions", "pomodoro", "weather", "brightness", "devices", "config", "nowplaying", "demo", "usage"}
+var changeTopicNames = [topicCount]string{"sessions", "pomodoro", "weather", "brightness", "devices", "config", "nowplaying", "demo", "usage", "day"}
 
 func (t changeTopic) String() string {
 	s := ""

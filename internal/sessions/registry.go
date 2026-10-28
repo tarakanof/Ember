@@ -80,11 +80,12 @@ func (r *Registry) Upsert(s render.Session) (View, string) {
 	return r.viewLocked(now), prior
 }
 
-func (r *Registry) Delete(key string) View {
+func (r *Registry) Delete(key string) (View, render.Session, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	old, had := r.sessions[key]
 	delete(r.sessions, key)
-	return r.viewLocked(r.reapLocked())
+	return r.viewLocked(r.reapLocked()), old, had
 }
 
 func (r *Registry) Clear() View {
