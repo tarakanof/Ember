@@ -60,7 +60,10 @@ public struct DayStrip: Equatable, Sendable {
             if end > cursor { spans.append(Span(from: cursor, to: end)) }
         }
         let dotTimes = d.repliesOffAt.isEmpty
-            ? (d.repliesOff > 0 ? d.lastReply.map { [$0] } ?? [] : [])
+            ? (d.repliesOff > 0 ? [d.firstReply, d.lastReply].compactMap { $0 }.filter { reply in
+                guard let from = d.start else { return true }
+                return reply < from || reply > (d.stop ?? now)
+            } : [])
             : d.repliesOffAt
         let weekday = calendar.component(.weekday, from: midnight)
         return Row(key: d.date, date: midnight, isToday: isToday, isWeekend: weekday == 1 || weekday == 7,

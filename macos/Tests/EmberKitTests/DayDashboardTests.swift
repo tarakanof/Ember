@@ -99,7 +99,17 @@ private func strip(_ now: String = "2026-10-27T13:30:00+01:00") async throws -> 
     let day = try await strip().rows[0]
     #expect(!day.hasClock && day.spans.isEmpty)
     #expect(day.repliesOff == 3)
-    #expect(day.dots == [22 + 10.0 / 60])
+    #expect(day.dots == [21, 22 + 10.0 / 60])
+}
+
+@Test func stripDoesNotGuessOffClockDotsInsideTheClockedSpan() {
+    let json = #"{"date":"2026-10-27","start":"2026-10-27T09:00:00+01:00","stop":"2026-10-27T18:00:00+01:00","replies_off":2,"first_reply":"2026-10-27T08:00:00+01:00","last_reply":"2026-10-27T17:00:00+01:00"}"#
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let day = try! d.decode(DayHistory.Day.self, from: Data(json.utf8))
+    let row = DayStrip(days: [day], now: iso("2026-10-27T20:00:00+01:00"), calendar: calendar()).rows[0]
+    #expect(row.dots == [8])
+    #expect(row.repliesOff == 2)
 }
 
 @Test func stripExtendsAnOpenTodayToNowAndSplitsAtBreaks() async throws {
