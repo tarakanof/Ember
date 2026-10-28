@@ -125,6 +125,7 @@ private func strip(_ now: String = "2026-10-27T13:30:00+01:00") async throws -> 
     let midnight = DayKey.date("2026-10-26", in: cal)!
     #expect(DayStrip.resolveTarget("00:00", midnight: midnight, calendar: cal) == 24)
     #expect(DayStrip.resolveTarget("01:30", midnight: midnight, calendar: cal) == 25.5)
+    #expect(DayStrip.resolveTarget("04:00", midnight: midnight, calendar: cal) == 28)
     #expect(DayStrip.resolveTarget("22:45", midnight: midnight, calendar: cal) == 22.75)
     #expect(DayStrip.resolveTarget("soon", midnight: midnight, calendar: cal) == nil)
     let s = try await strip()

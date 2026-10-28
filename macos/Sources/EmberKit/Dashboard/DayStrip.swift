@@ -91,7 +91,7 @@ public struct DayStrip: Equatable, Sendable {
         let parts = raw.split(separator: ":").compactMap { Int($0) }
         guard parts.count >= 2, (0...24).contains(parts[0]), (0..<60).contains(parts[1]) else { return nil }
         let h = Double(parts[0]) + Double(parts[1]) / 60
-        return h < Double(dayStartHour) ? h + 24 : h
+        return h <= Double(dayStartHour) ? h + 24 : h
     }
 
     public static func wallHours(_ date: Date, since midnight: Date, calendar: Calendar) -> Double {
