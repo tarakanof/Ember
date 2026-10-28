@@ -27,7 +27,7 @@ private func dayFeedState<T, C: View>(_ feed: Loadable<T>, placeholder: T?, isEm
     FeedStateView(feed: feed, placeholder: placeholder, isEmpty: isEmpty, emptyTitle: "No days on the clock yet",
                   emptySymbol: "clock.badge.questionmark",
                   offTitle: "Day clock is off", offDescription: "Turn it on in Settings › Day Clock.",
-                  offSymbol: "clock.badge.xmark", offSettingsPane: .app(.dayClock), content: content)
+                  offSymbol: "clock.badge.xmark", offSettingsPane: .source(.dayClock), content: content)
 }
 
 private struct DayFact: View {
@@ -333,7 +333,7 @@ struct StopTrendCard: View {
             FeedStateView(feed: feed, placeholder: model(DashboardPlaceholders.dayHistory), isEmpty: \.isEmpty,
                           emptyTitle: "No stops yet", emptySymbol: "chart.line.downtrend.xyaxis",
                           offTitle: "Day clock is off", offDescription: "Turn it on in Settings › Day Clock.",
-                          offSymbol: "clock.badge.xmark", offSettingsPane: .app(.dayClock)) { t in
+                          offSymbol: "clock.badge.xmark", offSettingsPane: .source(.dayClock)) { t in
                 FocusTintReader { tint in chart(t, tint: tint) }
             }
         } accessory: {

@@ -41,6 +41,8 @@ struct DayClockPane: View {
                 SaveErrorFooter(error: model.saveError)
             }
             .disabled(!model.isLoaded)
+
+            ShownOnSection(source: .dayClock)
         }
         .formStyle(.grouped)
         .autosaves(model)

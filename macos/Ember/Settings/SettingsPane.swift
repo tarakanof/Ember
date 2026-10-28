@@ -8,7 +8,6 @@ extension AppPane {
         case .connection:  "Connection"
         case .permissions: "Permissions"
         case .sounds:      "Sounds & Alerts"
-        case .dayClock:    "Day Clock"
         }
     }
 
@@ -18,7 +17,6 @@ extension AppPane {
         case .connection:  "network"
         case .permissions: "hand.raised"
         case .sounds:      "bell.badge"
-        case .dayClock:    "clock.badge.checkmark"
         }
     }
 }
@@ -27,6 +25,7 @@ extension SourceID {
     var title: LocalizedStringResource {
         switch self {
         case .agents:   "Agents"
+        case .dayClock: "Day Clock"
         case .focus:    "Focus"
         case .weather:  "Weather"
         case .calendar: "Calendar"
@@ -37,6 +36,7 @@ extension SourceID {
     var systemImage: String {
         switch self {
         case .agents:   "sparkles"
+        case .dayClock: "clock.badge.checkmark"
         case .focus:    "timer"
         case .weather:  "cloud.sun"
         case .calendar: "calendar"
