@@ -135,30 +135,6 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(h.device == nil)
 }
 
-private let workHoursJSON = #"""
-{"days":[{"date":"2026-09-26","work_start":"2026-09-26T04:00:00+02:00","work_end":"2026-09-26T08:34:12+02:00","span_sec":16452,"active_sec":2100,"break_sec":14352,"sessions":2,"longest_sec":1500},{"date":"2026-09-25","work_start":null,"work_end":null,"span_sec":0,"active_sec":0,"break_sec":0,"sessions":0,"longest_sec":0}],"gap_min":15,"include_activity":true}
-"""#
-
-@Test func workHoursDecodesNullSpan() async throws {
-    let wh: WorkHours = try await decode(Data(workHoursJSON.utf8))
-    #expect(wh.includeActivity)
-    #expect(wh.days.first?.workStart == iso("2026-09-26T04:00:00+02:00"))
-    let empty = try #require(wh.days.last)
-    #expect(empty.workStart == nil)
-    #expect(empty.workEnd == nil)
-}
-
-@Test func workHoursMapsLegacyZeroTimeToNil() async throws {
-    let legacy = workHoursJSON
-        .replacingOccurrences(of: #""work_start":null"#, with: #""work_start":"0001-01-01T00:00:00Z""#)
-        .replacingOccurrences(of: #""work_end":null"#, with: #""work_end":"0001-01-01T00:00:00Z""#)
-    let wh: WorkHours = try await decode(Data(legacy.utf8))
-    let empty = try #require(wh.days.last)
-    #expect(empty.workStart == nil)
-    #expect(empty.workEnd == nil)
-    #expect(wh.days.first?.workStart != nil)
-}
-
 @Test func weatherStateGoldenFeedsTheKnobFaces() async throws {
     let s: WeatherState = try await decode(try golden("weather_state"))
     let now = iso("2026-09-26T10:30:00+02:00")

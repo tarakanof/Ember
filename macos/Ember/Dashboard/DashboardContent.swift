@@ -2,14 +2,15 @@ import SwiftUI
 import EmberKit
 
 enum DashboardCardID: Hashable, Sendable, CaseIterable {
-    case clock, focus, usage, upcoming, agents, lastSeven, twelveWeeks, workHours, heatmap
+    case clock, focus, usage, upcoming, agents, lastSeven, twelveWeeks, heatmap
     case agentTime, weather
+    case dayToday, dayWeek, dayStrip, stopTrend, dayWeeks
 
     var clockTick: TimeInterval? {
         switch self {
-        case .usage, .upcoming, .agents, .workHours, .weather: 60
-        case .twelveWeeks, .heatmap: 600
-        case .clock, .focus, .lastSeven, .agentTime: nil
+        case .usage, .upcoming, .agents, .weather, .dayToday: 60
+        case .twelveWeeks, .heatmap, .dayWeek, .dayWeeks: 600
+        case .clock, .focus, .lastSeven, .agentTime, .dayStrip, .stopTrend: nil
         }
     }
 }
@@ -25,8 +26,14 @@ struct DashboardContent<Source: DashboardSource>: View {
         var out: [(id: DashboardCardID, size: CardSize)] = [(.clock, .wide), (.focus, .standard)]
         if source.showsUsage { out.append((.usage, .standard)) }
         if source.showsUpcoming { out.append((.upcoming, .standard)) }
+        if source.showsDay {
+            out.append((.dayToday, .standard))
+            if source.showsDayHistory {
+                out += [(.dayWeek, .standard), (.dayStrip, .wide), (.stopTrend, .wide), (.dayWeeks, .wide)]
+            }
+        }
         out += [(.agents, .wide), (.lastSeven, .standard), (.twelveWeeks, .standard),
-                (.workHours, .wide), (.heatmap, .wide), (.agentTime, .standard)]
+                (.heatmap, .wide), (.agentTime, .standard)]
         if source.showsWeather { out.append((.weather, .standard)) }
         return out
     }
@@ -127,8 +134,16 @@ struct DashboardCardSlot<Source: DashboardSource>: View {
             LastSevenDaysCard(stats: s.stats, focusMinutes: s.focusMinutes, calendar: s.calendar)
         case .twelveWeeks:
             TwelveWeeksCard(stats: s.stats, now: now, calendar: s.calendar)
-        case .workHours:
-            WorkHoursCard(workhours: s.workhours, now: now, calendar: s.calendar)
+        case .dayToday:
+            DayTodayCard(state: s.dayState, now: now, calendar: s.calendar)
+        case .dayWeek:
+            DayWeekCard(weeks: s.dayWeeks, now: now, calendar: s.calendar)
+        case .dayStrip:
+            DayStripCard(history: s.dayHistory, now: now, calendar: s.calendar)
+        case .stopTrend:
+            StopTrendCard(history: s.dayHistory, now: now, calendar: s.calendar)
+        case .dayWeeks:
+            DayWeeksCard(weeks: s.dayWeeks, now: now, calendar: s.calendar)
         case .heatmap:
             WhenYouFocusCard(heatmap: s.heatmap, todayKey: s.stats.value?.today.date, now: now, calendar: s.calendar)
         case .agentTime:

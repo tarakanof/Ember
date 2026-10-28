@@ -39,6 +39,7 @@ extension DashboardCard where Accessory == EmptyView {
 enum DashboardCardHeight {
     static let standard: CGFloat = 220
     static let wide: CGFloat = 260
+    static let tall: CGFloat = 560
     static let mirror: CGFloat = 200
     static let padding: CGFloat = 12
 }

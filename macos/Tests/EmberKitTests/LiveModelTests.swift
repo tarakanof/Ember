@@ -423,7 +423,8 @@ private func timedModel(_ now: Box<Date>) -> LiveModel {
     #expect(Set(seen.paths) == [
         "/state", "/v1/pomodoro/state", "/v1/pomodoro/stats", "/v1/usage", "/v1/meetings/state",
         "/v1/apps", "/v1/device/config", "/v1/device/screen", "/v1/clock/health", "/v1/weather/state",
-        "/v1/activity/summary?days=7", "/v1/pomodoro/workhours?days=14", "/v1/pomodoro/heatmap?days=84",
+        "/v1/activity/summary?days=7", "/v1/pomodoro/heatmap?days=84",
+        "/v1/day/state", "/v1/day/history?days=28", "/v1/day/weeks?weeks=8",
     ])
 }
 

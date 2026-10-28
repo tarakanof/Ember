@@ -34,13 +34,14 @@ public final class SettingsModels {
     public private(set) var quiet: ServerConfigModel<QuietConfig>
     public private(set) var display: ServerConfigModel<DisplayConfig>
     public private(set) var controls: ServerConfigModel<ControlsConfig>
+    public private(set) var day: ServerConfigModel<DayConfig>
     public private(set) var usageAccounts: ServerConfigModel<UsageAccounts>
     public let agentsEnv: EnvConfigModel<DisplaySettings>
     public let connectionEnv: EnvConfigModel<ConnectionSettings>
     public let producerTuning: EnvConfigModel<ProducerTuning>
 
     public var all: [any SaveStatusReporting] {
-        [pomodoro, weather, meetings, usage, quiet, display, controls, usageAccounts, agentsEnv, connectionEnv,
+        [pomodoro, weather, meetings, usage, quiet, display, controls, day, usageAccounts, agentsEnv, connectionEnv,
          producerTuning]
     }
 
@@ -50,10 +51,11 @@ public final class SettingsModels {
 
     @ObservationIgnored private var server: ServerIdentity
     @ObservationIgnored public var onClockSourceSaved: (@MainActor () -> Void)?
+    @ObservationIgnored public var onDaySaved: (@MainActor () -> Void)?
 
     public init(client: APIClient, envStore: EnvFileStore) {
         server = ServerIdentity(client)
-        (pomodoro, weather, meetings, usage, quiet, display, controls) = Self.serverModels(client)
+        (pomodoro, weather, meetings, usage, quiet, display, controls, day) = Self.serverModels(client)
         usageAccounts = UsageAccounts.model(client: client)
         agentsEnv = EnvConfigModel(
             env: envStore, initial: DisplaySettings(reading: EnvFile(parsing: "")),
@@ -73,6 +75,7 @@ public final class SettingsModels {
         pomodoro.onSaved = { _, _ in notify() }
         weather.onSaved = { _, _ in notify() }
         meetings.onSaved = { _, _ in notify() }
+        day.onSaved = { [weak self] _, _ in self?.onDaySaved?() }
     }
 
     static func producerTuningModel(_ store: EnvFileStore) -> EnvConfigModel<ProducerTuning> {
@@ -87,11 +90,11 @@ public final class SettingsModels {
         let next = ServerIdentity(client)
         guard next != server else { return false }
         server = next
-        for m in [pomodoro, weather, meetings, usage, quiet, display, controls, usageAccounts]
+        for m in [pomodoro, weather, meetings, usage, quiet, display, controls, day, usageAccounts]
             as [any PendingSaveCancelling] {
             m.cancelPendingSave()
         }
-        (pomodoro, weather, meetings, usage, quiet, display, controls) = Self.serverModels(client)
+        (pomodoro, weather, meetings, usage, quiet, display, controls, day) = Self.serverModels(client)
         usageAccounts = UsageAccounts.model(client: client)
         watchClockSources()
         Task { await self.loadServerModels() }
@@ -107,7 +110,8 @@ public final class SettingsModels {
         async let f: Void = display.load()
         async let g: Void = controls.load()
         async let h: Void = usageAccounts.load()
-        _ = await (a, b, c, d, e, f, g, h)
+        async let i: Void = day.load()
+        _ = await (a, b, c, d, e, f, g, h, i)
     }
 
     public func clockMark() -> ClockLegacyMark {
@@ -148,7 +152,7 @@ public final class SettingsModels {
         ServerConfigModel<PomoConfig>, ServerConfigModel<WeatherConfig>,
         ServerConfigModel<MeetingsConfig>, ServerConfigModel<UsageConfig>,
         ServerConfigModel<QuietConfig>, ServerConfigModel<DisplayConfig>,
-        ServerConfigModel<ControlsConfig>
+        ServerConfigModel<ControlsConfig>, ServerConfigModel<DayConfig>
     ) {
         (
             remote(client, "/v1/pomodoro/config", initial: defaultPomoConfig),
@@ -157,7 +161,8 @@ public final class SettingsModels {
             remote(client, "/v1/usage/config", initial: UsageConfig()),
             remote(client, "/v1/quiet/config", initial: QuietConfig()),
             remote(client, "/v1/display/config", initial: DisplayConfig()),
-            remote(client, "/v1/controls/config", initial: ControlsConfig())
+            remote(client, "/v1/controls/config", initial: ControlsConfig()),
+            remote(client, "/v1/day/config", initial: DayConfig())
         )
     }
 

@@ -18,7 +18,9 @@ public final class LiveModel {
     public private(set) var clockHealth: Loadable<ClockHealth> = .loading
     public private(set) var weather: Loadable<WeatherState> = .loading
     public private(set) var activity: Loadable<ActivitySummary> = .loading
-    public private(set) var workhours: Loadable<WorkHours> = .loading
+    public private(set) var dayState: Loadable<DayState> = .loading
+    public private(set) var dayHistory: Loadable<DayHistory> = .loading
+    public private(set) var dayWeeks: Loadable<DayWeeks> = .loading
     public private(set) var heatmap: Loadable<Heatmap> = .loading
     public private(set) var serverVersion: String?
     private var versionSaysClockDisabled = false
@@ -201,7 +203,9 @@ public final class LiveModel {
         clockHealth = .loading
         weather = .loading
         activity = .loading
-        workhours = .loading
+        dayState = .loading
+        dayHistory = .loading
+        dayWeeks = .loading
         heatmap = .loading
         reportedPower = nil
         serverVersion = nil
@@ -230,7 +234,9 @@ public final class LiveModel {
             }
         case .weather: return await load(feed, \.weather) { try await c.get("/v1/weather/state") }
         case .activity: return await load(feed, \.activity) { try await c.get("/v1/activity/summary", query: Self.days(7)) }
-        case .workhours: return await load(feed, \.workhours) { try await c.get("/v1/pomodoro/workhours", query: Self.days(14)) }
+        case .dayState: return await load(feed, \.dayState) { try await c.get("/v1/day/state") }
+        case .dayHistory: return await load(feed, \.dayHistory) { try await c.get("/v1/day/history", query: Self.days(DayStrip.defaultCount)) }
+        case .dayWeeks: return await load(feed, \.dayWeeks) { try await c.get("/v1/day/weeks", query: Self.weeks(8)) }
         case .heatmap: return await load(feed, \.heatmap) { try await c.get("/v1/pomodoro/heatmap", query: Self.days(84)) }
         }
     }
@@ -242,6 +248,10 @@ public final class LiveModel {
 
     private static func days(_ n: Int) -> [URLQueryItem] {
         [URLQueryItem(name: "days", value: String(n))]
+    }
+
+    private static func weeks(_ n: Int) -> [URLQueryItem] {
+        [URLQueryItem(name: "weeks", value: String(n))]
     }
 
     private func issue(_ feed: Feed) -> (generation: Int, seq: Int) {

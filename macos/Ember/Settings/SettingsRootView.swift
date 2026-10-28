@@ -202,6 +202,7 @@ private struct SettingsDetail: View {
         case .app(.connection):  ConnectionPane()
         case .app(.permissions): PermissionsPane()
         case .app(.sounds):      QuietHoursPane()
+        case .app(.dayClock):    DayClockPane()
         case .source(.agents):   AgentsSourcePane()
         case .source(.focus):    FocusSourcePane()
         case .source(.weather):  WeatherSourcePane()
