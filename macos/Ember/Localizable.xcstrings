@@ -1987,7 +1987,6 @@
       "extractionState" : "manual"
     },
     "Pomodoro is off" : {},
-    "Pomodoro is off on the server, or the server is too old. Turn it on in the server's config." : {},
     "Pops up with a sound when severe weather starts" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2622,6 +2621,7 @@
     },
     "This server can't reach a clock. Check the clock's address below or discover one." : {},
     "This server can't store knob firmware. Update the Ember server." : {},
+    "This server doesn't support Pomodoro settings. Update the Ember server." : {},
     "This server doesn't support meetings. Update the Ember server." : {},
     "This server doesn't support these settings. Update the Ember server." : {},
     "This server doesn't support this setting. Update the server." : {

@@ -12,7 +12,7 @@ struct FocusSourcePane: View {
         let c = model.draft
         Form {
             LoadStateSection(isLoaded: model.isLoaded, error: model.loadError,
-                             offMessage: "Pomodoro is off on the server, or the server is too old. Turn it on in the server's config.",
+                             offMessage: "This server doesn't support Pomodoro settings. Update the Ember server.",
                              retry: { await model.load() })
 
             Group {
@@ -113,7 +113,7 @@ struct ClockFocusAppPane: View {
             }
 
             LoadStateSection(isLoaded: model.isLoaded, error: model.loadError,
-                             offMessage: "Pomodoro is off on the server, or the server is too old. Turn it on in the server's config.",
+                             offMessage: "This server doesn't support Pomodoro settings. Update the Ember server.",
                              retry: { await model.load() })
 
             Section {
