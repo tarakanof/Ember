@@ -135,7 +135,10 @@ public final class AppEnvironment {
             bundleMacOSDir: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS"),
             home: FileManager.default.homeDirectoryForCurrentUser,
             fileExists: { FileManager.default.fileExists(atPath: $0) },
-            prefs: UserDefaultsProducerPrefs()
+            prefs: FileProducerPrefs(
+                file: FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent(".config/ember/producers.json"),
+                migratingFrom: UserDefaultsProducerPrefs())
         )
         permissions = PermissionsModel(sources: AppPermissionSources(
             connection: connection, producers: producers, reminders: watcher, location: location, music: music))

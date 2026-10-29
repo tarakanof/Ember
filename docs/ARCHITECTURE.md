@@ -1496,7 +1496,7 @@ state (on / off / needs approval / not running with Repair) and its own switch.
 A row shows when its tool is detected (`~/.claude`, `~/.codex`, `~/.t3` or
 `T3CODE_HOME` / `EMBER_T3_HOME`) or its agent is registered; T3 Code's row
 always shows (`listedWhenUndetected`), so it can be turned on before T3's
-first run. A per-agent off is remembered (`producers.optOut`), so the master
+first run. A per-agent off is remembered (`~/.config/ember/producers.json`, migrated once from the `producers.optOut` default), so the master
 switch neither counts that agent as "partial" nor turns it back on; with every
 detected agent opted out, master on clears the opt-outs. On launch an agent
 case new since the last launch (`producers.knownAgents`) starts opted out when
