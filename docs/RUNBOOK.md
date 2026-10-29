@@ -223,7 +223,7 @@ producer.env's `EMBER_T3_HOME`, the same place the helper reads). The row shows
 even before T3 is installed, marked "Not found on this Mac", and can be turned
 on anyway; the first time it runs, macOS asks once for the helper's Local
 Network access. An agent turned off with its own switch stays off when the
-master switch is turned on (the choice is kept in `producers.optOut`); on the
+master switch is turned on (the choice is kept in `~/.config/ember/producers.json`, so it survives a defaults reset); on the
 first launch of this version, T3 starts turned off if reporting was already on.
 If `~/Library/LaunchAgents/<label>.plist` exists (installed with the CLI,
 same label as the app's copy) the row says **Installed from the CLI** and the

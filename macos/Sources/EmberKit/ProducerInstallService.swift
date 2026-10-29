@@ -242,7 +242,7 @@ public final class ProducerInstallService: Sendable {
     }
 
     private func seedNow() {
-        let known = Set(prefs.knownAgents ?? [ProducerAgent.claude.rawValue, ProducerAgent.codex.rawValue])
+        let known = Set(prefs.knownAgents ?? ProducerAgent.allCases.map(\.rawValue))
         let added = ProducerAgent.allCases.filter { !known.contains($0.rawValue) }
         if !added.isEmpty, ProducerAgent.allCases.contains(where: isRegistered) {
             prefs.optOut.formUnion(added.map(\.rawValue))

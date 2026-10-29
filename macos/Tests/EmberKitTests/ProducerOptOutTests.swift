@@ -9,7 +9,7 @@ private let allTools: Set<String> = ["/Users/x/.claude", "/Users/x/.codex", "/Us
 
 private func service(_ sm: FakeSMAppService, runner: ProducerCommandRunning = FakeRunner(),
                      dirs: Set<String> = allTools, files: [String: String] = [:],
-                     prefs: InMemoryProducerPrefs = InMemoryProducerPrefs()) -> ProducerInstallService {
+                     prefs: ProducerPrefsStoring = InMemoryProducerPrefs()) -> ProducerInstallService {
     ProducerInstallService(sm: sm, runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { dirs.contains($0) || files[$0] != nil },
@@ -51,7 +51,7 @@ private func service(_ sm: FakeSMAppService, runner: ProducerCommandRunning = Fa
 
 @MainActor @Test func upgradeSeedsTheNewAgentAsOptedOutWhenReportingWasOn() async {
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled, codexPlist: .enabled]
-    let prefs = InMemoryProducerPrefs()
+    let prefs = InMemoryProducerPrefs(knownAgents: ["claude", "codex"])
     let svc = service(sm, prefs: prefs)
     await svc.seedOptOutForNewAgents()
     #expect(prefs.optOut == ["t3"])
@@ -60,6 +60,50 @@ private func service(_ sm: FakeSMAppService, runner: ProducerCommandRunning = Fa
     prefs.optOut = []
     await svc.seedOptOutForNewAgents()
     #expect(prefs.optOut.isEmpty)
+}
+
+@MainActor @Test func aDefaultsResetKeepsARegisteredT3Wanted() async {
+    let sm = FakeSMAppService()
+    sm.statuses = [heartbeat: .enabled, codexPlist: .enabled, t3Plist: .enabled]
+    let prefs = InMemoryProducerPrefs()
+    await service(sm, prefs: prefs).seedOptOutForNewAgents()
+    #expect(prefs.optOut.isEmpty)
+    let svc = service(sm, prefs: prefs)
+    _ = await svc.installAll()
+    #expect(sm.registered.contains(t3Plist))
+}
+
+@MainActor @Test func aDefaultsResetKeepsAnOptedOutAgentOff() async {
+    let sm = FakeSMAppService()
+    sm.statuses = [heartbeat: .enabled, codexPlist: .enabled, t3Plist: .enabled]
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ember-prefs-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("producers.json")
+    let first = service(sm, prefs: FileProducerPrefs(file: file))
+    _ = await first.setEnabled(.codex, false)
+    sm.statuses[codexPlist] = .notRegistered
+    let svc = service(sm, prefs: FileProducerPrefs(file: file, migratingFrom: InMemoryProducerPrefs()))
+    await svc.seedOptOutForNewAgents()
+    #expect(svc.managedAgents() == [.claude, .t3])
+    #expect(svc.toggleState() == .on)
+    _ = await svc.installAll()
+    #expect(!sm.registered.contains(codexPlist))
+}
+
+@Test func theFileStoreMigratesOnceAndIsOwnerOnly() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ember-prefs-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("producers.json")
+    let legacy = InMemoryProducerPrefs(optOut: ["t3"], knownAgents: ["claude", "codex", "t3"])
+    let store = FileProducerPrefs(file: file, migratingFrom: legacy)
+    #expect(store.optOut == ["t3"])
+    #expect(store.knownAgents == ["claude", "codex", "t3"])
+    legacy.optOut = ["codex"]
+    store.optOut = []
+    let again = FileProducerPrefs(file: file, migratingFrom: legacy)
+    #expect(again.optOut.isEmpty)
+    let perm = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
+    #expect(perm?.intValue == 0o600)
 }
 
 @MainActor @Test func aFreshInstallSeedsNothing() async {
