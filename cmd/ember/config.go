@@ -278,6 +278,11 @@ type AWTRIXConfig struct {
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	AutoRediscover *bool  `json:"auto_rediscover,omitempty"`
 	BootPing       bool   `json:"boot_ping"`
+	KeepAlive      *bool  `json:"keep_alive,omitempty"`
+}
+
+func (c AWTRIXConfig) KeepAliveEnabled() bool {
+	return c.KeepAlive == nil || *c.KeepAlive
 }
 
 func (c AWTRIXConfig) AutoRediscoverEnabled() bool {
@@ -385,6 +390,10 @@ func (c *Config) applyDefaults() {
 	}
 	if c.AWTRIX.TimeoutSeconds <= 0 {
 		c.AWTRIX.TimeoutSeconds = 10
+	}
+	if c.AWTRIX.KeepAlive == nil {
+		on := true
+		c.AWTRIX.KeepAlive = &on
 	}
 	if c.Display.IdleText == "" {
 		c.Display.IdleText = "AI idle"

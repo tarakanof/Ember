@@ -19,12 +19,34 @@ type clockAccess struct {
 
 	systemLock ctxLock
 
+	keepAlive   http.RoundTripper
+	noKeepAlive http.RoundTripper
+
 	writeBudget time.Duration
 	readBudget  time.Duration
 }
 
 func newClockAccess(cfg func() *Config) *clockAccess {
-	return &clockAccess{cfg: cfg, connect: awtrix.NewClient, systemLock: newCtxLock(), writeBudget: clockWriteBudget, readBudget: clockReadBudget}
+	k := &clockAccess{cfg: cfg, systemLock: newCtxLock(), writeBudget: clockWriteBudget, readBudget: clockReadBudget}
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		base = &http.Transport{}
+	}
+	pooled := base.Clone()
+	fresh := base.Clone()
+	fresh.DisableKeepAlives = true
+	k.keepAlive, k.noKeepAlive = pooled, fresh
+	k.connect = func(base string, timeout time.Duration) *awtrix.Client {
+		return awtrix.NewClientWithTransport(base, timeout, k.transport())
+	}
+	return k
+}
+
+func (k *clockAccess) transport() http.RoundTripper {
+	if k.cfg().AWTRIX.KeepAliveEnabled() {
+		return k.keepAlive
+	}
+	return k.noKeepAlive
 }
 
 type ctxLock chan struct{}

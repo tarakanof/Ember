@@ -1540,6 +1540,20 @@ device is unreachable it retries next tick. State is in-memory: a restart
 mid-window simply re-arms from the next snapshot. Deduped per (tool, resetAt).
 Toggle with `limit_alarm` above.
 
+## Clock keep-alive toggle (`awtrix.keep_alive`, #769)
+
+`awtrix.keep_alive` in `config.json` (default `true`, shown by `-print-config`)
+selects the HTTP transport for every call to the clock. On, the server reuses one
+pooled TCP connection to the ESP32 (today's behaviour). Off, each call dials a
+fresh connection (`DisableKeepAlives`). It is read on every call, so
+`POST /admin/reload` applies it without a restart.
+
+To measure it on the live server, compare an hour before and an hour after
+flipping it: `ember_publish_total{result="fail"}` against `result="ok"`, and
+`ember_publish_retries_total`. If the fail share drops, the pooled connection was
+being silently dropped by the clock. See ARCHITECTURE, "Publishing over a lossy
+link".
+
 ## Display behavior config
 
 Runtime display knobs: `GET/PUT /v1/display/config` (bearer auth, store key
