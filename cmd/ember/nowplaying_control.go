@@ -304,6 +304,18 @@ func newCommandQueue() *commandQueue {
 	}
 }
 
+func (q *commandQueue) pollers(player string) int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.polling[player]
+}
+
+func (q *commandQueue) waiterCount() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.waiters
+}
+
 func (q *commandQueue) push(player string, req controlRequest) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()

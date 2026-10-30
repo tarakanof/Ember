@@ -433,9 +433,7 @@ func TestMusicWatchedSurvivesConcurrentReportsAndPolls(t *testing.T) {
 	}
 	wg.Wait()
 	q := f.app.nowPlaying.commands
-	q.mu.Lock()
-	n := q.waiters
-	q.mu.Unlock()
+	n := q.waiterCount()
 	if n != 0 {
 		t.Fatalf("%d command waiters left", n)
 	}

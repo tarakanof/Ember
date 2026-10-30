@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -99,16 +100,16 @@ func (a *App) StartNowPlaying(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case j := <-np.jobs:
-			np.lookupArtist(ctx, j, a)
+			np.lookupArtist(ctx, j, a.logger)
 		}
 	}
 }
 
-func (s *nowPlayingService) lookupArtist(ctx context.Context, j artistJob, a *App) {
+func (s *nowPlayingService) lookupArtist(ctx context.Context, j artistJob, logger *slog.Logger) {
 	img, err := s.artists.find(ctx, j.artist)
 	if err != nil {
 		if ctx.Err() == nil {
-			a.logger.Warn("artist picture lookup failed", "err", err)
+			logger.Warn("artist picture lookup failed", "err", err)
 		}
 		return
 	}

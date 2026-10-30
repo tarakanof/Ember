@@ -297,7 +297,7 @@ func TestArtistLookupAttachesDeezerPicture(t *testing.T) {
 		t.Fatal(err)
 	}
 	j := recvWithin(t, np.jobs, "artist lookup job")
-	np.lookupArtist(context.Background(), j, app)
+	np.lookupArtist(context.Background(), j, app.logger)
 	e, _ := np.reg.Get("music", "M4")
 	if e.ArtistArt == nil || fetchedPath != "/images/artist/abc/500x500-0.jpg" {
 		t.Fatalf("artist art not attached from the exact-name hit (fetched %q)", fetchedPath)

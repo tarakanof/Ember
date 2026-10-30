@@ -88,9 +88,7 @@ func TestControlAcceptsKnobDeviceToken(t *testing.T) {
 func waitPolling(t *testing.T, q *commandQueue, player string) {
 	t.Helper()
 	for range 200 {
-		q.mu.Lock()
-		n := q.polling[player]
-		q.mu.Unlock()
+		n := q.pollers(player)
 		if n > 0 {
 			return
 		}
