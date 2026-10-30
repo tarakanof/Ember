@@ -2665,7 +2665,13 @@ Design note: Obsidian `Personal/Ember/Specs/2026-10-05-now-playing-design.md`.
 ### Knob controls — `cmd/ember/controls*.go`, `macos/Sources/EmberKit/Controls`, `macos/Ember/Services/*Controls*` (#515)
 
 The knob as a Mac controller (cinder#144, option C: Ember relay). Phase C1
-is the Mac side; the knob page (`controls`, C2) does not exist yet.
+is the Mac side; the knob page (`controls`, C2) is not built in firmware yet.
+The server already knows the page id (#747): off by default, and a knob
+token is refused with 403 unless its last checkin lists `controls` in
+`caps.pages` and its stored settings have the page on. The gate runs before
+the dedupe claim and the rate limiter; owner and control tokens skip it.
+Ember.app lists the Controls app and Pages row only for a knob whose caps
+list the page.
 
 - **Trust boundary.** The server and the wire carry only gestures. A knob
   posts `POST /v1/controls/action` `{"gesture","steps"}`; the server queues

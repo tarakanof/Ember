@@ -23,7 +23,7 @@ Every route the knob calls with its device token (`ekd_…`); the LAN re-pair ro
 | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` | Pomodoro actions; the reply is the timer status (`pomodoro_action.json`). |
 | `GET /v1/day/state`, `POST /v1/day/{start,break,resume,stop}`, `PUT /v1/day/stop_at`, `POST /v1/day/offer/dismiss` | Day clock (#729, "Day clock"); the reply is the `day` block (`day_action.json`). |
 | `POST /v1/nowplaying/control` | Player control, optional `Idempotency-Key`. |
-| `POST /v1/controls/action` | A gesture for the Mac-controller page (#515, cinder#144; firmware page not built yet): `{"gesture":"push|double_push|long_push|turn","steps":±1..20}`, `steps` only for `turn`. Optional `Idempotency-Key`. The knob names a gesture, never an action; actions live on the target Mac. Reply `controls_action.json` (202); 200 `{"status":"duplicate"}`; 503 when no Mac is set or it isn't listening (don't retry); 429 `Retry-After`. |
+| `POST /v1/controls/action` | A gesture for the Mac-controller page (#515, cinder#144, #747): `{"gesture":"push|double_push|long_push|turn","steps":±1..20}`, `steps` only for `turn`. Optional `Idempotency-Key`. The knob names a gesture, never an action; actions live on the target Mac. Reply `controls_action.json` (202); 200 `{"status":"duplicate"}`; 403 `{"error":"controls page is off on this knob"}` unless the knob's last checkin lists `controls` in `caps.pages` and its stored settings have the page on (checked before the dedupe key and the rate limit, so a refusal burns neither); 503 when no Mac is set or it isn't listening (don't retry); 429 `Retry-After`. |
 | `GET /v1/nowplaying/art?kind=&size=&v=` | Art for the view's `art_version`: `kind` `album`/`artist`/`backdrop`/`cover`, `size` the square edge in px from a fixed list per kind (album 240 or 120, artist 64 or 120, backdrop 466, cover 466; default the first, anything else 400; `cover` is the prepared circle, "Prepared cover"), `v` the `art_version` (public, no token). `v` equal to the current `art_version` (for `cover`, the `cover_version`) gives `public, max-age=86400, immutable` for every kind, `artist` included; any other `v`, or none, gives `no-cache`. |
 
 **Unauthenticated: LAN re-pair** (#658). A knob with Wi-Fi and an Ember
@@ -590,6 +590,16 @@ knob view. Off the day clock counts as quiet too ("Day clock"). The knob has no 
   663 B since `display.rotation`), under cinder's
   `CFG_SETTINGS_MAX` as it was before cinder#255 (1024 B; 2048 B on current
   firmware). `TestKnobConfigFitsTheFirmwareStore` pins only the 1024 bound.
+
+## Controls page
+
+The `controls` page id (#747, cinder#144 phase C2) is a known page, off by
+default, at the end of the new-knob defaults after `nowplaying`; a stored
+config gains it as an off page, without a `config_version` bump. Config PUT
+only turns it on for a knob whose `caps.pages` lists it, and
+`POST /v1/controls/action` refuses a knob token with 403 unless both hold.
+Old firmware never lists it, so it cannot fire actions. The default
+`pages` array in the config and checkin goldens gained the `controls` entry.
 
 ## Day clock
 

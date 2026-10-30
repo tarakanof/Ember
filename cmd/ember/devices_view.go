@@ -101,6 +101,7 @@ type knobNowPlaying struct {
 
 const (
 	knobNowPlayingPage = "nowplaying"
+	knobControlsPage   = "controls"
 	knobDayPage        = "day"
 )
 

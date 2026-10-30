@@ -313,7 +313,9 @@ right=skip — all on press; the left+right chord from AWTRIX3 is gone).
 **Knob controls** (#515, cinder#144; ARCHITECTURE "Knob controls"):
 `POST /v1/controls/action` `{"gesture":"push|double_push|long_push|turn","steps":±1..20}`
 (`steps` for `turn` only; master or knob device token, client tokens 401,
-optional `Idempotency-Key`; 202 `{"status":"queued","target"}`, 200
+optional `Idempotency-Key`; a knob token also needs `controls` in its caps
+and the page on, else 403 `controls page is off on this knob` before the key
+or rate limit is touched; 202 `{"status":"queued","target"}`, 200
 `duplicate`, 429, 503 no target or target not listening),
 `GET /v1/controls/config` (`{"target"}` plus read-only `macs`
 `[{name, listening, last_poll}]`; master or `admin` client), `PUT

@@ -124,7 +124,7 @@ func TestKnobV2MergeFieldByField(t *testing.T) {
 }
 
 const preV2StoredConfig = `{"brightness":{"follow_ember":false,"level":200,"floor":20,"startup":120},` +
-	`"pages":[{"id":"pomodoro","on":true},{"id":"bot","on":true},{"id":"nowplaying","on":true},{"id":"weather","on":false},{"id":"future-page","on":false},{"id":"day","on":false}],` +
+	`"pages":[{"id":"pomodoro","on":true},{"id":"bot","on":true},{"id":"nowplaying","on":true},{"id":"weather","on":false},{"id":"future-page","on":false},{"id":"day","on":false},{"id":"controls","on":false}],` +
 	`"home":"pomodoro","swipe_pages":false,"poll_ms":3000,` +
 	`"bot":{"sleepy_after_s":600,"demo_hold_s":30,"source_label":false,"working_ring":false,"weather_moments":false,"weather_every_min":0},` +
 	`"diagnostics":"basic","stats_interval_s":120,"live_interval_s":2,"display":{"fast_link":false,"rotation":180},"quiet":{"calm":false,"dim_level":5}}`

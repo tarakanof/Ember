@@ -94,7 +94,7 @@ func TestKnobSettingsWireShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
-		`"pages":[{"id":"bot","on":true},{"id":"day","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":false},{"id":"pomodoro","on":false}],` +
+		`"pages":[{"id":"bot","on":true},{"id":"day","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":false},{"id":"controls","on":false},{"id":"pomodoro","on":false}],` +
 		`"home":"bot","swipe_pages":true,"poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20,"source_label":true,"working_ring":true,"weather_moments":true,"weather_every_min":30},"diagnostics":"off",` +
 		`"stats_interval_s":60,"live_interval_s":5,"display":{"fast_link":true,"rotation":0},"quiet":{"calm":true,"dim_level":20}}`
 	if string(b) != want {
@@ -104,7 +104,7 @@ func TestKnobSettingsWireShape(t *testing.T) {
 
 func TestKnobNowPlayingPageIsKnownAndOffByDefault(t *testing.T) {
 	d := defaultKnobSettings()
-	if d.pageOn("nowplaying") || d.pageOn("pomodoro") || !d.pageOn("weather") || !d.pageOn("day") {
+	if d.pageOn("nowplaying") || d.pageOn("controls") || d.pageOn("pomodoro") || !d.pageOn("weather") || !d.pageOn("day") {
 		t.Fatalf("defaults: %+v", d.Pages)
 	}
 	if err := d.validate(); err != nil {
@@ -113,7 +113,7 @@ func TestKnobNowPlayingPageIsKnownAndOffByDefault(t *testing.T) {
 	s := knobSettings{Pages: []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "x", On: true}}}
 	s.fillDefaults()
 	want := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "x", On: true},
-		{ID: "day", On: false}, {ID: "nowplaying", On: false}, {ID: "pomodoro", On: false}}
+		{ID: "day", On: false}, {ID: "nowplaying", On: false}, {ID: "controls", On: false}, {ID: "pomodoro", On: false}}
 	if len(s.Pages) != len(want) {
 		t.Fatalf("pages = %+v", s.Pages)
 	}
@@ -125,7 +125,7 @@ func TestKnobNowPlayingPageIsKnownAndOffByDefault(t *testing.T) {
 	s = defaultKnobSettings()
 	s.Pages = []knobPage{{ID: "nowplaying", On: true}, {ID: "bot", On: true}, {ID: "pomodoro", On: true}, {ID: "weather", On: true}, {ID: "day", On: true}}
 	s.fillDefaults()
-	if len(s.Pages) != 5 || s.Pages[0] != (knobPage{ID: "nowplaying", On: true}) {
+	if len(s.Pages) != 6 || s.Pages[0] != (knobPage{ID: "nowplaying", On: true}) {
 		t.Fatalf("pages = %+v", s.Pages)
 	}
 }

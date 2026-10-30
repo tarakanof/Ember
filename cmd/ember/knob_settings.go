@@ -8,12 +8,12 @@ import (
 	"strings"
 )
 
-var knobPageIDs = []string{"bot", "day", "weather", "nowplaying", "pomodoro"}
+var knobPageIDs = []string{"bot", "day", "weather", "nowplaying", "controls", "pomodoro"}
 
 // knobMaxPages is the firmware's KS_MAX_PAGES: it drops pages past the 8th.
 const knobMaxPages = 8
 
-var knobPagesOffByDefault = []string{"nowplaying", "pomodoro"}
+var knobPagesOffByDefault = []string{"nowplaying", "controls", "pomodoro"}
 
 var knobPageIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,15}$`)
 

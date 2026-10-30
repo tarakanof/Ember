@@ -134,8 +134,9 @@ struct KnobPagesSection: View {
     var body: some View {
         let knob = env.knob
         let pages = knob.settings.draft.pages
+        let shown = Array(pages.enumerated()).filter { $0.element.id != "controls" || knob.knob?.supports(page: "controls") == true }
         Section {
-            ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
+            ForEach(shown, id: \.element.id) { index, page in
                 HStack {
                     Toggle(isOn: Binding(
                         get: { page.on },
@@ -215,6 +216,7 @@ func knobPageTitle(_ id: String) -> LocalizedStringKey {
     case "pomodoro": "Pomodoro"
     case "weather": "Weather"
     case "nowplaying": "Now Playing"
+    case "controls": "Controls"
     default: LocalizedStringKey(id.capitalized)
     }
 }

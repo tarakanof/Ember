@@ -117,9 +117,22 @@ func TestControlsCommandsReachOnlyTheTargetMac(t *testing.T) {
 	}
 }
 
-func TestControlsActionAcceptsTheKnobDeviceToken(t *testing.T) {
-	_, srv := controlsServer(t, "M4")
+func pairControlsKnob(t *testing.T, app *App, srv *httptest.Server, pages []string, pageOn bool) mintResp {
+	t.Helper()
 	knob := mintKnob(t, srv, http.StatusCreated)
+	if pageOn {
+		resp, b := devReq(t, srv, "PUT", "/v1/devices/"+knob.ID+"/config", testToken, `{"pages":[{"id":"bot","on":true},{"id":"controls","on":true}]}`)
+		mustOK(t, "page on", resp, b)
+	}
+	app.devices.mu.Lock()
+	app.devices.state.findKnob(knob.ID).Caps = &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}}
+	app.devices.mu.Unlock()
+	return knob
+}
+
+func TestControlsActionAcceptsTheKnobDeviceToken(t *testing.T) {
+	app, srv := controlsServer(t, "M4")
+	knob := pairControlsKnob(t, app, srv, []string{"bot", "controls"}, true)
 	pollControls(t, srv, "M4", 0)
 	resp, b := npDo(t, srv, "POST", "/v1/controls/action", knob.Token, []byte(`{"gesture":"turn","steps":3}`),
 		map[string]string{"Idempotency-Key": "t1"})
@@ -130,6 +143,55 @@ func TestControlsActionAcceptsTheKnobDeviceToken(t *testing.T) {
 	got := pollControls(t, srv, "M4", 0)
 	if len(got) != 1 || got[0].Gesture != gestureTurn || got[0].Steps != 3 {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestControlsActionNeedsTheControlsPageOnAndInCaps(t *testing.T) {
+	cases := map[string]struct {
+		pages  []string
+		pageOn bool
+	}{
+		"page off":       {[]string{"bot", "controls"}, false},
+		"caps lack it":   {[]string{"bot"}, false},
+		"on but no caps": {[]string{"bot"}, true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			app, srv := controlsServer(t, "M4")
+			knob := pairControlsKnob(t, app, srv, c.pages, c.pageOn)
+			pollControls(t, srv, "M4", 0)
+			code, _, b := controlsAction(t, srv, knob.Token, `{"gesture":"push"}`, "k1")
+			if code != http.StatusForbidden || !strings.Contains(b, `"error":"controls page is off on this knob"`) {
+				t.Fatalf("got %d %s, want 403 controls page is off", code, b)
+			}
+			if got := pollControls(t, srv, "M4", 0); len(got) != 0 {
+				t.Fatalf("queued %+v", got)
+			}
+		})
+	}
+}
+
+func TestControlsActionRefusalKeepsTheKeyAndTheRateBudget(t *testing.T) {
+	app, srv := controlsServer(t, "M4")
+	knob := pairControlsKnob(t, app, srv, []string{"bot", "controls"}, false)
+	pollControls(t, srv, "M4", 0)
+	for range controlBurst + 5 {
+		if code, _, _ := controlsAction(t, srv, knob.Token, `{"gesture":"push"}`, "same"); code != http.StatusForbidden {
+			t.Fatalf("got %d, want 403 every time", code)
+		}
+	}
+	resp, b := devReq(t, srv, "PUT", "/v1/devices/"+knob.ID+"/config", testToken, `{"pages":[{"id":"bot","on":true},{"id":"controls","on":true}]}`)
+	mustOK(t, "page on", resp, b)
+	if code, res, b := controlsAction(t, srv, knob.Token, `{"gesture":"push"}`, "same"); code != http.StatusAccepted || res.Status != "queued" {
+		t.Fatalf("after turning the page on: %d %s", code, b)
+	}
+}
+
+func TestControlsActionOwnerTokenIgnoresThePageGate(t *testing.T) {
+	_, srv := controlsServer(t, "M4")
+	pollControls(t, srv, "M4", 0)
+	if code, _, b := controlsAction(t, srv, testToken, `{"gesture":"push"}`, ""); code != http.StatusAccepted {
+		t.Fatalf("owner: %d %s", code, b)
 	}
 }
 
@@ -302,8 +364,8 @@ func TestControlsActionRejectsAnUnpairedKnob(t *testing.T) {
 }
 
 func TestControlsOwnerRoutesRejectKnobAndNarrowClientTokens(t *testing.T) {
-	_, srv := controlsServer(t, "M4")
-	knob := mintKnob(t, srv, http.StatusCreated)
+	app, srv := controlsServer(t, "M4")
+	knob := pairControlsKnob(t, app, srv, []string{"bot", "controls"}, true)
 	ingest := mintClient(t, srv, "ingest", scopeIngest)
 	admin := mintClient(t, srv, "admin", scopeAdmin)
 	adminWant := map[string]int{
