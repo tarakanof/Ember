@@ -104,6 +104,9 @@ public final class LiveModel {
     @ObservationIgnored private var versionDue = false
     @ObservationIgnored private var versionFetch: Task<Void, Never>?
     @ObservationIgnored private var readSeq = 0
+    @ObservationIgnored private var conditions: [Feed: (etag: String, wait: Int?)] = [:]
+    @ObservationIgnored private var pomodoroBase: (state: PomoState, at: Date)?
+    @ObservationIgnored private var countdownHeld = false
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "live")
 
@@ -114,9 +117,9 @@ public final class LiveModel {
     init(now: @escaping @MainActor () -> Date,
          makeCoordinator: (@escaping RefreshCoordinator.Fetch) -> RefreshCoordinator) {
         clock = now
-        coordinator = makeCoordinator { [weak self] feed in
+        coordinator = makeCoordinator { [weak self] feed, mayWait in
             guard let self else { return .ok }
-            return await self.fetch(feed)
+            return await self.fetch(feed, mayWait: mayWait)
         }
     }
 
@@ -128,11 +131,14 @@ public final class LiveModel {
         coordinator.forgetInFlight()
         fetchedAt.removeAll()
         issued.removeAll()
+        conditions.removeAll()
+        pomodoroBase = nil
         stateFailures = 0
         firstFailureAt = nil
         mirror = MirrorPoller()
         clockBaseURL = nil
         resetValues()
+        syncCountdown()
         guard client.baseURL != nil else {
             self.client = nil
             connection = .unconfigured
@@ -217,11 +223,14 @@ public final class LiveModel {
         versionFetch = nil
     }
 
-    private func fetch(_ feed: Feed) async -> FeedTick {
+    private func fetch(_ feed: Feed, mayWait: Bool) async -> FeedTick {
         guard let c = client else { return .failed(.offline) }
         switch feed {
-        case .state: return await fetchState(c)
-        case .pomodoroState: return await fetchPomodoro(c)
+        case .state: return await fetchState(c, mayWait: mayWait)
+        case .pomodoroState: return await fetchPomodoro(c, mayWait: mayWait)
+        case .pomodoroCountdown:
+            recountPomodoro()
+            return .ok
         case .stats: return await load(feed, \.stats) { try await c.get("/v1/pomodoro/stats") }
         case .usage: return await load(feed, \.usage) { try await c.get("/v1/usage") }
         case .meetings: return await load(feed, \.meetings) { try await c.get("/v1/meetings/state") }
@@ -302,19 +311,48 @@ public final class LiveModel {
         if next != current { self[keyPath: keyPath] = next }
     }
 
-    private func fetchState(_ c: APIClient) async -> FeedTick {
+    private func conditional<T: Decodable & Sendable>(
+        _ c: APIClient, _ feed: Feed, _ path: String, mayWait: Bool
+    ) async throws -> ConditionalReply<T> {
+        let condition = conditions[feed]
+        return try await c.getConditional(path, etag: condition?.etag, wait: mayWait ? condition?.wait : nil)
+    }
+
+    private func applyReply<T: Sendable & Equatable>(
+        _ feed: Feed, _ keyPath: ReferenceWritableKeyPath<LiveModel, Loadable<T>>, _ reply: ConditionalReply<T>
+    ) -> FeedTick {
+        conditions[feed] = reply.etag.map { ($0, reply.waitCap) }
+        if let value = reply.value {
+            applySuccess(feed, keyPath, value)
+        } else {
+            applyNotModified(feed, keyPath)
+        }
+        return FeedTick(serverWaits: reply.supportsWait)
+    }
+
+    private func applyNotModified<T: Sendable & Equatable>(
+        _ feed: Feed, _ keyPath: ReferenceWritableKeyPath<LiveModel, Loadable<T>>
+    ) {
+        let now = clock()
+        fetchedAt[feed] = now
+        if case .failed(_, let last?, let at) = self[keyPath: keyPath] {
+            self[keyPath: keyPath] = .loaded(last, at: at ?? now)
+        }
+    }
+
+    private func fetchState(_ c: APIClient, mayWait: Bool) async -> FeedTick {
         let ticket = issue(.state)
         do {
-            let snap: Snapshot = try await c.get("/state")
+            let reply: ConditionalReply<Snapshot> = try await conditional(c, .state, "/state", mayWait: mayWait)
             guard isCurrent(.state, ticket) else { return .ok }
             let now = clock()
-            applySuccess(.state, \.snapshot, snap)
+            let tick = applyReply(.state, \.snapshot, reply)
             stateFailures = 0
             firstFailureAt = nil
             if !connection.isOnline { versionDue = true }
             if case .online = connection {} else { connection = .online(since: now) }
             if versionDue { fetchVersion(c) }
-            return .ok
+            return tick
         } catch {
             let e = FeedError(error)
             guard isCurrent(.state, ticket) else { return .failed(e) }
@@ -368,13 +406,48 @@ public final class LiveModel {
         }
     }
 
-    private func fetchPomodoro(_ c: APIClient) async -> FeedTick {
+    private func fetchPomodoro(_ c: APIClient, mayWait: Bool) async -> FeedTick {
         let before = pomodoro.value?.phaseEnum
-        let tick = await load(.pomodoroState, \.pomodoro) { try await c.get("/v1/pomodoro/state") }
+        let tick = await loadPomodoro(c, mayWait: mayWait)
+        syncCountdown()
         if let before, let after = pomodoro.value?.phaseEnum, before != after {
             Task { await self.refreshNow(.stats) }
         }
         return tick
+    }
+
+    private func loadPomodoro(_ c: APIClient, mayWait: Bool) async -> FeedTick {
+        let ticket = issue(.pomodoroState)
+        do {
+            let reply: ConditionalReply<PomoState> = try await conditional(
+                c, .pomodoroState, "/v1/pomodoro/state", mayWait: mayWait)
+            guard isCurrent(.pomodoroState, ticket) else { return .ok }
+            if let value = reply.value { pomodoroBase = (value, clock()) }
+            let tick = applyReply(.pomodoroState, \.pomodoro, reply)
+            recountPomodoro()
+            return tick
+        } catch {
+            let e = FeedError(error)
+            if isCurrent(.pomodoroState, ticket) { applyFailure(.pomodoroState, \.pomodoro, e) }
+            return .failed(e, retryAfter: (error as? APIError)?.retryAfter)
+        }
+    }
+
+    private func recountPomodoro() {
+        guard case .loaded = pomodoro, let base = pomodoroBase else { return }
+        applySuccess(.pomodoroState, \.pomodoro, base.state.counted(since: base.at, now: clock()))
+    }
+
+    private func syncCountdown() {
+        var counting = false
+        if case .loaded(let state, _) = pomodoro { counting = state.mode == .running }
+        guard counting != countdownHeld else { return }
+        countdownHeld = counting
+        if counting {
+            coordinator.hold([.pomodoroCountdown])
+        } else {
+            coordinator.release([.pomodoroCountdown])
+        }
     }
 
     private func fetchScreen(_ device: DeviceService) async -> FeedTick {

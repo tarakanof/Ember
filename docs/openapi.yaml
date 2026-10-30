@@ -1166,18 +1166,50 @@ paths:
       description: |
         Every live session and the legacy aggregated render. The
         `X-Ember-Devices-Epoch` header changes when the device registry does.
+        The weak `ETag` ignores `now` and session order and moves with
+        `updated_at` at most once a minute. `X-Ember-View-Wait` advertises the
+        longest `wait`.
       security: []
+      parameters:
+        - name: wait
+          in: query
+          description: >-
+            Whole seconds to hold a request whose `If-None-Match` still
+            matches; a value above 25 is clamped to 25. Anything else is a 400.
+          schema:
+            type: integer
+            minimum: 0
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
       responses:
         "200":
           description: The snapshot.
           headers:
+            ETag:
+              schema:
+                type: string
             X-Ember-Devices-Epoch:
+              schema:
+                type: string
+            X-Ember-View-Wait:
               schema:
                 type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Snapshot"
+        "304":
+          description: Unchanged, at once or when the wait ended. Carries the same tag.
+        "429":
+          description: Too many waiting requests from this client; `Retry-After` is 2.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /v1/status:
     post:
@@ -1565,14 +1597,48 @@ paths:
       tags: [read]
       operationId: getPomodoroState
       summary: The timer
+      description: |
+        The weak `ETag` ignores the countdown while the timer runs, so
+        `remaining_sec` is valid for the moment the 200 arrived.
+        `X-Ember-View-Wait` advertises the longest `wait`.
       security: []
+      parameters:
+        - name: wait
+          in: query
+          description: >-
+            Whole seconds to hold a request whose `If-None-Match` still
+            matches; a value above 25 is clamped to 25. Anything else is a 400.
+          schema:
+            type: integer
+            minimum: 0
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
       responses:
         "200":
           description: The timer now.
+          headers:
+            ETag:
+              schema:
+                type: string
+            X-Ember-View-Wait:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/PomodoroStatus"
+        "304":
+          description: Unchanged, at once or when the wait ended. Carries the same tag.
+        "429":
+          description: Too many waiting requests from this client; `Retry-After` is 2.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
   /v1/pomodoro/stats:

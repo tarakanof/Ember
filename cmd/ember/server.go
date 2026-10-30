@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -48,10 +47,7 @@ func (a *App) routeTable() (http.Handler, []string) {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("GET /state", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set(devicesEpochHeader, strconv.FormatUint(a.devices.epochValue(), 10))
-		writeJSON(w, http.StatusOK, a.Snapshot())
-	})
+	mux.HandleFunc("GET /state", a.handleState)
 	mux.Handle("GET /version", handleVersion(a.versionInfo))
 	mux.Handle("GET /metrics", handleMetrics(a))
 

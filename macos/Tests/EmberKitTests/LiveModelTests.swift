@@ -439,3 +439,173 @@ private func timedModel(_ now: Box<Date>) -> LiveModel {
     await m.refreshMenuFeeds()
     #expect(Set(seen.paths) == ["/v1/pomodoro/stats", "/v1/meetings/state", "/v1/usage"])
 }
+
+private func tagged(_ url: URL, status: Int = 200, etag: String? = #"W/"a""#, cap: String? = "25") -> HTTPURLResponse {
+    var headers: [String: String] = [:]
+    if let etag { headers["ETag"] = etag }
+    if let cap { headers["X-Ember-View-Wait"] = cap }
+    return HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!
+}
+
+@MainActor
+private final class FetchHarness {
+    let now = Box(Date(timeIntervalSince1970: 1_000))
+    var fetch: RefreshCoordinator.Fetch!
+    private(set) var model: LiveModel!
+
+    init(_ client: APIClient) {
+        let clock = ManualClock()
+        let now = self.now
+        model = LiveModel(now: { now.value }, makeCoordinator: { [self] in
+            fetch = $0
+            return RefreshCoordinator(fetch: $0, sleep: clock.sleepFn, now: clock.nowFn)
+        })
+        model.configure(client: client)
+    }
+}
+
+@MainActor @Test func aTaggedFeedSendsTheTagAndWaitsOnlyWhenAsked() async {
+    let seen = Box<[URLRequest]>([])
+    let client = stubbedClient { req in
+        guard req.url?.path == "/state" else { return (okResponse(req.url!, status: 404), Data()) }
+        seen.value.append(req)
+        if seen.value.count == 1 { return (tagged(req.url!), sessionJSON("claude")) }
+        return (tagged(req.url!, status: 304), Data())
+    }
+    let h = FetchHarness(client)
+    let first = await h.fetch(.state, true)
+    #expect(first.serverWaits)
+    #expect(seen.value[0].value(forHTTPHeaderField: "If-None-Match") == nil)
+    #expect(seen.value[0].url?.query == nil)
+
+    let plain = await h.fetch(.state, false)
+    #expect(plain.serverWaits)
+    #expect(seen.value[1].value(forHTTPHeaderField: "If-None-Match") == #"W/"a""#)
+    #expect(seen.value[1].url?.query == nil)
+
+    let parked = await h.fetch(.state, true)
+    #expect(parked.serverWaits)
+    #expect(seen.value[2].url?.query == "wait=25")
+    #expect(h.model.winningSession?.tool == "claude")
+    #expect(h.model.connection.isOnline)
+}
+
+@MainActor @Test func anOldServerKeepsPlainPollingEvenWhenTheLoopMayWait() async {
+    let seen = Box<[URLRequest]>([])
+    let client = stubbedClient { req in
+        guard req.url?.path == "/state" else { return (okResponse(req.url!, status: 404), Data()) }
+        seen.value.append(req)
+        return (okResponse(req.url!), sessionJSON("claude"))
+    }
+    let h = FetchHarness(client)
+    let first = await h.fetch(.state, false)
+    #expect(!first.serverWaits)
+    _ = await h.fetch(.state, true)
+    #expect(seen.value[1].value(forHTTPHeaderField: "If-None-Match") == nil)
+    #expect(seen.value[1].url?.query == nil)
+}
+
+@MainActor @Test func aTagWithoutAWaitCapDoesNotLongPoll() async {
+    let client = stubbedClient { req in (tagged(req.url!, cap: nil), sessionJSON("claude")) }
+    let tick = await FetchHarness(client).fetch(.state, false)
+    #expect(!tick.serverWaits)
+}
+
+@MainActor @Test func aNotModifiedReplyHealsAFailedFeedAndCountsAsAlive() async {
+    let step = Box(0)
+    let client = stubbedClient { req in
+        guard req.url?.path == "/state" else { return (okResponse(req.url!, status: 404), Data()) }
+        step.value += 1
+        switch step.value {
+        case 1: return (tagged(req.url!), sessionJSON("claude"))
+        case 2, 3, 4: return (okResponse(req.url!, status: 500), Data("boom".utf8))
+        default: return (tagged(req.url!, status: 304), Data())
+        }
+    }
+    let h = FetchHarness(client)
+    _ = await h.fetch(.state, false)
+    for _ in 0..<3 { _ = await h.fetch(.state, false) }
+    #expect(h.model.snapshot.error != nil)
+    #expect(!h.model.connection.isOnline)
+    h.now.value = Date(timeIntervalSince1970: 1_050)
+    _ = await h.fetch(.state, false)
+    #expect(h.model.snapshot.error == nil)
+    #expect(h.model.snapshot.value?.sessions.first?.tool == "claude")
+    #expect(h.model.connection.isOnline)
+    #expect(h.model.lastFetched(.state) == Date(timeIntervalSince1970: 1_050))
+}
+
+@MainActor @Test func aRunningTimerCountsDownLocallyBetween304s() async {
+    let step = Box(0)
+    let client = stubbedClient { req in
+        step.value += 1
+        if step.value == 1 { return (tagged(req.url!), Data(pomoJSON.utf8)) }
+        return (tagged(req.url!, status: 304), Data())
+    }
+    let h = FetchHarness(client)
+    _ = await h.fetch(.pomodoroState, false)
+    #expect(h.model.pomodoro.value?.remainingSec == 300)
+    #expect(h.model.isTracked(.pomodoroCountdown))
+
+    h.now.value = Date(timeIntervalSince1970: 1_100)
+    _ = await h.fetch(.pomodoroCountdown, false)
+    #expect(h.model.pomodoro.value?.remainingSec == 200)
+    #expect(h.model.lastFetched(.pomodoroState) == Date(timeIntervalSince1970: 1_100))
+
+    h.now.value = Date(timeIntervalSince1970: 1_150)
+    _ = await h.fetch(.pomodoroState, true)
+    #expect(h.model.pomodoro.value?.remainingSec == 150)
+
+    h.now.value = Date(timeIntervalSince1970: 2_000)
+    _ = await h.fetch(.pomodoroCountdown, false)
+    #expect(h.model.pomodoro.value?.remainingSec == 0)
+}
+
+@MainActor @Test func aNewReplyMovesTheCountdownAnchorAndAPausedTimerStopsTheCountdownFeed() async {
+    let paused = #"{"phase":"focus","running":true,"paused":true,"remaining_sec":250,"planned_sec":1500,"round":1}"#
+    let step = Box(0)
+    let client = stubbedClient { req in
+        step.value += 1
+        return (tagged(req.url!), Data((step.value == 1 ? pomoJSON : paused).utf8))
+    }
+    let h = FetchHarness(client)
+    _ = await h.fetch(.pomodoroState, false)
+    #expect(h.model.isTracked(.pomodoroCountdown))
+    h.now.value = Date(timeIntervalSince1970: 1_050)
+    _ = await h.fetch(.pomodoroState, true)
+    #expect(!h.model.isTracked(.pomodoroCountdown))
+    h.now.value = Date(timeIntervalSince1970: 1_500)
+    _ = await h.fetch(.pomodoroCountdown, false)
+    #expect(h.model.pomodoro.value?.remainingSec == 250)
+}
+
+@MainActor @Test func aFailedTimerFreezesAndStopsTheCountdownFeed() async {
+    let step = Box(0)
+    let client = stubbedClient { req in
+        step.value += 1
+        if step.value == 1 { return (tagged(req.url!), Data(pomoJSON.utf8)) }
+        return (okResponse(req.url!, status: 500), Data("boom".utf8))
+    }
+    let h = FetchHarness(client)
+    _ = await h.fetch(.pomodoroState, false)
+    h.now.value = Date(timeIntervalSince1970: 1_100)
+    _ = await h.fetch(.pomodoroState, false)
+    #expect(!h.model.isTracked(.pomodoroCountdown))
+    _ = await h.fetch(.pomodoroCountdown, false)
+    #expect(h.model.pomodoro.value?.remainingSec == 300)
+}
+
+@MainActor @Test func aNewServerStartsWithoutTheOldTagOrCountdown() async {
+    let seen = Box<[URLRequest]>([])
+    let handler: @Sendable (URLRequest) -> (HTTPURLResponse, Data) = { req in
+        seen.value.append(req)
+        return (tagged(req.url!), Data(pomoJSON.utf8))
+    }
+    let h = FetchHarness(stubbedClient(handler: handler))
+    _ = await h.fetch(.pomodoroState, false)
+    #expect(h.model.isTracked(.pomodoroCountdown))
+    h.model.configure(client: stubbedClient(handler: handler))
+    #expect(!h.model.isTracked(.pomodoroCountdown))
+    _ = await h.fetch(.pomodoroState, false)
+    #expect(seen.value[1].value(forHTTPHeaderField: "If-None-Match") == nil)
+}

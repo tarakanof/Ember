@@ -4,6 +4,7 @@ struct FeedTick: Equatable, Sendable {
     var error: FeedError?
     var retryAfter: Duration?
     var nextDelay: Duration?
+    var serverWaits = false
 
     static let ok = FeedTick()
 
@@ -42,9 +43,11 @@ struct FeedPacing: Sendable {
 
 @MainActor
 final class RefreshCoordinator {
-    typealias Fetch = @MainActor (Feed) async -> FeedTick
+    typealias Fetch = @MainActor (Feed, _ mayWait: Bool) async -> FeedTick
     typealias Sleep = @Sendable (Duration) async throws -> Void
     typealias Now = @MainActor () -> Duration
+
+    static let longPollGap: Duration = .seconds(1)
 
     private let fetch: Fetch
     private let sleep: Sleep
@@ -61,7 +64,8 @@ final class RefreshCoordinator {
     private var floors: [Feed: Duration] = [:]
     private var lastTick: [Feed: Duration] = [:]
     private var rateLimitedUntil: [Feed: Duration] = [:]
-    private var inFlight: [Feed: (id: Int, task: Task<FeedTick, Never>)] = [:]
+    private var inFlight: [Feed: (id: Int, waits: Bool, task: Task<FeedTick, Never>)] = [:]
+    private var longPolling: Set<Feed> = []
     private var nextFetchID = 0
 
     init(fetch: @escaping Fetch, sleep: @escaping Sleep, now: @escaping Now) {
@@ -87,7 +91,8 @@ final class RefreshCoordinator {
     var activeFeeds: Set<Feed> { Set(Feed.allCases.filter(isActive)) }
 
     func cadence(for feed: Feed) -> Duration {
-        holdCount(feed) > 0 ? min(feed.baseCadence, feed.heldCadence) : feed.baseCadence
+        if longPolling.contains(feed) { return Self.longPollGap }
+        return holdCount(feed) > 0 ? min(feed.baseCadence, feed.heldCadence) : feed.baseCadence
     }
 
     func interval(for feed: Feed) -> Duration {
@@ -119,6 +124,7 @@ final class RefreshCoordinator {
         guard isPaused else { return }
         isPaused = false
         lastTick.removeAll()
+        longPolling.removeAll()
         reconcileAll()
     }
 
@@ -129,10 +135,15 @@ final class RefreshCoordinator {
         pacing.removeAll()
         floors.removeAll()
         rateLimitedUntil.removeAll()
+        longPolling.removeAll()
         reconcileAll()
     }
 
-    func forgetInFlight() { inFlight.removeAll() }
+    func forgetInFlight() {
+        cancelParked()
+        inFlight.removeAll()
+        longPolling.removeAll()
+    }
 
     func hold(_ feeds: [Feed]) {
         let set = Set(feeds)
@@ -162,21 +173,26 @@ final class RefreshCoordinator {
     }
 
     @discardableResult
-    func tick(_ feed: Feed) async -> FeedTick {
-        if let running = inFlight[feed] { return await running.task.value }
+    func tick(_ feed: Feed, mayWait: Bool = false) async -> FeedTick {
+        if let running = inFlight[feed] {
+            guard running.waits, !mayWait else { return await running.task.value }
+            running.task.cancel()
+            inFlight[feed] = nil
+        }
         nextFetchID += 1
         let id = nextFetchID
         let task = Task { () -> FeedTick in
-            let result = await self.fetch(feed)
+            let result = await self.fetch(feed, mayWait)
             guard self.inFlight[feed]?.id == id else { return result }
             self.inFlight[feed] = nil
             self.lastTick[feed] = self.now()
+            if result.serverWaits { self.longPolling.insert(feed) } else { self.longPolling.remove(feed) }
             let floor = self.pacing[feed, default: FeedPacing()].record(result, tier: feed.tier)
             self.floors[feed] = floor
             self.rateLimitedUntil[feed] = result.error == .rateLimited ? self.now() + floor : nil
             return result
         }
-        inFlight[feed] = (id, task)
+        inFlight[feed] = (id, mayWait, task)
         return await task.value
     }
 
@@ -219,12 +235,20 @@ final class RefreshCoordinator {
                 do { try await sleep(wait) } catch { return }
                 continue
             }
-            await tick(feed)
+            await tick(feed, mayWait: longPolling.contains(feed))
             if remaining(feed) <= .zero { await Task.yield() }
         }
     }
 
+    private func cancelParked() {
+        for (feed, running) in inFlight where running.waits {
+            running.task.cancel()
+            inFlight[feed] = nil
+        }
+    }
+
     private func cancelAll() {
+        cancelParked()
         for loop in loops.values { loop.cancel() }
         loops.removeAll()
         loopIDs.removeAll()

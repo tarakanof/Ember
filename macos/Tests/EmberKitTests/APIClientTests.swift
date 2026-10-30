@@ -59,3 +59,63 @@ import Foundation
     let snap: Snapshot = try await client.get("/state")
     #expect(snap.sessions.first?.state == "done")
 }
+
+@Test func conditionalGetDecodesAndReturnsTheTagAndCap() async throws {
+    let client = stubbedClient { req in
+        let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil,
+                                   headerFields: ["ETag": #"W/"a""#, "X-Ember-View-Wait": "25"])!
+        return (resp, Data(#"{"sessions":[]}"#.utf8))
+    }
+    let reply: ConditionalReply<Snapshot> = try await client.getConditional("/state", etag: nil, wait: 25)
+    #expect(reply.value == Snapshot(sessions: []))
+    #expect(reply.etag == #"W/"a""#)
+    #expect(reply.waitCap == 25)
+    #expect(reply.supportsWait)
+}
+
+@Test func conditionalGetTurns304IntoNoValueAndKeepsTheSentTag() async throws {
+    let client = stubbedClient { req in
+        #expect(req.value(forHTTPHeaderField: "If-None-Match") == #"W/"a""#)
+        #expect(req.url?.query == "wait=25")
+        return (okResponse(req.url!, status: 304), Data())
+    }
+    let reply: ConditionalReply<Snapshot> = try await client.getConditional("/state", etag: #"W/"a""#, wait: 25)
+    #expect(reply.value == nil)
+    #expect(reply.etag == #"W/"a""#)
+}
+
+@Test func conditionalGetWithoutATagNeverWaits() async throws {
+    let client = stubbedClient { req in
+        #expect(req.url?.query == nil)
+        return (okResponse(req.url!), Data(#"{"sessions":[]}"#.utf8))
+    }
+    let reply: ConditionalReply<Snapshot> = try await client.getConditional("/state", etag: nil, wait: 25)
+    #expect(!reply.supportsWait)
+}
+
+@Test func aPlainGetStillTreats304AsAnError() async {
+    let client = stubbedClient { req in (okResponse(req.url!, status: 304), Data()) }
+    await #expect(throws: APIError.self) {
+        let _: Snapshot = try await client.get("/state")
+    }
+}
+
+@Test func onlyAWaitingRequestUsesTheLongPollBudget() async throws {
+    let budgets = BudgetLog()
+    let stub = stubbedClient { req in (okResponse(req.url!, status: 304), Data()) }
+    let client = APIClient(baseURL: stub.baseURL, token: nil, sessions: { budget in
+        budgets.append(budget)
+        return stub.sessions(budget)
+    }, pathStatus: { nil })
+    let _: ConditionalReply<Snapshot> = try await client.getConditional("/state", etag: "x", wait: 25)
+    let _: ConditionalReply<Snapshot> = try await client.getConditional("/state", etag: "x")
+    #expect(budgets.all == [.longPoll, .server])
+    #expect(RequestBudget.longPoll.requestTimeout > 25)
+}
+
+private final class BudgetLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var log: [RequestBudget] = []
+    var all: [RequestBudget] { lock.withLock { log } }
+    func append(_ b: RequestBudget) { lock.withLock { log.append(b) } }
+}

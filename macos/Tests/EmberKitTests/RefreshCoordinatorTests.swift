@@ -19,7 +19,7 @@ private final class FakeFeeds {
 private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     let clock = ManualClock()
     let feeds = FakeFeeds()
-    let c = RefreshCoordinator(fetch: { await feeds.fetch($0) }, sleep: clock.sleepFn, now: clock.nowFn)
+    let c = RefreshCoordinator(fetch: { feed, _ in await feeds.fetch(feed) }, sleep: clock.sleepFn, now: clock.nowFn)
     return (c, clock, feeds)
 }
 
@@ -245,7 +245,7 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
 @MainActor @Test func concurrentRequestsForAFeedShareOneFetch() async {
     let clock = ManualClock()
     let feeds = FakeFeeds()
-    let c = RefreshCoordinator(fetch: { feed in
+    let c = RefreshCoordinator(fetch: { feed, _ in
         let r = await feeds.fetch(feed)
         try? await clock.sleep(.seconds(1))
         return r
@@ -264,7 +264,7 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     var gate: CheckedContinuation<Void, Never>?
     var calls = 0
     let c = RefreshCoordinator(
-        fetch: { _ in
+        fetch: { _, _ in
             calls += 1
             await withCheckedContinuation { gate = $0 }
             return .ok
@@ -291,7 +291,7 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     let clock = ManualClock()
     var gate: CheckedContinuation<Void, Never>?
     let c = RefreshCoordinator(
-        fetch: { _ in
+        fetch: { _, _ in
             await withCheckedContinuation { gate = $0 }
             return .failed(.offline)
         },
@@ -336,4 +336,131 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     async let second: Void = c.refreshNow([.usage], ifOlderThan: .seconds(60))
     _ = await (first, second)
     #expect(feeds.count(.usage) == 1)
+}
+
+@MainActor
+private final class ParkingFeeds {
+    let clock: ManualClock
+    var plain = 0
+    var parked = 0
+    var cancelled = 0
+    var result = FeedTick(serverWaits: true)
+
+    init(clock: ManualClock) { self.clock = clock }
+
+    func fetch(_ feed: Feed, mayWait: Bool) async -> FeedTick {
+        guard feed == .state else { return .ok }
+        guard mayWait else {
+            plain += 1
+            return result
+        }
+        parked += 1
+        do { try await clock.sleep(.seconds(25)) } catch {
+            cancelled += 1
+            return .failed(.offline)
+        }
+        return result
+    }
+}
+
+@MainActor
+private func makeParkingCoordinator() -> (RefreshCoordinator, ManualClock, ParkingFeeds) {
+    let clock = ManualClock()
+    let feeds = ParkingFeeds(clock: clock)
+    let c = RefreshCoordinator(fetch: { await feeds.fetch($0, mayWait: $1) }, sleep: clock.sleepFn, now: clock.nowFn)
+    return (c, clock, feeds)
+}
+
+@MainActor @Test func aFeedTheServerHoldsParksAfterItsFirstPlainFetch() async {
+    let (c, clock, feeds) = makeParkingCoordinator()
+    c.start()
+    await clock.settle()
+    #expect(feeds.plain == 1)
+    #expect(feeds.parked == 0)
+    await clock.advance(by: RefreshCoordinator.longPollGap)
+    #expect(feeds.parked == 1)
+    await clock.advance(by: .seconds(25))
+    #expect(feeds.parked == 1)
+    await clock.advance(by: RefreshCoordinator.longPollGap)
+    #expect(feeds.parked == 2)
+    #expect(feeds.plain == 1)
+    c.stop()
+}
+
+@MainActor @Test func aFailedParkedFetchFallsBackToPlainPollingAndTheLadder() async {
+    let (c, clock, feeds) = makeParkingCoordinator()
+    c.start()
+    await clock.advance(by: RefreshCoordinator.longPollGap)
+    #expect(feeds.parked == 1)
+    feeds.result = .failed(.offline)
+    await clock.advance(by: .seconds(25))
+    #expect(c.interval(for: .state) == .seconds(3))
+    await clock.advance(by: .seconds(3))
+    #expect(feeds.plain == 2)
+    #expect(feeds.parked == 1)
+    await clock.advance(by: .seconds(3))
+    #expect(c.consecutiveFailures(.state) == 3)
+    #expect(c.interval(for: .state) == .seconds(15))
+    feeds.result = FeedTick(serverWaits: true)
+    await clock.advance(by: .seconds(15))
+    #expect(c.consecutiveFailures(.state) == 0)
+    await clock.advance(by: RefreshCoordinator.longPollGap)
+    #expect(feeds.parked == 2)
+    c.stop()
+}
+
+@MainActor @Test func refreshNowCancelsAParkedFetchInsteadOfJoiningIt() async {
+    let (c, clock, feeds) = makeParkingCoordinator()
+    c.start()
+    await clock.advance(by: RefreshCoordinator.longPollGap)
+    #expect(feeds.parked == 1)
+    await c.refreshNow([.state])
+    #expect(feeds.plain == 2)
+    await clock.settle()
+    #expect(feeds.cancelled == 1)
+    await clock.advance(by: RefreshCoordinator.longPollGap)
+    #expect(feeds.parked == 2)
+    c.stop()
+}
+
+@MainActor @Test func pauseCancelsAParkedFetchAndResumeStartsPlain() async {
+    let (c, clock, feeds) = makeParkingCoordinator()
+    c.start()
+    await clock.advance(by: RefreshCoordinator.longPollGap)
+    #expect(feeds.parked == 1)
+    c.pause()
+    await clock.settle()
+    #expect(feeds.cancelled == 1)
+    c.resume()
+    await clock.settle()
+    #expect(feeds.plain == 2)
+    #expect(feeds.parked == 1)
+    c.stop()
+}
+
+@MainActor @Test func forgettingInFlightCancelsAParkedFetchAndForgetsLongPolling() async {
+    let (c, clock, feeds) = makeParkingCoordinator()
+    c.start()
+    await clock.advance(by: RefreshCoordinator.longPollGap)
+    c.forgetInFlight()
+    await clock.settle()
+    #expect(feeds.cancelled == 1)
+    #expect(c.interval(for: .state) == .seconds(3))
+    c.stop()
+}
+
+@MainActor @Test func theCountdownFeedRunsOnlyWhileHeld() async {
+    let (c, clock, feeds) = makeCoordinator()
+    c.start()
+    await clock.settle()
+    #expect(feeds.count(.pomodoroCountdown) == 0)
+    c.hold([.pomodoroCountdown])
+    await clock.settle()
+    #expect(feeds.count(.pomodoroCountdown) == 1)
+    await clock.advance(by: .seconds(3))
+    #expect(feeds.count(.pomodoroCountdown) == 2)
+    c.release([.pomodoroCountdown])
+    await clock.advance(by: .seconds(30))
+    #expect(feeds.count(.pomodoroCountdown) == 2)
+    c.stop()
 }
