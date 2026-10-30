@@ -5422,7 +5422,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
   The tag is not a hash of the body: `/state` hashes `render` and the sessions
   sorted by key with `updated_at` cut to the minute, leaving out `now`;
   Pomodoro hashes the timer with `ends_at` standing in for the countdown while
-  it runs. Both bodies change under one tag, so the header is weak. `Upsert`
+  it runs. Both bodies change under one tag, so the header is weak and
+  `Cache-Control` is `no-store`: a cache revalidating on its own would keep an
+  old countdown. `Upsert`
   notifies when that tag moves, so a change to a non-winning session wakes
   waiters; an unchanged heartbeat stays quiet. Both routes stay public: the
   bodies already are, and `stateWaiters` is a pool of its own, separate from

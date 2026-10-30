@@ -129,7 +129,7 @@ func (a *App) serveStateFeed(w http.ResponseWriter, r *http.Request, route strin
 func writeStateFeed(w http.ResponseWriter, inm string, body []byte, etag string) {
 	h := w.Header()
 	h.Set("ETag", "W/"+etag)
-	h.Set("Cache-Control", "no-cache")
+	h.Set("Cache-Control", "no-store")
 	h.Set(knobViewWaitHeader, strconv.Itoa(int(knobViewWaitMax/time.Second)))
 	if etagMatches(inm, etag) {
 		w.WriteHeader(http.StatusNotModified)

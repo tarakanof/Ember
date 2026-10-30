@@ -106,7 +106,7 @@ func TestStateCarriesAWeakETagAndAnswers304(t *testing.T) {
 	if !strings.HasPrefix(etag, `W/"`) {
 		t.Fatalf("ETag = %q, want a weak tag: the body varies under one tag", etag)
 	}
-	if resp.Header.Get(knobViewWaitHeader) != "25" || resp.Header.Get("Cache-Control") != "no-cache" {
+	if resp.Header.Get(knobViewWaitHeader) != "25" {
 		t.Fatalf("headers = %v", resp.Header)
 	}
 	if !bytes.HasSuffix(body, []byte("}\n")) {
@@ -123,6 +123,21 @@ func TestStateCarriesAWeakETagAndAnswers304(t *testing.T) {
 	}
 	if got.Header.Get(devicesEpochHeader) == "" || got.Header.Get("ETag") != etag {
 		t.Fatalf("a 304 must still carry the epoch and tag: %v", got.Header)
+	}
+}
+
+func TestStateFeedsForbidHTTPCaches(t *testing.T) {
+	f := newStateFixture(t)
+	for _, path := range []string{statePath, pomoStatePath} {
+		resp, _ := f.feedOK(t, path, "", "")
+		if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("%s: Cache-Control = %q: a cache revalidating on its own would keep a stale countdown", path, got)
+		}
+		tag := resp.Header.Get("ETag")
+		got, _ := f.feedOK(t, path, tag, "")
+		if got.StatusCode != http.StatusNotModified || got.Header.Get("Cache-Control") != "no-store" {
+			t.Fatalf("%s: status %d headers %v", path, got.StatusCode, got.Header)
+		}
 	}
 }
 
