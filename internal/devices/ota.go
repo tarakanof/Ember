@@ -227,10 +227,10 @@ func (r *Registry) OTAGens() (uint64, uint64) {
 	return r.fwGen, r.state.Epoch
 }
 
-// firmwareGenLocked is for code the registry already calls under its lock.
+// FirmwareGenLocked is for code the registry already calls under its lock.
 func (r *Registry) FirmwareGenLocked() uint64 { return r.fwGen }
 
-// epochLocked is for code the registry already calls under its lock.
+// EpochLocked is for code the registry already calls under its lock.
 func (r *Registry) EpochLocked() uint64 { return r.state.Epoch }
 
 func (r *Registry) OTATargets(version string) bool {
