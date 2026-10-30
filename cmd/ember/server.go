@@ -107,6 +107,8 @@ func (a *App) routeTable() (http.Handler, []string) {
 	writeMux.Handle("GET /v1/meetings/config", http.HandlerFunc(a.handleMeetingsConfigGet))
 	writeMux.Handle("PUT /v1/meetings/config", http.HandlerFunc(a.handleMeetingsConfigPut))
 	writeMux.Handle("POST /v1/reminders/fire", http.HandlerFunc(a.handleReminderFire))
+	writeMux.Handle("GET /v1/reminders/config", http.HandlerFunc(a.handleRemindersConfigGet))
+	writeMux.Handle("PUT /v1/reminders/config", http.HandlerFunc(a.handleRemindersConfigPut))
 	writeMux.Handle("POST /v1/nowplaying", http.HandlerFunc(a.handleNowPlayingReport))
 	writeMux.Handle("PUT /v1/nowplaying/art", http.HandlerFunc(a.handleNowPlayingArtPut))
 	writeMux.Handle("GET /v1/nowplaying/commands", http.HandlerFunc(a.handleNowPlayingCommands))

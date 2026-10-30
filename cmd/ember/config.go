@@ -35,7 +35,7 @@ func parseConfigFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("%w: %s: %v", ErrConfigRead, path, err)
 	}
-	var cfg Config
+	cfg := Config{Reminders: defaultRemindersConfig()}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cfg); err != nil {
@@ -119,6 +119,9 @@ func validateConfig(cfg Config) error {
 	if err := cfg.Brightness.resolved().validate(); err != nil {
 		return fmt.Errorf("%w: brightness.%v", ErrConfigValidate, err)
 	}
+	if err := cfg.Reminders.validate(); err != nil {
+		return fmt.Errorf("%w: reminders.%v", ErrConfigValidate, err)
+	}
 	return nil
 }
 
@@ -198,6 +201,7 @@ type Config struct {
 	QuietHours        QuietHoursConfig             `json:"quiet_hours"`
 	Brightness        BrightnessConfig             `json:"brightness"`
 	Controls          ControlsConfig               `json:"controls"`
+	Reminders         RemindersConfig              `json:"reminders"`
 	UsageAccounts     map[string]usageAccountPrefs `json:"usage_accounts,omitempty"`
 
 	clockPresentation *clockStoredConfig
@@ -344,7 +348,8 @@ func defaultConfig() Config {
 			WeeklyGoalDays:           5,
 			WorkHoursIncludeActivity: true,
 		},
-		Day: defaultDayConfig(),
+		Day:       defaultDayConfig(),
+		Reminders: defaultRemindersConfig(),
 	}
 }
 

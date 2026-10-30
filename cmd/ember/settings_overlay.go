@@ -48,6 +48,7 @@ type appSettings struct {
 	brightness    *setting[BrightnessConfig]
 	clock         *setting[clockConfigDTO]
 	controls      *setting[ControlsConfig]
+	reminders     *setting[RemindersConfig]
 	day           *setting[DayConfig]
 }
 
@@ -77,6 +78,7 @@ func newAppSettings(a *App) appSettings {
 		brightness:      register(o, brightnessSettingSpec()),
 		clock:           register(o, clockSettingSpec()),
 		controls:        register(o, controlsSettingSpec()),
+		reminders:       register(o, remindersSettingSpec()),
 		day:             register(o, a.daySettingSpec()),
 	}
 }
