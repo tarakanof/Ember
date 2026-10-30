@@ -60,6 +60,9 @@ Signing with one stable identity keeps the Local Network permission (and
 Little Snitch rules) across rebuilds; an ad-hoc build loses it each time. See
 the RUNBOOK's "Local install without a Developer ID".
 
+Closing the Settings window leaves Ember running; Quit stops its Music and
+Reminders watchers but not the producers. See the RUNBOOK's "Quit vs close".
+
 ## Configuration
 
 Reads `~/.config/ember/producer.env` (`EMBER_SERVER_URL`,
