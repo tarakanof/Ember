@@ -10,6 +10,11 @@ GOROOT` resolve to Homebrew's `libexec`).
 
 ```sh
 go test ./... -race
+```
+
+T3 Code probes new loopback listeners with `GET /`, so a test stub must not count it.
+
+```sh
 gofmt -w <files>
 go vet ./...
 go run ./cmd/ember -config config.example.json

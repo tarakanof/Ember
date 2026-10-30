@@ -64,7 +64,9 @@ func TestPluginStillEnabledWarning(t *testing.T) {
 func TestHookSubcommand_KillSwitchSkipsBeforeAnyRequest(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/status" {
+			hits.Add(1)
+		}
 	}))
 	defer srv.Close()
 

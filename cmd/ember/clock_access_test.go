@@ -59,7 +59,12 @@ func TestClockAccessCallClassTimeouts(t *testing.T) {
 func TestClockAccessFollowsTheLiveURL(t *testing.T) {
 	hits := map[string]int{}
 	srv := func(name string) *httptest.Server {
-		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits[name]++ }))
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == "/" {
+				return
+			}
+			hits[name]++
+		}))
 		t.Cleanup(s.Close)
 		return s
 	}
@@ -108,7 +113,12 @@ func TestClockAccessErrorMapParity(t *testing.T) {
 
 func TestClockAccessSystemLockHonoursContext(t *testing.T) {
 	hits := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
+		hits++
+	}))
 	defer srv.Close()
 	k := clockAccessFor(srv.URL, 10)
 	k.systemLock.Lock()
