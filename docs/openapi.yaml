@@ -2113,8 +2113,9 @@ paths:
         checkout's folder name, empty when the producer doesn't send
         projects. No prompt text: the body is strict, so an unknown field
         is a 400. At most 500 replies per request; an `at` more than 10 min
-        ahead is a 400. A replay of the same `source`, `tool`, `session`
-        and `at` inserts nothing. A reply within 2 min of now counts like
+        ahead is a 400. A reply within 2 s of an exact one for the same
+        `source`, `tool` and `session` is the same prompt and inserts
+        nothing; one matching an estimated row turns it exact. A reply within 2 min of now counts like
         an estimated one (off-clock count, `offer_start`); older replies
         only go into history. Once a `source` and `tool` pair has an exact
         reply in the last 24 h, the server stops estimating replies from

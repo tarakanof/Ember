@@ -69,7 +69,10 @@ func (s *Store) DayEventsFromLastStart() (events []workday.Event, started bool, 
 	return events, true, err
 }
 
-const DayExactWindow = 24 * time.Hour
+const (
+	DayExactWindow   = 24 * time.Hour
+	DayExactSameSpan = 2 * time.Second
+)
 
 const dayReplyCovered = `NOT EXISTS (SELECT 1 FROM day_replies e
   WHERE e.exact = 1 AND e.source = r.source AND e.tool = r.tool AND e.at >= r.at - ?1 AND e.at <= r.at + ?1)`
@@ -129,18 +132,36 @@ func (s *Store) RecordDayReplies(rs []workday.Reply) (inserted []bool, err error
 		}
 	}()
 	inserted = make([]bool, len(rs))
+	span := int64(DayExactSameSpan / time.Second)
 	for i, r := range rs {
+		at := r.At.Unix()
+		if r.Exact {
+			var dup int
+			if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM day_replies WHERE source = ? AND tool = ? AND session_key = ?
+			    AND at BETWEEN ? AND ? AND exact = 1)`, r.Source, r.Tool, r.SessionKey, at-span, at+span).Scan(&dup); err != nil {
+				return nil, fmt.Errorf("record day reply: %w", err)
+			}
+			if dup == 1 {
+				continue
+			}
+		}
 		exact := 0
 		if r.Exact {
 			exact = 1
 		}
 		res, err := tx.Exec(`INSERT OR IGNORE INTO day_replies (at, source, tool, session_key, repo, exact) VALUES (?, ?, ?, ?, ?, ?)`,
-			r.At.Unix(), r.Source, r.Tool, r.SessionKey, r.Repo, exact)
+			at, r.Source, r.Tool, r.SessionKey, r.Repo, exact)
 		if err != nil {
 			return nil, fmt.Errorf("record day reply: %w", err)
 		}
 		n, _ := res.RowsAffected()
 		inserted[i] = n == 1
+		if !inserted[i] && r.Exact {
+			if _, err := tx.Exec(`UPDATE day_replies SET exact = 1, repo = ? WHERE source = ? AND tool = ? AND session_key = ? AND at = ? AND exact = 0`,
+				r.Repo, r.Source, r.Tool, r.SessionKey, at); err != nil {
+				return nil, fmt.Errorf("record day reply: %w", err)
+			}
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return nil, fmt.Errorf("record day replies: %w", err)

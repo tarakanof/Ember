@@ -19,11 +19,18 @@ func humanEntrypoint(getenv func(string) string) bool {
 	return false
 }
 
-func postPromptReply(ctx context.Context, cfg Config, client *Client, sessionID string, in hookInput) {
+func startPromptReply(ctx context.Context, cfg Config, client *Client, sessionID string, in hookInput) <-chan struct{} {
+	done := make(chan struct{})
 	if !humanEntrypoint(promptEnv) || producer.AutomatedPrompt(in.Prompt) {
-		return
+		close(done)
+		return done
 	}
-	r := producer.Reply{At: hookNow().Unix(), Source: cfg.Source, Tool: "claude", Session: sessionID,
-		Repo: cfg.Project(producer.RepoFromCwd(in.CWD))}
-	_ = client.Replies(ctx, []producer.Reply{r})
+	at := hookNow().Unix()
+	go func() {
+		defer close(done)
+		r := producer.Reply{At: at, Source: cfg.Source, Tool: "claude", Session: sessionID,
+			Repo: cfg.Project(producer.RepoFromCwd(in.CWD))}
+		_ = client.Replies(ctx, []producer.Reply{r})
+	}()
+	return done
 }

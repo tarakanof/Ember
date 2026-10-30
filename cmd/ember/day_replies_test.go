@@ -122,7 +122,7 @@ func TestDayRepliesValidation(t *testing.T) {
 	f := newDayFixture(t, "", dayAt(10, 9, 0))
 	many := make([]string, dayRepliesMax+1)
 	for i := range many {
-		many[i] = exactReply(dayAt(10, 8, 0).Add(time.Duration(i)*time.Second), "claude", "s1", "")
+		many[i] = exactReply(dayAt(10, 8, 0), "claude", fmt.Sprintf("s%d", i), "")
 	}
 	cases := map[string]string{
 		"too many":     exactBody(many...),
@@ -183,4 +183,40 @@ func TestDayRepliesMigrationKeepsOldRowsAndDropsDuplicates(t *testing.T) {
 		t.Fatalf("reopening a migrated store: %v", err)
 	}
 	s.Close()
+}
+
+func TestExactReplyPromotesAnEstimateInTheSameSecond(t *testing.T) {
+	f := newDayFixture(t, "", dayAt(10, 9, 0))
+	f.reply(t, "s1")
+	f.postExact(t, exactBody(exactReply(dayAt(10, 9, 0), "claude", "s1", "Ember")), http.StatusOK)
+	rs, err := f.app.store.DayRepliesBetween(dayAt(10, 0, 0), dayAt(11, 0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 1 || !rs[0].Exact || rs[0].Repo != "Ember" {
+		t.Fatalf("replies = %+v, want the estimate promoted to exact", rs)
+	}
+	g := f.restart(t)
+	g.clk.advance(2 * time.Minute)
+	g.reply(t, "s2")
+	if n := g.replies(t); n != 1 {
+		t.Fatalf("replies after restart = %d, want the pair still exact", n)
+	}
+}
+
+func TestExactRepliesSecondsApartInOneSessionAreOnePrompt(t *testing.T) {
+	f := newDayFixture(t, "", dayAt(10, 9, 0))
+	f.postExact(t, exactBody(exactReply(dayAt(10, 8, 0), "claude", "s1", "")), http.StatusOK)
+	f.postExact(t, exactBody(
+		exactReply(dayAt(10, 8, 0).Add(time.Second), "claude", "s1", ""),
+		exactReply(dayAt(10, 8, 0).Add(-2*time.Second), "claude", "s1", ""),
+		exactReply(dayAt(10, 8, 0).Add(time.Second), "claude", "s2", ""),
+	), http.StatusOK)
+	if n := f.replies(t); n != 2 {
+		t.Fatalf("replies = %d, want 2: a hook and a transcript stamp of one prompt are one reply", n)
+	}
+	f.postExact(t, exactBody(exactReply(dayAt(10, 8, 0).Add(3*time.Second), "claude", "s1", "")), http.StatusOK)
+	if n := f.replies(t); n != 3 {
+		t.Fatalf("replies = %d, want a prompt 3 s later counted", n)
+	}
 }

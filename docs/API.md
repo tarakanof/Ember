@@ -148,7 +148,9 @@ replies_off}]}`, ISO weeks newest first),
 producers' exact prompts: `{"replies":[{at, source, tool, session,
 repo?}]}`, `at` in unix seconds, at most 500 per request, never prompt text;
 strict, so an unknown field is a 400, and so is an `at` more than 10 min
-ahead; a replay of the same `source/tool/session` and `at` inserts nothing;
+ahead; a reply within 2 s of an exact one for the same
+`source/tool/session` is the same prompt and inserts nothing, and one that
+matches an estimated row turns it exact;
 a reply within 2 min of now counts like an estimated one (offer, off-clock
 count), older ones only go into history; 404 while `day.enabled` is false;
 replies `{"ok":true,"accepted":N}`),

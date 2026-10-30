@@ -1660,8 +1660,10 @@ the clock are counted, not blocked. No prompt text is involved anywhere.
   (`producer.AutomatedPrompt`). `repo` is the main checkout's folder
   (`producer.RepoFromCwd`: `git rev-parse --git-common-dir`, else the T3,
   `.claude/worktrees`, `.worktrees` and `-wt` path rules), empty with
-  `send_project` off. Rows insert with `INSERT OR IGNORE`, so a replay or a
-  rerun backfill adds nothing. A newly inserted reply within 2 min of now
+  `send_project` off. An exact reply within 2 s of another exact one for the
+  same session key is the same prompt (`DayExactSameSpan`: the hook stamps
+  its own clock, backfill the transcript's), so a replay or a rerun backfill
+  adds nothing; one that hits an estimated row's key turns that row exact. A newly inserted reply within 2 min of now
   takes the estimate's live path (`liveReply`: per-session throttle,
   off-clock count, offer); older ones only go into history, with no offer,
   no quiet change and no knob wake.
