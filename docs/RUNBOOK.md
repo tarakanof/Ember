@@ -1547,7 +1547,11 @@ selects the HTTP behaviour for every call to the clock. On, the server reuses on
 pooled TCP connection to the ESP32 (today's behaviour). Off, idle pooled
 connections are evicted and each request is marked `Connection: close`, so
 nothing stays pooled and each push dials fresh. It is read on every call, so
-`POST /admin/reload` applies it without a restart.
+`POST /admin/reload` applies it without a restart. Off also evicts every idle
+connection in the process-wide HTTP pool before each clock request (the guard that
+keeps tests off the real network forbids a dedicated clock transport), so other
+integrations on the default pool, such as the Plex poll, pay one LAN TCP handshake
+per clock call while the experiment runs. Leave it on outside the A/B.
 
 To measure it on the live server, compare an hour before and an hour after
 flipping it: `ember_publish_total{result="fail"}` against `result="ok"`, and
