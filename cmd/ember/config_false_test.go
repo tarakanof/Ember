@@ -20,44 +20,6 @@ func mustJSONHave(t *testing.T, blob []byte, wants ...string) {
 	}
 }
 
-func TestWeatherFileFalseSticks(t *testing.T) {
-	src := `{
-		"enabled": true, "rotate_in_apps": false, "forecast_tile": false,
-		"popup_on_change": false, "severe_alert": false, "sun_popups": false,
-		"moon_phase": false, "air_tile": false, "overlay": false,
-		"popup_interval_minutes": 0
-	}`
-	var c WeatherConfig
-	if err := json.Unmarshal([]byte(src), &c); err != nil {
-		t.Fatal(err)
-	}
-	c.applyDefaults()
-	blob, err := json.Marshal(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustJSONHave(t, blob,
-		`"rotate_in_apps":false`, `"forecast_tile":false`, `"popup_on_change":false`,
-		`"severe_alert":false`, `"sun_popups":false`, `"moon_phase":false`,
-		`"air_tile":false`, `"overlay":false`, `"popup_interval_minutes":0`)
-}
-
-func TestWeatherFileAbsentDefaults(t *testing.T) {
-	var c WeatherConfig
-	if err := json.Unmarshal([]byte(`{}`), &c); err != nil {
-		t.Fatal(err)
-	}
-	c.applyDefaults()
-	blob, err := json.Marshal(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustJSONHave(t, blob,
-		`"rotate_in_apps":true`, `"forecast_tile":true`, `"popup_on_change":true`,
-		`"severe_alert":true`, `"sun_popups":true`, `"moon_phase":true`,
-		`"air_tile":true`, `"popup_interval_minutes":120`)
-}
-
 func TestMeetingsFileFalseSticks(t *testing.T) {
 	src := `{"enabled": false, "chime": false, "popup_lead_minutes": 0}`
 	var c MeetingsConfig

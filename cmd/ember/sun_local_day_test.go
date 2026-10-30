@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type sunDayCase struct {
@@ -71,14 +72,14 @@ func (c sunDayCase) app(t *testing.T) (*App, *recordingPublisher) {
 	t.Helper()
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.Provider = "open-meteo"
 	cfg.Weather.SunPopups = boolPtr(true)
 	cfg.Weather.MoonPhase = boolPtr(true)
 	cfg.Weather.Latitude, cfg.Weather.Longitude = c.lat, c.lon
 	app := NewApp(cfg, pub, testLogger())
-	app.weather.obs = weatherObservation{
+	app.weather.obs = weather.Observation{
 		Condition: render.WeatherClear, TempC: 10, FetchedAt: c.now,
 		TZOffsetSeconds: c.tzOff, TZKnown: c.tzKnown,
 	}
@@ -86,7 +87,7 @@ func (c sunDayCase) app(t *testing.T) (*App, *recordingPublisher) {
 		app.weather.obs.TZOffsetSeconds = 0
 	}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	return app, pub
 }
 
@@ -202,7 +203,7 @@ func TestLoneSunriseBeforePolarDay(t *testing.T) {
 
 	before := sun.Rise.Add(-20 * time.Minute)
 	if weatherTileMoon(cfg, app.weather.state(cfg, before), before) == nil {
-		t.Errorf("no moon 20 min before the lone sunrise %v (sun at %.2f°)", sun.Rise, solarElevation(c.lat, c.lon, before))
+		t.Errorf("no moon 20 min before the lone sunrise %v (sun at %.2f°)", sun.Rise, weather.SolarElevation(c.lat, c.lon, before))
 	}
 
 	if kw := app.knobWeather(c.now); kw == nil || kw.Sunrise != nil || kw.Sunset != nil {

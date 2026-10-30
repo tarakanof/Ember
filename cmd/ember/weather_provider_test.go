@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type providerStubs struct {
@@ -63,7 +65,7 @@ func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 	t.Cleanup(air.Close)
 
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.Latitude, cfg.Weather.Longitude = 59.9, 10.7
 	cfg.Weather.RefreshMinutes = 10
@@ -73,10 +75,10 @@ func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 	cfg.Weather.AirTile = boolPtr(false)
 	cfg.Weather.AirPopupThreshold = 0
 	app := NewApp(cfg, &recordingPublisher{}, testLogger())
-	app.weatherFetcher = newWeatherFetcher()
-	app.weatherFetcher.openMeteoBase = om.URL
-	app.weatherFetcher.metNoBase = met.URL
-	app.weatherFetcher.airQualityBase = air.URL
+	app.weatherFetcher = weather.NewFetcher()
+	app.weatherFetcher.OpenMeteoBase = om.URL
+	app.weatherFetcher.MetNoBase = met.URL
+	app.weatherFetcher.AirQualityBase = air.URL
 	return app, st
 }
 
@@ -145,7 +147,7 @@ func TestWeatherProviderSwitchBackDuringFetchKeepsResult(t *testing.T) {
 	app.pollWeather(context.Background(), t0)
 
 	app.weather.mu.RLock()
-	provider, have, last := app.weather.source.provider, app.weather.have, app.weather.lastFetch
+	provider, have, last := app.weather.source.Provider, app.weather.have, app.weather.lastFetch
 	app.weather.mu.RUnlock()
 	if provider != "open-meteo" || !have || !last.Equal(t0) {
 		t.Fatalf("store after A->B->A = provider %q have=%v lastFetch=%v, want open-meteo, true, %v", provider, have, last, t0)
@@ -302,31 +304,5 @@ func TestWeatherCapsRetryAfterAtRefreshMinutes(t *testing.T) {
 				t.Errorf("met-no fetched at minutes %v, want %v: Retry-After %q held to refresh_minutes (10)", got, want, v)
 			}
 		})
-	}
-}
-
-func TestParseRetryAfter(t *testing.T) {
-	now := time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)
-	cases := []struct {
-		in   string
-		want time.Duration
-	}{
-		{"", 0},
-		{"120", 2 * time.Minute},
-		{"-5", 0},
-		{"-99999999999999999999", 0},
-		{"soon", 0},
-		{"1.5", 0},
-		{"31536000", weatherRetryAfterMax},
-		{"9300000000", weatherRetryAfterMax},
-		{"99999999999999999999", weatherRetryAfterMax},
-		{"Thu, 01 Jan 2099 00:00:00 GMT", weatherRetryAfterMax},
-		{now.Add(10 * time.Minute).Format(http.TimeFormat), 10 * time.Minute},
-		{now.Add(-time.Minute).Format(http.TimeFormat), 0},
-	}
-	for _, c := range cases {
-		if got := parseRetryAfter(c.in, now); got != c.want {
-			t.Errorf("parseRetryAfter(%q) = %v, want %v", c.in, got, c.want)
-		}
 	}
 }

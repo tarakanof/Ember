@@ -13,6 +13,7 @@ import (
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/sessions"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type App struct {
@@ -108,7 +109,7 @@ type App struct {
 	usageSeen *usageAccountRegistry
 
 	weather        *weatherStore
-	weatherFetcher *weatherFetcher
+	weatherFetcher *weather.Fetcher
 
 	meetingsURLs []string
 
@@ -167,7 +168,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		browseFn:     browseNotWired,
 		localIPFor:   outboundIP,
 	}
-	a.weatherFetcher = newWeatherFetcher()
+	a.weatherFetcher = weather.NewFetcher()
 	a.meetings = newMeetingsStore()
 	a.meetingsFetcher = newICSFetcher()
 	a.nowPlaying = newNowPlayingService()

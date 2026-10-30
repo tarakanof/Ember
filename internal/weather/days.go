@@ -1,4 +1,4 @@
-package main
+package weather
 
 import (
 	"regexp"
@@ -52,7 +52,7 @@ func (c dayClock) after(start time.Time) time.Time {
 	return c.midnight(y, m, d+1)
 }
 
-func dayEnd(d weatherDay) time.Time {
+func DayEnd(d Day) time.Time {
 	if !d.End.IsZero() {
 		return d.End
 	}

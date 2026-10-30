@@ -11,6 +11,7 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func TestServerFinishedPayloadsPassNGSchema(t *testing.T) {
@@ -26,7 +27,7 @@ func checkServerFinishedPayloads(t *testing.T, caps *awtrix.Capabilities, check 
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
 	cfg.Pomodoro.Sound = true
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	app := NewApp(cfg, pub, testLogger())
 	storeCaps(app, caps)
@@ -48,7 +49,7 @@ func checkServerFinishedPayloads(t *testing.T, caps *awtrix.Capabilities, check 
 		app.handleNotify(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost,
 			"/v1/notify", strings.NewReader(body)))
 	}
-	obs := weatherObservation{Condition: render.WeatherStorm, TempC: 18, Severe: true,
+	obs := weather.Observation{Condition: render.WeatherStorm, TempC: 18, Severe: true,
 		Overlay: render.OverlayThunder, FetchedAt: time.Now()}
 	app.sendWeatherPopup(ctx, obs, cfg.Weather, 30, defaultWeatherSevereSound)
 	app.sendWeatherPopup(ctx, obs, cfg.Weather, 30, "storm")
@@ -70,7 +71,7 @@ func checkServerFinishedPayloads(t *testing.T, caps *awtrix.Capabilities, check 
 
 	app.weather.mu.Lock()
 	app.weather.obs, app.weather.have = obs, true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	app.weather.mu.Unlock()
 	app.coord.reconcileTiles(time.Now())
 	pub.mu.Lock()

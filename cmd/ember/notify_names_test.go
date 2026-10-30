@@ -10,6 +10,7 @@ import (
 
 	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/pomodoro"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func notifyName(t *testing.T, pub *recordingPublisher, n int) string {
@@ -148,7 +149,7 @@ func TestSunPopupIsNamed(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(cfg, pub, testLogger())
 	now := time.Date(2026, 6, 13, 5, 0, 0, 0, time.UTC)
-	app.fireSunPopup(context.Background(), now, true, cfg.Weather, weatherObservation{})
+	app.fireSunPopup(context.Background(), now, true, cfg.Weather, weather.Observation{})
 	if got := notifyName(t, pub, 0); got != notifyNameSunPopup {
 		t.Errorf("name = %q, want %q", got, notifyNameSunPopup)
 	}

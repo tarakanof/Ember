@@ -6,9 +6,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/weather"
 )
 
-func restartedWAApp(t *testing.T, st *waStub, db string, edit func(*WeatherConfig)) *App {
+func restartedWAApp(t *testing.T, st *waStub, db string, edit func(*weather.Config)) *App {
 	t.Helper()
 	b := newWAApp(t, st)
 	if edit != nil {
@@ -55,7 +57,7 @@ func TestWeatherSnapshotRestoresAfterRestartUnderTheQuota(t *testing.T) {
 	if !wx.HaveObs || !wx.Fresh || !wx.Obs.FetchedAt.Equal(t0) || len(wx.Obs.Days) == 0 || len(wx.Obs.Hourly) == 0 {
 		t.Fatalf("restored state = have %v fresh %v fetched %v days %d hourly %d, want the saved observation", wx.HaveObs, wx.Fresh, wx.Obs.FetchedAt, len(wx.Obs.Days), len(wx.Obs.Hourly))
 	}
-	if kw := b.knobWeatherFor(now, true); kw == nil || kw.Provider != weatherAPI {
+	if kw := b.knobWeatherFor(now, true); kw == nil || kw.Provider != weather.WeatherAPI {
 		t.Errorf("knob weather after restore = %+v, want the restored reading", kw)
 	}
 }
@@ -63,11 +65,11 @@ func TestWeatherSnapshotRestoresAfterRestartUnderTheQuota(t *testing.T) {
 func TestWeatherSnapshotIgnoredWhenStaleOrForAnotherSource(t *testing.T) {
 	cases := map[string]struct {
 		after time.Duration
-		edit  func(*WeatherConfig)
+		edit  func(*weather.Config)
 	}{
 		"stale":          {after: weatherStaleAfter + time.Hour},
-		"other location": {after: 2 * time.Minute, edit: func(c *WeatherConfig) { c.Latitude += 1 }},
-		"other provider": {after: 2 * time.Minute, edit: func(c *WeatherConfig) { c.Provider = "open-meteo" }},
+		"other location": {after: 2 * time.Minute, edit: func(c *weather.Config) { c.Latitude += 1 }},
+		"other provider": {after: 2 * time.Minute, edit: func(c *weather.Config) { c.Provider = "open-meteo" }},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -75,7 +77,7 @@ func TestWeatherSnapshotIgnoredWhenStaleOrForAnotherSource(t *testing.T) {
 			t0 := waT0.Add(time.Minute)
 			db := seededWeatherStore(t, st, t0)
 			b := restartedWAApp(t, st, db, tc.edit)
-			b.weatherFetcher.openMeteoBase, b.weatherFetcher.airQualityBase = st.srv.URL, st.srv.URL
+			b.weatherFetcher.OpenMeteoBase, b.weatherFetcher.AirQualityBase = st.srv.URL, st.srv.URL
 			now := t0.Add(tc.after)
 			b.pollWeather(context.Background(), now)
 			if wx := b.weather.state(b.cfg.Load().Weather, now); wx.HaveObs {
@@ -99,17 +101,17 @@ func TestWeatherSnapshotRestoreNudgesTheClock(t *testing.T) {
 func TestWeatherSnapshotRestoredBeforeTheFirstSunPopup(t *testing.T) {
 	st := newWAStub(t, waFixture(t))
 	day := time.Date(waT0.Year(), waT0.Month(), waT0.Day(), 0, 0, 0, 0, time.UTC)
-	rise, _, ok := sunTimes(waBelgrade.Latitude, waBelgrade.Longitude, day).pair()
+	rise, _, ok := weather.SunTimes(waBelgrade.Latitude, waBelgrade.Longitude, day).Pair()
 	if !ok {
 		t.Fatal("no sunrise")
 	}
 	db := seededWeatherStore(t, st, rise.Add(-5*time.Minute))
-	b := restartedWAApp(t, st, db, func(c *WeatherConfig) { c.SunPopups = boolPtr(true) })
+	b := restartedWAApp(t, st, db, func(c *weather.Config) { c.SunPopups = boolPtr(true) })
 	b.pollWeather(context.Background(), rise)
 	b.weather.mu.RLock()
-	want := "SUNRISE " + sunClock(rise, b.weather.obs, waBelgrade.Longitude)
+	want := "SUNRISE " + weather.SunClock(rise, b.weather.obs, waBelgrade.Longitude)
 	b.weather.mu.RUnlock()
-	if want == "SUNRISE "+sunClock(rise, weatherObservation{}, waBelgrade.Longitude) {
+	if want == "SUNRISE "+weather.SunClock(rise, weather.Observation{}, waBelgrade.Longitude) {
 		t.Fatal("fixture offset equals the longitude guess; the test can't tell them apart")
 	}
 	pub := b.publisher.(*recordingPublisher)
@@ -125,9 +127,9 @@ func TestWeatherSnapshotIgnoredForAnotherModel(t *testing.T) {
 	t0 := waT0.Add(time.Minute)
 	db := seededWeatherStore(t, st, t0)
 	b := restartedWAApp(t, st, db, nil)
-	src := b.cfg.Load().Weather.source()
+	src := b.cfg.Load().Weather.Source()
 	other := src
-	other.model = "ecmwf_ifs025"
+	other.Model = "ecmwf_ifs025"
 	b.weather.switchSource(other)
 	b.restoreWeatherSnapshot(other, t0.Add(time.Minute))
 	if _, have, _, _ := b.weather.snapshot(other); have {

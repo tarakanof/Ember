@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func (a *App) handleWeatherPreview(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +33,7 @@ func (a *App) weatherPreview(q url.Values, now time.Time) render.Preview {
 		cfg.Latitude, cfg.Longitude = lat, lon
 	}
 
-	obs, haveObs, air, haveAir := a.weather.snapshot(saved.source())
+	obs, haveObs, air, haveAir := a.weather.snapshot(saved.Source())
 	wx := newWeatherState(cfg, obs, haveObs, air, haveAir, now)
 	if !wx.HaveObs {
 		wx.Obs = sampleWeatherObservation(now)
@@ -54,18 +55,18 @@ func queryLatLon(q url.Values) (lat, lon float64, ok bool) {
 	return lat, lon, true
 }
 
-func sampleAirObservation(now time.Time) airObservation {
+func sampleAirObservation(now time.Time) weather.AirObservation {
 	hourly := make([]float64, 24)
 	for i := range hourly {
 		hourly[i] = 42 - 24*math.Sin(float64(i)/24*math.Pi)
 	}
-	return airObservation{AQI: 42, PM25: 12, PM10: 19, HourlyAQI: hourly, FetchedAt: now}
+	return weather.AirObservation{AQI: 42, PM25: 12, PM10: 19, HourlyAQI: hourly, FetchedAt: now}
 }
 
-func sampleWeatherObservation(now time.Time) weatherObservation {
+func sampleWeatherObservation(now time.Time) weather.Observation {
 	hourly := make([]float64, 24)
 	for i := range hourly {
 		hourly[i] = 16 + 6*math.Sin((float64(i)-3)/24*2*math.Pi)
 	}
-	return weatherObservation{Condition: render.WeatherClouds, TempC: 21, Hourly: hourly, FetchedAt: now}
+	return weather.Observation{Condition: render.WeatherClouds, TempC: 21, Hourly: hourly, FetchedAt: now}
 }

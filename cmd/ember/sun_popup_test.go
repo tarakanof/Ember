@@ -5,12 +5,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func TestSunPopupFiresOncePerDay(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.SunPopups = boolPtr(true)
 	cfg.Weather.Latitude = 10
@@ -19,7 +21,7 @@ func TestSunPopupFiresOncePerDay(t *testing.T) {
 	wcfg := app.cfg.Load().Weather
 
 	date := time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)
-	sunrise, _, ok := sunTimes(10, 10, date).pair()
+	sunrise, _, ok := weather.SunTimes(10, 10, date).Pair()
 	if !ok {
 		t.Fatal("expected sunrise")
 	}
@@ -44,11 +46,11 @@ func TestSunPopupFiresOncePerDay(t *testing.T) {
 
 func TestSunPopupSkippedWhenDisabledOrBeforeEvent(t *testing.T) {
 	date := time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)
-	sunrise, _, _ := sunTimes(10, 10, date).pair()
+	sunrise, _, _ := weather.SunTimes(10, 10, date).Pair()
 
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.SunPopups = boolPtr(false)
 	app := NewApp(cfg, pub, testLogger())
@@ -62,7 +64,7 @@ func TestSunPopupSkippedWhenDisabledOrBeforeEvent(t *testing.T) {
 
 	pub2 := &recordingPublisher{}
 	cfg2 := defaultConfig()
-	cfg2.Weather.applyDefaults()
+	cfg2.Weather.ApplyDefaults()
 	cfg2.Weather.Enabled = true
 	cfg2.Weather.SunPopups = boolPtr(true)
 	cfg2.Weather.Latitude = 10
@@ -102,15 +104,15 @@ func TestSunPopupsFireOnceForEveryModelCrossingAllYear(t *testing.T) {
 			evs := sunEventsByDate{lat: s.lat, lon: s.lon}
 			for now := from; now.Before(to); now = now.Add(time.Minute) {
 				_, off := now.In(loc).Zone()
-				obs := weatherObservation{TZKnown: true, TZOffsetSeconds: off}
+				obs := weather.Observation{TZKnown: true, TZOffsetSeconds: off}
 				for _, ev := range log.due(evs.at(now), now) {
-					fired = append(fired, sunCrossingAt{ev.at, ev.rise})
-					if got, want := sunClock(ev.at, obs, s.lon), ev.at.In(loc).Format("15:04"); got != want {
-						t.Errorf("%s %v: label %s, local time %s", crossingWord(ev.rise), ev.at, got, want)
+					fired = append(fired, sunCrossingAt{ev.At, ev.Rise})
+					if got, want := weather.SunClock(ev.At, obs, s.lon), ev.At.In(loc).Format("15:04"); got != want {
+						t.Errorf("%s %v: label %s, local time %s", crossingWord(ev.Rise), ev.At, got, want)
 					}
 				}
 			}
-			crossings := scannedSunCrossings(s.lat, s.lon, []float64{sunHorizonDeg}, from, to)[0]
+			crossings := scannedSunCrossings(s.lat, s.lon, []float64{weather.SunHorizonDeg}, from, to)[0]
 			matches := func(c sunCrossingAt, in []sunCrossingAt) int {
 				n := 0
 				for _, o := range in {

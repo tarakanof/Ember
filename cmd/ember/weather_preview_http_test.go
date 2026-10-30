@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func weatherPreviewServer(t *testing.T) (*App, *httptest.Server) {
@@ -68,7 +69,7 @@ func TestWeatherPreview_SampleFallbackAndFlags(t *testing.T) {
 func TestWeatherPreview_AirLiveObservationWins(t *testing.T) {
 	app, srv := weatherPreviewServer(t)
 	app.weather.mu.Lock()
-	app.weather.air = airObservation{AQI: 150, HourlyAQI: []float64{150, 140}, FetchedAt: time.Now()}
+	app.weather.air = weather.AirObservation{AQI: 150, HourlyAQI: []float64{150, 140}, FetchedAt: time.Now()}
 	app.weather.haveAir = true
 	app.weather.mu.Unlock()
 
@@ -88,10 +89,10 @@ func TestWeatherPreview_AirLiveObservationWins(t *testing.T) {
 func TestWeatherPreview_LiveObservationWins(t *testing.T) {
 	app, srv := weatherPreviewServer(t)
 	app.weather.mu.Lock()
-	app.weather.obs = weatherObservation{Condition: render.WeatherSnow, TempC: -3,
+	app.weather.obs = weather.Observation{Condition: render.WeatherSnow, TempC: -3,
 		Hourly: []float64{-3, -2}, FetchedAt: time.Now()}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	app.weather.mu.Unlock()
 
 	live := decodeWeatherPreview(t, srv.URL+"/v1/weather/preview")

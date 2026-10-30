@@ -16,6 +16,7 @@ import (
 	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/nowplaying"
 	"github.com/tarakanof/ember/internal/pomodoro"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 const exampleDeviceToken = "ekd_EXAMPLE-token-not-real-00000000000000000000"
@@ -85,9 +86,9 @@ func fullViewScenario(t *testing.T, f *viewFixture) {
 		c.Weather.Provider = "open-meteo"
 		c.Weather.Latitude, c.Weather.Longitude = lonLat, lonLon
 	})
-	f.app.weather.obs = weatherObservation{Condition: "rain", ConditionCode: "61", TempC: 12.5, ObservedAt: now.Add(-20 * time.Minute).Truncate(15 * time.Minute), FetchedAt: now.Add(-5 * time.Minute)}
+	f.app.weather.obs = weather.Observation{Condition: "rain", ConditionCode: "61", TempC: 12.5, ObservedAt: now.Add(-20 * time.Minute).Truncate(15 * time.Minute), FetchedAt: now.Add(-5 * time.Minute)}
 	f.app.weather.have = true
-	f.app.weather.source = f.app.cfg.Load().Weather.source()
+	f.app.weather.source = f.app.cfg.Load().Weather.Source()
 	teal := "#00c8c8"
 	amber := "#ffaa00"
 	f.clk.advance(-3 * time.Second)
@@ -147,9 +148,9 @@ func TestDeviceViewGolden(t *testing.T) {
 			c.Weather.Provider = "open-meteo"
 			c.Weather.Latitude, c.Weather.Longitude = 0, 0
 		})
-		f.app.weather.obs = weatherObservation{Condition: "clear", ConditionCode: "0", TempC: -3, FetchedAt: f.clk.Now().Add(-2 * time.Hour)}
+		f.app.weather.obs = weather.Observation{Condition: "clear", ConditionCode: "0", TempC: -3, FetchedAt: f.clk.Now().Add(-2 * time.Hour)}
 		f.app.weather.have = true
-		f.app.weather.source = f.app.cfg.Load().Weather.source()
+		f.app.weather.source = f.app.cfg.Load().Weather.Source()
 		f.app.Upsert(StatusRequest{Source: "studio", Tool: "claude", Session: "s1", State: "running"})
 		f.app.Upsert(StatusRequest{Source: "studio", Tool: "codex", Session: "s2", State: "done"})
 		f.eng.Start(pomodoro.PhaseFocus)

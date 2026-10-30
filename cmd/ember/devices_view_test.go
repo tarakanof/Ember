@@ -13,6 +13,7 @@ import (
 
 	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/pomodoro"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 const knobViewPath = "/v1/devices/self/view"
@@ -67,9 +68,9 @@ func TestKnobViewBodyIsCompactAndOrdered(t *testing.T) {
 		c.Weather.Provider = "open-meteo"
 		c.Weather.Latitude, c.Weather.Longitude = lonLat, lonLon
 	})
-	f.app.weather.obs = weatherObservation{Condition: "rain", ConditionCode: "61", TempC: 12.5, FetchedAt: now.Add(-5 * time.Minute)}
+	f.app.weather.obs = weather.Observation{Condition: "rain", ConditionCode: "61", TempC: 12.5, FetchedAt: now.Add(-5 * time.Minute)}
 	f.app.weather.have = true
-	f.app.weather.source = f.app.cfg.Load().Weather.source()
+	f.app.weather.source = f.app.cfg.Load().Weather.Source()
 	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "waiting"})
 	f.app.Upsert(StatusRequest{Source: "M4", Tool: "codex", Session: "s2", State: "running"})
 	f.eng.Start(pomodoro.PhaseFocus)
@@ -78,7 +79,7 @@ func TestKnobViewBodyIsCompactAndOrdered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rise, set, _ := sunTimes(lonLat, lonLon, now).pair()
+	rise, set, _ := weather.SunTimes(lonLat, lonLon, now).Pair()
 	want := fmt.Sprintf(`{"v":1,"epoch":1,"config_version":1,`+
 		`"mood":{"waiting":1,"errors":0,"running":1,"done":0,"source":"M4","tool":"claude"},`+
 		`"pomo":{"phase":"focus","running":true,"paused":false,"ends_at":%d,"planned_sec":1500,"round":0},`+
@@ -120,9 +121,9 @@ func TestKnobViewPausedPomodoroCarriesRemaining(t *testing.T) {
 func TestKnobViewNullsDisabledSections(t *testing.T) {
 	f := newViewFixture(t)
 	f.app.updateConfig(func(c *Config) { c.Pomodoro.Enabled = false; c.Weather.Enabled = false })
-	f.app.weather.obs = weatherObservation{Condition: "rain", FetchedAt: f.clk.Now()}
+	f.app.weather.obs = weather.Observation{Condition: "rain", FetchedAt: f.clk.Now()}
 	f.app.weather.have = true
-	f.app.weather.source = f.app.cfg.Load().Weather.source()
+	f.app.weather.source = f.app.cfg.Load().Weather.Source()
 	body, _, _ := f.app.knobView(f.m.ID, f.clk.Now())
 	for _, want := range []string{`"pomo":null`, `"weather":null`, `"mood":{"waiting":0,"errors":0,"running":0,"done":0,"source":""}`} {
 		if !strings.Contains(string(body), want) {
@@ -200,7 +201,7 @@ func TestKnobViewWeatherNightWestOfGreenwich(t *testing.T) {
 		c.Weather.Latitude, c.Weather.Longitude = sfLat, sfLon
 	})
 	f.app.weather.have = true
-	f.app.weather.source = f.app.cfg.Load().Weather.source()
+	f.app.weather.source = f.app.cfg.Load().Weather.Source()
 	cases := []struct {
 		name      string
 		now       time.Time
@@ -212,7 +213,7 @@ func TestKnobViewWeatherNightWestOfGreenwich(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f.app.weather.obs = weatherObservation{Condition: "clear", FetchedAt: tc.now, TZKnown: true, TZOffsetSeconds: -7 * 3600}
+			f.app.weather.obs = weather.Observation{Condition: "clear", FetchedAt: tc.now, TZKnown: true, TZOffsetSeconds: -7 * 3600}
 			w := f.app.knobWeather(tc.now)
 			if w == nil || w.Night != tc.wantNight {
 				t.Fatalf("weather = %+v, want night %v", w, tc.wantNight)
@@ -230,7 +231,7 @@ func TestKnobViewWeatherObservedAt(t *testing.T) {
 	f := newViewFixture(t)
 	f.app.updateConfig(func(c *Config) { c.Weather.Enabled = true })
 	f.app.weather.have = true
-	f.app.weather.source = f.app.cfg.Load().Weather.source()
+	f.app.weather.source = f.app.cfg.Load().Weather.Source()
 	weatherOf := func(t *testing.T) (map[string]json.RawMessage, string) {
 		t.Helper()
 		resp, b := f.get(t, "")
@@ -250,7 +251,7 @@ func TestKnobViewWeatherObservedAt(t *testing.T) {
 	t.Run("present as Unix seconds when known", func(t *testing.T) {
 		amsterdam := time.FixedZone("CEST", 2*3600)
 		observed := time.Date(2026, 6, 21, 13, 45, 0, 500_000_000, amsterdam)
-		f.app.weather.obs = weatherObservation{Condition: "rain", ObservedAt: observed, FetchedAt: f.clk.Now()}
+		f.app.weather.obs = weather.Observation{Condition: "rain", ObservedAt: observed, FetchedAt: f.clk.Now()}
 		w, body := weatherOf(t)
 		raw, ok := w["observed_at"]
 		if !ok {
@@ -265,7 +266,7 @@ func TestKnobViewWeatherObservedAt(t *testing.T) {
 		}
 	})
 	t.Run("absent when unknown", func(t *testing.T) {
-		f.app.weather.obs = weatherObservation{Condition: "rain", FetchedAt: f.clk.Now()}
+		f.app.weather.obs = weather.Observation{Condition: "rain", FetchedAt: f.clk.Now()}
 		if w, body := weatherOf(t); w["observed_at"] != nil {
 			t.Fatalf("observed_at present, want the key left out: %s", body)
 		}
