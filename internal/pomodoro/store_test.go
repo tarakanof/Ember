@@ -57,30 +57,6 @@ func TestIncompleteAndBreakPhasesDoNotCountAsFocus(t *testing.T) {
 	}
 }
 
-func TestStreakCountsConsecutiveDaysAndBreaksOnGap(t *testing.T) {
-	s := openTestStore(t)
-	now := time.Date(2026, 5, 28, 23, 0, 0, 0, time.UTC)
-	rec := func(daysAgo int) {
-		end := now.AddDate(0, 0, -daysAgo)
-		start := end.Add(-25 * time.Minute)
-		if err := s.RecordPhase(PhaseResult{Phase: PhaseFocus, PlannedSec: 1500, ActualSec: 1500, Completed: true, Reason: "completed"}, start, end); err != nil {
-			t.Fatalf("RecordPhase: %v", err)
-		}
-	}
-	rec(0)
-	rec(1)
-	rec(2)
-	rec(4)
-
-	streak, err := s.Streak(now)
-	if err != nil {
-		t.Fatalf("Streak: %v", err)
-	}
-	if streak != 3 {
-		t.Fatalf("streak = %d, want 3", streak)
-	}
-}
-
 func TestSettingsRoundTrip(t *testing.T) {
 	s := openTestStore(t)
 
@@ -103,30 +79,6 @@ func TestSettingsRoundTrip(t *testing.T) {
 	val, _, _ = s.GetSetting("focus_min")
 	if val != "45" {
 		t.Fatalf("value after overwrite = %q, want 45", val)
-	}
-}
-
-func TestHistoryReturnsPerDayRollup(t *testing.T) {
-	s := openTestStore(t)
-	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
-	mk := func(daysAgo, n int) {
-		for i := 0; i < n; i++ {
-			end := now.AddDate(0, 0, -daysAgo)
-			_ = s.RecordPhase(PhaseResult{Phase: PhaseFocus, PlannedSec: 1500, ActualSec: 1500, Completed: true, Reason: "completed"}, end.Add(-25*time.Minute), end)
-		}
-	}
-	mk(0, 2)
-	mk(1, 1)
-
-	hist, err := s.History(now, 3)
-	if err != nil {
-		t.Fatalf("History: %v", err)
-	}
-	if len(hist) != 3 {
-		t.Fatalf("history len = %d, want 3", len(hist))
-	}
-	if hist[0].CompletedFocus != 2 || hist[1].CompletedFocus != 1 || hist[2].CompletedFocus != 0 {
-		t.Fatalf("history counts = %d,%d,%d, want 2,1,0", hist[0].CompletedFocus, hist[1].CompletedFocus, hist[2].CompletedFocus)
 	}
 }
 
@@ -178,5 +130,19 @@ func TestPutSettingsRollsBackOnFailure(t *testing.T) {
 		if _, ok, _ := s.GetSetting(k); ok {
 			t.Fatalf("%s stored after a failed batch", k)
 		}
+	}
+}
+
+func TestOpenSetsWALSafePragmas(t *testing.T) {
+	s := openTestStore(t)
+	var sync, busy int
+	if err := s.db.QueryRow("PRAGMA synchronous").Scan(&sync); err != nil {
+		t.Fatalf("synchronous: %v", err)
+	}
+	if err := s.db.QueryRow("PRAGMA busy_timeout").Scan(&busy); err != nil {
+		t.Fatalf("busy_timeout: %v", err)
+	}
+	if sync != 1 || busy != 2000 {
+		t.Fatalf("synchronous=%d busy_timeout=%d, want 1 and 2000", sync, busy)
 	}
 }

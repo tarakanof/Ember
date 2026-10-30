@@ -5,7 +5,10 @@ on desk displays, plus a Pomodoro timer. Host producers report agent status; the
 server aggregates it, **pushes** frames to an Ulanzi TC001 (awtrix-ng) and is
 **pulled** by the round knob (firmware: `tarakanof/cinder`, `~/Github/cinder`).
 A macOS menu-bar app (`macos/`) configures both. It runs as a Docker container
-on Unraid, kept small: stdlib Go plus `modernc.org/sqlite`.
+on Unraid, kept small: stdlib first. Modules only for SQLite (`modernc.org/sqlite`),
+mDNS (`brutella/dnssd` to browse/advertise; `miekg/dns` + `x/net/ipv4` for the legacy
+unicast path), and ICS/RRULE parsing (`golang-ical`, `rrule-go`), plus `x/sys`. A new
+module needs a reason in the PR.
 
 ## Docs
 

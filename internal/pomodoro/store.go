@@ -68,6 +68,14 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("set WAL: %w", err)
 	}
+	if _, err := db.Exec("PRAGMA synchronous=NORMAL;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set synchronous: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA busy_timeout=2000;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set busy_timeout: %w", err)
+	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
@@ -132,36 +140,6 @@ func (s *Store) dayStat(t time.Time) (DayStat, error) {
 
 func (s *Store) Today(now time.Time) (DayStat, error) {
 	return s.dayStat(now)
-}
-
-func (s *Store) History(now time.Time, days int) ([]DayStat, error) {
-	if days < 1 {
-		days = 1
-	}
-	out := make([]DayStat, 0, days)
-	for i := 0; i < days; i++ {
-		d, err := s.dayStat(now.AddDate(0, 0, -i))
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, d)
-	}
-	return out, nil
-}
-
-func (s *Store) Streak(now time.Time) (int, error) {
-	streak := 0
-	for i := 0; ; i++ {
-		d, err := s.dayStat(now.AddDate(0, 0, -i))
-		if err != nil {
-			return 0, err
-		}
-		if d.CompletedFocus == 0 {
-			break
-		}
-		streak++
-	}
-	return streak, nil
 }
 
 func (s *Store) GetSetting(key string) (value string, ok bool, err error) {
