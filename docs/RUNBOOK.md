@@ -1543,9 +1543,9 @@ Toggle with `limit_alarm` above.
 ## Clock keep-alive toggle (`awtrix.keep_alive`, #769)
 
 `awtrix.keep_alive` in `config.json` (default `true`, shown by `-print-config`)
-selects the HTTP transport for every call to the clock. On, the server reuses one
-pooled TCP connection to the ESP32 (today's behaviour). Off, each call dials a
-fresh connection (`DisableKeepAlives`). It is read on every call, so
+selects the HTTP behaviour for every call to the clock. On, the server reuses one
+pooled TCP connection to the ESP32 (today's behaviour). Off, each request is
+marked `Connection: close` so nothing stays pooled and each push dials fresh. It is read on every call, so
 `POST /admin/reload` applies it without a restart.
 
 To measure it on the live server, compare an hour before and an hour after

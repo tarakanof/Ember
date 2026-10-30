@@ -9,16 +9,26 @@ import (
 	"time"
 )
 
-func pushTwice(t *testing.T, rt http.RoundTripper) []string {
+type closeRT struct{}
+
+func (closeRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	c := r.Clone(r.Context())
+	c.Close = true
+	return http.DefaultTransport.RoundTrip(c)
+}
+
+func pushTwice(t *testing.T, rt http.RoundTripper) ([]string, []bool) {
 	t.Helper()
 	var mu sync.Mutex
 	var addrs []string
+	var closes []bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/" {
 			return
 		}
 		mu.Lock()
 		addrs = append(addrs, r.RemoteAddr)
+		closes = append(closes, r.Close)
 		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -31,23 +41,19 @@ func pushTwice(t *testing.T, rt http.RoundTripper) []string {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	return append([]string(nil), addrs...)
+	return append([]string(nil), addrs...), append([]bool(nil), closes...)
 }
 
-func TestClientWithTransportReusesConnectionByDefault(t *testing.T) {
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	defer tr.CloseIdleConnections()
-	addrs := pushTwice(t, tr)
-	if len(addrs) != 2 || addrs[0] != addrs[1] {
-		t.Fatalf("remote addrs = %v, want one reused connection", addrs)
+func TestClientWithNilTransportReusesConnection(t *testing.T) {
+	addrs, closes := pushTwice(t, nil)
+	if len(addrs) != 2 || addrs[0] != addrs[1] || closes[0] || closes[1] {
+		t.Fatalf("addrs = %v closes = %v, want one reused connection", addrs, closes)
 	}
 }
 
-func TestClientWithTransportNoKeepAliveDialsEachPush(t *testing.T) {
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.DisableKeepAlives = true
-	addrs := pushTwice(t, tr)
-	if len(addrs) != 2 || addrs[0] == addrs[1] {
-		t.Fatalf("remote addrs = %v, want a new connection per push", addrs)
+func TestClientWithCloseTransportDialsEachPush(t *testing.T) {
+	addrs, closes := pushTwice(t, closeRT{})
+	if len(addrs) != 2 || addrs[0] == addrs[1] || !closes[0] || !closes[1] {
+		t.Fatalf("addrs = %v closes = %v, want Connection: close and a new connection per push", addrs, closes)
 	}
 }
