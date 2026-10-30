@@ -112,10 +112,10 @@ func TestNowPlayingStateGolden(t *testing.T) {
 	assertGolden(t, "nowplaying_state_none", app.nowPlayingState(goldenNow))
 	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Teardrop",
 		Artist: "Massive Attack", Album: "Mezzanine", TrackID: "4242", DurationMS: 330_000, PositionMS: 61_000, Volume: new(40)}
-	if _, err := app.nowPlaying.reg.Report(rep, goldenNow); err != nil {
+	if _, err := app.nowPlaying.Reg.Report(rep, goldenNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, nowplaying.NewImage([]byte("album"))); err != nil {
+	if err := app.nowPlaying.Reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, nowplaying.NewImage([]byte("album"))); err != nil {
 		t.Fatal(err)
 	}
 	assertGolden(t, "nowplaying_state", app.nowPlayingState(goldenNow.Add(2*time.Second)))
@@ -206,15 +206,15 @@ func TestNowPlayingArtPutAndGet(t *testing.T) {
 func TestNowPlayingRenderIsCached(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	img := nowplaying.NewImage(pngBytes(t, 64, color.White))
-	a, err := app.nowPlaying.render(img, nowplaying.Album, 32)
+	a, err := app.nowPlaying.Render(img, nowplaying.Album, 32)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := app.nowPlaying.render(img, nowplaying.Album, 32)
+	b, _ := app.nowPlaying.Render(img, nowplaying.Album, 32)
 	if &a[0] != &b[0] {
 		t.Fatal("second render did not come from the cache")
 	}
-	if n, _ := app.nowPlaying.cache.Len(); n != 1 {
+	if n, _ := app.nowPlaying.Cache.Len(); n != 1 {
 		t.Fatalf("cache entries = %d", n)
 	}
 }
@@ -224,7 +224,7 @@ func TestKnobViewNowPlayingOnlyWithPage(t *testing.T) {
 	now := f.clk.Now()
 	rep := nowplaying.Report{Source: "music", Player: "M4", State: nowplaying.Playing, Title: "Song",
 		Artist: "Band", Album: "Record", TrackID: "T1", DurationMS: 200_000, PositionMS: 1000}
-	if _, err := f.app.nowPlaying.reg.Report(rep, now); err != nil {
+	if _, err := f.app.nowPlaying.Reg.Report(rep, now); err != nil {
 		t.Fatal(err)
 	}
 	body, etag, err := f.app.knobView(f.m.ID, now)
@@ -252,14 +252,14 @@ func TestKnobViewNowPlayingOnlyWithPage(t *testing.T) {
 
 	rep.PositionMS = 3000
 	later := now.Add(2 * time.Second)
-	if _, err := f.app.nowPlaying.reg.Report(rep, later); err != nil {
+	if _, err := f.app.nowPlaying.Reg.Report(rep, later); err != nil {
 		t.Fatal(err)
 	}
 	_, etag3, _ := f.app.knobView(f.m.ID, later)
 	if etag3 != etag2 {
 		t.Fatal("a consistent position report moved the view's ETag")
 	}
-	f.app.nowPlaying.reg.Remove("music", "M4")
+	f.app.nowPlaying.Reg.Remove("music", "M4")
 	body, _, _ = f.app.knobView(f.m.ID, later)
 	if !strings.Contains(string(body), `"nowplaying":{"state":"none"}`) {
 		t.Fatalf("nothing playing: %s", body)
@@ -290,26 +290,26 @@ func TestArtistLookupAttachesDeezerPicture(t *testing.T) {
 
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	np := app.nowPlaying
-	np.artists = newArtistLookup(deezer.URL)
-	np.artists.pictureOK = func(*url.URL) bool { return true }
+	np.Artists = nowplaying.NewArtistLookup(deezer.URL)
+	np.Artists.PictureOK = func(*url.URL) bool { return true }
 	rep := nowplaying.Report{Source: "music", Player: "M4", State: nowplaying.Playing, Title: "Song", Artist: "Band"}
-	if err := np.report(rep, time.Now()); err != nil {
+	if err := np.Report(rep, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	j := recvWithin(t, np.jobs, "artist lookup job")
-	np.lookupArtist(context.Background(), j, app)
-	e, _ := np.reg.Get("music", "M4")
+	j := recvWithin(t, np.Jobs, "artist lookup job")
+	np.LookupArtist(context.Background(), j, app.logger)
+	e, _ := np.Reg.Get("music", "M4")
 	if e.ArtistArt == nil || fetchedPath != "/images/artist/abc/500x500-0.jpg" {
 		t.Fatalf("artist art not attached from the exact-name hit (fetched %q)", fetchedPath)
 	}
-	if _, err := np.artists.find(context.Background(), "BAND"); err != nil || searches != 1 || fetched != 1 {
+	if _, err := np.Artists.Find(context.Background(), "BAND"); err != nil || searches != 1 || fetched != 1 {
 		t.Fatalf("second lookup not cached: searches=%d fetched=%d err=%v", searches, fetched, err)
 	}
-	img, err := np.artists.find(context.Background(), "nobody")
+	img, err := np.Artists.Find(context.Background(), "nobody")
 	if err != nil || img != nil {
 		t.Fatalf("miss = %v %v", img, err)
 	}
-	_, _ = np.artists.find(context.Background(), "nobody")
+	_, _ = np.Artists.Find(context.Background(), "nobody")
 	if searches != 2 {
 		t.Fatalf("miss not cached: searches=%d", searches)
 	}
@@ -317,63 +317,11 @@ func TestArtistLookupAttachesDeezerPicture(t *testing.T) {
 
 func TestArtistLookupOffQueuesNothing(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
-	_ = app.nowPlaying.report(nowplaying.Report{Source: "music", Player: "M4", State: nowplaying.Playing, Artist: "Band"}, time.Now())
+	_ = app.nowPlaying.Report(nowplaying.Report{Source: "music", Player: "M4", State: nowplaying.Playing, Artist: "Band"}, time.Now())
 	select {
-	case <-app.nowPlaying.jobs:
+	case <-app.nowPlaying.Jobs:
 		t.Fatal("lookup queued with lookups off")
 	default:
-	}
-}
-
-func TestArtistLookupBacksOffAfterError(t *testing.T) {
-	var calls int
-	deezer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	t.Cleanup(deezer.Close)
-	l := newArtistLookup(deezer.URL)
-	if _, err := l.find(context.Background(), "Band"); err == nil {
-		t.Fatal("want the error once")
-	}
-	if img, err := l.find(context.Background(), "Band"); err != nil || img != nil || calls != 1 {
-		t.Fatalf("error not cached: calls=%d err=%v", calls, err)
-	}
-}
-
-func TestArtistLookupNeedsExactNameAndDeezerCDN(t *testing.T) {
-	var fetched int
-	deezer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/search/artist" {
-			fetched++
-			return
-		}
-		_, _ = io.WriteString(w, `{"data":[{"name":"Bandits","picture_xl":"http://`+r.Host+`/a/1000x1000-0.jpg"},`+
-			`{"name":"Band","picture_xl":"http://`+r.Host+`/b/1000x1000-0.jpg"}]}`)
-	}))
-	t.Cleanup(deezer.Close)
-	l := newArtistLookup(deezer.URL)
-	if img, err := l.find(context.Background(), "Band"); err != nil || img != nil || fetched != 0 {
-		t.Fatalf("non-CDN picture fetched: img=%v fetched=%d err=%v", img, fetched, err)
-	}
-	l = newArtistLookup(deezer.URL)
-	l.pictureOK = func(*url.URL) bool { return true }
-	if img, _ := l.find(context.Background(), "Ban"); img != nil {
-		t.Fatal("picked a picture without an exact name match")
-	}
-	for _, c := range []struct {
-		u  string
-		ok bool
-	}{
-		{"https://e-cdns-images.dzcdn.net/images/artist/x/500x500-0.jpg", true},
-		{"http://e-cdns-images.dzcdn.net/x.jpg", false},
-		{"https://dzcdn.net.evil.example/x.jpg", false},
-		{"https://192.168.0.1/x.jpg", false},
-	} {
-		u, _ := url.Parse(c.u)
-		if deezerCDN(u) != c.ok {
-			t.Errorf("deezerCDN(%s) = %v", c.u, !c.ok)
-		}
 	}
 }
 
@@ -385,10 +333,10 @@ func TestKnobViewWithoutPageIsByteIdentical(t *testing.T) {
 		t.Fatal(err)
 	}
 	rep := nowplaying.Report{Source: "plex", Player: "amp", State: nowplaying.Playing, Title: "x", TrackID: "1", DurationMS: 1000}
-	if _, err := f.app.nowPlaying.reg.Report(rep, now); err != nil {
+	if _, err := f.app.nowPlaying.Reg.Report(rep, now); err != nil {
 		t.Fatal(err)
 	}
-	_ = f.app.nowPlaying.reg.SetArt("plex", "amp", "1", nowplaying.Album, nowplaying.NewImage([]byte("a")))
+	_ = f.app.nowPlaying.Reg.SetArt("plex", "amp", "1", nowplaying.Album, nowplaying.NewImage([]byte("a")))
 	after, etag2, _ := f.app.knobView(f.m.ID, now)
 	if !bytes.Equal(before, after) || etag != etag2 {
 		t.Fatalf("view changed without the page:\n%s\n%s", before, after)
@@ -407,13 +355,13 @@ func TestNowPlayingArtistArtIsImmutableOnlyAtTheArtVersion(t *testing.T) {
 	f := goldenViewFixture(t)
 	f.clk.now = time.Now()
 	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Song", Artist: "Band", TrackID: "1"}
-	if _, err := f.app.nowPlaying.reg.Report(rep, f.clk.Now()); err != nil {
+	if _, err := f.app.nowPlaying.Reg.Report(rep, f.clk.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if !f.app.nowPlaying.reg.SetArtistArt("plex", "Plexamp", "Band", nowplaying.NewImage(pngBytes(t, 32, color.White))) {
+	if !f.app.nowPlaying.Reg.SetArtistArt("plex", "Plexamp", "Band", nowplaying.NewImage(pngBytes(t, 32, color.White))) {
 		t.Fatal("artist art not set")
 	}
-	e, _ := f.app.nowPlaying.reg.Current(f.clk.Now())
+	e, _ := f.app.nowPlaying.Reg.Current(f.clk.Now())
 	v := e.ArtVersion()
 	if v == "" {
 		t.Fatal("no art_version with an artist picture")

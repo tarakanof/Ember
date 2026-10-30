@@ -30,14 +30,14 @@ func coverViewFixture(t *testing.T, live bool) *viewFixture {
 	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"nowplaying","on":true}]}`)
 	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Example Song",
 		Artist: "Example Artist", Album: "Example Album", TrackID: "4242", DurationMS: 330_000, PositionMS: 61_000, Volume: new(40)}
-	if _, err := f.app.nowPlaying.reg.Report(rep, now.Add(-2*time.Second)); err != nil {
+	if _, err := f.app.nowPlaying.Reg.Report(rep, now.Add(-2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	album, err := nowplaying.Prepare(pngBytes(t, 64, color.RGBA{0x40, 0x10, 0x90, 255}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, album); err != nil {
+	if err := f.app.nowPlaying.Reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, album); err != nil {
 		t.Fatal(err)
 	}
 	return f
@@ -57,10 +57,10 @@ func viewAccent(t *testing.T, body []byte) (string, bool) {
 
 func TestKnobViewNPCoverGolden(t *testing.T) {
 	f := coverViewFixture(t, false)
-	e, _ := f.app.nowPlaying.reg.Current(f.clk.Now())
+	e, _ := f.app.nowPlaying.Reg.Current(f.clk.Now())
 	stable := nowplaying.NewImage([]byte("album"))
 	stable.Accent = e.AlbumArt.Accent
-	if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, stable); err != nil {
+	if err := f.app.nowPlaying.Reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, stable); err != nil {
 		t.Fatal(err)
 	}
 	postCapsCheckin(t, f, "0.10.0", knobCapsCover)
@@ -85,7 +85,7 @@ func setCoverArt(t *testing.T, f *viewFixture, c color.Color) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, img); err != nil {
+	if err := f.app.nowPlaying.Reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, img); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -95,7 +95,7 @@ func TestKnobViewNPCoverLightGolden(t *testing.T) {
 	stable := nowplaying.NewImage([]byte("light album"))
 	stable.Accent = nowplaying.FallbackAccent
 	stable.CoverLight = true
-	if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, stable); err != nil {
+	if err := f.app.nowPlaying.Reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, stable); err != nil {
 		t.Fatal(err)
 	}
 	postCapsCheckin(t, f, "0.10.0", knobCapsCover)
@@ -135,7 +135,7 @@ func TestKnobViewETagChangesWithCoverLightAlone(t *testing.T) {
 		img := nowplaying.NewImage([]byte("same picture"))
 		img.Accent = "#6C22E6"
 		img.CoverLight = light
-		if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, img); err != nil {
+		if err := f.app.nowPlaying.Reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, img); err != nil {
 			t.Fatal(err)
 		}
 		body, etag, err := f.app.knobView(f.m.ID, f.clk.Now())
@@ -175,7 +175,7 @@ func TestKnobViewSendsAccentOnlyWithNPCover(t *testing.T) {
 	if !ok || len(a) != 7 || a[0] != '#' {
 		t.Fatalf("np_cover knob accent = %q: %s", a, body)
 	}
-	e, _ := f.app.nowPlaying.reg.Current(f.clk.Now())
+	e, _ := f.app.nowPlaying.Reg.Current(f.clk.Now())
 	tail := `,"accent":"` + a + `","cover_version":"` + e.CoverVersion() + `"}`
 	if string(viewKeys(t, body)["nowplaying"]) != strings.Replace(string(viewKeys(t, plain)["nowplaying"]), `}`, tail, 1) {
 		t.Errorf("accent and cover_version must be the only change to nowplaying:\n%s\n%s", viewKeys(t, plain)["nowplaying"], viewKeys(t, body)["nowplaying"])
@@ -186,7 +186,7 @@ func TestKnobViewLeavesOutAccentWithoutAPicture(t *testing.T) {
 	f := goldenViewFixture(t)
 	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"nowplaying","on":true}]}`)
 	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Song", TrackID: "1"}
-	if _, err := f.app.nowPlaying.reg.Report(rep, f.clk.Now()); err != nil {
+	if _, err := f.app.nowPlaying.Reg.Report(rep, f.clk.Now()); err != nil {
 		t.Fatal(err)
 	}
 	postCapsCheckin(t, f, "0.10.0", knobCapsCover)
@@ -214,7 +214,7 @@ func TestNowPlayingCoverRoute(t *testing.T) {
 	if want := view.NowPlaying.ArtVersion + "-" + nowplaying.CoverRecipe; cv != want {
 		t.Fatalf("cover_version = %q, want %q: a recipe bump must change the cover URL", cv, want)
 	}
-	e, _ := f.app.nowPlaying.reg.Current(f.clk.Now())
+	e, _ := f.app.nowPlaying.Reg.Current(f.clk.Now())
 	if resp, _ := npDo(t, f.srv, "GET", "/v1/nowplaying/art?kind=cover&size=466&v="+e.ArtVersion(), "", nil, nil); resp.Header.Get("Cache-Control") != "no-cache" {
 		t.Fatalf("cover at the bare art_version: Cache-Control %q, want no-cache so a recipe bump is refetched", resp.Header.Get("Cache-Control"))
 	}
@@ -245,13 +245,13 @@ func TestNowPlayingCoverFallsBackToTheArtistPicture(t *testing.T) {
 	f := goldenViewFixture(t)
 	f.clk.now = time.Now()
 	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Song", Artist: "Band", TrackID: "1"}
-	if _, err := f.app.nowPlaying.reg.Report(rep, f.clk.Now()); err != nil {
+	if _, err := f.app.nowPlaying.Reg.Report(rep, f.clk.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if resp, _ := npDo(t, f.srv, "GET", "/v1/nowplaying/art?kind=cover", "", nil, nil); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("cover without pictures: %d, want 404", resp.StatusCode)
 	}
-	if !f.app.nowPlaying.reg.SetArtistArt("plex", "Plexamp", "Band", nowplaying.NewImage(pngBytes(t, 32, color.White))) {
+	if !f.app.nowPlaying.Reg.SetArtistArt("plex", "Plexamp", "Band", nowplaying.NewImage(pngBytes(t, 32, color.White))) {
 		t.Fatal("artist art not set")
 	}
 	if resp, _ := npDo(t, f.srv, "GET", "/v1/nowplaying/art?kind=cover", "", nil, nil); resp.StatusCode != http.StatusOK {

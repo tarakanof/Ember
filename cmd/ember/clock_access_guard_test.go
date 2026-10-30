@@ -27,7 +27,7 @@ const (
 
 var nonClockHTTPFiles = []string{
 	"clock_access.go", "meetings_poll.go", "icon_provision.go",
-	"clock_health_http.go", "healthcheck.go", "doctor.go", "nowplaying_plex.go", "nowplaying_deezer.go",
+	"clock_health_http.go", "healthcheck.go", "doctor.go",
 }
 
 func TestClockAccessIsTheOnlyWayToTheClock(t *testing.T) {

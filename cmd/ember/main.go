@@ -20,6 +20,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/tarakanof/ember/internal/discovery"
+	"github.com/tarakanof/ember/internal/nowplaying"
 	"github.com/tarakanof/ember/internal/weather"
 )
 
@@ -109,14 +110,14 @@ func main() {
 	if len(app.meetingsURLs) > 0 {
 		logger.Info("meetings ICS feeds configured", "count", len(app.meetingsURLs))
 	}
-	if plexCfg, ok := plexConfigFromEnv(os.Getenv); ok {
-		app.nowPlaying.plex = newPlexSource(plexCfg)
+	if plexCfg, ok := nowplaying.PlexConfigFromEnv(os.Getenv); ok {
+		app.nowPlaying.Plex = nowplaying.NewPlexSource(plexCfg)
 		logger.Info("plex now-playing source enabled", "plex", plexCfg)
 	} else if plexCfg.URL != "" || plexCfg.Token != "" {
 		logger.Warn("plex now-playing source disabled: EMBER_PLEX_URL must be http(s) and EMBER_PLEX_TOKEN set")
 	}
 	if envOptIn(os.Getenv("EMBER_ARTIST_LOOKUP")) {
-		app.nowPlaying.artists = newArtistLookup(deezerAPIBase)
+		app.nowPlaying.Artists = nowplaying.NewArtistLookup(deezerAPIBase)
 		logger.Info("artist pictures: Deezer lookup on (artist names leave the server; unset EMBER_ARTIST_LOOKUP to stop)")
 	}
 	if cfg.Weather.Enabled {

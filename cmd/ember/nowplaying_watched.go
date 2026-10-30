@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
 var errWatchedInvalid = errors.New("watched must be true or false")
@@ -32,7 +33,7 @@ func (a *App) musicWatched(now time.Time) (bool, time.Time) {
 	return watched, until
 }
 
-func (a *App) musicWatchedUntil(q url.Values) (takeUntil, error) {
+func (a *App) musicWatchedUntil(q url.Values) (nowplaying.TakeUntil, error) {
 	if !q.Has("watched") {
 		return nil, nil
 	}

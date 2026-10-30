@@ -11,6 +11,7 @@ import (
 
 	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/discovery"
+	"github.com/tarakanof/ember/internal/nowplaying"
 	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/sessions"
 	"github.com/tarakanof/ember/internal/weather"
@@ -28,7 +29,7 @@ type App struct {
 	versionInfo  versionInfo
 	startedAt    time.Time
 	limiter      *IPLimiter
-	viewLimit    *callerLimiter
+	viewLimit    *nowplaying.CallerLimiter
 
 	sessions *sessions.Registry
 
@@ -93,7 +94,7 @@ type App struct {
 	viewOverLimit checkinDropLog
 	knobShown     knobShownStore
 	shownDrops    checkinDropLog
-	firmwareLimit *callerLimiter
+	firmwareLimit *nowplaying.CallerLimiter
 	clockStats    *clockStatsStore
 
 	commitHook        func()
@@ -113,7 +114,7 @@ type App struct {
 
 	meetingsURLs []string
 
-	nowPlaying *nowPlayingService
+	nowPlaying *nowplaying.Service
 	controls   *controlsService
 
 	meetings        *meetingsStore
@@ -171,9 +172,9 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.weatherFetcher = weather.NewFetcher()
 	a.meetings = newMeetingsStore()
 	a.meetingsFetcher = newICSFetcher()
-	a.nowPlaying = newNowPlayingService()
+	a.nowPlaying = nowplaying.NewService()
 	a.controls = newControlsService()
-	a.nowPlaying.reg.OnChange = func() { a.changes.notify(topicNowPlaying) }
+	a.nowPlaying.Reg.OnChange = func() { a.changes.notify(topicNowPlaying) }
 	a.iconFetch = fetchLaMetricIcon
 	a.clockJobs = newClockJobGroup()
 	a.cfg.Store(&cfg)
@@ -203,8 +204,8 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.clockStats = newClockStatsStore()
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
-	a.viewLimit = &callerLimiter{burst: viewBurst, perSec: viewPerSec}
-	a.firmwareLimit = &callerLimiter{burst: firmwareDownloadBurst, perSec: firmwareDownloadPerSec}
+	a.viewLimit = &nowplaying.CallerLimiter{Burst: viewBurst, PerSec: viewPerSec}
+	a.firmwareLimit = &nowplaying.CallerLimiter{Burst: firmwareDownloadBurst, PerSec: firmwareDownloadPerSec}
 	if publisher == nil {
 		if clockDisabled() {
 			publisher = disabledPublisher{}

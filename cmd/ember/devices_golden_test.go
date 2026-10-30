@@ -105,13 +105,13 @@ func fullViewScenario(t *testing.T, f *viewFixture) {
 	mustOK(t, "live", resp, b)
 	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Example Song",
 		Artist: "Example Artist", Album: "Example Album", TrackID: "4242", DurationMS: 330_000, PositionMS: 61_000, Volume: new(40)}
-	if _, err := f.app.nowPlaying.reg.Report(rep, now.Add(-2*time.Second)); err != nil {
+	if _, err := f.app.nowPlaying.Reg.Report(rep, now.Add(-2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.app.nowPlaying.reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, nowplaying.NewImage([]byte("album"))); err != nil {
+	if err := f.app.nowPlaying.Reg.SetArt("plex", "Plexamp", "4242", nowplaying.Album, nowplaying.NewImage([]byte("album"))); err != nil {
 		t.Fatal(err)
 	}
-	if !f.app.nowPlaying.reg.SetArtistArt("plex", "Plexamp", "Example Artist", nowplaying.NewImage([]byte("artist"))) {
+	if !f.app.nowPlaying.Reg.SetArtistArt("plex", "Plexamp", "Example Artist", nowplaying.NewImage([]byte("artist"))) {
 		t.Fatal("artist art not set")
 	}
 }

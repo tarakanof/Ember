@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
 func controlsAction(t *testing.T, srv *httptest.Server, token, body, key string) (int, controlsActionAnswer, string) {
@@ -177,7 +178,7 @@ func TestControlsActionRefusalKeepsTheKeyAndTheRateBudget(t *testing.T) {
 	app, srv := controlsServer(t, "M4")
 	knob := pairControlsKnob(t, app, srv, []string{"bot", "controls"}, false)
 	pollControls(t, srv, "M4", 0)
-	for range controlBurst + 5 {
+	for range nowplaying.ControlBurst + 5 {
 		if code, _, _ := controlsAction(t, srv, knob.Token, `{"gesture":"push"}`, "same"); code != http.StatusForbidden {
 			t.Fatalf("got %d, want 403 every time", code)
 		}
@@ -223,7 +224,7 @@ func TestControlsActionIsRateLimitedPerCaller(t *testing.T) {
 	_, srv := controlsServer(t, "M4")
 	pollControls(t, srv, "M4", 0)
 	limited := false
-	for i := range controlBurst + 5 {
+	for i := range nowplaying.ControlBurst + 5 {
 		code, _, _ := controlsAction(t, srv, testToken, `{"gesture":"push"}`, "r"+strconv.Itoa(i))
 		if code == http.StatusTooManyRequests {
 			limited = true

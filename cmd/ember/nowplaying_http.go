@@ -30,7 +30,7 @@ type nowPlayingState struct {
 const nowPlayingNone = "none"
 
 func (a *App) nowPlayingState(now time.Time) nowPlayingState {
-	e, ok := a.nowPlaying.reg.Current(now)
+	e, ok := a.nowPlaying.Reg.Current(now)
 	if !ok {
 		return nowPlayingState{State: nowPlayingNone}
 	}
@@ -87,7 +87,7 @@ func (a *App) handleNowPlayingArt(w http.ResponseWriter, r *http.Request) {
 	art, _ := demoArtOnce()
 	if demo, v, ok := art.picture(kind, q.Get("v")); ok {
 		img, version = demo, v
-	} else if e, ok := a.nowPlaying.reg.Current(time.Now()); ok {
+	} else if e, ok := a.nowPlaying.Reg.Current(time.Now()); ok {
 		img, version = e.Picture(kind), e.ArtVersion()
 		if kind == nowplaying.Cover {
 			version = e.CoverVersion()
@@ -97,7 +97,7 @@ func (a *App) handleNowPlayingArt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("no artwork"))
 		return
 	}
-	etag := artETag(img, kind, size)
+	etag := nowplaying.ArtETag(img, kind, size)
 	h := w.Header()
 	h.Set("ETag", etag)
 	if v := q.Get("v"); v != "" && v == version {
@@ -109,7 +109,7 @@ func (a *App) handleNowPlayingArt(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
-	body, err := a.nowPlaying.render(img, kind, size)
+	body, err := a.nowPlaying.Render(img, kind, size)
 	if err != nil {
 		a.logger.Warn("artwork render failed", "kind", kind, "size", size, "err", err)
 		writeError(w, http.StatusInternalServerError, errors.New("artwork render failed"))
@@ -131,11 +131,11 @@ func (a *App) handleNowPlayingReport(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOrReject(w, r, &rep, false) {
 		return
 	}
-	if err := a.nowPlaying.report(rep, time.Now()); err != nil {
+	if err := a.nowPlaying.Report(rep, time.Now()); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	e, _ := a.nowPlaying.reg.Get(rep.Source, rep.Player)
+	e, _ := a.nowPlaying.Reg.Get(rep.Source, rep.Player)
 	writeJSON(w, http.StatusOK, nowPlayingAck{HasAlbumArt: e.AlbumArt != nil, HasArtistArt: e.ArtistArt != nil})
 }
 
@@ -150,7 +150,7 @@ func (a *App) handleNowPlayingArtPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("track_id is required"))
 		return
 	}
-	img, err := readArt(http.MaxBytesReader(w, r.Body, nowplaying.MaxArtBytes))
+	img, err := nowplaying.ReadArt(http.MaxBytesReader(w, r.Body, nowplaying.MaxArtBytes))
 	if err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
@@ -160,7 +160,7 @@ func (a *App) handleNowPlayingArtPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	switch err := a.nowPlaying.reg.SetArt(q.Get("source"), q.Get("player"), q.Get("track_id"), kind, img); {
+	switch err := a.nowPlaying.Reg.SetArt(q.Get("source"), q.Get("player"), q.Get("track_id"), kind, img); {
 	case errors.Is(err, nowplaying.ErrNoEntry):
 		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, nowplaying.ErrTrackMismatch):
