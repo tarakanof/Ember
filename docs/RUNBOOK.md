@@ -282,6 +282,19 @@ swift test --package-path macos                          # headless EmberKit tes
 
 The generated `Ember.xcodeproj` is gitignored — regenerate it after pulling.
 
+**Quit vs close.** Closing the Settings or Dashboard window only hides it; the
+app drops back to a menu-bar agent and everything keeps running. Quit Ember
+(the menu's "Quit Ember", `MenuBarContentView.swift`) stops the app's own
+work, but not the producers or the server.
+
+| | Close the window | Quit Ember |
+|---|---|---|
+| Menu-bar icon and bot | keeps running | stops |
+| Music now-playing pusher, knob music commands (`MusicNowPlayingWatcher.swift`) | keeps running | stops |
+| Apple Reminders watcher (`ReminderWatcher.swift`) | keeps running | stops |
+| Producer LaunchAgents (`com.ember.heartbeat`, `com.ember.codex`, `com.ember.t3`) | keep running | keep running |
+| Ember server, clock, knob | keep running | keep running |
+
 **Local install without a Developer ID.** macOS Local Network privacy (and
 Little Snitch) key their grants to the app's designated requirement. An
 ad-hoc signed app's requirement is its cdhash, so every rebuild is a new
