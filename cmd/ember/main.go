@@ -156,7 +156,10 @@ func main() {
 	}
 
 	if !clockDisabled() {
-		if err := app.ClearIndicators(context.Background()); err != nil {
+		clearCtx, cancel := context.WithTimeout(context.Background(), startupClearBudget)
+		err := app.ClearIndicators(clearCtx)
+		cancel()
+		if err != nil {
 			logger.Warn("clear indicators on startup failed", "err", err)
 		}
 	}

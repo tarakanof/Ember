@@ -226,7 +226,10 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter 
 
 func observeRequests(app *App, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		rec, ok := w.(*statusRecorder)
+		if !ok {
+			rec = &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		}
 		next.ServeHTTP(rec, r)
 		if r.URL.Path == "/metrics" {
 			return
