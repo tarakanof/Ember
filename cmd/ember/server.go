@@ -101,6 +101,7 @@ func (a *App) routeTable() (http.Handler, []string) {
 	writeMux.Handle("PUT /v1/day/config", http.HandlerFunc(a.handleDayConfigPut))
 	writeMux.Handle("GET /v1/day/history", http.HandlerFunc(a.handleDayHistory))
 	writeMux.Handle("GET /v1/day/weeks", http.HandlerFunc(a.handleDayWeeks))
+	writeMux.Handle("POST /v1/day/replies", http.HandlerFunc(a.handleDayReplies))
 	writeMux.Handle("GET /v1/weather/config", http.HandlerFunc(a.handleWeatherConfigGet))
 	writeMux.Handle("PUT /v1/weather/config", http.HandlerFunc(a.handleWeatherConfigPut))
 	writeMux.Handle("GET /v1/meetings/config", http.HandlerFunc(a.handleMeetingsConfigGet))

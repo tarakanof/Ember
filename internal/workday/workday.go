@@ -28,6 +28,8 @@ type Reply struct {
 	Source     string
 	Tool       string
 	SessionKey string
+	Repo       string
+	Exact      bool
 }
 
 type Interval struct {

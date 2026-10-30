@@ -11,7 +11,8 @@ client tokens (`ekc_…`) and knob tokens are minted only by the master token wi
 {"kind":"client","name","scopes"}` (at most 64; rename/rotate/delete also master-only;
 listed by `GET /v1/clients`, owner or `admin`, kept out of the device
 registry since #340) and pass only their scopes: `ingest` (`POST`/`DELETE /v1/status`,
-`POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire`), `control`
+`POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire`,
+`POST /v1/day/replies`), `control`
 (`POST /v1/pomodoro/{start,pause,resume,stop,skip}`, the day clock's
 `GET /v1/day/state` and actions), `read` (the non-secret
 settings GETs: apps, pomodoro/usage/display/brightness/quiet/day config,
@@ -19,8 +20,8 @@ settings GETs: apps, pomodoro/usage/display/brightness/quiet/day config,
 `/v1/clock/stats`), `admin` (every bearer `/v1/` route except client-token
 management). Wrong scope is 403. An optional `"sources":[…]` at mint (1-16,
 each ≤64 chars, needs `ingest`; 400 with `admin`, which could still `POST /v1/clear`) binds the token: `POST`/`DELETE
-/v1/status` and `POST /v1/usage` naming another `source` (usage: or none) are
-403; without it any source passes. Usage ownership goes by writer (the
+/v1/status`, `POST /v1/day/replies` and `POST /v1/usage` naming another
+`source` (usage: or none) are 403; without it any source passes. Usage ownership goes by writer (the
 token, not the `source` label): an account belongs to the writer (token) that created it or last took it
 over. Another writer's post updates it while it is stale (no post for 10
 min) or its owner's token was deleted, and then takes it over; while it is
@@ -143,6 +144,14 @@ one per local day: `date`, `start`, `stop`, `stop_target`, `on_sec`,
 `last_reply`, `breaks[{start, end}]`), `GET /v1/day/weeks?weeks=N` (1-52,
 default 8; `{"weeks":[{week, days_worked, days_in_range, on_sec,
 replies_off}]}`, ISO weeks newest first),
+`POST /v1/day/replies` (`ingest`; #730, ARCHITECTURE "Day clock"; the
+producers' exact prompts: `{"replies":[{at, source, tool, session,
+repo?}]}`, `at` in unix seconds, at most 500 per request, never prompt text;
+strict, so an unknown field is a 400, and so is an `at` more than 10 min
+ahead; a replay of the same `source/tool/session` and `at` inserts nothing;
+a reply within 2 min of now counts like an estimated one (offer, off-clock
+count), older ones only go into history; 404 while `day.enabled` is false;
+replies `{"ok":true,"accepted":N}`),
 `POST /v1/usage` (optional `account_key`, 16 hex characters hashed on the
 Mac, and `plan`; one entry per tool and account, newest wins, dropped after 7
 days; each writer, a client token or the master token, keeps 8 per tool

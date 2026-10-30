@@ -33,6 +33,8 @@ func main() {
 		runDoctor()
 	case "discover":
 		runDiscover()
+	case "backfill":
+		runBackfill(os.Args[2:])
 	case "version", "-v", "--version":
 		fmt.Println("ember-claude-producer", version)
 	case "help", "-h", "--help":
@@ -57,6 +59,7 @@ Usage:
   ember-claude-producer deconfigure           # reverse configure
   ember-claude-producer doctor                # show config + state health
   ember-claude-producer discover   # find the server over mDNS, cache + probe it
+  ember-claude-producer backfill [--days 30] [--dry-run]  # post past prompts to the day clock
   ember-claude-producer version               # print version
   ember-claude-producer help                  # this help
 

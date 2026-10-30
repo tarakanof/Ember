@@ -135,6 +135,7 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 		handleSessionStart(cfg, in, markerP, lockP)
 	case "user-prompt-submit":
 		handleUpsertWith(ctx, cfg, client, sessionID, "running", truncate(in.Prompt, 80), "", markerP, lockP, upsertExtra{newTurn: true, cwd: in.CWD})
+		postPromptReply(ctx, cfg, client, sessionID, in)
 	case "pre-tool-use":
 		act := ""
 		if cfg.ActivityDetailEnabled {

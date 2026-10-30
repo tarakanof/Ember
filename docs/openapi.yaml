@@ -2102,6 +2102,73 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/day/replies:
+    post:
+      tags: [ingest]
+      operationId: postDayReplies
+      summary: Report the user's own prompts to the day clock
+      description: |
+        Exact replies from the producers (Claude Code hook and backfill, T3
+        Code, Codex TUI). `at` is unix seconds; `repo` is the main
+        checkout's folder name, empty when the producer doesn't send
+        projects. No prompt text: the body is strict, so an unknown field
+        is a 400. At most 500 replies per request; an `at` more than 10 min
+        ahead is a 400. A replay of the same `source`, `tool`, `session`
+        and `at` inserts nothing. A reply within 2 min of now counts like
+        an estimated one (off-clock count, `offer_start`); older replies
+        only go into history. Once a `source` and `tool` pair has an exact
+        reply in the last 24 h, the server stops estimating replies from
+        its status changes, and history drops that pair's estimates within
+        24 h of an exact reply. A client token bound to `sources` gets 403
+        for any other `source`.
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [ingest]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [replies]
+              properties:
+                replies:
+                  type: array
+                  maxItems: 500
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [at, source, tool, session]
+                    properties:
+                      at:
+                        type: integer
+                        format: int64
+                      source:
+                        type: string
+                      tool:
+                        type: string
+                      session:
+                        type: string
+                      repo:
+                        type: string
+            example:
+              replies:
+                - at: 1793353920
+                  source: m4
+                  tool: claude
+                  session: 6f1c2d0e-3b8a-4c55-9a51-2f0e8d7c1b44
+                  repo: Ember
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/day/weeks:
     get:
       tags: [read]

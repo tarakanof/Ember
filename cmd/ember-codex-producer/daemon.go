@@ -122,4 +122,5 @@ func runOnce(ctx context.Context, w *watcher, as *appServer, client *producer.Cl
 			daemonFailLog.Warn(slog.Default(), "codex_usage", "usage POST failed", "err", err)
 		}
 	}
+	w.sendReplies(ctx, client)
 }
