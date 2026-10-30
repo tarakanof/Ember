@@ -5415,6 +5415,28 @@ draws-if-present in `internal/render`, add a menu checkbox.
   first so `server.Shutdown` does not wait out open polls (they answer 304).
   A device deleted mid-wait gets 401, as the auth check would give.
   Metrics: `ember_knob_view_waiters` (gauge), `ember_knob_view_longpoll_total{result=change|timeout|shutdown|gone|busy}`.
+- **State feed long-poll (#770, `state_wait.go`).** `GET /state` and
+  `GET /v1/pomodoro/state` follow the knob view's contract (`?wait=`,
+  `X-Ember-View-Wait`, 304, the 5 s recheck, deadlines moved to wait + 5 s)
+  with their own wait loop, `awaitChange`, the knob's minus quiet-hours edges.
+  The tag is not a hash of the body: `/state` hashes `render` and the sessions
+  sorted by key with `updated_at` cut to the minute, leaving out `now`;
+  Pomodoro hashes the timer with `ends_at` standing in for the countdown while
+  it runs. Both bodies change under one tag, so the header is weak. `Upsert`
+  notifies when that tag moves, so a change to a non-winning session wakes
+  waiters; an unchanged heartbeat stays quiet. Both routes stay public: the
+  bodies already are, and `stateWaiters` is a pool of its own, separate from
+  the knob's (2 per route and client IP, 32 in total; over a cap → 429 +
+  `Retry-After: 2`). Metrics: `ember_state_waiters` (gauge),
+  `ember_state_longpoll_total{result=change|timeout|shutdown|gone|busy}`.
+  Ember.app (`RefreshCoordinator`, `LiveModel`): the first request and any
+  request after a failure is plain, and only a reply with both `ETag` and
+  `X-Ember-View-Wait` starts long-polling, so an older server keeps the 3 s
+  poll. A long-polling feed runs at a 1 s gap. `refreshNow`, `pause`, `stop`,
+  `restart` and a server change cancel a parked request rather than join it,
+  otherwise an action's refresh could hold for 25 s. While the timer runs,
+  the tier-C `.pomodoroCountdown` feed re-derives `remaining_sec` every 3 s
+  from the last 200, with no requests; it is held only then.
 - **Change broadcaster (`changes.go`).** `changeBroadcaster` is a
   `chan struct{}` closed and swapped on every `notify(topic)`. A waiter
   subscribes *before* it reads the state and then blocks on that channel,

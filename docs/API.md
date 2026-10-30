@@ -258,9 +258,14 @@ of `/api/v1/system.buttonCallback`),
 effect/transition/overlay/palette lists; live proxy when the cache is cold),
 `POST /v1/device/{reboot,notify/dismiss,app/next,app/previous}`. Read (no auth):
 `GET /state` (each session carries `state_since` and, from producers that
-send it, `project`, #485), `GET /healthz`, `GET /v1/display/brightness` (clock lux, else sun schedule), `GET /v1/preview`,
+send it, `project`, #485; weak `ETag`/304 and long-poll `?wait=≤25`, advertised
+by `X-Ember-View-Wait`; a 304 keeps `X-Ember-Devices-Epoch`; the tag ignores
+`now` and session order, and moves with `updated_at` at most once a minute,
+#770), `GET /healthz`, `GET /v1/display/brightness` (clock lux, else sun schedule), `GET /v1/preview`,
 `GET /v1/{weather,pomodoro,reminders}/preview`, `GET /v1/meetings/{preview,state}`,
-`GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
+`GET /v1/pomodoro/{state,stats,heatmap,workhours}` (`state` has the same
+`ETag`, 304 and `?wait=` as `/state`; the tag ignores the countdown while the
+timer runs, so `remaining_sec` is valid for the moment the 200 arrived, #770),
 `GET /v1/pomodoro/dashboard` (HTML), and the native-dashboard reads
 (`dashboard_http.go`, `clock_health_http.go`): `GET /v1/usage` (latest usage
 snapshot per tool — the POST stays authed), `GET /v1/activity/summary?days=`
