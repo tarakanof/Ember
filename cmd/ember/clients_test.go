@@ -10,12 +10,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
-	legacyIngestToken  = clientTokenPrefix + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-	legacyBoundToken   = clientTokenPrefix + "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-	legacyKnobToken    = deviceTokenPrefix + "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+	legacyIngestToken  = devices.ClientTokenPrefix + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	legacyBoundToken   = devices.ClientTokenPrefix + "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	legacyKnobToken    = devices.TokenPrefix + "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
 	legacyIngestClient = "client-0a0b0c0d"
 	legacyBoundClient  = "client-1a2b3c4d"
 )
@@ -23,12 +25,12 @@ const (
 func legacyDevicesBlob(t *testing.T, knobRecord string) string {
 	t.Helper()
 	records := []string{
-		`{"id":"` + legacyIngestClient + `","kind":"client","hw_id":"","name":"old ci","token_sha256":"` + tokenHash(legacyIngestToken) +
+		`{"id":"` + legacyIngestClient + `","kind":"client","hw_id":"","name":"old ci","token_sha256":"` + devices.TokenHash(legacyIngestToken) +
 			`","config":{},"config_version":0,"created_at":"2026-09-01T00:00:00Z","scopes":["ingest"]}`,
-		`{"id":"` + legacyBoundClient + `","kind":"client","hw_id":"","name":"ha","token_sha256":"` + tokenHash(legacyBoundToken) +
+		`{"id":"` + legacyBoundClient + `","kind":"client","hw_id":"","name":"ha","token_sha256":"` + devices.TokenHash(legacyBoundToken) +
 			`","config":{"brightness":{"follow_ember":false,"level":0,"floor":0,"startup":0},"pages":null,"home":"","poll_ms":0},` +
 			`"config_version":0,"created_at":"2026-09-20T00:00:00Z","scopes":["control","ingest"],"sources":["homeassistant"]}`,
-		`{"id":"knob-aabbcc","kind":"cinder-knob","hw_id":"112233aabbcc","name":"Old knob","token_sha256":"` + tokenHash(legacyKnobToken) +
+		`{"id":"knob-aabbcc","kind":"cinder-knob","hw_id":"112233aabbcc","name":"Old knob","token_sha256":"` + devices.TokenHash(legacyKnobToken) +
 			`","config":{"brightness":{"follow_ember":true,"level":128,"floor":1,"startup":64},"pages":[{"id":"bot","on":true}],"home":"bot","poll_ms":2000},` +
 			`"config_version":4,"created_at":"2026-08-01T00:00:00Z"}`,
 	}
@@ -40,7 +42,7 @@ func legacyDevicesBlob(t *testing.T, knobRecord string) string {
 
 func storedKnobRecord(t *testing.T, app *App) string {
 	t.Helper()
-	blob, _, err := app.store.GetSetting(devicesKey)
+	blob, _, err := app.store.GetSetting(devices.StateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,9 +71,9 @@ func listIDs(t *testing.T, b []byte, key string) map[string]string {
 	return ids
 }
 
-func storedClientHashes(t *testing.T, kv settingsKV) map[string]string {
+func storedClientHashes(t *testing.T, kv devices.KV) map[string]string {
 	t.Helper()
-	clients, err := readClients(kv)
+	clients, err := devices.ReadClients(kv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,10 +89,10 @@ func TestClientMigrationMovesLegacyClientsOutOfDevices(t *testing.T) {
 	app, srv := newDevicesApp(t, db)
 	knob := mintKnob(t, srv, http.StatusCreated)
 	legacy := legacyDevicesBlob(t, storedKnobRecord(t, app))
-	if err := app.store.PutSetting(devicesKey, legacy); err != nil {
+	if err := app.store.PutSetting(devices.StateKey, legacy); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.devices.load(); err == nil {
+	if err := app.devices.Load(); err == nil {
 		t.Fatal("device registry loaded an unmigrated client record")
 	}
 	srv.Close()
@@ -98,27 +100,27 @@ func TestClientMigrationMovesLegacyClientsOutOfDevices(t *testing.T) {
 
 	app, srv = newDevicesApp(t, db)
 	wantHashes := map[string]string{
-		legacyIngestClient: tokenHash(legacyIngestToken),
-		legacyBoundClient:  tokenHash(legacyBoundToken),
+		legacyIngestClient: devices.TokenHash(legacyIngestToken),
+		legacyBoundClient:  devices.TokenHash(legacyBoundToken),
 	}
 	assertMigrated := func(stage string) {
 		t.Helper()
 		if got := storedClientHashes(t, app.store); !maps.Equal(got, wantHashes) {
 			t.Fatalf("%s: stored client hashes = %v, want %v", stage, got, wantHashes)
 		}
-		blob, _, _ := app.store.GetSetting(devicesKey)
+		blob, _, _ := app.store.GetSetting(devices.StateKey)
 		if strings.Contains(blob, `"kind":"client"`) || strings.Contains(blob, `"scopes"`) {
 			t.Fatalf("%s: devices blob still holds clients: %s", stage, blob)
 		}
-		if app.devices.epochValue() != 7 {
-			t.Fatalf("%s: epoch = %d, want 7 kept", stage, app.devices.epochValue())
+		if app.devices.Epoch() != 7 {
+			t.Fatalf("%s: epoch = %d, want 7 kept", stage, app.devices.Epoch())
 		}
 		_, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
-		if got, want := listIDs(t, b, "devices"), map[string]string{"knob-aabbcc": deviceKindKnob, knob.ID: deviceKindKnob}; !maps.Equal(got, want) {
+		if got, want := listIDs(t, b, "devices"), map[string]string{"knob-aabbcc": devices.KindKnob, knob.ID: devices.KindKnob}; !maps.Equal(got, want) {
 			t.Fatalf("%s: devices = %v, want %v", stage, got, want)
 		}
 		_, b = devReq(t, srv, "GET", "/v1/clients", testToken, "")
-		if got, want := listIDs(t, b, "clients"), map[string]string{legacyIngestClient: clientKind, legacyBoundClient: clientKind}; !maps.Equal(got, want) {
+		if got, want := listIDs(t, b, "clients"), map[string]string{legacyIngestClient: devices.KindClient, legacyBoundClient: devices.KindClient}; !maps.Equal(got, want) {
 			t.Fatalf("%s: clients = %v, want %v", stage, got, want)
 		}
 		if !strings.Contains(string(b), `"scopes":["control","ingest"],"sources":["homeassistant"]`) || !strings.Contains(string(b), `"name":"old ci"`) {
@@ -157,13 +159,13 @@ func TestClientMigrationMovesLegacyClientsOutOfDevices(t *testing.T) {
 	}
 	assertMigrated("first run")
 
-	devicesBefore, _, _ := app.store.GetSetting(devicesKey)
-	clientsBefore, _, _ := app.store.GetSetting(clientsKey)
+	devicesBefore, _, _ := app.store.GetSetting(devices.StateKey)
+	clientsBefore, _, _ := app.store.GetSetting(devices.ClientsKey)
 	if err := app.loadRegistries(); err != nil {
 		t.Fatal(err)
 	}
-	devicesAfter, _, _ := app.store.GetSetting(devicesKey)
-	clientsAfter, _, _ := app.store.GetSetting(clientsKey)
+	devicesAfter, _, _ := app.store.GetSetting(devices.StateKey)
+	clientsAfter, _, _ := app.store.GetSetting(devices.ClientsKey)
 	if devicesAfter != devicesBefore || clientsAfter != clientsBefore {
 		t.Fatal("rerun on a migrated store rewrote a blob")
 	}
@@ -176,7 +178,7 @@ func TestClientMigrationMovesLegacyClientsOutOfDevices(t *testing.T) {
 }
 
 type keyFailingKV struct {
-	settingsKV
+	devices.KV
 	failKey string
 }
 
@@ -184,26 +186,26 @@ func (f keyFailingKV) PutSetting(key, value string) error {
 	if key == f.failKey {
 		return errors.New("disk full")
 	}
-	return f.settingsKV.PutSetting(key, value)
+	return f.KV.PutSetting(key, value)
 }
 
 func TestClientMigrationIsSafeToRerunAfterACrash(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	legacy := legacyDevicesBlob(t, "")
-	if err := app.store.PutSetting(devicesKey, legacy); err != nil {
+	if err := app.store.PutSetting(devices.StateKey, legacy); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := migrateClientRecords(keyFailingKV{settingsKV: app.store, failKey: devicesKey}); err == nil {
+	if _, err := devices.MigrateClientRecords(keyFailingKV{KV: app.store, failKey: devices.StateKey}); err == nil {
 		t.Fatal("migration hid the failed device write")
 	}
-	if blob, _, _ := app.store.GetSetting(devicesKey); blob != legacy {
+	if blob, _, _ := app.store.GetSetting(devices.StateKey); blob != legacy {
 		t.Fatalf("devices blob changed by a failed migration: %s", blob)
 	}
 	if got := storedClientHashes(t, app.store); len(got) != 2 {
 		t.Fatalf("clients written before the crash = %v, want both", got)
 	}
 
-	app.devices.kv = func() settingsKV { return keyFailingKV{settingsKV: app.store, failKey: devicesKey} }
+	app.devices.KV = func() devices.KV { return keyFailingKV{KV: app.store, failKey: devices.StateKey} }
 	if err := app.loadRegistries(); err == nil {
 		t.Fatal("loadRegistries ignored a failed migration")
 	}
@@ -217,7 +219,7 @@ func TestClientMigrationIsSafeToRerunAfterACrash(t *testing.T) {
 		t.Fatalf("doctor client_tokens = %+v, want fail", res)
 	}
 
-	app.devices.kv = func() settingsKV { return app.store }
+	app.devices.KV = func() devices.KV { return app.store }
 	if err := app.loadRegistries(); err != nil {
 		t.Fatal(err)
 	}
@@ -228,25 +230,25 @@ func TestClientMigrationIsSafeToRerunAfterACrash(t *testing.T) {
 		t.Fatalf("client auth after rerun = %d %s", resp.StatusCode, b)
 	}
 	_, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
-	if got := listIDs(t, b, "devices"); !maps.Equal(got, map[string]string{"knob-aabbcc": deviceKindKnob}) {
+	if got := listIDs(t, b, "devices"); !maps.Equal(got, map[string]string{"knob-aabbcc": devices.KindKnob}) {
 		t.Fatalf("devices after rerun = %v", got)
 	}
 }
 
 func TestClientMigrationPrefersTheDeviceBlobsRecord(t *testing.T) {
 	app, _ := newDevicesApp(t, "")
-	stale := []clientRecord{{ID: legacyIngestClient, Name: "stale", TokenSHA256: tokenHash("ekc_stale"), Scopes: []string{"read"}}}
-	if err := writeClients(app.store, stale); err != nil {
+	stale := []devices.ClientRecord{{ID: legacyIngestClient, Name: "stale", TokenSHA256: devices.TokenHash("ekc_stale"), Scopes: []string{"read"}}}
+	if err := devices.WriteClients(app.store, stale); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.store.PutSetting(devicesKey, legacyDevicesBlob(t, "")); err != nil {
+	if err := app.store.PutSetting(devices.StateKey, legacyDevicesBlob(t, "")); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := migrateClientRecords(app.store); err != nil || n != 2 {
+	if n, err := devices.MigrateClientRecords(app.store); err != nil || n != 2 {
 		t.Fatalf("moved %d (%v), want 2", n, err)
 	}
-	clients, _ := readClients(app.store)
-	if len(clients) != 2 || clients[0].ID != legacyIngestClient || clients[0].TokenSHA256 != tokenHash(legacyIngestToken) {
+	clients, _ := devices.ReadClients(app.store)
+	if len(clients) != 2 || clients[0].ID != legacyIngestClient || clients[0].TokenSHA256 != devices.TokenHash(legacyIngestToken) {
 		t.Fatalf("clients = %+v, want the device blob's record to replace the stale copy", clients)
 	}
 }
@@ -257,18 +259,18 @@ func TestDevicesListShowsNoClients(t *testing.T) {
 	a := mintClient(t, srv, "ci", "ingest")
 	b := mintBoundClient(t, srv, "ha", []string{"homeassistant"}, "ingest")
 	_, body := devReq(t, srv, "GET", "/v1/devices", testToken, "")
-	if got := listIDs(t, body, "devices"); !maps.Equal(got, map[string]string{knob.ID: deviceKindKnob}) {
+	if got := listIDs(t, body, "devices"); !maps.Equal(got, map[string]string{knob.ID: devices.KindKnob}) {
 		t.Fatalf("devices = %v (%s), want the knob only", got, body)
 	}
-	if strings.Contains(string(body), `"scopes"`) || strings.Contains(string(body), clientIDPrefix) {
+	if strings.Contains(string(body), `"scopes"`) || strings.Contains(string(body), devices.ClientIDPrefix) {
 		t.Fatalf("devices list leaks clients: %s", body)
 	}
 	_, body = devReq(t, srv, "GET", "/v1/clients", testToken, "")
-	if got := listIDs(t, body, "clients"); !maps.Equal(got, map[string]string{a.ID: clientKind, b.ID: clientKind}) {
+	if got := listIDs(t, body, "clients"); !maps.Equal(got, map[string]string{a.ID: devices.KindClient, b.ID: devices.KindClient}) {
 		t.Fatalf("clients = %v", got)
 	}
-	for _, v := range app.devices.list() {
-		if v.Kind != deviceKindKnob {
+	for _, v := range app.devices.List() {
+		if v.Kind != devices.KindKnob {
 			t.Fatalf("registry list holds %+v", v)
 		}
 	}
@@ -321,11 +323,11 @@ func TestClientWireShapeUnchanged(t *testing.T) {
 func TestClientChangesLeaveDeviceEpoch(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	mintKnob(t, srv, http.StatusCreated)
-	before := app.devices.epochValue()
+	before := app.devices.Epoch()
 	m := mintClient(t, srv, "ci", "ingest")
 	devReq(t, srv, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
 	devReq(t, srv, "DELETE", "/v1/devices/"+m.ID, testToken, "")
-	if after := app.devices.epochValue(); after != before {
+	if after := app.devices.Epoch(); after != before {
 		t.Fatalf("client changes moved the device epoch %d -> %d", before, after)
 	}
 }
@@ -335,7 +337,7 @@ func TestCorruptClientStoreFailsClosedWithoutTouchingDevices(t *testing.T) {
 	app, srv := newDevicesApp(t, db)
 	knob := mintKnob(t, srv, http.StatusCreated)
 	c := mintClient(t, srv, "ci", "ingest")
-	if err := app.store.PutSetting(clientsKey, `{"clients":[{"id":`); err != nil {
+	if err := app.store.PutSetting(devices.ClientsKey, `{"clients":[{"id":`); err != nil {
 		t.Fatal(err)
 	}
 	srv.Close()

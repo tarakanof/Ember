@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 var errCoredumpsOff = errors.New("core dump storage unavailable")
 
-func (a *App) coredumpReply(device string, diag *deviceDiag, res *checkinResult) {
+func (a *App) coredumpReply(device string, diag *devices.Diag, res *devices.CheckinResult) {
 	if a.coredumps == nil || diag == nil || diag.Crash == nil || diag.Crash.ID == "" {
 		return
 	}
@@ -24,7 +26,7 @@ func (a *App) coredumpReply(device string, diag *deviceDiag, res *checkinResult)
 func (a *App) handleCoredumpUpload(w http.ResponseWriter, r *http.Request) {
 	device := deviceIDFrom(r.Context())
 	id := r.URL.Query().Get("id")
-	if !coredumpIDPattern.MatchString(id) {
+	if !devices.CoredumpIDPattern.MatchString(id) {
 		a.rejectCoredump(w, r, http.StatusBadRequest, "id", errors.New("id must be 8 lower-case hex digits"))
 		return
 	}
@@ -33,7 +35,7 @@ func (a *App) handleCoredumpUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errCoredumpsOff)
 		return
 	}
-	if r.ContentLength > coredumpMaxBytes {
+	if r.ContentLength > devices.CoredumpMaxBytes {
 		a.rejectCoredump(w, r, http.StatusRequestEntityTooLarge, "too_large", errors.New("core dump larger than 131072 bytes"))
 		return
 	}
@@ -47,7 +49,7 @@ func (a *App) handleCoredumpUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer store.end(device)
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, coredumpMaxBytes))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, devices.CoredumpMaxBytes))
 	var tooBig *http.MaxBytesError
 	if errors.As(err, &tooBig) {
 		a.rejectCoredump(w, r, http.StatusRequestEntityTooLarge, "too_large", errors.New("core dump larger than 131072 bytes"))
@@ -66,18 +68,18 @@ func (a *App) handleCoredumpUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta := coredumpMeta{ID: id, Size: len(body)}
-	if _, c, err := a.devices.diagnostics(device); err == nil && c != nil {
+	if _, c, err := a.devices.Diagnostics(device); err == nil && c != nil {
 		meta.FW = c.FW
 		if c.Diag != nil && c.Diag.Crash != nil && c.Diag.Crash.ID == id {
 			meta.Reason, meta.Task, meta.PC, meta.ELF = c.Diag.Crash.Reason, c.Diag.Crash.Task, c.Diag.Crash.PC, c.Diag.Crash.ELF
 		}
 	}
 	err = store.put(device, meta, body, func() bool {
-		_, _, err := a.devices.diagnostics(device)
+		_, _, err := a.devices.Diagnostics(device)
 		return err == nil
 	})
 	if errors.Is(err, errCoredumpGone) {
-		writeError(w, http.StatusNotFound, errDeviceNotFound)
+		writeError(w, http.StatusNotFound, devices.ErrNotFound)
 		return
 	}
 	if err != nil {
@@ -97,7 +99,7 @@ func (a *App) rejectCoredump(w http.ResponseWriter, r *http.Request, status int,
 
 func (a *App) coredumpOwner(w http.ResponseWriter, r *http.Request) (string, *coredumpStore, bool) {
 	device := r.PathValue("id")
-	if _, _, err := a.devices.diagnostics(device); err != nil {
+	if _, _, err := a.devices.Diagnostics(device); err != nil {
 		a.writeDeviceError(w, r, err)
 		return "", nil, false
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
@@ -176,8 +177,8 @@ func TestKnobViewNeedsADeviceToken(t *testing.T) {
 
 func TestKnobViewNeverWritesStore(t *testing.T) {
 	f := newViewFixture(t)
-	kv := &countingKV{settingsKV: f.app.store}
-	f.app.devices.kv = func() settingsKV { return kv }
+	kv := &countingKV{KV: f.app.store}
+	f.app.devices.KV = func() devices.KV { return kv }
 	for range 3 {
 		if resp, _ := f.get(t, ""); resp.StatusCode != http.StatusOK {
 			t.Fatalf("view = %d", resp.StatusCode)
@@ -186,7 +187,7 @@ func TestKnobViewNeverWritesStore(t *testing.T) {
 	if got := kv.puts.Load(); got != 0 {
 		t.Fatalf("store writes = %d, want 0", got)
 	}
-	if seen := f.app.devices.list()[0].LastCheckin; seen != nil {
+	if seen := f.app.devices.List()[0].LastCheckin; seen != nil {
 		t.Fatalf("view recorded a checkin: %+v", seen)
 	}
 }

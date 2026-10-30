@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -334,7 +336,7 @@ func TestUsageAccountRestartedFromTheRegistryShowsItsLastSnapshotStale(t *testin
 
 func TestUsageAccountRegistryWritesOnlyOnChange(t *testing.T) {
 	kv := &usageSeenKV{}
-	r := newUsageAccountRegistry(func() settingsKV { return kv })
+	r := newUsageAccountRegistry(func() devices.KV { return kv })
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	k := usageKey{"claude", keyMaxA}
 	steps := []struct {
@@ -539,7 +541,7 @@ func TestPaddedSourceNamesAreStoredTrimmed(t *testing.T) {
 }
 
 func TestUsageRegistryCapsEachWriter(t *testing.T) {
-	r := newUsageAccountRegistry(func() settingsKV { return nil })
+	r := newUsageAccountRegistry(func() devices.KV { return nil })
 	now := time.Now()
 	for i := range 40 {
 		k := usageKey{fmt.Sprintf("t%d", i/usageAccountsPerTool), fmt.Sprintf("%016x", i)}
@@ -604,7 +606,7 @@ func TestUsageStateRepresentsAToolByItsHighestFiveHourAccount(t *testing.T) {
 }
 
 type registryWriteKV struct {
-	settingsKV
+	devices.KV
 	mu   sync.Mutex
 	puts map[string]int
 }
@@ -613,12 +615,12 @@ func (c *registryWriteKV) PutSetting(key, value string) error {
 	c.mu.Lock()
 	c.puts[key]++
 	c.mu.Unlock()
-	return c.settingsKV.PutSetting(key, value)
+	return c.KV.PutSetting(key, value)
 }
 
 func countRegistryWrites(app *App) *registryWriteKV {
-	c := &registryWriteKV{settingsKV: app.usageSeen.kv(), puts: map[string]int{}}
-	app.usageSeen.kv = func() settingsKV { return c }
+	c := &registryWriteKV{KV: app.usageSeen.kv(), puts: map[string]int{}}
+	app.usageSeen.kv = func() devices.KV { return c }
 	return c
 }
 
@@ -640,7 +642,7 @@ func TestUsageRegistryWriteIgnoresTheSourceFlipping(t *testing.T) {
 
 func TestUsageRegistryRejectsAnObservationOlderThanItsLast(t *testing.T) {
 	kv := &usageSeenKV{}
-	r := newUsageAccountRegistry(func() settingsKV { return kv })
+	r := newUsageAccountRegistry(func() devices.KV { return kv })
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	k := usageKey{"claude", keyMaxA}
 	if err := r.observe(k, ToolUsage{Plan: "pro"}, "", now.Add(time.Minute)); err != nil {
@@ -733,7 +735,7 @@ func TestUsagePostRejectsOversizedModelsAndLabels(t *testing.T) {
 
 func TestUsageRegistryPersistsATrimmedSnapshotOfBoundedSize(t *testing.T) {
 	kv := &usageSeenKV{}
-	r := newUsageAccountRegistry(func() settingsKV { return kv })
+	r := newUsageAccountRegistry(func() devices.KV { return kv })
 	r.nextSeq = math.MaxInt - usageAccountsTotal
 	loc := time.FixedZone("x", 3*3600)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 123456789, loc)

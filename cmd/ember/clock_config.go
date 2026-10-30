@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -163,7 +164,7 @@ func (a *App) clockConfigVersion() int {
 	if a.devices == nil {
 		return 0
 	}
-	return a.devices.clockConfigVersion()
+	return a.devices.ClockConfigVersion()
 }
 
 func (a *App) stageClockApps(cur *Config, apps clockApps) ([]*stagedSetting, error) {
@@ -229,7 +230,7 @@ func normalizeHiddenTools(names []string) ([]string, error) {
 	out := make([]string, 0, len(names))
 	for _, n := range names {
 		if n == "" {
-			return nil, fmt.Errorf("%w: apps.agents.hidden_tools names must not be empty", errSettingBody)
+			return nil, fmt.Errorf("%w: apps.agents.hidden_tools names must not be empty", devices.ErrSettingBody)
 		}
 		out = append(out, n)
 	}
@@ -246,7 +247,7 @@ type clockConfigPatch struct {
 func mergeClockConfig(cur clockConfig, patch []byte) (clockConfigPatch, error) {
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(patch, &keys); err != nil || keys == nil {
-		return clockConfigPatch{}, errSettingNotObject
+		return clockConfigPatch{}, devices.ErrSettingNotObject
 	}
 	var probe struct {
 		Apps struct {
@@ -265,14 +266,14 @@ func mergeClockConfig(cur clockConfig, patch []byte) (clockConfigPatch, error) {
 	dec := json.NewDecoder(bytes.NewReader(patch))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&next); err != nil {
-		return clockConfigPatch{}, fmt.Errorf("%w: %w", errSettingBody, err)
+		return clockConfigPatch{}, fmt.Errorf("%w: %w", devices.ErrSettingBody, err)
 	}
 	if next.Schema != clockConfigSchema {
-		return clockConfigPatch{}, fmt.Errorf("%w: schema must be %d", errSettingBody, clockConfigSchema)
+		return clockConfigPatch{}, fmt.Errorf("%w: schema must be %d", devices.ErrSettingBody, clockConfigSchema)
 	}
 	if next.Rotation != nil {
 		if err := next.Rotation.validate(); err != nil {
-			return clockConfigPatch{}, fmt.Errorf("%w: rotation: %w", errSettingBody, err)
+			return clockConfigPatch{}, fmt.Errorf("%w: rotation: %w", devices.ErrSettingBody, err)
 		}
 	}
 	hidden, err := normalizeHiddenTools(next.Apps.Agents.HiddenTools)
@@ -482,7 +483,7 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 		}
 		hiddenChanged = !slices.Equal(n.Apps.Agents.HiddenTools, hidden)
 		if len(staged) == 0 && !hiddenChanged {
-			return errNoChange
+			return devices.ErrNoChange
 		}
 		batch := make(map[string]string, len(staged)+2)
 		for _, s := range staged {
@@ -506,7 +507,7 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 		}
 		return nil
 	})
-	if errors.Is(err, errNoChange) {
+	if errors.Is(err, devices.ErrNoChange) {
 		return res, nil
 	}
 	if err != nil {
@@ -562,7 +563,7 @@ func (a *App) handleClockConfigPut(w http.ResponseWriter, r *http.Request, id st
 			writeClockError(w, err)
 		case errors.Is(err, errClockRotationExpired):
 			writeError(w, http.StatusServiceUnavailable, err)
-		case errors.Is(err, errSettingBody):
+		case errors.Is(err, devices.ErrSettingBody):
 			a.writeDeviceError(w, r, err)
 		case errors.Is(err, errSettingsPersist):
 			a.logger.WarnContext(r.Context(), "device config not stored", "device_id", id, "err", err)

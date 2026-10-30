@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 var knobCapsUsage = map[string]any{
@@ -167,8 +169,8 @@ func TestKnobViewUsageETagIgnoresAFreshAccountsUpdateTime(t *testing.T) {
 func TestKnobViewUsageWorstCaseStaysSmall(t *testing.T) {
 	f := goldenViewFixture(t)
 	worstCaseView(t, f)
-	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather", "nowplaying"},
-		Features: []string{featureNPCover, featureWxFaces, featureUsage}, Limits: &deviceCapsLimits{ViewBytes: 16383}})
+	plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather", "nowplaying"},
+		Features: []string{featureNPCover, featureWxFaces, featureUsage}, Limits: &devices.CapsLimits{ViewBytes: 16383}})
 	now := f.clk.Now()
 	prefs := map[string]usageAccountPrefs{}
 	for i := range knobUsageMaxAccounts + 2 {

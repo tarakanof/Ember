@@ -109,7 +109,7 @@ func TestDeviceCheckinDropsADiagWithAnInvalidCrashIDOrSize(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			app, post := newDiagKnob(t)
 			post(diag)
-			if got := app.devices.list()[0].LastCheckin; got.Diag != nil {
+			if got := app.devices.List()[0].LastCheckin; got.Diag != nil {
 				t.Fatalf("diag kept: %+v", got.Diag.Crash)
 			}
 		})

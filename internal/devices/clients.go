@@ -1,4 +1,4 @@
-package main
+package devices
 
 import (
 	"crypto/rand"
@@ -14,13 +14,21 @@ import (
 )
 
 const (
-	clientsKey        = "clients_json"
-	clientKind        = "client"
-	clientIDPrefix    = "client-"
-	clientTokenPrefix = "ekc_"
+	MaxClients = 64
 )
 
-type clientRecord struct {
+var (
+	errTooManyClients = fmt.Errorf("%w: at most %d client tokens; delete one first", ErrBody, MaxClients)
+)
+
+const (
+	ClientsKey        = "clients_json"
+	KindClient        = "client"
+	ClientIDPrefix    = "client-"
+	ClientTokenPrefix = "ekc_"
+)
+
+type ClientRecord struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	TokenSHA256 string    `json:"token_sha256"`
@@ -29,13 +37,13 @@ type clientRecord struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-func (c clientRecord) clone() clientRecord {
+func (c ClientRecord) clone() ClientRecord {
 	c.Scopes = slices.Clone(c.Scopes)
 	c.Sources = slices.Clone(c.Sources)
 	return c
 }
 
-type clientView struct {
+type ClientView struct {
 	ID              string     `json:"id"`
 	Kind            string     `json:"kind"`
 	HwID            string     `json:"hw_id"`
@@ -49,11 +57,11 @@ type clientView struct {
 	Sources         []string   `json:"sources,omitempty"`
 }
 
-func (c clientRecord) view() clientView {
+func (c ClientRecord) view() ClientView {
 	c = c.clone()
-	return clientView{
+	return ClientView{
 		ID:        c.ID,
-		Kind:      clientKind,
+		Kind:      KindClient,
 		Name:      c.Name,
 		CreatedAt: c.CreatedAt.UTC().Truncate(time.Second),
 		Scopes:    c.Scopes,
@@ -62,34 +70,34 @@ func (c clientRecord) view() clientView {
 }
 
 type clientState struct {
-	Clients []clientRecord `json:"clients"`
+	Clients []ClientRecord `json:"clients"`
 }
 
-type clientCreds struct {
-	id      string
-	scopes  []string
-	sources []string
+type ClientCreds struct {
+	ID      string
+	Scopes  []string
+	Sources []string
 }
 
-type clientRegistry struct {
-	kv  func() settingsKV
+type ClientRegistry struct {
+	kv  func() KV
 	now func() time.Time
 
 	mu      sync.Mutex
-	clients []clientRecord
+	clients []ClientRecord
 	loadErr error
 }
 
-func newClientRegistry(kv func() settingsKV) *clientRegistry {
-	return &clientRegistry{kv: kv, now: time.Now}
+func NewClientRegistry(kv func() KV) *ClientRegistry {
+	return &ClientRegistry{kv: kv, now: time.Now}
 }
 
-func (r *clientRegistry) load() error {
+func (r *ClientRegistry) Load() error {
 	kv := r.kv()
 	if kv == nil {
 		return nil
 	}
-	clients, err := readClients(kv)
+	clients, err := ReadClients(kv)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.loadErr = err
@@ -99,20 +107,20 @@ func (r *clientRegistry) load() error {
 	return err
 }
 
-func (r *clientRegistry) fail(err error) {
+func (r *ClientRegistry) Fail(err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.clients, r.loadErr = nil, err
 }
 
-func (r *clientRegistry) loadError() error {
+func (r *ClientRegistry) LoadError() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.loadErr
 }
 
-func readClients(kv settingsKV) ([]clientRecord, error) {
-	blob, ok, err := kv.GetSetting(clientsKey)
+func ReadClients(kv KV) ([]ClientRecord, error) {
+	blob, ok, err := kv.GetSetting(ClientsKey)
 	if err != nil {
 		return nil, fmt.Errorf("read client tokens: %w", err)
 	}
@@ -126,27 +134,27 @@ func readClients(kv settingsKV) ([]clientRecord, error) {
 	return st.Clients, nil
 }
 
-func writeClients(kv settingsKV, clients []clientRecord) error {
+func WriteClients(kv KV, clients []ClientRecord) error {
 	if clients == nil {
-		clients = []clientRecord{}
+		clients = []ClientRecord{}
 	}
 	blob, err := json.Marshal(clientState{Clients: clients})
 	if err != nil {
 		return fmt.Errorf("encode client tokens: %w", err)
 	}
-	if err := kv.PutSetting(clientsKey, string(blob)); err != nil {
+	if err := kv.PutSetting(ClientsKey, string(blob)); err != nil {
 		return fmt.Errorf("persist client tokens: %w", err)
 	}
 	return nil
 }
 
-func (r *clientRegistry) mutate(fn func([]clientRecord) ([]clientRecord, error)) error {
+func (r *ClientRegistry) mutate(fn func([]ClientRecord) ([]ClientRecord, error)) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.loadErr != nil {
 		return fmt.Errorf("client token store load failed, writes refused until restart: %w", r.loadErr)
 	}
-	next := make([]clientRecord, 0, len(r.clients)+1)
+	next := make([]ClientRecord, 0, len(r.clients)+1)
 	for _, c := range r.clients {
 		next = append(next, c.clone())
 	}
@@ -155,7 +163,7 @@ func (r *clientRegistry) mutate(fn func([]clientRecord) ([]clientRecord, error))
 		return err
 	}
 	if kv := r.kv(); kv != nil {
-		if err := writeClients(kv, next); err != nil {
+		if err := WriteClients(kv, next); err != nil {
 			return err
 		}
 	}
@@ -163,45 +171,45 @@ func (r *clientRegistry) mutate(fn func([]clientRecord) ([]clientRecord, error))
 	return nil
 }
 
-func (r *clientRegistry) list() []clientView {
+func (r *ClientRegistry) List() []ClientView {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]clientView, 0, len(r.clients))
+	out := make([]ClientView, 0, len(r.clients))
 	for _, c := range r.clients {
 		out = append(out, c.view())
 	}
 	return out
 }
 
-func (r *clientRegistry) exists(id string) bool {
+func (r *ClientRegistry) Exists(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return indexClient(r.clients, id) >= 0
 }
 
-func indexClient(clients []clientRecord, id string) int {
-	return slices.IndexFunc(clients, func(c clientRecord) bool { return c.ID == id })
+func indexClient(clients []ClientRecord, id string) int {
+	return slices.IndexFunc(clients, func(c ClientRecord) bool { return c.ID == id })
 }
 
-func sortClients(clients []clientRecord) {
-	slices.SortFunc(clients, func(a, b clientRecord) int { return strings.Compare(a.ID, b.ID) })
+func sortClients(clients []ClientRecord) {
+	slices.SortFunc(clients, func(a, b ClientRecord) int { return strings.Compare(a.ID, b.ID) })
 }
 
-func (r *clientRegistry) mint(name string, scopes, sources []string) (clientView, string, error) {
-	token := newToken(clientTokenPrefix)
-	var view clientView
-	err := r.mutate(func(cs []clientRecord) ([]clientRecord, error) {
-		if len(cs) >= maxClients {
+func (r *ClientRegistry) Mint(name string, scopes, sources []string) (ClientView, string, error) {
+	token := NewToken(ClientTokenPrefix)
+	var view ClientView
+	err := r.mutate(func(cs []ClientRecord) ([]ClientRecord, error) {
+		if len(cs) >= MaxClients {
 			return nil, errTooManyClients
 		}
 		id := clientID()
 		for indexClient(cs, id) >= 0 {
 			id = clientID()
 		}
-		c := clientRecord{
+		c := ClientRecord{
 			ID:          id,
 			Name:        name,
-			TokenSHA256: tokenHash(token),
+			TokenSHA256: TokenHash(token),
 			Scopes:      scopes,
 			Sources:     sources,
 			CreatedAt:   r.now().UTC(),
@@ -214,12 +222,12 @@ func (r *clientRegistry) mint(name string, scopes, sources []string) (clientView
 	return view, token, err
 }
 
-func (r *clientRegistry) rename(id, name string) (clientView, error) {
-	var view clientView
-	err := r.mutate(func(cs []clientRecord) ([]clientRecord, error) {
+func (r *ClientRegistry) Rename(id, name string) (ClientView, error) {
+	var view ClientView
+	err := r.mutate(func(cs []ClientRecord) ([]ClientRecord, error) {
 		i := indexClient(cs, id)
 		if i < 0 {
-			return nil, errDeviceNotFound
+			return nil, ErrNotFound
 		}
 		cs[i].Name = name
 		view = cs[i].view()
@@ -228,43 +236,43 @@ func (r *clientRegistry) rename(id, name string) (clientView, error) {
 	return view, err
 }
 
-func (r *clientRegistry) rotate(id string) (clientView, string, error) {
-	token := newToken(clientTokenPrefix)
-	var view clientView
-	err := r.mutate(func(cs []clientRecord) ([]clientRecord, error) {
+func (r *ClientRegistry) Rotate(id string) (ClientView, string, error) {
+	token := NewToken(ClientTokenPrefix)
+	var view ClientView
+	err := r.mutate(func(cs []ClientRecord) ([]ClientRecord, error) {
 		i := indexClient(cs, id)
 		if i < 0 {
-			return nil, errDeviceNotFound
+			return nil, ErrNotFound
 		}
-		cs[i].TokenSHA256 = tokenHash(token)
+		cs[i].TokenSHA256 = TokenHash(token)
 		view = cs[i].view()
 		return cs, nil
 	})
 	if err != nil {
-		return clientView{}, "", err
+		return ClientView{}, "", err
 	}
 	return view, token, nil
 }
 
-func (r *clientRegistry) remove(id string) error {
-	return r.mutate(func(cs []clientRecord) ([]clientRecord, error) {
+func (r *ClientRegistry) Remove(id string) error {
+	return r.mutate(func(cs []ClientRecord) ([]ClientRecord, error) {
 		i := indexClient(cs, id)
 		if i < 0 {
-			return nil, errDeviceNotFound
+			return nil, ErrNotFound
 		}
 		return slices.Delete(cs, i, i+1), nil
 	})
 }
 
-func (r *clientRegistry) authenticate(token string) (clientCreds, bool, error) {
-	if !strings.HasPrefix(token, clientTokenPrefix) {
-		return clientCreds{}, false, nil
+func (r *ClientRegistry) Authenticate(token string) (ClientCreds, bool, error) {
+	if !strings.HasPrefix(token, ClientTokenPrefix) {
+		return ClientCreds{}, false, nil
 	}
-	h := []byte(tokenHash(token))
+	h := []byte(TokenHash(token))
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.loadErr != nil {
-		return clientCreds{}, false, fmt.Errorf("client token store load failed: %w", r.loadErr)
+		return ClientCreds{}, false, fmt.Errorf("client token store load failed: %w", r.loadErr)
 	}
 	match := -1
 	for i, c := range r.clients {
@@ -273,23 +281,23 @@ func (r *clientRegistry) authenticate(token string) (clientCreds, bool, error) {
 		}
 	}
 	if match < 0 {
-		return clientCreds{}, false, nil
+		return ClientCreds{}, false, nil
 	}
 	c := r.clients[match]
-	return clientCreds{id: c.ID, scopes: slices.Clone(c.Scopes), sources: slices.Clone(c.Sources)}, true, nil
+	return ClientCreds{ID: c.ID, Scopes: slices.Clone(c.Scopes), Sources: slices.Clone(c.Sources)}, true, nil
 }
 
 func clientID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
-	return clientIDPrefix + hex.EncodeToString(b)
+	return ClientIDPrefix + hex.EncodeToString(b)
 }
 
-func migrateClientRecords(kv settingsKV) (int, error) {
+func MigrateClientRecords(kv KV) (int, error) {
 	if kv == nil {
 		return 0, nil
 	}
-	blob, ok, err := kv.GetSetting(devicesKey)
+	blob, ok, err := kv.GetSetting(StateKey)
 	if err != nil {
 		return 0, fmt.Errorf("read devices: %w", err)
 	}
@@ -306,7 +314,7 @@ func migrateClientRecords(kv settingsKV) (int, error) {
 			return 0, fmt.Errorf("decode devices: %w", err)
 		}
 	}
-	var moved []clientRecord
+	var moved []ClientRecord
 	kept := make([]json.RawMessage, 0, len(records))
 	for _, raw := range records {
 		var head struct {
@@ -315,11 +323,11 @@ func migrateClientRecords(kv settingsKV) (int, error) {
 		if err := json.Unmarshal(raw, &head); err != nil {
 			return 0, fmt.Errorf("decode device record: %w", err)
 		}
-		if head.Kind != clientKind {
+		if head.Kind != KindClient {
 			kept = append(kept, raw)
 			continue
 		}
-		var c clientRecord
+		var c ClientRecord
 		if err := json.Unmarshal(raw, &c); err != nil {
 			return 0, fmt.Errorf("decode client record: %w", err)
 		}
@@ -331,7 +339,7 @@ func migrateClientRecords(kv settingsKV) (int, error) {
 	if len(moved) == 0 {
 		return 0, nil
 	}
-	clients, err := readClients(kv)
+	clients, err := ReadClients(kv)
 	if err != nil {
 		return 0, err
 	}
@@ -343,7 +351,7 @@ func migrateClientRecords(kv settingsKV) (int, error) {
 		}
 	}
 	sortClients(clients)
-	if err := writeClients(kv, clients); err != nil {
+	if err := WriteClients(kv, clients); err != nil {
 		return 0, err
 	}
 	devices, err := json.Marshal(kept)
@@ -355,22 +363,8 @@ func migrateClientRecords(kv settingsKV) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("encode devices: %w", err)
 	}
-	if err := kv.PutSetting(devicesKey, string(out)); err != nil {
+	if err := kv.PutSetting(StateKey, string(out)); err != nil {
 		return 0, fmt.Errorf("persist devices: %w", err)
 	}
 	return len(moved), nil
-}
-
-func (a *App) loadRegistries() error {
-	moved, err := migrateClientRecords(a.devices.kv())
-	if err != nil {
-		err = fmt.Errorf("move client tokens out of the device registry: %w", err)
-		a.devices.fail(err)
-		a.clients.fail(err)
-		return err
-	}
-	if moved > 0 {
-		a.logger.Info("client tokens moved out of the device registry", "count", moved)
-	}
-	return errors.Join(a.devices.load(), a.clients.load())
 }

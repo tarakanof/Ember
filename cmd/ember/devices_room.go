@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -25,45 +27,6 @@ var (
 
 	errNoRoomReadings = errors.New("no room readings")
 )
-
-type deviceRoom struct {
-	TempC      *float64        `json:"t_c,omitempty"`
-	RH         *float64        `json:"rh,omitempty"`
-	ECO2       *int            `json:"eco2,omitempty"`
-	TVOC       *int            `json:"tvoc,omitempty"`
-	AQI        *int            `json:"aqi,omitempty"`
-	Air        *string         `json:"air,omitempty"`
-	Lux        *float64        `json:"lux,omitempty"`
-	Present    *bool           `json:"present,omitempty"`
-	AgeS       *deviceRoomAges `json:"age_s,omitempty"`
-	ReceivedAt time.Time       `json:"received_at"`
-}
-
-type deviceRoomAges struct {
-	Climate  *int `json:"climate,omitempty"`
-	Air      *int `json:"air,omitempty"`
-	Light    *int `json:"light,omitempty"`
-	Presence *int `json:"presence,omitempty"`
-}
-
-func (r *deviceRoom) clone() *deviceRoom {
-	if r == nil {
-		return nil
-	}
-	c := *r
-	c.TempC, c.RH, c.Lux = clonePtr(r.TempC), clonePtr(r.RH), clonePtr(r.Lux)
-	c.ECO2, c.TVOC, c.AQI = clonePtr(r.ECO2), clonePtr(r.TVOC), clonePtr(r.AQI)
-	c.Air, c.Present = clonePtr(r.Air), clonePtr(r.Present)
-	if r.AgeS != nil {
-		c.AgeS = &deviceRoomAges{
-			Climate:  clonePtr(r.AgeS.Climate),
-			Air:      clonePtr(r.AgeS.Air),
-			Light:    clonePtr(r.AgeS.Light),
-			Presence: clonePtr(r.AgeS.Presence),
-		}
-	}
-	return &c
-}
 
 type roomParts struct {
 	raw    map[string]json.RawMessage
@@ -88,14 +51,14 @@ func roomRange[T int | float64](lo, hi T) func(T) bool {
 	return func(v T) bool { return v >= lo && v <= hi }
 }
 
-func parseDeviceRoom(raw json.RawMessage) (*deviceRoom, error) {
+func parseDeviceRoom(raw json.RawMessage) (*devices.Room, error) {
 	var parts map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &parts); err != nil {
 		return nil, errors.New("room must be an object")
 	}
 	var bad []string
 	p := roomParts{raw: parts, bad: &bad}
-	room := &deviceRoom{
+	room := &devices.Room{
 		TempC:   roomValue(p, "t_c", roomRange[float64](roomTempMinC, roomTempMaxC)),
 		RH:      roomValue(p, "rh", roomRange[float64](0, roomHumidMax)),
 		ECO2:    roomValue(p, "eco2", roomRange(roomECO2Min, roomAirMax)),
@@ -112,7 +75,7 @@ func parseDeviceRoom(raw json.RawMessage) (*deviceRoom, error) {
 	return room, nil
 }
 
-func parseRoomAges(raw json.RawMessage, bad *[]string) *deviceRoomAges {
+func parseRoomAges(raw json.RawMessage, bad *[]string) *devices.RoomAges {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
@@ -123,19 +86,19 @@ func parseRoomAges(raw json.RawMessage, bad *[]string) *deviceRoomAges {
 	}
 	p := roomParts{raw: parts, prefix: "age_s.", bad: bad}
 	valid := func(age int) bool { return age >= 0 }
-	ages := deviceRoomAges{
+	ages := devices.RoomAges{
 		Climate:  roomValue(p, "climate", valid),
 		Air:      roomValue(p, "air", valid),
 		Light:    roomValue(p, "light", valid),
 		Presence: roomValue(p, "presence", valid),
 	}
-	if ages == (deviceRoomAges{}) {
+	if ages == (devices.RoomAges{}) {
 		return nil
 	}
 	return &ages
 }
 
-func (a *App) decodeDeviceRoom(r *http.Request, raw json.RawMessage) *deviceRoom {
+func (a *App) decodeDeviceRoom(r *http.Request, raw json.RawMessage) *devices.Room {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
@@ -145,26 +108,12 @@ func (a *App) decodeDeviceRoom(r *http.Request, raw json.RawMessage) *deviceRoom
 }
 
 type deviceRoomReply struct {
-	Room         *deviceRoom `json:"room"`
-	ReceivedAgeS int64       `json:"received_age_s"`
-}
-
-func (r *deviceRegistry) room(id string) (*deviceRoom, time.Duration, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	d := r.state.findKnob(id)
-	if d == nil {
-		return nil, 0, errDeviceNotFound
-	}
-	if d.LastCheckin == nil || d.LastCheckin.Room == nil {
-		return nil, 0, nil
-	}
-	room := d.LastCheckin.Room.clone()
-	return room, max(r.now().Sub(room.ReceivedAt), 0), nil
+	Room         *devices.Room `json:"room"`
+	ReceivedAgeS int64         `json:"received_age_s"`
 }
 
 func (a *App) handleDeviceRoom(w http.ResponseWriter, r *http.Request) {
-	room, age, err := a.devices.room(r.PathValue("id"))
+	room, age, err := a.devices.Room(r.PathValue("id"))
 	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return

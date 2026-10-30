@@ -3497,14 +3497,21 @@ Dashboard rendering constraints:
   (a blurred layer bled into neighbours), and the panel's global brightness is
   not simulated because multiplying pixel opacity flattens per-pixel contrast.
 
-### Device registry — `cmd/ember/devices*.go`, `clients.go`, `knob_settings.go` (#221)
+### Device registry — `internal/devices`, `cmd/ember/devices*.go` (#221)
+
+`internal/devices` owns the registries (`Registry`, `ClaimRegistry`,
+`ClientRegistry`) and everything their records hold: knob settings, caps,
+diagnostics, OTA and clock records. It knows nothing of `App`: it takes a
+`KV` and an `OnChange` callback. `cmd/ember` keeps the HTTP handlers and the
+wiring (`NewApp`, `loadRegistries`). The registries' tests that need no `App`
+live in the package; the rest go through the routes in `cmd/ember`.
 
 Per-device tokens so the master `EMBER_TOKEN` never leaves the Mac/server.
 The registry holds devices only: kind `cinder-knob` (the ESP32-S3 knob
 in the cinder repo) and, since #230, the clock as `awtrix-ng` (no token;
 "Clock record and config façade" below). Scoped API tokens for
 sources and controllers (`client`, below) live in their own store
-(`clients.go`, #340), so nothing that ranges over devices (list, view,
+(`internal/devices/clients.go`, #340), so nothing that ranges over devices (list, view,
 checkin, OTA, stats, doctor, epoch) can meet one. Knob-only lookups
 (`findKnob`, re-provisioning by `hw_id`) match `kind == cinder-knob`, so a
 record of another kind is 404 on knob routes and never re-provisioned as a
@@ -3515,7 +3522,7 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `hw_id` on a collision), `kind`, `hw_id` (12 hex, `:`/`-` stripped,
   lower-cased), `name` (≤64 chars, default `Knob 61FC8C`), `token_sha256`,
   `pending_token_sha256` + `rotated_at` during a rotation, `config`
-  (`knobSettings`), `config_version` (starts at 1), `created_at`, and
+  (`KnobSettings`), `config_version` (starts at 1), `created_at`, and
   `last_checkin` (`seen_at`, `fw`, `ip`, `rssi`, `heap_internal_free`,
   `heap_internal_largest`, `uptime_s`, `applied_version`), and `caps`
   (#341: the capabilities the last checkin reported, absent for a legacy
@@ -3523,10 +3530,10 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
 - **Persistence:** the whole registry plus the epoch is one JSON blob in the
   SQLite settings KV (key `devices_json`), the same store as the overlay
   settings. Every mutation clones the state, persists, then swaps under
-  `deviceRegistry.mu`, so a failed write (500) changes nothing. Two hot paths
+  `Registry.mu`, so a failed write (500) changes nothing. Two hot paths
   skip that (#233): device auth is a locked scan with no clone or write (only
   a rotation promotion writes), and a checkin updates `last_checkin` in place
-  and writes the blob only when the last write is `deviceCheckinPersistInterval`
+  and writes the blob only when the last write is `CheckinPersistInterval`
   (10 min) old; a checkin that mints a pending rotation token, or whose `caps`
   differ from the stored ones (new, changed or gone), writes at once.
   If that periodic write fails, the checkin still answers 200 (logged
@@ -3546,8 +3553,8 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `subtle.ConstantTimeCompare` (no early exit). `POST /v1/devices` with a known
   `hw_id` re-provisions: new token, old one and any rotation revoked, config
   and version kept, 200 instead of 201.
-- **Client tokens (#269, own store since #340):** `clientRegistry`
-  (`clients.go`) with its own lock, its own load error and its own blob
+- **Client tokens (#269, own store since #340):** `ClientRegistry`
+  (`internal/devices/clients.go`) with its own lock, its own load error and its own blob
   (settings key `clients_json`, `{"clients":[{id, name, token_sha256, scopes,
   sources?, created_at}]}`). Id `client-` + 8 random hex,
   token `ekc_` + 32 random bytes, `scopes` ⊆ `{ingest, control, read,
@@ -3564,7 +3571,7 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   holds `requiredScope(pattern)` (`client_tokens.go`; any route not listed
   needs `admin`, and `admin` satisfies every scope); `requireControl` admits
   `control` on the Pomodoro actions. Wrong scope is 403, an unknown `ekc_`
-  token 401. Client lookups (`clientRegistry.authenticate`) are the same
+  token 401. Client lookups (`ClientRegistry.Authenticate`) are the same
   constant-time scan over the client store; device auth scans devices only,
   so an `ekc_` token never reaches `/v1/devices/self/*`, now-playing control
   or `/admin/*`. Rotating a client mints and returns the new token at once (200)
@@ -3591,7 +3598,7 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   unbound. `docs/openapi.yaml`
   records each operation's credentials; `openapi_test.go` checks every
   registered route against it (route × credential table).
-- **LAN re-pair (#658):** `claimRegistry` (`devices_claims.go`), in memory
+- **LAN re-pair (#658):** `ClaimRegistry` (`internal/devices/claims.go`), in memory
   only with its own lock, so a restart drops every claim and the knob's next
   poll is 404. A knob with an Ember URL but no valid token posts `POST
   /v1/devices/claim {hw_id, fw, claim_key}` (unauthenticated,
@@ -3678,7 +3685,7 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   pending one stays valid. **Rotation is hygiene, not leak response:** whoever
   holds the old token can collect the new one. For a suspected leak,
   `DELETE /v1/devices/{id}` or re-POST the `hw_id` (USB), which revoke at once.
-- **Config** (`knobSettings`, schema v1): `brightness{follow_ember, level
+- **Config** (`KnobSettings`, schema v1): `brightness{follow_ember, level
   0-255, floor 1-255 ≤ level, startup 0-255}`, `pages[{id,on}]` (defaults `bot`,
   `pomodoro`, `weather` on and `nowplaying` off; a stored or PUT list missing a known
   id gets it appended off (at most 8 pages, the firmware's KS_MAX_PAGES), #284; any id matching `^[a-z][a-z0-9_-]{0,15}$` is kept, so
@@ -4025,7 +4032,7 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   changes. `KNOB_SNAPSHOT_DIR=… swift test --filter knobFaces` writes PNGs
   of every face.
 
-### Clock record and config façade — `cmd/ember/clock_device.go`, `clock_config.go`, `clock_presentation.go` (#230, #232)
+### Clock record and config façade — `internal/devices/clock.go`, `cmd/ember/clock_device.go`, `clock_config.go`, `clock_presentation.go` (#230, #232)
 
 The TC001 is a registry record of kind `awtrix-ng`, so both displays are
 addressed as `/v1/devices/{id}`. Phases 2 and 4 of the per-device apps spec
@@ -4159,7 +4166,7 @@ migration) the same config is a façade over the overlay slices, as in #230.
   move), the agent-card spine flags (they stay per Mac in `producer.env`),
   and the rotation dwell (a `config.json`-only field). Focus and agents have
   no `on`: no clock-only toggle exists for them. The knob reads none of
-  this: its Pomodoro colours and pages are its own (`knobSettings`), and the
+  this: its Pomodoro colours and pages are its own (`KnobSettings`), and the
   clock's hidden tools do not apply to it.
 - **Merge.** As the knob: the body is decoded onto a copy of the composed
   config with unknown fields rejected, so objects merge field by field
@@ -4672,7 +4679,7 @@ the registry lock (the in-use checks, which bump `fwGen`, and `otaRetire`,
 which prunes `blocked` and clears removed versions), never the other
 way round.
 
-**Record (`devices_ota.go`).** `deviceRecord.ota` in the registry blob:
+**Record (`internal/devices/ota.go`).** `Record.OTA` in the registry blob:
 `mode` (`manual` = "Ask first", the default, or `auto`), `target`, a
 one-shot `retry`, `blocked` (versions that failed or rolled back, at most
 16; auto mode and `available` skip them; a version is dropped from every
@@ -5189,7 +5196,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
   repeats), the rest of the checkin kept; a checkin without one clears it;
   since cinder 0.9.13 (cinder#22, Ember#307) a `diag` object,
   `{"boots":42,"crash":{"pc":"0x4201a2b3","reason":"panic","task":"ember"},"heap_internal_min":71234,"heap_largest_min":30720,"reset_reason":"poweron","stack_free":{"ember":1880,"eye":900,"lvgl":2304}}`,
-  every key optional (`devices_diag.go`): `crash` repeats on every checkin
+  every key optional (`internal/devices/diag.go`): `crash` repeats on every checkin
   while a core dump sits in flash (`reason` panic, int_wdt, task_wdt, wdt,
   lvgl_stall, unknown), `reset_reason` is ESP-IDF's reset reason as a short name
   (or `lvgl_stall`),
@@ -5241,7 +5248,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
   in live mode, plus `"coredump_wanted":"<id>"` or `"coredump_ack":"<id>"`
   when the checkin's `diag.crash` has an `id` (see "Knob core dumps"); an optional `stats` object carries diagnostics (both in
   "Knob diagnostics"). An optional `caps` object (#341,
-  `devices_caps.go`) is stored on the record and answered with
+  `internal/devices/caps.go`) is stored on the record and answered with
   `"caps_ack":true`; invalid caps are dropped (no ack, the knob is treated
   as legacy, the reason kept as `caps_error` and logged at Warn once per
   change), and a checkin without `caps` clears the stored ones, so a
@@ -5448,7 +5455,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
   action, button, phase end, settings), weather (new observation),
   brightness (the served level/source/night moved), now playing
   (`nowplaying.Registry.OnChange`: track, state, seek, pictures, stop/remove;
-  not a heartbeat that repeats the report), devices (`deviceRegistry.onChange` after
+  not a heartbeat that repeats the report), devices (`Registry.OnChange` after
   each committed mutation: epoch, config, rotation; live mode), config
   (`tryUpdateConfig`: every settings PUT; `/admin/reload` stores directly and
   notifies config + Pomodoro after its engine resync), usage (every accepted

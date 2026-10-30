@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 type settingSpec[D any] struct {
@@ -29,7 +31,7 @@ type setting[D any] struct {
 type settingsOverlay struct {
 	update   func(func(*Config) error) error
 	load     func() *Config
-	kv       func() settingsKV
+	kv       func() devices.KV
 	putBatch func(map[string]string) error
 	logger   *slog.Logger
 	all      []interface{ reapply() }
@@ -56,7 +58,7 @@ func newAppSettings(a *App) appSettings {
 	o := &settingsOverlay{
 		update: a.tryUpdateConfig,
 		load:   a.cfg.Load,
-		kv: func() settingsKV {
+		kv: func() devices.KV {
 			if a.store == nil {
 				return nil
 			}
@@ -90,10 +92,6 @@ func register[D any](o *settingsOverlay, spec settingSpec[D]) *setting[D] {
 }
 
 func (s *setting[D]) get() D { return s.spec.view(*s.o.load()) }
-
-var errSettingBody = errors.New("invalid settings body")
-
-var errSettingNotObject = fmt.Errorf("%w: must be a JSON object", errSettingBody)
 
 func (s *setting[D]) put(patch []byte) (D, error) { return s.putWith(patch, nil) }
 
@@ -174,7 +172,7 @@ func (s *setting[D]) stage(cur *Config, edit func(*D)) (*stagedSetting, error) {
 		return nil, nil
 	}
 	if err := s.spec.apply(cur, d); err != nil {
-		return nil, fmt.Errorf("%w: %w", errSettingBody, err)
+		return nil, fmt.Errorf("%w: %w", devices.ErrSettingBody, err)
 	}
 	return &stagedSetting{key: s.spec.key, blob: s.blob, after: s.spec.after}, nil
 }
@@ -251,7 +249,7 @@ func mergeSetting[D any](seed D, patch []byte) (D, error) {
 	var out D
 	var p map[string]json.RawMessage
 	if err := json.Unmarshal(patch, &p); err != nil || p == nil {
-		return out, errSettingNotObject
+		return out, devices.ErrSettingNotObject
 	}
 	base, err := json.Marshal(seed)
 	if err != nil {
@@ -274,7 +272,7 @@ func mergeSetting[D any](seed D, patch []byte) (D, error) {
 		return out, err
 	}
 	if err := json.Unmarshal(merged, &out); err != nil {
-		return out, fmt.Errorf("%w: %w", errSettingBody, err)
+		return out, fmt.Errorf("%w: %w", devices.ErrSettingBody, err)
 	}
 	return out, nil
 }
@@ -305,7 +303,7 @@ func (a *App) answerSettingPut(w http.ResponseWriter, r *http.Request, err error
 	switch {
 	case err == nil:
 		return true
-	case errors.Is(err, errSettingBody):
+	case errors.Is(err, devices.ErrSettingBody):
 		a.rejectBody(w, r, err)
 	case errors.Is(err, errSettingsPersist):
 		writeError(w, http.StatusInternalServerError, err)

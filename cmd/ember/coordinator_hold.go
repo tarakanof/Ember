@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 type holdState int
@@ -21,11 +22,6 @@ const exitRestoreBudget = 5 * time.Second
 const restoreBackoffTicks = 5
 
 const takeoverPriorKey = "pomo_takeover_prior"
-
-type settingsKV interface {
-	GetSetting(key string) (value string, ok bool, err error)
-	PutSetting(key, value string) error
-}
 
 type takeoverPrior struct {
 	AutoTransition  bool `json:"autoTransition"`
@@ -60,7 +56,7 @@ func settled(err error) bool {
 	return err == nil || !retryableClockErr(err)
 }
 
-func (c *coordinator) setSettingsKV(kv settingsKV) {
+func (c *coordinator) setSettingsKV(kv devices.KV) {
 	c.kv = kv
 	v, ok, err := kv.GetSetting(takeoverPriorKey)
 	if err != nil {

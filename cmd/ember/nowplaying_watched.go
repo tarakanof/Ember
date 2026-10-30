@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 var errWatchedInvalid = errors.New("watched must be true or false")
@@ -12,9 +14,9 @@ var errWatchedInvalid = errors.New("watched must be true or false")
 func (a *App) musicWatched(now time.Time) (bool, time.Time) {
 	watched := false
 	var until time.Time
-	a.devices.eachKnobCaps(func(id string, caps *deviceCaps) {
-		at, ok := a.knobShown.freshUntil(id, knobNowPlayingPage, now)
-		if !caps.hasFeature(featureShown) {
+	a.devices.EachKnobCaps(func(id string, caps *devices.Caps) {
+		at, ok := a.knobShown.freshUntil(id, devices.KnobNowPlayingPage, now)
+		if !caps.HasFeature(featureShown) {
 			at, ok = a.knobShown.polledUntil(id, now)
 		}
 		if ok {

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/nowplaying"
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
@@ -243,7 +244,7 @@ func goldenCheckinRequests(t *testing.T) (minimal, full map[string]any, dump []b
 func TestDeviceCheckinGolden(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	clk := &stepClock{now: time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)}
-	app.devices.now = clk.Now
+	app.devices.Now = clk.Now
 	app.knobStats.now = clk.Now
 	k := otaKnob{app: app, srv: srv, knob: mintKnob(t, srv, http.StatusCreated)}
 
@@ -281,8 +282,8 @@ func TestDeviceCheckinGolden(t *testing.T) {
 	mustOK(t, "coredump", resp, b)
 	assertDeviceGolden(t, "checkin_reply_ota", post(fullBody))
 
-	var last *deviceCheckin
-	for _, d := range app.devices.list() {
+	var last *devices.Checkin
+	for _, d := range app.devices.List() {
 		if d.ID == k.knob.ID {
 			last = d.LastCheckin
 		}
@@ -302,19 +303,19 @@ func TestDeviceCheckinGolden(t *testing.T) {
 		d.Reboots, d.PrevResetReason, d.RebootsSinceSeen = 0, "", 0
 		got.Diag = &d
 	}
-	want := deviceCheckin{
+	want := devices.Checkin{
 		FW: "0.9.13", IP: "192.0.2.10", RSSI: -58, HeapInternalFree: 47104, HeapInternalLargest: 31744,
 		UptimeS: 812, AppliedVersion: 2, LinkMHz: 80, LinkFallback: true,
-		Wifi: &deviceWifi{BSSID: "02:00:5e:00:00:01", Channel: 6, Disconnects: 3, LastReason: 203, RSSIMin: -83},
-		Diag: &deviceDiag{Boots: 12, HeapInternalMin: 30120, HeapLargestMin: 22528, ResetReason: "panic",
-			Crash:     &deviceCrash{ELF: "a1b2c3d4", ID: crashID, Size: len(dump), PC: "0x4201a2b3", Reason: "panic", Task: "ember"},
+		Wifi: &devices.Wifi{BSSID: "02:00:5e:00:00:01", Channel: 6, Disconnects: 3, LastReason: 203, RSSIMin: -83},
+		Diag: &devices.Diag{Boots: 12, HeapInternalMin: 30120, HeapLargestMin: 22528, ResetReason: "panic",
+			Crash:     &devices.Crash{ELF: "a1b2c3d4", ID: crashID, Size: len(dump), PC: "0x4201a2b3", Reason: "panic", Task: "ember"},
 			StackFree: map[string]int{"ember": 1220, "lvgl": 2048},
-			Idle:      &deviceIdle{State: "dim", InputAgeS: 125, Wake: "touch"}},
+			Idle:      &devices.Idle{State: "dim", InputAgeS: 125, Wake: "touch"}},
 		FWBuild: runningBuild,
-		OTA: &knobOTAReport{Image: "valid", Phase: "idle", Rollback: true, Slot: new(0),
-			Last: &knobOTALast{Attempt: 2, Error: "bad_checksum", Result: "failed", Version: "0.9.12"}},
-		Room: &deviceRoom{TempC: new(23.4), RH: new(41.2), ECO2: new(612), TVOC: new(85), AQI: new(2), Air: new("normal"), Lux: new(312.0), Present: new(true),
-			AgeS: &deviceRoomAges{Climate: new(4), Air: new(1), Light: new(0), Presence: new(0)}},
+		OTA: &devices.KnobOTAReport{Image: "valid", Phase: "idle", Rollback: true, Slot: new(0),
+			Last: &devices.KnobOTALast{Attempt: 2, Error: "bad_checksum", Result: "failed", Version: "0.9.12"}},
+		Room: &devices.Room{TempC: new(23.4), RH: new(41.2), ECO2: new(612), TVOC: new(85), AQI: new(2), Air: new("normal"), Lux: new(312.0), Present: new(true),
+			AgeS: &devices.RoomAges{Climate: new(4), Air: new(1), Light: new(0), Presence: new(0)}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		gb, _ := json.Marshal(got)
@@ -387,7 +388,7 @@ func TestDeviceConfigV2Golden(t *testing.T) {
 func TestDeviceCheckinConfigV2Golden(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	clk := &stepClock{now: time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)}
-	app.devices.now = clk.Now
+	app.devices.Now = clk.Now
 	m := mintKnob(t, srv, http.StatusCreated)
 	body, err := json.Marshal(maxV2Settings())
 	if err != nil {
@@ -411,7 +412,7 @@ const (
 func TestDeviceClaimGolden(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	f := claimFixtureFor(app, srv)
-	app.claims.rand = &scriptedRand{b: []byte{0x01, 0x23, 0xab, 0xcd, 0x00, 0x07, 0x5e, 0x61}}
+	app.claims.Rand = &scriptedRand{b: []byte{0x01, 0x23, 0xab, 0xcd, 0x00, 0x07, 0x5e, 0x61}}
 	req, err := json.Marshal(map[string]string{"hw_id": exampleClaimHwID, "fw": "0.9.110", "claim_key": testClaimKey})
 	if err != nil {
 		t.Fatal(err)

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 // ok | warn | fail | skipped.
@@ -215,10 +216,10 @@ func checkCapabilities(app *App) CheckResult {
 const deviceStaleAfter = 5 * time.Minute
 
 func checkClientTokens(app *App) CheckResult {
-	if err := app.clients.loadError(); err != nil {
+	if err := app.clients.LoadError(); err != nil {
 		return CheckResult{Status: StatusFail, Detail: "store load failed (writes refused until restart): " + err.Error()}
 	}
-	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("count=%d", len(app.clients.list()))}
+	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("count=%d", len(app.clients.List()))}
 }
 
 func checkUsageAccounts(app *App) CheckResult {
@@ -229,13 +230,13 @@ func checkUsageAccounts(app *App) CheckResult {
 }
 
 func checkDevices(app *App) CheckResult {
-	if err := app.devices.loadError(); err != nil {
+	if err := app.devices.LoadError(); err != nil {
 		return CheckResult{Status: StatusFail, Detail: "registry load failed (writes refused until restart): " + err.Error()}
 	}
-	devices := app.devices.list()
-	now := app.devices.now()
+	registered := app.devices.List()
+	now := app.devices.Now()
 	status := StatusOK
-	detail := fmt.Sprintf("registered=%d", len(devices))
+	detail := fmt.Sprintf("registered=%d", len(registered))
 	if p := app.cfg.Load().clockPresentation; p != nil {
 		detail += " clock config migrated"
 		if p.MigratedFromOverlay != "" {
@@ -245,8 +246,8 @@ func checkDevices(app *App) CheckResult {
 		status = StatusWarn
 		detail += " clock config not migrated: " + err.Error()
 	}
-	for _, d := range devices {
-		if d.Kind == deviceKindClock {
+	for _, d := range registered {
+		if d.Kind == devices.KindClock {
 			switch {
 			case clockDisabled():
 				detail += fmt.Sprintf(" %s clock disabled", d.ID)

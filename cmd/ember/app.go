@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/sessions"
@@ -63,13 +64,13 @@ type App struct {
 
 	settings appSettings
 
-	devices       *deviceRegistry
+	devices       *devices.Registry
 	clockSync     clockSyncGate
 	clockRotation atomic.Pointer[clockRotation]
 	rotationOp    clockRotationOp
 	clockMigrate  clockMigration
-	clients       *clientRegistry
-	claims        *claimRegistry
+	clients       *devices.ClientRegistry
+	claims        *devices.ClaimRegistry
 	changes       *changeBroadcaster
 	viewWaiters   viewWaiters
 	stateWaiters  viewWaiters
@@ -181,22 +182,22 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.rotationOp.budget.Store(int64(clockRotationOpBudget))
 	a.sessions = a.newSessionRegistry(realClock{}.Now)
 	a.settings = newAppSettings(a)
-	a.devices = newDeviceRegistry(func() settingsKV {
+	a.devices = devices.New(func() devices.KV {
 		if a.store == nil {
 			return nil
 		}
 		return a.store
 	})
-	a.devices.onChange = func() {
+	a.devices.OnChange = func() {
 		a.changes.notify(topicDevices)
 		a.knobShown.bump()
 	}
-	a.clients = newClientRegistry(a.devices.kv)
-	a.claims = newClaimRegistry()
-	a.claims.onExpire = func(c deviceClaim) {
-		a.logger.Info("device claim expired", "claim_id", c.id, "hw_id", c.hwID, "ip", c.ip)
+	a.clients = devices.NewClientRegistry(a.devices.KV)
+	a.claims = devices.NewClaimRegistry()
+	a.claims.OnExpire = func(c devices.Claim) {
+		a.logger.Info("device claim expired", "claim_id", c.ID, "hw_id", c.HwID, "ip", c.IP)
 	}
-	a.usageSeen = newUsageAccountRegistry(a.devices.kv)
+	a.usageSeen = newUsageAccountRegistry(a.devices.KV)
 	a.knobStats = newKnobStatsStore()
 	a.clockStats = newClockStatsStore()
 	a.metrics = newMetrics()

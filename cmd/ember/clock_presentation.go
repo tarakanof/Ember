@@ -10,6 +10,8 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const clockConfigKey = "clock_config_json"
@@ -379,7 +381,7 @@ func (a *App) migrateClockConfigInBackground() {
 }
 
 func (a *App) migrateClockConfig() {
-	if a.store == nil || a.devices == nil || !a.devices.hasClock() {
+	if a.store == nil || a.devices == nil || !a.devices.HasClock() {
 		return
 	}
 	if a.migrationHoldHook != nil {
@@ -390,7 +392,7 @@ func (a *App) migrateClockConfig() {
 	var migrated *clockStoredConfig
 	err := a.tryUpdateConfig(func(c *Config) error {
 		if c.clockPresentation != nil {
-			return errNoChange
+			return devices.ErrNoChange
 		}
 		if _, ok, err := a.store.GetSetting(clockConfigKey); err != nil {
 			return err
@@ -427,7 +429,7 @@ func (a *App) migrateClockConfig() {
 		return nil
 	})
 	switch {
-	case errors.Is(err, errNoChange):
+	case errors.Is(err, devices.ErrNoChange):
 		a.clockMigrate.done()
 	case err != nil:
 		if a.clockMigrate.fail(err) {

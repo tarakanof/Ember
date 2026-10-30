@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -17,7 +19,6 @@ const (
 )
 
 const (
-	maxClients       = 64
 	maxClientSources = 16
 	maxSourceRunes   = 64
 )
@@ -25,7 +26,6 @@ const (
 var (
 	errScopeDenied    = errors.New("token lacks the required scope")
 	errMasterRequired = errors.New("managing client tokens requires EMBER_TOKEN")
-	errTooManyClients = fmt.Errorf("%w: at most %d client tokens; delete one first", errDeviceBody, maxClients)
 	errSourceDenied   = errors.New("token is not bound to source")
 	errBoundKeySlash  = errors.New("a source-bound token may not use \"/\" in tool or session")
 )
@@ -71,7 +71,7 @@ func scopeAllowed(have []string, need string) bool {
 
 func normalizeScopes(raw []string) ([]string, error) {
 	if len(raw) == 0 {
-		return nil, fmt.Errorf("%w: scopes is required for a client", errDeviceBody)
+		return nil, fmt.Errorf("%w: scopes is required for a client", devices.ErrBody)
 	}
 	out := make([]string, 0, len(raw))
 	for _, s := range raw {
@@ -79,7 +79,7 @@ func normalizeScopes(raw []string) ([]string, error) {
 		case scopeIngest, scopeControl, scopeRead, scopeAdmin:
 			out = append(out, s)
 		default:
-			return nil, fmt.Errorf("%w: unknown scope %q (want ingest, control, read or admin)", errDeviceBody, s)
+			return nil, fmt.Errorf("%w: unknown scope %q (want ingest, control, read or admin)", devices.ErrBody, s)
 		}
 	}
 	slices.Sort(out)
@@ -91,19 +91,19 @@ func normalizeSources(raw, scopes []string) ([]string, error) {
 		return nil, nil
 	}
 	if len(raw) == 0 || len(raw) > maxClientSources {
-		return nil, fmt.Errorf("%w: sources must list 1 to %d sources, or be omitted", errDeviceBody, maxClientSources)
+		return nil, fmt.Errorf("%w: sources must list 1 to %d sources, or be omitted", devices.ErrBody, maxClientSources)
 	}
 	if !slices.Contains(scopes, scopeIngest) || slices.Contains(scopes, scopeAdmin) {
-		return nil, fmt.Errorf("%w: sources need the ingest scope and can't be combined with admin", errDeviceBody)
+		return nil, fmt.Errorf("%w: sources need the ingest scope and can't be combined with admin", devices.ErrBody)
 	}
 	out := make([]string, 0, len(raw))
 	for _, s := range raw {
 		s = strings.TrimSpace(s)
 		if s == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > maxSourceRunes {
-			return nil, fmt.Errorf("%w: each source must be 1 to %d characters", errDeviceBody, maxSourceRunes)
+			return nil, fmt.Errorf("%w: each source must be 1 to %d characters", devices.ErrBody, maxSourceRunes)
 		}
 		if strings.Contains(s, "/") {
-			return nil, fmt.Errorf("%w: a source may not contain \"/\"", errDeviceBody)
+			return nil, fmt.Errorf("%w: a source may not contain \"/\"", devices.ErrBody)
 		}
 		out = append(out, s)
 	}
@@ -113,7 +113,7 @@ func normalizeSources(raw, scopes []string) ([]string, error) {
 
 func (a *App) clientAuth(w http.ResponseWriter, r *http.Request, scope string) (clientCaller, bool) {
 	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	c, ok, err := a.clients.authenticate(bearer)
+	c, ok, err := a.clients.Authenticate(bearer)
 	if err != nil {
 		a.logger.WarnContext(r.Context(), "client auth failed", "path", r.URL.Path, "err", err)
 		writeError(w, http.StatusInternalServerError, errors.New("client token store unavailable"))
@@ -125,13 +125,13 @@ func (a *App) clientAuth(w http.ResponseWriter, r *http.Request, scope string) (
 		writeError(w, http.StatusUnauthorized, errors.New("unauthorized"))
 		return clientCaller{}, false
 	}
-	if !scopeAllowed(c.scopes, scope) {
+	if !scopeAllowed(c.Scopes, scope) {
 		a.logger.InfoContext(r.Context(), "auth scope denied",
-			"client_id", c.id, "scope", scope, "path", r.URL.Path, "method", r.Method)
+			"client_id", c.ID, "scope", scope, "path", r.URL.Path, "method", r.Method)
 		writeError(w, http.StatusForbidden, fmt.Errorf("%w %q", errScopeDenied, scope))
 		return clientCaller{}, false
 	}
-	return clientCaller{id: c.id, sources: c.sources}, true
+	return clientCaller{id: c.ID, sources: c.Sources}, true
 }
 
 func boundSources(r *http.Request) ([]string, bool) {
@@ -170,5 +170,5 @@ func (a *App) denySource(w http.ResponseWriter, r *http.Request, source string) 
 }
 
 func isClientBearer(r *http.Request) bool {
-	return strings.HasPrefix(r.Header.Get("Authorization"), "Bearer "+clientTokenPrefix)
+	return strings.HasPrefix(r.Header.Get("Authorization"), "Bearer "+devices.ClientTokenPrefix)
 }

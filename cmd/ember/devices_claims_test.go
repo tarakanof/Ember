@@ -19,6 +19,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -40,13 +42,13 @@ func newClaimFixture(t *testing.T) *claimFixture {
 
 func claimFixtureFor(app *App, srv *httptest.Server) *claimFixture {
 	clk := &stepClock{now: time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)}
-	app.devices.now = clk.Now
-	app.claims.now = clk.Now
+	app.devices.Now = clk.Now
+	app.claims.Now = clk.Now
 	return &claimFixture{app: app, srv: srv, clk: clk}
 }
 
 func fakeClaimKey(i int) string {
-	k := make([]byte, claimKeyBytes)
+	k := make([]byte, devices.ClaimKeyBytes)
 	binary.BigEndian.PutUint32(k, uint32(i))
 	return base64.RawURLEncoding.EncodeToString(k)
 }
@@ -123,7 +125,7 @@ func TestClaimCreateValidates(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			f.app.claims.reset()
+			f.app.claims.Reset()
 			resp, b := devReq(t, f.srv, "POST", "/v1/devices/claim", "", c.body)
 			if resp.StatusCode != c.want {
 				t.Fatalf("status = %d, want %d: %s", resp.StatusCode, c.want, b)
@@ -153,28 +155,28 @@ func TestClaimCodeIsSixDigitsAndUnique(t *testing.T) {
 		t.Errorf("expires_in_s, poll_s = %d, %d, want 600, 5", c.ExpiresInS, c.PollS)
 	}
 
-	reg := newClaimRegistry()
-	reg.rand = &scriptedRand{b: []byte{
+	reg := devices.NewClaimRegistry()
+	reg.Rand = &scriptedRand{b: []byte{
 		0x01, 0x23, 0xab, 0xcd, 0x00, 0x07, 0x5e, 0x61,
 		0x01, 0x23, 0xab, 0xcd, 0x01, 0x23, 0xab, 0xce,
 		0xff, 0xff, 0xff, 0xff, 0x00, 0x07, 0x5e, 0x61, 0x00, 0x00, 0x00, 0x07,
 	}}
-	first, _, err := reg.open(testHwID, "", "192.0.2.1", testClaimKey)
+	first, _, err := reg.Open(testHwID, "", "192.0.2.1", testClaimKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, _, err := reg.open(testHwID, "", "192.0.2.2", otherClaimKey)
+	second, _, err := reg.Open(testHwID, "", "192.0.2.2", otherClaimKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.id != "c_0123abcd" || first.code != "482913" {
-		t.Fatalf("first = %s %s, want c_0123abcd 482913", first.id, first.code)
+	if first.ID != "c_0123abcd" || first.Code != "482913" {
+		t.Fatalf("first = %s %s, want c_0123abcd 482913", first.ID, first.Code)
 	}
-	if second.id != "c_0123abce" {
-		t.Errorf("second id = %s, want the next draw after the taken c_0123abcd", second.id)
+	if second.ID != "c_0123abce" {
+		t.Errorf("second id = %s, want the next draw after the taken c_0123abcd", second.ID)
 	}
-	if second.code != "000007" {
-		t.Errorf("second code = %s, want 000007: a draw past the unbiased range and a pending code are both skipped", second.code)
+	if second.Code != "000007" {
+		t.Errorf("second code = %s, want 000007: a draw past the unbiased range and a pending code are both skipped", second.Code)
 	}
 }
 
@@ -186,12 +188,12 @@ func TestClaimCapsPerIPAndGlobalWithoutEviction(t *testing.T) {
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("third claim from one IP = %d, want 429: %s", resp.StatusCode, body)
 	}
-	for i := range claimMaxTotal - 2 {
-		if _, _, err := f.app.claims.open(testHwID, "", fmt.Sprintf("192.0.2.%d", i+1), fakeClaimKey(i)); err != nil {
+	for i := range devices.ClaimMaxTotal - 2 {
+		if _, _, err := f.app.claims.Open(testHwID, "", fmt.Sprintf("192.0.2.%d", i+1), fakeClaimKey(i)); err != nil {
 			t.Fatalf("claim %d from its own IP: %v", i+3, err)
 		}
 	}
-	if _, _, err := f.app.claims.open(testHwID, "", "198.51.100.7", fakeClaimKey(99)); !errors.Is(err, errClaimsFull) {
+	if _, _, err := f.app.claims.Open(testHwID, "", "198.51.100.7", fakeClaimKey(99)); !errors.Is(err, devices.ErrClaimsFull) {
 		t.Fatalf("claim past the global cap: err = %v, want errClaimsFull", err)
 	}
 	for _, c := range []struct{ id, key string }{{a.ClaimID, testClaimKey}, {b.ClaimID, otherClaimKey}} {
@@ -205,7 +207,7 @@ func TestClaimExpiresAfterTenMinutes(t *testing.T) {
 	f := newClaimFixture(t)
 	f.open(t, otherClaimKey)
 	c := f.open(t, testClaimKey)
-	f.clk.advance(claimTTL - time.Second)
+	f.clk.advance(devices.ClaimTTL - time.Second)
 	resp, b := f.poll(t, c.ClaimID, testClaimKey)
 	if resp.StatusCode != http.StatusAccepted || !bytes.Contains(b, []byte(`"expires_in_s":1`)) {
 		t.Fatalf("poll a second before expiry = %d %s, want 202 with expires_in_s 1", resp.StatusCode, b)
@@ -228,7 +230,7 @@ func TestClaimPollNeedsTheKey(t *testing.T) {
 	wrongResp, wrong := f.poll(t, c.ClaimID, otherClaimKey)
 	unknownResp, unknown := f.poll(t, "c_00000000", testClaimKey)
 	noKeyResp, noKey := f.poll(t, c.ClaimID, "")
-	f.clk.advance(claimTTL)
+	f.clk.advance(devices.ClaimTTL)
 	expiredResp, gone := f.poll(t, expired.ClaimID, otherClaimKey)
 	for name, r := range map[string]*http.Response{"wrong key": wrongResp, "unknown id": unknownResp, "no key": noKeyResp, "expired": expiredResp} {
 		if r.StatusCode != http.StatusNotFound {
@@ -247,7 +249,7 @@ func TestClaimApproveWrongCodeCountsAndDropsAtFive(t *testing.T) {
 	if c.Code == wrong {
 		wrong = "111111"
 	}
-	for want := claimMaxAttempts - 1; want >= 0; want-- {
+	for want := devices.ClaimMaxAttempts - 1; want >= 0; want-- {
 		resp, b := f.approve(t, c.ClaimID, wrong, "")
 		var e struct {
 			Error        string `json:"error"`
@@ -264,14 +266,14 @@ func TestClaimApproveWrongCodeCountsAndDropsAtFive(t *testing.T) {
 	if resp, _ := f.poll(t, c.ClaimID, testClaimKey); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("poll a dropped claim = %d, want 404", resp.StatusCode)
 	}
-	if len(f.app.devices.list()) != 0 {
+	if len(f.app.devices.List()) != 0 {
 		t.Fatal("a dropped claim minted a device")
 	}
 }
 
 func TestClaimApproveMintsAndPollDeliversSameTokenUntilFirstUse(t *testing.T) {
 	f := newClaimFixture(t)
-	epoch := f.app.devices.epochValue()
+	epoch := f.app.devices.Epoch()
 	c := f.open(t, testClaimKey)
 	code := c.Code[:3] + " " + c.Code[3:]
 	resp, b := f.approve(t, c.ClaimID, code, "")
@@ -281,11 +283,11 @@ func TestClaimApproveMintsAndPollDeliversSameTokenUntilFirstUse(t *testing.T) {
 	if bytes.Contains(b, []byte("ekd_")) || bytes.Contains(b, []byte("token")) {
 		t.Fatalf("approve reply carries a token: %s", b)
 	}
-	var view deviceView
+	var view devices.View
 	if err := json.Unmarshal(b, &view); err != nil || view.ID != "knob-61fc8c" || view.Name != "Knob 61FC8C" || view.HwID != testHwID {
 		t.Fatalf("approve view = %s", b)
 	}
-	if f.app.devices.epochValue() == epoch {
+	if f.app.devices.Epoch() == epoch {
 		t.Error("approve did not bump the epoch")
 	}
 	if resp, b := f.approve(t, c.ClaimID, c.Code, ""); resp.StatusCode != http.StatusOK || !bytes.Contains(b, []byte(`"id":"knob-61fc8c"`)) {
@@ -300,7 +302,7 @@ func TestClaimApproveMintsAndPollDeliversSameTokenUntilFirstUse(t *testing.T) {
 	if first.State != "approved" || first.DeviceID != "knob-61fc8c" || first.Name != "Knob 61FC8C" || !strings.HasPrefix(first.Token, "ekd_") {
 		t.Fatalf("approved poll = %+v", first)
 	}
-	f.clk.advance(claimTTL - time.Second)
+	f.clk.advance(devices.ClaimTTL - time.Second)
 	if again := f.collectToken(t, c.ClaimID); again.Token != first.Token {
 		t.Fatal("a second poll before first use delivered another token")
 	}
@@ -315,11 +317,11 @@ func TestClaimApproveMintsAndPollDeliversSameTokenUntilFirstUse(t *testing.T) {
 func TestClaimApprovalOutlivesTheCodeForTenMinutes(t *testing.T) {
 	f := newClaimFixture(t)
 	c := f.open(t, testClaimKey)
-	f.clk.advance(claimTTL - time.Minute)
+	f.clk.advance(devices.ClaimTTL - time.Minute)
 	if resp, b := f.approve(t, c.ClaimID, c.Code, ""); resp.StatusCode != http.StatusOK {
 		t.Fatalf("approve = %d: %s", resp.StatusCode, b)
 	}
-	f.clk.advance(claimTTL - time.Second)
+	f.clk.advance(devices.ClaimTTL - time.Second)
 	f.collectToken(t, c.ClaimID)
 	f.clk.advance(time.Second)
 	if resp, _ := f.poll(t, c.ClaimID, testClaimKey); resp.StatusCode != http.StatusNotFound {
@@ -331,7 +333,7 @@ func TestClaimApproveReprovisionKeepsConfigAndRevokesOldToken(t *testing.T) {
 	f := newClaimFixture(t)
 	m := mintKnob(t, f.srv, http.StatusCreated)
 	putKnobConfig(t, f.srv, m.ID, `{"poll_ms":4000}`)
-	_, version, err := f.app.devices.config(m.ID)
+	_, version, err := f.app.devices.Config(m.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +352,7 @@ func TestClaimApproveReprovisionKeepsConfigAndRevokesOldToken(t *testing.T) {
 	if resp, _ := checkin(t, f.srv, m.Token, version); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("old token after re-pair = %d, want 401", resp.StatusCode)
 	}
-	cfg, after, err := f.app.devices.config(m.ID)
+	cfg, after, err := f.app.devices.Config(m.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +362,7 @@ func TestClaimApproveReprovisionKeepsConfigAndRevokesOldToken(t *testing.T) {
 	if resp, out := checkin(t, f.srv, got.Token, version); resp.StatusCode != http.StatusOK || out["config"] != nil {
 		t.Fatalf("checkin with the new token = %d %v, want 200 without a config push", resp.StatusCode, out)
 	}
-	if n := len(f.app.devices.list()); n != 1 {
+	if n := len(f.app.devices.List()); n != 1 {
 		t.Fatalf("records after re-pair = %d, want 1", n)
 	}
 }
@@ -371,7 +373,7 @@ func TestClaimRefusedWhileRecordIsLive(t *testing.T) {
 	if resp, _ := checkin(t, f.srv, m.Token, 1); resp.StatusCode != http.StatusOK {
 		t.Fatal("checkin failed")
 	}
-	f.clk.advance(claimLiveWindow - time.Second)
+	f.clk.advance(devices.ClaimLiveWindow - time.Second)
 	resp, b := devReq(t, f.srv, "POST", "/v1/devices/claim", "", claimBody(testHwID, "", testClaimKey))
 	if resp.StatusCode != http.StatusConflict || !bytes.Contains(b, []byte(`"error":"already_paired"`)) {
 		t.Fatalf("claim for a live knob = %d %s, want 409 already_paired", resp.StatusCode, b)
@@ -396,7 +398,7 @@ func TestClaimsAreForgottenOnRestart(t *testing.T) {
 	if resp, b := f2.poll(t, c.ClaimID, testClaimKey); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("poll after restart = %d, want 404: %s", resp.StatusCode, b)
 	}
-	if len(app2.devices.list()) != 1 {
+	if len(app2.devices.List()) != 1 {
 		t.Fatal("the approved record did not survive the restart")
 	}
 	f2.open(t, testClaimKey)
@@ -477,7 +479,7 @@ func TestClaimSecretsNeverLogged(t *testing.T) {
 	declined := f.open(t, otherClaimKey)
 	devReq(t, srv, "POST", "/v1/devices/claims/"+declined.ClaimID+"/decline", testToken, "")
 	expired := f.open(t, otherClaimKey)
-	f.clk.advance(claimTTL)
+	f.clk.advance(devices.ClaimTTL)
 	f.poll(t, expired.ClaimID, otherClaimKey)
 
 	c := f.open(t, testClaimKey)
@@ -505,7 +507,7 @@ func TestClaimSecretsNeverLogged(t *testing.T) {
 		"code": c.Code, "declined code": declined.Code, "expired code": expired.Code,
 		"claim key": testClaimKey, "other claim key": otherClaimKey, "claim key prefix": testClaimKey[:20],
 		"claim key hash": hex.EncodeToString(keyHash[:]), "other key hash": hex.EncodeToString(otherHash[:]),
-		"token": got.Token, "token hash": tokenHash(got.Token),
+		"token": got.Token, "token hash": devices.TokenHash(got.Token),
 	}
 	for name, s := range secrets {
 		if strings.Contains(out, s) {
@@ -556,17 +558,17 @@ func TestClaimRoutesInOpenAPI(t *testing.T) {
 }
 
 func TestDeviceIDsCanNeverBeClaimSegments(t *testing.T) {
-	st := &deviceState{}
+	st := &devices.State{}
 	for _, hw := range []string{testHwID, "000000000000", "ffffffffffff"} {
 		for range 2 {
-			id := deviceID(st, hw)
-			st.Devices = append(st.Devices, deviceRecord{ID: id, Kind: deviceKindKnob, HwID: hw})
+			id := devices.KnobID(st, hw)
+			st.Devices = append(st.Devices, devices.Record{ID: id, Kind: devices.KindKnob, HwID: hw})
 			if !strings.HasPrefix(id, "knob-") {
 				t.Errorf("knob id %q lacks the knob- prefix", id)
 			}
 		}
 	}
-	for _, prefix := range []string{clientIDPrefix, clockIDPrefix} {
+	for _, prefix := range []string{devices.ClientIDPrefix, devices.ClockIDPrefix} {
 		if prefix == "" || strings.HasPrefix("claim", prefix) || strings.HasPrefix("claims", prefix) {
 			t.Errorf("id prefix %q could produce a claim segment", prefix)
 		}
@@ -582,70 +584,6 @@ func TestDeviceIDsCanNeverBeClaimSegments(t *testing.T) {
 	resp, b := devReq(t, srv, "GET", "/v1/devices/claims", testToken, "")
 	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(string(b), `{"claims":`) {
 		t.Fatalf("claims list = %d %s", resp.StatusCode, b)
-	}
-}
-
-func TestClaimCapCountsAnIPv6SlashSixtyFourAsOneSource(t *testing.T) {
-	cases := []struct {
-		name   string
-		first  []string
-		capped string
-		other  string
-	}{
-		{"one /64", []string{"2001:db8:1:2::1", "2001:db8:1:2:a:b:c:d"}, "2001:db8:1:2:ffff::9", "2001:db8:1:3::1"},
-		{"link-local zones", []string{"fe80::1%en0", "fe80::2%en1"}, "fe80::3%en0", "2001:db8:1:3::1"},
-		{"IPv4-mapped", []string{"192.0.2.10", "::ffff:192.0.2.10"}, "::ffff:c000:20a", "192.0.2.11"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			reg := newClaimRegistry()
-			for i, ip := range c.first {
-				if _, _, err := reg.open(testHwID, "", ip, fakeClaimKey(i)); err != nil {
-					t.Fatalf("open from %s: %v", ip, err)
-				}
-			}
-			if _, _, err := reg.open(testHwID, "", c.capped, fakeClaimKey(10)); !errors.Is(err, errClaimsFull) {
-				t.Fatalf("third claim from the same source %s: err = %v, want errClaimsFull", c.capped, err)
-			}
-			if _, _, err := reg.open(testHwID, "", c.other, fakeClaimKey(11)); err != nil {
-				t.Fatalf("claim from another source %s: %v", c.other, err)
-			}
-		})
-	}
-}
-
-func TestClaimCapsHoldUnderConcurrentOpens(t *testing.T) {
-	reg := newClaimRegistry()
-	results := make(chan error, 200)
-	for i := range 200 {
-		go func() {
-			ip := "192.0.2.1"
-			if i%2 == 1 {
-				ip = fmt.Sprintf("198.51.100.%d", i%100)
-			}
-			_, _, err := reg.open(testHwID, "", ip, fakeClaimKey(i))
-			results <- err
-		}()
-	}
-	ok := 0
-	for range 200 {
-		if err := <-results; err == nil {
-			ok++
-		} else if !errors.Is(err, errClaimsFull) {
-			t.Fatal(err)
-		}
-	}
-	if ok != claimMaxTotal || len(reg.claims) != claimMaxTotal {
-		t.Fatalf("opened %d claims (%d stored), want exactly %d", ok, len(reg.claims), claimMaxTotal)
-	}
-	fromOne := 0
-	for _, c := range reg.claims {
-		if c.ip == "192.0.2.1" {
-			fromOne++
-		}
-	}
-	if fromOne > claimMaxPerIP {
-		t.Fatalf("one IP holds %d claims, want at most %d", fromOne, claimMaxPerIP)
 	}
 }
 
@@ -673,9 +611,9 @@ func TestClaimSourceIsTheSocketAddressNotAForwardedHeader(t *testing.T) {
 			t.Fatalf("claim %d with a spoofed forwarded address = %d, want %d", i+1, resp.StatusCode, want)
 		}
 	}
-	for _, c := range f.app.claims.pending() {
-		if c.ip != "127.0.0.1" {
-			t.Errorf("claim ip = %q, want the socket address 127.0.0.1", c.ip)
+	for _, c := range f.app.claims.Pending() {
+		if c.IP != "127.0.0.1" {
+			t.Errorf("claim ip = %q, want the socket address 127.0.0.1", c.IP)
 		}
 	}
 }
@@ -689,7 +627,7 @@ func TestClaimBodiesAreCappedSmall(t *testing.T) {
 	if resp, b := devReq(t, f.srv, "POST", "/v1/devices/claim/poll", "", `{"claim_id":"c_00000000","claim_key":"`+testClaimKey+`"}`+pad); resp.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized poll = %d, want 413: %s", resp.StatusCode, b)
 	}
-	if n := len(f.app.claims.pending()); n != 0 {
+	if n := len(f.app.claims.Pending()); n != 0 {
 		t.Fatalf("an oversized claim opened %d claims", n)
 	}
 }
@@ -731,7 +669,7 @@ func TestClaimApproveAndDeclineRaceLeaveOneOutcome(t *testing.T) {
 		}()
 		a, d := <-approved, <-declined
 		poll, pb := f.poll(t, c.ClaimID, testClaimKey)
-		id, _ := f.app.devices.knobByHw(hw)
+		id, _ := f.app.devices.KnobByHw(hw)
 		switch {
 		case a == http.StatusOK && d == http.StatusConflict && poll.StatusCode == http.StatusOK && id != "":
 			var p claimPollReply
@@ -799,7 +737,7 @@ func TestClaimWrongCodesNeverDropAnApprovedClaim(t *testing.T) {
 	if resp, b := f.approve(t, c.ClaimID, c.Code, ""); resp.StatusCode != http.StatusOK {
 		t.Fatalf("approve = %d: %s", resp.StatusCode, b)
 	}
-	for range claimMaxAttempts + 1 {
+	for range devices.ClaimMaxAttempts + 1 {
 		resp, b := f.approve(t, c.ClaimID, wrong, "")
 		if resp.StatusCode != http.StatusBadRequest || !bytes.Contains(b, []byte(`"attempts_left":4`)) {
 			t.Fatalf("wrong code on an approved claim = %d %s, want 400 with attempts_left still 4", resp.StatusCode, b)
@@ -884,7 +822,7 @@ func TestClaimReplySaysTenMinutesOnAClockThatMoves(t *testing.T) {
 	f := newClaimFixture(t)
 	var mu sync.Mutex
 	at := f.clk.Now()
-	f.app.claims.now = func() time.Time {
+	f.app.claims.Now = func() time.Time {
 		mu.Lock()
 		defer mu.Unlock()
 		at = at.Add(time.Millisecond)
@@ -916,7 +854,7 @@ func TestClaimApproveAndDeclineOfADeletedDeviceDropTheClaim(t *testing.T) {
 			if resp.StatusCode != http.StatusNotFound {
 				t.Fatalf("%s a claim whose device was deleted = %d, want 404: %s", op, resp.StatusCode, b)
 			}
-			if n := f.app.claims.count(); n != 0 {
+			if n := f.app.claims.Count(); n != 0 {
 				t.Fatalf("the claim kept its slot: %d left", n)
 			}
 		})

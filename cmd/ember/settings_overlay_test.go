@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 type mapKV struct {
@@ -76,7 +78,7 @@ func newTestOverlay(base Config, kv *mapKV) (*settingsOverlay, *atomic.Pointer[C
 			return nil
 		},
 		load:   cfg.Load,
-		kv:     func() settingsKV { return kv },
+		kv:     func() devices.KV { return kv },
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	return o, &cfg
@@ -196,7 +198,7 @@ func TestSettingsReapplyIgnoresInvalidOrMissingBlob(t *testing.T) {
 
 func TestSettingWithoutStoreStaysInMemory(t *testing.T) {
 	o, cfg := newTestOverlay(toyBase(), &mapKV{})
-	o.kv = func() settingsKV { return nil }
+	o.kv = func() devices.KV { return nil }
 	s := register(o, toySpec(nil))
 	if _, err := s.put([]byte(`{"a":3}`)); err != nil {
 		t.Fatal(err)

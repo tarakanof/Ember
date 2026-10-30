@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 var legacyConfigPaths = []string{"/v1/weather/config", "/v1/meetings/config", "/v1/usage/config", "/v1/pomodoro/config"}
@@ -131,7 +133,7 @@ func effective(t *testing.T, a *App) string {
 }
 
 var mixedLegacyRows = map[string]string{
-	devicesKey:          legacyClockRecord,
+	devices.StateKey:    legacyClockRecord,
 	weatherSettingsKey:  `{"enabled":true,"provider":"open-meteo","latitude":52.5,"longitude":13.4,"location_name":"Berlin","units":"metric","refresh_minutes":15,"forecast_tile":false,"moon_phase":false,"icon_ids":{"rain":"77"}}`,
 	usageSettingsKey:    `{"usage_threshold_pct":40}`,
 	pomodoroSettingsKey: `{"focus_minutes":30,"focus_color":"#112233"}`,
@@ -278,7 +280,7 @@ func TestClockConfigMigrationCommittedSurvivesCrashBeforeSwap(t *testing.T) {
 }
 
 func TestClockConfigNotMigratedOverUnreadableRow(t *testing.T) {
-	seed := map[string]string{devicesKey: legacyClockRecord, clockConfigKey: `{"schema":7}`, weatherSettingsKey: `{"forecast_tile":false}`}
+	seed := map[string]string{devices.StateKey: legacyClockRecord, clockConfigKey: `{"schema":7}`, weatherSettingsKey: `{"forecast_tile":false}`}
 	a := bootApp(t, filepath.Join(t.TempDir(), "s.db"), seed)
 	a.migrateClockConfig()
 	if got, _, _ := a.store.GetSetting(clockConfigKey); got != `{"schema":7}` {
@@ -334,16 +336,16 @@ func TestClockConfigVersionAdoptsMatchingLegacyHash(t *testing.T) {
 	a := bootApp(t, filepath.Join(t.TempDir(), "s.db"), nil)
 	cfg := a.composeClockConfig()
 	hash := clockConfigHash(cfg)
-	if err := a.store.PutSetting(devicesKey, strings.Replace(legacyClockRecord, `"config_version":777`, `"config_version":`+itoa(hash), 1)); err != nil {
+	if err := a.store.PutSetting(devices.StateKey, strings.Replace(legacyClockRecord, `"config_version":777`, `"config_version":`+itoa(hash), 1)); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.loadRegistries(); err != nil {
 		t.Fatal(err)
 	}
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	a.syncClockConfigVersion()
-	if got := a.clockConfigVersion(); got != hash || a.devices.epochValue() != epoch {
-		t.Fatalf("version %d epoch %d, want the unchanged hash %d and no bump", got, a.devices.epochValue(), hash)
+	if got := a.clockConfigVersion(); got != hash || a.devices.Epoch() != epoch {
+		t.Fatalf("version %d epoch %d, want the unchanged hash %d and no bump", got, a.devices.Epoch(), hash)
 	}
 	if a.clockConfigDigestStored() != clockConfigDigest(cfg) {
 		t.Fatal("digest not adopted")
@@ -440,7 +442,7 @@ func TestRollbackReadsSourceOnlySlicesAndRecord(t *testing.T) {
 	if w.LocationName != "Berlin" || !w.ForecastTileEnabled() {
 		t.Fatalf("older server view = %+v (want source kept, presentation at the baseline)", w)
 	}
-	devs, _, _ := a.store.GetSetting(devicesKey)
+	devs, _, _ := a.store.GetSetting(devices.StateKey)
 	var older struct {
 		Devices []struct {
 			Kind   string          `json:"kind"`
@@ -466,7 +468,7 @@ func TestClockConfigBaselineTierAndReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.store.Close() })
-	if err := a.store.PutSetting(devicesKey, legacyClockRecord); err != nil {
+	if err := a.store.PutSetting(devices.StateKey, legacyClockRecord); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.loadRegistries(); err != nil {
@@ -513,8 +515,8 @@ func TestDoctorReportsClockConfigMigrated(t *testing.T) {
 
 func (a *App) clockConfigDigestStored() string {
 	var digest string
-	a.devices.withState(func(st *deviceState) {
-		if d := st.findClock(); d != nil {
+	a.devices.WithState(func(st *devices.State) {
+		if d := st.FindClock(); d != nil {
 			digest = d.ConfigDigest
 		}
 	})
@@ -597,7 +599,7 @@ const futureClockRow = `{"schema":1,"apps":{"focus":{"focus_color":"#112233","br
 
 func TestClockConfigRowKeepsUnknownFields(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "s.db")
-	a := bootApp(t, db, map[string]string{devicesKey: legacyClockRecord, clockConfigKey: futureClockRow})
+	a := bootApp(t, db, map[string]string{devices.StateKey: legacyClockRecord, clockConfigKey: futureClockRow})
 	if a.cfg.Load().Pomodoro.FocusColor != "#112233" {
 		t.Fatalf("row not applied: %s", a.cfg.Load().Pomodoro.FocusColor)
 	}
@@ -859,7 +861,7 @@ func TestShutdownStopsNewClockMigrations(t *testing.T) {
 }
 
 func TestClockMigrationErrorClearsWhenFixedRowLoads(t *testing.T) {
-	seed := map[string]string{devicesKey: legacyClockRecord, clockConfigKey: `{"schema":7}`}
+	seed := map[string]string{devices.StateKey: legacyClockRecord, clockConfigKey: `{"schema":7}`}
 	a := bootApp(t, filepath.Join(t.TempDir(), "s.db"), seed)
 	a.migrateClockConfig()
 	if a.clockMigrate.lastError() == nil {

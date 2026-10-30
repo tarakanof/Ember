@@ -16,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const customClockConfig = `{
@@ -185,14 +187,14 @@ func TestClockConfigEmptyPatchIsNoOp(t *testing.T) {
 	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	_, v := getClockConfig(t, srv, d.ID)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	weather, _, _ := a.store.GetSetting(weatherSettingsKey)
 	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{}`)
 	mustOK(t, "empty put", resp, b)
 	if got, _ := strconv.Atoi(resp.Header.Get(deviceConfigVersion)); got != v {
 		t.Fatalf("version %d -> %d", v, got)
 	}
-	if a.devices.epochValue() != epoch {
+	if a.devices.Epoch() != epoch {
 		t.Fatal("empty put moved the epoch")
 	}
 	if after, _, _ := a.store.GetSetting(weatherSettingsKey); after != weather {
@@ -207,7 +209,7 @@ func TestClockConfigRejectsInvalidBodies(t *testing.T) {
 	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	before, v := getClockConfig(t, srv, d.ID)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	for _, body := range []string{
 		`[]`,
 		`"x"`,
@@ -234,7 +236,7 @@ func TestClockConfigRejectsInvalidBodies(t *testing.T) {
 		}
 	}
 	after, v2 := getClockConfig(t, srv, d.ID)
-	if !reflect.DeepEqual(before, after) || v != v2 || a.devices.epochValue() != epoch {
+	if !reflect.DeepEqual(before, after) || v != v2 || a.devices.Epoch() != epoch {
 		t.Fatalf("a rejected PUT changed state")
 	}
 	if len(stub.puts()) != 0 {
@@ -263,10 +265,10 @@ func TestClockConfigPutBumpsEpochOnce(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false},"agents":{"hidden_tools":["codex"]},"focus":{"break_color":"#010203"}}}`)
 	mustOK(t, "put", resp, b)
-	if got := a.devices.epochValue(); got != epoch+1 {
+	if got := a.devices.Epoch(); got != epoch+1 {
 		t.Fatalf("epoch = %d, want %d", got, epoch+1)
 	}
 	v, _ := strconv.Atoi(resp.Header.Get(deviceConfigVersion))
@@ -279,10 +281,10 @@ func TestClockConfigPutWithRotationBumpsEpochOnce(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false}},"rotation":{"order":["date","time"],"disabled":[]}}`)
 	mustOK(t, "put", resp, b)
-	if got := a.devices.epochValue(); got != epoch+1 {
+	if got := a.devices.Epoch(); got != epoch+1 {
 		t.Fatalf("epoch = %d, want %d", got, epoch+1)
 	}
 }
@@ -291,17 +293,17 @@ func TestClockConfigOldAppOrderMovesVersionOnce(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	_, v := getClockConfig(t, srv, d.ID)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["date","time"],"disabled":[]}`)
 	mustOK(t, "apps order", resp, b)
-	if got := a.devices.epochValue(); got != epoch+1 || listDevices(t, srv)[0].ConfigVersion == v {
+	if got := a.devices.Epoch(); got != epoch+1 || listDevices(t, srv)[0].ConfigVersion == v {
 		t.Fatalf("epoch = %d after the write, want %d with a new version", got, epoch+1)
 	}
 	resp, b = devReq(t, srv, "GET", "/v1/device/apps", testToken, "")
 	mustOK(t, "apps read", resp, b)
 	c, v2 := getClockConfig(t, srv, d.ID)
-	if c.Rotation == nil || c.Rotation.Order[0] != "date" || a.devices.epochValue() != epoch+1 {
-		t.Fatalf("rotation = %+v epoch %d", c.Rotation, a.devices.epochValue())
+	if c.Rotation == nil || c.Rotation.Order[0] != "date" || a.devices.Epoch() != epoch+1 {
+		t.Fatalf("rotation = %+v epoch %d", c.Rotation, a.devices.Epoch())
 	}
 	if v2 != listDevices(t, srv)[0].ConfigVersion {
 		t.Fatalf("header version %d, record %d", v2, listDevices(t, srv)[0].ConfigVersion)
@@ -312,12 +314,12 @@ func TestClockConfigOldAppOrderUnchangedDoesNotMoveVersion(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	_, v := getClockConfig(t, srv, d.ID)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, `{"order":["time","date"],"disabled":["hum"]}`)
 	mustOK(t, "apps order", resp, b)
 	a.syncClockConfigVersion()
-	if _, v2 := getClockConfig(t, srv, d.ID); v2 != v || a.devices.epochValue() != epoch {
-		t.Fatalf("an unchanged order moved the version: epoch %d, want %d", a.devices.epochValue(), epoch)
+	if _, v2 := getClockConfig(t, srv, d.ID); v2 != v || a.devices.Epoch() != epoch {
+		t.Fatalf("an unchanged order moved the version: epoch %d, want %d", a.devices.Epoch(), epoch)
 	}
 }
 
@@ -325,7 +327,7 @@ func TestClockConfigOldAppOrderReadbackFailureKeepsVersionConsistent(t *testing.
 	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	stub.mu.Lock()
 	stub.appsFail = true
 	stub.mu.Unlock()
@@ -335,8 +337,8 @@ func TestClockConfigOldAppOrderReadbackFailureKeepsVersionConsistent(t *testing.
 	if c.Rotation != nil {
 		t.Fatalf("rotation = %+v, want null while the list can't be read", c.Rotation)
 	}
-	if rec := listDevices(t, srv)[0].ConfigVersion; v != rec || a.devices.epochValue() != epoch+1 {
-		t.Fatalf("header version %d, record %d, epoch %d (want %d)", v, rec, a.devices.epochValue(), epoch+1)
+	if rec := listDevices(t, srv)[0].ConfigVersion; v != rec || a.devices.Epoch() != epoch+1 {
+		t.Fatalf("header version %d, record %d, epoch %d (want %d)", v, rec, a.devices.Epoch(), epoch+1)
 	}
 	stub.mu.Lock()
 	stub.appsFail = false
@@ -351,11 +353,11 @@ func TestClockConfigPushedAppsDoNotMoveVersion(t *testing.T) {
 	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	_, v := getClockConfig(t, srv, d.ID)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	stub.mu.Lock()
 	stub.apps = append(stub.apps, map[string]any{"name": "ember-weather", "enabled": true, "inLoop": true, "origin": "pushed"})
 	stub.mu.Unlock()
-	if _, v2 := getClockConfig(t, srv, d.ID); v2 != v || a.devices.epochValue() != epoch {
+	if _, v2 := getClockConfig(t, srv, d.ID); v2 != v || a.devices.Epoch() != epoch {
 		t.Fatal("a pushed Ember tile moved the clock config version")
 	}
 }
@@ -471,7 +473,7 @@ func TestKnobConfigUnaffectedByClockRecord(t *testing.T) {
 	}
 	resp, b = devReq(t, srv, "GET", "/v1/devices/"+m.ID+"/config", testToken, "")
 	mustOK(t, "knob config", resp, b)
-	var k knobSettings
+	var k devices.KnobSettings
 	if err := json.Unmarshal(b, &k); err != nil || len(k.Pages) == 0 {
 		t.Fatalf("knob config = %s", b)
 	}
@@ -643,7 +645,7 @@ func TestClockRotationReadInFlightDelaysOldRouteWrite(t *testing.T) {
 	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	in, release := stub.holdApps(t, http.StatusOK)
 	get := clockGoReq(srv, "GET", "/v1/device/apps", "")
 	waitEntered(t, in, "apps read")
@@ -654,8 +656,8 @@ func TestClockRotationReadInFlightDelaysOldRouteWrite(t *testing.T) {
 	release()
 	mustReply(t, "apps read", get)
 	mustReply(t, "apps order", put)
-	if r := a.clockRotation.Load(); r == nil || r.Order[0] != "date" || a.devices.epochValue() != epoch+1 {
-		t.Fatalf("rotation = %+v epoch %d, want date first and epoch %d", r, a.devices.epochValue(), epoch+1)
+	if r := a.clockRotation.Load(); r == nil || r.Order[0] != "date" || a.devices.Epoch() != epoch+1 {
+		t.Fatalf("rotation = %+v epoch %d, want date first and epoch %d", r, a.devices.Epoch(), epoch+1)
 	}
 	assertClockRecordInStep(t, a, srv)
 }
@@ -716,10 +718,10 @@ func TestClockConfigPutWithRotationBumpsOnceFromStaleCache(t *testing.T) {
 	stub.mu.Lock()
 	stub.apps[0], stub.apps[1] = stub.apps[1], stub.apps[0]
 	stub.mu.Unlock()
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false}},"rotation":{"order":["time","date"],"disabled":["hum"]}}`)
 	mustOK(t, "put", resp, b)
-	if got := a.devices.epochValue(); got != epoch+1 {
+	if got := a.devices.Epoch(); got != epoch+1 {
 		t.Fatalf("epoch = %d, want %d", got, epoch+1)
 	}
 	assertClockRecordInStep(t, a, srv)
@@ -730,11 +732,11 @@ func TestClockConfigPutWithRotationBumpsOnceFromColdCache(t *testing.T) {
 	registeredClock(t, a, srv)
 	a.clockRotation.Store(nil)
 	a.syncClockConfigVersion()
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	d := listDevices(t, srv)[0]
 	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"apps":{"weather":{"moon":false}},"rotation":{"order":["time","date"],"disabled":["hum"]}}`)
 	mustOK(t, "put", resp, b)
-	if got := a.devices.epochValue(); got != epoch+1 {
+	if got := a.devices.Epoch(); got != epoch+1 {
 		t.Fatalf("epoch = %d, want %d", got, epoch+1)
 	}
 	assertClockRecordInStep(t, a, srv)
@@ -866,7 +868,7 @@ func TestClockResyncCannotHashAHalfCommittedFacadePut(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	getClockConfig(t, srv, d.ID)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	hold, in := make(chan struct{}), make(chan struct{}, 1)
 	var once sync.Once
 	a.commitHook = func() {
@@ -898,7 +900,7 @@ func TestClockResyncCannotHashAHalfCommittedFacadePut(t *testing.T) {
 	}
 	release()
 	mustReply(t, "facade put", put)
-	if got := a.devices.epochValue(); got != epoch+1 {
+	if got := a.devices.Epoch(); got != epoch+1 {
 		t.Fatalf("epoch = %d, want %d: a stalled resync stored a half-committed version", got, epoch+1)
 	}
 	assertClockRecordInStep(t, a, srv)
@@ -955,12 +957,12 @@ func TestClockRotationBudgetAnswers503Then502ThenFreesTheLock(t *testing.T) {
 	first := clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["date","time"],"disabled":[]}`)
 	waitEntered(t, stub.orderIn, "first order write")
 	a.rotationOp.budget.Store(int64(100 * time.Millisecond))
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	busy := waitCode(t, "waiting order", clockGoReq(srv, "PUT", "/v1/device/apps", `{"order":["time","date"],"disabled":[]}`))
 	if busy.code != http.StatusServiceUnavailable || !strings.Contains(string(busy.body), "still running") {
 		t.Fatalf("waiting order = %d %s, want 503", busy.code, busy.body)
 	}
-	if n := len(stub.puts()); n != 0 || a.devices.epochValue() != epoch {
+	if n := len(stub.puts()); n != 0 || a.devices.Epoch() != epoch {
 		t.Fatalf("a 503 wrote %d orders or moved the epoch", n)
 	}
 	release()

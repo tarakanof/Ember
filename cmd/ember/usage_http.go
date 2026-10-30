@@ -146,7 +146,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) usageWriterAlive(principal string) bool {
 	id, ok := strings.CutPrefix(principal, "client:")
-	return !ok || a.clients == nil || a.clients.exists(id)
+	return !ok || a.clients == nil || a.clients.Exists(id)
 }
 
 func (a *App) denyUsageOwner(w http.ResponseWriter, r *http.Request, tool, owner string) {

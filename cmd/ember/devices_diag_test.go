@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const fullDiag = `{"boots":42,"crash":{"pc":"0x4201a2b3","reason":"panic","task":"ember"},"heap_internal_min":71234,"heap_largest_min":30720,"reset_reason":"poweron","stack_free":{"ember":1880,"eye":900,"lvgl":2304}}`
@@ -38,8 +40,8 @@ func newDiagKnob(t *testing.T) (*App, func(string)) {
 	}
 }
 
-func storedDiag(app *App) *deviceDiag {
-	return app.devices.list()[0].LastCheckin.Diag
+func storedDiag(app *App) *devices.Diag {
+	return app.devices.List()[0].LastCheckin.Diag
 }
 
 func TestDeviceCheckinRecordsTheDiag(t *testing.T) {
@@ -48,9 +50,9 @@ func TestDeviceCheckinRecordsTheDiag(t *testing.T) {
 	if resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.13","diag":`+fullDiag+`}`); resp.StatusCode != http.StatusOK {
 		t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
 	}
-	want := deviceDiag{
+	want := devices.Diag{
 		Boots:           42,
-		Crash:           &deviceCrash{PC: "0x4201a2b3", Reason: "panic", Task: "ember"},
+		Crash:           &devices.Crash{PC: "0x4201a2b3", Reason: "panic", Task: "ember"},
 		HeapInternalMin: 71234,
 		HeapLargestMin:  30720,
 		ResetReason:     "poweron",
@@ -72,7 +74,7 @@ func TestDeviceCheckinRecordsTheDiag(t *testing.T) {
 }
 
 func TestDeviceCheckinStoresTheIdleBlockVerbatim(t *testing.T) {
-	for name, idle := range map[string]deviceIdle{
+	for name, idle := range map[string]devices.Idle{
 		`{"state":"dim","input_age_s":125,"wake":"touch"}`:    {State: "dim", InputAgeS: 125, Wake: "touch"},
 		`{"state":"awake","input_age_s":0,"wake":""}`:         {State: "awake"},
 		`{"state":"sleepy","input_age_s":7,"wake":"gesture"}`: {State: "sleepy", InputAgeS: 7, Wake: "gesture"},
@@ -140,7 +142,7 @@ func TestDeviceCheckinWithoutIdleKeepsItNil(t *testing.T) {
 func TestDeviceCheckinKeepsAnEmptyDiag(t *testing.T) {
 	app, post := newDiagKnob(t)
 	post(`{}`)
-	if got := storedDiag(app); got == nil || !reflect.DeepEqual(*got, deviceDiag{}) {
+	if got := storedDiag(app); got == nil || !reflect.DeepEqual(*got, devices.Diag{}) {
 		t.Fatalf("diag = %+v, want zero object", got)
 	}
 }
@@ -168,7 +170,7 @@ func TestDeviceCheckinDropsAnInvalidDiagButKeepsTheCheckin(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			app, post := newDiagKnob(t)
 			post(diag)
-			got := app.devices.list()[0].LastCheckin
+			got := app.devices.List()[0].LastCheckin
 			if got.Diag != nil || got.FW != "0.9.13" || got.RSSI != -70 {
 				t.Fatalf("checkin = %+v, diag %+v", got, got.Diag)
 			}

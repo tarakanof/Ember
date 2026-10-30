@@ -187,54 +187,6 @@ func TestUpsertStaysQuietOnAnUnchangedHeartbeat(t *testing.T) {
 	}
 }
 
-func TestKnobDisplayFastLinkDefaultsOnAndMerges(t *testing.T) {
-	var s knobSettings
-	if err := json.Unmarshal([]byte(`{"bot":{"sleepy_after_s":300,"demo_hold_s":20}}`), &s); err != nil {
-		t.Fatal(err)
-	}
-	s.fillDefaults()
-	if s.Display.FastLink == nil || !*s.Display.FastLink {
-		t.Fatal("a stored record without display reads fast_link on")
-	}
-	cur := defaultKnobSettings()
-	off, err := mergeKnobSettings(cur.clone(), []byte(`{"display":{"fast_link":false}}`))
-	if err != nil || *off.Display.FastLink || !*cur.Display.FastLink {
-		t.Fatalf("merge: %v %+v (original %+v)", err, off.Display, cur.Display)
-	}
-	if _, err := mergeKnobSettings(cur.clone(), []byte(`{"display":{"turbo":true}}`)); err == nil {
-		t.Fatal("unknown display field accepted")
-	}
-}
-
-func TestKnobBotFlagsDefaultOnAndMerge(t *testing.T) {
-	var s knobSettings
-	if err := json.Unmarshal([]byte(`{"bot":{"sleepy_after_s":300,"demo_hold_s":20}}`), &s); err != nil {
-		t.Fatal(err)
-	}
-	s.fillDefaults()
-	if s.Bot.SourceLabel == nil || !*s.Bot.SourceLabel || s.Bot.WorkingRing == nil || !*s.Bot.WorkingRing {
-		t.Fatalf("a stored record without the flags must read as on: %+v", s.Bot)
-	}
-	cur := defaultKnobSettings()
-	off, err := mergeKnobSettings(cur.clone(), []byte(`{"bot":{"working_ring":false}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if *off.Bot.WorkingRing || !*off.Bot.SourceLabel {
-		t.Fatalf("merge: %+v", off.Bot)
-	}
-	if !*cur.Bot.WorkingRing {
-		t.Fatal("merging into a clone wrote through to the original")
-	}
-	null, err := mergeKnobSettings(off.clone(), []byte(`{"bot":{"working_ring":null}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if null.Bot.WorkingRing == nil || !*null.Bot.WorkingRing {
-		t.Fatalf("null must read as on: %+v", null.Bot)
-	}
-}
-
 func TestNewKnobMoodLeavesOutALeadThatOnlyDiffersInCase(t *testing.T) {
 	m := newKnobMood(Render{Running: 1, Source: "m4"}, moodLead{Lead: "M4", Hosts: 1, Tool: "codex"})
 	if m.Lead != "" || m.Hosts != 0 || m.Tool != "codex" {

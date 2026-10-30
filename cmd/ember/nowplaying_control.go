@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
@@ -110,12 +111,12 @@ func (a *App) handleNowPlayingControl(w http.ResponseWriter, r *http.Request) {
 	caller := "owner"
 	if id := deviceIDFrom(r.Context()); id != "" {
 		caller = "device:" + id
-		cfg, _, err := a.devices.config(id)
+		cfg, _, err := a.devices.Config(id)
 		if err != nil {
 			a.writeDeviceError(w, r, err)
 			return
 		}
-		if !cfg.pageOn(knobNowPlayingPage) {
+		if !cfg.PageOn(devices.KnobNowPlayingPage) {
 			writeError(w, http.StatusForbidden, errors.New("the device's now-playing page is off"))
 			return
 		}

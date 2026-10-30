@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const clockStatsLiveCap = int(statsLiveWindow / clockProbeTTL)
@@ -175,7 +177,7 @@ func (a *App) handleClockStats(w http.ResponseWriter, r *http.Request) {
 		rng = "1h"
 	}
 	if _, ok := statsRanges[rng]; !ok {
-		a.writeDeviceError(w, r, fmt.Errorf("%w: range must be 15m, 1h or 24h", errDeviceBody))
+		a.writeDeviceError(w, r, fmt.Errorf("%w: range must be 15m, 1h or 24h", devices.ErrBody))
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

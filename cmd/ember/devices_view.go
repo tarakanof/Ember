@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
@@ -100,9 +101,8 @@ type knobNowPlaying struct {
 }
 
 const (
-	knobNowPlayingPage = "nowplaying"
-	knobControlsPage   = "controls"
-	knobDayPage        = "day"
+	knobControlsPage = "controls"
+	knobDayPage      = "day"
 )
 
 type knobLight struct {
@@ -127,46 +127,46 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 }
 
 func (a *App) buildKnobView(id string, now time.Time) ([]byte, string, string, error) {
-	st, err := a.devices.viewState(id)
+	st, err := a.devices.ViewState(id)
 	if err != nil {
 		return nil, "", "", err
 	}
 	mood := a.moodState()
 	m := newKnobMood(mood.Render, mood.Lead)
 	b := a.currentBrightness(now)
-	detail := st.caps.hasFeature(featureWxFaces) && st.caps.hasPage("weather") && st.cfg.pageOn("weather")
+	detail := st.Caps.HasFeature(featureWxFaces) && st.Caps.HasPage("weather") && st.Cfg.PageOn("weather")
 	v := knobView{
 		V:             1,
-		Epoch:         st.epoch,
-		ConfigVersion: st.version,
+		Epoch:         st.Epoch,
+		ConfigVersion: st.Version,
 		Mood:          block(&m),
 		Pomo:          block(a.knobPomo(now)),
 		Weather:       block(a.knobWeatherFor(now, detail)),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},
 		Quiet:         a.quietAt(now),
-		DiagLiveUntil: a.knobLiveUnix(id, st.cfg.Diagnostics, now),
+		DiagLiveUntil: a.knobLiveUnix(id, st.Cfg.Diagnostics, now),
 	}
-	if st.cfg.pageOn(knobNowPlayingPage) {
-		v.NowPlaying = a.knobNowPlaying(now, st.caps.hasFeature(featureNPCover))
+	if st.Cfg.PageOn(devices.KnobNowPlayingPage) {
+		v.NowPlaying = a.knobNowPlaying(now, st.Caps.HasFeature(featureNPCover))
 	}
-	if st.caps != nil {
-		v.applyCaps(st.caps, st.cfg)
+	if st.Caps != nil {
+		v.applyCaps(st.Caps, st.Cfg)
 	}
-	if st.caps.hasFeature(featureUsage) {
+	if st.Caps.HasFeature(featureUsage) {
 		v.Usage = a.knobUsage(now)
 	}
-	if st.caps.hasFeature(featureDemo) {
+	if st.Caps.HasFeature(featureDemo) {
 		v.Demo = a.knobDemo(id, v, now)
 	}
-	if st.caps != nil && st.caps.hasPage(knobDayPage) && st.cfg.pageOn(knobDayPage) {
+	if st.Caps != nil && st.Caps.HasPage(knobDayPage) && st.Cfg.PageOn(knobDayPage) {
 		v.Day = a.dayBlock(now, m.Running)
 	}
 	body, err := json.Marshal(v)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("encode knob view: %w", err)
 	}
-	if st.caps != nil {
-		limit := st.caps.limits().ViewBytes
+	if st.Caps != nil {
+		limit := st.Caps.EffectiveLimits().ViewBytes
 		if body, err = v.fit(body, limit); err != nil {
 			return nil, "", "", err
 		}
@@ -187,13 +187,13 @@ func (a *App) buildKnobView(id string, now time.Time) ([]byte, string, string, e
 	return body, fmt.Sprintf(`"%016x"`, h.Sum64()), demoID, nil
 }
 
-func (v *knobView) applyCaps(caps *deviceCaps, cfg knobSettings) {
-	v.V = caps.viewMajor()
-	show := func(page string) bool { return caps.hasPage(page) && cfg.pageOn(page) }
+func (v *knobView) applyCaps(caps *devices.Caps, cfg devices.KnobSettings) {
+	v.V = caps.ViewMajor()
+	show := func(page string) bool { return caps.HasPage(page) && cfg.PageOn(page) }
 	v.Mood.on = show("bot")
 	v.Pomo.on = show("pomodoro")
 	v.Weather.on = show("weather")
-	if !show(knobNowPlayingPage) {
+	if !show(devices.KnobNowPlayingPage) {
 		v.NowPlaying = nil
 	}
 }

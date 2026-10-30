@@ -17,6 +17,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -167,10 +169,10 @@ type usageAccountRegistry struct {
 	loadErr error
 	nextSeq int
 	dirty   bool
-	kv      func() settingsKV
+	kv      func() devices.KV
 }
 
-func newUsageAccountRegistry(kv func() settingsKV) *usageAccountRegistry {
+func newUsageAccountRegistry(kv func() devices.KV) *usageAccountRegistry {
 	return &usageAccountRegistry{seen: map[string]usageAccountSeen{}, written: map[string]time.Time{}, kv: kv}
 }
 

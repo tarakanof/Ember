@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -79,10 +81,10 @@ func (s *knobStatsReport) validate() error {
 }
 
 func (s *knobStatsReport) forLevel(diag string) *knobStatsReport {
-	if s == nil || diag == knobDiagOff {
+	if s == nil || diag == devices.KnobDiagOff {
 		return nil
 	}
-	if diag == knobDiagFull {
+	if diag == devices.KnobDiagFull {
 		return s
 	}
 	c := *s
@@ -128,7 +130,7 @@ type knobSample struct {
 
 func refOf[T any](v T) *T { return &v }
 
-func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
+func knobSampleFromReport(c devices.Checkin, s *knobStatsReport) knobSample {
 	out := knobSample{T: c.SeenAt, periodMS: s.PeriodMS, resetReason: s.ResetReason}
 	if out.periodMS == 0 {
 		out.periodMS = 60_000
@@ -357,7 +359,7 @@ func (a *App) handleKnobStats(w http.ResponseWriter, r *http.Request) {
 		rng = "1h"
 	}
 	if _, ok := statsRanges[rng]; !ok {
-		a.writeDeviceError(w, r, fmt.Errorf("%w: range must be 15m, 1h or 24h", errDeviceBody))
+		a.writeDeviceError(w, r, fmt.Errorf("%w: range must be 15m, 1h or 24h", devices.ErrBody))
 		return
 	}
 	v, err := a.buildKnobStats(r.PathValue("id"), rng, a.knobStats.now())
@@ -370,7 +372,7 @@ func (a *App) handleKnobStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) buildKnobStats(id, rng string, now time.Time) (knobStatsView, error) {
-	cfg, last, err := a.devices.settingsAndCheckin(id)
+	cfg, last, err := a.devices.SettingsAndCheckin(id)
 	if err != nil {
 		return knobStatsView{}, err
 	}
@@ -385,7 +387,7 @@ func (a *App) buildKnobStats(id, rng string, now time.Time) (knobStatsView, erro
 		Points:         points,
 		Latest:         latest,
 	}
-	if diag != knobDiagOff {
+	if diag != devices.KnobDiagOff {
 		v.LiveUntil = a.knobStats.liveUntil(id, now)
 	}
 	if last != nil {
@@ -412,17 +414,17 @@ func (a *App) handleKnobStatsLive(w http.ResponseWriter, r *http.Request) {
 	if req.Seconds != nil {
 		d = time.Duration(*req.Seconds) * time.Second
 		if d < 0 || d > knobLiveMax {
-			a.writeDeviceError(w, r, fmt.Errorf("%w: seconds must be 0..%d", errDeviceBody, int(knobLiveMax.Seconds())))
+			a.writeDeviceError(w, r, fmt.Errorf("%w: seconds must be 0..%d", devices.ErrBody, int(knobLiveMax.Seconds())))
 			return
 		}
 	}
 	id := r.PathValue("id")
-	diag, _, err := a.devices.diagnostics(id)
+	diag, _, err := a.devices.Diagnostics(id)
 	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return
 	}
-	if diag == knobDiagOff {
+	if diag == devices.KnobDiagOff {
 		writeError(w, http.StatusConflict, errDiagnosticsOff)
 		return
 	}
@@ -437,7 +439,7 @@ func (a *App) handleKnobStatsLive(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) knobLiveUnix(id, diag string, now time.Time) *int64 {
-	if diag == knobDiagOff {
+	if diag == devices.KnobDiagOff {
 		return nil
 	}
 	if t := a.knobStats.liveUntil(id, now); t != nil {

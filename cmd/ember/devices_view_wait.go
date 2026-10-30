@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -173,7 +175,7 @@ func (a *App) serveKnobViewWait(w http.ResponseWriter, r *http.Request, id strin
 		a.metrics.incLongPoll(result)
 	}
 	switch {
-	case errors.Is(err, errDeviceNotFound):
+	case errors.Is(err, devices.ErrNotFound):
 		writeError(w, http.StatusUnauthorized, errors.New("unauthorized"))
 	case err != nil:
 		a.writeDeviceError(w, r, err)

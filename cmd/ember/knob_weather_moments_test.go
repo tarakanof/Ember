@@ -6,45 +6,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
-
-func TestKnobWeatherMomentsDefaultOnEveryHalfHour(t *testing.T) {
-	d := defaultKnobSettings()
-	if d.Bot.WeatherMoments == nil || !*d.Bot.WeatherMoments || d.Bot.WeatherEveryMin == nil || *d.Bot.WeatherEveryMin != 30 {
-		t.Fatalf("defaults: %+v", d.Bot)
-	}
-	var s knobSettings
-	if err := json.Unmarshal([]byte(`{"bot":{"sleepy_after_s":300,"demo_hold_s":20}}`), &s); err != nil {
-		t.Fatal(err)
-	}
-	s.fillDefaults()
-	if s.Bot.WeatherMoments == nil || !*s.Bot.WeatherMoments || s.Bot.WeatherEveryMin == nil || *s.Bot.WeatherEveryMin != 30 {
-		t.Fatalf("a stored record without them must read on, every 30 min: %+v", s.Bot)
-	}
-}
-
-func TestKnobWeatherMomentsMergeKeepZeroAndNullReadsDefault(t *testing.T) {
-	cur := defaultKnobSettings()
-	got, err := mergeKnobSettings(cur.clone(), []byte(`{"bot":{"weather_every_min":0}}`))
-	if err != nil || got.Bot.WeatherEveryMin == nil || *got.Bot.WeatherEveryMin != 0 || !*got.Bot.WeatherMoments {
-		t.Fatalf("merge 0: %v %+v", err, got.Bot)
-	}
-	if *cur.Bot.WeatherEveryMin != 30 {
-		t.Fatal("merging into a clone wrote through to the original")
-	}
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"bot":{"weather_moments":false}}`))
-	if err != nil || *got.Bot.WeatherMoments || *got.Bot.WeatherEveryMin != 0 {
-		t.Fatalf("merge off: %v %+v", err, got.Bot)
-	}
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"bot":{"weather_moments":null,"weather_every_min":null}}`))
-	if err != nil || !*got.Bot.WeatherMoments || *got.Bot.WeatherEveryMin != 30 {
-		t.Fatalf("null must read as the defaults: %v %+v", err, got.Bot)
-	}
-}
 
 func TestKnobWeatherMomentsReachTheKnob(t *testing.T) {
 	f := newViewFixture(t)
-	_, version, err := f.app.devices.versions(f.m.ID)
+	_, version, err := f.app.devices.Versions(f.m.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +45,7 @@ func knobWeatherMomentsAfterReload(t *testing.T, db, id string) (bool, int, int)
 	app, srv := newDevicesApp(t, db)
 	defer srv.Close()
 	defer func() { _ = app.store.Close() }()
-	_, version, err := app.devices.versions(id)
+	_, version, err := app.devices.Versions(id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,11 +68,11 @@ func TestKnobWeatherMomentsSurviveARegistryReload(t *testing.T) {
 	app, srv := newDevicesApp(t, db)
 	knob := mintKnob(t, srv, http.StatusCreated)
 	putKnobConfig(t, srv, knob.ID, `{"bot":{"weather_moments":false,"weather_every_min":0}}`)
-	_, version, err := app.devices.versions(knob.ID)
+	_, version, err := app.devices.Versions(knob.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	blob, _, err := app.store.GetSetting(devicesKey)
+	blob, _, err := app.store.GetSetting(devices.StateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +88,7 @@ func TestKnobWeatherMomentsSurviveARegistryReload(t *testing.T) {
 		t.Fatalf("stored record without %s: %s", stored, blob)
 	}
 	app, srv = newDevicesApp(t, db)
-	if err := app.store.PutSetting(devicesKey, strings.Replace(blob, stored, "", 1)); err != nil {
+	if err := app.store.PutSetting(devices.StateKey, strings.Replace(blob, stored, "", 1)); err != nil {
 		t.Fatal(err)
 	}
 	srv.Close()
@@ -134,11 +102,11 @@ func TestKnobWeatherMomentsSurviveARegistryReload(t *testing.T) {
 func TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments(t *testing.T) {
 	withToken := map[string]any{
 		"view": []int{1, 1}, "pages": []string{"bot", "weather"},
-		"features": []string{featureViewWait, featureWxFaces, featureWxMoments},
+		"features": []string{devices.FeatureViewWait, featureWxFaces, featureWxMoments},
 	}
 	without := map[string]any{
 		"view": []int{1, 1}, "pages": []string{"bot", "weather"},
-		"features": []string{featureViewWait, featureWxFaces},
+		"features": []string{devices.FeatureViewWait, featureWxFaces},
 	}
 	for _, tc := range []struct {
 		name string

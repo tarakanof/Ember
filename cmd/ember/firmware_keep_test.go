@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 func TestFirmwareNewestKept(t *testing.T) {
@@ -172,7 +174,7 @@ func TestFirmwareGuardedDeleteHoldsCheckinsUntilThePurgeEnds(t *testing.T) {
 	store.rename = func(oldpath, newpath string) error {
 		once.Do(func() {
 			go func() {
-				_, checkinErr = k.app.devices.checkin(k.knob.ID, deviceCheckin{FW: "0.9.12"}, nil, "")
+				_, checkinErr = k.app.devices.Checkin(k.knob.ID, devices.Checkin{FW: "0.9.12"}, nil, "")
 				close(checkedIn)
 			}()
 			select {
@@ -202,7 +204,7 @@ func checkinWithin(t *testing.T, k otaKnob, fw string, wait time.Duration) (chan
 	var err error
 	done := make(chan struct{})
 	go func() {
-		_, err = k.app.devices.checkin(k.knob.ID, deviceCheckin{FW: fw}, nil, "")
+		_, err = k.app.devices.Checkin(k.knob.ID, devices.Checkin{FW: fw}, nil, "")
 		close(done)
 	}()
 	select {
@@ -225,7 +227,7 @@ func TestFirmwareGuardedDeletePanicReleasesTheRegistry(t *testing.T) {
 				t.Error("the purge did not panic")
 			}
 		}()
-		_ = store.removeGuarded("0.9.12", k.app.devices.otaTargets, k.app.devices.holdUnlessKept, nil)
+		_ = store.removeGuarded("0.9.12", k.app.devices.OTATargets, k.app.devices.HoldUnlessKept, nil)
 	}()
 	done, err := checkinWithin(t, k, "0.9.12", 2*time.Second)
 	select {
@@ -238,8 +240,8 @@ func TestFirmwareGuardedDeletePanicReleasesTheRegistry(t *testing.T) {
 	}
 }
 
-func registryFree(r *deviceRegistry) bool {
-	return r.lockFree()
+func registryFree(r *devices.Registry) bool {
+	return r.LockFree()
 }
 
 func noteOnce(ch chan bool, v bool) {
