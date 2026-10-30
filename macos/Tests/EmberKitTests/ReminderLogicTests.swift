@@ -84,3 +84,29 @@ import Foundation
     let data = try JSONEncoder().encode(p)
     #expect(try JSONDecoder().decode(ReminderPrefs.self, from: data) == p)
 }
+
+@Test func dedupeKeyUsesTheExternalIdentifier() {
+    let due = Date(timeIntervalSince1970: 1_700_000_000)
+    #expect(DueReminder(id: "local", title: "", due: due, externalID: "ext").dedupeKey == "ext|1700000000")
+    #expect(DueReminder(id: "local", title: "", due: due).dedupeKey == "local|1700000000")
+    let next = due.addingTimeInterval(86_400)
+    #expect(DueReminder(id: "local", title: "", due: next, externalID: "ext").dedupeKey == "ext|1700086400")
+}
+
+@Test func reminderPrefsEncodeSnakeCaseForTheServer() throws {
+    let p = ReminderPrefs(enabled: true, leadMinutes: 5, popupDuration: 12, useNativeIcon: true,
+                          nativeIconId: "9", repeatSound: true)
+    let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(p)) as? [String: Any]
+    #expect(Set(obj?.keys.map { $0 } ?? []) == ["enabled", "sound", "lead_minutes", "popup_duration",
+                                                 "use_native_icon", "native_icon_id", "hold", "repeat_sound"])
+    #expect(obj?["lead_minutes"] as? Int == 5)
+}
+
+@Test func legacyReminderPrefsDecodeTheOldCamelCaseBlob() {
+    let blob = Data(#"{"enabled":true,"sound":false,"leadMinutes":10,"popupDuration":20,"useNativeIcon":true,"nativeIconId":"77","hold":false,"repeatSound":true}"#.utf8)
+    #expect(ReminderPrefs(legacyData: blob) == ReminderPrefs(enabled: true, sound: false, leadMinutes: 10,
+                                                             popupDuration: 20, useNativeIcon: true,
+                                                             nativeIconId: "77", hold: false, repeatSound: true))
+    #expect(ReminderPrefs(legacyData: Data(#"{"enabled":true}"#.utf8)) == ReminderPrefs(enabled: true))
+    #expect(ReminderPrefs(legacyData: Data("nope".utf8)) == nil)
+}

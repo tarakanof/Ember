@@ -68,7 +68,7 @@ struct MenuBarContentView: View {
 
 	private var reminders: [MenuRows.Reminder] {
 		let watcher = env.reminderWatcher
-		guard watcher.prefs.enabled else { return [] }
+		guard watcher.prefs?.enabled == true else { return [] }
 		return watcher.upcoming.map { MenuRows.Reminder(title: $0.title, due: $0.due) }
 	}
 

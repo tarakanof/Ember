@@ -15,7 +15,7 @@ registry since #340) and pass only their scopes: `ingest` (`POST`/`DELETE /v1/st
 `POST /v1/day/replies`), `control`
 (`POST /v1/pomodoro/{start,pause,resume,stop,skip}`, the day clock's
 `GET /v1/day/state` and actions), `read` (the non-secret
-settings GETs: apps, pomodoro/usage/display/brightness/quiet/day config,
+settings GETs: apps, pomodoro/usage/display/brightness/quiet/day/reminders config,
 `/v1/day/{history,weeks}`,
 `/v1/clock/stats`), `admin` (every bearer `/v1/` route except client-token
 management). Wrong scope is 403. An optional `"sources":[…]` at mint (1-16,
@@ -188,6 +188,11 @@ else is a 400 — ARCHITECTURE "Providers and models"; both answer
 is a 400, and so is a changed `severe_sound` under the Pomodoro
 `sound_melody` rule), `POST /v1/reminders/fire` (optional
 `Idempotency-Key` header dedupes retries for 10 min),
+`GET/PUT /v1/reminders/config` (the Apple Reminders settings every Mac shares:
+`enabled`, `sound`, `lead_minutes` 0-30, `popup_duration` 1-300,
+`use_native_icon`, `native_icon_id` ≤64 chars, `hold`, `repeat_sound`;
+`PUT …?if_default=1` writes only while the stored values are the defaults,
+else 409 with the current values),
 `GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config` (also drives the
 knob view's `quiet`), `GET/PUT /v1/brightness/config` (every `…/config`
 settings PUT above is merge semantics: the body is a JSON object whose omitted

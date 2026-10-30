@@ -54,7 +54,7 @@ private func seconds(_ d: Duration) -> TimeInterval {
 
 @MainActor
 private func makeScheduler(_ source: any ReminderSource, _ sent: Sent, clock: ManualClock = ManualClock(),
-                           prefs: ReminderPrefs = enabled,
+                           prefs: ReminderPrefs? = enabled,
                            onArmedChange: @escaping @MainActor (Bool) -> Void = { _ in }) -> ReminderScheduler {
     ReminderScheduler(source: source, prefs: prefs, send: sent.send,
                       now: { base.addingTimeInterval(seconds(clock.now)) },
@@ -63,7 +63,7 @@ private func makeScheduler(_ source: any ReminderSource, _ sent: Sent, clock: Ma
 }
 
 @MainActor
-private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPrefs = enabled,
+private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPrefs? = enabled,
                            uptime: (@MainActor () -> TimeInterval)? = nil,
                            now: @escaping @MainActor () -> Date) -> ReminderScheduler {
     ReminderScheduler(source: source, prefs: prefs, send: sent.send, now: now,
@@ -118,7 +118,7 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     #expect(source.fetches == 4)
     await clock.advance(by: .milliseconds(300))
     #expect(sent.fires.map(\.text) == ["Walk"])
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
 }
 
 @MainActor @Test func leadTimeFiresEarly() async {
@@ -134,7 +134,7 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     #expect(sent.fires.isEmpty)
     await clock.advance(by: .milliseconds(300))
     #expect(sent.fires.count == 1)
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
 }
 
 @MainActor @Test func pollsEveryThirtySecondsWithNothingDue() async {
@@ -144,7 +144,7 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     s.sync()
     await clock.advance(by: .seconds(95))
     #expect(source.fetches == 4)
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
 }
 
 @MainActor @Test func disablingStopsTheLoop() async {
@@ -154,10 +154,10 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
 
     s.sync()
     #expect(!s.isRunning)
-    s.prefs.enabled = true
+    s.prefs?.enabled = true
     #expect(s.isRunning)
     await clock.advance(by: .seconds(1))
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
     #expect(!s.isRunning)
     let fetches = source.fetches
     await clock.advance(by: .seconds(120))
@@ -198,7 +198,7 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     #expect(changes.isEmpty)
     await clock.advance(by: .seconds(1))
     #expect(changes == [true])
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
 }
 
 @MainActor @Test func releasesAfterTheFireWhenNothingElseIsNear() async {
@@ -215,7 +215,7 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     await clock.advance(by: .seconds(61))
     #expect(sent.fires.map(\.text) == ["Walk"])
     #expect(changes == [true, false])
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
     #expect(changes == [true, false])
 }
 
@@ -239,7 +239,7 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     await clock.settle()
     #expect(armedAtSend.changes == [true])
     #expect(log.changes == [true, false])
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
 }
 
 @MainActor @Test func staysArmedUntilAFailedFireIsRetried() async {
@@ -257,7 +257,7 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     await clock.advance(by: .seconds(30))
     #expect(sent.fires.count == 2)
     #expect(changes == [true, false])
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
 }
 
 @MainActor @Test func aPollFromAStoppedLoopCannotArmItsSuccessor() async {
@@ -267,14 +267,14 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     let s = makeScheduler(source, Sent(), clock: clock) { changes.append($0) }
     s.sync()
     await clock.settle()
-    s.prefs.enabled = false
-    s.prefs.enabled = true
+    s.prefs?.enabled = false
+    s.prefs?.enabled = true
     await clock.settle()
 
     source.open()
     await clock.settle()
     #expect(changes.isEmpty)
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
 }
 
 @MainActor @Test func stoppingReleasesAnArmedHold() async {
@@ -286,7 +286,7 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
 
     await clock.settle()
     #expect(changes == [true])
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
     #expect(changes == [true, false])
 }
 
@@ -337,12 +337,12 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     let s = makeScheduler(source, sent, clock: clock)
     s.sync()
     await clock.advance(by: .seconds(1))
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
     await clock.advance(by: .seconds(400))
-    s.prefs.enabled = true
+    s.prefs?.enabled = true
     await clock.settle()
     #expect(sent.fires.isEmpty)
-    s.prefs.enabled = false
+    s.prefs?.enabled = false
 }
 
 @MainActor @Test func aSystemSleepPastGraceDoesNotFire() async {
@@ -452,8 +452,8 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
                                                   hold: true, repeatSound: true, key: "a|1000000")])
 
     source.reminders = [DueReminder(id: "b", title: "Run", due: base)]
-    s.prefs.useNativeIcon = true
-    s.prefs.hold = false
+    s.prefs?.useNativeIcon = true
+    s.prefs?.hold = false
     await s.poll()
     #expect(sent.fires.last?.nativeIconId == "99")
     #expect(sent.fires.last?.hold == false)
@@ -533,4 +533,47 @@ private final class Counter: @unchecked Sendable {
     now = base.addingTimeInterval(86_401)
     await s.poll()
     #expect(s.rememberedFires == 0)
+}
+
+@MainActor @Test func nothingFiresBeforeThePrefsHaveLoaded() async {
+    let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base)])
+    let sent = Sent()
+    let s = makeScheduler(source, sent, prefs: nil) { base }
+    s.sync()
+    #expect(!s.isRunning)
+    await s.poll()
+    #expect(source.fetches == 0)
+    #expect(sent.fires.isEmpty)
+    s.prefs = enabled
+    #expect(s.isRunning)
+    s.prefs = nil
+    #expect(!s.isRunning)
+}
+
+private final class FakeReminderServer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen = Set<String>()
+    private var _rings: [String] = []
+
+    var rings: [String] { lock.withLock { _rings } }
+
+    var send: ReminderScheduler.Send {
+        { [self] f in
+            lock.withLock {
+                if seen.insert(f.key).inserted { _rings.append(f.text) }
+            }
+        }
+    }
+}
+
+@MainActor @Test func twoMacsRingOnceForTheSameICloudReminder() async {
+    let server = FakeReminderServer()
+    let m4 = FakeSource([DueReminder(id: "m4-local", title: "Walk", due: base, externalID: "ical-1")])
+    let m5 = FakeSource([DueReminder(id: "m5-local", title: "Walk", due: base, externalID: "ical-1")])
+    let schedulers = [m4, m5].map { source in
+        ReminderScheduler(source: source, prefs: enabled, send: server.send, now: { base },
+                          uptime: { 0 }, sleep: { _ in })
+    }
+    for s in schedulers { await s.poll() }
+    #expect(server.rings == ["Walk"])
 }

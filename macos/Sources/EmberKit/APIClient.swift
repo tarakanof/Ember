@@ -273,10 +273,10 @@ public struct APIClient: Sendable {
         _ = try await perform("POST", path, query: [], body: data, budget: budget)
     }
 
-    public func request<B: Encodable, T: Decodable>(_ method: String, _ path: String, body: B,
-                                                    budget: RequestBudget = .server) async throws -> T {
+    public func request<B: Encodable, T: Decodable>(_ method: String, _ path: String, query: [URLQueryItem] = [],
+                                                    body: B, budget: RequestBudget = .server) async throws -> T {
         let sent = try JSONEncoder().encode(body)
-        let data = try await perform(method, path, query: [], body: sent, budget: budget)
+        let data = try await perform(method, path, query: query, body: sent, budget: budget)
         do { return try Self.makeDecoder().decode(T.self, from: data) }
         catch { throw APIError.decoding(String(describing: error)) }
     }

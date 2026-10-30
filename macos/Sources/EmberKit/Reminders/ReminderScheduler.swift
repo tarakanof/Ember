@@ -16,7 +16,7 @@ public final class ReminderScheduler {
     }
     typealias Send = @Sendable (Fire) async throws -> Void
 
-    public var prefs: ReminderPrefs {
+    public var prefs: ReminderPrefs? {
         didSet { sync() }
     }
     public private(set) var upcoming: [DueReminder] = []
@@ -43,7 +43,7 @@ public final class ReminderScheduler {
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "reminders")
 
-    public convenience init(source: any ReminderSource, client: APIClient, prefs: ReminderPrefs,
+    public convenience init(source: any ReminderSource, client: APIClient, prefs: ReminderPrefs?,
                             onArmedChange: @escaping @MainActor (Bool) -> Void = { _ in }) {
         self.init(source: source, prefs: prefs, send: Self.send(via: client),
                   now: { Date() }, uptime: { ProcessInfo.processInfo.systemUptime },
@@ -51,7 +51,7 @@ public final class ReminderScheduler {
                   onArmedChange: onArmedChange)
     }
 
-    init(source: any ReminderSource, prefs: ReminderPrefs, send: @escaping Send,
+    init(source: any ReminderSource, prefs: ReminderPrefs?, send: @escaping Send,
          now: @escaping @MainActor () -> Date,
          uptime: @escaping @MainActor () -> TimeInterval,
          sleep: @escaping @Sendable (Duration) async throws -> Void,
@@ -70,7 +70,7 @@ public final class ReminderScheduler {
     }
 
     public func sync() {
-        let shouldRun = prefs.enabled && source.hasAccess
+        let shouldRun = prefs?.enabled == true && source.hasAccess
         if shouldRun, loop == nil {
             isRunning = true
             generation += 1
@@ -122,7 +122,7 @@ public final class ReminderScheduler {
 
     @discardableResult
     func poll(generation gen: Int? = nil) async -> PollResult {
-        guard prefs.enabled, source.hasAccess else {
+        guard let prefs, prefs.enabled, source.hasAccess else {
             lastPoll = nil
             return PollResult()
         }
@@ -148,7 +148,7 @@ public final class ReminderScheduler {
             let inWindow = reminderShouldFire(now: now, dueDate: due, leadMinutes: prefs.leadMinutes, grace: Self.grace)
             let napped = catchUpFrom.map { fireTime > $0 && fireTime <= now } ?? false
             guard inWindow || napped else { continue }
-            let key = reminderDedupeKey(id: r.id, dueDate: due)
+            let key = r.dedupeKey
             let title = r.title.trimmingCharacters(in: .whitespacesAndNewlines)
             if title.isEmpty { continue }
             guard tracker.begin(key) else { continue }
@@ -158,7 +158,7 @@ public final class ReminderScheduler {
                 Self.log.info("firing \(title, privacy: .private) due=\(due, privacy: .public) \(Int(now.timeIntervalSince(fireTime)), privacy: .public) s late after a napped sleep")
             }
             setArmed(true, generation: gen)
-            let outcome = await fire(title: title, key: key, retryable: inWindow)
+            let outcome = await fire(title: title, key: key, prefs: prefs, retryable: inWindow)
             tracker.finish(key, due: due, outcome: outcome)
             if outcome == .notDelivered, inWindow { retryPending = true }
         }
@@ -170,8 +170,7 @@ public final class ReminderScheduler {
         return PollResult(next: next, retryPending: retryPending)
     }
 
-    private func fire(title: String, key: String, retryable: Bool) async -> ReminderFireOutcome {
-        let p = prefs
+    private func fire(title: String, key: String, prefs p: ReminderPrefs, retryable: Bool) async -> ReminderFireOutcome {
         let request = Fire(text: title, sound: p.sound, duration: p.popupDuration,
                            nativeIconId: p.useNativeIcon ? p.nativeIconId : "", hold: p.hold,
                            repeatSound: p.repeatSound, key: key)

@@ -34,7 +34,7 @@ final class AppPermissionSources: PermissionSources {
         case .notDetermined: .notDetermined
         default: .denied
         }
-        return (status, reminderWatcher.prefs.enabled)
+        return (status, reminderWatcher.prefs?.enabled == true)
     }
 
     func musicAutomation() async -> (status: AccessStatus?, inUse: Bool) {

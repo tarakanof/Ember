@@ -124,7 +124,7 @@ public final class AppEnvironment {
         knob = KnobModel(service: KnobService(client: client))
         knobStats = KnobStatsModel(service: KnobService(client: client))
         clockStats = ClockStatsModel(service: ClockStatsClient(client: client))
-        let watcher = ReminderWatcher(client: client)
+        let watcher = ReminderWatcher(client: client, settings: settings)
         reminderWatcher = watcher
         let music = MusicNowPlayingWatcher(client: client, envStore: envStore)
         musicWatcher = music

@@ -555,12 +555,29 @@ version + the connected server's `/version`.
 The **Weather** tab edits `weather` config (provider Open-Meteo/MET Norway/Tomorrow.io/WeatherAPI.com,
 the keyed ones greyed out with a hint until the server has their key,
 the Open-Meteo forecast model, `open_meteo_model`, with each source's limits
-under the pickers (table in ARCHITECTURE "Providers and models"), lat/lon, units, the rotating-tile + popup behaviour, severe-alert sound); the
-**Reminders** tab edits the alarm list (timezone, per-item time/text/weekdays/
-sound). Both persist server-side (`/v1/{weather,reminders}/config` → the SQLite
-store) and survive `/admin/reload`. Weather/reminders run regardless of whether
-Pomodoro is enabled — but they still write to the Pomodoro `db_path` store, so a
-deploy that wants them persisted needs that writable volume mounted.
+under the pickers (table in ARCHITECTURE "Providers and models"), lat/lon, units, the rotating-tile + popup behaviour, severe-alert sound).
+Both persist server-side (`/v1/weather/config` → the SQLite
+store) and survive `/admin/reload`. Weather runs regardless of whether
+Pomodoro is enabled — but it still writes to the Pomodoro `db_path` store, so a
+deploy that wants it persisted needs that writable volume mounted.
+
+**Apple Reminders** (Sources › Calendar, Clock › Apps › Calendar and the
+Sounds pane) edit `GET/PUT /v1/reminders/config` on the server: `enabled`,
+`lead_minutes` (0–30), `popup_duration` (1–300 s), `hold`, `sound`,
+`repeat_sound`, `use_native_icon`, `native_icon_id`. Every Mac running Ember
+with Reminders access shares them and may fire; the server rings each
+reminder once, because every Mac sends the same `Idempotency-Key`
+(the reminder's iCloud `calendarItemExternalIdentifier` plus its due time).
+Ember.app loads the settings at launch and every 5 min (every 30 s until the
+first load succeeds); until it has loaded them it rings nothing, and while the
+server is unreachable it keeps the last values it loaded. On the first load
+after updating from a version that kept them per Mac, an app with local
+settings pushes them once with `PUT /v1/reminders/config?if_default=1`, which
+the server applies only while it still holds the defaults, so two Macs updating
+at once keep one Mac's values (UserDefaults marker
+`reminderPrefsMigratedToServer`). The server dedupe is in
+memory: a server restart inside a reminder's 10-minute window lets a second Mac
+ring it again.
 
 ## Claude mod producer, side by side (experimental, #253)
 
@@ -1177,7 +1194,7 @@ carries only the scopes it was minted with:
 |---|---|
 | `ingest` | `POST`/`DELETE /v1/status`, `POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire` |
 | `control` | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` |
-| `read` | the non-secret settings reads: `GET /v1/{apps,pomodoro/config,usage/config,display/config,brightness/config,quiet/config,clock/stats}` (weather and meetings config hold a location or a calendar URL: `admin` only) |
+| `read` | the non-secret settings reads: `GET /v1/{apps,pomodoro/config,usage/config,display/config,brightness/config,quiet/config,reminders/config,clock/stats}` (weather and meetings config hold a location or a calendar URL: `admin` only) |
 | `admin` | every route `EMBER_TOKEN` passes under `/v1/`, except these master-only ones (403 for every client token): minting any token and renaming, rotating or deleting client tokens (so a leaked client can't outlive its revocation), and Ember.app's command queues `GET /v1/nowplaying/commands`, `GET /v1/controls/commands` and `PUT /v1/controls/config` (so a client can't drain a Mac's commands or pose as a listening Mac) |
 
 Public reads (`/state`, `/v1/*/state`, previews, dashboard reads) need no

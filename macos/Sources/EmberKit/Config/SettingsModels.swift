@@ -36,13 +36,14 @@ public final class SettingsModels {
     public private(set) var controls: ServerConfigModel<ControlsConfig>
     public private(set) var day: ServerConfigModel<DayConfig>
     public private(set) var usageAccounts: ServerConfigModel<UsageAccounts>
+    public private(set) var reminders: ServerConfigModel<ReminderPrefs>
     public let agentsEnv: EnvConfigModel<DisplaySettings>
     public let connectionEnv: EnvConfigModel<ConnectionSettings>
     public let producerTuning: EnvConfigModel<ProducerTuning>
 
     public var all: [any SaveStatusReporting] {
-        [pomodoro, weather, meetings, usage, quiet, display, controls, day, usageAccounts, agentsEnv, connectionEnv,
-         producerTuning]
+        [pomodoro, weather, meetings, usage, quiet, display, controls, day, usageAccounts, reminders, agentsEnv,
+         connectionEnv, producerTuning]
     }
 
     public var aggregateStatus: AggregateSaveStatus {
@@ -50,13 +51,16 @@ public final class SettingsModels {
     }
 
     @ObservationIgnored private var server: ServerIdentity
+    @ObservationIgnored private var client: APIClient
     @ObservationIgnored public var onClockSourceSaved: (@MainActor () -> Void)?
     @ObservationIgnored public var onDaySaved: (@MainActor () -> Void)?
 
     public init(client: APIClient, envStore: EnvFileStore) {
         server = ServerIdentity(client)
+        self.client = client
         (pomodoro, weather, meetings, usage, quiet, display, controls, day) = Self.serverModels(client)
         usageAccounts = UsageAccounts.model(client: client)
+        reminders = Self.remindersModel(client)
         agentsEnv = EnvConfigModel(
             env: envStore, initial: DisplaySettings(reading: EnvFile(parsing: "")),
             read: { DisplaySettings(reading: $0) },
@@ -90,12 +94,14 @@ public final class SettingsModels {
         let next = ServerIdentity(client)
         guard next != server else { return false }
         server = next
-        for m in [pomodoro, weather, meetings, usage, quiet, display, controls, day, usageAccounts]
+        self.client = client
+        for m in [pomodoro, weather, meetings, usage, quiet, display, controls, day, usageAccounts, reminders]
             as [any PendingSaveCancelling] {
             m.cancelPendingSave()
         }
         (pomodoro, weather, meetings, usage, quiet, display, controls, day) = Self.serverModels(client)
         usageAccounts = UsageAccounts.model(client: client)
+        reminders = Self.remindersModel(client)
         watchClockSources()
         Task { await self.loadServerModels() }
         return true
@@ -111,7 +117,8 @@ public final class SettingsModels {
         async let g: Void = controls.load()
         async let h: Void = usageAccounts.load()
         async let i: Void = day.load()
-        _ = await (a, b, c, d, e, f, g, h, i)
+        async let j: Void = reminders.load()
+        _ = await (a, b, c, d, e, f, g, h, i, j)
     }
 
     public func clockMark() -> ClockLegacyMark {
@@ -164,6 +171,14 @@ public final class SettingsModels {
             remote(client, "/v1/controls/config", initial: ControlsConfig()),
             remote(client, "/v1/day/config", initial: DayConfig())
         )
+    }
+
+    public func saveRemindersIfDefault(_ prefs: ReminderPrefs) async throws -> ReminderPrefs? {
+        try await RemindersService(client: client).saveConfigIfDefault(prefs)
+    }
+
+    private static func remindersModel(_ client: APIClient) -> ServerConfigModel<ReminderPrefs> {
+        remote(client, "/v1/reminders/config", initial: ReminderPrefs())
     }
 
     private static func remote<T: Codable & Equatable & Sendable>(

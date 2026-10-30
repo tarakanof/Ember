@@ -1323,6 +1323,52 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/reminders/config:
+    get:
+      tags: [settings]
+      operationId: getRemindersConfig
+      summary: Apple Reminders settings (shared by every Mac running Ember)
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putRemindersConfig
+      summary: Merge Apple Reminders settings
+      description: >
+        `enabled`, `sound`, `lead_minutes` (0-30), `popup_duration` (1-300 s),
+        `use_native_icon`, `native_icon_id` (at most 64 characters), `hold`,
+        `repeat_sound`. Merge semantics; an out-of-range merged value is a 400
+        and changes nothing. With `if_default=1` the write applies only while
+        the stored settings are still the defaults (checked atomically, for
+        Ember.app's one-time move of its old per-Mac settings); otherwise it is
+        a 409 whose body is the current settings.
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      parameters:
+        - name: if_default
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "409":
+          description: "`if_default=1` and the settings are no longer the defaults; the body is the current settings."
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/reminders/preview:
     get:
       tags: [read]

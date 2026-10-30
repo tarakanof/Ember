@@ -48,6 +48,7 @@ type appSettings struct {
 	brightness    *setting[BrightnessConfig]
 	clock         *setting[clockConfigDTO]
 	controls      *setting[ControlsConfig]
+	reminders     *setting[RemindersConfig]
 	day           *setting[DayConfig]
 }
 
@@ -77,6 +78,7 @@ func newAppSettings(a *App) appSettings {
 		brightness:      register(o, brightnessSettingSpec()),
 		clock:           register(o, clockSettingSpec()),
 		controls:        register(o, controlsSettingSpec()),
+		reminders:       register(o, remindersSettingSpec()),
 		day:             register(o, a.daySettingSpec()),
 	}
 }
@@ -96,13 +98,22 @@ var errSettingNotObject = fmt.Errorf("%w: must be a JSON object", errSettingBody
 func (s *setting[D]) put(patch []byte) (D, error) { return s.putWith(patch, nil) }
 
 func (s *setting[D]) putWith(patch []byte, also func(before Config, cur *Config)) (D, error) {
-	return s.write(patch, also, false)
+	return s.write(patch, also, false, nil)
 }
 
-func (s *setting[D]) write(patch []byte, also func(before Config, cur *Config), stored bool) (D, error) {
+func (s *setting[D]) putIf(patch []byte, pre func(cur D) error) (D, error) {
+	return s.write(patch, nil, false, pre)
+}
+
+func (s *setting[D]) write(patch []byte, also func(before Config, cur *Config), stored bool, pre func(cur D) error) (D, error) {
 	var next Config
 	err := s.o.update(func(cur *Config) error {
 		before := *cur
+		if pre != nil {
+			if err := pre(s.spec.view(*cur)); err != nil {
+				return err
+			}
+		}
 		moved := cur.clockPresentation != nil && len(s.spec.presentation) > 0
 		if moved && stored {
 			patch = dropKeys(patch, s.spec.presentation)
@@ -225,7 +236,7 @@ func (s *setting[D]) reapply() {
 	if s.spec.decode != nil {
 		patch = s.spec.decode(blob)
 	}
-	if _, err := s.write(patch, nil, true); err != nil {
+	if _, err := s.write(patch, nil, true, nil); err != nil {
 		s.o.logger.Warn("persisted settings ignored", "key", s.spec.key, "err", err)
 	}
 }
@@ -287,17 +298,19 @@ func serveSettingPutWith[D any](a *App, w http.ResponseWriter, r *http.Request, 
 		fn = also(patch)
 	}
 	d, err := s.putWith(patch, fn)
-	if errors.Is(err, errSettingBody) {
+	return d, a.answerSettingPut(w, r, err)
+}
+
+func (a *App) answerSettingPut(w http.ResponseWriter, r *http.Request, err error) bool {
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, errSettingBody):
 		a.rejectBody(w, r, err)
-		return d, false
-	}
-	if errors.Is(err, errSettingsPersist) {
+	case errors.Is(err, errSettingsPersist):
 		writeError(w, http.StatusInternalServerError, err)
-		return d, false
-	}
-	if err != nil {
+	default:
 		writeError(w, http.StatusBadRequest, err)
-		return d, false
 	}
-	return d, true
+	return false
 }

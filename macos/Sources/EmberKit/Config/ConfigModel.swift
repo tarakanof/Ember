@@ -187,6 +187,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
 
     public func reset(to value: T) {
         cancelPendingSave()
+        loadSeq += 1
         applied = value
         draft = value
     }

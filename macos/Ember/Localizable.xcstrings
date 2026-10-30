@@ -2163,6 +2163,8 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Saved on the server and shared by every Mac running Ember." : {},
+    "Saved on the server. Any Mac running Ember with Reminders access can ring the clock while it's awake; each reminder rings once." : {},
     "Saved — leave blank to keep" : {},
     "Saving" : {},
     "Saving…" : {
@@ -2603,7 +2605,6 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "These settings apply only to this Mac, while it's awake and Ember is running." : {},
     "This Ember server can't check which builds to keep. Update the server to delete old builds." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2621,6 +2622,7 @@
     },
     "This server can't reach a clock. Check the clock's address below or discover one." : {},
     "This server can't store knob firmware. Update the Ember server." : {},
+    "This server doesn't keep reminder settings. Update the Ember server." : {},
     "This server doesn't support Pomodoro settings. Update the Ember server." : {},
     "This server doesn't support meetings. Update the Ember server." : {},
     "This server doesn't support these settings. Update the Ember server." : {},

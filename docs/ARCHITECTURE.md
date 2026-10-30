@@ -2409,14 +2409,19 @@ push time, so the re-push is the stored notice with its sound cleared). A
 button acknowledgement just forgets the loop; a failed dismiss is retried on
 the next check. An unheld reminder carries `repeat:1`, so a
 long text scrolls through fully before it leaves (the meeting and weather
-popups do the same). The server keeps only that in-memory loop state for
-reminders — no list, no schedule, no stored config;
-all settings (enable/sound/hold/repeat/lead/duration/icon) live app-side in
-UserDefaults.
-Consequence: reminders fire only while the Mac is awake and Ember is running (the
-Linux server can't read Apple Reminders). Each POST carries an `Idempotency-Key`
-header (the occurrence's `id|due` key); the server remembers keys for 10 min and
-answers a repeat with 200 without pushing again (a failed push releases the key).
+popups do the same). The server keeps that in-memory loop state and the
+settings (enable/sound/hold/repeat/lead/duration/icon) as the `reminders`
+overlay key (`reminders_config.go`, `GET/PUT /v1/reminders/config`, #726), but
+no list and no schedule.
+Consequence: reminders fire only while a Mac is awake and Ember is running (the
+Linux server can't read Apple Reminders). Every Mac with Reminders access may
+fire; each POST carries an `Idempotency-Key` header, `<id>|<due unix s>` where
+`<id>` is `calendarItemExternalIdentifier` (the iCloud id, equal on every Mac)
+or, when EventKit has none, the per-device `calendarItemIdentifier`. The due
+time stays in the key because a recurring reminder keeps one external id. The
+server remembers keys for 10 min and answers a repeat with 200 without pushing
+again (a failed push releases the key), so the reminder rings once whichever
+Macs fire it.
 The app waits up to 35s for the answer (`RequestBudget.clockLong`; the server
 holds the request while it pushes to the clock, up to 10s) and retries on the
 next poll, inside the grace
@@ -2443,8 +2448,18 @@ It reads a `ReminderSource` (`hasAccess`, `dueTimedReminders()`) and takes
 injected clocks, so `ReminderSchedulerTests` drive it with a fake source and
 `ManualClock`. The app keeps only the platform side in `ReminderWatcher`: the
 EventKit adapter (`EventKitReminderSource`, deliberately not MainActor so the
-EventKit callback queue doesn't trap), authorization, prefs in UserDefaults,
-and the App Nap assertion. That assertion (`.userInitiatedAllowingIdleSystemSleep`)
+EventKit callback queue doesn't trap), authorization, and the App Nap
+assertion. Its prefs come from the server through EmberKit's
+`ReminderPrefsSync`: it loads `SettingsModels.reminders` at launch and every
+5 min (30 s until loaded), feeds the model's `applied` value to the scheduler,
+which holds `nil` and rings nothing until the first load, and keeps the last
+loaded value through an outage. The same sync runs the one-time move of the old
+UserDefaults `reminderPrefs` blob to the server with
+`PUT /v1/reminders/config?if_default=1`: the server checks for the defaults
+inside the settings update (`setting.putIf`), so concurrent Macs can't
+overwrite each other, and answers 409 with the current values otherwise. Either
+answer sets the `reminderPrefsMigratedToServer` marker; a failed request leaves
+it off for the next load. That assertion (`.userInitiatedAllowingIdleSystemSleep`)
 is held only while the scheduler is armed (`onArmedChange`): a fire in
 progress, a `.notDelivered` fire awaiting its retry, or the next fire time
 within 5 minutes. The rest of the time Ember may nap, and App Nap can stretch
