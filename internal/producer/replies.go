@@ -113,8 +113,8 @@ func repoFromPath(cwd string) string {
 			return parts[i-1]
 		}
 	}
-	for i := len(parts) - 2; i >= 0; i-- {
-		if name, ok := strings.CutSuffix(parts[i], "-wt"); ok && name != "" {
+	for i := len(parts) - 1; i >= 0; i-- {
+		if name, _, ok := strings.Cut(parts[i]+"-", "-wt-"); ok && name != "" {
 			return name
 		}
 	}

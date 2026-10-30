@@ -41,6 +41,10 @@ func TestRepoFromPathRules(t *testing.T) {
 		"/Users/dt/Github/cinder/.claude/worktrees/agent-1":  "cinder",
 		"/Users/dt/Github/.worktrees/Lutaro/fix-1":           "Lutaro",
 		"/Users/dt/Github/Ember-wt/day-replies":              "Ember",
+		"/Users/dt/Github/cinder-wt-stall-fault":             "cinder",
+		"/Users/dt/Github/cinder-wt-stall-fault/firmware":    "cinder",
+		"/Users/dt/Github/Lutaro-wt-sim-reaper/docs":         "Lutaro",
+		"/Users/dt/Github/swt-tools":                         "swt-tools",
 		"/Users/dt/Github/Amadeus":                           "Amadeus",
 		home:                                                 "",
 	} {
