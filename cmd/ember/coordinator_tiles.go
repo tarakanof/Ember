@@ -42,7 +42,7 @@ var tiles = []tile{weatherTile, forecastTile, airTile, meetTile}
 const legacyUsagePrefix = "ember-usage-"
 
 type tileWriter interface {
-	push(app string, payload map[string]any) error
+	push(app string, body []byte) error
 	clear(app string) error
 }
 
@@ -121,7 +121,7 @@ func (s *tileSet) push(w tileWriter, app string, payload map[string]any, now tim
 	if s.pushed[app].current(body, now, usageRefreshInterval) {
 		return
 	}
-	if err := w.push(app, payload); err != nil {
+	if err := w.push(app, body); err != nil {
 		s.log().Warn("tile publish failed", "app", app, "err", err)
 		return
 	}
@@ -195,8 +195,8 @@ func (c *coordinator) adoptDeviceManagedApps() bool {
 
 type coordTileWriter struct{ c *coordinator }
 
-func (w coordTileWriter) push(app string, payload map[string]any) error {
-	return w.c.pushApp(app, payload)
+func (w coordTileWriter) push(app string, body []byte) error {
+	return w.c.pushApp(app, body)
 }
 
 func (w coordTileWriter) clear(app string) error {

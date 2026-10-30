@@ -36,9 +36,9 @@ type blockingPublisher struct {
 	release chan struct{}
 }
 
-func (p *blockingPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
+func (p *blockingPublisher) CustomApp(ctx context.Context, name string, body []byte) error {
 	<-p.release
-	return p.recordingPublisher.CustomApp(ctx, name, payload)
+	return p.recordingPublisher.CustomApp(ctx, name, body)
 }
 
 func TestCoord_Send_DoesNotBackPressureProducers(t *testing.T) {
@@ -551,7 +551,7 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 	reach := 0
 	for _, raw := range last["draw"].([]any) {
 		op := raw.([]any)
-		if r := op[1].(int) + op[3].(int); r > reach {
+		if r := int(op[1].(float64) + op[3].(float64)); r > reach {
 			reach = r
 		}
 	}

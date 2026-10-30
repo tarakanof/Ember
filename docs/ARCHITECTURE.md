@@ -142,7 +142,7 @@ The aggregator and the only writer to the device.
   **notices**: app code builds a `notice` and hands it to the clock adapter
   (`coordinator_notices.go`, see "Notices" below), which is the only code that
   calls `Publisher.Notify`. The menu's `/v1/device` proxy uses `clockAccess`.
-  - **Channels.** State-change commands (upsert/delete/clear/shutdown) use a
+  - **Channels.** State-change commands (upsert/delete/clear/republish) use a
     64-slot channel; ticks use a 1-slot channel that drops on full, because a
     stale tick carries no information. `Send` never blocks: the goroutine can
     sit tens of seconds inside `onTick` against an unreachable clock, and a

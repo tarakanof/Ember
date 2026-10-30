@@ -27,7 +27,6 @@ const (
 	cmdUpsert
 	cmdDelete
 	cmdClear
-	cmdShutdown
 	cmdRepublish
 )
 
@@ -214,7 +213,6 @@ func (c *coordinator) handle(cmd coordCmd) {
 		c.onClear()
 	case cmdRepublish:
 		c.onRepublish()
-	case cmdShutdown:
 	}
 }
 

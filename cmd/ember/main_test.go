@@ -21,6 +21,7 @@ import (
 type recordingPublisher struct {
 	mu                sync.Mutex
 	customApps        []map[string]any
+	customBodies      [][]byte
 	customNames       []string
 	clearedApps       []string
 	notify            []map[string]any
@@ -105,10 +106,15 @@ func (p *recordingPublisher) ListApps(_ context.Context) ([]string, error) {
 	return out, nil
 }
 
-func (p *recordingPublisher) CustomApp(_ context.Context, name string, payload map[string]any) error {
+func (p *recordingPublisher) CustomApp(_ context.Context, name string, body []byte) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return err
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.customApps = append(p.customApps, payload)
+	p.customBodies = append(p.customBodies, append([]byte(nil), body...))
 	p.customNames = append(p.customNames, name)
 	p.ops = append(p.ops, "push "+name)
 	return nil
@@ -436,10 +442,10 @@ func newTestServerWithToken(t *testing.T, token string) (*App, *httptest.Server)
 
 type noopPublisher struct{}
 
-func (noopPublisher) CustomApp(context.Context, string, map[string]any) error { return nil }
-func (noopPublisher) ClearApp(context.Context, string) error                  { return nil }
-func (noopPublisher) ListIcons(context.Context) ([]string, error)             { return nil, nil }
-func (noopPublisher) PutIcon(context.Context, string, []byte) error           { return nil }
+func (noopPublisher) CustomApp(context.Context, string, []byte) error { return nil }
+func (noopPublisher) ClearApp(context.Context, string) error          { return nil }
+func (noopPublisher) ListIcons(context.Context) ([]string, error)     { return nil, nil }
+func (noopPublisher) PutIcon(context.Context, string, []byte) error   { return nil }
 func (noopPublisher) DeleteIcons(context.Context, func(string) bool) ([]string, error) {
 	return nil, nil
 }

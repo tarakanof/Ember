@@ -72,7 +72,7 @@ func TestPublisherCustomAppPutsPushedApp(t *testing.T) {
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusOK)
 	})
-	if err := pub.CustomApp(context.Background(), "ember-weather", map[string]any{"text": "x"}); err != nil {
+	if err := pub.CustomApp(context.Background(), "ember-weather", []byte(`{"text":"x"}`)); err != nil {
 		t.Fatalf("CustomApp: %v", err)
 	}
 	if gotMethod != http.MethodPut || gotPath != "/api/v1/apps/pushed/ember-weather" {
@@ -158,7 +158,7 @@ func TestPublisherSurfaces422Field(t *testing.T) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_, _ = w.Write([]byte(`{"error":{"code":"validationFailed","message":"unknown key \"noScroll\"","field":"noScroll"}}`))
 	})
-	err := pub.CustomApp(context.Background(), "ember", map[string]any{"noScroll": true})
+	err := pub.CustomApp(context.Background(), "ember", []byte(`{"noScroll":true}`))
 	if err == nil {
 		t.Fatal("expected error")
 	}
