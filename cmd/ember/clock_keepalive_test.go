@@ -87,7 +87,7 @@ func TestCloseAfterReplyEvictsIdlePooledConnection(t *testing.T) {
 	resp.Body.Close()
 
 	cl := awtrix.NewClientWithTransport(srv.URL, 2*time.Second, closeAfterReply{})
-	if err := cl.PushApp(context.Background(), "ember", map[string]any{"text": "x"}); err != nil {
+	if err := cl.PushApp(context.Background(), "ember", []byte(`{"text":"x"}`)); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()

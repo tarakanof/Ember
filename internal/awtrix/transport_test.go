@@ -35,7 +35,7 @@ func pushTwice(t *testing.T, rt http.RoundTripper) ([]string, []bool) {
 	defer srv.Close()
 	cl := NewClientWithTransport(srv.URL, 2*time.Second, rt)
 	for i := 0; i < 2; i++ {
-		if err := cl.PushApp(context.Background(), "ember", map[string]any{"text": "x"}); err != nil {
+		if err := cl.PushApp(context.Background(), "ember", []byte(`{"text":"x"}`)); err != nil {
 			t.Fatalf("push %d: %v", i, err)
 		}
 	}
