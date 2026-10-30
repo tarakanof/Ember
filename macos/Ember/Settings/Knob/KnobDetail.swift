@@ -73,6 +73,7 @@ struct KnobDetail: View {
             KnobDisplaySection()
             KnobQuietSection()
             KnobIdleSection()
+            KnobRoomSection()
         case .hardware(.behavior):
             KnobPollSection()
             KnobAdvancedSection(changeWiFi: { setup = .changeWiFi })

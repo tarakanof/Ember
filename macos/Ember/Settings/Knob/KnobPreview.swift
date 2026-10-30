@@ -229,7 +229,7 @@ struct KnobPagesPreviewSection: View {
         let s = data.settings
         Section {
             HStack(alignment: .top, spacing: 12) {
-                ForEach(s.pages) { page in
+                ForEach(s.pagesShown(on: env.knob.knob)) { page in
                     KnobPreview(title: knobPageTitle(page.id),
                                 caption: page.id == s.home ? Text("Home page") : Text(verbatim: ""),
                                 enabled: page.on, maxSide: KnobPreviewSizes.overview) {

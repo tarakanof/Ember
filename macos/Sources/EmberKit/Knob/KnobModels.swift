@@ -212,6 +212,7 @@ public struct KnobCaps: Codable, Equatable, Sendable {
     public static let wxFaceList = "wx_face_list"
     public static let npDim = "np_dim"
     public static let demo = "demo"
+    public static let room = "room"
     public static let nowPlayingPage = "nowplaying"
 
     static let legacyFeatureFloors: [String: [Int]] = [statsIntervals: [0, 7, 0]]
@@ -328,6 +329,8 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
         return !fw.dropFirst(core.count).hasPrefix("-")
     }
 
+    public var showsRoom: Bool { supports(feature: KnobCaps.room) }
+
     public var supportsSwipePages: Bool { Self.firmware(lastCheckin?.fw, atLeast: KnobCaps.swipePagesFloor) }
 
     public var configApplied: Bool { (lastCheckin?.appliedVersion ?? 0) >= configVersion }
@@ -425,6 +428,23 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         var isEmpty: Bool { dimAfterS == nil && dimLevel == nil && offAfterS == nil }
     }
 
+    public struct Room: Codable, Equatable, Sendable {
+        public var enabled: Bool?
+        public var presenceOffS: Int?
+        public var presenceWake: Bool?
+        public var moments: Bool?
+        enum CodingKeys: String, CodingKey {
+            case enabled, moments
+            case presenceOffS = "presence_off_s"
+            case presenceWake = "presence_wake"
+        }
+        public init(enabled: Bool? = nil, presenceOffS: Int? = nil, presenceWake: Bool? = nil, moments: Bool? = nil) {
+            self.enabled = enabled; self.presenceOffS = presenceOffS
+            self.presenceWake = presenceWake; self.moments = moments
+        }
+        var isEmpty: Bool { enabled == nil && presenceOffS == nil && presenceWake == nil && moments == nil }
+    }
+
     public struct Apps: Codable, Equatable, Sendable {
         public struct Pomodoro: Codable, Equatable, Sendable {
             public var focusColor: String?
@@ -494,9 +514,10 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public var quiet: Quiet?
     public var idle: Idle?
     public var apps: Apps?
+    public var room: Room?
 
     enum CodingKeys: String, CodingKey {
-        case brightness, pages, home, bot, diagnostics, display, quiet, idle, apps
+        case brightness, pages, home, bot, diagnostics, display, quiet, idle, apps, room
         case pollMS = "poll_ms"
         case swipePages = "swipe_pages"
         case statsIntervalS = "stats_interval_s"
@@ -525,6 +546,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         quiet = try c.decodeIfPresent(Quiet.self, forKey: .quiet)
         idle = try c.decodeIfPresent(Idle.self, forKey: .idle)
         apps = try c.decodeIfPresent(Apps.self, forKey: .apps)
+        room = try c.decodeIfPresent(Room.self, forKey: .room)
     }
 
     public static let defaults = KnobSettings(
@@ -558,6 +580,9 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public static let nowPlayingDimDefault = 180
     public static let nowPlayingDimRange = 60...1800
     public static let nowPlayingDimChoices = [60, 180, 300, 600, 1800]
+    public static let roomPresenceOffDefault = 300
+    public static let roomPresenceOffRange = 0...86399
+    public static let roomPresenceOffSteps = [60, 300, 600, 1800, 3600]
     public static let weatherFaceIDs = KnobWeatherFaceID.allCases.map(\.rawValue)
     public static let statsIntervals = [30, 60, 120, 300]
     public static let liveIntervals = [2, 5, 10]
@@ -574,7 +599,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         return Self.diff(new, before, clearing: false)
     }
 
-    static let v2Keys: Set<String> = ["idle", "apps"]
+    static let v2Keys: Set<String> = ["idle", "apps", "room"]
 
     static func diff(_ new: [String: JSONValue], _ old: [String: JSONValue], clearing: Bool = false) -> [String: JSONValue] {
         var out: [String: JSONValue] = [:]
@@ -617,11 +642,20 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         pages.filter(\.on).map(\.id) == [id]
     }
 
-    public mutating func movePage(_ id: String, by delta: Int) {
-        guard let from = pages.firstIndex(where: { $0.id == id }) else { return }
-        let to = from + delta
-        guard pages.indices.contains(to) else { return }
-        pages.swapAt(from, to)
+    public func pagesShown(on knob: KnobDevice?) -> [Page] {
+        pages.filter { page in
+            switch page.id {
+            case "controls": knob?.supports(page: page.id) == true
+            case "room": knob?.showsRoom == true
+            default: true
+            }
+        }
+    }
+
+    public mutating func movePage(_ id: String, by delta: Int, on knob: KnobDevice?) {
+        let shown = pagesShown(on: knob)
+        guard let from = shown.firstIndex(where: { $0.id == id }), shown.indices.contains(from + delta) else { return }
+        movePage(id, to: shown[from + delta].id)
     }
 
     public mutating func movePage(_ id: String, to target: String) {
@@ -636,6 +670,10 @@ public struct KnobSettings: Codable, Equatable, Sendable {
             if let v = i.dimLevel { i.dimLevel = v.clamped(to: Self.idleDimLevelRange) }
             if let d = i.dimAfterS, let o = i.offAfterS, d > 0, o > 0, o <= d { i.offAfterS = nil }
             idle = i.isEmpty ? nil : i
+        }
+        if var r = room {
+            if let v = r.presenceOffS { r.presenceOffS = v.clamped(to: Self.roomPresenceOffRange) }
+            room = r.isEmpty ? nil : r
         }
         if var a = apps {
             if a.pomodoro?.focusColor == nil, a.pomodoro?.breakColor == nil { a.pomodoro = nil }
@@ -693,6 +731,12 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         idle = i
     }
 
+    public mutating func editRoom(_ change: (inout Room) -> Void) {
+        var r = room ?? Room()
+        change(&r)
+        room = r
+    }
+
     public mutating func editPomodoro(_ change: (inout Apps.Pomodoro) -> Void) {
         var p = apps?.pomodoro ?? .init()
         change(&p)
@@ -715,6 +759,10 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         let d = dim ?? 0
         let allowed = idleOffAfterSteps.filter { $0 > d }
         return [0] + choices(allowed, current: current.flatMap { $0 > 0 ? $0 : nil })
+    }
+
+    public static func roomPresenceOffChoices(current: Int?) -> [Int] {
+        [0] + choices(roomPresenceOffSteps, current: current.flatMap { $0 > 0 ? $0 : nil })
     }
 
     public func previewTheme(for knob: KnobDevice?) -> KnobTheme {

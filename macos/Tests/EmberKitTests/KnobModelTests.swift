@@ -43,10 +43,10 @@ import Foundation
     var s = KnobSettings.defaults
     let ids = s.pages.map(\.id)
     let home = s.home
-    s.movePage(ids[0], by: -1)
-    s.movePage(ids[3], by: 1)
+    s.movePage(ids[0], by: -1, on: nil)
+    s.movePage(ids[3], by: 1, on: nil)
     #expect(s.pages.map(\.id) == ids)
-    s.movePage(ids[0], by: 1)
+    s.movePage(ids[0], by: 1, on: nil)
     #expect(s.pages.map(\.id) == [ids[1], ids[0], ids[2], ids[3]])
     s = .defaults
     s.movePage(ids[0], to: ids[2])
@@ -57,7 +57,7 @@ import Foundation
     s.movePage(ids[0], to: ids[0])
     #expect(s.pages.map(\.id) == ids)
     #expect(s.home == home)
-    s.movePage(ids[1], by: -1)
+    s.movePage(ids[1], by: -1, on: nil)
     #expect(s.patch(from: .defaults).keys.sorted() == ["pages"])
 }
 

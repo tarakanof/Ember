@@ -8,12 +8,12 @@ import (
 	"strings"
 )
 
-var knobPageIDs = []string{"bot", "day", "weather", "nowplaying", "controls", "pomodoro"}
+var knobPageIDs = []string{"bot", "day", "weather", "room", "nowplaying", "controls", "pomodoro"}
 
 // knobMaxPages is the firmware's KS_MAX_PAGES: it drops pages past the 8th.
 const knobMaxPages = 8
 
-var knobPagesOffByDefault = []string{"nowplaying", "controls", "pomodoro"}
+var knobPagesOffByDefault = []string{"room", "nowplaying", "controls", "pomodoro"}
 
 var knobPageIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,15}$`)
 
@@ -31,6 +31,7 @@ type knobSettings struct {
 	Quiet          knobQuiet      `json:"quiet"`
 	Idle           *knobIdle      `json:"idle,omitempty"`
 	Apps           *knobApps      `json:"apps,omitempty"`
+	Room           *knobRoom      `json:"room,omitempty"`
 }
 
 type knobIdle struct {
@@ -38,6 +39,15 @@ type knobIdle struct {
 	DimLevel  *int `json:"dim_level,omitempty"`
 	OffAfterS *int `json:"off_after_s,omitempty"`
 }
+
+type knobRoom struct {
+	Enabled      *bool `json:"enabled,omitempty"`
+	PresenceOffS *int  `json:"presence_off_s,omitempty"`
+	PresenceWake *bool `json:"presence_wake,omitempty"`
+	Moments      *bool `json:"moments,omitempty"`
+}
+
+const knobRoomPresenceOffMax = 86399
 
 type knobApps struct {
 	Pomodoro   *knobPomoApp    `json:"pomodoro,omitempty"`
@@ -77,6 +87,14 @@ func (i *knobIdle) clone() *knobIdle {
 	return &knobIdle{DimAfterS: clonePtr(i.DimAfterS), DimLevel: clonePtr(i.DimLevel), OffAfterS: clonePtr(i.OffAfterS)}
 }
 
+func (r *knobRoom) clone() *knobRoom {
+	if r == nil {
+		return nil
+	}
+	return &knobRoom{Enabled: clonePtr(r.Enabled), PresenceOffS: clonePtr(r.PresenceOffS),
+		PresenceWake: clonePtr(r.PresenceWake), Moments: clonePtr(r.Moments)}
+}
+
 func (a *knobApps) clone() *knobApps {
 	if a == nil {
 		return nil
@@ -97,6 +115,9 @@ func (a *knobApps) clone() *knobApps {
 func (s *knobSettings) pruneEmptyV2() {
 	if i := s.Idle; i != nil && i.DimAfterS == nil && i.DimLevel == nil && i.OffAfterS == nil {
 		s.Idle = nil
+	}
+	if r := s.Room; r != nil && r.Enabled == nil && r.PresenceOffS == nil && r.PresenceWake == nil && r.Moments == nil {
+		s.Room = nil
 	}
 	a := s.Apps
 	if a == nil {
@@ -151,6 +172,13 @@ func (s knobSettings) validateIdle() error {
 		}
 	}
 	return nil
+}
+
+func (s knobSettings) validateRoom() error {
+	if s.Room == nil || s.Room.PresenceOffS == nil {
+		return nil
+	}
+	return inRange("room.presence_off_s", *s.Room.PresenceOffS, 0, knobRoomPresenceOffMax)
 }
 
 func (s knobSettings) validateApps() error {
@@ -313,6 +341,7 @@ func (s knobSettings) clone() knobSettings {
 	s.Quiet = s.Quiet.clone()
 	s.Idle = s.Idle.clone()
 	s.Apps = s.Apps.clone()
+	s.Room = s.Room.clone()
 	if s.SwipePages != nil {
 		v := *s.SwipePages
 		s.SwipePages = &v
@@ -451,6 +480,9 @@ func (s knobSettings) validate() error {
 		}
 	}
 	if err := s.validateIdle(); err != nil {
+		return err
+	}
+	if err := s.validateRoom(); err != nil {
 		return err
 	}
 	return s.validateApps()

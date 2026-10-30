@@ -2823,7 +2823,8 @@ paths:
         weather{faces: 1-7 unique of temp rain cast wind days sun air},
         nowplaying{dim_after_s 60-1800}}`. An unknown key in them or an
         unknown page id under `apps` is a 400 (DEVICE-PROTOCOL "Idle and
-        per-app options").
+        per-app options"). Also `room{enabled, presence_off_s 0-86399,
+        presence_wake, moments}` (DEVICE-PROTOCOL "Room settings").
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:

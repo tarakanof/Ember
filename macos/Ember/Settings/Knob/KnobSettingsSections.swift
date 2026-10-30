@@ -128,13 +128,54 @@ struct KnobIdleSection: View {
     }
 }
 
+struct KnobRoomSection: View {
+    @Environment(AppEnvironment.self) private var env
+
+    var body: some View {
+        let knob = env.knob
+        if knob.knob?.showsRoom == true {
+            let room = knob.settings.draft.room
+            let enabled = room?.enabled ?? false
+            let off = room?.presenceOffS ?? KnobSettings.roomPresenceOffDefault
+            Section {
+                Toggle("Room sensors", isOn: Binding(
+                    get: { enabled },
+                    set: { v in knob.edit { $0.editRoom { $0.enabled = v } } }))
+                Picker("Turn off when nobody is near after", selection: Binding(
+                    get: { off },
+                    set: { v in knob.edit { $0.editRoom { $0.presenceOffS = v } } })) {
+                    ForEach(KnobSettings.roomPresenceOffChoices(current: off), id: \.self) { sec in
+                        sec == 0 ? Text("Never").tag(sec) : Text(verbatim: DurationText.interval(sec)).tag(sec)
+                    }
+                }
+                .disabled(!enabled)
+                Toggle("Wake when someone comes near", isOn: Binding(
+                    get: { room?.presenceWake ?? true },
+                    set: { v in knob.edit { $0.editRoom { $0.presenceWake = v } } }))
+                    .disabled(!enabled)
+                Toggle("Room moments", isOn: Binding(
+                    get: { room?.moments ?? true },
+                    set: { v in knob.edit { $0.editRoom { $0.moments = v } } }))
+                    .disabled(!enabled)
+            } header: {
+                Text("Room")
+            } footer: {
+                SectionFooter(text: "Room moments are the bot's short notes about the air in the room.",
+                              error: knob.settings.saveError)
+            }
+            .disabled(!knob.settings.isLoaded)
+        }
+    }
+}
+
 struct KnobPagesSection: View {
     @Environment(AppEnvironment.self) private var env
 
     var body: some View {
         let knob = env.knob
         let pages = knob.settings.draft.pages
-        let shown = Array(pages.enumerated()).filter { $0.element.id != "controls" || knob.knob?.supports(page: "controls") == true }
+        let shownIDs = knob.settings.draft.pagesShown(on: knob.knob).map(\.id)
+        let shown = Array(pages.enumerated()).filter { shownIDs.contains($0.element.id) }
         Section {
             ForEach(shown, id: \.element.id) { index, page in
                 HStack {
@@ -163,12 +204,12 @@ struct KnobPagesSection: View {
                     knob.edit { $0.movePage(drop.id, to: page.id) }
                 }
                 .contextMenu {
-                    Button("Move Up") { move(page.id, by: -1) }.disabled(index == 0)
-                    Button("Move Down") { move(page.id, by: 1) }.disabled(index == pages.count - 1)
+                    Button("Move Up") { move(page.id, by: -1) }.disabled(page.id == shownIDs.first)
+                    Button("Move Down") { move(page.id, by: 1) }.disabled(page.id == shownIDs.last)
                 }
                 .accessibilityActions {
-                    if index > 0 { Button("Move Up") { move(page.id, by: -1) } }
-                    if index < pages.count - 1 { Button("Move Down") { move(page.id, by: 1) } }
+                    if page.id != shownIDs.first { Button("Move Up") { move(page.id, by: -1) } }
+                    if page.id != shownIDs.last { Button("Move Down") { move(page.id, by: 1) } }
                 }
             }
             Picker("Home page", selection: knob.binding(\.home)) {
@@ -193,7 +234,8 @@ struct KnobPagesSection: View {
     }
 
     private func move(_ id: String, by delta: Int) {
-        env.knob.edit { $0.movePage(id, by: delta) }
+        let knob = env.knob.knob
+        env.knob.edit { $0.movePage(id, by: delta, on: knob) }
     }
 }
 
@@ -217,6 +259,7 @@ func knobPageTitle(_ id: String) -> LocalizedStringKey {
     case "weather": "Weather"
     case "nowplaying": "Now Playing"
     case "controls": "Controls"
+    case "room": "Room"
     default: LocalizedStringKey(id.capitalized)
     }
 }
@@ -459,8 +502,10 @@ struct KnobPageSection: View {
                     get: { page.on },
                     set: { on in knob.edit { $0.pages[index].on = on } }))
                     .disabled(page.on && knob.settings.draft.isLastPageOn(page.id))
+                let shown = knob.settings.draft.pagesShown(on: knob.knob)
+                let position = shown.firstIndex { $0.id == id } ?? index
                 LabeledContent("Position") {
-                    Text("Page \(index + 1) of \(pages.count)",
+                    Text("Page \(position + 1) of \(shown.count)",
                          comment: "Settings › Knob › Apps: where an app's page sits in the knob's page order (\"Page 2 of 3\").")
                 }
                 if knob.settings.draft.home == id {
