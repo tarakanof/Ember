@@ -407,6 +407,16 @@ The aggregator and the only writer to the device.
     link degrading before it starts costing frames. The display-hold writes
     (settings read/PATCH, forced switch) share this policy via `retryDevice`
     and count in the same metric.
+  - **Pooled-connection hypothesis (#769).** Go retries a request on a reused
+    connection only when it is replayable (GET/HEAD/OPTIONS/TRACE, or any method
+    carrying an `Idempotency-Key` header). Pushes are PUT and notifications POST,
+    so when the clock has silently dropped the pooled socket the write goes into
+    a dead connection and burns the whole 2.5 s attempt before the retry dials
+    fresh. `awtrix.keep_alive` (default on, read per call) is the A/B
+    switch: off evicts idle connections and marks each request
+    `Connection: close` so nothing stays pooled, on the guarded `http.DefaultTransport`, and the fail/ok ratio
+    can be compared. Sending an `Idempotency-Key` on pushes, so Go retries
+    transparently, is the untried alternative.
   - **Renewal margin.** `renewalDedupWindow` holds an unchanged frame for
     `lifetime − max(lifetime/3, dwell + retry budget + 1)`. The last tick before
     the window opens can land a full dwell early, so the wallclock slack before

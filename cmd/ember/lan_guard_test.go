@@ -100,6 +100,12 @@ type lanGuardTransport struct {
 	next  http.RoundTripper
 }
 
+func (l *lanGuardTransport) CloseIdleConnections() {
+	if c, ok := l.next.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
+}
+
 func (l *lanGuardTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if !loopbackHost(r.URL.Hostname()) {
 		l.guard.refuse(r.Method+" "+r.URL.String(), "")

@@ -27,6 +27,13 @@ func NewClient(baseURL string, timeout time.Duration) *Client {
 	}
 }
 
+func NewClientWithTransport(baseURL string, timeout time.Duration, rt http.RoundTripper) *Client {
+	return &Client{
+		base: strings.TrimRight(baseURL, "/"),
+		hc:   &http.Client{Timeout: timeout, Transport: rt},
+	}
+}
+
 func (c *Client) BaseURL() string { return c.base }
 
 type APIError struct {
