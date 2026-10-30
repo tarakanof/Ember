@@ -209,3 +209,54 @@ private struct AlwaysOnSource: ReminderSource {
 private func until(_ condition: () -> Bool) async {
     for _ in 0..<200 where !condition() { await Task.yield() }
 }
+
+private final class LoadGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    private var waiter: CheckedContinuation<Void, Never>?
+    private var open = false
+
+    func load() async -> ReminderPrefs {
+        let first = lock.withLock { calls += 1; return calls == 1 }
+        if !first {
+            await withCheckedContinuation { c in
+                let resume = lock.withLock { () -> Bool in
+                    if open { return true }
+                    waiter = c
+                    return false
+                }
+                if resume { c.resume() }
+            }
+        }
+        return ReminderPrefs()
+    }
+
+    var isWaiting: Bool { lock.withLock { waiter != nil } }
+
+    func release() {
+        let c = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            open = true
+            defer { waiter = nil }
+            return waiter
+        }
+        c?.resume()
+    }
+}
+
+@MainActor @Test func aLoadStartedBeforeTheMigrationCantUndoIt() async {
+    let server = FakePrefsServer()
+    let gate = LoadGate()
+    let model = ServerConfigModel(initial: ReminderPrefs(), load: { await gate.load() }, save: { _ in },
+                                  debounce: .zero, savedHold: .zero, sleep: { _ in })
+    await model.load()
+    let stale = Task { await model.load() }
+    await until { gate.isWaiting }
+    let legacy = FakeLegacy(local)
+    await makeSync(server, model, legacy).migrate(model)
+    #expect(model.applied == local)
+    gate.release()
+    await stale.value
+    #expect(model.applied == local)
+    #expect(model.draft == local)
+    #expect(legacy.migrated)
+}
