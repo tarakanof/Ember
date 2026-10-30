@@ -577,11 +577,11 @@ func TestClockRecordNeverAuthenticates(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
 	token := newToken(deviceTokenPrefix)
-	a.devices.mu.Lock()
-	rec := a.devices.state.find(d.ID)
-	rec.TokenSHA256 = tokenHash(token)
-	rec.PendingTokenSHA256 = tokenHash(token)
-	a.devices.mu.Unlock()
+	a.devices.withState(func(st *deviceState) {
+		rec := st.find(d.ID)
+		rec.TokenSHA256 = tokenHash(token)
+		rec.PendingTokenSHA256 = tokenHash(token)
+	})
 	if _, ok, err := a.devices.authenticate(token); ok || err != nil {
 		t.Fatalf("clock authenticated: ok=%v err=%v", ok, err)
 	}

@@ -239,11 +239,7 @@ func TestFirmwareGuardedDeletePanicReleasesTheRegistry(t *testing.T) {
 }
 
 func registryFree(r *deviceRegistry) bool {
-	if !r.mu.TryLock() {
-		return false
-	}
-	r.mu.Unlock()
-	return true
+	return r.lockFree()
 }
 
 func noteOnce(ch chan bool, v bool) {

@@ -275,9 +275,9 @@ func TestCapsKnobViewMajorIsTheLowerOfServerAndFirmware(t *testing.T) {
 
 func plantCaps(t *testing.T, f *viewFixture, caps *deviceCaps) {
 	t.Helper()
-	f.app.devices.mu.Lock()
-	defer f.app.devices.mu.Unlock()
-	f.app.devices.state.findKnob(f.m.ID).Caps = caps
+	f.app.devices.withState(func(st *deviceState) {
+		st.findKnob(f.m.ID).Caps = caps
+	})
 }
 
 func TestCapsKnobViewDropsBlocksToFitViewBytes(t *testing.T) {
@@ -595,9 +595,9 @@ func TestCapsCheckinWritesStoreOnlyWhenCapsChange(t *testing.T) {
 		t.Fatalf("store writes for a second legacy checkin = %d, want 3", got)
 	}
 
-	app.devices.mu.Lock()
-	app.devices.state.Devices[0].Caps = nil
-	app.devices.mu.Unlock()
+	app.devices.withState(func(st *deviceState) {
+		st.Devices[0].Caps = nil
+	})
 	post(knobCapsFull)
 	if err := app.devices.load(); err != nil {
 		t.Fatal(err)

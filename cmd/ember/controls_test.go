@@ -124,9 +124,9 @@ func pairControlsKnob(t *testing.T, app *App, srv *httptest.Server, pages []stri
 		resp, b := devReq(t, srv, "PUT", "/v1/devices/"+knob.ID+"/config", testToken, `{"pages":[{"id":"bot","on":true},{"id":"controls","on":true}]}`)
 		mustOK(t, "page on", resp, b)
 	}
-	app.devices.mu.Lock()
-	app.devices.state.findKnob(knob.ID).Caps = &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}}
-	app.devices.mu.Unlock()
+	app.devices.withState(func(st *deviceState) {
+		st.findKnob(knob.ID).Caps = &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}}
+	})
 	return knob
 }
 

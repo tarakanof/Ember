@@ -52,11 +52,11 @@ func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) er
 	var waiting string
 	_, _, err = a.devices.updateOTA(id, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
 		offer, waiting = nil, ""
-		if o.Target != snap.Target || o.mode() != snap.mode() || o.Attempt != snap.Attempt || a.devices.fwGen != gen {
+		if o.Target != snap.Target || o.mode() != snap.mode() || o.Attempt != snap.Attempt || a.devices.firmwareGenLocked() != gen {
 			applyOTAResult(o, report, in.now)
 			return false, nil
 		}
-		if o.Target != "" && in.target == nil && !otaActive(o.Phase) && a.devices.state.Epoch == epoch {
+		if o.Target != "" && in.target == nil && !otaActive(o.Phase) && a.devices.epochLocked() == epoch {
 			o.Target, o.Retry = "", false
 			return true, nil
 		}
@@ -234,7 +234,7 @@ func (a *App) putOTA(id string, mode, target *string, clearTarget, retry bool) (
 		a.otaReadHook()
 	}
 	return a.devices.updateOTA(id, func(o *knobOTA, last *deviceCheckin) (bool, error) {
-		if otaWants(*o, target, retry) != want || a.devices.fwGen != gen {
+		if otaWants(*o, target, retry) != want || a.devices.firmwareGenLocked() != gen {
 			return false, errFirmwareChanged
 		}
 		return applyOTAPut(o, last, mode, target, clearTarget, retry)

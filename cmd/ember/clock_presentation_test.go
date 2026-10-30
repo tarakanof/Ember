@@ -512,12 +512,13 @@ func TestDoctorReportsClockConfigMigrated(t *testing.T) {
 }
 
 func (a *App) clockConfigDigestStored() string {
-	a.devices.mu.Lock()
-	defer a.devices.mu.Unlock()
-	if d := a.devices.state.findClock(); d != nil {
-		return d.ConfigDigest
-	}
-	return ""
+	var digest string
+	a.devices.withState(func(st *deviceState) {
+		if d := st.findClock(); d != nil {
+			digest = d.ConfigDigest
+		}
+	})
+	return digest
 }
 
 func itoa(n int) string {

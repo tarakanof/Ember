@@ -335,6 +335,20 @@ func (r *deviceRegistry) epochValue() uint64 {
 	return r.state.Epoch
 }
 
+func (r *deviceRegistry) lockFree() bool {
+	if !r.mu.TryLock() {
+		return false
+	}
+	r.mu.Unlock()
+	return true
+}
+
+func (r *deviceRegistry) withState(fn func(*deviceState)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	fn(&r.state)
+}
+
 func (r *deviceRegistry) list() []deviceView {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -975,7 +975,7 @@ func TestFirmwareDeletePrunesTheVersionFromEveryBlockedList(t *testing.T) {
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15"}), "")
 	blockVersions(t, k, "0.9.14", "0.9.15")
 	blockVersions(t, k2, "0.9.15", "0.9.14")
-	epoch := k.app.devices.state.Epoch
+	epoch := k.app.devices.epochValue()
 	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.15", testToken, ""); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
 	}
@@ -984,8 +984,8 @@ func TestFirmwareDeletePrunesTheVersionFromEveryBlockedList(t *testing.T) {
 			t.Fatalf("%s blocked = %v, want [0.9.14]", kn.knob.ID, got)
 		}
 	}
-	if k.app.devices.state.Epoch != epoch {
-		t.Fatalf("epoch bumped %d -> %d", epoch, k.app.devices.state.Epoch)
+	if k.app.devices.epochValue() != epoch {
+		t.Fatalf("epoch bumped %d -> %d", epoch, k.app.devices.epochValue())
 	}
 }
 
@@ -1177,11 +1177,11 @@ func TestFirmwareDeleteOfAParkedTargetClearsIt(t *testing.T) {
 			if got := offerOf(t, k.idle(t)); got != nil {
 				t.Fatalf("parked target offered: %v", got)
 			}
-			epoch := k.app.devices.state.Epoch
+			epoch := k.app.devices.epochValue()
 			if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNoContent {
 				t.Fatalf("delete = %d: %s", resp.StatusCode, b)
 			}
-			if k.app.devices.state.Epoch == epoch {
+			if k.app.devices.epochValue() == epoch {
 				t.Fatal("clearing the target did not bump the epoch")
 			}
 			st := k.status(t)
@@ -1589,7 +1589,7 @@ func TestOTAAutoCheckinRacingAnEvictionDoesNotOffer(t *testing.T) {
 	k.app.knobFW.rename = func(oldpath, newpath string) error {
 		if filepath.Base(oldpath) == "0.9.14" {
 			select {
-			case purgeGen <- k.app.devices.fwGen:
+			case purgeGen <- k.app.devices.firmwareGenLocked():
 			default:
 			}
 		}

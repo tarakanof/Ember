@@ -123,7 +123,7 @@ func TestClaimCreateValidates(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			f.app.claims.claims = map[string]*deviceClaim{}
+			f.app.claims.reset()
 			resp, b := devReq(t, f.srv, "POST", "/v1/devices/claim", "", c.body)
 			if resp.StatusCode != c.want {
 				t.Fatalf("status = %d, want %d: %s", resp.StatusCode, c.want, b)
@@ -916,7 +916,7 @@ func TestClaimApproveAndDeclineOfADeletedDeviceDropTheClaim(t *testing.T) {
 			if resp.StatusCode != http.StatusNotFound {
 				t.Fatalf("%s a claim whose device was deleted = %d, want 404: %s", op, resp.StatusCode, b)
 			}
-			if n := len(f.app.claims.claims); n != 0 {
+			if n := f.app.claims.count(); n != 0 {
 				t.Fatalf("the claim kept its slot: %d left", n)
 			}
 		})

@@ -91,6 +91,18 @@ func newClaimRegistry() *claimRegistry {
 	return &claimRegistry{now: time.Now, rand: rand.Reader, claims: map[string]*deviceClaim{}}
 }
 
+func (r *claimRegistry) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.claims)
+}
+
+func (r *claimRegistry) reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.claims = map[string]*deviceClaim{}
+}
+
 func (r *claimRegistry) pruneLocked(now time.Time) {
 	for id, c := range r.claims {
 		if !now.Before(c.expiresAt) {

@@ -349,6 +349,12 @@ func (r *deviceRegistry) otaGens() (uint64, uint64) {
 	return r.fwGen, r.state.Epoch
 }
 
+// firmwareGenLocked is for code the registry already calls under its lock.
+func (r *deviceRegistry) firmwareGenLocked() uint64 { return r.fwGen }
+
+// epochLocked is for code the registry already calls under its lock.
+func (r *deviceRegistry) epochLocked() uint64 { return r.state.Epoch }
+
 func (r *deviceRegistry) otaTargets(version string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
