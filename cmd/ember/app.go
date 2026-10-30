@@ -261,6 +261,8 @@ func (a *App) recordPublish(snap Snapshot, err error) {
 	a.mu.Unlock()
 }
 
+const startupClearBudget = 5 * time.Second
+
 func (a *App) ClearIndicators(ctx context.Context) error {
 	for i := 1; i <= 3; i++ {
 		if err := a.publisher.ClearIndicator(ctx, i); err != nil {

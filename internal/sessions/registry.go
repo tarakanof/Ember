@@ -67,8 +67,14 @@ func (v View) Count(state string) int {
 
 func (r *Registry) Upsert(s render.Session) (View, string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	now := r.reapLocked()
+	now, reaped := r.reapLocked()
+	v, prior := r.upsertLocked(s, now)
+	r.mu.Unlock()
+	r.notify(reaped)
+	return v, prior
+}
+
+func (r *Registry) upsertLocked(s render.Session, now time.Time) (View, string) {
 	old, had := r.sessions[s.Key()]
 	prior := old.State
 	s.UpdatedAt = now
@@ -82,10 +88,13 @@ func (r *Registry) Upsert(s render.Session) (View, string) {
 
 func (r *Registry) Delete(key string) (View, render.Session, bool) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	old, had := r.sessions[key]
 	delete(r.sessions, key)
-	return r.viewLocked(r.reapLocked()), old, had
+	now, reaped := r.reapLocked()
+	v := r.viewLocked(now)
+	r.mu.Unlock()
+	r.notify(reaped)
+	return v, old, had
 }
 
 func (r *Registry) Clear() View {
@@ -97,12 +106,25 @@ func (r *Registry) Clear() View {
 
 func (r *Registry) View() View {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.viewLocked(r.reapLocked())
+	now, reaped := r.reapLocked()
+	v := r.viewLocked(now)
+	r.mu.Unlock()
+	r.notify(reaped)
+	return v
 }
 
-func (r *Registry) reapLocked() time.Time {
+func (r *Registry) notify(reaped []Reaped) {
+	if r.onReap == nil {
+		return
+	}
+	for _, e := range reaped {
+		r.onReap(e)
+	}
+}
+
+func (r *Registry) reapLocked() (time.Time, []Reaped) {
 	now := r.now()
+	var reaped []Reaped
 	p := r.policy()
 	for key, s := range r.sessions {
 		age := now.Sub(s.UpdatedAt)
@@ -110,11 +132,9 @@ func (r *Registry) reapLocked() time.Time {
 			continue
 		}
 		delete(r.sessions, key)
-		if r.onReap != nil {
-			r.onReap(Reaped{Session: s, Age: age})
-		}
+		reaped = append(reaped, Reaped{Session: s, Age: age})
 	}
-	return now
+	return now, reaped
 }
 
 func (r *Registry) viewLocked(now time.Time) View {
