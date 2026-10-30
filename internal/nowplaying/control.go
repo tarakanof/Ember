@@ -8,15 +8,15 @@ import (
 	"time"
 )
 
-type controlAction string
+type ControlAction string
 
 const (
-	actPlayPause controlAction = "play_pause"
-	actPlay      controlAction = "play"
-	actPause     controlAction = "pause"
-	ActNext      controlAction = "next"
-	actPrevious  controlAction = "previous"
-	ActVolume    controlAction = "volume"
+	actPlayPause ControlAction = "play_pause"
+	actPlay      ControlAction = "play"
+	actPause     ControlAction = "pause"
+	ActNext      ControlAction = "next"
+	actPrevious  ControlAction = "previous"
+	ActVolume    ControlAction = "volume"
 )
 
 const (
@@ -38,7 +38,7 @@ var (
 )
 
 type ControlRequest struct {
-	Action controlAction `json:"action"`
+	Action ControlAction `json:"action"`
 	// points, -100..100; volume only.
 	Delta   int    `json:"delta"`
 	Source  string `json:"source"`
@@ -198,7 +198,7 @@ func (l *CallerLimiter) allow(caller string, now time.Time) bool {
 
 type QueuedCommand struct {
 	ID     string        `json:"id"`
-	Action controlAction `json:"action"`
+	Action ControlAction `json:"action"`
 	Delta  int           `json:"delta"`
 	AgeMS  int64         `json:"age_ms"`
 	at     time.Time

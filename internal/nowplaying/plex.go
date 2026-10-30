@@ -44,7 +44,7 @@ func PlexConfigFromEnv(getenv func(string) string) (PlexConfig, bool) {
 	return c, true
 }
 
-type plexSource struct {
+type PlexSource struct {
 	Cfg    PlexConfig
 	client *http.Client
 	Nudge  chan struct{}
@@ -62,28 +62,28 @@ type plexSource struct {
 	volTried  time.Time
 	volTarget string
 
-	Ctl plexControl
+	Ctl PlexControl
 }
 
-func NewPlexSource(cfg PlexConfig) *plexSource {
+func NewPlexSource(cfg PlexConfig) *PlexSource {
 	client := &http.Client{
 		Timeout: PlexTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
-	return &plexSource{Cfg: cfg, client: client, Nudge: make(chan struct{}, 1), artFailed: make(map[string]bool),
+	return &PlexSource{Cfg: cfg, client: client, Nudge: make(chan struct{}, 1), artFailed: make(map[string]bool),
 		Ctl: newPlexControl()}
 }
 
-func (p *plexSource) Wake() {
+func (p *PlexSource) Wake() {
 	select {
 	case p.Nudge <- struct{}{}:
 	default:
 	}
 }
 
-func (p *plexSource) Run(ctx context.Context, np *Service, logger *slog.Logger) {
+func (p *PlexSource) Run(ctx context.Context, np *Service, logger *slog.Logger) {
 	for {
 		wait := plexPollIdle
 		if p.Poll(ctx, np, logger, time.Now()) {
@@ -123,7 +123,7 @@ type plexSession struct {
 	} `json:"Player"`
 }
 
-func (p *plexSource) Poll(ctx context.Context, np *Service, logger *slog.Logger, now time.Time) bool {
+func (p *PlexSource) Poll(ctx context.Context, np *Service, logger *slog.Logger, now time.Time) bool {
 	s, err := p.session(ctx)
 	if err != nil {
 		if ctx.Err() == nil && err.Error() != p.lastErr {
@@ -193,7 +193,7 @@ func (p *plexSource) Poll(ctx context.Context, np *Service, logger *slog.Logger,
 	return state == Playing
 }
 
-func (p *plexSource) volumeFor(ctx context.Context, target string, playing bool) *int {
+func (p *PlexSource) volumeFor(ctx context.Context, target string, playing bool) *int {
 	if target == "" {
 		return nil
 	}
@@ -211,7 +211,7 @@ func (p *plexSource) volumeFor(ctx context.Context, target string, playing bool)
 	return nil
 }
 
-func (p *plexSource) art(ctx context.Context, path string, last *string, prev *Image, logger *slog.Logger) *Image {
+func (p *PlexSource) art(ctx context.Context, path string, last *string, prev *Image, logger *slog.Logger) *Image {
 	if path == *last {
 		return prev
 	}
@@ -236,11 +236,11 @@ func (p *plexSource) art(ctx context.Context, path string, last *string, prev *I
 	return img
 }
 
-func (p *plexSource) headers() http.Header {
+func (p *PlexSource) headers() http.Header {
 	return http.Header{"X-Plex-Token": {p.Cfg.Token}, "Accept": {"application/json"}}
 }
 
-func (p *plexSource) session(ctx context.Context) (*plexSession, error) {
+func (p *PlexSource) session(ctx context.Context) (*plexSession, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.Cfg.URL+"/status/sessions", nil)
 	if err != nil {
 		return nil, err
@@ -278,7 +278,7 @@ func (p *plexSource) session(ctx context.Context) (*plexSession, error) {
 	return paused, nil
 }
 
-func (p *plexSource) matches(s *plexSession) bool {
+func (p *PlexSource) matches(s *plexSession) bool {
 	if p.Cfg.User != "" && !strings.EqualFold(p.Cfg.User, s.User.Title) {
 		return false
 	}

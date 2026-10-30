@@ -20,7 +20,7 @@ const (
 	plexVolumeRefresh = 30 * time.Second
 )
 
-type plexControl struct {
+type PlexControl struct {
 	Now       func() time.Time
 	mu        sync.Mutex
 	targets   map[string]string
@@ -40,12 +40,12 @@ type plexCommand struct {
 	at    time.Time
 }
 
-func newPlexControl() plexControl {
-	return plexControl{Now: time.Now, targets: make(map[string]string), volumes: make(map[string]plexLevel),
+func newPlexControl() PlexControl {
+	return PlexControl{Now: time.Now, targets: make(map[string]string), volumes: make(map[string]plexLevel),
 		commanded: make(map[string]plexCommand)}
 }
 
-func (c *plexControl) setTarget(player, target string) {
+func (c *PlexControl) setTarget(player, target string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.targets) >= 16 {
@@ -54,13 +54,13 @@ func (c *plexControl) setTarget(player, target string) {
 	c.targets[player] = target
 }
 
-func (c *plexControl) target(player string) string {
+func (c *PlexControl) target(player string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.targets[player]
 }
 
-func (c *plexControl) volume(target string, maxAge time.Duration) *int {
+func (c *PlexControl) volume(target string, maxAge time.Duration) *int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	l, ok := c.volumes[target]
@@ -70,7 +70,7 @@ func (c *plexControl) volume(target string, maxAge time.Duration) *int {
 	return &l.v
 }
 
-func (c *plexControl) setVolume(target string, v int) {
+func (c *PlexControl) setVolume(target string, v int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.volumes) >= 16 {
@@ -79,7 +79,7 @@ func (c *plexControl) setVolume(target string, v int) {
 	c.volumes[target] = plexLevel{v, c.Now()}
 }
 
-func (c *plexControl) playState(target string, shown State) State {
+func (c *PlexControl) playState(target string, shown State) State {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if cmd, ok := c.commanded[target]; ok && c.Now().Sub(cmd.at) < plexCommandedTTL {
@@ -88,7 +88,7 @@ func (c *plexControl) playState(target string, shown State) State {
 	return shown
 }
 
-func (c *plexControl) setCommanded(target string, st State) {
+func (c *PlexControl) setCommanded(target string, st State) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.commanded) >= 16 {
@@ -97,7 +97,7 @@ func (c *plexControl) setCommanded(target string, st State) {
 	c.commanded[target] = plexCommand{st, c.Now()}
 }
 
-func (p *plexSource) control(ctx context.Context, e Entry, req ControlRequest) (ControlResult, error) {
+func (p *PlexSource) control(ctx context.Context, e Entry, req ControlRequest) (ControlResult, error) {
 	target := p.Ctl.target(e.Player)
 	if target == "" {
 		return ControlResult{}, ErrNoController
@@ -136,7 +136,7 @@ func (p *plexSource) control(ctx context.Context, e Entry, req ControlRequest) (
 	return res, nil
 }
 
-func (p *plexSource) stepVolume(ctx context.Context, target string, delta int) (int, error) {
+func (p *PlexSource) stepVolume(ctx context.Context, target string, delta int) (int, error) {
 	p.Ctl.volMu.Lock()
 	defer p.Ctl.volMu.Unlock()
 	cur := p.Ctl.volume(target, PlexVolumeTTL)
@@ -155,7 +155,7 @@ func (p *plexSource) stepVolume(ctx context.Context, target string, delta int) (
 	return v, nil
 }
 
-func (p *plexSource) playerRequest(ctx context.Context, target, path string, q url.Values) (*http.Response, error) {
+func (p *PlexSource) playerRequest(ctx context.Context, target, path string, q url.Values) (*http.Response, error) {
 	if q == nil {
 		q = url.Values{}
 	}
@@ -172,7 +172,7 @@ func (p *plexSource) playerRequest(ctx context.Context, target, path string, q u
 	return p.client.Do(req)
 }
 
-func (p *plexSource) command(ctx context.Context, target, cmd string, q url.Values) error {
+func (p *PlexSource) command(ctx context.Context, target, cmd string, q url.Values) error {
 	resp, err := p.playerRequest(ctx, target, "/player/playback/"+cmd, q)
 	if err != nil {
 		return err
@@ -185,7 +185,7 @@ func (p *plexSource) command(ctx context.Context, target, cmd string, q url.Valu
 	return nil
 }
 
-func (p *plexSource) timelineVolume(ctx context.Context, target string) (int, error) {
+func (p *PlexSource) timelineVolume(ctx context.Context, target string) (int, error) {
 	resp, err := p.playerRequest(ctx, target, "/player/timeline/poll", url.Values{"wait": {"0"}})
 	if err != nil {
 		return 0, err

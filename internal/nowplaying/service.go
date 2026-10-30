@@ -19,21 +19,21 @@ type Service struct {
 	Reg          *Registry
 	Cache        *Cache
 	renderMu     sync.Mutex
-	Artists      *artistLookup
-	Jobs         chan artistJob
-	Plex         *plexSource
+	Artists      *ArtistLookup
+	Jobs         chan ArtistJob
+	Plex         *PlexSource
 	Commands     *CommandQueue
 	ControlKeys  ControlKeys
 	ControlLimit *CallerLimiter
 }
 
-type artistJob struct{ source, player, artist string }
+type ArtistJob struct{ source, player, artist string }
 
 func NewService() *Service {
 	return &Service{
 		Reg:          NewRegistry(),
 		Cache:        NewCache(nowPlayingCacheEntries, nowPlayingCacheBytes),
-		Jobs:         make(chan artistJob, 4),
+		Jobs:         make(chan ArtistJob, 4),
 		Commands:     newCommandQueue(),
 		ControlLimit: &CallerLimiter{Burst: ControlBurst, PerSec: ControlPerSec},
 	}
@@ -56,7 +56,7 @@ func (s *Service) wantArtist(source, player string) {
 		return
 	}
 	select {
-	case s.Jobs <- artistJob{source, player, e.Artist}:
+	case s.Jobs <- ArtistJob{source, player, e.Artist}:
 	default:
 	}
 }
@@ -86,7 +86,7 @@ func ArtETag(img *Image, kind Kind, size int) string {
 	return fmt.Sprintf(`"%s-%s-%d"`, img.Hash, kind, size)
 }
 
-func (s *Service) LookupArtist(ctx context.Context, j artistJob, logger *slog.Logger) {
+func (s *Service) LookupArtist(ctx context.Context, j ArtistJob, logger *slog.Logger) {
 	img, err := s.Artists.Find(ctx, j.artist)
 	if err != nil {
 		if ctx.Err() == nil {

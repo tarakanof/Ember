@@ -19,7 +19,7 @@ const (
 	artistLookupTimeout = 10 * time.Second
 )
 
-type artistLookup struct {
+type ArtistLookup struct {
 	base      string
 	client    *http.Client
 	now       func() time.Time
@@ -35,8 +35,8 @@ type artistHit struct {
 	at  time.Time
 }
 
-func NewArtistLookup(base string) *artistLookup {
-	return &artistLookup{
+func NewArtistLookup(base string) *ArtistLookup {
+	return &ArtistLookup{
 		base: strings.TrimRight(base, "/"),
 		client: &http.Client{
 			Timeout: artistLookupTimeout,
@@ -55,7 +55,7 @@ func deezerCDN(u *url.URL) bool {
 	return u.Scheme == "https" && (h == "dzcdn.net" || strings.HasSuffix(h, ".dzcdn.net"))
 }
 
-func (l *artistLookup) Find(ctx context.Context, artist string) (*Image, error) {
+func (l *ArtistLookup) Find(ctx context.Context, artist string) (*Image, error) {
 	name := strings.ToLower(strings.TrimSpace(artist))
 	if name == "" {
 		return nil, nil
@@ -97,7 +97,7 @@ func (l *artistLookup) Find(ctx context.Context, artist string) (*Image, error) 
 	return img, err
 }
 
-func (l *artistLookup) bytesLocked() int {
+func (l *ArtistLookup) bytesLocked() int {
 	n := 0
 	for _, h := range l.hits {
 		n += imgLen(h.img)
@@ -112,7 +112,7 @@ func imgLen(img *Image) int {
 	return len(img.Data)
 }
 
-func (l *artistLookup) search(ctx context.Context, name string) (*Image, error) {
+func (l *ArtistLookup) search(ctx context.Context, name string) (*Image, error) {
 	ctx, cancel := context.WithTimeout(ctx, artistLookupTimeout)
 	defer cancel()
 	u := l.base + "/search/artist?limit=5&q=" + url.QueryEscape(name)
