@@ -24,7 +24,8 @@ type attemptPublisher struct {
 	payloads []map[string]any
 }
 
-func (p *attemptPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
+func (p *attemptPublisher) CustomApp(ctx context.Context, name string, body []byte) error {
+	payload, _ := decodeDeviceBody(body)
 	p.mu.Lock()
 	budget := time.Duration(-1)
 	if dl, ok := ctx.Deadline(); ok {
@@ -40,7 +41,7 @@ func (p *attemptPublisher) CustomApp(ctx context.Context, name string, payload m
 	if fail {
 		return p.err
 	}
-	return p.recordingPublisher.CustomApp(ctx, name, payload)
+	return p.recordingPublisher.CustomApp(ctx, name, body)
 }
 
 func (p *attemptPublisher) budgetsSnapshot() []time.Duration {
@@ -491,5 +492,30 @@ func TestCoord_DedupePublishesAgainOnStateChange(t *testing.T) {
 
 	if got := len(publisher.CustomAppsSnapshot()); got != 2 {
 		t.Errorf("publishes after state-change upsert = %d, want 2 (payload differs, dedup must not skip)", got)
+	}
+}
+
+func TestPublishSendsTheLedgerBytes(t *testing.T) {
+	pub := &recordingPublisher{}
+	c, snap := publishFixture(t, pub, nil)
+
+	c.publish(snap)
+
+	pub.mu.Lock()
+	bodies := pub.customBodies
+	apps := pub.customApps
+	pub.mu.Unlock()
+	if len(bodies) != 1 {
+		t.Fatalf("CustomApp calls = %d, want 1", len(bodies))
+	}
+	want, err := json.Marshal(apps[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(bodies[0], want) {
+		t.Errorf("device body differs from json.Marshal of the payload:\n sent: %s\n want: %s", bodies[0], want)
+	}
+	if !bytes.Equal(bodies[0], c.mainPushed.body) {
+		t.Errorf("device body differs from the dedupe ledger:\n sent: %s\n kept: %s", bodies[0], c.mainPushed.body)
 	}
 }

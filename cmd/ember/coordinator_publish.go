@@ -8,9 +8,9 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-func (c *coordinator) pushApp(name string, payload map[string]any) error {
+func (c *coordinator) pushApp(name string, body []byte) error {
 	return c.retryDevice(c.runCtx(), func(ctx context.Context) error {
-		return c.publisher.CustomApp(ctx, name, payload)
+		return c.publisher.CustomApp(ctx, name, body)
 	})
 }
 
@@ -111,7 +111,7 @@ func (c *coordinator) publish(snap Snapshot) {
 		return
 	}
 
-	err := c.pushApp(cfg.AWTRIX.AppName, payload)
+	err := c.pushApp(cfg.AWTRIX.AppName, body)
 	if err != nil {
 		c.logger.Warn("coord publish failed", "err", err)
 		c.metrics.incPublishFail()

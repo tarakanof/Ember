@@ -36,9 +36,9 @@ type blockingPublisher struct {
 	release chan struct{}
 }
 
-func (p *blockingPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
+func (p *blockingPublisher) CustomApp(ctx context.Context, name string, body []byte) error {
 	<-p.release
-	return p.recordingPublisher.CustomApp(ctx, name, payload)
+	return p.recordingPublisher.CustomApp(ctx, name, body)
 }
 
 func TestCoord_Send_DoesNotBackPressureProducers(t *testing.T) {

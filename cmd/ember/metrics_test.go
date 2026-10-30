@@ -403,7 +403,7 @@ type fakePublisher struct {
 	notifyErr    error
 }
 
-func (p *fakePublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
+func (p *fakePublisher) CustomApp(ctx context.Context, name string, body []byte) error {
 	return p.customAppErr
 }
 func (p *fakePublisher) ClearApp(ctx context.Context, name string) error { return nil }

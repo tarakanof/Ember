@@ -32,10 +32,10 @@ func payloadBitmap(t *testing.T, p map[string]any) (x, w int, px []string) {
 		if !ok || len(o) != 6 || o[0] != "bitmap" {
 			continue
 		}
-		data := o[5].([]int)
+		data := o[5].([]any)
 		px = make([]string, len(data))
 		for i, v := range data {
-			px[i] = fmt.Sprintf("#%06x", v)
+			px[i] = fmt.Sprintf("#%06x", v.(int))
 		}
 		return o[1].(int), o[3].(int), px
 	}

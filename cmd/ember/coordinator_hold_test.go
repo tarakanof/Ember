@@ -37,11 +37,11 @@ type failingCustomAppPublisher struct {
 	fail bool
 }
 
-func (p *failingCustomAppPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
+func (p *failingCustomAppPublisher) CustomApp(ctx context.Context, name string, body []byte) error {
 	if p.fail {
 		return errUnreachableDevice
 	}
-	return p.recordingPublisher.CustomApp(ctx, name, payload)
+	return p.recordingPublisher.CustomApp(ctx, name, body)
 }
 
 var errUnreachableDevice = errors.New("device unreachable")

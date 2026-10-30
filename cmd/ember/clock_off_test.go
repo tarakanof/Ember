@@ -65,7 +65,7 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 		t.Fatalf("ClearIndicators: %v", err)
 	}
 	for _, err := range []error{
-		app.publisher.CustomApp(ctx, "x", map[string]any{"text": "hi"}),
+		app.publisher.CustomApp(ctx, "x", []byte(`{"text":"hi"}`)),
 		app.publisher.Notify(ctx, map[string]any{"text": "hi"}),
 		app.publisher.Settings(ctx, map[string]any{"TIME_COL": 1}),
 		app.publisher.Switch(ctx, "x", awtrix.SwitchMode(0)),

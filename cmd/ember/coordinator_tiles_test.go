@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"slices"
 	"testing"
@@ -13,14 +14,16 @@ import (
 type fakeTileWriter struct {
 	failPush, failClear int
 	pushedApps, cleared []string
+	bodies              [][]byte
 }
 
-func (w *fakeTileWriter) push(app string, _ map[string]any) error {
+func (w *fakeTileWriter) push(app string, body []byte) error {
 	if w.failPush > 0 {
 		w.failPush--
 		return errors.New("lost")
 	}
 	w.pushedApps = append(w.pushedApps, app)
+	w.bodies = append(w.bodies, body)
 	return nil
 }
 
@@ -148,5 +151,17 @@ func TestPreviewTilesHonoursToggleNotLiveGate(t *testing.T) {
 	}
 	if p := previewTiles(in, "meeting"); len(p.Frames) != 1 {
 		t.Errorf("meeting preview frames = %d, want 1 (outside the lead window still previews)", len(p.Frames))
+	}
+}
+
+func TestTileSetPushesTheLedgerBytes(t *testing.T) {
+	var s tileSet
+	w := &fakeTileWriter{}
+	s.reconcile(airOnly(time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC), 40), w)
+	if len(w.bodies) != 1 {
+		t.Fatalf("pushes = %d, want 1", len(w.bodies))
+	}
+	if got := s.pushed[w.pushedApps[0]].body; !bytes.Equal(w.bodies[0], got) {
+		t.Errorf("tile body differs from the dedupe ledger:\n sent: %s\n kept: %s", w.bodies[0], got)
 	}
 }
