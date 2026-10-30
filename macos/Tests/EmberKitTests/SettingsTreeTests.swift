@@ -92,8 +92,15 @@ func unknownStoredValueFallsBackToConnection(name: String) {
     #expect(!AppCatalog.apps(.clock).contains(.day))
 }
 
+@Test func knobControlsAppAppearsOnlyWithTheCap() {
+    #expect(!AppCatalog.apps(.knob).contains(.controls))
+    #expect(!AppCatalog.apps(.knob, supportedPages: ["bot", "weather", "nowplaying"]).contains(.controls))
+    #expect(AppCatalog.apps(.knob, supportedPages: ["bot", "controls"]) == [.bot, .controls])
+    #expect(AppCatalog.knobPage(.controls) == "controls" && AppCatalog.source(of: .controls) == nil)
+}
+
 @Test func everyAppHasASource() {
-    for app in AppID.allCases { #expect(AppCatalog.source(of: app) != nil) }
+    for app in AppID.allCases where app != .controls { #expect(AppCatalog.source(of: app) != nil) }
 }
 
 @Test func theKnobsDayAppIsShownOnTheDayClockSource() {

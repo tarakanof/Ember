@@ -25,6 +25,10 @@
         "on": false
       },
       {
+        "id": "controls",
+        "on": false
+      },
+      {
         "id": "pomodoro",
         "on": false
       }

@@ -300,7 +300,7 @@ func TestDeviceConfigPutMergesAndBumpsVersion(t *testing.T) {
 	}
 	var got knobSettings
 	_ = json.Unmarshal(b, &got)
-	if got.PollMS != 3000 || got.Brightness.Level != 100 || got.Home != "bot" || len(got.Pages) != 5 {
+	if got.PollMS != 3000 || got.Brightness.Level != 100 || got.Home != "bot" || len(got.Pages) != 6 {
 		t.Fatalf("merged = %+v", got)
 	}
 	if app.devices.epochValue() == epoch0 {
@@ -496,7 +496,7 @@ func TestDeviceConfigPutMergesNestedObjects(t *testing.T) {
 		t.Fatalf("pages put = %d: %s", resp.StatusCode, b)
 	}
 	_ = json.Unmarshal(b, &got)
-	wantPages := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "day"}, {ID: "nowplaying"}, {ID: "pomodoro"}}
+	wantPages := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "day"}, {ID: "nowplaying"}, {ID: "controls"}, {ID: "pomodoro"}}
 	if !reflect.DeepEqual(got.Pages, wantPages) {
 		t.Fatalf("pages replaced = %+v, want %+v", got.Pages, wantPages)
 	}

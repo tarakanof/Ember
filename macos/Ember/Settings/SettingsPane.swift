@@ -83,6 +83,7 @@ extension AppID {
         case .weather:  "Weather"
         case .calendar: "Calendar"
         case .nowplaying: "Now Playing"
+        case .controls: "Controls"
         }
     }
 
@@ -95,6 +96,7 @@ extension AppID {
         case .weather:  "cloud.sun"
         case .calendar: "calendar"
         case .nowplaying: "music.note"
+        case .controls: "dial.medium"
         }
     }
 }

@@ -26,6 +26,7 @@ var (
 	errNoControlTarget    = errors.New("no Mac is set to run knob controls")
 	errControlTargetDeaf  = errors.New("the Mac set to run knob controls is not listening")
 	errControlsMasterOnly = errors.New("knob controls target and queue need EMBER_TOKEN")
+	errControlsPageOff    = errors.New("controls page is off on this knob")
 )
 
 type controlCommand struct {
@@ -247,6 +248,11 @@ func (a *App) handleControlsAction(w http.ResponseWriter, r *http.Request) {
 	caller := "owner"
 	if id := deviceIDFrom(r.Context()); id != "" {
 		caller = "device:" + id
+		if !a.knobControlsPageOn(id) {
+			a.logger.Info("knob control rejected", "gesture", req.Gesture, "caller", caller, "err", errControlsPageOff)
+			writeError(w, http.StatusForbidden, errControlsPageOff)
+			return
+		}
 	}
 	key := r.Header.Get("Idempotency-Key")
 	if len(key) > maxControlKey {
@@ -280,6 +286,11 @@ func (a *App) handleControlsAction(w http.ResponseWriter, r *http.Request) {
 	}
 	a.logger.Debug("knob control queued", "gesture", cmd.Gesture, "id", cmd.ID, "target", target, "caller", caller)
 	writeJSON(w, http.StatusAccepted, controlsActionAnswer{Status: "queued", Target: target})
+}
+
+func (a *App) knobControlsPageOn(id string) bool {
+	st, err := a.devices.viewState(id)
+	return err == nil && st.caps != nil && st.caps.hasPage(knobControlsPage) && st.cfg.pageOn(knobControlsPage)
 }
 
 type controlCommandsAnswer struct {

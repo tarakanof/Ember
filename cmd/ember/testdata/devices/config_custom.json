@@ -31,6 +31,10 @@
       {
         "id": "day",
         "on": false
+      },
+      {
+        "id": "controls",
+        "on": false
       }
     ],
     "home": "pomodoro",

@@ -20,7 +20,7 @@ public enum HardwarePage: String, CaseIterable, Sendable {
 }
 
 public enum AppID: String, CaseIterable, Sendable {
-    case agents, bot, day, focus, weather, calendar, nowplaying
+    case agents, bot, day, focus, weather, calendar, nowplaying, controls
 }
 
 public enum DevicePage: Hashable, Sendable {
