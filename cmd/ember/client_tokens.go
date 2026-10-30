@@ -57,7 +57,8 @@ func requiredScope(pattern string) string {
 		return scopeIngest
 	case "GET /v1/apps", "GET /v1/pomodoro/config", "GET /v1/usage/config", "GET /v1/display/config",
 		"GET /v1/brightness/config", "GET /v1/quiet/config", "GET /v1/clock/stats",
-		"GET /v1/day/config", "GET /v1/day/history", "GET /v1/day/weeks", "GET /v1/reminders/config":
+		"GET /v1/day/config", "GET /v1/day/history", "GET /v1/day/weeks", "GET /v1/reminders/config",
+		"GET /v1/devices/{id}/room":
 		return scopeRead
 	default:
 		return scopeAdmin

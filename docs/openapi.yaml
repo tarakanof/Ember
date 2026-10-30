@@ -567,6 +567,67 @@ components:
               type: integer
             week_days:
               type: integer
+    DeviceRoom:
+      type: object
+      description: >-
+        Room sensor readings (DEVICE-PROTOCOL "Room readings"). Every key is optional: a knob
+        sends one when its chip is found and the reading is under 60 s old. A bad value drops
+        that key, never the checkin; a `room` that isn't an object counts as no block.
+      properties:
+        t_c:
+          type: number
+          minimum: -40
+          maximum: 85
+        rh:
+          type: number
+          minimum: 0
+          maximum: 100
+        eco2:
+          type: integer
+          minimum: 400
+          maximum: 65000
+          description: ENS160 equivalent CO2, ppm.
+        tvoc:
+          type: integer
+          minimum: 0
+          maximum: 65000
+          description: ENS160 total VOC, ppb.
+        aqi:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: The ENS160's own index.
+        air:
+          type: string
+          enum: [normal, warm_up, start_up, invalid]
+          description: ENS160 validity.
+        lux:
+          type: number
+          minimum: 0
+          maximum: 125000
+        present:
+          type: boolean
+        age_s:
+          type: object
+          description: Age of each reading in seconds, by source.
+          properties:
+            climate:
+              type: integer
+              minimum: 0
+            air:
+              type: integer
+              minimum: 0
+            light:
+              type: integer
+              minimum: 0
+            presence:
+              type: integer
+              minimum: 0
+        received_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Set by the server when it stores the block; a knob doesn't send it.
     DeviceView:
       type: object
       description: "A device record (a knob or the clock), or a client token (`kind: client`), without token material."
@@ -598,6 +659,10 @@ components:
           type: [object, "null"]
           description: The knob's last checkin as reported (see the checkin request), plus `seen_at` and `applied_version`.
           properties:
+            room:
+              allOf:
+                - $ref: "#/components/schemas/DeviceRoom"
+              description: The latest room block, kept across checkins without one.
             diag:
               type: object
               description: The checkin's `diag` object plus fields the server adds from the previous checkin.
@@ -2789,6 +2854,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /v1/devices/{id}/room:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+    get:
+      tags: [devices]
+      operationId: getDeviceRoom
+      summary: A knob's latest room readings and their age
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          description: The block as stored, and whole seconds since it arrived.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room, received_age_s]
+                properties:
+                  room:
+                    $ref: "#/components/schemas/DeviceRoom"
+                  received_age_s:
+                    type: integer
+                    minimum: 0
+                    description: Add a reading's `age_s` for its real age.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/devices/{id}/stats:
     parameters:
       - $ref: "#/components/parameters/DeviceID"
@@ -3684,6 +3778,8 @@ paths:
                   type: integer
                 link_fallback:
                   type: boolean
+                room:
+                  $ref: "#/components/schemas/DeviceRoom"
                 wifi:
                   type: object
                   description: Wi-Fi link telemetry (cinder 0.9.8); dropped when invalid.

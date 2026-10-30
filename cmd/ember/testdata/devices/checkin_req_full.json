@@ -42,6 +42,22 @@
     "rollback": true,
     "slot": 0
   },
+  "room": {
+    "age_s": {
+      "air": 1,
+      "climate": 4,
+      "light": 0,
+      "presence": 0
+    },
+    "air": "normal",
+    "aqi": 2,
+    "eco2": 612,
+    "lux": 312,
+    "present": true,
+    "rh": 41.2,
+    "t_c": 23.4,
+    "tvoc": 85
+  },
   "rssi": -58,
   "stats": {
     "cpu_pct": [

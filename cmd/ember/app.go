@@ -81,6 +81,7 @@ type App struct {
 	wifiDrops     checkinDropLog
 	diagDrops     checkinDropLog
 	idleDrops     checkinDropLog
+	roomDrops     checkinDropLog
 	coredumps     *coredumpStore
 	knobFW        *firmwareStore
 	ota           otaLive

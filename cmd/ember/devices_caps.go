@@ -38,6 +38,7 @@ const (
 	featureDemo           = "demo"
 	featureUsage          = "usage"
 	featureShown          = "shown"
+	featureRoom           = "room"
 )
 
 var capsFeaturePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)

@@ -5217,7 +5217,11 @@ draws-if-present in `internal/render`, add a menu checkbox.
   Last restart, Boots, Lowest free memory and, with `idle` while the knob is
   online, Screen (hidden when `state` is empty), Last activity (relative to
   the checkin's `seen_at` minus `input_age_s`, so it keeps ticking between
-  checkins) and Last wake (only when `wake` is set) rows)
+  checkins) and Last wake (only when `wake` is set) rows;
+  since Ember#757 a `room` object of sensor readings, every key optional,
+  stored as `last_checkin.room` with its `received_at`. Unlike `wifi`, a
+  checkin without one keeps the stored block, and a bad value drops only
+  that value (DEVICE-PROTOCOL "Room readings"))
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus

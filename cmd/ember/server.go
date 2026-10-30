@@ -152,6 +152,7 @@ func (a *App) routeTable() (http.Handler, []string) {
 	writeMux.Handle("GET /v1/devices/{id}/config", http.HandlerFunc(a.handleDeviceConfigGetOwner))
 	writeMux.Handle("PUT /v1/devices/{id}/config", http.HandlerFunc(a.handleDeviceConfigPutOwner))
 	writeMux.Handle("POST /v1/devices/{id}/rotate", http.HandlerFunc(a.handleDeviceRotate))
+	writeMux.Handle("GET /v1/devices/{id}/room", http.HandlerFunc(a.handleDeviceRoom))
 	writeMux.Handle("GET /v1/devices/{id}/stats", http.HandlerFunc(a.handleKnobStats))
 	writeMux.Handle("POST /v1/devices/{id}/stats/live", http.HandlerFunc(a.handleKnobStatsLive))
 	writeMux.Handle("GET /v1/devices/{id}/coredumps", http.HandlerFunc(a.handleCoredumpList))
