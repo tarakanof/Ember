@@ -41,6 +41,7 @@ private func knob(features: [String]) -> KnobDevice {
         #expect(s.apps?.pomodoro == .init(focusColor: "#FFFFFF", breakColor: "#FFFFFF"))
         #expect(s.apps?.weather?.faces == ["temp", "rain", "cast", "wind", "days", "sun", "air"])
         #expect(s.apps?.nowplaying?.dimAfterS == 1800)
+        #expect(s.room == .init(enabled: false, presenceOffS: 86399, presenceWake: false, moments: false))
         #expect(s.patch(from: s).isEmpty)
     }
 }
@@ -48,10 +49,10 @@ private func knob(features: [String]) -> KnobDevice {
 @Test func knobConfigWithoutV2KeysRoundTripsWithoutThem() throws {
     for name in ["config_default", "config_custom"] {
         let s = try JSONDecoder().decode(ConfigEnvelope.self, from: try golden(name)).config
-        #expect(s.idle == nil && s.apps == nil)
+        #expect(s.idle == nil && s.apps == nil && s.room == nil)
         let again = try JSONEncoder().encode(s)
         let text = String(decoding: again, as: UTF8.self)
-        #expect(!text.contains("idle") && !text.contains("apps"))
+        #expect(!text.contains("idle") && !text.contains("apps") && !text.contains("presence"))
         #expect(try JSONDecoder().decode(KnobSettings.self, from: again) == s)
     }
 }
@@ -73,6 +74,86 @@ private func knob(features: [String]) -> KnobDevice {
     legacy.lastCheckin = KnobCheckin(seenAt: Date(timeIntervalSince1970: 0), fw: "0.9.99", ip: "192.0.2.10", rssi: -58,
                                      heapInternalFree: 0, heapInternalLargest: 0, uptimeS: 0, appliedVersion: 1)
     #expect(![KnobCaps.idleDim, KnobCaps.pomoColors, KnobCaps.wxFaceList, KnobCaps.npDim].contains { legacy.supports(feature: $0) })
+}
+
+private func pagedKnob(pages: [String], features: [String]) -> KnobDevice {
+    KnobDevice(id: "knob-61fc8c", hwID: "a0b1c261fc8c", name: "Knob", createdAt: Date(timeIntervalSince1970: 0),
+               effectiveCaps: KnobCaps(pages: pages, features: features))
+}
+
+private let sevenPages = ["bot", "day", "weather", "room", "nowplaying", "controls", "pomodoro"]
+
+private func paged(_ ids: [String] = sevenPages) throws -> KnobSettings {
+    var s = try settings()
+    s.pages = ids.map { KnobSettings.Page(id: $0, on: $0 == "bot") }
+    return s
+}
+
+@Test func knobRoomNeedsTheRoomFeatureNotJustThePageId() throws {
+    let s = try paged()
+    let withoutSensors = pagedKnob(pages: sevenPages, features: [])
+    #expect(s.pagesShown(on: withoutSensors).map(\.id) == ["bot", "day", "weather", "nowplaying", "controls", "pomodoro"])
+    #expect(!withoutSensors.showsRoom)
+    let withSensors = pagedKnob(pages: sevenPages, features: [KnobCaps.room])
+    #expect(s.pagesShown(on: withSensors).map(\.id) == sevenPages)
+    #expect(withSensors.showsRoom)
+}
+
+@Test func knobWithoutCapsOrWithoutAKnobShowsNoRoom() throws {
+    let s = try paged()
+    var legacy = KnobDevice(id: "knob-1", hwID: "a0b1c2000001", name: "Old", createdAt: Date(timeIntervalSince1970: 0))
+    legacy.lastCheckin = KnobCheckin(seenAt: Date(timeIntervalSince1970: 0), fw: "9.9.9", ip: "192.0.2.10", rssi: -58,
+                                     heapInternalFree: 0, heapInternalLargest: 0, uptimeS: 0, appliedVersion: 1)
+    #expect(!legacy.showsRoom)
+    #expect(!s.pagesShown(on: legacy).contains { $0.id == "room" })
+    #expect(!s.pagesShown(on: nil).contains { $0.id == "room" || $0.id == "controls" })
+}
+
+@Test func knobPositionCountsOnlyTheShownPages() throws {
+    let s = try paged()
+    let shown = s.pagesShown(on: pagedKnob(pages: sevenPages, features: []))
+    #expect(shown.count == 6)
+    #expect(shown.firstIndex { $0.id == "nowplaying" } == 3)
+}
+
+@Test func knobMoveStepsOverAHiddenPage() throws {
+    var s = try paged()
+    let bare = pagedKnob(pages: sevenPages, features: [])
+    s.movePage("weather", by: 1, on: bare)
+    #expect(s.pages.map(\.id) == ["bot", "day", "room", "nowplaying", "weather", "controls", "pomodoro"])
+    s.movePage("nowplaying", by: -1, on: bare)
+    #expect(s.pagesShown(on: bare).map(\.id) == ["bot", "nowplaying", "day", "weather", "controls", "pomodoro"])
+    s.movePage("bot", by: -1, on: bare)
+    s.movePage("pomodoro", by: 1, on: bare)
+    #expect(s.pagesShown(on: bare).first?.id == "bot" && s.pagesShown(on: bare).last?.id == "pomodoro")
+}
+
+@Test func knobRoomKeysRoundTripAndPatchField() throws {
+    let s = try settings(#","room":{"enabled":true,"presence_off_s":0,"presence_wake":false,"moments":true}"#)
+    #expect(s.room == .init(enabled: true, presenceOffS: 0, presenceWake: false, moments: true))
+    #expect(try JSONDecoder().decode(KnobSettings.self, from: JSONEncoder().encode(s)) == s)
+    var next = s
+    next.editRoom { $0.presenceOffS = 600 }
+    #expect(next.patch(from: s) == ["room": .object(["presence_off_s": .int(600)])])
+    let bare = try settings()
+    var first = bare
+    first.editRoom { $0.enabled = true }
+    #expect(first.patch(from: bare) == ["room": .object(["enabled": .bool(true)])])
+}
+
+@Test func knobRoomNormalizesRangeAndDropsAnEmptyBlock() throws {
+    var s = try settings(#","room":{"presence_off_s":90000}"#).normalized()
+    #expect(s.room?.presenceOffS == 86399)
+    s.editRoom { $0.presenceOffS = nil }
+    let old = try settings(#","room":{"moments":false}"#)
+    #expect(s.normalized().room == nil)
+    #expect(s.normalized().patch(from: old) == ["room": .null])
+}
+
+@Test func knobRoomOffChoicesKeepAValueFromTheAPI() {
+    #expect(KnobSettings.roomPresenceOffChoices(current: 300) == [0, 60, 300, 600, 1800, 3600])
+    #expect(KnobSettings.roomPresenceOffChoices(current: 90) == [0, 60, 90, 300, 600, 1800, 3600])
+    #expect(KnobSettings.roomPresenceOffChoices(current: 0) == [0, 60, 300, 600, 1800, 3600])
 }
 
 @Test func knobPatchCarriesOnlyTheChangedIdleField() throws {

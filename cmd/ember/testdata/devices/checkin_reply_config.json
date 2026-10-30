@@ -21,6 +21,10 @@
         "on": true
       },
       {
+        "id": "room",
+        "on": false
+      },
+      {
         "id": "nowplaying",
         "on": false
       },

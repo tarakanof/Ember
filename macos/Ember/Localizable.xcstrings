@@ -2120,6 +2120,10 @@
         }
       }
     },
+    "Room" : {},
+    "Room moments" : {},
+    "Room moments are the bot's short notes about the air in the room." : {},
+    "Room sensors" : {},
     "Rotate Token" : {},
     "Rotate Token…" : {},
     "Rotate the knob's token?" : {},
@@ -2721,6 +2725,7 @@
     "Turn it on in Settings › Day Clock." : {},
     "Turn it on in Settings › Sources › Focus." : {},
     "Turn off after" : {},
+    "Turn off when nobody is near after" : {},
     "Turn or press" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2872,6 +2877,7 @@
     "Waiting: an agent on %@ needs you." : {
       "comment" : "Knob bot preview: the host whose agent is waiting (\"DT-MBP\")."
     },
+    "Wake when someone comes near" : {},
     "Watchdog" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

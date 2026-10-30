@@ -166,7 +166,7 @@ Since #341 the knob may say what it can do in every checkin (cinder#27):
   cinder#255; 1024 before). Floors:
   `view_bytes` ≥ 4096 (a full view without `nowplaying` is under 700 B;
   the rest is headroom for long host labels and future fields) and
-  `config_bytes` ≥ the default config's compact size (512 B today; it
+  `config_bytes` ≥ the default config's compact size (590 B today; it
   follows `defaultKnobSettings`), so the knob can always hold a view and
   the config a new record starts with.
 - `rotations` (optional): the display rotations in degrees the firmware can
@@ -260,7 +260,7 @@ pre-releases the same way):
 | `usage` | Parses the view's `usage` block and shows the usage screens ("Usage") | `usage` is sent only with this token |
 | `shown` | Adds `?shown=<page>[:<face>]` to its view polls ("Shown page") | `shown` is read only with this token; the owner's device entry carries `shown` while fresh |
 | `lan_pair` | Re-pairs over the LAN with a code when it has a URL but no valid token (`POST /v1/devices/claim`, #658) | Ember.app's Forget dialog says the knob will show a pairing code only with this token; the server doesn't read it. Not to be confused with the server's own `lan_pair` in `GET /version` `features`, which says the claim routes exist |
-| `room` | Sends the checkin's `room` block ("Room readings") | none yet: the server stores a block from any knob, token or not |
+| `room` | Sends the checkin's `room` block ("Room readings") and applies the `room` config block and page ("Room settings") | The server stores a block from any knob, token or not, and sends the config to every knob; Ember.app shows the Room section and the `room` page row only with this token |
 
 Page ids in `caps.pages` need no registry: they are the config's page ids;
 Ember.app lists a knob app only when its page is in `effective_caps.pages`.
@@ -286,6 +286,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `usage` or not | `usage` only with the token, after `nowplaying`, left out with no account to show; a caps knob without it and a legacy knob get the view byte-identical; dropped after `nowplaying` to fit `view_bytes`; the worst case (8 accounts, 24-character escaped names, both models) is 3.4 KB, the worst whole view with it 9.1 KB | `TestKnobViewUsageGolden` (`view_usage.json`), `TestKnobViewWithoutTheUsageCapGolden` (`view_usage_uncapped.json`), `TestKnobViewSendsUsageOnlyWithTheUsageFeature`, `TestKnobViewLeavesOutUsageWithNoAccounts`, `TestKnobViewUsageModelsFollowUsagePerModel`, `TestKnobViewUsageETagIgnoresAFreshAccountsUpdateTime`, `TestKnobViewUsageWorstCaseStaysSmall`, `TestLegacyFirmwareViewIsUnchanged` (`devices_view_usage_test.go`) |
 | new | new, `shown` or not | `shown` read only with the token and exposed on `GET /v1/devices` while the current caps list it and a poll carried it in the last 50 s; a malformed value is ignored with a 200 and logged once until a good one; the view's bytes and ETag never depend on it | `TestKnobShownPollReachesTheDeviceList`, `TestKnobShownGoesStaleFiftySecondsAfterTheLastPoll`, `TestKnobShownIsIgnoredWithoutTheShownCap`, `TestKnobShownMalformedValuesAreIgnoredAndLoggedOnce`, `TestKnobShownIsRecordedBeforeTheLongPollWaits`, `TestKnobShownRenameReplyCarriesIt`, `TestKnobShownLongestValidValuesAreKept`, `TestKnobShownIsForgottenWhenTheDeviceIsDeleted`, `TestKnobShownPollRacingADeleteLeavesNothingForTheReMintedKnob`, `TestKnobShownDisappearsWhenCapsWithdrawTheToken`, `TestKnobShownAtIsWholeSecondsUTC`, `TestKnobViewPollWithShownGolden` (`view_req_shown.json`, `devices_shown_test.go`); cinder side next: a host test that builds the fixture's query (tarakanof/cinder#246) |
 | new | any, `room` sent or not (cinder#304) | a checkin without `room` behaves as before and keeps the last block; a block with any subset of keys is stored and answered; a bad value drops only that value and the checkin still answers 200; a stale checkin's block is ignored; an old server ignores the key | `TestDeviceCheckinWithoutARoomStoresNone`, `TestDeviceCheckinAcceptsAnySubsetOfTheRoomBlock`, `TestDeviceCheckinWithoutARoomKeepsTheLastBlock`, `TestANewRoomBlockReplacesTheLastOneWhole`, `TestStaleCheckinDoesNotTouchTheRoomBlock`, `TestDeviceCheckinDropsOnlyTheBadRoomValues`, `TestANonObjectRoomKeepsTheCheckinAndTheLastBlock`, `TestDeviceCheckinGolden` (`checkin_req_full.json`, `devices_room_test.go`); cinder host test: `.room` in `NOT_YET_SENT` until the firmware sends it |
+| new | new, `room` or not (cinder#306) | the `room` page is off until the owner turns it on and a caps knob only with `room` in `caps.pages`; the app shows the Room section and the page row only with the token, since the page id is in every firmware's table; a config with the block over a 1024 knob's `config_bytes` is a 400; an absent block leaves a stored record's bytes and `config_version` alone | `TestKnobRoomConfigRoundTripsThroughTheOwnerAndTheKnob`, `TestKnobRoomPresenceOffOutOfRangeIs400`, `TestKnobRoomBlockMergesFieldByField`, `TestKnobRoomPageReachesAStoredConfigOffWithoutABump`, `TestCapsKnobCannotTurnOnTheRoomPageOutsideItsCaps`, `TestCapsKnobV2OverConfigBytes400`, `TestKnobV2LargestConfigFitsDepthAndSize`, `TestDeviceConfigV2Golden`; Ember.app `knobRoomNeedsTheRoomFeatureNotJustThePageId`, `knobWithoutCapsOrWithoutAKnobShowsNoRoom`; cinder host test: `room` in `PAGES_AHEAD` until its table has the row |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Demo mode
@@ -627,6 +628,47 @@ names the clock:
 Add `age_s` to `received_age_s` for a reading's real age. Nothing in the view
 carries the block, and the knob's room page reads its own sensors.
 
+## Room settings
+
+What the knob does with its sensors (#758, cinder#306, cinder#307, cinder#308).
+Readings go the other way ("Room readings").
+
+**Page.** `room` is a known page, off by default, right after `weather` in a
+new knob's list: `bot`, `day`, `weather`, `room`, `nowplaying`, `controls`,
+`pomodoro`. cinder's page table must equal this list (`test_pages.c`). A stored
+config gains it as an off page at the end, without a `config_version` bump, like
+`day` and `controls`; the owner reorders it. The page takes no view block: the
+knob reads its own sensors, so it works with Ember down, and stays out of the
+turn list until a chip is found. Every firmware's table has the row, so
+`caps.pages` doesn't say a knob has sensors; the `room` feature token does.
+
+**Config.** An optional block ("Idle and per-app options": no schema number,
+absent means the firmware's default, never filled by the server):
+
+```json
+"room": {"enabled": true, "presence_off_s": 300, "presence_wake": true, "moments": true}
+```
+
+| Key | Valid | Absent = | Meaning |
+|---|---|---|---|
+| `room.enabled` | bool | `false` | Start the sensor task |
+| `room.presence_off_s` | 0-86399 | 300 | Panel off after nobody is near for N s; 0 turns this off |
+| `room.presence_wake` | bool | `true` | Wake when someone comes near |
+| `room.moments` | bool | `true` | Bot room moments |
+
+An owner PUT merges field by field, `null` clears a key or the block, and an
+unknown key, a fraction or a value out of range is a 400. The server sends the
+block to every knob and doesn't key on the token; Ember.app writes it only with
+the token. Old firmware skips the unknown key.
+
+**Size.** With every key at its longest the block adds 86 B, so the largest
+valid config is 1055 B. That is over the 1024 B older firmware stores, and it
+counts only against 2048 B, since only firmware with the `room` token gets it
+(the same goes for #759's `brightness.source`). The largest config without those
+keys stays 969 B, under 1024 B. A knob reporting a 1024 `config_bytes` gets a
+400 for a PUT that grows past it, as for any config. The page adds 25 B to the
+default config (590 B).
+
 ## Quiet hours
 
 Quiet hours are server state (`quiet_hours`, `GET/PUT /v1/quiet/config`),
@@ -739,11 +781,11 @@ push on upgrade.
 - **Depth:** cinder drops a whole config nested deeper than 4 levels
   (`config` is level 0), so `apps.<page>.<key>` is a scalar or an array of
   scalars, never an object or an array of objects.
-- **Size:** the largest valid config with every v2 key at its longest is
-  969 B compact (731 B before), under the 1024 B a knob on today's firmware
-  reports; cinder raises `CFG_SETTINGS_MAX` to 2048 (cinder#255). A knob
+- **Size:** the largest valid config with these keys at their longest is
+  969 B compact (731 B before), under the 1024 B older firmware reports;
+  cinder raised `CFG_SETTINGS_MAX` to 2048 (cinder#255). A knob
   still reporting 1024 gets a 400 for a PUT that grows past it, as for any
-  config.
+  config. `room` counts only against 2048 B ("Room settings").
 - **Old firmware** skips the unknown keys; old servers never send them. A
   server downgrade loses the keys at its next registry write.
 
@@ -1157,9 +1199,9 @@ Indented JSON; key order is the wire order.
 | `view_day_summary.json` | Right after `stop`: `"quiet": true`, `day` off with its `summary` |
 | `view_day_break.json` | On a second break: one finished break in `breaks`, the running one in `break_min` |
 | `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |
-| `config_default.json` | `GET …/self/config` for a new knob (pages `bot`, `day`, `weather`, then `nowplaying` and `pomodoro` off), `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
+| `config_default.json` | `GET …/self/config` for a new knob (pages `bot`, `day`, `weather`, then `room`, `nowplaying`, `controls` and `pomodoro` off), `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
-| `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800 (969 B compact) |
+| `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800, `room` with `presence_off_s` 86399 (1055 B compact; 969 B without `room`) |
 | `checkin_reply_config_v2.json` | A stale knob's checkin reply carrying that config |
 | `claim_req.json` | A claim request: a fake `hw_id` (locally administered), `fw`, a fake 43-character `claim_key` |
 | `claim_reply.json` | The 201 reply, id `c_0123abcd` and code `482913` from a scripted random source |

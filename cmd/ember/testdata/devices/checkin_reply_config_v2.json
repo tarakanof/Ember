@@ -87,6 +87,12 @@
       "nowplaying": {
         "dim_after_s": 1800
       }
+    },
+    "room": {
+      "enabled": false,
+      "presence_off_s": 86399,
+      "presence_wake": false,
+      "moments": false
     }
   }
 }

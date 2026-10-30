@@ -52,6 +52,11 @@ func TestKnobV2KeysValidate(t *testing.T) {
 		{"np dim 60", func(s *knobSettings) { s.Apps = &knobApps{NowPlaying: &knobNPApp{DimAfterS: new(60)}} }, true},
 		{"np dim 1800", func(s *knobSettings) { s.Apps = &knobApps{NowPlaying: &knobNPApp{DimAfterS: new(1800)}} }, true},
 		{"np dim 1801", func(s *knobSettings) { s.Apps = &knobApps{NowPlaying: &knobNPApp{DimAfterS: new(1801)}} }, false},
+		{"room empty", func(s *knobSettings) { s.Room = &knobRoom{} }, true},
+		{"presence off never", func(s *knobSettings) { s.Room = &knobRoom{PresenceOffS: new(0)} }, true},
+		{"presence off 86399", func(s *knobSettings) { s.Room = &knobRoom{PresenceOffS: new(86399)} }, true},
+		{"presence off 86400", func(s *knobSettings) { s.Room = &knobRoom{PresenceOffS: new(86400)} }, false},
+		{"presence off negative", func(s *knobSettings) { s.Room = &knobRoom{PresenceOffS: new(-1)} }, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -75,6 +80,9 @@ func TestKnobV2RejectsUnknownKeysAndPages(t *testing.T) {
 		`{"apps":{"pomodoro":{"ring_color":"#FFFFFF"}}}`,
 		`{"apps":{"weather":{"units":"c"}}}`,
 		`{"apps":{"nowplaying":{"brightness":5}}}`,
+		`{"room":{"presence_on_s":5}}`,
+		`{"room":{"presence_off_s":1.5}}`,
+		`{"room":{"enabled":"yes"}}`,
 	} {
 		if _, err := mergeKnobSettings(defaultKnobSettings(), []byte(patch)); err == nil {
 			t.Errorf("%s accepted", patch)
@@ -124,7 +132,7 @@ func TestKnobV2MergeFieldByField(t *testing.T) {
 }
 
 const preV2StoredConfig = `{"brightness":{"follow_ember":false,"level":200,"floor":20,"startup":120},` +
-	`"pages":[{"id":"pomodoro","on":true},{"id":"bot","on":true},{"id":"nowplaying","on":true},{"id":"weather","on":false},{"id":"future-page","on":false},{"id":"day","on":false},{"id":"controls","on":false}],` +
+	`"pages":[{"id":"pomodoro","on":true},{"id":"bot","on":true},{"id":"nowplaying","on":true},{"id":"weather","on":false},{"id":"future-page","on":false},{"id":"day","on":false},{"id":"room","on":false},{"id":"controls","on":false}],` +
 	`"home":"pomodoro","swipe_pages":false,"poll_ms":3000,` +
 	`"bot":{"sleepy_after_s":600,"demo_hold_s":30,"source_label":false,"working_ring":false,"weather_moments":false,"weather_every_min":0},` +
 	`"diagnostics":"basic","stats_interval_s":120,"live_interval_s":2,"display":{"fast_link":false,"rotation":180},"quiet":{"calm":false,"dim_level":5}}`
@@ -142,7 +150,8 @@ func TestKnobV2AbsentKeepsLegacyBytes(t *testing.T) {
 	f := newViewFixture(t)
 	putKnobConfig(t, f.srv, f.m.ID, preV2StoredConfig)
 	for _, patch := range []string{`{}`, `{"idle":{}}`, `{"idle":null}`, `{"apps":{}}`, `{"apps":{"pomodoro":{}}}`,
-		`{"apps":{"weather":{"faces":null}}}`, `{"apps":{"pomodoro":{"focus_color":null,"break_color":null}}}`} {
+		`{"apps":{"weather":{"faces":null}}}`, `{"apps":{"pomodoro":{"focus_color":null,"break_color":null}}}`,
+		`{"room":{}}`, `{"room":null}`, `{"room":{"enabled":null,"moments":null}}`} {
 		_, v0, _ := f.app.devices.config(f.m.ID)
 		resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, patch)
 		mustOK(t, patch, resp, b)
@@ -159,11 +168,11 @@ func TestKnobV2AbsentKeepsLegacyBytes(t *testing.T) {
 func TestKnobV2ClearingTheLastFieldReturnsToAbsent(t *testing.T) {
 	cur := defaultKnobSettings()
 	legacy, _ := json.Marshal(cur)
-	got, err := mergeKnobSettings(cur.clone(), []byte(`{"idle":{"dim_level":40},"apps":{"pomodoro":{"focus_color":"#aabbcc"},"weather":{"faces":["sun"]},"nowplaying":{"dim_after_s":60}}}`))
-	if err != nil || got.Idle == nil || got.Apps == nil {
+	got, err := mergeKnobSettings(cur.clone(), []byte(`{"idle":{"dim_level":40},"apps":{"pomodoro":{"focus_color":"#aabbcc"},"weather":{"faces":["sun"]},"nowplaying":{"dim_after_s":60}},"room":{"enabled":true}}`))
+	if err != nil || got.Idle == nil || got.Apps == nil || got.Room == nil {
 		t.Fatalf("set: %v %+v", err, got)
 	}
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"idle":{"dim_level":null},"apps":{"pomodoro":{"focus_color":null},"weather":{"faces":null},"nowplaying":{"dim_after_s":null}}}`))
+	got, err = mergeKnobSettings(got.clone(), []byte(`{"idle":{"dim_level":null},"apps":{"pomodoro":{"focus_color":null},"weather":{"faces":null},"nowplaying":{"dim_after_s":null}},"room":{"enabled":null}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +181,7 @@ func TestKnobV2ClearingTheLastFieldReturnsToAbsent(t *testing.T) {
 	}
 }
 
-func maxV2Settings() knobSettings {
+func maxLegacyStoreSettings() knobSettings {
 	s := defaultKnobSettings()
 	s.Pages = nil
 	for i := range knobMaxPages {
@@ -193,6 +202,12 @@ func maxV2Settings() knobSettings {
 		Weather:    &knobWeatherApp{Faces: slices.Clone(knobWeatherFaces)},
 		NowPlaying: &knobNPApp{DimAfterS: new(1800)},
 	}
+	return s
+}
+
+func maxV2Settings() knobSettings {
+	s := maxLegacyStoreSettings()
+	s.Room = &knobRoom{Enabled: boolPtr(false), PresenceOffS: new(86399), PresenceWake: boolPtr(false), Moments: boolPtr(false)}
 	return s
 }
 
@@ -235,21 +250,32 @@ func TestConfigDepthCountsConfigAsLevelOne(t *testing.T) {
 }
 
 func TestKnobV2LargestConfigFitsDepthAndSize(t *testing.T) {
-	s := maxV2Settings()
-	if err := s.validate(); err != nil {
-		t.Fatalf("the largest v2 config is rejected: %v", err)
+	cases := []struct {
+		name  string
+		s     knobSettings
+		limit int
+	}{
+		{"without the room-only keys", maxLegacyStoreSettings(), legacyCfgSettingsMax},
+		{"with them", maxV2Settings(), knobCfgSettingsMax},
 	}
-	b, err := json.Marshal(s)
-	if err != nil {
-		t.Fatal(err)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := c.s.validate(); err != nil {
+				t.Fatalf("the largest v2 config is rejected: %v", err)
+			}
+			b, err := json.Marshal(c.s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(b) > c.limit {
+				t.Fatalf("the largest valid v2 config is %d B, over the knob's %d", len(b), c.limit)
+			}
+			if d := configDepth(t, b); d > cinderConfigMaxDepth {
+				t.Fatalf("config nests %d levels with config as level 1, cinder drops more than %d", d, cinderConfigMaxDepth)
+			}
+			t.Logf("largest valid v2 config: %d B of %d", len(b), c.limit)
+		})
 	}
-	if len(b) > legacyCfgSettingsMax {
-		t.Fatalf("the largest valid v2 config is %d B, over the knob's %d", len(b), legacyCfgSettingsMax)
-	}
-	if d := configDepth(t, b); d > cinderConfigMaxDepth {
-		t.Fatalf("config nests %d levels with config as level 1, cinder drops more than %d", d, cinderConfigMaxDepth)
-	}
-	t.Logf("largest valid v2 config: %d B of %d", len(b), legacyCfgSettingsMax)
 }
 
 func TestCapsKnobV2OverConfigBytes400(t *testing.T) {
@@ -261,9 +287,13 @@ func TestCapsKnobV2OverConfigBytes400(t *testing.T) {
 	f := newViewFixture(t)
 	postCapsCheckin(t, f, "0.10.0", map[string]any{"view": []int{1, 1}, "pages": append([]string{"page-00000000000"}, pages...),
 		"rotations": []int{0, 90, 180, 270}, "limits": map[string]any{"config_bytes": legacyCfgSettingsMax}})
-	big, _ := json.Marshal(maxV2Settings())
+	big, _ := json.Marshal(maxLegacyStoreSettings())
 	resp, b := put(f, string(big))
 	mustOK(t, "the largest v2 config on a 1024 knob", resp, b)
+	resp, b = put(f, `{"room":{"enabled":false,"presence_off_s":86399,"presence_wake":false,"moments":false}}`)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(b), "config_bytes") {
+		t.Fatalf("the room block on a full 1024 knob = %d %s, want 400 naming config_bytes", resp.StatusCode, b)
+	}
 
 	f = newViewFixture(t)
 	cfg, _, _ := f.app.devices.config(f.m.ID)
@@ -275,5 +305,98 @@ func TestCapsKnobV2OverConfigBytes400(t *testing.T) {
 	resp, b = put(f, `{"idle":{"dim_level":40,"off_after_s":1800},"apps":{"weather":{"faces":["sun","temp","rain","cast"]}}}`)
 	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(b), "config_bytes") {
 		t.Fatalf("a PUT that grows past config_bytes = %d %s, want 400 naming config_bytes", resp.StatusCode, b)
+	}
+}
+
+func TestKnobRoomBlockMergesFieldByField(t *testing.T) {
+	cur := defaultKnobSettings()
+	got, err := mergeKnobSettings(cur.clone(), []byte(`{"room":{"enabled":true,"presence_off_s":0}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := got.clone()
+	got, err = mergeKnobSettings(got.clone(), []byte(`{"room":{"moments":false,"presence_off_s":600}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := got.Room; !*r.Enabled || *r.PresenceOffS != 600 || *r.Moments || r.PresenceWake != nil {
+		t.Fatalf("room patch lost fields: %+v", r)
+	}
+	if *prev.Room.PresenceOffS != 0 || prev.Room.Moments != nil {
+		t.Fatalf("merging into a clone wrote through: %+v", prev.Room)
+	}
+	got, err = mergeKnobSettings(got.clone(), []byte(`{"room":{"moments":null}}`))
+	if err != nil || got.Room.Moments != nil || !*got.Room.Enabled {
+		t.Fatalf("null must clear one key: %v %+v", err, got.Room)
+	}
+	got, err = mergeKnobSettings(got.clone(), []byte(`{"room":null}`))
+	if err != nil || got.Room != nil {
+		t.Fatalf("null must clear the block: %v %+v", err, got.Room)
+	}
+}
+
+func TestKnobRoomConfigRoundTripsThroughTheOwnerAndTheKnob(t *testing.T) {
+	f := newViewFixture(t)
+	resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken,
+		`{"pages":[{"id":"bot","on":true},{"id":"room","on":true}],"room":{"enabled":true,"presence_off_s":120}}`)
+	mustOK(t, "put room", resp, b)
+	check := func(where string, c knobSettings) {
+		t.Helper()
+		if !c.pageOn("room") || !*c.Room.Enabled || *c.Room.PresenceOffS != 120 {
+			t.Fatalf("%s lost the room settings: %+v", where, c)
+		}
+	}
+	resp, b = devReq(t, f.srv, "GET", "/v1/devices/"+f.m.ID+"/config", testToken, "")
+	var owner knobSettings
+	if err := json.Unmarshal(mustOK(t, "owner get", resp, b), &owner); err != nil {
+		t.Fatal(err)
+	}
+	check("owner get", owner)
+	resp, b = devReq(t, f.srv, "GET", "/v1/devices/self/config", f.m.Token, "")
+	var self struct {
+		Config knobSettings `json:"config"`
+	}
+	if err := json.Unmarshal(mustOK(t, "self get", resp, b), &self); err != nil {
+		t.Fatal(err)
+	}
+	check("self get", self.Config)
+}
+
+func TestKnobRoomPresenceOffOutOfRangeIs400(t *testing.T) {
+	f := newViewFixture(t)
+	for _, v := range []string{"-1", "86400"} {
+		resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, `{"room":{"presence_off_s":`+v+`}}`)
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(b), "room.presence_off_s") {
+			t.Fatalf("presence_off_s %s = %d %s, want 400 naming the key", v, resp.StatusCode, b)
+		}
+	}
+}
+
+func TestKnobRoomPageReachesAStoredConfigOffWithoutABump(t *testing.T) {
+	const stored = `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
+		`"pages":[{"id":"bot","on":true},{"id":"day","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":false},{"id":"controls","on":false},{"id":"pomodoro","on":false}],` +
+		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20},"diagnostics":"off"}`
+	var s knobSettings
+	if err := json.Unmarshal([]byte(stored), &s); err != nil {
+		t.Fatal(err)
+	}
+	s.fillDefaults()
+	if err := s.validate(); err != nil {
+		t.Fatalf("a config with no room entries must stay valid: %v", err)
+	}
+	if last := s.Pages[len(s.Pages)-1]; last != (knobPage{ID: "room"}) {
+		t.Fatalf("last page = %+v, want room off", last)
+	}
+	if s.Room != nil {
+		t.Fatalf("a stored config must not gain a room block: %+v", s.Room)
+	}
+}
+
+func TestCapsKnobCannotTurnOnTheRoomPageOutsideItsCaps(t *testing.T) {
+	f := newViewFixture(t)
+	postCapsCheckin(t, f, "0.10.0", map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "pomodoro", "weather"}})
+	resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, `{"pages":[{"id":"bot","on":true},{"id":"room","on":true}]}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("room page outside caps = %d %s, want 400", resp.StatusCode, b)
 	}
 }
