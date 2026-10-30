@@ -18,6 +18,7 @@ import (
 	"github.com/tarakanof/ember/internal/meetings"
 	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type clockCall struct {
@@ -82,17 +83,17 @@ func noticeScenarios() []noticeScenario {
 	base := []noticeScenario{
 		{name: "weather_severe_rtttl", run: func(t *testing.T, app *App) {
 			now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
-			storm := weatherObservation{Condition: render.WeatherStorm, TempC: 18, Severe: true, FetchedAt: now}
+			storm := weather.Observation{Condition: render.WeatherStorm, TempC: 18, Severe: true, FetchedAt: now}
 			app.evaluateWeatherPopup(context.Background(), now, storm, render.WeatherClouds, false, time.Time{}, app.cfg.Load().Weather)
 		}},
 		{name: "weather_severe_melody", cfg: func(c *Config) { c.Weather.SevereSound = "chime" }, run: func(t *testing.T, app *App) {
 			now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
-			storm := weatherObservation{Condition: render.WeatherStorm, TempC: 18, Severe: true, FetchedAt: now}
+			storm := weather.Observation{Condition: render.WeatherStorm, TempC: 18, Severe: true, FetchedAt: now}
 			app.evaluateWeatherPopup(context.Background(), now, storm, render.WeatherClouds, false, time.Time{}, app.cfg.Load().Weather)
 		}},
 		{name: "weather_change", run: func(t *testing.T, app *App) {
 			now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
-			rain := weatherObservation{Condition: render.WeatherRain, TempC: 16, Overlay: render.OverlayRain, FetchedAt: now}
+			rain := weather.Observation{Condition: render.WeatherRain, TempC: 16, Overlay: render.OverlayRain, FetchedAt: now}
 			app.evaluateWeatherPopup(context.Background(), now, rain, render.WeatherClouds, false, now, app.cfg.Load().Weather)
 		}},
 		{name: "weather_air", cfg: func(c *Config) { c.Weather.AirPopupThreshold = 80 }, run: func(t *testing.T, app *App) {
@@ -100,14 +101,14 @@ func noticeScenarios() []noticeScenario {
 				_, _ = w.Write([]byte(`{"current":{"european_aqi":120,"pm2_5":40,"pm10":60},"hourly":{"time":[1700000000],"european_aqi":[120]}}`))
 			}))
 			t.Cleanup(srv.Close)
-			app.weatherFetcher.airQualityBase = srv.URL
+			app.weatherFetcher.AirQualityBase = srv.URL
 			app.pollAir(context.Background(), time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC), app.cfg.Load().Weather)
 		}},
 		{name: "weather_sun", cfg: func(c *Config) {
 			c.Weather.SunPopups = boolPtr(true)
 			c.Weather.Latitude, c.Weather.Longitude = 10, 10
 		}, run: func(t *testing.T, app *App) {
-			sunrise, _, ok := sunTimes(10, 10, time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)).pair()
+			sunrise, _, ok := weather.SunTimes(10, 10, time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)).Pair()
 			if !ok {
 				t.Fatal("no sunrise")
 			}
@@ -443,7 +444,7 @@ func TestMelodySettingsRefuseValuesNG12CannotPlay(t *testing.T) {
 	for _, rt := range routes {
 		for _, v := range append(bad, good...) {
 			a := newTestAppWithStore(t)
-			a.updateConfig(func(c *Config) { c.Weather.applyDefaults() })
+			a.updateConfig(func(c *Config) { c.Weather.ApplyDefaults() })
 			body, _ := json.Marshal(map[string]string{rt.key: v})
 			w := httptest.NewRecorder()
 			rt.put(a, w, httptest.NewRequest("PUT", "/v1/"+rt.name+"/config", strings.NewReader(string(body))))
@@ -461,7 +462,7 @@ func TestMelodySettingsRefuseValuesNG12CannotPlay(t *testing.T) {
 func TestStoredInvalidSevereSoundDoesNotBlockOtherWeatherEdits(t *testing.T) {
 	a := newTestAppWithStore(t)
 	a.updateConfig(func(c *Config) {
-		c.Weather.applyDefaults()
+		c.Weather.ApplyDefaults()
 		c.Weather.SevereSound = "Star Wars"
 	})
 	w := httptest.NewRecorder()

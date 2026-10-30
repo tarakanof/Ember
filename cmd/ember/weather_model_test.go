@@ -15,40 +15,9 @@ import (
 	"sync"
 	"testing"
 	"time"
-)
 
-func TestFetchOpenMeteoModelQuery(t *testing.T) {
-	cases := []struct {
-		model   string
-		want    string
-		present bool
-	}{
-		{"", "", false},
-		{"best_match", "", false},
-		{"ecmwf_ifs", "ecmwf_ifs", true},
-		{"ukmo_seamless", "ukmo_seamless", true},
-	}
-	for _, c := range cases {
-		t.Run(c.model, func(t *testing.T) {
-			var got []string
-			var has bool
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				got, has = r.URL.Query()["models"], r.URL.Query().Has("models")
-				_, _ = w.Write([]byte(openMeteoFacesBody))
-			}))
-			defer srv.Close()
-			wf := newWeatherFetcher()
-			wf.openMeteoBase = srv.URL
-			cfg := WeatherConfig{Provider: "open-meteo", OpenMeteoModel: c.model, Latitude: 44.8, Longitude: 20.5}
-			if _, err := wf.fetch(t.Context(), cfg, fetchHint{}); err != nil {
-				t.Fatal(err)
-			}
-			if has != c.present || (c.present && (len(got) != 1 || got[0] != c.want)) {
-				t.Errorf("models = %v (present %v), want %q (present %v)", got, has, c.want, c.present)
-			}
-		})
-	}
-}
+	"github.com/tarakanof/ember/internal/weather"
+)
 
 func newDefaultedApp(t *testing.T) *App {
 	t.Helper()
@@ -158,7 +127,7 @@ func newModelSwitchApp(t *testing.T) (*App, *modelStub) {
 		signalStub(st.req)
 	}))
 	t.Cleanup(om.Close)
-	app.weatherFetcher.openMeteoBase = om.URL
+	app.weatherFetcher.OpenMeteoBase = om.URL
 	return app, st
 }
 
@@ -414,7 +383,7 @@ func TestAppWeatherSourcesMatchTheServerLists(t *testing.T) {
 		}
 		return ids
 	}
-	resolve := map[string]string{"openMeteo": "open-meteo", "defaultOpenMeteoModel": defaultOpenMeteoModel, "tomorrowIO": tomorrowIO, "weatherAPI": weatherAPI}
+	resolve := map[string]string{"openMeteo": "open-meteo", "defaultOpenMeteoModel": weather.DefaultOpenMeteoModel, "tomorrowIO": weather.TomorrowIO, "weatherAPI": weather.WeatherAPI}
 	ids := func(raw []string) []string {
 		out := make([]string, len(raw))
 		for i, r := range raw {
@@ -426,8 +395,8 @@ func TestAppWeatherSourcesMatchTheServerLists(t *testing.T) {
 		}
 		return out
 	}
-	if got := ids(block("providers")); !slices.Equal(got, weatherProviders) {
-		t.Errorf("app providers = %q, server = %q", got, weatherProviders)
+	if got := ids(block("providers")); !slices.Equal(got, weather.Providers) {
+		t.Errorf("app providers = %q, server = %q", got, weather.Providers)
 	}
 	if got := ids(block("openMeteoModels")); !slices.Equal(got, openMeteoModels) {
 		t.Errorf("app Open-Meteo models = %q, server = %q", got, openMeteoModels)

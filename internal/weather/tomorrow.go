@@ -1,4 +1,4 @@
-package main
+package weather
 
 import (
 	"context"
@@ -14,13 +14,13 @@ import (
 )
 
 const (
-	tomorrowIO          = "tomorrow-io"
-	tomorrowKeyEnv      = "EMBER_TOMORROW_API_KEY"
+	TomorrowIO          = "tomorrow-io"
+	TomorrowKeyEnv      = "EMBER_TOMORROW_API_KEY"
 	precipStepsTomorrow = 48
 	tomorrowPrecipStep  = 15 * time.Minute
 )
 
-var errTomorrowNoKey = errors.New("tomorrow-io: " + tomorrowKeyEnv + " is not set on the server")
+var errTomorrowNoKey = errors.New("tomorrow-io: " + TomorrowKeyEnv + " is not set on the server")
 
 type tomorrowValues struct {
 	Temperature           *float64 `json:"temperature"`
@@ -57,12 +57,12 @@ type tomorrowDay struct {
 	} `json:"values"`
 }
 
-func (wf *weatherFetcher) fetchTomorrow(ctx context.Context, cfg WeatherConfig, hint fetchHint) (weatherObservation, error) {
-	if wf.tomorrowKey == "" {
-		return weatherObservation{}, errTomorrowNoKey
+func (wf *Fetcher) FetchTomorrow(ctx context.Context, cfg Config, hint FetchHint) (Observation, error) {
+	if wf.TomorrowKey == "" {
+		return Observation{}, errTomorrowNoKey
 	}
 	u := fmt.Sprintf("%s/v4/weather/forecast?location=%.4f,%.4f&units=metric&apikey=%s",
-		strings.TrimRight(wf.tomorrowBase, "/"), cfg.Latitude, cfg.Longitude, url.QueryEscape(wf.tomorrowKey))
+		strings.TrimRight(wf.TomorrowBase, "/"), cfg.Latitude, cfg.Longitude, url.QueryEscape(wf.TomorrowKey))
 	var body struct {
 		Timelines struct {
 			Minutely []tomorrowEntry `json:"minutely"`
@@ -71,14 +71,14 @@ func (wf *weatherFetcher) fetchTomorrow(ctx context.Context, cfg WeatherConfig, 
 		} `json:"timelines"`
 	}
 	if _, err := wf.getJSON(ctx, u, "", &body); err != nil {
-		return weatherObservation{}, wf.tomorrowError(ctx, err, time.Now())
+		return Observation{}, wf.TomorrowError(ctx, err, time.Now())
 	}
 	tl := body.Timelines
 	if len(tl.Hourly) == 0 && len(tl.Minutely) == 0 {
-		return weatherObservation{}, errors.New("tomorrow-io: empty timelines")
+		return Observation{}, errors.New("tomorrow-io: empty timelines")
 	}
 	steps := tomorrowSteps(tl.Minutely, tl.Hourly)
-	obs := weatherObservation{
+	obs := Observation{
 		TZOffsetSeconds: hint.TZOffsetSeconds, TZKnown: hint.TZKnown,
 		PrecipStep: tomorrowPrecipStep,
 		Precip:     tomorrowPrecip(tl.Minutely, tl.Hourly),
@@ -96,9 +96,9 @@ func (wf *weatherFetcher) fetchTomorrow(ctx context.Context, cfg WeatherConfig, 
 	if len(steps) > 0 {
 		from = steps[0].At
 	}
-	obs.Days = tomorrowDays(tl.Daily, tl.Hourly, dayClock{loc: loadZone(hint.TZName), off: localOffset(obs, cfg.Longitude)}, from)
+	obs.Days = tomorrowDays(tl.Daily, tl.Hourly, dayClock{loc: loadZone(hint.TZName), off: LocalOffset(obs, cfg.Longitude)}, from)
 	if len(steps) > 0 {
-		obs = obs.current(steps[0].At)
+		obs = obs.Current(steps[0].At)
 	}
 	return obs, nil
 }
@@ -108,7 +108,7 @@ var (
 	errTomorrowResponse = errors.New("tomorrow-io: invalid response")
 )
 
-func (wf *weatherFetcher) tomorrowError(ctx context.Context, err error, now time.Time) error {
+func (wf *Fetcher) TomorrowError(ctx context.Context, err error, now time.Time) error {
 	return keyedFetchError(ctx, err, now, errTomorrowRequest, errTomorrowResponse)
 }
 
@@ -134,7 +134,7 @@ func tomorrowSteps(minutely, hourly []tomorrowEntry) []currentStep {
 func (e tomorrowEntry) current() currentStep {
 	v := e.Values
 	s := currentStep{At: e.Time.UTC(), TempC: valueOr(v.Temperature, 0), Condition: render.WeatherClouds,
-		Now: weatherNow{Cloud: v.CloudCover, UV: v.UVIndex, WindKmh: scaled(v.WindSpeed, msToKmh),
+		Now: Now{Cloud: v.CloudCover, UV: v.UVIndex, WindKmh: scaled(v.WindSpeed, msToKmh),
 			GustKmh: scaled(v.WindGust, msToKmh), WindDir: v.WindDirection}}
 	if v.WeatherCode != nil {
 		if wmo, ok := tomorrowWMO(*v.WeatherCode); ok {
@@ -163,8 +163,8 @@ func (v tomorrowValues) precip() (mmh float64, snow, ok bool) {
 	return liquid + frozen, frozen > liquid, ok
 }
 
-func tomorrowPrecip(minutely, hourly []tomorrowEntry) []precipStep {
-	var out []precipStep
+func tomorrowPrecip(minutely, hourly []tomorrowEntry) []PrecipStep {
+	var out []PrecipStep
 	type block struct {
 		sum, frozen float64
 		n           int
@@ -196,7 +196,7 @@ func tomorrowPrecip(minutely, hourly []tomorrowEntry) []precipStep {
 			return out
 		}
 		b := blocks[at]
-		out = append(out, precipStep{At: at, MMh: b.sum / float64(b.n), Snow: b.frozen*2 > float64(b.n)})
+		out = append(out, PrecipStep{At: at, MMh: b.sum / float64(b.n), Snow: b.frozen*2 > float64(b.n)})
 		covered = at.Add(tomorrowPrecipStep)
 	}
 	for _, e := range hourly {
@@ -212,14 +212,14 @@ func tomorrowPrecip(minutely, hourly []tomorrowEntry) []precipStep {
 			if len(out) == precipStepsTomorrow {
 				return out
 			}
-			out = append(out, precipStep{At: at, MMh: mmh, Snow: snow})
+			out = append(out, PrecipStep{At: at, MMh: mmh, Snow: snow})
 		}
 	}
 	return out
 }
 
-func tomorrowDays(daily []tomorrowDay, hourly []tomorrowEntry, clock dayClock, from time.Time) []weatherDay {
-	var days []weatherDay
+func tomorrowDays(daily []tomorrowDay, hourly []tomorrowEntry, clock dayClock, from time.Time) []Day {
+	var days []Day
 	for _, d := range daily {
 		if len(days) == forecastDays {
 			break
@@ -233,7 +233,7 @@ func tomorrowDays(daily []tomorrowDay, hourly []tomorrowEntry, clock dayClock, f
 			continue
 		}
 		v := d.Values
-		day := weatherDay{Start: start, End: end, MinC: v.TemperatureMin, MaxC: v.TemperatureMax, Pop: v.PrecipitationProbabilityMax,
+		day := Day{Start: start, End: end, MinC: v.TemperatureMin, MaxC: v.TemperatureMax, Pop: v.PrecipitationProbabilityMax,
 			UVMax: v.UVIndexMax, GustMaxKmh: scaled(v.WindGustMax, msToKmh)}
 		for _, p := range []*float64{v.RainAccumulationSum, v.SnowAccumulationLweSum, v.SleetAccumulationLweSum, v.IceAccumulationLweSum} {
 			if p != nil {

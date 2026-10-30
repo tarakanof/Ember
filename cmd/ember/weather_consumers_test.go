@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type weatherSurfaces struct {
@@ -16,10 +17,10 @@ type weatherSurfaces struct {
 	previewMoon bool
 }
 
-func observeWeatherSurfaces(t *testing.T, mut func(*WeatherConfig), obs *weatherObservation, air *airObservation, now time.Time) weatherSurfaces {
+func observeWeatherSurfaces(t *testing.T, mut func(*weather.Config), obs *weather.Observation, air *weather.AirObservation, now time.Time) weatherSurfaces {
 	t.Helper()
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.MoonPhase = boolPtr(true)
 	cfg.Weather.Latitude, cfg.Weather.Longitude = 52.37, 4.9
@@ -28,7 +29,7 @@ func observeWeatherSurfaces(t *testing.T, mut func(*WeatherConfig), obs *weather
 	app.weather.mu.Lock()
 	if obs != nil {
 		app.weather.obs, app.weather.have = *obs, true
-		app.weather.source = app.cfg.Load().Weather.source()
+		app.weather.source = app.cfg.Load().Weather.Source()
 	}
 	if air != nil {
 		app.weather.air, app.weather.haveAir = *air, true
@@ -55,11 +56,11 @@ func observeWeatherSurfaces(t *testing.T, mut func(*WeatherConfig), obs *weather
 func TestWeatherConsumersAgreeOnFreshness(t *testing.T) {
 	now := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC)
 	limit := 30 * time.Minute
-	keep := func(*WeatherConfig) {}
-	off := func(c *WeatherConfig) { c.Enabled = false }
+	keep := func(*weather.Config) {}
+	off := func(c *weather.Config) { c.Enabled = false }
 	cases := []struct {
 		name               string
-		mut                func(*WeatherConfig)
+		mut                func(*weather.Config)
 		obsAge, airAge     time.Duration
 		noObs, noAir       bool
 		obsStale, airStale bool
@@ -77,8 +78,8 @@ func TestWeatherConsumersAgreeOnFreshness(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			obs := &weatherObservation{Condition: render.WeatherRain, TempC: 11, FetchedAt: now.Add(-tc.obsAge)}
-			air := &airObservation{AQI: 42, FetchedAt: now.Add(-tc.airAge)}
+			obs := &weather.Observation{Condition: render.WeatherRain, TempC: 11, FetchedAt: now.Add(-tc.obsAge)}
+			air := &weather.AirObservation{AQI: 42, FetchedAt: now.Add(-tc.airAge)}
 			if tc.noObs {
 				obs = nil
 			}
@@ -112,15 +113,15 @@ func TestWeatherConsumersAgreeOnFreshness(t *testing.T) {
 }
 
 func TestWeatherConsumersAgreeOnSunAndNight(t *testing.T) {
-	clearSky := func(now time.Time) *weatherObservation {
-		return &weatherObservation{Condition: render.WeatherClear, TempC: 5, FetchedAt: now}
+	clearSky := func(now time.Time) *weather.Observation {
+		return &weather.Observation{Condition: render.WeatherClear, TempC: 5, FetchedAt: now}
 	}
-	amsterdam := func(*WeatherConfig) {}
-	svalbard := func(c *WeatherConfig) { c.Latitude, c.Longitude = 78.2, 15.6 }
-	noCoords := func(c *WeatherConfig) { c.Latitude, c.Longitude = 0, 0 }
+	amsterdam := func(*weather.Config) {}
+	svalbard := func(c *weather.Config) { c.Latitude, c.Longitude = 78.2, 15.6 }
+	noCoords := func(c *weather.Config) { c.Latitude, c.Longitude = 0, 0 }
 	cases := []struct {
 		name      string
-		mut       func(*WeatherConfig)
+		mut       func(*weather.Config)
 		now       time.Time
 		wantSun   bool
 		wantNight bool
@@ -130,10 +131,10 @@ func TestWeatherConsumersAgreeOnSunAndNight(t *testing.T) {
 		{"night", amsterdam, time.Date(2026, 9, 26, 22, 0, 0, 0, time.UTC), true, true, true},
 		{"before sunrise", amsterdam, time.Date(2026, 9, 26, 4, 0, 0, 0, time.UTC), true, true, true},
 		{"no coordinates", noCoords, time.Date(2026, 9, 26, 22, 0, 0, 0, time.UTC), false, false, false},
-		{"McMurdo after the last sunset", func(c *WeatherConfig) { c.Latitude, c.Longitude = -77.8, 166.7 }, time.Date(2026, 4, 24, 5, 0, 0, 0, time.UTC), true, true, true},
-		{"68N before the first sunrise", func(c *WeatherConfig) { c.Latitude, c.Longitude = 68, 0 }, time.Date(2026, 1, 4, 5, 0, 0, 0, time.UTC), true, true, true},
-		{"Tromsø next to polar day", func(c *WeatherConfig) { c.Latitude, c.Longitude = 69.65, 18.96 }, time.Date(2026, 5, 19, 10, 41, 0, 0, time.UTC), false, false, false},
-		{"McMurdo in polar night", func(c *WeatherConfig) { c.Latitude, c.Longitude = -77.8, 166.7 }, time.Date(2027, 8, 18, 12, 0, 0, 0, time.UTC), false, true, false},
+		{"McMurdo after the last sunset", func(c *weather.Config) { c.Latitude, c.Longitude = -77.8, 166.7 }, time.Date(2026, 4, 24, 5, 0, 0, 0, time.UTC), true, true, true},
+		{"68N before the first sunrise", func(c *weather.Config) { c.Latitude, c.Longitude = 68, 0 }, time.Date(2026, 1, 4, 5, 0, 0, 0, time.UTC), true, true, true},
+		{"Tromsø next to polar day", func(c *weather.Config) { c.Latitude, c.Longitude = 69.65, 18.96 }, time.Date(2026, 5, 19, 10, 41, 0, 0, time.UTC), false, false, false},
+		{"McMurdo in polar night", func(c *weather.Config) { c.Latitude, c.Longitude = -77.8, 166.7 }, time.Date(2027, 8, 18, 12, 0, 0, 0, time.UTC), false, true, false},
 		{"polar night", svalbard, time.Date(2026, 12, 21, 12, 0, 0, 0, time.UTC), false, true, false},
 		{"polar day", svalbard, time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC), false, false, false},
 	}
@@ -163,17 +164,17 @@ func TestWeatherConsumersAgreeOnSunAndNight(t *testing.T) {
 }
 
 func TestClockMoonFollowsTheSunSchedule(t *testing.T) {
-	amsterdam := func(*WeatherConfig) {}
-	tromso := func(c *WeatherConfig) { c.Latitude, c.Longitude = 69.65, 18.96 }
-	cest := weatherObservation{Condition: render.WeatherClear, TempC: 12, TZKnown: true, TZOffsetSeconds: 2 * 3600}
+	amsterdam := func(*weather.Config) {}
+	tromso := func(c *weather.Config) { c.Latitude, c.Longitude = 69.65, 18.96 }
+	cest := weather.Observation{Condition: render.WeatherClear, TempC: 12, TZKnown: true, TZOffsetSeconds: 2 * 3600}
 	day := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	_, sunset, ok := localSunTimes(52.37, 4.9, day, cest).pair()
+	_, sunset, ok := weather.LocalSunTimes(52.37, 4.9, day, cest).Pair()
 	if !ok {
 		t.Fatal("fixture: no Amsterdam sunset")
 	}
 	cases := []struct {
 		name      string
-		mut       func(*WeatherConfig)
+		mut       func(*weather.Config)
 		now       time.Time
 		wantNight bool
 	}{

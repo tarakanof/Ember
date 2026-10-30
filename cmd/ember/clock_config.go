@@ -18,6 +18,7 @@ import (
 
 	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 const (
@@ -183,7 +184,7 @@ func (a *App) stageClockApps(cur *Config, apps clockApps) ([]*stagedSetting, err
 			})
 		},
 		func() (*stagedSetting, error) {
-			return s.weather.stage(cur, func(d *WeatherConfig) {
+			return s.weather.stage(cur, func(d *weather.Config) {
 				w := apps.Weather
 				d.RotateInApps = boolPtr(w.On)
 				d.TileNativeIcons = w.NativeIcon

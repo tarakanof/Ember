@@ -684,7 +684,7 @@ func TestReapplySettingsBumpsEpochAtMostOnce(t *testing.T) {
 	a.pauseClockSync()
 	a.updateConfig(func(c *Config) {
 		c.Weather = defaultConfig().Weather
-		c.Weather.applyDefaults()
+		c.Weather.ApplyDefaults()
 	})
 	a.clockSync.mu.Lock()
 	a.clockSync.paused--

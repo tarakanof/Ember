@@ -11,6 +11,7 @@ import (
 
 	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/discovery"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func TestClockOffMakesNoClockRequests(t *testing.T) {
@@ -195,7 +196,7 @@ func TestClockOffDoctorIsOK(t *testing.T) {
 
 func TestClockOffSkipsIconProvisioning(t *testing.T) {
 	t.Setenv("EMBER_CLOCK", "off")
-	app, pub := iconTestApp(t, func(w *WeatherConfig) { w.TileNativeIcons = true })
+	app, pub := iconTestApp(t, func(w *weather.Config) { w.TileNativeIcons = true })
 	fetched := 0
 	app.iconFetch = func(context.Context, string) ([]byte, string, error) { fetched++; return nil, "", nil }
 	app.ensureNativeIcons(context.Background())

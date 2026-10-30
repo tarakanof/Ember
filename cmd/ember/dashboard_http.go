@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/pomodoro"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 var errDashboardInternal = errors.New("internal error")
@@ -409,7 +410,7 @@ func unixWire(t *int64, loc *time.Location) *time.Time {
 	return &w
 }
 
-func newWeatherFacesOut(wx weatherState, cfg WeatherConfig, loc *time.Location) *weatherFacesOut {
+func newWeatherFacesOut(wx weatherState, cfg weather.Config, loc *time.Location) *weatherFacesOut {
 	d := newKnobWeatherDetail(wx, cfg)
 	f := &weatherFacesOut{UTCOffsetS: d.UTCOffset, Night: wx.Night, Days: []faceDayOut{},
 		Moon: moonOut{PhasePct: d.Moon.Phase, IllumPct: d.Moon.Illum, Up: d.Moon.Up}, AQI: d.AQI}
@@ -417,7 +418,7 @@ func newWeatherFacesOut(wx weatherState, cfg WeatherConfig, loc *time.Location) 
 		f.WindKmh, f.WindDirDeg, f.RainIntensity = n.WindKmh, n.WindDir, n.Rain
 	}
 	if wx.HaveLocation {
-		_, _, up := moonUpWindow(wx.Lat, wx.Lon, wx.At.Round(sunRounding))
+		_, _, up := weather.MoonUpWindow(wx.Lat, wx.Lon, wx.At.Round(sunRounding))
 		f.Moon.Up = &up
 	}
 	if d.Today != nil {
@@ -448,7 +449,7 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 		GeneratedAt:  wireTime(now, loc),
 		Enabled:      cfg.Enabled,
 		Provider:     cfg.Provider,
-		Model:        cfg.model(),
+		Model:        cfg.Model(),
 		Error:        a.weatherUnavailableReason(cfg),
 		Units:        cfg.Units,
 		LocationName: optString(cfg.LocationName),
@@ -468,7 +469,7 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 			UV:            roundedInt(obs.Now.UV, 1),
 			Hourly:        []tempPoint{},
 		}
-		if today, _ := faceDays(obs, now); today != nil {
+		if today, _ := weather.FaceDays(obs, now); today != nil {
 			cur.TodayMinC, cur.TodayMaxC = today.MinC, today.MaxC
 		}
 		if !obs.HourlyStart.IsZero() {

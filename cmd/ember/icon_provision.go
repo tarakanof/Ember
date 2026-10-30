@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type clockJobGroup struct {
@@ -199,7 +200,7 @@ func (a *App) putIcon(ctx context.Context, name string, data []byte) bool {
 	return true
 }
 
-func weatherIconIDs(cfg WeatherConfig) map[string]bool {
+func weatherIconIDs(cfg weather.Config) map[string]bool {
 	if !cfg.Enabled || (!cfg.UseNativeIcons && !cfg.TileNativeIcons) {
 		return nil
 	}
@@ -208,7 +209,7 @@ func weatherIconIDs(cfg WeatherConfig) map[string]bool {
 		render.WeatherClear, render.WeatherClouds, render.WeatherFog,
 		render.WeatherRain, render.WeatherSnow, render.WeatherStorm,
 	} {
-		if id := cfg.weatherIconID(cond); id != "" {
+		if id := cfg.IconID(cond); id != "" {
 			ids[id] = true
 		}
 	}

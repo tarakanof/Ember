@@ -15,6 +15,7 @@ import (
 	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/nowplaying"
 	"github.com/tarakanof/ember/internal/pomodoro"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 var knobCapsFaces = map[string]any{
@@ -43,12 +44,12 @@ func facesViewFixture(t *testing.T, at time.Time, provider string, lat, lon floa
 	t.Helper()
 	f := goldenViewFixture(t)
 	f.clk.now = at
-	f.app.weatherFetcher = newWeatherFetcher()
-	f.app.weatherFetcher.openMeteoBase = stubBody(t, p.openMeteo)
-	f.app.weatherFetcher.metNoBase = stubBody(t, p.metNo)
+	f.app.weatherFetcher = weather.NewFetcher()
+	f.app.weatherFetcher.OpenMeteoBase = stubBody(t, p.openMeteo)
+	f.app.weatherFetcher.MetNoBase = stubBody(t, p.metNo)
 	airOn := p.aqi > 0
 	if airOn {
-		f.app.weatherFetcher.airQualityBase = stubBody(t, fmt.Sprintf(`{"utc_offset_seconds":%d,"current":{"european_aqi":%v}}`, p.airOffset, p.aqi))
+		f.app.weatherFetcher.AirQualityBase = stubBody(t, fmt.Sprintf(`{"utc_offset_seconds":%d,"current":{"european_aqi":%v}}`, p.airOffset, p.aqi))
 	}
 	f.app.updateConfig(func(c *Config) {
 		w := &c.Weather
@@ -365,7 +366,7 @@ func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 		t.Fatalf("worst case lacks cover_light: %s", body)
 	}
 	w := decodeFaces(t, body).Weather
-	if w.Rain == nil || w.Rain.Until == nil || len(w.Rain.Spells) != rainSpellsMax || len(w.Days) != faceForecastDays || w.AQI == nil ||
+	if w.Rain == nil || w.Rain.Until == nil || len(w.Rain.Spells) != weather.RainSpellsMax || len(w.Days) != weather.FaceForecastDays || w.AQI == nil ||
 		len(w.Now) != 6 || len(w.Today) != 5 || len(w.Twilight) != 6 || w.UTCOffset == nil || *w.UTCOffset >= 0 ||
 		w.Moon == nil || w.Moon.Up == nil || w.Moon.Rise == nil || w.Moon.Set == nil {
 		t.Fatalf("worst case lacks parts: %s", body)
@@ -417,27 +418,27 @@ func worstCaseView(t *testing.T, f *viewFixture) {
 	})
 	code := "lightssleetshowersandthunder_polartwilight"
 	neg := func(v float64) *float64 { return &v }
-	obs := weatherObservation{Condition: "storm", ConditionCode: code, TempC: -12.5, Severe: true,
+	obs := weather.Observation{Condition: "storm", ConditionCode: code, TempC: -12.5, Severe: true,
 		ObservedAt: now.Add(-time.Hour), FetchedAt: now, TZKnown: true, TZOffsetSeconds: -34200,
-		Now:        weatherNow{Cloud: neg(100), UV: neg(11), WindKmh: neg(150.4), GustKmh: neg(199.4), WindDir: neg(359)},
+		Now:        weather.Now{Cloud: neg(100), UV: neg(11), WindKmh: neg(150.4), GustKmh: neg(199.4), WindDir: neg(359)},
 		PrecipStep: time.Hour}
 	for i := range 12 {
 		mm := 0.01
 		if i%2 == 0 {
 			mm = 20
 		}
-		obs.Precip = append(obs.Precip, precipStep{At: now.Add(time.Duration(i) * time.Hour), MMh: mm, Snow: true})
+		obs.Precip = append(obs.Precip, weather.PrecipStep{At: now.Add(time.Duration(i) * time.Hour), MMh: mm, Snow: true})
 	}
 	y, m, d := now.Add(-34200 * time.Second).Date()
 	start := time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Add(34200 * time.Second)
 	for i := range 4 {
-		obs.Days = append(obs.Days, weatherDay{Start: start.AddDate(0, 0, i), Cond: "storm", Code: code, MinC: neg(-45.5), MaxC: neg(-30.5),
+		obs.Days = append(obs.Days, weather.Day{Start: start.AddDate(0, 0, i), Cond: "storm", Code: code, MinC: neg(-45.5), MaxC: neg(-30.5),
 			PrecipMM: neg(999.9), Pop: neg(100), UVMax: neg(11), GustMaxKmh: neg(199)})
 	}
-	f.app.weather.switchSource(f.app.cfg.Load().Weather.source())
+	f.app.weather.switchSource(f.app.cfg.Load().Weather.Source())
 	f.app.weather.obs, f.app.weather.have = obs, true
-	f.app.weather.source = f.app.cfg.Load().Weather.source()
-	f.app.weather.air, f.app.weather.haveAir = airObservation{AQI: 500, FetchedAt: now}, true
+	f.app.weather.source = f.app.cfg.Load().Weather.Source()
+	f.app.weather.air, f.app.weather.haveAir = weather.AirObservation{AQI: 500, FetchedAt: now}, true
 	putKnobConfig(t, f.srv, f.m.ID, `{"diagnostics":"full","pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
 	resp, b := devReq(t, f.srv, "POST", "/v1/devices/"+f.m.ID+"/stats/live", testToken, `{"seconds":300}`)
 	mustOK(t, "live", resp, b)

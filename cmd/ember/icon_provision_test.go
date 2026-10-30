@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 var errTest = errors.New("test error")
@@ -23,11 +24,11 @@ func ownIconJobs(t *testing.T, a *App) {
 	t.Cleanup(a.clockJobs.Wait)
 }
 
-func iconTestApp(t *testing.T, mutate func(*WeatherConfig)) (*App, *recordingPublisher) {
+func iconTestApp(t *testing.T, mutate func(*weather.Config)) (*App, *recordingPublisher) {
 	t.Helper()
 	pub := &recordingPublisher{icons: waitIconFiles()}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	mutate(&cfg.Weather)
 	app := NewApp(cfg, pub, testLogger())
@@ -38,7 +39,7 @@ func iconTestApp(t *testing.T, mutate func(*WeatherConfig)) (*App, *recordingPub
 }
 
 func TestEnsureWeatherIcons_UploadsMissing(t *testing.T) {
-	app, pub := iconTestApp(t, func(w *WeatherConfig) { w.TileNativeIcons = true })
+	app, pub := iconTestApp(t, func(w *weather.Config) { w.TileNativeIcons = true })
 	pub.icons = append(pub.icons, "2289.gif")
 
 	app.ensureNativeIcons(context.Background())
@@ -52,7 +53,7 @@ func TestEnsureWeatherIcons_UploadsMissing(t *testing.T) {
 }
 
 func TestEnsureWeatherIcons_NoopWhenNativeOff(t *testing.T) {
-	app, pub := iconTestApp(t, func(w *WeatherConfig) {
+	app, pub := iconTestApp(t, func(w *weather.Config) {
 		w.TileNativeIcons = false
 		w.UseNativeIcons = false
 	})
@@ -63,7 +64,7 @@ func TestEnsureWeatherIcons_NoopWhenNativeOff(t *testing.T) {
 }
 
 func TestEnsureWeatherIcons_PopupToggleAloneProvisions(t *testing.T) {
-	app, pub := iconTestApp(t, func(w *WeatherConfig) { w.UseNativeIcons = true })
+	app, pub := iconTestApp(t, func(w *weather.Config) { w.UseNativeIcons = true })
 	app.ensureNativeIcons(context.Background())
 	if got := pub.PutIconNamesSnapshot(); len(got) != 6 {
 		t.Fatalf("uploaded %d icons, want all 6 (popups need them too)", len(got))
@@ -71,7 +72,7 @@ func TestEnsureWeatherIcons_PopupToggleAloneProvisions(t *testing.T) {
 }
 
 func TestEnsureWeatherIcons_HonorsOverrides(t *testing.T) {
-	app, pub := iconTestApp(t, func(w *WeatherConfig) {
+	app, pub := iconTestApp(t, func(w *weather.Config) {
 		w.TileNativeIcons = true
 		w.IconIDs = map[string]string{"clear": "9999"}
 	})
@@ -86,7 +87,7 @@ func TestEnsureWeatherIcons_HonorsOverrides(t *testing.T) {
 }
 
 func TestEnsureWeatherIcons_ListFailureUploadsNothing(t *testing.T) {
-	app, pub := iconTestApp(t, func(w *WeatherConfig) { w.TileNativeIcons = true })
+	app, pub := iconTestApp(t, func(w *weather.Config) { w.TileNativeIcons = true })
 	pub.iconsErr = errTest
 	app.ensureNativeIcons(context.Background())
 	if got := pub.PutIconNamesSnapshot(); len(got) != 0 {
@@ -97,7 +98,7 @@ func TestEnsureWeatherIcons_ListFailureUploadsNothing(t *testing.T) {
 func TestEnsureNativeIcons_PomodoroEnabledProvisionsTomatoAndCoffee(t *testing.T) {
 	pub := &recordingPublisher{icons: waitIconFiles()}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = false
 	cfg.Pomodoro.Enabled = true
 	app := NewApp(cfg, pub, testLogger())
@@ -118,7 +119,7 @@ func TestEnsureNativeIcons_PomodoroEnabledProvisionsTomatoAndCoffee(t *testing.T
 func TestEnsureNativeIcons_PomodoroDisabledProvisionsWeatherOnly(t *testing.T) {
 	pub := &recordingPublisher{icons: waitIconFiles()}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.TileNativeIcons = true
 	cfg.Pomodoro.Enabled = false

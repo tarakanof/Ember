@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type settingSpec[D any] struct {
@@ -41,7 +42,7 @@ type appSettings struct {
 	*settingsOverlay
 	clockApps     *setting[clockStoredConfig]
 	pomodoro      *setting[pomodoroSettingsDTO]
-	weather       *setting[WeatherConfig]
+	weather       *setting[weather.Config]
 	meetings      *setting[MeetingsConfig]
 	usage         *setting[usageConfigDTO]
 	usageAccounts *setting[usageAccountsDTO]

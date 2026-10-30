@@ -11,6 +11,7 @@ import (
 
 	"github.com/tarakanof/ember/internal/meetings"
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func pushedTiles(t *testing.T, app *App, pub *recordingPublisher, now time.Time) map[string]map[string]any {
@@ -69,10 +70,10 @@ func previewCard(t *testing.T, p render.Preview, card string) []string {
 	return nil
 }
 
-func weatherParityApp(t *testing.T, mut func(*WeatherConfig), obs weatherObservation) (*App, *recordingPublisher) {
+func weatherParityApp(t *testing.T, mut func(*weather.Config), obs weather.Observation) (*App, *recordingPublisher) {
 	t.Helper()
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	mut(&cfg.Weather)
 	pub := &recordingPublisher{}
@@ -80,14 +81,14 @@ func weatherParityApp(t *testing.T, mut func(*WeatherConfig), obs weatherObserva
 	app.weather.mu.Lock()
 	app.weather.obs = obs
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
-	app.weather.air = airObservation{AQI: 57, HourlyAQI: []float64{57, 61, 70, 30}, FetchedAt: obs.FetchedAt}
+	app.weather.source = app.cfg.Load().Weather.Source()
+	app.weather.air = weather.AirObservation{AQI: 57, HourlyAQI: []float64{57, 61, 70, 30}, FetchedAt: obs.FetchedAt}
 	app.weather.haveAir = true
 	app.weather.mu.Unlock()
 	return app, pub
 }
 
-func weatherQuery(c WeatherConfig) url.Values {
+func weatherQuery(c weather.Config) url.Values {
 	return url.Values{
 		"rotate_in_apps": {strconv.FormatBool(c.RotateInAppsEnabled())},
 		"forecast_tile":  {strconv.FormatBool(c.ForecastTileEnabled())},
@@ -110,7 +111,7 @@ func arc(n int) []float64 {
 
 func TestWeatherPreviewMatchesDevicePayload(t *testing.T) {
 	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
-	if !sunNight(51.5, -0.1, night) {
+	if !weather.SunNight(51.5, -0.1, night) {
 		t.Fatal("fixture: expected night in London")
 	}
 	noon := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
@@ -119,27 +120,27 @@ func TestWeatherPreviewMatchesDevicePayload(t *testing.T) {
 		name   string
 		now    time.Time
 		cond   string
-		mut    func(*WeatherConfig)
+		mut    func(*weather.Config)
 		native bool
 	}{
-		{"drawn day", noon, render.WeatherClouds, func(c *WeatherConfig) {}, false},
-		{"imperial", noon, render.WeatherRain, func(c *WeatherConfig) { c.Units = "imperial" }, false},
-		{"moon on a clear night", night, render.WeatherClear, func(c *WeatherConfig) {
+		{"drawn day", noon, render.WeatherClouds, func(c *weather.Config) {}, false},
+		{"imperial", noon, render.WeatherRain, func(c *weather.Config) { c.Units = "imperial" }, false},
+		{"moon on a clear night", night, render.WeatherClear, func(c *weather.Config) {
 			c.Latitude, c.Longitude = 51.5, -0.1
 		}, false},
-		{"moon off on a clear night", night, render.WeatherClear, func(c *WeatherConfig) {
+		{"moon off on a clear night", night, render.WeatherClear, func(c *weather.Config) {
 			c.Latitude, c.Longitude = 51.5, -0.1
 			c.MoonPhase = boolPtr(false)
 		}, false},
-		{"native icon", noon, render.WeatherSnow, func(c *WeatherConfig) { c.TileNativeIcons = true }, true},
-		{"forecast hours 3", noon, render.WeatherClouds, func(c *WeatherConfig) { c.ForecastHours = 3 }, false},
-		{"forecast hours 0", noon, render.WeatherClouds, func(c *WeatherConfig) { c.ForecastHours = 0 }, false},
-		{"forecast hours 30", noon, render.WeatherClouds, func(c *WeatherConfig) { c.ForecastHours = 30 }, false},
-		{"forecast hours 12", noon, render.WeatherClouds, func(c *WeatherConfig) { c.ForecastHours = 12 }, false},
+		{"native icon", noon, render.WeatherSnow, func(c *weather.Config) { c.TileNativeIcons = true }, true},
+		{"forecast hours 3", noon, render.WeatherClouds, func(c *weather.Config) { c.ForecastHours = 3 }, false},
+		{"forecast hours 0", noon, render.WeatherClouds, func(c *weather.Config) { c.ForecastHours = 0 }, false},
+		{"forecast hours 30", noon, render.WeatherClouds, func(c *weather.Config) { c.ForecastHours = 30 }, false},
+		{"forecast hours 12", noon, render.WeatherClouds, func(c *weather.Config) { c.ForecastHours = 12 }, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			obs := weatherObservation{Condition: tc.cond, TempC: 7, Hourly: arc(24),
+			obs := weather.Observation{Condition: tc.cond, TempC: 7, Hourly: arc(24),
 				Overlay: render.OverlayRain, FetchedAt: tc.now}
 			app, pub := weatherParityApp(t, tc.mut, obs)
 			pushed := pushedTiles(t, app, pub, tc.now)
@@ -166,14 +167,14 @@ func TestWeatherPreviewMatchesDevicePayload(t *testing.T) {
 
 func TestWeatherPreviewMoonFollowsDraft(t *testing.T) {
 	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
-	obs := weatherObservation{Condition: render.WeatherClear, TempC: 3, Hourly: arc(24), FetchedAt: night}
-	london := func(c *WeatherConfig) { c.Latitude, c.Longitude = 51.5, -0.1 }
-	noMoon := func(c *WeatherConfig) { london(c); c.MoonPhase = boolPtr(false) }
-	noLocation := func(c *WeatherConfig) {}
+	obs := weather.Observation{Condition: render.WeatherClear, TempC: 3, Hourly: arc(24), FetchedAt: night}
+	london := func(c *weather.Config) { c.Latitude, c.Longitude = 51.5, -0.1 }
+	noMoon := func(c *weather.Config) { london(c); c.MoonPhase = boolPtr(false) }
+	noLocation := func(c *weather.Config) {}
 
 	cases := []struct {
 		name         string
-		saved, draft func(*WeatherConfig)
+		saved, draft func(*weather.Config)
 	}{
 		{"moon toggled on", noMoon, london},
 		{"moon toggled off", london, noMoon},
@@ -219,23 +220,23 @@ func TestWeatherPreviewNoParamsMatchesSavedConfig(t *testing.T) {
 	cases := []struct {
 		name string
 		now  time.Time
-		mut  func(*WeatherConfig)
+		mut  func(*weather.Config)
 	}{
-		{"defaults", noon, func(c *WeatherConfig) {}},
-		{"imperial, 3h forecast", noon, func(c *WeatherConfig) {
+		{"defaults", noon, func(c *weather.Config) {}},
+		{"imperial, 3h forecast", noon, func(c *weather.Config) {
 			c.Units, c.ForecastHours = "imperial", 3
 		}},
-		{"air tile off", noon, func(c *WeatherConfig) { c.AirTile = boolPtr(false) }},
-		{"forecast and weather off", noon, func(c *WeatherConfig) {
+		{"air tile off", noon, func(c *weather.Config) { c.AirTile = boolPtr(false) }},
+		{"forecast and weather off", noon, func(c *weather.Config) {
 			c.RotateInApps, c.ForecastTile = boolPtr(false), boolPtr(false)
 		}},
-		{"moon off at night", night, func(c *WeatherConfig) {
+		{"moon off at night", night, func(c *weather.Config) {
 			c.Latitude, c.Longitude, c.MoonPhase = 51.5, -0.1, boolPtr(false)
 		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			obs := weatherObservation{Condition: render.WeatherClear, TempC: 7, Hourly: arc(24), FetchedAt: tc.now}
+			obs := weather.Observation{Condition: render.WeatherClear, TempC: 7, Hourly: arc(24), FetchedAt: tc.now}
 			app, pub := weatherParityApp(t, tc.mut, obs)
 			pushed := pushedTiles(t, app, pub, tc.now)
 			preview := app.weatherPreview(url.Values{}, tc.now)

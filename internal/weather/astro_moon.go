@@ -1,4 +1,4 @@
-package main
+package weather
 
 import (
 	"math"
@@ -7,13 +7,11 @@ import (
 )
 
 const (
-	moonSearch   = 36 * time.Hour
-	moonScanStep = time.Hour
-
+	moonSearch         = 36 * time.Hour
+	moonScanStep       = time.Hour
 	moonNearHorizonDeg = 1.0
 	moonTurnPrecision  = 20 * time.Second
-
-	deltaT = 69 * time.Second
+	deltaT             = 69 * time.Second
 )
 
 type lunarTerm struct {
@@ -119,15 +117,15 @@ func moonAboveHorizon(lat, lon float64, t time.Time) float64 {
 	return math.Asin(math.Sin(phi)*math.Sin(dec)+math.Cos(phi)*math.Cos(dec)*math.Cos(h))/deg2rad - moonHorizon(dist)
 }
 
-func moonPhaseAt(t time.Time) (phase, illum float64) {
+func MoonPhaseAt(t time.Time) (phase, illum float64) {
 	lambda, beta, _ := moonEcliptic(t)
 	diff := normDeg(lambda - sunEclipticLongitude(t))
 	cosPsi := math.Cos(beta*deg2rad) * math.Cos(diff*deg2rad)
 	return diff / 360, (1 - cosPsi) / 2
 }
 
-func moonIllumination(t time.Time) (illum float64, waxing bool) {
-	phase, illum := moonPhaseAt(t)
+func MoonIllumination(t time.Time) (illum float64, waxing bool) {
+	phase, illum := MoonPhaseAt(t)
 	return illum, phase < 0.5
 }
 
@@ -196,7 +194,7 @@ func moonTurn(alt func(time.Time) float64, lo, hi time.Time, up bool) time.Time 
 	return b
 }
 
-func moonUpWindow(lat, lon float64, now time.Time) (rise, set time.Time, up bool) {
+func MoonUpWindow(lat, lon float64, now time.Time) (rise, set time.Time, up bool) {
 	evs := moonEvents(lat, lon, now.Add(-moonSearch), now.Add(moonSearch))
 	next := sort.Search(len(evs), func(i int) bool { return evs[i].at.After(now) })
 	if next > 0 {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/nowplaying"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 const knobNowHeader = "X-Ember-Now"
@@ -276,7 +277,7 @@ func (a *App) knobPomo(now time.Time) *knobPomo {
 }
 
 func knobModel(m string) string {
-	if m == defaultOpenMeteoModel {
+	if m == weather.DefaultOpenMeteoModel {
 		return ""
 	}
 	return m
@@ -292,7 +293,7 @@ func (a *App) knobWeatherFor(now time.Time, detail bool) *knobWeather {
 	}
 	w := &knobWeather{
 		Provider: cfg.Provider,
-		Model:    knobModel(cfg.model()),
+		Model:    knobModel(cfg.Model()),
 		Cond:     wx.Obs.Condition,
 		Code:     wx.Obs.ConditionCode,
 		TempC:    wx.Obs.TempC,

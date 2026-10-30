@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 var weatherTile = tile{
@@ -21,7 +22,7 @@ var weatherTile = tile{
 		case moon != nil:
 			p = render.WeatherPayloadMoon(tempText, obs.TempC, window, *moon, usageAppLifetime)
 		case cfg.TileNativeIcons:
-			p = render.WeatherPayloadNative(cfg.weatherIconID(obs.Condition), tempText, obs.TempC, window, usageAppLifetime)
+			p = render.WeatherPayloadNative(cfg.IconID(obs.Condition), tempText, obs.TempC, window, usageAppLifetime)
 		default:
 			p = render.WeatherPayload(obs.Condition, tempText, obs.TempC, window, usageAppLifetime)
 		}
@@ -63,11 +64,11 @@ var airTile = tile{
 	},
 }
 
-func weatherTileMoon(cfg WeatherConfig, wx weatherState, now time.Time) *render.MoonView {
-	if !cfg.MoonPhaseEnabled() || wx.Obs.Condition != render.WeatherClear || !wx.Sun.either() || !wx.Night {
+func weatherTileMoon(cfg weather.Config, wx weatherState, now time.Time) *render.MoonView {
+	if !cfg.MoonPhaseEnabled() || wx.Obs.Condition != render.WeatherClear || !wx.Sun.Either() || !wx.Night {
 		return nil
 	}
-	illum, waxing := moonIllumination(now)
+	illum, waxing := weather.MoonIllumination(now)
 	return &render.MoonView{Illum: illum, Waxing: waxing}
 }
 

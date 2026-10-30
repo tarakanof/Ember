@@ -2,15 +2,17 @@ package main
 
 import (
 	"net/http"
+
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type weatherConfigDTO struct {
-	WeatherConfig
+	weather.Config
 	ProvidersAvailable []string `json:"providers_available"`
 }
 
-func (a *App) weatherDTO(c WeatherConfig) weatherConfigDTO {
-	return weatherConfigDTO{WeatherConfig: c, ProvidersAvailable: a.weatherFetcher.providersAvailable()}
+func (a *App) weatherDTO(c weather.Config) weatherConfigDTO {
+	return weatherConfigDTO{Config: c, ProvidersAvailable: a.weatherFetcher.ProvidersAvailable()}
 }
 
 func (a *App) handleWeatherConfigGet(w http.ResponseWriter, r *http.Request) {

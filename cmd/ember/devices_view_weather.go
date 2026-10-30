@@ -3,6 +3,8 @@ package main
 import (
 	"math"
 	"time"
+
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type knobWeatherDetail struct {
@@ -80,7 +82,7 @@ func unixOpt(t time.Time) *int64 {
 	return new(t.Unix())
 }
 
-func newKnobWeatherDetail(wx weatherState, cfg WeatherConfig) *knobWeatherDetail {
+func newKnobWeatherDetail(wx weatherState, cfg weather.Config) *knobWeatherDetail {
 	f := wx.faces()
 	n := wx.Obs.Now
 	d := &knobWeatherDetail{UTCOffset: int64(f.UTCOffset / time.Second)}
@@ -110,7 +112,7 @@ func newKnobWeatherDetail(wx weatherState, cfg WeatherConfig) *knobWeatherDetail
 		}
 	}
 	for _, day := range f.Days {
-		d.Days = append(d.Days, knobWxDay{T: day.Start.Unix(), End: dayEnd(day).Unix(), Cond: day.Cond, Code: day.Code,
+		d.Days = append(d.Days, knobWxDay{T: day.Start.Unix(), End: weather.DayEnd(day).Unix(), Cond: day.Cond, Code: day.Code,
 			MinC: roundedInt(day.MinC, 1), MaxC: roundedInt(day.MaxC, 1), Pop: roundedInt(day.Pop, 1), PrecipMM10: roundedInt(day.PrecipMM, 10)})
 	}
 	if f.HaveAstro {

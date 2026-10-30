@@ -12,109 +12,15 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
-
-func TestWMOCondition(t *testing.T) {
-	cases := []struct {
-		code   int
-		cond   string
-		severe bool
-	}{
-		{0, render.WeatherClear, false},
-		{2, render.WeatherClouds, false},
-		{45, render.WeatherFog, false},
-		{51, render.WeatherRain, false},
-		{65, render.WeatherRain, true},
-		{71, render.WeatherSnow, false},
-		{75, render.WeatherSnow, true},
-		{82, render.WeatherRain, true},
-		{95, render.WeatherStorm, true},
-		{99, render.WeatherStorm, true},
-	}
-	for _, c := range cases {
-		cond, severe := wmoCondition(c.code)
-		if cond != c.cond || severe != c.severe {
-			t.Errorf("wmoCondition(%d) = (%s,%v), want (%s,%v)", c.code, cond, severe, c.cond, c.severe)
-		}
-	}
-}
-
-func TestMetSymbolCondition(t *testing.T) {
-	cases := []struct {
-		sym    string
-		cond   string
-		severe bool
-	}{
-		{"clearsky_day", render.WeatherClear, false},
-		{"fair_night", render.WeatherClear, false},
-		{"partlycloudy_day", render.WeatherClouds, false},
-		{"cloudy", render.WeatherClouds, false},
-		{"fog", render.WeatherFog, false},
-		{"lightrain", render.WeatherRain, false},
-		{"heavyrain", render.WeatherRain, true},
-		{"snow", render.WeatherSnow, false},
-		{"heavysnowshowers_day", render.WeatherSnow, true},
-		{"rainandthunder", render.WeatherStorm, true},
-	}
-	for _, c := range cases {
-		cond, severe := metSymbolCondition(c.sym)
-		if cond != c.cond || severe != c.severe {
-			t.Errorf("metSymbolCondition(%q) = (%s,%v), want (%s,%v)", c.sym, cond, severe, c.cond, c.severe)
-		}
-	}
-}
-
-func TestWMOOverlay(t *testing.T) {
-	cases := []struct {
-		code int
-		want string
-	}{
-		{0, ""}, {3, ""}, {45, ""},
-		{48, render.OverlayFrost},
-		{51, render.OverlayDrizzle}, {57, render.OverlayDrizzle},
-		{61, render.OverlayRain}, {63, render.OverlayRain}, {66, render.OverlayRain}, {80, render.OverlayRain},
-		{65, render.OverlayStorm}, {67, render.OverlayStorm}, {82, render.OverlayStorm},
-		{71, render.OverlaySnow}, {77, render.OverlaySnow}, {86, render.OverlaySnow},
-		{95, render.OverlayThunder}, {99, render.OverlayThunder},
-	}
-	for _, c := range cases {
-		if got := wmoOverlay(c.code); got != c.want {
-			t.Errorf("wmoOverlay(%d) = %q, want %q", c.code, got, c.want)
-		}
-	}
-}
-
-func TestMetSymbolOverlay(t *testing.T) {
-	cases := []struct {
-		sym  string
-		want string
-	}{
-		{"clearsky_day", ""}, {"cloudy", ""}, {"fog", ""},
-		{"lightrain", render.OverlayRain},
-		{"lightrainshowers_day", render.OverlayRain},
-		{"rain", render.OverlayRain},
-		{"rainshowers_night", render.OverlayRain},
-		{"heavyrain", render.OverlayStorm},
-		{"sleet", render.OverlayRain},
-		{"lightsleetshowers_day", render.OverlayRain},
-		{"heavysleet", render.OverlayStorm},
-		{"heavysnowshowers_day", render.OverlaySnow},
-		{"rainandthunder", render.OverlayThunder},
-		{"lightssnowshowersandthunder_day", render.OverlayThunder},
-	}
-	for _, c := range cases {
-		if got := metSymbolOverlay(c.sym); got != c.want {
-			t.Errorf("metSymbolOverlay(%q) = %q, want %q", c.sym, got, c.want)
-		}
-	}
-}
 
 func TestWeatherPopupCarriesOverlay(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
 	cfg := defaultConfig().Weather
-	cfg.applyDefaults()
-	obs := weatherObservation{Condition: render.WeatherSnow, TempC: -2, Overlay: render.OverlaySnow}
+	cfg.ApplyDefaults()
+	obs := weather.Observation{Condition: render.WeatherSnow, TempC: -2, Overlay: render.OverlaySnow}
 
 	app.sendWeatherPopup(context.Background(), obs, cfg, 30, "")
 	cfg.Overlay = boolPtr(false)
@@ -144,103 +50,17 @@ func TestWeatherTempText(t *testing.T) {
 	}
 }
 
-func TestFetchOpenMeteo(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("latitude") == "" {
-			t.Error("missing latitude query")
-		}
-		if r.URL.Query().Get("hourly") != "temperature_2m" {
-			t.Error("open-meteo fetch must request hourly temperature_2m")
-		}
-		if r.URL.Query().Get("timezone") != "auto" {
-			t.Error("open-meteo fetch must request timezone=auto")
-		}
-		w.Write([]byte(`{"utc_offset_seconds":7200,"current":{"time":1782036000,"temperature_2m":12.5,"weather_code":61},"hourly":{"temperature_2m":[12.5,13.0,13.5]}}`))
-	}))
-	defer srv.Close()
-	wf := newWeatherFetcher()
-	wf.openMeteoBase = srv.URL
-	res, err := wf.fetch(context.Background(), WeatherConfig{Provider: "open-meteo", Latitude: 52.1, Longitude: 4.3}, fetchHint{})
-	obs := res.Obs
-	if err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	if obs.Condition != render.WeatherRain || obs.TempC != 12.5 {
-		t.Errorf("obs = %+v, want rain/12.5", obs)
-	}
-	if len(obs.Hourly) != 3 || obs.Hourly[0] != 12.5 || obs.Hourly[2] != 13.5 {
-		t.Errorf("hourly = %v, want [12.5 13 13.5]", obs.Hourly)
-	}
-	if !obs.TZKnown || obs.TZOffsetSeconds != 7200 {
-		t.Errorf("tz = (%v,%d), want (true,7200)", obs.TZKnown, obs.TZOffsetSeconds)
-	}
-	if want := time.Unix(1782036000, 0); !obs.ObservedAt.Equal(want) {
-		t.Errorf("observed at = %v, want %v", obs.ObservedAt, want)
-	}
-}
-
-func TestFetchWithoutProviderTimeLeavesObservedAtZero(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "locationforecast") {
-			w.Write([]byte(`{"properties":{"timeseries":[{"data":{"instant":{"details":{"air_temperature":3}}}}]}}`))
-			return
-		}
-		w.Write([]byte(`{"current":{"temperature_2m":20,"weather_code":0}}`))
-	}))
-	defer srv.Close()
-	wf := newWeatherFetcher()
-	wf.openMeteoBase, wf.metNoBase = srv.URL, srv.URL
-	for _, provider := range []string{"open-meteo", "met-no"} {
-		res, err := wf.fetch(context.Background(), WeatherConfig{Provider: provider, Latitude: 52.1, Longitude: 4.3}, fetchHint{})
-		obs := res.Obs
-		if err != nil {
-			t.Fatalf("%s fetch: %v", provider, err)
-		}
-		if !obs.ObservedAt.IsZero() {
-			t.Errorf("%s observed at = %v, want zero", provider, obs.ObservedAt)
-		}
-	}
-}
-
-func TestFetchMetNoSendsUserAgent(t *testing.T) {
-	gotUA := ""
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotUA = r.Header.Get("User-Agent")
-		w.Write([]byte(`{"properties":{"timeseries":[{"time":"2026-06-21T10:00:00Z","data":{"instant":{"details":{"air_temperature":3.2}},"next_1_hours":{"summary":{"symbol_code":"heavysnow"}}}}]}}`))
-	}))
-	defer srv.Close()
-	wf := newWeatherFetcher()
-	wf.metNoBase = srv.URL
-	res, err := wf.fetch(context.Background(), WeatherConfig{Provider: "met-no", Latitude: 59.9, Longitude: 10.7}, fetchHint{})
-	obs := res.Obs
-	if err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	if gotUA == "" {
-		t.Error("met.no requires a User-Agent; none sent")
-	}
-	if obs.Condition != render.WeatherSnow || !obs.Severe || obs.TempC != 3.2 {
-		t.Errorf("obs = %+v, want severe snow / 3.2", obs)
-	}
-	if len(obs.Hourly) != 1 || obs.Hourly[0] != 3.2 {
-		t.Errorf("met-no hourly = %v, want [3.2]", obs.Hourly)
-	}
-	if want := time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC); !obs.ObservedAt.Equal(want) {
-		t.Errorf("met-no observed at = %v, want %v", obs.ObservedAt, want)
-	}
-}
-
 func TestEvaluateWeatherPopupPriority(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	app := NewApp(cfg, pub, testLogger())
 	wcfg := app.cfg.Load().Weather
 
 	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 
-	storm := weatherObservation{Condition: render.WeatherStorm, TempC: 18, Severe: true, FetchedAt: now}
+	storm := weather.Observation{Condition: render.WeatherStorm, TempC: 18, Severe: true, FetchedAt: now}
 	if !app.evaluateWeatherPopup(context.Background(), now, storm, render.WeatherClouds, false, time.Time{}, wcfg) {
 		t.Fatal("severe transition should fire")
 	}
@@ -259,7 +79,7 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 	}
 	pub.mu.Unlock()
 
-	rain := weatherObservation{Condition: render.WeatherRain, TempC: 16, Severe: false, FetchedAt: now}
+	rain := weather.Observation{Condition: render.WeatherRain, TempC: 16, Severe: false, FetchedAt: now}
 	if !app.evaluateWeatherPopup(context.Background(), now, rain, render.WeatherStorm, true, now, wcfg) {
 		t.Fatal("condition change should fire")
 	}
@@ -281,11 +101,11 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 func TestApplyWeatherSettingsValidation(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	ownIconJobs(t, app)
-	bad := WeatherConfig{Provider: "open-meteo", Units: "metric", Latitude: 200, Longitude: 0, RefreshMinutes: 10, PopupDurationSeconds: 30}
+	bad := weather.Config{Provider: "open-meteo", Units: "metric", Latitude: 200, Longitude: 0, RefreshMinutes: 10, PopupDurationSeconds: 30}
 	if err := putWeather(app, bad); err == nil {
 		t.Error("latitude 200 should be rejected")
 	}
-	good := WeatherConfig{Provider: "met-no", Units: "imperial", Latitude: 52, Longitude: 4, RefreshMinutes: 15, PopupDurationSeconds: 20}
+	good := weather.Config{Provider: "met-no", Units: "imperial", Latitude: 52, Longitude: 4, RefreshMinutes: 15, PopupDurationSeconds: 20}
 	if err := putWeather(app, good); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}
@@ -294,24 +114,10 @@ func TestApplyWeatherSettingsValidation(t *testing.T) {
 	}
 }
 
-func TestWeatherIconIDOverride(t *testing.T) {
-	cfg := WeatherConfig{}
-	if got := cfg.weatherIconID(render.WeatherRain); got != "72" {
-		t.Errorf("default rain icon = %q, want 72", got)
-	}
-	cfg.IconIDs = map[string]string{render.WeatherRain: "999"}
-	if got := cfg.weatherIconID(render.WeatherRain); got != "999" {
-		t.Errorf("override rain icon = %q, want 999", got)
-	}
-	if got := cfg.weatherIconID(render.WeatherSnow); got != "2289" {
-		t.Errorf("unset snow icon = %q, want default 2289", got)
-	}
-}
-
 func TestApplyWeatherSettingsPreservesDisables(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	ownIconJobs(t, app)
-	off := WeatherConfig{
+	off := weather.Config{
 		Enabled: true, Provider: "open-meteo", Units: "metric", Latitude: 52, Longitude: 4,
 		RefreshMinutes: 10, PopupDurationSeconds: 30,
 		RotateInApps: boolPtr(false), PopupOnChange: boolPtr(false), SevereAlert: boolPtr(false), PopupIntervalMinutes: intPtr(0),
@@ -326,31 +132,10 @@ func TestApplyWeatherSettingsPreservesDisables(t *testing.T) {
 	}
 }
 
-func TestWeatherAirDefaults(t *testing.T) {
-	var c WeatherConfig
-	c.applyDefaults()
-	if !c.AirTileEnabled() {
-		t.Error("air_tile should default on at file load")
-	}
-	if c.AirPopupThreshold != 80 {
-		t.Errorf("air_popup_threshold default = %d, want 80", c.AirPopupThreshold)
-	}
-	neg := WeatherConfig{AirPopupThreshold: -5}
-	neg.applyDefaults()
-	if neg.AirPopupThreshold != 0 {
-		t.Errorf("negative threshold = %d, want clamped to 0 (off)", neg.AirPopupThreshold)
-	}
-	set := WeatherConfig{AirPopupThreshold: 60}
-	set.applyDefaults()
-	if set.AirPopupThreshold != 60 {
-		t.Errorf("explicit threshold clobbered: %d, want 60", set.AirPopupThreshold)
-	}
-}
-
 func TestWeatherAirValidation(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	ownIconJobs(t, app)
-	bad := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirPopupThreshold: 201}
+	bad := weather.Config{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirPopupThreshold: 201}
 	if err := putWeather(app, bad); err == nil {
 		t.Error("air_popup_threshold 201 should be rejected")
 	}
@@ -358,42 +143,13 @@ func TestWeatherAirValidation(t *testing.T) {
 	if err := putWeather(app, bad); err == nil {
 		t.Error("air_popup_threshold -1 should be rejected")
 	}
-	off := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirTile: boolPtr(false), AirPopupThreshold: 0}
+	off := weather.Config{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirTile: boolPtr(false), AirPopupThreshold: 0}
 	if err := putWeather(app, off); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}
 	got := app.cfg.Load().Weather
 	if got.AirTileEnabled() || got.AirPopupThreshold != 0 {
 		t.Errorf("air disables clobbered: tile=%v threshold=%d", got.AirTileEnabled(), got.AirPopupThreshold)
-	}
-}
-
-func TestFetchAirQuality(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		if q.Get("latitude") == "" {
-			t.Error("missing latitude query")
-		}
-		if q.Get("current") != "european_aqi,pm2_5,pm10" {
-			t.Errorf("current = %q, want european_aqi,pm2_5,pm10", q.Get("current"))
-		}
-		if q.Get("hourly") != "european_aqi" {
-			t.Error("air fetch must request hourly european_aqi")
-		}
-		w.Write([]byte(`{"current":{"european_aqi":38,"pm2_5":4.8,"pm10":6.5},"hourly":{"european_aqi":[38,39,40]}}`))
-	}))
-	defer srv.Close()
-	wf := newWeatherFetcher()
-	wf.airQualityBase = srv.URL
-	obs, err := wf.fetchAirQuality(context.Background(), WeatherConfig{Latitude: 44.8, Longitude: 20.5})
-	if err != nil {
-		t.Fatalf("fetchAirQuality: %v", err)
-	}
-	if obs.AQI != 38 || obs.PM25 != 4.8 || obs.PM10 != 6.5 {
-		t.Errorf("obs = %+v, want AQI 38 / pm2.5 4.8 / pm10 6.5", obs)
-	}
-	if len(obs.HourlyAQI) != 3 || obs.HourlyAQI[2] != 40 {
-		t.Errorf("hourly = %v, want [38 39 40]", obs.HourlyAQI)
 	}
 }
 
@@ -410,15 +166,15 @@ func newAirTestApp(t *testing.T, pub *recordingPublisher, aqi *float64, hits *in
 	t.Cleanup(airSrv.Close)
 
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.RefreshMinutes = 10
 	cfg.Weather.PopupIntervalMinutes = intPtr(0)
 	cfg.Weather.AirPopupThreshold = 80
 	app := NewApp(cfg, pub, testLogger())
-	app.weatherFetcher = newWeatherFetcher()
-	app.weatherFetcher.openMeteoBase = weatherSrv.URL
-	app.weatherFetcher.airQualityBase = airSrv.URL
+	app.weatherFetcher = weather.NewFetcher()
+	app.weatherFetcher.OpenMeteoBase = weatherSrv.URL
+	app.weatherFetcher.AirQualityBase = airSrv.URL
 	return app
 }
 
@@ -518,12 +274,12 @@ func TestPollAirFailureKeepsWeatherWorking(t *testing.T) {
 	defer airSrv.Close()
 
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	app := NewApp(cfg, pub, testLogger())
-	app.weatherFetcher = newWeatherFetcher()
-	app.weatherFetcher.openMeteoBase = weatherSrv.URL
-	app.weatherFetcher.airQualityBase = airSrv.URL
+	app.weatherFetcher = weather.NewFetcher()
+	app.weatherFetcher.OpenMeteoBase = weatherSrv.URL
+	app.weatherFetcher.AirQualityBase = airSrv.URL
 
 	app.pollWeather(context.Background(), time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC))
 	wx := app.weather.state(app.cfg.Load().Weather, time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC))
@@ -550,14 +306,14 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.RefreshMinutes = 10
 	cfg.Weather.PopupIntervalMinutes = intPtr(120)
 	app := NewApp(cfg, pub, testLogger())
-	app.weatherFetcher = newWeatherFetcher()
-	app.weatherFetcher.openMeteoBase = srv.URL
-	app.weatherFetcher.airQualityBase = notFoundServer(t)
+	app.weatherFetcher = weather.NewFetcher()
+	app.weatherFetcher.OpenMeteoBase = srv.URL
+	app.weatherFetcher.AirQualityBase = notFoundServer(t)
 
 	t0 := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 	app.pollWeather(context.Background(), t0)
@@ -587,8 +343,8 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 	}
 }
 
-func validWeatherConfig() WeatherConfig {
-	return WeatherConfig{
+func validWeatherConfig() weather.Config {
+	return weather.Config{
 		Provider:             "open-meteo",
 		Units:                "metric",
 		RefreshMinutes:       10,
@@ -631,7 +387,7 @@ func TestValidateWeatherOKWithoutIconIDs(t *testing.T) {
 	}
 }
 
-func putWeather(a *App, c WeatherConfig) error {
+func putWeather(a *App, c weather.Config) error {
 	b, err := json.Marshal(c)
 	if err != nil {
 		return err

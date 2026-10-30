@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/pomodoro"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func TestChangeBroadcasterWakesAllWaitersAndReportsTopics(t *testing.T) {
@@ -323,9 +324,9 @@ func TestKnobViewWaitRecheckCatchesSilentChanges(t *testing.T) {
 	etag := resp.Header.Get("ETag")
 	resp, body, _ := waitThenAct(t, f, etag, func() {
 		f.app.weather.mu.Lock()
-		f.app.weather.obs = weatherObservation{Condition: "rain", FetchedAt: time.Now()}
+		f.app.weather.obs = weather.Observation{Condition: "rain", FetchedAt: time.Now()}
 		f.app.weather.have = true
-		f.app.weather.source = f.app.cfg.Load().Weather.source()
+		f.app.weather.source = f.app.cfg.Load().Weather.Source()
 		f.app.weather.mu.Unlock()
 	})
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"cond":"rain"`) {

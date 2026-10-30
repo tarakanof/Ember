@@ -3,22 +3,26 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func TestWeatherStateFreshness(t *testing.T) {
 	now := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC)
-	on := WeatherConfig{Enabled: true, Latitude: 52.37, Longitude: 4.9}
+	on := weather.Config{Enabled: true, Latitude: 52.37, Longitude: 4.9}
 	off := on
 	off.Enabled = false
-	noCoords := WeatherConfig{Enabled: true}
-	obsAged := func(age time.Duration) weatherObservation { return weatherObservation{FetchedAt: now.Add(-age)} }
-	airAged := func(age time.Duration) airObservation { return airObservation{FetchedAt: now.Add(-age)} }
+	noCoords := weather.Config{Enabled: true}
+	obsAged := func(age time.Duration) weather.Observation { return weather.Observation{FetchedAt: now.Add(-age)} }
+	airAged := func(age time.Duration) weather.AirObservation {
+		return weather.AirObservation{FetchedAt: now.Add(-age)}
+	}
 	cases := []struct {
 		name               string
-		cfg                WeatherConfig
-		obs                weatherObservation
+		cfg                weather.Config
+		obs                weather.Observation
 		haveObs            bool
-		air                airObservation
+		air                weather.AirObservation
 		haveAir            bool
 		fresh, airFresh    bool
 		live, airLive      bool
@@ -29,7 +33,7 @@ func TestWeatherStateFreshness(t *testing.T) {
 		{"at the limit", on, obsAged(weatherStaleAfter), true, airAged(weatherStaleAfter), true, false, false, false, false, true, true},
 		{"air stale, weather fresh", on, obsAged(time.Minute), true, airAged(time.Hour), true, true, false, true, false, true, true},
 		{"weather stale, air fresh", on, obsAged(time.Hour), true, airAged(time.Minute), true, false, true, false, true, true, true},
-		{"missing", on, weatherObservation{}, false, airObservation{}, false, false, false, false, false, true, true},
+		{"missing", on, weather.Observation{}, false, weather.AirObservation{}, false, false, false, false, false, true, true},
 		{"missing with a recent stamp", on, obsAged(0), false, airAged(0), false, false, false, false, false, true, true},
 		{"disabled", off, obsAged(0), true, airAged(0), true, true, true, false, false, true, true},
 		{"no coordinates", noCoords, obsAged(0), true, airAged(0), true, true, true, true, true, false, false},
@@ -43,7 +47,7 @@ func TestWeatherStateFreshness(t *testing.T) {
 			if s.live() != tc.live || s.airLive() != tc.airLive {
 				t.Errorf("live = %v / air %v, want %v / %v", s.live(), s.airLive(), tc.live, tc.airLive)
 			}
-			if s.Sun.both() != tc.haveSun {
+			if s.Sun.Both() != tc.haveSun {
 				t.Errorf("sun = %+v, want both crossings %v", s.Sun, tc.haveSun)
 			}
 			if !tc.hasCoords && s.Night {
@@ -54,10 +58,10 @@ func TestWeatherStateFreshness(t *testing.T) {
 }
 
 func TestWeatherStateNightBoundaries(t *testing.T) {
-	cfg := WeatherConfig{Enabled: true, Latitude: 52.37, Longitude: 4.9}
-	obs := weatherObservation{TZKnown: true, TZOffsetSeconds: 2 * 3600}
+	cfg := weather.Config{Enabled: true, Latitude: 52.37, Longitude: 4.9}
+	obs := weather.Observation{TZKnown: true, TZOffsetSeconds: 2 * 3600}
 	day := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	rise, set, ok := localSunTimes(cfg.Latitude, cfg.Longitude, day, obs).pair()
+	rise, set, ok := weather.LocalSunTimes(cfg.Latitude, cfg.Longitude, day, obs).Pair()
 	if !ok {
 		t.Fatal("fixture: no sun times for Amsterdam")
 	}
@@ -75,11 +79,11 @@ func TestWeatherStateNightBoundaries(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newWeatherState(cfg, obs, true, airObservation{}, false, tc.now)
+			s := newWeatherState(cfg, obs, true, weather.AirObservation{}, false, tc.now)
 			if s.Night != tc.night {
 				t.Errorf("night = %v, want %v (sunrise %v, sunset %v)", s.Night, tc.night, rise, set)
 			}
-			if !s.Sun.both() || !s.Sun.Rise.Equal(rise) || !s.Sun.Set.Equal(set) {
+			if !s.Sun.Both() || !s.Sun.Rise.Equal(rise) || !s.Sun.Set.Equal(set) {
 				t.Errorf("sun = %+v, want %v..%v", s.Sun, rise, set)
 			}
 			r, st, _ := s.roundedSun()
@@ -107,9 +111,9 @@ func TestNightAtPolarEdges(t *testing.T) {
 	bc := BrightnessConfig{DayLevel: 255, NightLevel: 20, TwilightMinutes: 30}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newWeatherState(WeatherConfig{Enabled: true, Latitude: tc.lat, Longitude: tc.lon}, weatherObservation{}, true, airObservation{}, false, tc.now)
+			s := newWeatherState(weather.Config{Enabled: true, Latitude: tc.lat, Longitude: tc.lon}, weather.Observation{}, true, weather.AirObservation{}, false, tc.now)
 			if s.Night != tc.night {
-				t.Errorf("weather state night = %v, want %v (elevation %.1f°)", s.Night, tc.night, solarElevation(tc.lat, tc.lon, tc.now))
+				t.Errorf("weather state night = %v, want %v (elevation %.1f°)", s.Night, tc.night, weather.SolarElevation(tc.lat, tc.lon, tc.now))
 			}
 			want := bc.DayLevel
 			if tc.night {
@@ -119,22 +123,6 @@ func TestNightAtPolarEdges(t *testing.T) {
 				t.Errorf("sunLevel = %d,%v, want %d,%v", level, night, want, tc.night)
 			}
 		})
-	}
-}
-
-func TestSolarElevationMatchesSunTimesHorizon(t *testing.T) {
-	for _, c := range [][2]float64{{52.52, 13.405}, {34.05, -118.24}, {-33.87, 151.21}, {69.65, 18.96}, {-77.8, 166.7}} {
-		for d := 0; d < 365; d += 30 {
-			rise, set, ok := sunTimes(c[0], c[1], time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, d)).pair()
-			if !ok {
-				continue
-			}
-			for _, at := range []time.Time{rise, set} {
-				if e := solarElevation(c[0], c[1], at); e < sunHorizonDeg-0.05 || e > sunHorizonDeg+0.05 {
-					t.Errorf("%v at %v: elevation %.3f°, want ≈ %.3f°", c, at, e, sunHorizonDeg)
-				}
-			}
-		}
 	}
 }
 
@@ -162,19 +150,19 @@ func TestSunNightMatchesElevationAllYearAtPolarSites(t *testing.T) {
 			wrong := 0
 			at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 			for i := 0; at.Year() == 2026; i, at = i+1, at.Add(step) {
-				last, next := sunBracket(evs.at(at), at)
-				night := nightBetween(last, next, c[0], c[1], at)
+				last, next := weather.SunBracket(evs.at(at), at)
+				night := weather.NightBetween(last, next, c[0], c[1], at)
 				if i%sunWiringEvery == 0 {
-					if got := sunNight(c[0], c[1], at); got != night {
+					if got := weather.SunNight(c[0], c[1], at); got != night {
 						t.Fatalf("%v: sunNight %v, the bracket of that date's events says %v", at, got, night)
 					}
 					if _, levelNight := sunLevel(bc, c[0], c[1], at); levelNight != night {
 						t.Fatalf("%v: sunLevel night %v, sunNight %v", at, levelNight, night)
 					}
 				}
-				e := solarElevation(c[0], c[1], at)
-				if e-sunHorizonDeg > 1 || sunHorizonDeg-e > 1 {
-					if night != (e < sunHorizonDeg) {
+				e := weather.SolarElevation(c[0], c[1], at)
+				if e-weather.SunHorizonDeg > 1 || weather.SunHorizonDeg-e > 1 {
+					if night != (e < weather.SunHorizonDeg) {
 						wrong++
 						if wrong <= 3 {
 							t.Errorf("%v: night %v with the sun at %.1f°", at, night, e)
@@ -189,33 +177,8 @@ func TestSunNightMatchesElevationAllYearAtPolarSites(t *testing.T) {
 	}
 }
 
-func TestSunNightAtNormalLatitudesStaysOnTheEventBracket(t *testing.T) {
-	t.Parallel()
-	sites := map[string][2]float64{"Berlin": {52.52, 13.405}, "LA": {34.05, -118.24}, "Sydney": {-33.87, 151.21}}
-	step := sunYearStep(t)
-	for name, c := range sites {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			evs := sunEventsByDate{lat: c[0], lon: c[1]}
-			at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-			for i := 0; at.Year() == 2026; i, at = i+1, at.Add(step) {
-				last, next := sunBracket(evs.at(at), at)
-				if last == nil || next == nil || last.rise == next.rise {
-					t.Fatalf("%v: bracket %+v..%+v, want a sunrise and a sunset on either side", at, last, next)
-				}
-				if nightBetween(last, next, c[0], c[1], at) != !last.rise {
-					t.Fatalf("%v: night must be the bracket's call", at)
-				}
-				if i%sunWiringEvery == 0 && sunNight(c[0], c[1], at) != !last.rise {
-					t.Fatalf("%v: sunNight is not the bracket's call", at)
-				}
-			}
-		})
-	}
-}
-
 func TestWeatherStatePolar(t *testing.T) {
-	cfg := WeatherConfig{Enabled: true, Latitude: 78.2, Longitude: 15.6}
+	cfg := weather.Config{Enabled: true, Latitude: 78.2, Longitude: 15.6}
 	cases := []struct {
 		name  string
 		now   time.Time
@@ -226,8 +189,8 @@ func TestWeatherStatePolar(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newWeatherState(cfg, weatherObservation{}, true, airObservation{}, false, tc.now)
-			if s.Sun.either() {
+			s := newWeatherState(cfg, weather.Observation{}, true, weather.AirObservation{}, false, tc.now)
+			if s.Sun.Either() {
 				t.Errorf("sun times %+v, want none", s.Sun)
 			}
 			if s.Night != tc.night {
@@ -240,14 +203,14 @@ func TestWeatherStatePolar(t *testing.T) {
 func TestWeatherStoreStateSnapshotsTheStore(t *testing.T) {
 	now := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC)
 	s := newWeatherStore()
-	if got := s.state(WeatherConfig{Enabled: true}, now); got.HaveObs || got.HaveAir || got.live() || got.airLive() {
+	if got := s.state(weather.Config{Enabled: true}, now); got.HaveObs || got.HaveAir || got.live() || got.airLive() {
 		t.Fatalf("empty store state = %+v, want nothing live", got)
 	}
-	cfg := WeatherConfig{Enabled: true, Provider: "open-meteo"}
+	cfg := weather.Config{Enabled: true, Provider: "open-meteo"}
 	s.mu.Lock()
-	s.source = cfg.source()
-	s.obs, s.have = weatherObservation{Condition: "rain", FetchedAt: now, Hourly: []float64{1, 2}}, true
-	s.air, s.haveAir = airObservation{AQI: 42, FetchedAt: now, HourlyAQI: []float64{42, 40}}, true
+	s.source = cfg.Source()
+	s.obs, s.have = weather.Observation{Condition: "rain", FetchedAt: now, Hourly: []float64{1, 2}}, true
+	s.air, s.haveAir = weather.AirObservation{AQI: 42, FetchedAt: now, HourlyAQI: []float64{42, 40}}, true
 	s.mu.Unlock()
 	got := s.state(cfg, now)
 	if !got.live() || !got.airLive() || got.Obs.Condition != "rain" || got.Air.AQI != 42 ||
@@ -259,18 +222,18 @@ func TestWeatherStoreStateSnapshotsTheStore(t *testing.T) {
 func TestWeatherStoreStateHidesAnUntaggedObservation(t *testing.T) {
 	now := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC)
 	s := newWeatherStore()
-	s.obs, s.have = weatherObservation{Condition: "rain", FetchedAt: now}, true
-	if got := s.state(WeatherConfig{Enabled: true, Provider: "open-meteo"}, now); got.HaveObs {
+	s.obs, s.have = weather.Observation{Condition: "rain", FetchedAt: now}, true
+	if got := s.state(weather.Config{Enabled: true, Provider: "open-meteo"}, now); got.HaveObs {
 		t.Errorf("untagged store served %+v, want no observation until the poller tags it", got.Obs)
 	}
 }
 
 func TestWeatherStoreStateHidesAirFromAnotherLocation(t *testing.T) {
 	now := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC)
-	oslo := WeatherConfig{Enabled: true, Provider: "open-meteo", Latitude: 59.9, Longitude: 10.7}
+	oslo := weather.Config{Enabled: true, Provider: "open-meteo", Latitude: 59.9, Longitude: 10.7}
 	s := newWeatherStore()
-	s.switchSource(oslo.source())
-	s.air, s.haveAir = airObservation{AQI: 120, FetchedAt: now}, true
+	s.switchSource(oslo.Source())
+	s.air, s.haveAir = weather.AirObservation{AQI: 120, FetchedAt: now}, true
 
 	paris := oslo
 	paris.Latitude, paris.Longitude = 48.9, 2.3

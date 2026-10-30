@@ -5,12 +5,13 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func TestReconcileWeatherTilePushesAndClears(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.RotateInApps = boolPtr(true)
 	app := NewApp(cfg, pub, testLogger())
@@ -18,9 +19,9 @@ func TestReconcileWeatherTilePushesAndClears(t *testing.T) {
 	now := time.Now()
 
 	app.weather.mu.Lock()
-	app.weather.obs = weatherObservation{Condition: render.WeatherRain, TempC: 12, FetchedAt: now}
+	app.weather.obs = weather.Observation{Condition: render.WeatherRain, TempC: 12, FetchedAt: now}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	app.weather.mu.Unlock()
 	c.reconcileTiles(now)
 	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-weather" {
@@ -53,7 +54,7 @@ func TestWeatherTileCarriesOverlay(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pub := &recordingPublisher{}
 			cfg := defaultConfig()
-			cfg.Weather.applyDefaults()
+			cfg.Weather.ApplyDefaults()
 			cfg.Weather.Enabled = true
 			cfg.Weather.TileNativeIcons = tc.native
 			if tc.overlay != nil {
@@ -62,10 +63,10 @@ func TestWeatherTileCarriesOverlay(t *testing.T) {
 			app := NewApp(cfg, pub, testLogger())
 			now := time.Now()
 			app.weather.mu.Lock()
-			app.weather.obs = weatherObservation{Condition: render.WeatherStorm, TempC: 18,
+			app.weather.obs = weather.Observation{Condition: render.WeatherStorm, TempC: 18,
 				Overlay: render.OverlayThunder, FetchedAt: now}
 			app.weather.have = true
-			app.weather.source = app.cfg.Load().Weather.source()
+			app.weather.source = app.cfg.Load().Weather.Source()
 			app.weather.mu.Unlock()
 
 			app.coord.reconcileTiles(now)
@@ -85,7 +86,7 @@ func TestWeatherTileCarriesOverlay(t *testing.T) {
 func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.ForecastTile = boolPtr(true)
 	cfg.Weather.RotateInApps = boolPtr(false)
@@ -94,12 +95,12 @@ func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 	now := time.Now()
 
 	app.weather.mu.Lock()
-	app.weather.obs = weatherObservation{
+	app.weather.obs = weather.Observation{
 		Condition: render.WeatherClear, TempC: 20, FetchedAt: now,
 		Hourly: []float64{18, 19, 20, 21, 22},
 	}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	app.weather.mu.Unlock()
 	c.reconcileTiles(now)
 	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-forecast" {
@@ -120,7 +121,7 @@ func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 func TestReconcileAirTilePushesAndClears(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.AirTile = boolPtr(true)
 	app := NewApp(cfg, pub, testLogger())
@@ -128,7 +129,7 @@ func TestReconcileAirTilePushesAndClears(t *testing.T) {
 	now := time.Now()
 
 	app.weather.mu.Lock()
-	app.weather.air = airObservation{AQI: 42, HourlyAQI: []float64{40, 45, 50}, FetchedAt: now}
+	app.weather.air = weather.AirObservation{AQI: 42, HourlyAQI: []float64{40, 45, 50}, FetchedAt: now}
 	app.weather.haveAir = true
 	app.weather.mu.Unlock()
 	c.reconcileTiles(now)
@@ -151,12 +152,12 @@ func TestReconcileAirTileDisabled(t *testing.T) {
 	now := time.Now()
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.AirTile = boolPtr(false)
 	app := NewApp(cfg, pub, testLogger())
 	app.weather.mu.Lock()
-	app.weather.air = airObservation{AQI: 42, HourlyAQI: []float64{40}, FetchedAt: now}
+	app.weather.air = weather.AirObservation{AQI: 42, HourlyAQI: []float64{40}, FetchedAt: now}
 	app.weather.haveAir = true
 	app.weather.mu.Unlock()
 	app.coord.reconcileTiles(now)
@@ -170,7 +171,7 @@ func TestAdoptClearsStaleManagedAppsAfterRestart(t *testing.T) {
 		"Time", "ember", "ember-weather", "ember-forecast", "ember-air", "ember-usage-claude-5h",
 	}}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = false
 	app := NewApp(cfg, pub, testLogger())
 	c := app.coord
@@ -206,15 +207,15 @@ func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 	now := time.Now()
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.ForecastTile = boolPtr(false)
 	cfg.Weather.RotateInApps = boolPtr(false)
 	app := NewApp(cfg, pub, testLogger())
 	app.weather.mu.Lock()
-	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: now, Hourly: []float64{1, 2, 3}}
+	app.weather.obs = weather.Observation{Condition: render.WeatherClear, TempC: 20, FetchedAt: now, Hourly: []float64{1, 2, 3}}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	app.weather.mu.Unlock()
 	app.coord.reconcileTiles(now)
 	if got := len(pub.CustomNamesSnapshot()); got != 0 {
@@ -223,15 +224,15 @@ func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 
 	pub2 := &recordingPublisher{}
 	cfg2 := defaultConfig()
-	cfg2.Weather.applyDefaults()
+	cfg2.Weather.ApplyDefaults()
 	cfg2.Weather.Enabled = true
 	cfg2.Weather.ForecastTile = boolPtr(true)
 	cfg2.Weather.RotateInApps = boolPtr(false)
 	app2 := NewApp(cfg2, pub2, testLogger())
 	app2.weather.mu.Lock()
-	app2.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: now}
+	app2.weather.obs = weather.Observation{Condition: render.WeatherClear, TempC: 20, FetchedAt: now}
 	app2.weather.have = true
-	app2.weather.source = app2.cfg.Load().Weather.source()
+	app2.weather.source = app2.cfg.Load().Weather.Source()
 	app2.weather.mu.Unlock()
 	app2.coord.reconcileTiles(now)
 	if got := len(pub2.CustomNamesSnapshot()); got != 0 {
@@ -240,21 +241,21 @@ func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 }
 
 func TestForecastDefaultsAndWindow(t *testing.T) {
-	var c WeatherConfig
-	c.applyDefaults()
+	var c weather.Config
+	c.ApplyDefaults()
 	if !c.ForecastTileEnabled() {
 		t.Error("ForecastTile should default on")
 	}
 	if c.ForecastHours != 24 {
 		t.Errorf("ForecastHours default = %d, want 24", c.ForecastHours)
 	}
-	c2 := WeatherConfig{ForecastHours: 3}
-	c2.applyDefaults()
+	c2 := weather.Config{ForecastHours: 3}
+	c2.ApplyDefaults()
 	if c2.ForecastHours != 3 {
 		t.Errorf("ForecastHours 3 became %d, want 3 kept", c2.ForecastHours)
 	}
-	c3 := WeatherConfig{ForecastHours: 99}
-	c3.applyDefaults()
+	c3 := weather.Config{ForecastHours: 99}
+	c3.ApplyDefaults()
 	if c3.ForecastHours != 24 {
 		t.Errorf("ForecastHours 99 clamped to %d, want 24", c3.ForecastHours)
 	}
@@ -269,14 +270,14 @@ func TestForecastDefaultsAndWindow(t *testing.T) {
 func TestReconcileWeatherTileDisabledOrNoRotate(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.RotateInApps = boolPtr(false)
 	app := NewApp(cfg, pub, testLogger())
 	app.weather.mu.Lock()
-	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: time.Now()}
+	app.weather.obs = weather.Observation{Condition: render.WeatherClear, TempC: 20, FetchedAt: time.Now()}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	app.weather.mu.Unlock()
 	app.coord.reconcileTiles(time.Now())
 	if got := len(pub.CustomNamesSnapshot()); got != 0 {
@@ -287,16 +288,16 @@ func TestReconcileWeatherTileDisabledOrNoRotate(t *testing.T) {
 func TestReconcileTilesNativeIcons(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.TileNativeIcons = true
 	app := NewApp(cfg, pub, testLogger())
 	now := time.Now()
 	app.weather.mu.Lock()
-	app.weather.obs = weatherObservation{Condition: render.WeatherRain, TempC: 12,
+	app.weather.obs = weather.Observation{Condition: render.WeatherRain, TempC: 12,
 		Hourly: []float64{10, 11, 12}, FetchedAt: now}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	app.weather.mu.Unlock()
 
 	app.coord.reconcileTiles(now)

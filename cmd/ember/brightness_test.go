@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func TestBrightnessDefaults(t *testing.T) {
@@ -115,7 +117,7 @@ var (
 
 func TestSunLevel(t *testing.T) {
 	c := BrightnessConfig{}.resolved()
-	rise, set, ok := sunTimes(lonLat, lonLon, jun21).pair()
+	rise, set, ok := weather.SunTimes(lonLat, lonLon, jun21).Pair()
 	if !ok {
 		t.Fatal("no sun times")
 	}

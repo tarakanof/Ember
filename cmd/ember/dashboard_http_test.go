@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 var updateGolden = flag.Bool("update", false, "rewrite the testdata golden files")
@@ -117,12 +119,12 @@ func compareGolden(t *testing.T, path string, got []byte) {
 	}
 }
 
-func goldenPrecip() []precipStep {
+func goldenPrecip() []weather.PrecipStep {
 	start := time.Date(2026, 9, 26, 10, 15, 0, 0, goldenZone)
 	mmh := []float64{3.1, 1.2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8.0, 0}
-	out := make([]precipStep, len(mmh))
+	out := make([]weather.PrecipStep, len(mmh))
 	for i, v := range mmh {
-		out[i] = precipStep{At: start.Add(time.Duration(i) * 15 * time.Minute), MMh: v}
+		out[i] = weather.PrecipStep{At: start.Add(time.Duration(i) * 15 * time.Minute), MMh: v}
 	}
 	return out
 }
@@ -176,11 +178,11 @@ func goldenApp(t *testing.T) *App {
 
 	fetched := goldenNow.Add(-4 * time.Minute)
 	app.weather.mu.Lock()
-	app.weather.obs = weatherObservation{
+	app.weather.obs = weather.Observation{
 		Condition: "rain", ConditionCode: "61", TempC: 11.5, FetchedAt: fetched, TZKnown: true, TZOffsetSeconds: 7200,
-		Now:    weatherNow{Cloud: new(62.4), UV: new(2.6), WindKmh: new(18.4), GustKmh: new(31.2), WindDir: new(242.6)},
+		Now:    weather.Now{Cloud: new(62.4), UV: new(2.6), WindKmh: new(18.4), GustKmh: new(31.2), WindDir: new(242.6)},
 		Hourly: []float64{11.5, 12, 12.5}, HourlyStart: time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC),
-		Days: []weatherDay{
+		Days: []weather.Day{
 			{Start: time.Date(2026, 9, 26, 0, 0, 0, 0, goldenZone), MinC: new(8.4), MaxC: new(16.6), Pop: new(80.0)},
 			{Start: time.Date(2026, 9, 27, 0, 0, 0, 0, goldenZone), Cond: "rain", Code: "63", MinC: new(9.6), MaxC: new(14.4), Pop: new(70.0)},
 			{Start: time.Date(2026, 9, 28, 0, 0, 0, 0, goldenZone), Cond: "clear", Code: "0", MinC: new(7.2), MaxC: new(18.5), Pop: new(5.0)},
@@ -189,8 +191,8 @@ func goldenApp(t *testing.T) *App {
 		Precip:     goldenPrecip(),
 	}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
-	app.weather.air = airObservation{
+	app.weather.source = app.cfg.Load().Weather.Source()
+	app.weather.air = weather.AirObservation{
 		AQI: 42, PM25: 8, PM10: 15, FetchedAt: fetched,
 		HourlyAQI: []float64{42, 40}, HourlyStart: time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC),
 	}
@@ -379,10 +381,10 @@ func TestWeatherStateTodayRangeIsTheKnobsRange(t *testing.T) {
 
 	app := newPomodoroApp(t)
 	app.weather.mu.Lock()
-	app.weather.obs = weatherObservation{Condition: "clear", TempC: 21, FetchedAt: goldenNow,
-		Days: []weatherDay{{Start: goldenNow.Add(-time.Hour), MinC: new(9.0), MaxC: new(18.0)}}}
+	app.weather.obs = weather.Observation{Condition: "clear", TempC: 21, FetchedAt: goldenNow,
+		Days: []weather.Day{{Start: goldenNow.Add(-time.Hour), MinC: new(9.0), MaxC: new(18.0)}}}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	app.weather.mu.Unlock()
 	cur := app.buildWeatherState(goldenNow).Current
 	if cur == nil || cur.TodayMaxC == nil || *cur.TodayMaxC != 21 {
@@ -409,7 +411,7 @@ func TestWeatherStateCloudAndUVAreTheKnobViews(t *testing.T) {
 	}
 
 	app.weather.mu.Lock()
-	app.weather.obs.Now = weatherNow{}
+	app.weather.obs.Now = weather.Now{}
 	app.weather.mu.Unlock()
 	raw, err := json.Marshal(app.buildWeatherState(goldenNow).Current)
 	if err != nil {
@@ -430,17 +432,17 @@ func TestWeatherStateCloudAndUVParityEdges(t *testing.T) {
 	type pair struct{ cloud, uv *int }
 	for _, tc := range []struct {
 		name      string
-		now       weatherNow
+		now       weather.Now
 		want      pair
 		wantKnobs bool
 	}{
-		{"clear sky, no UV", weatherNow{Cloud: new(0.0)}, pair{cloud: new(0)}, true},
-		{"no cloud, UV 0 at night", weatherNow{UV: new(0.0)}, pair{uv: new(0)}, true},
-		{"halves round away from zero", weatherNow{Cloud: new(62.5), UV: new(2.5)}, pair{new(63), new(3)}, true},
-		{"just under a half", weatherNow{Cloud: new(9.49), UV: new(2.49)}, pair{new(9), new(2)}, true},
-		{"range tops", weatherNow{Cloud: new(100.0), UV: new(40.0)}, pair{new(100), new(40)}, true},
-		{"tiny negative rounds to zero", weatherNow{Cloud: new(-0.4), UV: new(-0.4)}, pair{new(0), new(0)}, true},
-		{"neither", weatherNow{}, pair{}, false},
+		{"clear sky, no UV", weather.Now{Cloud: new(0.0)}, pair{cloud: new(0)}, true},
+		{"no cloud, UV 0 at night", weather.Now{UV: new(0.0)}, pair{uv: new(0)}, true},
+		{"halves round away from zero", weather.Now{Cloud: new(62.5), UV: new(2.5)}, pair{new(63), new(3)}, true},
+		{"just under a half", weather.Now{Cloud: new(9.49), UV: new(2.49)}, pair{new(9), new(2)}, true},
+		{"range tops", weather.Now{Cloud: new(100.0), UV: new(40.0)}, pair{new(100), new(40)}, true},
+		{"tiny negative rounds to zero", weather.Now{Cloud: new(-0.4), UV: new(-0.4)}, pair{new(0), new(0)}, true},
+		{"neither", weather.Now{}, pair{}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app := goldenApp(t)
@@ -506,46 +508,14 @@ func TestWeatherStateSunNightIsTheKnobViews(t *testing.T) {
 func TestWeatherStateHourlyNeedsAStampedStart(t *testing.T) {
 	app := newPomodoroApp(t)
 	app.weather.mu.Lock()
-	app.weather.obs = weatherObservation{Condition: "clear", FetchedAt: goldenNow, Hourly: []float64{1, 2}}
+	app.weather.obs = weather.Observation{Condition: "clear", FetchedAt: goldenNow, Hourly: []float64{1, 2}}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	app.weather.mu.Unlock()
 
 	out := app.buildWeatherState(goldenNow)
 	if out.Current == nil || len(out.Current.Hourly) != 0 {
 		t.Errorf("hourly = %v, want [] when the provider didn't stamp the start", out.Current)
-	}
-}
-
-func TestWeatherFetchersStampHourlyStartAndCode(t *testing.T) {
-	om := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("timeformat") != "unixtime" {
-			t.Errorf("open-meteo timeformat = %q, want unixtime", r.URL.Query().Get("timeformat"))
-		}
-		_, _ = w.Write([]byte(`{"current":{"temperature_2m":9,"weather_code":61},"hourly":{"time":[1790409600,1790413200],"temperature_2m":[9,10]}}`))
-	}))
-	defer om.Close()
-	met := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"properties":{"timeseries":[{"time":"2026-09-26T07:00:00Z","data":{"instant":{"details":{"air_temperature":8}},"next_1_hours":{"summary":{"symbol_code":"rain_showers_day"}}}}]}}`))
-	}))
-	defer met.Close()
-	wf := newWeatherFetcher()
-	wf.openMeteoBase, wf.metNoBase = om.URL, met.URL
-
-	obs, err := wf.fetchOpenMeteo(t.Context(), WeatherConfig{Latitude: 1, Longitude: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if obs.ConditionCode != "61" || obs.HourlyStart.Unix() != 1790409600 {
-		t.Errorf("open-meteo code/start = %q/%v", obs.ConditionCode, obs.HourlyStart)
-	}
-	res, err := wf.fetchMetNo(t.Context(), WeatherConfig{Latitude: 1, Longitude: 2}, fetchHint{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	obs = res.Obs
-	if obs.ConditionCode != "rain_showers_day" || !obs.HourlyStart.Equal(time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)) {
-		t.Errorf("met-no code/start = %q/%v", obs.ConditionCode, obs.HourlyStart)
 	}
 }
 
@@ -744,9 +714,9 @@ func TestWeatherStateFacesFollowTheKnobsGates(t *testing.T) {
 	if f := app.buildWeatherState(goldenNow).Faces; f == nil || f.AQI != nil {
 		t.Errorf("faces = %+v, want no aqi with the air tile off, as on the knob", f)
 	}
-	cfg := WeatherConfig{Enabled: true}
-	obs := weatherObservation{Condition: "clear", TempC: 10, FetchedAt: goldenNow}
-	f := newWeatherFacesOut(newWeatherState(cfg, obs, true, airObservation{}, false, goldenNow), cfg, goldenZone)
+	cfg := weather.Config{Enabled: true}
+	obs := weather.Observation{Condition: "clear", TempC: 10, FetchedAt: goldenNow}
+	f := newWeatherFacesOut(newWeatherState(cfg, obs, true, weather.AirObservation{}, false, goldenNow), cfg, goldenZone)
 	if f == nil || f.Rain != nil || f.RainIntensity != nil || f.Twilight != nil || f.Moon.Up != nil {
 		t.Errorf("faces = %+v, want no rain without steps and no twilight or moon.up without a location", f)
 	}
@@ -776,7 +746,7 @@ func TestWeatherStateFacesMoonUpIsOnTheSunGrid(t *testing.T) {
 		}
 		return *f.Moon.Up
 	}
-	rise, set, _ := moonUpWindow(cfg.Latitude, cfg.Longitude, goldenNow)
+	rise, set, _ := weather.MoonUpWindow(cfg.Latitude, cfg.Longitude, goldenNow)
 	checked := 0
 	for _, e := range []time.Time{rise, set} {
 		if e.IsZero() {

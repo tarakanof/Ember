@@ -1719,7 +1719,7 @@ the clock are counted, not blocked. No prompt text is involved anywhere.
   A reply inside any period (bounds included) is on the clock, otherwise off;
   replies count toward their own logical day.
 
-### Weather — `cmd/ember/weather.go`, `weather_providers.go`
+### Weather — `internal/weather`, `cmd/ember/weather*.go`
 
 A standalone widget that shows current conditions. The server fetches them
 **itself** (not via a producer) from a free, key-less provider —
@@ -1739,7 +1739,7 @@ matches the configured one and it is still fresh (`weatherStaleAfter` past
 under a keyed provider's 5-min floor still serves weather, and doesn't
 refetch before `refresh_minutes`. Units aren't part of the tag: the
 observation is in °C either way. The store is tagged with the source it serves, provider,
-Open-Meteo model and location (`weatherSource`; #409 for the provider, #350
+Open-Meteo model and location (`weather.Source`; #409 for the provider, #350
 added the location, #427 the model): `state()` hides an observation tagged
 with another source, so after a provider, model or location change every view
 shows weather as absent until the new source's first fetch. The model is part
@@ -1775,7 +1775,14 @@ with the error's `Retry-After` as a floor capped at `refresh_minutes`
 (`markAirFailed`). A success resets the count and floor; a location switch
 clears the reading, the count, the floor and the last-attempt time.
 
-**Providers and models** (#427, `weather_providers.go`). `provider` is one
+`internal/weather` holds the fetcher, the providers, the observation types and
+the sun and moon maths; it knows nothing of `App`. `weatherStore` stays in
+`cmd/ember`: its state changes are `App` methods that hold its lock (#771). The
+package's tests run behind a loopback-only `TestMain`, and
+`TestFetcherOpensNoSocketsOfItsOwn` keeps requests on the default transport, so
+`cmd/ember`'s network guards still hold for it.
+
+**Providers and models** (#427, `internal/weather/providers.go`). `provider` is one
 of `weatherProviders`; under Open-Meteo, `open_meteo_model` picks the
 forecast model from the fixed `openMeteoModels` list (default `best_match`,
 which sends no `models=`; any other adds `&models=<id>`). With one model
@@ -1825,14 +1832,14 @@ and only 4 days. Every listed model returns `current`, `minutely_15`
 precipitation and the daily `precipitation_probability_max`; a value a model
 lacks (UV for most) is nil and left out of the knob view like any missing value.
 
-**Face data** (#350, `weather_providers.go`). Each fetch also fills the
+**Face data** (#350, `internal/weather/providers.go`). Each fetch also fills the
 observation's knob-face fields, nothing persisted: `Now` (cloud %, UV,
 wind and gust km/h, wind direction; each nil when the provider lacks it),
 `Precip` (the next 12 h of precipitation steps, mm/h plus a snow flag, every
 `PrecipStep`), `Days` (today plus the next 3 local days: condition, min/max
 °C, precipitation mm, probability, UV max, gust max; nil fields unknown).
 A day is `[Start, End)` between two true local midnights (`dayClock`,
-`weather_days.go`; #434, #440): the zone is the provider's (Open-Meteo
+`internal/weather/days.go`; #434, #440): the zone is the provider's (Open-Meteo
 `timezone`, WeatherAPI.com `tz_id`) or, for MET Norway and Tomorrow.io,
 the air reading's `timezone` passed in the fetch hint, loaded from the
 embedded tzdata (`loadZone` accepts only plain zone paths, never
@@ -1868,7 +1875,7 @@ years (no empty day, days abut, MET's splitter returns). The knob gets
   (condition, code, temperature, severe, overlay, `Now` in m/s × 3.6 and
   `ObservedAt`) come from the timeseries entry at or before now: the
   observation keeps the first 24 entries as `Steps`, and `newWeatherState`
-  projects the latest one not after `now` (`weatherObservation.current`), so
+  projects the latest one not after `now` (`Observation.Current`), so
   they move on each hour while MET is skipped until `Expires` or answers
   304. Open-Meteo has no `Steps`; its `current` block is refetched every
   poll. `Precip` is the leading run of 1-h entries'
@@ -1920,7 +1927,7 @@ years (no empty day, days abut, MET's splitter returns). The knob gets
   for the old location is dropped, so the offset is always this
   location's. Otherwise (air off, failing for 30 min, or not yet fetched
   here) the longitude fallback is used.
-- **Tomorrow.io** (#432, `weather_tomorrow.go`) reads
+- **Tomorrow.io** (#432, `internal/weather/tomorrow.go`) reads
   `/v4/weather/forecast?location=lat,lon&units=metric&apikey=…` with no
   `timesteps`, so the plan's default timelines come back (minutely, hourly
   120 h, daily; ~170 KB raw by the documented schema, gzipped in transit). Units are metric, so wind
@@ -1954,7 +1961,7 @@ years (no empty day, days abut, MET's splitter returns). The knob gets
   beats 4001 rain). Sun and moon
   times in the reply are ignored (Ember's astro). Rate limits, errors
   and the key: "Keyed providers".
-- **WeatherAPI.com** (#437, `weather_weatherapi.go`) reads
+- **WeatherAPI.com** (#437, `internal/weather/weatherapi.go`) reads
   `/v1/forecast.json?key=…&q=lat,lon&days=3&aqi=no&alerts=no` (the free
   plan's 3 days; ~50 KB raw by the documented schema). `location.tz_id`
   gives the real UTC offset at the observation (loaded from the embedded
@@ -1988,7 +1995,7 @@ years (no empty day, days abut, MET's splitter returns). The knob gets
   gust max = max of the hours' `gust_kph` (there is no daily gust). The
   day code counts the day's hours from the hour holding now on
   (`pickDayCode`); a day with none of them left takes `day.condition`.
-- **Keyed providers** (`weather_keyed.go`; Tomorrow.io, WeatherAPI.com). A
+- **Keyed providers** (`internal/weather/keyed.go`; Tomorrow.io, WeatherAPI.com). A
   provider in `keyedProviders` names its env var and minimum interval.
   `providers_available` lists it only while its key is set, a PUT
   switching to it without the key is a 400 (`settingSpec.check`, PUTs
@@ -2068,7 +2075,7 @@ the saved city's UTC offset). Air is served only for the store's location, so
 between a location save and the poller's retag no view shows the old
 location's air.
 The condition, interval, severe and AQI popups are not readers: they fire on a
-due poll and take the series' entry for now (`weatherObservation.current`),
+due poll and take the series' entry for now (`Observation.Current`),
 whether the poll brought a full fetch, was skipped until MET's `Expires` or
 got a 304; a 200 whose series starts before now can't rewind the condition
 and replay a popup or chime, so they trail the hourly-advancing display by
@@ -2099,7 +2106,7 @@ change-and-staleness dedupe as the usage card:
   `hourSlot`),
   coloured by a cold→warm temperature gradient (`render.TempColor`). On a
   **clear night** the icon becomes the current **moon phase** (`moon_phase`;
-  phase computed locally in `cmd/ember/astro_moon.go`, no API).
+  phase computed locally in `internal/weather/astro_moon.go`, no API).
 - **`ember-forecast`** (`forecast_tile`, default on) — **full-width hourly
   temperature bars** (no icon/temp — those live on the conditions tile, so the
   two tiles read differently at a glance); the bars sit on the same hour grid as
@@ -2216,7 +2223,7 @@ A 1-min poll loop (`StartWeather`) fetches when due and fires
 (`popup_on_change`), on a fixed cadence (`popup_interval_minutes`, `0`=off), a
 **sound alert** on severe-weather onset (`severe_alert`), and
 **sunrise/sunset** popups (`sun_popups`) — sun times computed locally from
-lat/lon (`astro.go` `sunTimes`, polar-safe), each crossing fired once within
+lat/lon (`internal/weather/astro.go` `SunTimes`, polar-safe), each crossing fired once within
 a 2-min window (`sunPopupLog`); the label uses the location's real UTC offset
 (longitude fallback for MET). Popups use a drawn icon by default; `use_native_icons` swaps in a
 native AWTRIX/LaMetric animated weather icon by ID — per-condition IDs default to
@@ -2229,7 +2236,7 @@ fully runtime-editable (`GET/PUT /v1/weather/config`, persisted to store key
 `weather_json`), including `enabled` — so the menu can turn the whole widget on/off.
 
 Weather constraints:
-- **Icon ids are validated.** `WeatherConfig.IconIDs` values flow into a device
+- **Icon ids are validated.** `weather.Config.IconIDs` values flow into a device
   file path (`/ICONS/<id>.<ext>`) and the LaMetric fetch URL, so they must be
   1-10 ASCII digits (`weatherIconIDPattern`); this is enforced in
   `validateWeather` and when the `config.json` baseline loads
@@ -2311,7 +2318,7 @@ Weather constraints:
   times are the location's local day"), not those between local midnights,
   so a dusk after local midnight (Reykjavík, late July) is the date
   before's, like a post-midnight sunset
-  (`TestTwilightIsTheSolarDayOfTheLocalDate`). The moon (`astro_moon.go`) is
+  (`TestTwilightIsTheSolarDayOfTheLocalDate`). The moon (`internal/weather/astro_moon.go`) is
   a truncated Meeus ch. 47 position (the 32 largest longitude terms with
   their distance terms, 16 latitude terms plus the additive ones; against
   Meeus example 47.a at 0h TD, evaluated at 0h − ΔT UT, longitude within
@@ -4303,7 +4310,7 @@ migration) the same config is a façade over the overlay slices, as in #230.
   record id (`clock-…`); without one it stays `clock`, and stored routes and
   expanded sidebar groups move between the two by kind. Settings › Clock › Apps › Agents, Focus, Weather
   and Calendar read and write their façade fields through `ClockAppLens`: the
-  pane edits the old config type (`WeatherConfig`, …), the lens overlays the
+  pane edits the old config type (`weather.Config`, …), the lens overlays the
   façade slice on the old model's draft for reading and writes only the
   slice back, so source-only fields (`weather.enabled`, Pomodoro rounds) still
   come from the old endpoint, read-only. A save is a merge `PUT` of the

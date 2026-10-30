@@ -9,6 +9,8 @@ import (
 	"os"
 	"slices"
 	"time"
+
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 var (
@@ -71,8 +73,8 @@ func sanitizeConfigBaseline(cfg *Config, logger *slog.Logger) {
 	}
 	if m := cfg.Weather.OpenMeteoModel; !slices.Contains(openMeteoModels, m) {
 		logger.Warn("config.json weather.open_meteo_model invalid, falling back to default",
-			"value", m, "default", defaultOpenMeteoModel)
-		cfg.Weather.OpenMeteoModel = defaultOpenMeteoModel
+			"value", m, "default", weather.DefaultOpenMeteoModel)
+		cfg.Weather.OpenMeteoModel = weather.DefaultOpenMeteoModel
 	}
 	for k, v := range cfg.Weather.IconIDs {
 		if !weatherIconIDPattern.MatchString(v) {
@@ -191,7 +193,7 @@ type Config struct {
 	Display           DisplayConfig                `json:"display"`
 	RateLimit         RateLimitConfig              `json:"rate_limit"`
 	Pomodoro          PomodoroConfig               `json:"pomodoro"`
-	Weather           WeatherConfig                `json:"weather"`
+	Weather           weather.Config               `json:"weather"`
 	Meetings          MeetingsConfig               `json:"meetings"`
 	Day               DayConfig                    `json:"day"`
 	UsageWidget       *bool                        `json:"usage_widget,omitempty"`
@@ -454,7 +456,7 @@ func (c *Config) applyDefaults() {
 		c.Pomodoro.DBPath = "/var/lib/ember/pomodoro.db"
 	}
 
-	c.Weather.applyDefaults()
+	c.Weather.ApplyDefaults()
 	c.Meetings.applyDefaults()
 	c.Day.fillAbsent()
 }

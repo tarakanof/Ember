@@ -1,4 +1,4 @@
-package main
+package weather
 
 import (
 	"math"
@@ -9,7 +9,7 @@ import (
 const deg2rad = math.Pi / 180
 
 const (
-	sunHorizonDeg        = -0.833
+	SunHorizonDeg        = -0.833
 	sunCrossingTolerance = 0.5 / 86400
 	sunCrossingMaxSteps  = 60
 	sunExtremeQuarter    = 0.25
@@ -36,20 +36,20 @@ func solarTransit(n, lon float64) float64 {
 	return 2451545.0 + jStar + 0.0053*math.Sin(mRad) - 0.0069*math.Sin(2*lRad)
 }
 
-type sunCrossings struct {
+type SunCrossings struct {
 	Rise, Set         time.Time
 	HaveRise, HaveSet bool
 }
 
-func (c sunCrossings) both() bool { return c.HaveRise && c.HaveSet }
+func (c SunCrossings) Both() bool { return c.HaveRise && c.HaveSet }
 
-func (c sunCrossings) either() bool { return c.HaveRise || c.HaveSet }
+func (c SunCrossings) Either() bool { return c.HaveRise || c.HaveSet }
 
-func sunTimes(lat, lon float64, date time.Time) sunCrossings {
-	return sunAt(lat, lon, date, sunHorizonDeg)
+func SunTimes(lat, lon float64, date time.Time) SunCrossings {
+	return sunAt(lat, lon, date, SunHorizonDeg)
 }
 
-func sunAt(lat, lon float64, date time.Time, altDeg float64) sunCrossings {
+func sunAt(lat, lon float64, date time.Time, altDeg float64) SunCrossings {
 	n := math.Round(julianDate(date) - 2451545.0 + 0.0008)
 	prev, transit, next := solarTransit(n-1, lon), solarTransit(n, lon), solarTransit(n+1, lon)
 	sinLat, cosLat := math.Sincos(lat * deg2rad)
@@ -59,13 +59,13 @@ func sunAt(lat, lon float64, date time.Time, altDeg float64) sunCrossings {
 	dawnSide := sunExtreme(f, prev+sunExtremeQuarter, transit-sunExtremeQuarter, -1, polar)
 	noon := sunExtreme(f, transit-sunExtremeQuarter, transit+sunExtremeQuarter, 1, polar)
 	duskSide := sunExtreme(f, transit+sunExtremeQuarter, next-sunExtremeQuarter, -1, polar)
-	var c sunCrossings
+	var c SunCrossings
 	c.add(sunCrossing(f, dawnSide, noon))
 	c.add(sunCrossing(f, noon, duskSide))
 	return c
 }
 
-func (c *sunCrossings) add(at time.Time, rise, ok bool) {
+func (c *SunCrossings) add(at time.Time, rise, ok bool) {
 	switch {
 	case !ok:
 	case rise:
@@ -132,7 +132,7 @@ func sunCrossing(f func(float64) float64, a, b sunPoint) (at time.Time, rise, ok
 	return julianToTime((a.j + b.j) / 2), rise, true
 }
 
-func solarElevation(lat, lon float64, now time.Time) float64 {
+func SolarElevation(lat, lon float64, now time.Time) float64 {
 	sinLat, cosLat := math.Sincos(lat * deg2rad)
 	return math.Asin(sunHeight(sinLat, cosLat, lon, float64(now.Unix())/86400+2440587.5)) / deg2rad
 }
@@ -158,33 +158,33 @@ func julianToTime(jd float64) time.Time {
 	return time.Unix(int64(math.Round(unixSeconds)), 0).UTC()
 }
 
-func sunClock(event time.Time, obs weatherObservation, lon float64) string {
-	return event.UTC().Add(localOffset(obs, lon)).Format("15:04")
+func SunClock(event time.Time, obs Observation, lon float64) string {
+	return event.UTC().Add(LocalOffset(obs, lon)).Format("15:04")
 }
 
-func localOffset(obs weatherObservation, lon float64) time.Duration {
+func LocalOffset(obs Observation, lon float64) time.Duration {
 	if obs.TZKnown {
 		return time.Duration(obs.TZOffsetSeconds) * time.Second
 	}
 	return time.Duration(math.Round(lon/15)) * time.Hour
 }
 
-func localDay(now time.Time, obs weatherObservation, lon float64) string {
-	return now.UTC().Add(localOffset(obs, lon)).Format("2006-01-02")
+func LocalDay(now time.Time, obs Observation, lon float64) string {
+	return now.UTC().Add(LocalOffset(obs, lon)).Format("2006-01-02")
 }
 
-func localNoon(now time.Time, obs weatherObservation, lon float64) time.Time {
-	off := localOffset(obs, lon)
+func localNoon(now time.Time, obs Observation, lon float64) time.Time {
+	off := LocalOffset(obs, lon)
 	y, m, d := now.UTC().Add(off).Date()
 	return time.Date(y, m, d, 12, 0, 0, 0, time.UTC).Add(-off)
 }
 
-func localSolarDate(now time.Time, obs weatherObservation, lon float64) time.Time {
+func localSolarDate(now time.Time, obs Observation, lon float64) time.Time {
 	return localNoon(now, obs, lon).Add(time.Duration(lon / 15 * float64(time.Hour)))
 }
 
-func localSunTimes(lat, lon float64, now time.Time, obs weatherObservation) sunCrossings {
-	return sunTimes(lat, lon, localSolarDate(now, obs, lon))
+func LocalSunTimes(lat, lon float64, now time.Time, obs Observation) SunCrossings {
+	return SunTimes(lat, lon, localSolarDate(now, obs, lon))
 }
 
 const (
@@ -193,47 +193,47 @@ const (
 	goldenHourEndDeg = 6
 )
 
-type twilight struct {
+type Twilight struct {
 	Dawn, BlueEnd, GoldenEnd, GoldenStart, BlueStart, Dusk time.Time
 }
 
-func localTwilight(lat, lon float64, now time.Time, obs weatherObservation) twilight {
+func LocalTwilight(lat, lon float64, now time.Time, obs Observation) Twilight {
 	date := localSolarDate(now, obs, lon)
 	civil := sunAt(lat, lon, date, civilTwilightDeg)
 	blue := sunAt(lat, lon, date, blueHourEndDeg)
 	golden := sunAt(lat, lon, date, goldenHourEndDeg)
-	return twilight{Dawn: civil.Rise, BlueEnd: blue.Rise, GoldenEnd: golden.Rise,
+	return Twilight{Dawn: civil.Rise, BlueEnd: blue.Rise, GoldenEnd: golden.Rise,
 		GoldenStart: golden.Set, BlueStart: blue.Set, Dusk: civil.Set}
 }
 
-type sunEvent struct {
-	at   time.Time
-	rise bool
+type SunEvent struct {
+	At   time.Time
+	Rise bool
 }
 
-func sunEvents(lat, lon float64, now time.Time) []sunEvent {
-	var evs []sunEvent
+func SunEvents(lat, lon float64, now time.Time) []SunEvent {
+	var evs []SunEvent
 	now = now.UTC()
 	for d := -1; d <= 1; d++ {
-		c := sunTimes(lat, lon, now.AddDate(0, 0, d))
+		c := SunTimes(lat, lon, now.AddDate(0, 0, d))
 		if c.HaveRise {
-			evs = append(evs, sunEvent{c.Rise, true})
+			evs = append(evs, SunEvent{c.Rise, true})
 		}
 		if c.HaveSet {
-			evs = append(evs, sunEvent{c.Set, false})
+			evs = append(evs, SunEvent{c.Set, false})
 		}
 	}
-	sort.Slice(evs, func(i, j int) bool { return evs[i].at.Before(evs[j].at) })
+	sort.Slice(evs, func(i, j int) bool { return evs[i].At.Before(evs[j].At) })
 	return evs
 }
 
-func sunEventsAround(lat, lon float64, now time.Time) (last, next *sunEvent) {
-	return sunBracket(sunEvents(lat, lon, now), now)
+func SunEventsAround(lat, lon float64, now time.Time) (last, next *SunEvent) {
+	return SunBracket(SunEvents(lat, lon, now), now)
 }
 
-func sunBracket(evs []sunEvent, now time.Time) (last, next *sunEvent) {
+func SunBracket(evs []SunEvent, now time.Time) (last, next *SunEvent) {
 	for i := range evs {
-		if !evs[i].at.After(now) {
+		if !evs[i].At.After(now) {
 			last = &evs[i]
 		} else if next == nil {
 			next = &evs[i]
@@ -242,14 +242,16 @@ func sunBracket(evs []sunEvent, now time.Time) (last, next *sunEvent) {
 	return last, next
 }
 
-func sunNight(lat, lon float64, now time.Time) bool {
-	last, next := sunEventsAround(lat, lon, now)
-	return nightBetween(last, next, lat, lon, now)
+func SunNight(lat, lon float64, now time.Time) bool {
+	last, next := SunEventsAround(lat, lon, now)
+	return NightBetween(last, next, lat, lon, now)
 }
 
-func nightBetween(last, next *sunEvent, lat, lon float64, now time.Time) bool {
+func NightBetween(last, next *SunEvent, lat, lon float64, now time.Time) bool {
 	if last != nil && next != nil {
-		return !last.rise
+		return !last.Rise
 	}
-	return solarElevation(lat, lon, now) < sunHorizonDeg
+	return SolarElevation(lat, lon, now) < SunHorizonDeg
 }
+
+func (c SunCrossings) Pair() (rise, set time.Time, ok bool) { return c.Rise, c.Set, c.Both() }

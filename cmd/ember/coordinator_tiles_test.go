@@ -9,6 +9,7 @@ import (
 
 	"github.com/tarakanof/ember/internal/meetings"
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type fakeTileWriter struct {
@@ -37,12 +38,12 @@ func (w *fakeTileWriter) clear(app string) error {
 }
 
 func airOnly(now time.Time, aqi float64) tileInputs {
-	var cfg WeatherConfig
-	cfg.applyDefaults()
+	var cfg weather.Config
+	cfg.ApplyDefaults()
 	cfg.Enabled = true
 	cfg.RotateInApps, cfg.ForecastTile = boolPtr(false), boolPtr(false)
 	return tileInputs{now: now, weather: cfg,
-		wx: newWeatherState(cfg, weatherObservation{}, false, airObservation{AQI: aqi, FetchedAt: now}, true, now)}
+		wx: newWeatherState(cfg, weather.Observation{}, false, weather.AirObservation{AQI: aqi, FetchedAt: now}, true, now)}
 }
 
 func TestTileSetDedupesAndRefreshes(t *testing.T) {
@@ -126,13 +127,13 @@ func TestTileSetAdoptAndForget(t *testing.T) {
 
 func TestPreviewTilesHonoursToggleNotLiveGate(t *testing.T) {
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	var cfg WeatherConfig
-	cfg.applyDefaults()
+	var cfg weather.Config
+	cfg.ApplyDefaults()
 	cfg.ForecastTile = boolPtr(false)
 	in := tileInputs{now: now, weather: cfg,
 		wx: newWeatherState(cfg,
-			weatherObservation{Condition: render.WeatherRain, TempC: 3, Hourly: arc(24), FetchedAt: now.Add(-24 * time.Hour)}, false,
-			airObservation{AQI: 20}, false, now),
+			weather.Observation{Condition: render.WeatherRain, TempC: 3, Hourly: arc(24), FetchedAt: now.Add(-24 * time.Hour)}, false,
+			weather.AirObservation{AQI: 20}, false, now),
 		nextMeet: meetings.Occurrence{Title: "1:1", Start: now.Add(3 * time.Hour)},
 	}
 	for i := range tiles {

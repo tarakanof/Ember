@@ -1,4 +1,4 @@
-package main
+package weather
 
 import (
 	"context"
@@ -13,15 +13,15 @@ import (
 )
 
 const (
-	weatherAPI            = "weatherapi"
-	weatherAPIKeyEnv      = "EMBER_WEATHERAPI_KEY"
+	WeatherAPI            = "weatherapi"
+	WeatherAPIKeyEnv      = "EMBER_WEATHERAPI_KEY"
 	weatherAPIDays        = 3
 	precipStepsWeatherAPI = 48
 	weatherAPIPrecipStep  = 15 * time.Minute
 )
 
 var (
-	errWeatherAPINoKey    = errors.New("weatherapi: " + weatherAPIKeyEnv + " is not set on the server")
+	errWeatherAPINoKey    = errors.New("weatherapi: " + WeatherAPIKeyEnv + " is not set on the server")
 	errWeatherAPIRequest  = errors.New("weatherapi: request failed")
 	errWeatherAPIResponse = errors.New("weatherapi: invalid response")
 )
@@ -68,12 +68,12 @@ type waDay struct {
 	Hour []waHour `json:"hour"`
 }
 
-func (wf *weatherFetcher) fetchWeatherAPI(ctx context.Context, cfg WeatherConfig, hint fetchHint) (weatherObservation, error) {
-	if wf.weatherAPIKey == "" {
-		return weatherObservation{}, errWeatherAPINoKey
+func (wf *Fetcher) fetchWeatherAPI(ctx context.Context, cfg Config, hint FetchHint) (Observation, error) {
+	if wf.WeatherAPIKey == "" {
+		return Observation{}, errWeatherAPINoKey
 	}
 	u := fmt.Sprintf("%s/v1/forecast.json?key=%s&q=%.4f,%.4f&days=%d&aqi=no&alerts=no",
-		strings.TrimRight(wf.weatherAPIBase, "/"), url.QueryEscape(wf.weatherAPIKey), cfg.Latitude, cfg.Longitude, weatherAPIDays)
+		strings.TrimRight(wf.WeatherAPIBase, "/"), url.QueryEscape(wf.WeatherAPIKey), cfg.Latitude, cfg.Longitude, weatherAPIDays)
 	var body struct {
 		Location struct {
 			TzID string `json:"tz_id"`
@@ -84,7 +84,7 @@ func (wf *weatherFetcher) fetchWeatherAPI(ctx context.Context, cfg WeatherConfig
 		} `json:"forecast"`
 	}
 	if _, err := wf.getJSON(ctx, u, "", &body); err != nil {
-		return weatherObservation{}, keyedFetchError(ctx, err, time.Now(), errWeatherAPIRequest, errWeatherAPIResponse)
+		return Observation{}, keyedFetchError(ctx, err, time.Now(), errWeatherAPIRequest, errWeatherAPIResponse)
 	}
 	days := body.Forecast.Forecastday
 	if body.Current != nil && body.Current.LastUpdatedEpoch <= 0 {
@@ -105,15 +105,15 @@ func (wf *weatherFetcher) fetchWeatherAPI(ctx context.Context, cfg WeatherConfig
 	case len(hours) > 0:
 		from = later(hours[0].at(), wf.clock().UTC())
 	default:
-		return weatherObservation{}, errWeatherAPIResponse
+		return Observation{}, errWeatherAPIResponse
 	}
-	obs := weatherObservation{TZOffsetSeconds: hint.TZOffsetSeconds, TZKnown: hint.TZKnown, PrecipStep: weatherAPIPrecipStep}
+	obs := Observation{TZOffsetSeconds: hint.TZOffsetSeconds, TZKnown: hint.TZKnown, PrecipStep: weatherAPIPrecipStep}
 	loc := loadZone(body.Location.TzID)
 	if loc != nil {
 		_, obs.TZOffsetSeconds = from.In(loc).Zone()
 		obs.TZKnown = true
 	}
-	clock := dayClock{loc: loc, off: localOffset(obs, cfg.Longitude)}
+	clock := dayClock{loc: loc, off: LocalOffset(obs, cfg.Longitude)}
 	if body.Current != nil {
 		obs.Steps = append(obs.Steps, body.Current.step())
 	}
@@ -143,20 +143,20 @@ func (wf *weatherFetcher) fetchWeatherAPI(ctx context.Context, cfg WeatherConfig
 			if len(obs.Precip) == precipStepsWeatherAPI {
 				break
 			}
-			obs.Precip = append(obs.Precip, precipStep{At: t.Add(q * weatherAPIPrecipStep), MMh: *h.PrecipMM, Snow: snow})
+			obs.Precip = append(obs.Precip, PrecipStep{At: t.Add(q * weatherAPIPrecipStep), MMh: *h.PrecipMM, Snow: snow})
 		}
 	}
 	if len(obs.Steps) == 0 {
-		return weatherObservation{}, errWeatherAPIResponse
+		return Observation{}, errWeatherAPIResponse
 	}
 	obs.Days = waDays(days, clock, from)
-	obs = obs.current(obs.Steps[0].At)
+	obs = obs.Current(obs.Steps[0].At)
 	return obs, nil
 }
 
 func (h waHour) at() time.Time { return time.Unix(h.TimeEpoch, 0).UTC() }
 
-func waStep(at time.Time, temp *float64, c waCondition, now weatherNow) currentStep {
+func waStep(at time.Time, temp *float64, c waCondition, now Now) currentStep {
 	s := currentStep{At: at, TempC: valueOr(temp, 0), Condition: render.WeatherClouds, Now: now}
 	if wmo, ok := weatherAPIWMO(valueOrInt(c.Code, -1)); ok {
 		s.Condition, s.Severe = wmoCondition(wmo)
@@ -168,16 +168,16 @@ func waStep(at time.Time, temp *float64, c waCondition, now weatherNow) currentS
 
 func (c waCurrent) step() currentStep {
 	return waStep(time.Unix(c.LastUpdatedEpoch, 0).UTC(), c.TempC, c.Condition,
-		weatherNow{Cloud: c.Cloud, UV: c.UV, WindKmh: c.WindKph, GustKmh: c.GustKph, WindDir: c.WindDegree})
+		Now{Cloud: c.Cloud, UV: c.UV, WindKmh: c.WindKph, GustKmh: c.GustKph, WindDir: c.WindDegree})
 }
 
 func (h waHour) step() currentStep {
 	return waStep(h.at(), h.TempC, h.Condition,
-		weatherNow{Cloud: h.Cloud, UV: h.UV, WindKmh: h.WindKph, GustKmh: h.GustKph, WindDir: h.WindDegree})
+		Now{Cloud: h.Cloud, UV: h.UV, WindKmh: h.WindKph, GustKmh: h.GustKph, WindDir: h.WindDegree})
 }
 
-func waDays(days []waDay, clock dayClock, from time.Time) []weatherDay {
-	var out []weatherDay
+func waDays(days []waDay, clock dayClock, from time.Time) []Day {
+	var out []Day
 	for _, d := range days {
 		if len(out) == forecastDays {
 			break
@@ -192,7 +192,7 @@ func waDays(days []waDay, clock dayClock, from time.Time) []weatherDay {
 			continue
 		}
 		v := d.Day
-		day := weatherDay{Start: start, End: end, MinC: v.MintempC, MaxC: v.MaxtempC, PrecipMM: v.TotalprecipMM,
+		day := Day{Start: start, End: end, MinC: v.MintempC, MaxC: v.MaxtempC, PrecipMM: v.TotalprecipMM,
 			Pop: maxOpt(v.DailyChanceOfRain, v.DailyChanceOfSnow), UVMax: v.UV}
 		counts := map[int]int{}
 		for _, h := range d.Hour {

@@ -10,12 +10,13 @@ import (
 
 	"github.com/tarakanof/ember/internal/meetings"
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type tileInputs struct {
 	now time.Time
 
-	weather WeatherConfig
+	weather weather.Config
 	wx      weatherState
 
 	meet      MeetingsConfig

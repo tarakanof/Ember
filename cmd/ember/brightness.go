@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 const brightnessSettingsKey = "brightness_json"
@@ -156,16 +157,16 @@ func holdWithinBand(prev int, hasPrev bool, target, band, floor, ceiling int) in
 }
 
 func sunLevel(c BrightnessConfig, lat, lon float64, now time.Time) (level int, night bool) {
-	last, next := sunEventsAround(lat, lon, now)
-	if !nightBetween(last, next, lat, lon, now) {
+	last, next := weather.SunEventsAround(lat, lon, now)
+	if !weather.NightBetween(last, next, lat, lon, now) {
 		return c.DayLevel, false
 	}
 	tw := time.Duration(c.TwilightMinutes) * time.Minute
 	frac := 0.0
-	if last != nil && !last.rise && now.Sub(last.at) < tw {
-		frac = 1 - float64(now.Sub(last.at))/float64(tw)
-	} else if next != nil && next.rise && next.at.Sub(now) < tw {
-		frac = 1 - float64(next.at.Sub(now))/float64(tw)
+	if last != nil && !last.Rise && now.Sub(last.At) < tw {
+		frac = 1 - float64(now.Sub(last.At))/float64(tw)
+	} else if next != nil && next.Rise && next.At.Sub(now) < tw {
+		frac = 1 - float64(next.At.Sub(now))/float64(tw)
 	}
 	return c.NightLevel + int(math.Round(frac*float64(c.DayLevel-c.NightLevel))), true
 }

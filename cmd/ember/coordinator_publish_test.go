@@ -13,6 +13,7 @@ import (
 
 	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 type attemptPublisher struct {
@@ -424,7 +425,7 @@ func TestCoord_RepublishClearsDedupeAndRepushes(t *testing.T) {
 func TestCoord_RepublishRepushesStandaloneTiles(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
-	cfg.Weather.applyDefaults()
+	cfg.Weather.ApplyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.RotateInApps = boolPtr(true)
 	app := NewApp(cfg, pub, testLogger())
@@ -433,9 +434,9 @@ func TestCoord_RepublishRepushesStandaloneTiles(t *testing.T) {
 	now := time.Now()
 
 	app.weather.mu.Lock()
-	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 21, FetchedAt: now}
+	app.weather.obs = weather.Observation{Condition: render.WeatherClear, TempC: 21, FetchedAt: now}
 	app.weather.have = true
-	app.weather.source = app.cfg.Load().Weather.source()
+	app.weather.source = app.cfg.Load().Weather.Source()
 	app.weather.mu.Unlock()
 
 	c.reconcileTiles(now)

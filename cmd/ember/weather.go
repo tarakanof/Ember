@@ -16,143 +16,19 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
 )
-
-type WeatherConfig struct {
-	Enabled              bool              `json:"enabled"`
-	Provider             string            `json:"provider"`
-	OpenMeteoModel       string            `json:"open_meteo_model"`
-	Latitude             float64           `json:"latitude"`
-	Longitude            float64           `json:"longitude"`
-	LocationName         string            `json:"location_name"`
-	Units                string            `json:"units"`
-	RefreshMinutes       int               `json:"refresh_minutes"`
-	RotateInApps         *bool             `json:"rotate_in_apps"`
-	ForecastTile         *bool             `json:"forecast_tile"`
-	ForecastHours        int               `json:"forecast_hours"`
-	SunPopups            *bool             `json:"sun_popups"`
-	MoonPhase            *bool             `json:"moon_phase"`
-	PopupIntervalMinutes *int              `json:"popup_interval_minutes"`
-	PopupDurationSeconds int               `json:"popup_duration_seconds"`
-	PopupOnChange        *bool             `json:"popup_on_change"`
-	SevereAlert          *bool             `json:"severe_alert"`
-	SevereSound          string            `json:"severe_sound"`
-	UseNativeIcons       bool              `json:"use_native_icons"`
-	IconIDs              map[string]string `json:"icon_ids,omitempty"`
-	TileNativeIcons      bool              `json:"tile_native_icons"`
-	AirTile              *bool             `json:"air_tile"`
-	AirPopupThreshold    int               `json:"air_popup_threshold"`
-	Overlay              *bool             `json:"overlay"`
-}
 
 func boolPtr(b bool) *bool { return &b }
 func intPtr(v int) *int    { return &v }
 
-const defaultWeatherPopupIntervalMinutes = 120
-
-func (c WeatherConfig) RotateInAppsEnabled() bool  { return c.RotateInApps == nil || *c.RotateInApps }
-func (c WeatherConfig) ForecastTileEnabled() bool  { return c.ForecastTile == nil || *c.ForecastTile }
-func (c WeatherConfig) SunPopupsEnabled() bool     { return c.SunPopups == nil || *c.SunPopups }
-func (c WeatherConfig) MoonPhaseEnabled() bool     { return c.MoonPhase == nil || *c.MoonPhase }
-func (c WeatherConfig) PopupOnChangeEnabled() bool { return c.PopupOnChange == nil || *c.PopupOnChange }
-func (c WeatherConfig) SevereAlertEnabled() bool   { return c.SevereAlert == nil || *c.SevereAlert }
-func (c WeatherConfig) AirTileEnabled() bool       { return c.AirTile == nil || *c.AirTile }
-func (c WeatherConfig) OverlayEnabled() bool       { return c.Overlay == nil || *c.Overlay }
-
-// nil means 120, explicit 0 turns it off.
-func (c WeatherConfig) PopupIntervalMins() int {
-	if c.PopupIntervalMinutes == nil {
-		return defaultWeatherPopupIntervalMinutes
-	}
-	if v := *c.PopupIntervalMinutes; v > 0 {
-		return v
-	}
-	return 0
-}
-
-func (c *WeatherConfig) fillAbsent() {
-	if c.OpenMeteoModel == "" {
-		c.OpenMeteoModel = defaultOpenMeteoModel
-	}
-	if c.RotateInApps == nil {
-		c.RotateInApps = boolPtr(true)
-	}
-	if c.ForecastTile == nil {
-		c.ForecastTile = boolPtr(true)
-	}
-	if c.SunPopups == nil {
-		c.SunPopups = boolPtr(true)
-	}
-	if c.MoonPhase == nil {
-		c.MoonPhase = boolPtr(true)
-	}
-	if c.PopupOnChange == nil {
-		c.PopupOnChange = boolPtr(true)
-	}
-	if c.SevereAlert == nil {
-		c.SevereAlert = boolPtr(true)
-	}
-	if c.AirTile == nil {
-		c.AirTile = boolPtr(true)
-	}
-	if c.Overlay == nil {
-		c.Overlay = boolPtr(true)
-	}
-	if c.PopupIntervalMinutes == nil {
-		c.PopupIntervalMinutes = intPtr(defaultWeatherPopupIntervalMinutes)
-	}
-}
-
-func (c WeatherConfig) weatherIconID(cond string) string {
-	if id := c.IconIDs[cond]; id != "" {
-		return id
-	}
-	return defaultWeatherIconIDs[cond]
-}
-
 const defaultWeatherSevereSound = "storm:d=4,o=5,b=160:8c6,8a,8c6,8a,8c6"
-
-var defaultWeatherIconIDs = map[string]string{
-	render.WeatherClear:  "1338",
-	render.WeatherClouds: "2286",
-	render.WeatherFog:    "17056",
-	render.WeatherRain:   "72",
-	render.WeatherSnow:   "2289",
-	render.WeatherStorm:  "11428",
-}
-
-func (c *WeatherConfig) applyDefaults() {
-	if c.Provider == "" {
-		c.Provider = "open-meteo"
-	}
-	if c.Units == "" {
-		c.Units = "metric"
-	}
-	if c.RefreshMinutes <= 0 {
-		c.RefreshMinutes = 10
-	}
-	if c.PopupDurationSeconds <= 0 {
-		c.PopupDurationSeconds = 30
-	}
-	c.fillAbsent()
-	if *c.PopupIntervalMinutes < 0 {
-		c.PopupIntervalMinutes = intPtr(0)
-	}
-	if c.ForecastHours <= 0 || c.ForecastHours > 24 {
-		c.ForecastHours = 24
-	}
-	if c.AirPopupThreshold < 0 {
-		c.AirPopupThreshold = 0
-	} else if c.AirPopupThreshold == 0 {
-		c.AirPopupThreshold = 80
-	}
-}
 
 var weatherIconIDPattern = regexp.MustCompile(`^[0-9]{1,10}$`)
 
-func validateWeather(c WeatherConfig) error {
-	if !slices.Contains(weatherProviders, c.Provider) {
-		return fmt.Errorf("weather.provider %q must be one of %s", c.Provider, strings.Join(weatherProviders, ", "))
+func validateWeather(c weather.Config) error {
+	if !slices.Contains(weather.Providers, c.Provider) {
+		return fmt.Errorf("weather.provider %q must be one of %s", c.Provider, strings.Join(weather.Providers, ", "))
 	}
 	if c.OpenMeteoModel != "" && !slices.Contains(openMeteoModels, c.OpenMeteoModel) {
 		return fmt.Errorf("weather.open_meteo_model %q must be one of %s", c.OpenMeteoModel, strings.Join(openMeteoModels, ", "))
@@ -194,117 +70,10 @@ func validateWeather(c WeatherConfig) error {
 	return nil
 }
 
-type weatherObservation struct {
-	Condition       string
-	ConditionCode   string
-	TempC           float64
-	Severe          bool
-	ObservedAt      time.Time
-	FetchedAt       time.Time
-	HourlyStart     time.Time
-	Hourly          []float64
-	Overlay         string
-	TZOffsetSeconds int
-	TZKnown         bool
-	ValidUntil      time.Time
-	Now             weatherNow
-	PrecipStep      time.Duration
-	Precip          []precipStep
-	Days            []weatherDay
-	Steps           []currentStep
-}
-
-type currentStep struct {
-	At        time.Time
-	Condition string
-	Code      string
-	TempC     float64
-	Severe    bool
-	Overlay   string
-	Now       weatherNow
-}
-
-func (o weatherObservation) current(now time.Time) weatherObservation {
-	i := sort.Search(len(o.Steps), func(i int) bool { return o.Steps[i].At.After(now) }) - 1
-	if i < 0 {
-		return o
-	}
-	c := o.Steps[i]
-	o.Condition, o.ConditionCode, o.TempC, o.Severe = c.Condition, c.Code, c.TempC, c.Severe
-	o.Overlay, o.Now, o.ObservedAt = c.Overlay, c.Now, c.At
-	return o
-}
-
-type weatherNow struct {
-	Cloud   *float64
-	UV      *float64
-	WindKmh *float64
-	GustKmh *float64
-	WindDir *float64
-}
-
-type precipStep struct {
-	At   time.Time
-	MMh  float64
-	Snow bool
-}
-
-type weatherDay struct {
-	Start      time.Time
-	End        time.Time
-	Cond       string
-	Code       string
-	MinC       *float64
-	MaxC       *float64
-	PrecipMM   *float64
-	Pop        *float64
-	UVMax      *float64
-	GustMaxKmh *float64
-}
-
-const forecastFetchHours = 24
-
-const airFetchHours = 24
-
-const forecastDays = 4
-
-type airObservation struct {
-	AQI             float64
-	PM25            float64
-	PM10            float64
-	HourlyAQI       []float64
-	HourlyStart     time.Time
-	FetchedAt       time.Time
-	TZOffsetSeconds int
-	TZKnown         bool
-	TZName          string
-}
-
-type weatherLocation struct{ lat, lon float64 }
-
-type weatherSource struct {
-	provider string
-	model    string
-	loc      weatherLocation
-}
-
-func (c WeatherConfig) location() weatherLocation { return weatherLocation{c.Latitude, c.Longitude} }
-
-func (c WeatherConfig) source() weatherSource {
-	return weatherSource{c.Provider, c.model(), c.location()}
-}
-
-func (c WeatherConfig) model() string {
-	if c.Provider != "open-meteo" {
-		return ""
-	}
-	return cmp.Or(c.OpenMeteoModel, defaultOpenMeteoModel)
-}
-
 type weatherStore struct {
 	mu        sync.RWMutex
-	source    weatherSource
-	obs       weatherObservation
+	source    weather.Source
+	obs       weather.Observation
 	have      bool
 	lastFetch time.Time
 	failures  int
@@ -322,7 +91,7 @@ type weatherStore struct {
 
 	snapshotLoaded bool
 
-	air         airObservation
+	air         weather.AirObservation
 	haveAir     bool
 	airTriedAt  time.Time
 	airFailures int
@@ -333,24 +102,24 @@ type weatherStore struct {
 
 func newWeatherStore() *weatherStore { return &weatherStore{} }
 
-func (s *weatherStore) serves(src weatherSource) bool {
+func (s *weatherStore) serves(src weather.Source) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.source == src
 }
 
-func (s *weatherStore) switchSource(src weatherSource) {
+func (s *weatherStore) switchSource(src weather.Source) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.source == src {
 		return
 	}
-	if s.source.loc != src.loc {
-		s.air, s.haveAir, s.havePrevAQI = airObservation{}, false, false
+	if s.source.Loc != src.Loc {
+		s.air, s.haveAir, s.havePrevAQI = weather.AirObservation{}, false, false
 		s.airTriedAt, s.airFailures, s.airRetryAt = time.Time{}, 0, time.Time{}
 	}
 	s.source = src
-	s.obs = weatherObservation{}
+	s.obs = weather.Observation{}
 	s.have = false
 	s.lastFetch = time.Time{}
 	s.failures = 0
@@ -360,88 +129,7 @@ func (s *weatherStore) switchSource(src weatherSource) {
 	s.prevCondition = ""
 }
 
-func wmoCondition(code int) (string, bool) {
-	switch {
-	case code == 0:
-		return render.WeatherClear, false
-	case code >= 1 && code <= 3:
-		return render.WeatherClouds, false
-	case code == 45 || code == 48:
-		return render.WeatherFog, false
-	case code >= 51 && code <= 57:
-		return render.WeatherRain, false
-	case code >= 61 && code <= 67:
-		return render.WeatherRain, code == 65 || code == 67
-	case code >= 71 && code <= 77:
-		return render.WeatherSnow, code == 75
-	case code >= 80 && code <= 82:
-		return render.WeatherRain, code == 82
-	case code == 85 || code == 86:
-		return render.WeatherSnow, code == 86
-	case code >= 95:
-		return render.WeatherStorm, true
-	default:
-		return render.WeatherClouds, false
-	}
-}
-
-func metSymbolCondition(sym string) (string, bool) {
-	s := strings.ToLower(sym)
-	switch {
-	case strings.Contains(s, "thunder"):
-		return render.WeatherStorm, true
-	case strings.Contains(s, "snow") || strings.Contains(s, "sleet"):
-		return render.WeatherSnow, strings.Contains(s, "heavy")
-	case strings.Contains(s, "rain") || strings.Contains(s, "showers"):
-		return render.WeatherRain, strings.Contains(s, "heavy")
-	case strings.Contains(s, "fog"):
-		return render.WeatherFog, false
-	case strings.Contains(s, "cloud"):
-		return render.WeatherClouds, false
-	case strings.Contains(s, "clear") || strings.Contains(s, "fair"):
-		return render.WeatherClear, false
-	default:
-		return render.WeatherClouds, false
-	}
-}
-
-func wmoOverlay(code int) string {
-	switch {
-	case code == 48:
-		return render.OverlayFrost
-	case code >= 51 && code <= 57:
-		return render.OverlayDrizzle
-	case code == 65 || code == 67 || code == 82:
-		return render.OverlayStorm
-	case (code >= 61 && code <= 67) || (code >= 80 && code <= 82):
-		return render.OverlayRain
-	case (code >= 71 && code <= 77) || code == 85 || code == 86:
-		return render.OverlaySnow
-	case code >= 95:
-		return render.OverlayThunder
-	default:
-		return ""
-	}
-}
-
-func metSymbolOverlay(sym string) string {
-	s := strings.ToLower(sym)
-	switch {
-	case strings.Contains(s, "thunder"):
-		return render.OverlayThunder
-	case strings.Contains(s, "snow"):
-		return render.OverlaySnow
-	case strings.Contains(s, "rain") || strings.Contains(s, "sleet"):
-		if strings.Contains(s, "heavy") {
-			return render.OverlayStorm
-		}
-		return render.OverlayRain
-	default:
-		return ""
-	}
-}
-
-func weatherOverlay(obs weatherObservation, cfg WeatherConfig) string {
+func weatherOverlay(obs weather.Observation, cfg weather.Config) string {
 	if !cfg.OverlayEnabled() {
 		return ""
 	}
@@ -465,7 +153,7 @@ var weatherWords = map[string]string{
 	render.WeatherStorm:  "STORM",
 }
 
-func weatherLabel(obs weatherObservation, cfg WeatherConfig) string {
+func weatherLabel(obs weather.Observation, cfg weather.Config) string {
 	word := weatherWords[obs.Condition]
 	if word == "" {
 		word = strings.ToUpper(obs.Condition)
@@ -482,7 +170,7 @@ func (a *App) StartWeather(ctx context.Context) {
 	a.pollWeather(ctx, time.Now())
 	for {
 		_, changed := a.changes.subscribe()
-		if !a.weather.serves(a.cfg.Load().Weather.source()) {
+		if !a.weather.serves(a.cfg.Load().Weather.Source()) {
 			a.pollWeather(ctx, time.Now())
 			continue
 		}
@@ -499,12 +187,12 @@ func (a *App) StartWeather(ctx context.Context) {
 func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	entered := time.Now()
 	cfg := a.cfg.Load().Weather
-	src := cfg.source()
+	src := cfg.Source()
 	a.weather.switchSource(src)
 	if !cfg.Enabled {
 		return
 	}
-	available := a.weatherFetcher.providerAvailable(cfg.Provider)
+	available := a.weatherFetcher.ProviderAvailable(cfg.Provider)
 	if available {
 		a.restoreWeatherSnapshot(src, now)
 	}
@@ -529,9 +217,9 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	}
 	a.saveWeatherQuota(cfg)
 	started := time.Now()
-	res, err := a.weatherFetcher.fetch(ctx, cfg, hint)
+	res, err := a.weatherFetcher.Fetch(ctx, cfg, hint)
 	if err != nil {
-		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "model", cfg.model(), "err", err)
+		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "model", cfg.Model(), "err", err)
 		a.markWeatherFailedAfter(now, at.Add(time.Since(started)), src, retryAfterOf(err), statusOf(err) == http.StatusTooManyRequests)
 		a.saveWeatherQuota(cfg)
 		return
@@ -548,9 +236,9 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	}
 	obs := res.Obs
 	obs.FetchedAt = now
-	obs.ValidUntil = res.expiresAt(now, cfg.maxProviderFreshness())
+	obs.ValidUntil = res.ExpiresAt(now, cfg.MaxProviderFreshness())
 	a.weather.mu.Lock()
-	if a.cfg.Load().Weather.source() != src {
+	if a.cfg.Load().Weather.Source() != src {
 		a.weather.mu.Unlock()
 		return
 	}
@@ -564,22 +252,22 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	a.weather.mu.Unlock()
 	a.saveWeatherSnapshot(src)
 	a.changes.notify(topicWeather)
-	a.popWeather(ctx, now, src, cfg, obs.current(now))
+	a.popWeather(ctx, now, src, cfg, obs.Current(now))
 	a.nudgePomo()
 }
 
-func (a *App) popKeptWeather(ctx context.Context, now time.Time, src weatherSource, cfg WeatherConfig) {
+func (a *App) popKeptWeather(ctx context.Context, now time.Time, src weather.Source, cfg weather.Config) {
 	a.weather.mu.RLock()
-	obs, have := a.weather.obs.current(now), a.weather.have && a.weather.source == src
+	obs, have := a.weather.obs.Current(now), a.weather.have && a.weather.source == src
 	a.weather.mu.RUnlock()
 	if have {
 		a.popWeather(ctx, now, src, cfg, obs)
 	}
 }
 
-func (a *App) popWeather(ctx context.Context, now time.Time, src weatherSource, cfg WeatherConfig, obs weatherObservation) {
+func (a *App) popWeather(ctx context.Context, now time.Time, src weather.Source, cfg weather.Config, obs weather.Observation) {
 	a.weather.mu.Lock()
-	if a.cfg.Load().Weather.source() != src {
+	if a.cfg.Load().Weather.Source() != src {
 		a.weather.mu.Unlock()
 		return
 	}
@@ -605,39 +293,20 @@ func (a *App) popWeather(ctx context.Context, now time.Time, src weatherSource, 
 
 const weatherRetryBase = 2 * time.Minute
 
-func (s *weatherStore) due(cfg WeatherConfig, now time.Time) bool {
+func (s *weatherStore) due(cfg weather.Config, now time.Time) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if now.Before(s.retryAt) {
 		return false
 	}
-	if floor := cfg.minFetchInterval(); floor > 0 && !s.quotas[cfg.Provider].open(floor, now) {
+	if floor := cfg.MinFetchInterval(); floor > 0 && !s.quotas[cfg.Provider].open(floor, now) {
 		return false
 	}
-	every := cfg.refreshEvery()
+	every := cfg.RefreshEvery()
 	if !s.have {
-		every = max(weatherRetryDelay(s.failures, every), cfg.minFetchInterval())
+		every = max(weatherRetryDelay(s.failures, every), cfg.MinFetchInterval())
 	}
 	return s.lastFetch.IsZero() || now.Sub(s.lastFetch) >= every
-}
-
-func (c WeatherConfig) refreshEvery() time.Duration {
-	return max(time.Duration(c.RefreshMinutes)*time.Minute, c.minFetchInterval())
-}
-
-func (c WeatherConfig) minFetchInterval() time.Duration {
-	return keyedProviders[c.Provider].minInterval
-}
-
-func (c WeatherConfig) retryAfterCap() time.Duration {
-	if _, ok := keyedProviders[c.Provider]; ok {
-		return weatherRetryAfterMax
-	}
-	return c.refreshEvery()
-}
-
-func (c WeatherConfig) maxProviderFreshness() time.Duration {
-	return max(c.refreshEvery(), time.Hour)
 }
 
 func weatherRetryDelay(failures int, refresh time.Duration) time.Duration {
@@ -648,74 +317,72 @@ func weatherRetryDelay(failures int, refresh time.Duration) time.Duration {
 	return min(d, refresh)
 }
 
-func (a *App) markWeatherFailedAfter(now, received time.Time, src weatherSource, retryAfter time.Duration, durable bool) {
+func (a *App) markWeatherFailedAfter(now, received time.Time, src weather.Source, retryAfter time.Duration, durable bool) {
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
-	if (WeatherConfig{Provider: src.provider}).minFetchInterval() > 0 && retryAfter > 0 {
-		q := a.weather.quota(src.provider)
-		until := received.Add(min(retryAfter, weatherRetryAfterMax))
+	if (weather.Config{Provider: src.Provider}).MinFetchInterval() > 0 && retryAfter > 0 {
+		q := a.weather.quota(src.Provider)
+		until := received.Add(min(retryAfter, weather.RetryAfterMax))
 		q.retryAt = later(q.retryAt, until)
 		if durable {
 			q.savedRetryAt = later(q.savedRetryAt, until)
 		}
 	}
 	cfg := a.cfg.Load().Weather
-	if cfg.source() != src {
+	if cfg.Source() != src {
 		return
 	}
 	a.weather.lastFetch = now
 	a.weather.failures++
-	a.weather.retryAt = now.Add(min(retryAfter, cfg.retryAfterCap()))
+	a.weather.retryAt = now.Add(min(retryAfter, cfg.RetryAfterCap()))
 }
 
-func (s *weatherStore) fetchHint(cfg WeatherConfig, now time.Time) (fetchHint, bool) {
+func (s *weatherStore) fetchHint(cfg weather.Config, now time.Time) (weather.FetchHint, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	h := fetchHint{LastModified: s.lastModified}
-	if cfg.airWanted() && s.haveAir && s.air.TZKnown && now.Sub(s.air.FetchedAt) < weatherStaleAfter {
+	h := weather.FetchHint{LastModified: s.lastModified}
+	if cfg.AirWanted() && s.haveAir && s.air.TZKnown && now.Sub(s.air.FetchedAt) < weatherStaleAfter {
 		h.TZOffsetSeconds, h.TZKnown, h.TZName = s.air.TZOffsetSeconds, true, s.air.TZName
 	}
 	return h, s.have && now.Before(s.notBefore)
 }
 
-func (a *App) markWeatherPolled(now time.Time, src weatherSource) {
+func (a *App) markWeatherPolled(now time.Time, src weather.Source) {
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
-	if a.cfg.Load().Weather.source() == src {
+	if a.cfg.Load().Weather.Source() == src {
 		a.weather.lastFetch = now
 	}
 }
 
-func (a *App) confirmWeather(now time.Time, src weatherSource, cfg WeatherConfig, res fetchResult) bool {
+func (a *App) confirmWeather(now time.Time, src weather.Source, cfg weather.Config, res weather.FetchResult) bool {
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
-	if a.cfg.Load().Weather.source() != src || !a.weather.have {
+	if a.cfg.Load().Weather.Source() != src || !a.weather.have {
 		return false
 	}
 	a.weather.lastFetch = now
 	a.weather.failures = 0
 	a.weather.retryAt = time.Time{}
 	a.weather.obs.FetchedAt = now
-	if exp := res.expiresAt(now, cfg.maxProviderFreshness()); !exp.IsZero() {
+	if exp := res.ExpiresAt(now, cfg.MaxProviderFreshness()); !exp.IsZero() {
 		a.weather.notBefore = exp
 		a.weather.obs.ValidUntil = exp
 	}
 	return true
 }
 
-func (c WeatherConfig) airWanted() bool { return c.AirTileEnabled() || c.AirPopupThreshold > 0 }
-
-func (s *weatherStore) airDue(cfg WeatherConfig, now time.Time) bool {
+func (s *weatherStore) airDue(cfg weather.Config, now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	age := now.Sub(s.air.FetchedAt)
-	if s.haveAir && age >= 0 && age < cfg.refreshEvery() {
+	if s.haveAir && age >= 0 && age < cfg.RefreshEvery() {
 		return false
 	}
 	if now.Before(s.airRetryAt) {
 		return false
 	}
-	wait := weatherRetryDelay(s.airFailures, cfg.refreshEvery())
+	wait := weatherRetryDelay(s.airFailures, cfg.RefreshEvery())
 	if tried := now.Sub(s.airTriedAt); !s.airTriedAt.IsZero() && tried >= 0 && tried < wait {
 		return false
 	}
@@ -723,30 +390,30 @@ func (s *weatherStore) airDue(cfg WeatherConfig, now time.Time) bool {
 	return true
 }
 
-func (a *App) markAirFailed(now time.Time, loc weatherLocation, retryAfter time.Duration) {
+func (a *App) markAirFailed(now time.Time, loc weather.Location, retryAfter time.Duration) {
 	a.weather.mu.Lock()
 	defer a.weather.mu.Unlock()
 	cfg := a.cfg.Load().Weather
-	if cfg.location() != loc {
+	if cfg.Location() != loc {
 		return
 	}
 	a.weather.airFailures++
-	a.weather.airRetryAt = now.Add(min(retryAfter, cfg.refreshEvery()))
+	a.weather.airRetryAt = now.Add(min(retryAfter, cfg.RefreshEvery()))
 }
 
-func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
-	if !cfg.airWanted() || !a.weather.airDue(cfg, now) {
+func (a *App) pollAir(ctx context.Context, now time.Time, cfg weather.Config) {
+	if !cfg.AirWanted() || !a.weather.airDue(cfg, now) {
 		return
 	}
-	obs, err := a.weatherFetcher.fetchAirQuality(ctx, cfg)
+	obs, err := a.weatherFetcher.FetchAirQuality(ctx, cfg)
 	if err != nil {
 		a.logger.Warn("air-quality fetch failed", "err", err)
-		a.markAirFailed(now, cfg.location(), retryAfterOf(err))
+		a.markAirFailed(now, cfg.Location(), retryAfterOf(err))
 		return
 	}
 	obs.FetchedAt = now
 	a.weather.mu.Lock()
-	if a.cfg.Load().Weather.location() != cfg.location() {
+	if a.cfg.Load().Weather.Location() != cfg.Location() {
 		a.weather.mu.Unlock()
 		return
 	}
@@ -771,7 +438,7 @@ func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
 	}
 }
 
-func (a *App) evaluateWeatherPopup(ctx context.Context, now time.Time, obs weatherObservation, prevCond string, prevSevere bool, lastPopup time.Time, cfg WeatherConfig) bool {
+func (a *App) evaluateWeatherPopup(ctx context.Context, now time.Time, obs weather.Observation, prevCond string, prevSevere bool, lastPopup time.Time, cfg weather.Config) bool {
 	conditionChanged := prevCond != "" && prevCond != obs.Condition
 
 	if cfg.SevereAlertEnabled() && obs.Severe && !prevSevere {
@@ -798,26 +465,26 @@ const sunPopupGrace = 2 * time.Minute
 
 type sunPopupLog struct{ rise, set time.Time }
 
-func (l *sunPopupLog) due(evs []sunEvent, now time.Time) []sunEvent {
-	var out []sunEvent
+func (l *sunPopupLog) due(evs []weather.SunEvent, now time.Time) []weather.SunEvent {
+	var out []weather.SunEvent
 	for _, ev := range evs {
-		if now.Before(ev.at) || now.Sub(ev.at) >= sunPopupGrace {
+		if now.Before(ev.At) || now.Sub(ev.At) >= sunPopupGrace {
 			continue
 		}
 		last := &l.set
-		if ev.rise {
+		if ev.Rise {
 			last = &l.rise
 		}
-		if ev.at.Equal(*last) {
+		if ev.At.Equal(*last) {
 			continue
 		}
-		*last = ev.at
+		*last = ev.At
 		out = append(out, ev)
 	}
 	return out
 }
 
-func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConfig) {
+func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg weather.Config) {
 	if !cfg.SunPopupsEnabled() {
 		return
 	}
@@ -825,21 +492,21 @@ func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConf
 	if !wx.HaveLocation {
 		return
 	}
-	evs := sunEvents(wx.Lat, wx.Lon, now)
+	evs := weather.SunEvents(wx.Lat, wx.Lon, now)
 	a.weather.mu.Lock()
 	due := a.weather.sunPopups.due(evs, now)
 	a.weather.mu.Unlock()
 	for _, ev := range due {
-		a.fireSunPopup(ctx, ev.at, ev.rise, cfg, wx.Obs)
+		a.fireSunPopup(ctx, ev.At, ev.Rise, cfg, wx.Obs)
 	}
 }
 
-func (a *App) fireSunPopup(ctx context.Context, event time.Time, rising bool, cfg WeatherConfig, obs weatherObservation) {
+func (a *App) fireSunPopup(ctx context.Context, event time.Time, rising bool, cfg weather.Config, obs weather.Observation) {
 	word := "SUNSET"
 	if rising {
 		word = "SUNRISE"
 	}
-	label := word + " " + sunClock(event, obs, cfg.Longitude)
+	label := word + " " + weather.SunClock(event, obs, cfg.Longitude)
 	n := notice{app: "weather", kind: noticeSun, priority: noticeInterrupt,
 		payload: render.SunPopupPayload(rising, label, cfg.PopupDurationSeconds)}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -849,10 +516,10 @@ func (a *App) fireSunPopup(ctx context.Context, event time.Time, rising bool, cf
 	}
 }
 
-func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg WeatherConfig, durationSec int, sound string) {
+func (a *App) sendWeatherPopup(ctx context.Context, obs weather.Observation, cfg weather.Config, durationSec int, sound string) {
 	iconID := ""
 	if cfg.UseNativeIcons {
-		iconID = cfg.weatherIconID(obs.Condition)
+		iconID = cfg.IconID(obs.Condition)
 	}
 	n := notice{app: "weather", kind: noticeWeather, priority: noticeInterrupt,
 		payload: render.WithOverlay(render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec),
@@ -867,23 +534,23 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 
 const weatherSettingsKey = "weather_json"
 
-func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
-	return settingSpec[WeatherConfig]{
+func (a *App) weatherSettingSpec() settingSpec[weather.Config] {
+	return settingSpec[weather.Config]{
 		key:          weatherSettingsKey,
 		presentation: weatherPresentationKeys,
 		decode:       a.dropUnknownOpenMeteoModel,
-		view:         func(c Config) WeatherConfig { return c.Weather },
-		check: func(cur, next WeatherConfig) error {
-			if next.Provider != cur.Provider && !a.weatherFetcher.providerAvailable(next.Provider) {
-				return fmt.Errorf("weather.provider %q needs %s set on the server", next.Provider, keyedProviders[next.Provider].env)
+		view:         func(c Config) weather.Config { return c.Weather },
+		check: func(cur, next weather.Config) error {
+			if next.Provider != cur.Provider && !a.weatherFetcher.ProviderAvailable(next.Provider) {
+				return fmt.Errorf("weather.provider %q needs %s set on the server", next.Provider, weather.KeyedProviders[next.Provider].Env)
 			}
 			if next.SevereSound != cur.SevereSound {
 				return validSoundSetting("weather.severe_sound", next.SevereSound)
 			}
 			return nil
 		},
-		apply: func(c *Config, w WeatherConfig) error {
-			w.fillAbsent()
+		apply: func(c *Config, w weather.Config) error {
+			w.FillAbsent()
 			if w.ForecastHours == 0 {
 				w.ForecastHours = 24
 			}
@@ -910,7 +577,7 @@ func (a *App) dropUnknownOpenMeteoModel(blob string) []byte {
 	if !ok || (json.Unmarshal(raw, &model) == nil && (model == "" || slices.Contains(openMeteoModels, model))) {
 		return []byte(blob)
 	}
-	a.logger.Warn("persisted weather model ignored", "model", string(raw), "fallback", cmp.Or(a.cfg.Load().Weather.OpenMeteoModel, defaultOpenMeteoModel))
+	a.logger.Warn("persisted weather model ignored", "model", string(raw), "fallback", cmp.Or(a.cfg.Load().Weather.OpenMeteoModel, weather.DefaultOpenMeteoModel))
 	delete(m, "open_meteo_model")
 	out, err := json.Marshal(m)
 	if err != nil {

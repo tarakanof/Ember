@@ -20,6 +20,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/tarakanof/ember/internal/discovery"
+	"github.com/tarakanof/ember/internal/weather"
 )
 
 func main() {
@@ -70,11 +71,11 @@ func main() {
 	}
 
 	app := newServerApp(cfg, logger)
-	app.weatherFetcher.tomorrowKey = strings.TrimSpace(os.Getenv(tomorrowKeyEnv))
-	app.weatherFetcher.weatherAPIKey = strings.TrimSpace(os.Getenv(weatherAPIKeyEnv))
-	for _, p := range weatherProviders {
-		if k, ok := keyedProviders[p]; ok && app.weatherFetcher.key(p) != "" {
-			logger.Info("weather provider available", "provider", p, "key_env", k.env)
+	app.weatherFetcher.TomorrowKey = strings.TrimSpace(os.Getenv(weather.TomorrowKeyEnv))
+	app.weatherFetcher.WeatherAPIKey = strings.TrimSpace(os.Getenv(weather.WeatherAPIKeyEnv))
+	for _, p := range weather.Providers {
+		if k, ok := weather.KeyedProviders[p]; ok && app.weatherFetcher.Key(p) != "" {
+			logger.Info("weather provider available", "provider", p, "key_env", k.Env)
 		}
 	}
 	if envEnabled(os.Getenv("EMBER_FIRMWARE_CHECK")) && !clockDisabled() {
@@ -119,7 +120,7 @@ func main() {
 		logger.Info("artist pictures: Deezer lookup on (artist names leave the server; unset EMBER_ARTIST_LOOKUP to stop)")
 	}
 	if cfg.Weather.Enabled {
-		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "model", cfg.Weather.model(), "location", cfg.Weather.LocationName)
+		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "model", cfg.Weather.Model(), "location", cfg.Weather.LocationName)
 	}
 	if cfg.Meetings.IsEnabled() && len(app.meetingsURLs) > 0 {
 		logger.Info("meetings enabled", "ics_feeds", len(app.meetingsURLs))

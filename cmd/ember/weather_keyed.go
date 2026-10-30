@@ -1,110 +1,18 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"net/http"
-	"net/url"
-	"slices"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tarakanof/ember/internal/weather"
 )
 
-type keyedProvider struct {
-	env         string
-	minInterval time.Duration
-}
-
-var keyedProviders = map[string]keyedProvider{
-	tomorrowIO: {env: tomorrowKeyEnv, minInterval: 5 * time.Minute},
-	weatherAPI: {env: weatherAPIKeyEnv, minInterval: 5 * time.Minute},
-}
-
-func (wf *weatherFetcher) key(provider string) string {
-	switch provider {
-	case tomorrowIO:
-		return wf.tomorrowKey
-	case weatherAPI:
-		return wf.weatherAPIKey
+func (a *App) weatherUnavailableReason(cfg weather.Config) string {
+	if cfg.Enabled && !a.weatherFetcher.ProviderAvailable(cfg.Provider) {
+		return cfg.Provider + " needs " + weather.KeyedProviders[cfg.Provider].Env + " on the server"
 	}
 	return ""
-}
-
-func (wf *weatherFetcher) providerAvailable(provider string) bool {
-	_, keyed := keyedProviders[provider]
-	return !keyed || wf.key(provider) != ""
-}
-
-func (a *App) weatherUnavailableReason(cfg WeatherConfig) string {
-	if cfg.Enabled && !a.weatherFetcher.providerAvailable(cfg.Provider) {
-		return cfg.Provider + " needs " + keyedProviders[cfg.Provider].env + " on the server"
-	}
-	return ""
-}
-
-func (wf *weatherFetcher) providersAvailable() []string {
-	out := make([]string, 0, len(weatherProviders))
-	for _, p := range weatherProviders {
-		if wf.providerAvailable(p) {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-func keyedFetchError(ctx context.Context, err error, now time.Time, errRequest, errResponse error) error {
-	var he *weatherHTTPError
-	if errors.As(err, &he) {
-		ra := he.retryAfter
-		switch he.code {
-		case http.StatusTooManyRequests, http.StatusUnauthorized, http.StatusForbidden:
-			if ra == 0 {
-				ra = now.Truncate(time.Hour).Add(time.Hour).Sub(now)
-			}
-		}
-		return &weatherHTTPError{code: he.code, status: strconv.Itoa(he.code), retryAfter: ra}
-	}
-	if ctx.Err() != nil {
-		return fmt.Errorf("%w: %w", errRequest, ctx.Err())
-	}
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		return errRequest
-	}
-	return errResponse
-}
-
-var wmoSeverity = []int{
-	0, 1, 2, 3,
-	45, 48,
-	51, 53, 55, 56, 57, 61, 80, 66, 63, 81, 65, 82, 67,
-	71, 85, 77, 73, 75, 86,
-	95, 96, 99,
-}
-
-func valueOrInt(v *int, def int) int {
-	if v == nil {
-		return def
-	}
-	return *v
-}
-
-func pickDayCode(hours map[int]int) *int {
-	var best *int
-	bestScore, bestRank := -1, -1
-	for code, h := range hours {
-		rank := slices.Index(wmoSeverity, code)
-		if rank < 0 {
-			continue
-		}
-		if score := (rank + 1) * h; score > bestScore || (score == bestScore && rank > bestRank) {
-			best, bestScore, bestRank = new(code), score, rank
-		}
-	}
-	return best
 }
 
 type providerQuota struct {
@@ -136,8 +44,8 @@ func (q *providerQuota) open(floor time.Duration, now time.Time) bool {
 	return !now.Before(q.retryAt) && (q.attemptAt.IsZero() || now.Sub(q.attemptAt) >= floor-quotaTickSlack)
 }
 
-func (s *weatherStore) reserveQuota(cfg WeatherConfig, now time.Time) bool {
-	floor := cfg.minFetchInterval()
+func (s *weatherStore) reserveQuota(cfg weather.Config, now time.Time) bool {
+	floor := cfg.MinFetchInterval()
 	if floor == 0 {
 		return true
 	}
@@ -160,8 +68,8 @@ type weatherQuotaRecord struct {
 	RetryUntil time.Time `json:"retry_until"`
 }
 
-func (a *App) loadWeatherQuota(cfg WeatherConfig, now time.Time) {
-	if cfg.minFetchInterval() == 0 {
+func (a *App) loadWeatherQuota(cfg weather.Config, now time.Time) {
+	if cfg.MinFetchInterval() == 0 {
 		return
 	}
 	a.weather.mu.Lock()
@@ -196,13 +104,13 @@ func (a *App) loadWeatherQuota(cfg WeatherConfig, now time.Time) {
 	if !r.AttemptAt.After(now) {
 		q.attemptAt = later(q.attemptAt, r.AttemptAt)
 	}
-	until := earlier(r.RetryUntil, now.Add(weatherRetryAfterMax))
+	until := earlier(r.RetryUntil, now.Add(weather.RetryAfterMax))
 	q.retryAt = later(q.retryAt, until)
 	q.savedRetryAt = later(q.savedRetryAt, until)
 }
 
-func (a *App) saveWeatherQuota(cfg WeatherConfig) {
-	if a.store == nil || cfg.minFetchInterval() == 0 {
+func (a *App) saveWeatherQuota(cfg weather.Config) {
+	if a.store == nil || cfg.MinFetchInterval() == 0 {
 		return
 	}
 	a.weather.mu.RLock()
