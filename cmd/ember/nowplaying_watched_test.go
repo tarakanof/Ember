@@ -12,11 +12,12 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
 type watchedAnswer struct {
-	Commands []queuedCommand `json:"commands"`
-	Watched  *bool           `json:"watched"`
+	Commands []nowplaying.QueuedCommand `json:"commands"`
+	Watched  *bool                      `json:"watched"`
 }
 
 func getWatched(t *testing.T, srv *httptest.Server, query string) (int, watchedAnswer) {
@@ -60,7 +61,7 @@ func startWatchedPoll(t *testing.T, app *App, srv *httptest.Server, query string
 		p.code, p.taken = resp.StatusCode, time.Since(began)
 		_ = json.Unmarshal(b, &p.ans)
 	}()
-	waitPolling(t, app.nowPlaying.commands, "M4")
+	waitPolling(t, app.nowPlaying.Commands, "M4")
 	return p
 }
 
@@ -408,7 +409,7 @@ func TestMusicWatchedLongPollWithoutTheParamWaitsForCommandsOnly(t *testing.T) {
 
 func TestMusicWatchedSurvivesConcurrentReportsAndPolls(t *testing.T) {
 	f := shownFixture(t)
-	f.app.viewLimit.burst, f.app.viewLimit.perSec = 1e6, 1e6
+	f.app.viewLimit.Burst, f.app.viewLimit.PerSec = 1e6, 1e6
 	var wg sync.WaitGroup
 	for i := range 4 {
 		wg.Go(func() {
@@ -432,8 +433,8 @@ func TestMusicWatchedSurvivesConcurrentReportsAndPolls(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	q := f.app.nowPlaying.commands
-	n := q.waiterCount()
+	q := f.app.nowPlaying.Commands
+	n := q.WaiterCount()
 	if n != 0 {
 		t.Fatalf("%d command waiters left", n)
 	}

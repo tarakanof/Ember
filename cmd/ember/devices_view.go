@@ -226,7 +226,7 @@ func (v *knobView) fit(body []byte, limit int) ([]byte, error) {
 }
 
 func (a *App) knobNowPlaying(now time.Time, accent bool) *knobNowPlaying {
-	e, ok := a.nowPlaying.reg.Current(now)
+	e, ok := a.nowPlaying.Reg.Current(now)
 	if !ok {
 		return &knobNowPlaying{State: nowPlayingNone}
 	}

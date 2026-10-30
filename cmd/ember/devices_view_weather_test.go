@@ -336,7 +336,7 @@ func TestCapsKnobViewDropsWeatherDetailFirst(t *testing.T) {
 	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
 	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: strings.Repeat("<", 200),
 		Artist: strings.Repeat("<", 200), Album: strings.Repeat("<", 200), TrackID: "4242", DurationMS: 330_000}
-	if _, err := f.app.nowPlaying.reg.Report(rep, june); err != nil {
+	if _, err := f.app.nowPlaying.Reg.Report(rep, june); err != nil {
 		t.Fatal(err)
 	}
 	pages := []string{"bot", "pomodoro", "weather", "nowplaying"}
@@ -400,7 +400,7 @@ func worstCaseView(t *testing.T, f *viewFixture) {
 	npSource := strings.Repeat("w", 32)
 	rep := nowplaying.Report{Source: npSource, Player: long, State: nowplaying.Playing, Title: esc, Artist: esc, Album: esc,
 		TrackID: strings.Repeat("9", 128), DurationMS: 3_600_000, PositionMS: 1_800_000, Volume: new(100)}
-	if _, err := f.app.nowPlaying.reg.Report(rep, now); err != nil {
+	if _, err := f.app.nowPlaying.Reg.Report(rep, now); err != nil {
 		t.Fatal(err)
 	}
 	album, err := nowplaying.Prepare(pngBytes(t, 16, color.RGBA{200, 30, 30, 255}))
@@ -408,7 +408,7 @@ func worstCaseView(t *testing.T, f *viewFixture) {
 		t.Fatal(err)
 	}
 	album.CoverLight = true
-	if err := f.app.nowPlaying.reg.SetArt(npSource, long, rep.TrackID, nowplaying.Album, album); err != nil {
+	if err := f.app.nowPlaying.Reg.SetArt(npSource, long, rep.TrackID, nowplaying.Album, album); err != nil {
 		t.Fatal(err)
 	}
 	f.app.updateConfig(func(c *Config) {

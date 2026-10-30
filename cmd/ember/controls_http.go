@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
 const (
@@ -19,7 +21,7 @@ const (
 	controlsPerMac     = 8
 	controlWaitersMax  = 8
 	controlMacsMax     = 64
-	controlListenGrace = commandListenGrace
+	controlListenGrace = nowplaying.CommandListenGrace
 )
 
 var (
@@ -46,14 +48,14 @@ func (c controlCommand) ttl() time.Duration {
 
 type controlsService struct {
 	queue *controlQueue
-	keys  controlKeys
-	limit *callerLimiter
+	keys  nowplaying.ControlKeys
+	limit *nowplaying.CallerLimiter
 }
 
 func newControlsService() *controlsService {
 	return &controlsService{
 		queue: newControlQueue(),
-		limit: &callerLimiter{burst: controlBurst, perSec: controlPerSec},
+		limit: &nowplaying.CallerLimiter{Burst: nowplaying.ControlBurst, PerSec: nowplaying.ControlPerSec},
 	}
 }
 
@@ -130,7 +132,7 @@ func (q *controlQueue) take(ctx context.Context, mac string, wait time.Duration)
 	q.mu.Lock()
 	if wait > 0 && q.waiters >= controlWaitersMax {
 		q.mu.Unlock()
-		return nil, errTooManyWaiters
+		return nil, nowplaying.ErrTooManyWaiters
 	}
 	q.waiters++
 	q.polling[mac]++
@@ -260,26 +262,26 @@ func (a *App) handleControlsAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := a.controls
-	if !s.keys.claim(caller, key, time.Now()) {
+	if !s.keys.Claim(caller, key, time.Now()) {
 		writeJSON(w, http.StatusOK, controlsActionAnswer{Status: "duplicate"})
 		return
 	}
-	if !s.limit.allowNow(caller) {
-		s.keys.release(caller, key)
+	if !s.limit.AllowNow(caller) {
+		s.keys.Release(caller, key)
 		w.Header().Set("Retry-After", "1")
 		writeError(w, http.StatusTooManyRequests, errors.New("control requests too fast"))
 		return
 	}
 	target := a.settings.controls.get().Target
 	if target == "" {
-		s.keys.release(caller, key)
+		s.keys.Release(caller, key)
 		a.logger.Info("knob control rejected", "gesture", req.Gesture, "caller", caller, "err", errNoControlTarget)
 		writeError(w, http.StatusServiceUnavailable, errNoControlTarget)
 		return
 	}
 	cmd, err := s.queue.push(target, controlCommand{Gesture: req.Gesture, Steps: req.Steps})
 	if err != nil {
-		s.keys.release(caller, key)
+		s.keys.Release(caller, key)
 		a.logger.Info("knob control rejected", "gesture", req.Gesture, "target", target, "caller", caller, "err", err)
 		writeError(w, http.StatusServiceUnavailable, err)
 		return

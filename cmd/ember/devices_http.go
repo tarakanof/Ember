@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
 type deviceIDKey struct{}
@@ -41,9 +42,9 @@ const (
 	viewPerSec = 10.0
 )
 
-func (a *App) perDevice(l *callerLimiter, next http.Handler) http.Handler {
+func (a *App) perDevice(l *nowplaying.CallerLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !l.allowNow(deviceIDFrom(r.Context())) {
+		if !l.AllowNow(deviceIDFrom(r.Context())) {
 			w.Header().Set("Retry-After", "1")
 			writeError(w, http.StatusTooManyRequests, errors.New("too many view requests"))
 			return

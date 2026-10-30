@@ -2499,6 +2499,11 @@ counter).
 Music state and pictures for the knob's now-playing page (cinder #14).
 Design note: Obsidian `Personal/Ember/Specs/2026-10-05-now-playing-design.md`.
 
+`internal/nowplaying` holds the registry, the rendering and, since #771, the
+service: Plex, Deezer, the command queue and the control limits. `cmd/ember`
+keeps the handlers. The package's tests run behind a loopback-only `TestMain`,
+and `TestPackageOpensNoSocketsOfItsOwn` keeps requests on the default transport.
+
 - **Model** (`internal/nowplaying.Registry`, pure): one entry per
   `(source, player)`; a report is `{source, player, state
   playing|paused|stopped, title, artist, album, track_id, duration_ms,
@@ -2562,7 +2567,7 @@ Design note: Obsidian `Personal/Ember/Specs/2026-10-05-now-playing-design.md`.
   (cinder#14). Renders are cached in a RAM LRU of 32 entries / 8 MB keyed
   by `(hash, kind, size)`, plus the recipe for `cover`. Nothing touches
   disk (Deezer's terms forbid storing its images).
-- **Plex** (`nowplaying_plex.go`): with `EMBER_PLEX_URL` + `EMBER_PLEX_TOKEN`
+- **Plex** (`internal/nowplaying/plex.go`): with `EMBER_PLEX_URL` + `EMBER_PLEX_TOKEN`
   a goroutine polls `/status/sessions` (`Accept: application/json`; 2 s
   while a track plays, else 10 s; `POST /hooks/plex?key=` wakes it).
   Only `type:"track"` sessions, filtered by `EMBER_PLEX_USER` /
@@ -2578,7 +2583,7 @@ Design note: Obsidian `Personal/Ember/Specs/2026-10-05-now-playing-design.md`.
   to the previous poll's for the same track is stale (Plex updates it only
   on a client timeline report), so the poller reports the extrapolated
   position instead and the anchor holds.
-- **Artist pictures** (`nowplaying_deezer.go`): an entry with an artist and
+- **Artist pictures** (`internal/nowplaying/deezer.go`): an entry with an artist and
   no artist picture queues a lookup (channel of 4; full = dropped, the next
   report re-queues). Deezer `search/artist?q=` (no key): exact
   case-insensitive name only (no match = no picture, never a stranger's
@@ -2595,8 +2600,8 @@ Design note: Obsidian `Personal/Ember/Specs/2026-10-05-now-playing-design.md`.
   level: Music's `sound volume`, never the Mac's output volume). A report
   without it keeps the player's last known level. `GET /v1/nowplaying/state`
   answers it (`null` unknown); the knob block has it only when known.
-- **Playback control** (#280, `nowplaying_control.go`,
-  `nowplaying_plex_control.go`): `POST /v1/nowplaying/control`
+- **Playback control** (#280, `internal/nowplaying/control.go`,
+  `plex_control.go`): `POST /v1/nowplaying/control`
   `{"action":"play|pause|play_pause|next|previous|volume","delta":±1..100,"source","player","track_id"}`
   (delta for volume only; the knob sends `play`/`pause` for the state it
   wants, not the toggle). Master **or** knob device token; a device only
@@ -2633,7 +2638,7 @@ Design note: Obsidian `Personal/Ember/Specs/2026-10-05-now-playing-design.md`.
     track plays, so a change on the player shows. A command wakes the
     poller. **Not verified against a real Plexamp** (RUNBOOK "Now playing").
   - **Music** runs on the Mac that reported it: commands wait in a
-    per-player queue (`commandQueue`, at most 8, coalescing consecutive
+    per-player queue (`CommandQueue`, at most 8, coalescing consecutive
     volume steps, dropped after 5 s so a late "next" never fires) that
     Ember.app long-polls with `GET /v1/nowplaying/commands?player=&wait=≤25`
     (request budget `.clockLong`, 35 s to the first byte, above that wait; master token only, every client token 403; delivery at most once; each command carries `age_ms`,
@@ -2720,7 +2725,7 @@ list the page.
   computer name, ≤64 characters, `ThisMac.name`). PUT is master token only.
   `GET /v1/controls/config` adds `macs`, the Macs seen polling (memory only,
   at most 64; `listening` = a poll waiting or one in the last 30 s).
-- **Queue** (`controlQueue`, modelled on the now-playing `commandQueue`):
+- **Queue** (`controlQueue`, modelled on the now-playing `CommandQueue`):
   per Mac, at most 8, consecutive `turn`s merged (steps summed, clamped to
   ±100; a merge that reaches 0 drops the turn, since the app rejects a
   turn without steps and would lose the whole batch), turns dropped after

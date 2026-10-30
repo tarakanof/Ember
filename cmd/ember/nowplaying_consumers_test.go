@@ -30,7 +30,7 @@ func TestNowPlayingConsumersShareTheRegistryExpiry(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
-			if _, err := app.nowPlaying.reg.Report(tc.rep, t0); err != nil {
+			if _, err := app.nowPlaying.Reg.Report(tc.rep, t0); err != nil {
 				t.Fatal(err)
 			}
 			knob := app.knobNowPlaying(tc.at, false)
@@ -56,10 +56,10 @@ func TestNowPlayingArtAndControlFollowTheRegistryExpiry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			app, srv := npServer(t)
 			rep := nowplaying.Report{Source: "music", Player: "M4", State: nowplaying.Paused, Title: "Song", TrackID: "T1", DurationMS: 60_000}
-			if _, err := app.nowPlaying.reg.Report(rep, time.Now().Add(-tc.age)); err != nil {
+			if _, err := app.nowPlaying.Reg.Report(rep, time.Now().Add(-tc.age)); err != nil {
 				t.Fatal(err)
 			}
-			if err := app.nowPlaying.reg.SetArt("music", "M4", "T1", nowplaying.Album, nowplaying.NewImage(pngBytes(t, 8, color.White))); err != nil {
+			if err := app.nowPlaying.Reg.SetArt("music", "M4", "T1", nowplaying.Album, nowplaying.NewImage(pngBytes(t, 8, color.White))); err != nil {
 				t.Fatal(err)
 			}
 			if resp, b := npDo(t, srv, "GET", "/v1/nowplaying/art?kind=album", "", nil, nil); resp.StatusCode != tc.art {
