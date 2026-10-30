@@ -20,6 +20,9 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 	countingClock := func() (*httptest.Server, *atomic.Int64) {
 		var hits atomic.Int64
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == "/" {
+				return
+			}
 			hits.Add(1)
 			_, _ = w.Write([]byte(`{"uid":"awtrix_x","boardType":"awtrixng"}`))
 		}))

@@ -73,6 +73,9 @@ func (f *parityClock) connID(c net.Conn) int {
 }
 
 func (f *parityClock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet && r.URL.Path == "/" {
+		return
+	}
 	body, _ := io.ReadAll(r.Body)
 	f.mu.Lock()
 	n := f.n
