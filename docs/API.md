@@ -17,7 +17,7 @@ registry since #340) and pass only their scopes: `ingest` (`POST`/`DELETE /v1/st
 `GET /v1/day/state` and actions), `read` (the non-secret
 settings GETs: apps, pomodoro/usage/display/brightness/quiet/day/reminders config,
 `/v1/day/{history,weeks}`,
-`/v1/clock/stats`), `admin` (every bearer `/v1/` route except client-token
+`/v1/clock/stats`, `/v1/devices/{id}/room`), `admin` (every bearer `/v1/` route except client-token
 management). Wrong scope is 403. An optional `"sources":[…]` at mint (1-16,
 each ≤64 chars, needs `ingest`; 400 with `admin`, which could still `POST /v1/clear`) binds the token: `POST`/`DELETE
 /v1/status`, `POST /v1/day/replies` and `POST /v1/usage` naming another
@@ -82,7 +82,8 @@ clock record, kind `awtrix-ng`, the clock's presentation config, stored in
 `config_version` is a counter; ARCHITECTURE "Clock record and config façade"), `PATCH`/`DELETE /v1/devices/{id}`
 (a deleted clock record returns at the next good probe),
 `POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
-registry"; 400 for the clock, which has no token), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
+registry"; 400 for the clock, which has no token), `GET /v1/devices/{id}/room` (a knob's latest room
+readings and their age; 404 when it has none; DEVICE-PROTOCOL "Room readings"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
 `GET`/`PUT /v1/devices/{id}/ota` (knob firmware update: `{"mode":"manual|auto","target":"0.9.14"|null,"retry":true}` merge;
 `target:null` also dismisses a failed or rolled-back attempt, 409 `ota_in_progress` while downloading;
 a target or retry of a version no longer stored is 400; 409 `firmware_changed` if the store kept changing;

@@ -223,6 +223,10 @@ func goldenCheckinRequests(t *testing.T) (minimal, full map[string]any, dump []b
 		"link_fallback": true, "link_mhz": 80,
 		"ota": map[string]any{"image": "valid", "phase": "idle", "rollback": true, "slot": 0,
 			"last": map[string]any{"attempt": 2, "error": "bad_checksum", "result": "failed", "version": "0.9.12"}},
+		"room": map[string]any{
+			"t_c": 23.4, "rh": 41.2, "eco2": 612, "tvoc": 85, "aqi": 2, "air": "normal", "lux": 312, "present": true,
+			"age_s": map[string]any{"climate": 4, "air": 1, "light": 0, "presence": 0},
+		},
 		"rssi": -58,
 		"stats": map[string]any{
 			"cpu_pct": []float64{12.5, 3.5}, "fps": 29.5, "frame_ms_avg": 12.25, "frame_ms_max": 40,
@@ -288,6 +292,11 @@ func TestDeviceCheckinGolden(t *testing.T) {
 	}
 	got := *last
 	got.SeenAt = time.Time{}
+	if got.Room != nil {
+		room := *got.Room
+		room.ReceivedAt = time.Time{}
+		got.Room = &room
+	}
 	if got.Diag != nil {
 		d := *got.Diag
 		d.Reboots, d.PrevResetReason, d.RebootsSinceSeen = 0, "", 0
@@ -304,6 +313,8 @@ func TestDeviceCheckinGolden(t *testing.T) {
 		FWBuild: runningBuild,
 		OTA: &knobOTAReport{Image: "valid", Phase: "idle", Rollback: true, Slot: new(0),
 			Last: &knobOTALast{Attempt: 2, Error: "bad_checksum", Result: "failed", Version: "0.9.12"}},
+		Room: &deviceRoom{TempC: new(23.4), RH: new(41.2), ECO2: new(612), TVOC: new(85), AQI: new(2), Air: new("normal"), Lux: new(312.0), Present: new(true),
+			AgeS: &deviceRoomAges{Climate: new(4), Air: new(1), Light: new(0), Presence: new(0)}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		gb, _ := json.Marshal(got)

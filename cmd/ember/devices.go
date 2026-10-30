@@ -51,6 +51,7 @@ type deviceCheckin struct {
 	Diag                *deviceDiag    `json:"diag,omitempty"`
 	FWBuild             string         `json:"fw_build,omitempty"`
 	OTA                 *knobOTAReport `json:"ota,omitempty"`
+	Room                *deviceRoom    `json:"room,omitempty"`
 }
 
 type deviceWifi struct {
@@ -114,6 +115,7 @@ func (d deviceRecord) clone() deviceRecord {
 		}
 		c.Diag = c.Diag.clone()
 		c.OTA = c.OTA.clone()
+		c.Room = c.Room.clone()
 		d.LastCheckin = &c
 	}
 	d.LastSeen = d.LastSeen.clone()
@@ -185,6 +187,9 @@ func (d deviceRecord) view() deviceView {
 	}
 	if v.LastCheckin != nil {
 		v.LastCheckin.SeenAt = v.LastCheckin.SeenAt.UTC().Truncate(time.Second)
+		if room := v.LastCheckin.Room; room != nil {
+			room.ReceivedAt = room.ReceivedAt.UTC().Truncate(time.Second)
+		}
 	}
 	if v.LastSeen != nil {
 		v.LastSeen.SeenAt = v.LastSeen.SeenAt.UTC().Truncate(time.Second)
@@ -648,6 +653,11 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin, caps *deviceCa
 	}
 	if knobRebooted(d.LastCheckin, report) {
 		res.bootedAt = report.bootedAt()
+	}
+	if report.Room != nil {
+		report.Room.ReceivedAt = report.SeenAt
+	} else if d.LastCheckin != nil {
+		report.Room = d.LastCheckin.Room
 	}
 	last := &report
 	if stale {

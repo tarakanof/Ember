@@ -15,7 +15,7 @@ Every route the knob calls with its device token (`ekd_…`); the LAN re-pair ro
 
 | Route | What |
 |---|---|
-| `POST /v1/devices/self/checkin` | Health report in, optionally with `caps` ("Capabilities" below); reply carries `config_version`, `caps_ack` when the caps were accepted, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
+| `POST /v1/devices/self/checkin` | Health report in, optionally with `caps` ("Capabilities" below) and `room` ("Room readings"); reply carries `config_version`, `caps_ack` when the caps were accepted, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
 | `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `usage` (with the `usage` feature while an account has a snapshot, "Usage"), `diag_live_until` (live mode only), `demo` (with the `demo` feature while a demo is set, "Demo mode") and `day` (with the `day` page in caps and on while the day clock is enabled, "Day clock"). `?demo_id=&demo_state=` report on the demo; `?shown=<page>[:<face>]` reports what the knob shows ("Shown page"). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
 | `GET /v1/devices/self/config` | `{config_version, config}`, the same pair a stale checkin carries. |
 | `PUT /v1/devices/self/coredump?id=` | The core dump a checkin asked for. |
@@ -260,6 +260,7 @@ pre-releases the same way):
 | `usage` | Parses the view's `usage` block and shows the usage screens ("Usage") | `usage` is sent only with this token |
 | `shown` | Adds `?shown=<page>[:<face>]` to its view polls ("Shown page") | `shown` is read only with this token; the owner's device entry carries `shown` while fresh |
 | `lan_pair` | Re-pairs over the LAN with a code when it has a URL but no valid token (`POST /v1/devices/claim`, #658) | Ember.app's Forget dialog says the knob will show a pairing code only with this token; the server doesn't read it. Not to be confused with the server's own `lan_pair` in `GET /version` `features`, which says the claim routes exist |
+| `room` | Sends the checkin's `room` block ("Room readings") | none yet: the server stores a block from any knob, token or not |
 
 Page ids in `caps.pages` need no registry: they are the config's page ids;
 Ember.app lists a knob app only when its page is in `effective_caps.pages`.
@@ -284,6 +285,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | any, `diag.idle` sent or not (cinder#273) | optional key, no caps token: `{"state":"awake"\|"dim"\|"off","input_age_s":<int s>,"wake":"touch"\|"encoder"\|"mood"\|"demo"\|"ota_face"\|"ota_trial"\|""}`; stored as `last_checkin.diag.idle` and shown in Knob > Status > Diagnostics while the knob is online; old firmware omits it and nothing shows; unknown `state`/`wake` strings are kept and shown verbatim; a negative `input_age_s`, a string over 32 bytes or a wrong type drops only `idle` (the rest of `diag`, crash and reboot history included, is kept), the checkin still answers 200 | `TestDeviceCheckinStoresTheIdleBlockVerbatim`, `TestDeviceListingShowsTheIdleBlock`, `TestDeviceCheckinWithoutIdleKeepsItNil`, `TestDeviceCheckinDropsOnlyAnInvalidIdleBlock`, `TestBadIdleKeepsTheRebootHistory`, `TestDeviceCheckinGolden` (`checkin_req_full.json`), Swift `knobDiagDecodesTheIdleBlockAndLabelsItVerbatimWhenUnknown`; cinder host test: `checkin_req_full.json` sync pending (cinder#281) |
 | new | new, `usage` or not | `usage` only with the token, after `nowplaying`, left out with no account to show; a caps knob without it and a legacy knob get the view byte-identical; dropped after `nowplaying` to fit `view_bytes`; the worst case (8 accounts, 24-character escaped names, both models) is 3.4 KB, the worst whole view with it 9.1 KB | `TestKnobViewUsageGolden` (`view_usage.json`), `TestKnobViewWithoutTheUsageCapGolden` (`view_usage_uncapped.json`), `TestKnobViewSendsUsageOnlyWithTheUsageFeature`, `TestKnobViewLeavesOutUsageWithNoAccounts`, `TestKnobViewUsageModelsFollowUsagePerModel`, `TestKnobViewUsageETagIgnoresAFreshAccountsUpdateTime`, `TestKnobViewUsageWorstCaseStaysSmall`, `TestLegacyFirmwareViewIsUnchanged` (`devices_view_usage_test.go`) |
 | new | new, `shown` or not | `shown` read only with the token and exposed on `GET /v1/devices` while the current caps list it and a poll carried it in the last 50 s; a malformed value is ignored with a 200 and logged once until a good one; the view's bytes and ETag never depend on it | `TestKnobShownPollReachesTheDeviceList`, `TestKnobShownGoesStaleFiftySecondsAfterTheLastPoll`, `TestKnobShownIsIgnoredWithoutTheShownCap`, `TestKnobShownMalformedValuesAreIgnoredAndLoggedOnce`, `TestKnobShownIsRecordedBeforeTheLongPollWaits`, `TestKnobShownRenameReplyCarriesIt`, `TestKnobShownLongestValidValuesAreKept`, `TestKnobShownIsForgottenWhenTheDeviceIsDeleted`, `TestKnobShownPollRacingADeleteLeavesNothingForTheReMintedKnob`, `TestKnobShownDisappearsWhenCapsWithdrawTheToken`, `TestKnobShownAtIsWholeSecondsUTC`, `TestKnobViewPollWithShownGolden` (`view_req_shown.json`, `devices_shown_test.go`); cinder side next: a host test that builds the fixture's query (tarakanof/cinder#246) |
+| new | any, `room` sent or not (cinder#304) | a checkin without `room` behaves as before and keeps the last block; a block with any subset of keys is stored and answered; a bad value drops only that value and the checkin still answers 200; a stale checkin's block is ignored; an old server ignores the key | `TestDeviceCheckinWithoutARoomStoresNone`, `TestDeviceCheckinAcceptsAnySubsetOfTheRoomBlock`, `TestDeviceCheckinWithoutARoomKeepsTheLastBlock`, `TestANewRoomBlockReplacesTheLastOneWhole`, `TestStaleCheckinDoesNotTouchTheRoomBlock`, `TestDeviceCheckinDropsOnlyTheBadRoomValues`, `TestANonObjectRoomKeepsTheCheckinAndTheLastBlock`, `TestDeviceCheckinGolden` (`checkin_req_full.json`, `devices_room_test.go`); cinder host test: `.room` in `NOT_YET_SENT` until the firmware sends it |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Demo mode
@@ -567,6 +569,63 @@ answers only when the bytes moved; `stale` flipping is caught by the 5 s
 recheck. **Size:** 170-260 B per account (the example block is 628 B), 3.4 KB worst case (8 accounts,
 24 escaped characters per name, both models); old firmware never sends the
 token, so it never gets the block.
+
+## Room readings
+
+The knob's room sensors (#757, cinder#304) report in the checkin, the one
+request the knob already makes. Ember is the hub: it keeps the latest block
+per knob and is the only thing that talks to Home Assistant. Design:
+`Personal/cinder/Specs/2026-10-30-room-sensors-design.md` in the vault.
+
+```json
+"room": {"t_c": 23.4, "rh": 41.2, "eco2": 612, "tvoc": 85, "aqi": 2, "air": "normal",
+         "lux": 312, "present": true, "age_s": {"climate": 4, "air": 1, "light": 0, "presence": 0}}
+```
+
+A knob sends a key only when its chip is found and the reading is under
+60 s old, so every key is optional and `{}` is a valid block. The server
+doesn't enforce the 60 s.
+
+| Key | Meaning | Valid |
+|---|---|---|
+| `t_c` | Temperature, °C | number, -40..85 (the AHT21's rated range) |
+| `rh` | Relative humidity, % | number, 0..100 |
+| `eco2` | ENS160 equivalent CO2, ppm | integer, 400..65000 |
+| `tvoc` | ENS160 total VOC, ppb | integer, 0..65000 |
+| `aqi` | The ENS160's own index | integer, 1..5 |
+| `air` | ENS160 validity; `eco2`, `tvoc` and `aqi` mean little unless it is `normal` | `normal`, `warm_up`, `start_up` or `invalid` |
+| `lux` | Light, lx | number, 0..125000 (the BH1750's top at its lowest sensitivity) |
+| `present` | Radar presence | boolean |
+| `age_s` | Age of each reading in seconds, by source: `climate` (`t_c`, `rh`), `air` (`eco2`, `tvoc`, `aqi`, `air`), `light` (`lux`), `presence` (`present`) | object of integers ≥ 0 |
+
+**Bad values.** The chips are independent, so a bad value costs only itself:
+out of range, the wrong type, or an `air` the table doesn't list drops that
+key, and the rest of the block is stored. In `age_s` each key drops alone; an
+`age_s` that isn't an object drops `age_s`. Unknown keys are ignored, and
+`null` reads as absent. A `room` that isn't an object drops the block, which
+then counts as no block. None of this fails a checkin. Drops log like `wifi`
+(`device room values dropped`, naming the keys, never the values).
+
+**Server.** A block replaces the stored one whole: a key the knob left out
+is a reading it no longer vouches for, so it is not kept from the block
+before, and a block whose every value was bad stores as empty. A checkin
+with no block keeps the stored one, with its old `received_at`. A stale
+checkin (Demo mode, "Knob reboot") changes nothing. The block lives on the
+record as `last_checkin.room` and reaches the store on the same 10 min and
+shutdown schedule as the rest of `last_checkin`.
+
+**Owner side.** `GET /v1/devices` carries `last_checkin.room`: the block as
+stored, plus `received_at` (whole seconds UTC). `GET /v1/devices/{id}/room`
+(owner, or a client token with `read` or `admin`) answers the same block and
+its age in whole seconds; 404 when the knob has none, the id is unknown, or it
+names the clock:
+
+```json
+{"room": {"lux": 312, "age_s": {"light": 3}, "received_at": "2026-10-30T12:00:00Z"}, "received_age_s": 7}
+```
+
+Add `age_s` to `received_age_s` for a reading's real age. Nothing in the view
+carries the block, and the knob's room page reads its own sensors.
 
 ## Quiet hours
 
@@ -1083,7 +1142,7 @@ Indented JSON; key order is the wire order.
 | `view_single_host_paused.json` | One host: `source` set, `lead`/`hosts` left out; paused `pomo` with `remaining_sec`; `weather` without a location (`sunrise`/`sunset` `null`) and without a provider observation time (`observed_at` absent) |
 | `view_req_shown.json` | A view request, not a reply: `method`, `path` and the `query` a `shown` knob sends on a long poll (`wait` 25, `shown` `weather:wind`); the test reads the file back, sends its `query` through the real handler and checks the owner's device entry |
 | `checkin_req_minimal.json` | The base fields every firmware sends |
-| `checkin_req_full.json` | Every block: `diag` with a crash and `idle`, `ota` with `last`, `stats` (with `inv_areas`/`inv_px`), `wifi`, the display link |
+| `checkin_req_full.json` | Every block: `diag` with a crash and `idle`, `ota` with `last`, `room` with every key, `stats` (with `inv_areas`/`inv_px`), `wifi`, the display link |
 | `checkin_req_caps.json` | The base fields plus `caps` (every page and feature of 0.9.41, its limits, `rotations` `[0, 180]`); not yet `wx_faces` or `wx_moments` (below) |
 | `checkin_reply_current.json` | Knob up to date: `config_version` only |
 | `checkin_reply_config.json` | Stale knob: `config` included |

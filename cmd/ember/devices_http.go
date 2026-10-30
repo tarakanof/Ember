@@ -335,6 +335,7 @@ func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	a.wifiDrops.forget(id)
 	a.diagDrops.forget(id)
 	a.idleDrops.forget(id)
+	a.roomDrops.forget(id)
 	a.otaDrops.forget(id)
 	a.capsDrops.forget(id)
 	a.viewOverLimit.forget(id)
@@ -393,6 +394,7 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		FWBuild             string          `json:"fw_build"`
 		OTA                 json.RawMessage `json:"ota"`
 		Caps                json.RawMessage `json:"caps"`
+		Room                json.RawMessage `json:"room"`
 	}
 	if !a.decodeOptionalOrReject(w, r, &req, false) {
 		return
@@ -429,6 +431,7 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		Wifi:                decodeCheckinPart[deviceWifi](a, r, "wifi", req.Wifi, &a.wifiDrops),
 		Diag:                a.decodeDeviceDiag(r, req.Diag),
 		OTA:                 decodeCheckinPart[knobOTAReport](a, r, "ota", req.OTA, &a.otaDrops),
+		Room:                a.decodeDeviceRoom(r, req.Room),
 	}
 	if firmwareBuildPattern.MatchString(req.FWBuild) {
 		report.FWBuild = req.FWBuild
@@ -490,17 +493,24 @@ func decodeCheckinPart[T checkinPart](a *App, r *http.Request, name string, raw 
 	if err == nil {
 		err = v.validate()
 	}
-	id := deviceIDFrom(r.Context())
+	a.noteCheckinDrop(r, name, err, drops)
 	if err != nil {
-		level := slog.LevelDebug
-		if drops.changed(id, err.Error()) {
-			level = slog.LevelInfo
-		}
-		a.logger.Log(r.Context(), level, "device "+name+" dropped", "device_id", id, "err", err)
 		return nil
 	}
-	drops.changed(id, "")
 	return &v
+}
+
+func (a *App) noteCheckinDrop(r *http.Request, name string, err error, drops *checkinDropLog) {
+	id := deviceIDFrom(r.Context())
+	if err == nil {
+		drops.changed(id, "")
+		return
+	}
+	level := slog.LevelDebug
+	if drops.changed(id, err.Error()) {
+		level = slog.LevelInfo
+	}
+	a.logger.Log(r.Context(), level, "device "+name+" dropped", "device_id", id, "err", err)
 }
 
 func (a *App) decodeDeviceDiag(r *http.Request, raw json.RawMessage) *deviceDiag {
