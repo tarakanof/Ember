@@ -22,6 +22,7 @@ public final class ReminderWatcher {
                                           onArmedChange: { appNap.hold($0) })
         self.scheduler = scheduler
         prefsSync = ReminderPrefsSync(model: { settings.reminders }, legacy: .userDefaults(),
+                                      saveIfDefault: { try await settings.saveRemindersIfDefault($0) },
                                       apply: { scheduler.prefs = $0 })
     }
 

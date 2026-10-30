@@ -56,3 +56,24 @@ import Foundation
     }
 }
 
+
+@Test func conditionalConfigSaveSendsIfDefaultAndTreats409AsRefused() async throws {
+    let refused = stubbedClient { req in
+        #expect(req.httpMethod == "PUT")
+        #expect(req.url?.path == "/v1/reminders/config")
+        #expect(req.url?.query == "if_default=1")
+        return (okResponse(req.url!, status: 409), Data(#"{"enabled":true,"lead_minutes":10}"#.utf8))
+    }
+    #expect(try await RemindersService(client: refused).saveConfigIfDefault(ReminderPrefs(enabled: true)) == nil)
+
+    let saved = ReminderPrefs(enabled: true, leadMinutes: 5)
+    let accepted = stubbedClient { req in
+        (okResponse(req.url!), try JSONEncoder().encode(saved))
+    }
+    #expect(try await RemindersService(client: accepted).saveConfigIfDefault(saved) == saved)
+
+    let broken = stubbedClient { req in (okResponse(req.url!, status: 502), Data()) }
+    await #expect(throws: APIError.self) {
+        _ = try await RemindersService(client: broken).saveConfigIfDefault(saved)
+    }
+}

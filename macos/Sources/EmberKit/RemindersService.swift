@@ -12,6 +12,15 @@ public struct RemindersService: Sendable {
                                                                repeatSound: repeatSound),
                                         key: key)
     }
+
+    public func saveConfigIfDefault(_ prefs: ReminderPrefs) async throws -> ReminderPrefs? {
+        do {
+            return try await client.request("PUT", "/v1/reminders/config",
+                                            query: [URLQueryItem(name: "if_default", value: "1")], body: prefs)
+        } catch APIError.http(status: 409, body: _) {
+            return nil
+        }
+    }
 }
 
 struct ReminderFireBody: Encodable {

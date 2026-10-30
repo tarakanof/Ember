@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -183,5 +184,60 @@ func TestRemindersConfigFileKeepsDefaultsForAbsentKeys(t *testing.T) {
 	want.Enabled = true
 	if cfg.Reminders != want {
 		t.Fatalf("reminders = %+v, want %+v", cfg.Reminders, want)
+	}
+}
+
+func TestRemindersConfigConditionalPutRefusesNonDefaults(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	if resp, b := devReq(t, srv, "PUT", "/v1/reminders/config", testToken, `{"lead_minutes":10}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("plain put: %d %s", resp.StatusCode, b)
+	}
+	resp, b := devReq(t, srv, "PUT", "/v1/reminders/config?if_default=1", testToken, `{"enabled":true,"lead_minutes":3}`)
+	var got RemindersConfig
+	_ = json.Unmarshal(b, &got)
+	want := defaultRemindersConfig()
+	want.LeadMinutes = 10
+	if resp.StatusCode != http.StatusConflict || got != want {
+		t.Fatalf("conditional put on non-defaults: %d %s, want 409 with %+v", resp.StatusCode, b, want)
+	}
+	resp, b = devReq(t, srv, "GET", "/v1/reminders/config", testToken, "")
+	_ = json.Unmarshal(b, &got)
+	if resp.StatusCode != http.StatusOK || got != want {
+		t.Fatalf("refused put changed the config: %s", b)
+	}
+}
+
+func TestRemindersConfigConcurrentMigrationsLetOneWin(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	bodies := []string{`{"enabled":true,"lead_minutes":5}`, `{"enabled":true,"lead_minutes":20}`}
+	codes := make([]int, len(bodies))
+	var wg sync.WaitGroup
+	for i, body := range bodies {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, _ := devReq(t, srv, "PUT", "/v1/reminders/config?if_default=1", testToken, body)
+			codes[i] = resp.StatusCode
+		}()
+	}
+	wg.Wait()
+	won := -1
+	for i, c := range codes {
+		if c == http.StatusOK {
+			won = i
+		} else if c != http.StatusConflict {
+			t.Fatalf("codes = %v, want one 200 and one 409", codes)
+		}
+	}
+	if won < 0 || codes[0] == codes[1] {
+		t.Fatalf("codes = %v, want one 200 and one 409", codes)
+	}
+	resp, b := devReq(t, srv, "GET", "/v1/reminders/config", testToken, "")
+	var got RemindersConfig
+	_ = json.Unmarshal(b, &got)
+	want := defaultRemindersConfig()
+	want.Enabled, want.LeadMinutes = true, []int{5, 20}[won]
+	if resp.StatusCode != http.StatusOK || got != want {
+		t.Fatalf("after both: %s, want the winner %+v", b, want)
 	}
 }

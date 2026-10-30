@@ -1345,12 +1345,24 @@ paths:
         `enabled`, `sound`, `lead_minutes` (0-30), `popup_duration` (1-300 s),
         `use_native_icon`, `native_icon_id` (at most 64 characters), `hold`,
         `repeat_sound`. Merge semantics; an out-of-range merged value is a 400
-        and changes nothing.
+        and changes nothing. With `if_default=1` the write applies only while
+        the stored settings are still the defaults (checked atomically, for
+        Ember.app's one-time move of its old per-Mac settings); otherwise it is
+        a 409 whose body is the current settings.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
+      parameters:
+        - name: if_default
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
       responses:
         "200":
           $ref: "#/components/responses/Object"
+        "409":
+          description: "`if_default=1` and the settings are no longer the defaults; the body is the current settings."
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

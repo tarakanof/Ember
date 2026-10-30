@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -62,8 +64,31 @@ func (a *App) handleRemindersConfigGet(w http.ResponseWriter, r *http.Request) {
 	serveSettingGet(w, a.settings.reminders)
 }
 
+var errRemindersNotDefault = errors.New("reminder settings are no longer the defaults")
+
 func (a *App) handleRemindersConfigPut(w http.ResponseWriter, r *http.Request) {
-	if d, ok := serveSettingPut(a, w, r, a.settings.reminders); ok {
+	if r.URL.Query().Get("if_default") != "1" {
+		if d, ok := serveSettingPut(a, w, r, a.settings.reminders); ok {
+			writeJSON(w, http.StatusOK, d)
+		}
+		return
+	}
+	var patch json.RawMessage
+	if !a.decodeOrReject(w, r, &patch, false) {
+		return
+	}
+	d, err := a.settings.reminders.putIf(patch, func(cur RemindersConfig) error {
+		if cur != defaultRemindersConfig() {
+			return errRemindersNotDefault
+		}
+		return nil
+	})
+	if errors.Is(err, errRemindersNotDefault) {
+		a.logger.InfoContext(r.Context(), "reminders config conditional put refused", "reason", "not_default")
+		writeJSON(w, http.StatusConflict, a.settings.reminders.get())
+		return
+	}
+	if a.answerSettingPut(w, r, err) {
 		writeJSON(w, http.StatusOK, d)
 	}
 }

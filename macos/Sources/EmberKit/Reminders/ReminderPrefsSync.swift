@@ -33,6 +33,7 @@ public final class ReminderPrefsSync {
     private let model: @MainActor () -> ServerConfigModel<ReminderPrefs>
     private let legacy: ReminderPrefsLegacyStore
     private let apply: @MainActor (ReminderPrefs?) -> Void
+    private let saveIfDefault: @MainActor (ReminderPrefs) async throws -> ReminderPrefs?
     private let sleep: @Sendable (Duration) async throws -> Void
     private var loop: Task<Void, Never>?
     private var migrating = false
@@ -44,16 +45,20 @@ public final class ReminderPrefsSync {
 
     public convenience init(model: @escaping @MainActor () -> ServerConfigModel<ReminderPrefs>,
                             legacy: ReminderPrefsLegacyStore,
+                            saveIfDefault: @escaping @MainActor (ReminderPrefs) async throws -> ReminderPrefs?,
                             apply: @escaping @MainActor (ReminderPrefs?) -> Void) {
-        self.init(model: model, legacy: legacy, apply: apply, sleep: { try await Task.sleep(for: $0) })
+        self.init(model: model, legacy: legacy, saveIfDefault: saveIfDefault, apply: apply,
+                  sleep: { try await Task.sleep(for: $0) })
     }
 
     init(model: @escaping @MainActor () -> ServerConfigModel<ReminderPrefs>,
          legacy: ReminderPrefsLegacyStore,
+         saveIfDefault: @escaping @MainActor (ReminderPrefs) async throws -> ReminderPrefs?,
          apply: @escaping @MainActor (ReminderPrefs?) -> Void,
          sleep: @escaping @Sendable (Duration) async throws -> Void) {
         self.model = model
         self.legacy = legacy
+        self.saveIfDefault = saveIfDefault
         self.apply = apply
         self.sleep = sleep
     }
@@ -100,14 +105,17 @@ public final class ReminderPrefsSync {
             legacy.markMigrated()
             return
         }
-        m.draft = local
-        await m.saveNow()
-        if m.applied == local {
+        do {
+            if let saved = try await saveIfDefault(local) {
+                if !m.hasUnsavedChanges { m.reset(to: saved) }
+                Self.log.info("reminder prefs moved to the server")
+            } else {
+                await m.load()
+                Self.log.info("reminder prefs not moved: the server already has other values")
+            }
             legacy.markMigrated()
-            Self.log.info("reminder prefs moved to the server")
-        } else {
-            m.revert()
-            Self.log.error("reminder prefs migration failed; retrying on the next load")
+        } catch {
+            Self.log.error("reminder prefs migration failed; retrying on the next load: \(error.localizedDescription, privacy: .public)")
         }
     }
 }

@@ -40,6 +40,17 @@ private final class FakePrefsServer: @unchecked Sendable {
                           },
                           debounce: .zero, savedHold: .zero, sleep: { _ in })
     }
+
+    func saveIfDefault(_ value: ReminderPrefs) async throws -> ReminderPrefs? {
+        await Task.yield()
+        return try lock.withLock {
+            _puts += 1
+            if _failPuts { throw APIError.http(status: 502, body: "") }
+            guard _prefs == ReminderPrefs() else { return nil }
+            _prefs = value
+            return value
+        }
+    }
 }
 
 @MainActor
@@ -56,9 +67,10 @@ private final class FakeLegacy {
 }
 
 @MainActor
-private func makeSync(_ model: ServerConfigModel<ReminderPrefs>, _ legacy: FakeLegacy,
+private func makeSync(_ server: FakePrefsServer, _ model: ServerConfigModel<ReminderPrefs>, _ legacy: FakeLegacy,
                       applied: @escaping @MainActor (ReminderPrefs?) -> Void = { _ in }) -> ReminderPrefsSync {
-    ReminderPrefsSync(model: { model }, legacy: legacy.store, apply: applied, sleep: { _ in })
+    ReminderPrefsSync(model: { model }, legacy: legacy.store, saveIfDefault: { try await server.saveIfDefault($0) },
+                      apply: applied, sleep: { _ in })
 }
 
 private let local = ReminderPrefs(enabled: true, sound: false, leadMinutes: 5, popupDuration: 20,
@@ -67,13 +79,13 @@ private let local = ReminderPrefs(enabled: true, sound: false, leadMinutes: 5, p
 @MainActor @Test func localPrefsMoveToADefaultServerOnce() async {
     let server = FakePrefsServer()
     let legacy = FakeLegacy(local)
-    await makeSync(server.model(), legacy).refresh()
+    await makeSync(server, server.model(), legacy).refresh()
     #expect(server.prefs == local)
     #expect(server.puts == 1)
     #expect(legacy.migrated)
 
     server.prefs = ReminderPrefs()
-    await makeSync(server.model(), legacy).refresh()
+    await makeSync(server, server.model(), legacy).refresh()
     #expect(server.prefs == ReminderPrefs())
     #expect(server.puts == 1)
 }
@@ -83,7 +95,7 @@ private let local = ReminderPrefs(enabled: true, sound: false, leadMinutes: 5, p
     let server = FakePrefsServer(theirs)
     let legacy = FakeLegacy(local)
     let model = server.model()
-    await makeSync(model, legacy).refresh()
+    await makeSync(server, model, legacy).refresh()
     #expect(server.prefs == theirs)
     #expect(server.puts == 0)
     #expect(model.applied == theirs)
@@ -93,7 +105,7 @@ private let local = ReminderPrefs(enabled: true, sound: false, leadMinutes: 5, p
 @MainActor @Test func aMacWithoutLocalPrefsOnlySetsTheMarker() async {
     let server = FakePrefsServer()
     let legacy = FakeLegacy(nil)
-    await makeSync(server.model(), legacy).refresh()
+    await makeSync(server, server.model(), legacy).refresh()
     #expect(server.puts == 0)
     #expect(legacy.migrated)
 }
@@ -103,16 +115,35 @@ private let local = ReminderPrefs(enabled: true, sound: false, leadMinutes: 5, p
     server.failPuts = true
     let legacy = FakeLegacy(local)
     let model = server.model()
-    let sync = makeSync(model, legacy)
+    let sync = makeSync(server, model, legacy)
     await sync.refresh()
     #expect(!legacy.migrated)
     #expect(model.draft == ReminderPrefs())
     #expect(!model.hasUnsavedChanges)
+    #expect(server.prefs == ReminderPrefs())
 
     server.failPuts = false
     await sync.refresh()
     #expect(server.prefs == local)
     #expect(legacy.migrated)
+}
+
+@MainActor @Test func twoMacsMigratingAtOnceKeepOneMacsValues() async {
+    let server = FakePrefsServer()
+    var other = local
+    other.leadMinutes = 20
+    let (m4, m5) = (server.model(), server.model())
+    let (l4, l5) = (FakeLegacy(local), FakeLegacy(other))
+    let (s4, s5) = (makeSync(server, m4, l4), makeSync(server, m5, l5))
+    await m4.load()
+    await m5.load()
+    async let a: Void = s4.migrate(m4)
+    async let b: Void = s5.migrate(m5)
+    _ = await (a, b)
+    #expect(server.prefs == local || server.prefs == other)
+    #expect(m4.applied == server.prefs)
+    #expect(m5.applied == server.prefs)
+    #expect(l4.migrated && l5.migrated)
 }
 
 @MainActor @Test func migrationClampsValuesTheServerWouldReject() async {
@@ -121,7 +152,7 @@ private let local = ReminderPrefs(enabled: true, sound: false, leadMinutes: 5, p
     odd.leadMinutes = 45
     odd.popupDuration = 0
     odd.nativeIconId = " " + String(repeating: "9", count: 80)
-    await makeSync(server.model(), FakeLegacy(odd)).refresh()
+    await makeSync(server, server.model(), FakeLegacy(odd)).refresh()
     #expect(server.prefs.leadMinutes == 30)
     #expect(server.prefs.popupDuration == 1)
     #expect(server.prefs.nativeIconId == String(repeating: "9", count: 64))
@@ -134,7 +165,7 @@ private let local = ReminderPrefs(enabled: true, sound: false, leadMinutes: 5, p
     let legacy = FakeLegacy(nil)
     let model = server.model()
     var applied: [ReminderPrefs?] = []
-    let sync = makeSync(model, legacy) { applied.append($0) }
+    let sync = makeSync(server, model, legacy) { applied.append($0) }
     sync.observe()
     await sync.refresh()
     #expect(applied == [nil])
@@ -158,7 +189,7 @@ private let local = ReminderPrefs(enabled: true, sound: false, leadMinutes: 5, p
     let source = AlwaysOnSource()
     let scheduler = ReminderScheduler(source: source, prefs: nil, send: { _ in }, now: { Date() },
                                       uptime: { 0 }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
-    let sync = makeSync(model, FakeLegacy(nil)) { scheduler.prefs = $0 }
+    let sync = makeSync(server, model, FakeLegacy(nil)) { scheduler.prefs = $0 }
     sync.observe()
     await sync.refresh()
     #expect(!scheduler.isRunning)

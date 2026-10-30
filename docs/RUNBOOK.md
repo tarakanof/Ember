@@ -572,8 +572,10 @@ Ember.app loads the settings at launch and every 5 min (every 30 s until the
 first load succeeds); until it has loaded them it rings nothing, and while the
 server is unreachable it keeps the last values it loaded. On the first load
 after updating from a version that kept them per Mac, an app with local
-settings pushes them once, only if the server still holds the defaults
-(UserDefaults marker `reminderPrefsMigratedToServer`). The server dedupe is in
+settings pushes them once with `PUT /v1/reminders/config?if_default=1`, which
+the server applies only while it still holds the defaults, so two Macs updating
+at once keep one Mac's values (UserDefaults marker
+`reminderPrefsMigratedToServer`). The server dedupe is in
 memory: a server restart inside a reminder's 10-minute window lets a second Mac
 ring it again.
 

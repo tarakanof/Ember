@@ -2454,8 +2454,12 @@ assertion. Its prefs come from the server through EmberKit's
 5 min (30 s until loaded), feeds the model's `applied` value to the scheduler,
 which holds `nil` and rings nothing until the first load, and keeps the last
 loaded value through an outage. The same sync runs the one-time move of the old
-UserDefaults `reminderPrefs` blob to the server (pushed only while the server
-holds the defaults, then the `reminderPrefsMigratedToServer` marker). That assertion (`.userInitiatedAllowingIdleSystemSleep`)
+UserDefaults `reminderPrefs` blob to the server with
+`PUT /v1/reminders/config?if_default=1`: the server checks for the defaults
+inside the settings update (`setting.putIf`), so concurrent Macs can't
+overwrite each other, and answers 409 with the current values otherwise. Either
+answer sets the `reminderPrefsMigratedToServer` marker; a failed request leaves
+it off for the next load. That assertion (`.userInitiatedAllowingIdleSystemSleep`)
 is held only while the scheduler is armed (`onArmedChange`): a fire in
 progress, a `.notDelivered` fire awaiting its retry, or the next fire time
 within 5 minutes. The rest of the time Ember may nap, and App Nap can stretch

@@ -51,11 +51,13 @@ public final class SettingsModels {
     }
 
     @ObservationIgnored private var server: ServerIdentity
+    @ObservationIgnored private var client: APIClient
     @ObservationIgnored public var onClockSourceSaved: (@MainActor () -> Void)?
     @ObservationIgnored public var onDaySaved: (@MainActor () -> Void)?
 
     public init(client: APIClient, envStore: EnvFileStore) {
         server = ServerIdentity(client)
+        self.client = client
         (pomodoro, weather, meetings, usage, quiet, display, controls, day) = Self.serverModels(client)
         usageAccounts = UsageAccounts.model(client: client)
         reminders = Self.remindersModel(client)
@@ -92,6 +94,7 @@ public final class SettingsModels {
         let next = ServerIdentity(client)
         guard next != server else { return false }
         server = next
+        self.client = client
         for m in [pomodoro, weather, meetings, usage, quiet, display, controls, day, usageAccounts, reminders]
             as [any PendingSaveCancelling] {
             m.cancelPendingSave()
@@ -168,6 +171,10 @@ public final class SettingsModels {
             remote(client, "/v1/controls/config", initial: ControlsConfig()),
             remote(client, "/v1/day/config", initial: DayConfig())
         )
+    }
+
+    public func saveRemindersIfDefault(_ prefs: ReminderPrefs) async throws -> ReminderPrefs? {
+        try await RemindersService(client: client).saveConfigIfDefault(prefs)
     }
 
     private static func remindersModel(_ client: APIClient) -> ServerConfigModel<ReminderPrefs> {
