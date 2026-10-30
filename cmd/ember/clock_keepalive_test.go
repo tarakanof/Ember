@@ -1,6 +1,13 @@
 package main
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,5 +63,36 @@ func TestParseConfigFile_KeepAliveFalse(t *testing.T) {
 	cfg.applyDefaults()
 	if cfg.AWTRIX.KeepAliveEnabled() {
 		t.Fatalf("applyDefaults overwrote an explicit false")
+	}
+}
+
+func TestCloseAfterReplyEvictsIdlePooledConnection(t *testing.T) {
+	var mu sync.Mutex
+	var addrs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
+		mu.Lock()
+		addrs = append(addrs, r.RemoteAddr)
+		mu.Unlock()
+	}))
+	defer srv.Close()
+	defer http.DefaultTransport.(interface{ CloseIdleConnections() }).CloseIdleConnections()
+
+	resp, err := (&http.Client{}).Post(srv.URL+"/pool", "text/plain", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	cl := awtrix.NewClientWithTransport(srv.URL, 2*time.Second, closeAfterReply{})
+	if err := cl.PushApp(context.Background(), "ember", map[string]any{"text": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(addrs) != 2 || addrs[0] == addrs[1] {
+		t.Fatalf("remote addrs = %v, want the closed push on a fresh connection", addrs)
 	}
 }

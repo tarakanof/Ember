@@ -35,6 +35,9 @@ type closeAfterReply struct{}
 func (closeAfterReply) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone := r.Clone(r.Context())
 	clone.Close = true
+	if c, ok := http.DefaultTransport.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
 	return http.DefaultTransport.RoundTrip(clone)
 }
 
