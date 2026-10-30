@@ -25,6 +25,7 @@ type metrics struct {
 	sessionsEvicted  atomic.Int64
 	commandsDropped  atomic.Int64
 	longPoll         [len(longPollResults)]atomic.Int64
+	stateLongPoll    [len(longPollResults)]atomic.Int64
 }
 
 var longPollResults = [...]string{longPollChange, longPollTimeout, longPollShutdown, longPollGone, longPollBusy}
@@ -81,6 +82,18 @@ func (m *metrics) incLongPoll(result string) {
 	for i, r := range longPollResults {
 		if r == result {
 			m.longPoll[i].Add(1)
+			return
+		}
+	}
+}
+
+func (m *metrics) incStateLongPoll(result string) {
+	if m == nil {
+		return
+	}
+	for i, r := range longPollResults {
+		if r == result {
+			m.stateLongPoll[i].Add(1)
 			return
 		}
 	}
@@ -147,6 +160,16 @@ func (m *metrics) render(w io.Writer, app *App) {
 	fmt.Fprintln(w, "# HELP ember_knob_view_waiters Knob view requests blocked in a long-poll now.")
 	fmt.Fprintln(w, "# TYPE ember_knob_view_waiters gauge")
 	fmt.Fprintf(w, "ember_knob_view_waiters %d\n", app.viewWaiters.count())
+
+	fmt.Fprintln(w, "# HELP ember_state_longpoll_total /state and /v1/pomodoro/state long-polls (?wait=) by result: change (200), timeout (304), shutdown (304), gone (client closed), busy (429).")
+	fmt.Fprintln(w, "# TYPE ember_state_longpoll_total counter")
+	for i, r := range longPollResults {
+		fmt.Fprintf(w, "ember_state_longpoll_total{result=\"%s\"} %d\n", r, m.stateLongPoll[i].Load())
+	}
+
+	fmt.Fprintln(w, "# HELP ember_state_waiters /state and /v1/pomodoro/state requests blocked in a long-poll now.")
+	fmt.Fprintln(w, "# TYPE ember_state_waiters gauge")
+	fmt.Fprintf(w, "ember_state_waiters %d\n", app.stateWaiters.count())
 
 	sessionsActive := len(app.sessions.View().Sessions)
 	app.mu.Lock()

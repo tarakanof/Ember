@@ -41,7 +41,7 @@ func (a *App) Upsert(req StatusRequest) (Render, string) {
 	v, prior := a.sessions.Upsert(s)
 	a.noteDayReply(s, prior, a.dayNow())
 	after := a.moodOf(v)
-	if after.Render != before.Render || after.Lead != before.Lead {
+	if after.Render != before.Render || after.Lead != before.Lead || after.etag() != before.etag() {
 		a.changes.notify(topicSessions)
 	}
 	return after.Render, prior

@@ -286,14 +286,6 @@ func (a *App) handlePomodoroSkip(w http.ResponseWriter, r *http.Request) {
 	a.writePomoState(w)
 }
 
-func (a *App) handlePomodoroState(w http.ResponseWriter, r *http.Request) {
-	if !a.pomodoroOn() {
-		writeError(w, http.StatusNotFound, errPomodoroDisabled)
-		return
-	}
-	a.writePomoState(w)
-}
-
 func (a *App) handlePomodoroConfigGet(w http.ResponseWriter, r *http.Request) {
 	serveSettingGet(w, a.settings.pomodoro)
 }

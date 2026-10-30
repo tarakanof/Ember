@@ -72,6 +72,7 @@ type App struct {
 	claims        *claimRegistry
 	changes       *changeBroadcaster
 	viewWaiters   viewWaiters
+	stateWaiters  viewWaiters
 	demos         demoRegistry
 	viewRecheck   time.Duration
 	viewClock     func() time.Time
