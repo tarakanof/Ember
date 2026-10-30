@@ -25,8 +25,7 @@ type attemptPublisher struct {
 }
 
 func (p *attemptPublisher) CustomApp(ctx context.Context, name string, body []byte) error {
-	var payload map[string]any
-	_ = json.Unmarshal(body, &payload)
+	payload, _ := decodeDeviceBody(body)
 	p.mu.Lock()
 	budget := time.Duration(-1)
 	if dl, ok := ctx.Deadline(); ok {

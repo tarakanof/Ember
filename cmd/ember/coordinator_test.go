@@ -551,7 +551,7 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 	reach := 0
 	for _, raw := range last["draw"].([]any) {
 		op := raw.([]any)
-		if r := int(op[1].(float64) + op[3].(float64)); r > reach {
+		if r := op[1].(int) + op[3].(int); r > reach {
 			reach = r
 		}
 	}

@@ -35,9 +35,9 @@ func payloadBitmap(t *testing.T, p map[string]any) (x, w int, px []string) {
 		data := o[5].([]any)
 		px = make([]string, len(data))
 		for i, v := range data {
-			px[i] = fmt.Sprintf("#%06x", int(v.(float64)))
+			px[i] = fmt.Sprintf("#%06x", v.(int))
 		}
-		return int(o[1].(float64)), int(o[3].(float64)), px
+		return o[1].(int), o[3].(int), px
 	}
 	t.Fatalf("payload has no bitmap op: %v", p)
 	return 0, 0, nil

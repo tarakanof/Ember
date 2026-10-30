@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -107,8 +108,8 @@ func (p *recordingPublisher) ListApps(_ context.Context) ([]string, error) {
 }
 
 func (p *recordingPublisher) CustomApp(_ context.Context, name string, body []byte) error {
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
+	payload, err := decodeDeviceBody(body)
+	if err != nil {
 		return err
 	}
 	p.mu.Lock()
@@ -518,4 +519,33 @@ func TestScanSubcommandForwardsLeadingConfig(t *testing.T) {
 			t.Errorf("scanSubcommand(%q) = %q, %q, %v, %v; want %q, %q, %v, %q", c.args, sub, rest, ok, err, c.wantSub, c.wantRest, c.wantOK, c.wantErr)
 		}
 	}
+}
+
+func decodeDeviceBody(body []byte) (map[string]any, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	for k, v := range payload {
+		payload[k] = intifyJSON(v)
+	}
+	return payload, nil
+}
+
+func intifyJSON(v any) any {
+	switch x := v.(type) {
+	case float64:
+		if x == math.Trunc(x) && math.Abs(x) < 1<<53 {
+			return int(x)
+		}
+	case map[string]any:
+		for k, e := range x {
+			x[k] = intifyJSON(e)
+		}
+	case []any:
+		for i, e := range x {
+			x[i] = intifyJSON(e)
+		}
+	}
+	return v
 }
