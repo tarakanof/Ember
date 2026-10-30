@@ -15,22 +15,24 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
-var knobCapsDemo = &deviceCaps{
+var knobCapsDemo = &devices.Caps{
 	View:     []int{1, 1},
 	Pages:    []string{"bot", "pomodoro", "weather", "nowplaying"},
-	Features: []string{featureDemo, featureNPCover, featureViewWait, featureWxFaces, featureWxMoments},
-	Limits:   &deviceCapsLimits{ViewBytes: 16383, ConfigBytes: 2048},
+	Features: []string{featureDemo, featureNPCover, devices.FeatureViewWait, featureWxFaces, featureWxMoments},
+	Limits:   &devices.CapsLimits{ViewBytes: 16383, ConfigBytes: 2048},
 }
 
 func demoFixture(t *testing.T) *viewFixture {
 	t.Helper()
 	f := goldenViewFixture(t)
 	f.app.viewClock = f.clk.Now
-	f.app.devices.now = f.clk.Now
+	f.app.devices.Now = f.clk.Now
 	f.app.viewRecheck = time.Hour
-	plantCaps(t, f, knobCapsDemo.clone())
+	plantCaps(t, f, knobCapsDemo.Clone())
 	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":true}]}`)
 	n := 0
 	f.app.demos.newID = func() string { n++; return fmt.Sprintf("d%07d", n) }
@@ -236,7 +238,7 @@ func TestDemoReachesOnlyKnobsReportingTheDemoFeature(t *testing.T) {
 	if viewDemo(t, goldenView(t, f)) == nil {
 		t.Fatal("demo knob got no demo")
 	}
-	caps := knobCapsDemo.clone()
+	caps := knobCapsDemo.Clone()
 	caps.Features = slices.DeleteFunc(caps.Features, func(s string) bool { return s == featureDemo })
 	plantCaps(t, f, caps)
 	if body := goldenView(t, f); strings.Contains(string(body), `"demo"`) {
@@ -730,7 +732,7 @@ func TestDemoPlayingReportDoesNotAnswerTheLongPoll(t *testing.T) {
 func TestDemoOnTheWorstCaseViewFitsTheBuffer(t *testing.T) {
 	f := goldenViewFixture(t)
 	worstCaseView(t, f)
-	plantCaps(t, f, knobCapsDemo.clone())
+	plantCaps(t, f, knobCapsDemo.Clone())
 	f.app.demos.newID = func() string { return strings.Repeat("f", 8) }
 	worst, size := "", 0
 	for _, sc := range demoCatalog {
@@ -960,7 +962,7 @@ func TestStaleCheckinKeepsTheNewerLastCheckin(t *testing.T) {
 			demoCheckin(t, f, 830, tc.boots)
 			f.clk.advance(tc.gap)
 			demoCheckin(t, f, 800, tc.boots)
-			if got := f.app.devices.list()[0].LastCheckin.UptimeS; got != tc.wantUptime {
+			if got := f.app.devices.List()[0].LastCheckin.UptimeS; got != tc.wantUptime {
 				t.Fatalf("stored uptime = %d, want %d: %s", got, tc.wantUptime, tc.description)
 			}
 		})
@@ -969,7 +971,7 @@ func TestStaleCheckinKeepsTheNewerLastCheckin(t *testing.T) {
 	demoCheckin(t, f, 30, 41)
 	f.clk.advance(time.Second)
 	demoCheckin(t, f, 800, 40)
-	if got := f.app.devices.list()[0].LastCheckin.Diag.Boots; got != 41 {
+	if got := f.app.devices.List()[0].LastCheckin.Diag.Boots; got != 41 {
 		t.Fatalf("stored boots = %d, want 41: a checkin from before the reboot replaced the newer one", got)
 	}
 }
@@ -978,7 +980,7 @@ func TestStaleCheckinDoesNotRollBackCaps(t *testing.T) {
 	f := demoFixture(t)
 	demoCheckin(t, f, 30, 41)
 	f.clk.advance(2 * time.Second)
-	old := knobCapsDemo.clone()
+	old := knobCapsDemo.Clone()
 	old.Features = []string{featureNPCover}
 	b, err := json.Marshal(map[string]any{"fw": "0.9.60", "uptime_s": 800, "diag": map[string]any{"boots": 40}, "caps": old})
 	if err != nil {
@@ -986,12 +988,12 @@ func TestStaleCheckinDoesNotRollBackCaps(t *testing.T) {
 	}
 	resp, rb := devReq(t, f.srv, "POST", "/v1/devices/self/checkin", f.m.Token, string(b))
 	mustOK(t, "stale checkin", resp, rb)
-	st, err := f.app.devices.viewState(f.m.ID)
+	st, err := f.app.devices.ViewState(f.m.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !st.caps.hasFeature(featureDemo) {
-		t.Fatalf("a checkin from before the reboot replaced the newer caps: %+v", st.caps)
+	if !st.Caps.HasFeature(featureDemo) {
+		t.Fatalf("a checkin from before the reboot replaced the newer caps: %+v", st.Caps)
 	}
 }
 
@@ -1000,7 +1002,7 @@ func TestStaleCheckinWithoutBootsAfterABootIsNotStored(t *testing.T) {
 	demoCheckin(t, f, 5, 0)
 	f.clk.advance(time.Second)
 	demoCheckin(t, f, 3000, 0)
-	if got := f.app.devices.list()[0].LastCheckin.UptimeS; got != 5 {
+	if got := f.app.devices.List()[0].LastCheckin.UptimeS; got != 5 {
 		t.Fatalf("stored uptime = %d, want 5: a pre-boot checkin arriving late replaced the post-boot one", got)
 	}
 }
@@ -1010,7 +1012,7 @@ func TestCheckinOnTheSameBootWithGrownUptimeIsStored(t *testing.T) {
 	demoCheckin(t, f, 5, 40)
 	f.clk.advance(time.Second)
 	demoCheckin(t, f, 3000, 40)
-	if got := f.app.devices.list()[0].LastCheckin.UptimeS; got != 3000 {
+	if got := f.app.devices.List()[0].LastCheckin.UptimeS; got != 3000 {
 		t.Fatalf("stored uptime = %d, want 3000: on the same boot a grown uptime can only be the newer checkin", got)
 	}
 }
@@ -1083,43 +1085,5 @@ func TestDemoKnobRestartAnswersTheLongPollAtOnce(t *testing.T) {
 	resp, body, after := waitThenAct(t, f, etag, func() { demoCheckin(t, f, 1, 41) })
 	if resp.StatusCode != http.StatusOK || viewDemo(t, body) != nil || after > 5*time.Second {
 		t.Fatalf("status %d after %v: %s", resp.StatusCode, after, body)
-	}
-}
-
-func TestKnobRebootedReadsUptimeAndBoots(t *testing.T) {
-	t0 := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
-	at := func(seen time.Duration, up, boots int64) deviceCheckin {
-		c := deviceCheckin{SeenAt: t0.Add(seen), UptimeS: up}
-		if boots >= 0 {
-			c.Diag = &deviceDiag{Boots: boots}
-		}
-		return c
-	}
-	for _, tc := range []struct {
-		name      string
-		prev, cur deviceCheckin
-		want      bool
-	}{
-		{"uptime grew, same boot", at(0, 100, 7), at(30*time.Second, 130, 7), false},
-		{"uptime fell, no diag", at(0, 100, -1), at(10*time.Second, 4, -1), true},
-		{"uptime fell, same boots", at(0, 100, 7), at(10*time.Second, 4, 7), false},
-		{"uptime grew, boots moved", at(0, 2, 7), at(10*time.Second, 5, 8), true},
-		{"boots fell: an older checkin", at(0, 30, 8), at(time.Second, 800, 7), false},
-		{"boots unknown", at(0, 2, 0), at(10*time.Second, 5, 8), false},
-		{"diag dropped", at(0, 2, 7), at(10*time.Second, 5, -1), false},
-		{"diag dropped, uptime fell", at(0, 100, 7), at(10*time.Second, 4, -1), true},
-		{"boots 0 on one side, uptime fell", at(0, 100, 7), at(10*time.Second, 4, 0), true},
-		{"boots 0 on one side, uptime grew", at(0, 100, 0), at(10*time.Second, 110, 7), false},
-		{"boots fell after an NVS erase", at(0, 3000, 40), at(30*time.Second, 20, 1), true},
-		{"uptime missing, no diag", at(0, 800, -1), at(10*time.Second, 0, -1), false},
-		{"out of order, no diag", at(0, 830, -1), at(time.Second, 800, -1), false},
-		{"previous record days old, no diag", at(0, 800, -1), at(72*time.Hour, 30, -1), true},
-	} {
-		if got := knobRebooted(&tc.prev, tc.cur); got != tc.want {
-			t.Errorf("%s: knobRebooted = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-	if knobRebooted(nil, at(0, 1, 1)) {
-		t.Error("a first checkin reads as a reboot")
 	}
 }

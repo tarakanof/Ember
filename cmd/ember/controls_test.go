@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 func controlsAction(t *testing.T, srv *httptest.Server, token, body, key string) (int, controlsActionAnswer, string) {
@@ -124,9 +126,9 @@ func pairControlsKnob(t *testing.T, app *App, srv *httptest.Server, pages []stri
 		resp, b := devReq(t, srv, "PUT", "/v1/devices/"+knob.ID+"/config", testToken, `{"pages":[{"id":"bot","on":true},{"id":"controls","on":true}]}`)
 		mustOK(t, "page on", resp, b)
 	}
-	app.devices.mu.Lock()
-	app.devices.state.findKnob(knob.ID).Caps = &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}}
-	app.devices.mu.Unlock()
+	app.devices.WithState(func(st *devices.State) {
+		st.FindKnob(knob.ID).Caps = &devices.Caps{View: []int{1, 1}, Pages: pages, Features: []string{}}
+	})
 	return knob
 }
 

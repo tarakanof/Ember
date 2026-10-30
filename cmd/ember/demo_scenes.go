@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
@@ -412,7 +413,7 @@ func demoPomoScenes() []demoScene {
 
 func demoNPScenes() []demoScene {
 	np := func(name, title string, offline, light bool, state string) demoScene {
-		return demoScene{Name: "nowplaying." + name, Group: demoGroupNP, Title: title, page: knobNowPlayingPage, offline: offline,
+		return demoScene{Name: "nowplaying." + name, Group: demoGroupNP, Title: title, page: devices.KnobNowPlayingPage, offline: offline,
 			view: func(at time.Time, art *demoArt) knobView {
 				v := knobView{Mood: block(&knobMood{}), NowPlaying: &knobNowPlaying{State: nowPlayingNone}}
 				if state == nowPlayingNone {

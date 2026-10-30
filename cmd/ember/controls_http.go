@@ -289,8 +289,8 @@ func (a *App) handleControlsAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) knobControlsPageOn(id string) bool {
-	st, err := a.devices.viewState(id)
-	return err == nil && st.caps != nil && st.caps.hasPage(knobControlsPage) && st.cfg.pageOn(knobControlsPage)
+	st, err := a.devices.ViewState(id)
+	return err == nil && st.Caps != nil && st.Caps.HasPage(knobControlsPage) && st.Cfg.PageOn(knobControlsPage)
 }
 
 type controlCommandsAnswer struct {

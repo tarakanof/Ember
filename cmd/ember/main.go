@@ -245,7 +245,7 @@ func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.W
 	case <-ctx.Done():
 		a.logger.Warn("background workers still running at the shutdown deadline; closing the store anyway")
 	}
-	if err := a.devices.flush(); err != nil {
+	if err := a.devices.Flush(); err != nil {
 		a.logger.Warn("device registry flush failed", "err", err)
 	}
 	if err := a.usageSeen.flush(); err != nil {

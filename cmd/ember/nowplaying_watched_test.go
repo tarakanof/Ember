@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 type watchedAnswer struct {
@@ -165,7 +167,7 @@ func TestMusicWatchedOnOneOfTwoReportingKnobs(t *testing.T) {
 	f := shownFixture(t)
 	other := mintSecondKnob(t, f.srv)
 	caps := maps.Clone(knobCapsFull)
-	caps["features"] = []string{featureViewWait, featureShown}
+	caps["features"] = []string{devices.FeatureViewWait, featureShown}
 	resp, b := devReq(t, f.srv, "POST", "/v1/devices/self/checkin", other.Token, capsCheckinBody(t, "0.10.0", 1, caps))
 	mustOK(t, "checkin", resp, b)
 	pollShown(t, f, "bot")
@@ -292,7 +294,7 @@ func TestMusicWatchedWithTwoKnobsEndsWhenTheLastReportExpires(t *testing.T) {
 	timers := fakeWatchedTimers(f.app)
 	other := mintSecondKnob(t, f.srv)
 	caps := maps.Clone(knobCapsFull)
-	caps["features"] = []string{featureViewWait, featureShown}
+	caps["features"] = []string{devices.FeatureViewWait, featureShown}
 	resp, b := devReq(t, f.srv, "POST", "/v1/devices/self/checkin", other.Token, capsCheckinBody(t, "0.10.0", 1, caps))
 	mustOK(t, "checkin", resp, b)
 	pollShown(t, f, "nowplaying")
@@ -345,7 +347,7 @@ func TestMusicWatchedChangeBetweenSubscribeAndReadIsNotLost(t *testing.T) {
 	var once sync.Once
 	f.app.watchedRead = func() {
 		once.Do(func() {
-			f.app.knobShown.set(f.m.ID, knobShown{Page: knobNowPlayingPage, At: f.clk.Now()})
+			f.app.knobShown.set(f.m.ID, devices.KnobShown{Page: devices.KnobNowPlayingPage, At: f.clk.Now()})
 		})
 	}
 	began := time.Now()

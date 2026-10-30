@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
@@ -328,7 +329,7 @@ func (a *App) probeClockHealthWithin(ctx context.Context, now time.Time, maxAge 
 	c.mu.Unlock()
 	a.recordClockProbe(now, base, dev)
 	if dev.uid != "" && a.cfg.Load().effectiveClockURL() == base {
-		seen := &clockSeen{IP: dev.ip, RSSI: dev.WifiRSSIDbm, UptimeS: dev.UptimeSec}
+		seen := &devices.ClockSeen{IP: dev.ip, RSSI: dev.WifiRSSIDbm, UptimeS: dev.UptimeSec}
 		if dev.Firmware != nil {
 			seen.FW = *dev.Firmware
 		}

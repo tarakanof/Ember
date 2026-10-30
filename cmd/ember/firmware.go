@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"cmp"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -13,12 +12,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -54,11 +53,6 @@ var (
 	errFirmwareOff          = errors.New("firmware storage unavailable")
 )
 
-var (
-	semverPattern        = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$`)
-	firmwareBuildPattern = regexp.MustCompile(`^[0-9a-f]{8}$`)
-)
-
 type firmwareDesc struct {
 	Version   string
 	Project   string
@@ -87,7 +81,7 @@ func parseFirmwareImage(b []byte) (firmwareDesc, error) {
 	if d.Project != firmwareProject {
 		return firmwareDesc{}, errFirmwareWrongProject
 	}
-	if !semverPattern.MatchString(d.Version) {
+	if !devices.SemverPattern.MatchString(d.Version) {
 		return firmwareDesc{}, errFirmwareBadVersion
 	}
 	return d, nil
@@ -98,52 +92,6 @@ func cString(b []byte) string {
 		b = b[:i]
 	}
 	return string(b)
-}
-
-func compareSemver(a, b string) int {
-	coreA, preA, _ := strings.Cut(a, "-")
-	coreB, preB, _ := strings.Cut(b, "-")
-	pa, pb := strings.Split(coreA, "."), strings.Split(coreB, ".")
-	for i := range min(len(pa), len(pb)) {
-		if c := compareNumeric(pa[i], pb[i]); c != 0 {
-			return c
-		}
-	}
-	switch {
-	case preA == preB:
-		return 0
-	case preA == "":
-		return 1
-	case preB == "":
-		return -1
-	}
-	ia, ib := strings.Split(preA, "."), strings.Split(preB, ".")
-	for i := range min(len(ia), len(ib)) {
-		na, errA := strconv.ParseUint(ia[i], 10, 64)
-		nb, errB := strconv.ParseUint(ib[i], 10, 64)
-		var c int
-		switch {
-		case errA == nil && errB == nil:
-			c = cmp.Compare(na, nb)
-		case errA == nil:
-			c = -1
-		case errB == nil:
-			c = 1
-		default:
-			c = strings.Compare(ia[i], ib[i])
-		}
-		if c != 0 {
-			return c
-		}
-	}
-	return cmp.Compare(len(ia), len(ib))
-}
-
-func compareNumeric(a, b string) int {
-	if c := cmp.Compare(len(a), len(b)); c != 0 {
-		return c
-	}
-	return strings.Compare(a, b)
 }
 
 type seedScanner struct {
@@ -260,7 +208,7 @@ func (s *firmwareStore) load() error {
 }
 
 func (s *firmwareStore) loadEntryLocked(name string) error {
-	if !semverPattern.MatchString(name) {
+	if !devices.SemverPattern.MatchString(name) {
 		return s.bootRemoveLocked(name)
 	}
 	m, ok, err := s.loadVersionLocked(name)
@@ -286,7 +234,7 @@ func (s *firmwareStore) bootRemoveLocked(name string) error {
 func (s *firmwareStore) recoverAsideLocked(name string) error {
 	path := filepath.Join(s.dir, name)
 	version, _ := asideVersion(name)
-	if _, indexed := s.index[version]; indexed || !semverPattern.MatchString(version) {
+	if _, indexed := s.index[version]; indexed || !devices.SemverPattern.MatchString(version) {
 		return s.bootRemoveLocked(name)
 	}
 	if info, err := os.Lstat(s.versionDir(version)); err == nil {
@@ -319,7 +267,7 @@ func (s *firmwareStore) loadVersionLocked(name string) (firmwareMeta, bool, erro
 		}
 		present[e.Name()] = true
 	}
-	if !present[firmwareMetaName] || !present[firmwareBinName] || !semverPattern.MatchString(name) {
+	if !present[firmwareMetaName] || !present[firmwareBinName] || !devices.SemverPattern.MatchString(name) {
 		return firmwareMeta{}, false, nil
 	}
 	blob, err := os.ReadFile(filepath.Join(dir, firmwareMetaName))
@@ -571,7 +519,7 @@ func (s *firmwareStore) versionsLocked() []string {
 	for v := range s.index {
 		out = append(out, v)
 	}
-	slices.SortFunc(out, func(a, b string) int { return compareSemver(b, a) })
+	slices.SortFunc(out, func(a, b string) int { return devices.CompareSemver(b, a) })
 	return out
 }
 
@@ -648,13 +596,13 @@ func (s *firmwareStore) list() []firmwareImage {
 }
 
 func (s *firmwareStore) newestAbove(running string, accept func(firmwareMeta) bool) (firmwareMeta, bool) {
-	if !semverPattern.MatchString(running) {
+	if !devices.SemverPattern.MatchString(running) {
 		return firmwareMeta{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, v := range s.versionsLocked() {
-		if compareSemver(v, running) <= 0 {
+		if devices.CompareSemver(v, running) <= 0 {
 			break
 		}
 		if m := s.index[v]; accept == nil || accept(m) {
@@ -689,7 +637,7 @@ func firmwareNewestKept(index map[string]firmwareMeta) []string {
 		if m.Channel == firmwareChannelRelease {
 			head = &release
 		}
-		if *head == "" || compareSemver(m.Version, *head) > 0 {
+		if *head == "" || devices.CompareSemver(m.Version, *head) > 0 {
 			*head = m.Version
 		}
 	}
@@ -697,7 +645,7 @@ func firmwareNewestKept(index map[string]firmwareMeta) []string {
 	if release != "" {
 		out = append(out, release)
 	}
-	if test != "" && (release == "" || compareSemver(test, release) > 0) {
+	if test != "" && (release == "" || devices.CompareSemver(test, release) > 0) {
 		out = append(out, test)
 	}
 	return out

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
@@ -322,12 +323,12 @@ func probeClock(t *testing.T, a *App) {
 	a.clockMigrate.jobs.Wait()
 }
 
-func listDevices(t *testing.T, srv *httptest.Server) []deviceView {
+func listDevices(t *testing.T, srv *httptest.Server) []devices.View {
 	t.Helper()
 	resp, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
 	mustOK(t, "list", resp, b)
 	var out struct {
-		Devices []deviceView `json:"devices"`
+		Devices []devices.View `json:"devices"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
@@ -335,21 +336,21 @@ func listDevices(t *testing.T, srv *httptest.Server) []deviceView {
 	return out.Devices
 }
 
-func registeredClock(t *testing.T, a *App, srv *httptest.Server) deviceView {
+func registeredClock(t *testing.T, a *App, srv *httptest.Server) devices.View {
 	t.Helper()
 	probeClock(t, a)
 	for _, d := range listDevices(t, srv) {
-		if d.Kind == deviceKindClock {
+		if d.Kind == devices.KindClock {
 			return d
 		}
 	}
 	t.Fatal("no clock record")
-	return deviceView{}
+	return devices.View{}
 }
 
 func TestClockRecordCreatedOnFirstGoodProbe(t *testing.T) {
 	a, srv, _ := newClockApp(t)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	d := registeredClock(t, a, srv)
 	if d.ID != "clock-05ffb8" || d.HwID != testClockUID || d.Name != "Clock 05FFB8" {
 		t.Fatalf("record = %+v", d)
@@ -364,14 +365,14 @@ func TestClockRecordCreatedOnFirstGoodProbe(t *testing.T) {
 	if d.ConfigVersion != a.clockConfigVersion() {
 		t.Fatalf("config_version = %d, want %d", d.ConfigVersion, a.clockConfigVersion())
 	}
-	if got := a.devices.epochValue(); got != epoch+1 {
+	if got := a.devices.Epoch(); got != epoch+1 {
 		t.Fatalf("epoch = %d, want %d", got, epoch+1)
 	}
 	probeClock(t, a)
 	if n := len(listDevices(t, srv)); n != 1 {
 		t.Fatalf("second probe made %d records", n)
 	}
-	if got := a.devices.epochValue(); got != epoch+1 {
+	if got := a.devices.Epoch(); got != epoch+1 {
 		t.Fatalf("second probe moved the epoch to %d", got)
 	}
 }
@@ -379,7 +380,7 @@ func TestClockRecordCreatedOnFirstGoodProbe(t *testing.T) {
 func TestClockRecordPersistsWithoutConfig(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	registeredClock(t, a, srv)
-	blob, _, err := a.store.GetSetting(devicesKey)
+	blob, _, err := a.store.GetSetting(devices.StateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,11 +396,11 @@ func TestClockRecordPersistsWithoutConfig(t *testing.T) {
 	if _, ok := st.Devices[0]["last_seen"]; !ok {
 		t.Fatalf("clock record stored no last_seen: %s", blob)
 	}
-	reg := newDeviceRegistry(a.devices.kv)
-	if err := reg.load(); err != nil {
+	reg := devices.New(a.devices.KV)
+	if err := reg.Load(); err != nil {
 		t.Fatal(err)
 	}
-	if v := reg.list(); len(v) != 1 || v[0].Kind != deviceKindClock || v[0].LastSeen == nil {
+	if v := reg.List(); len(v) != 1 || v[0].Kind != devices.KindClock || v[0].LastSeen == nil {
 		t.Fatalf("reloaded = %+v", v)
 	}
 }
@@ -437,7 +438,7 @@ func setStubUID(stub *clockStub, uid string) {
 func TestFlappingClockUIDNeitherFlipsNorBumps(t *testing.T) {
 	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	for i := range 50 {
 		setStubUID(stub, "spoof"+strconv.Itoa(i))
 		probeClock(t, a)
@@ -452,7 +453,7 @@ func TestFlappingClockUIDNeitherFlipsNorBumps(t *testing.T) {
 	if len(devs) != 1 || devs[0].ID != d.ID || devs[0].HwID != testClockUID {
 		t.Fatalf("records = %+v", devs)
 	}
-	if got := a.devices.epochValue(); got != epoch {
+	if got := a.devices.Epoch(); got != epoch {
 		t.Fatalf("epoch moved %d times", got-epoch)
 	}
 }
@@ -460,11 +461,11 @@ func TestFlappingClockUIDNeitherFlipsNorBumps(t *testing.T) {
 func TestLastSeenUpdateLeavesEpochAlone(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	registeredClock(t, a, srv)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	for range 5 {
 		probeClock(t, a)
 	}
-	if got := a.devices.epochValue(); got != epoch {
+	if got := a.devices.Epoch(); got != epoch {
 		t.Fatalf("last_seen updates moved the epoch to %d", got)
 	}
 }
@@ -472,7 +473,7 @@ func TestLastSeenUpdateLeavesEpochAlone(t *testing.T) {
 func TestClockUIDReplacedAfterTwoProbes(t *testing.T) {
 	a, srv, stub := newClockApp(t)
 	d := registeredClock(t, a, srv)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	setStubUID(stub, "aabbcc112233")
 	probeClock(t, a)
 	if devs := listDevices(t, srv); devs[0].ID != d.ID {
@@ -486,7 +487,7 @@ func TestClockUIDReplacedAfterTwoProbes(t *testing.T) {
 	if !devs[0].CreatedAt.Equal(d.CreatedAt) {
 		t.Fatalf("created_at moved: %v -> %v", d.CreatedAt, devs[0].CreatedAt)
 	}
-	if got := a.devices.epochValue(); got != epoch+1 {
+	if got := a.devices.Epoch(); got != epoch+1 {
 		t.Fatalf("epoch = %d, want %d", got, epoch+1)
 	}
 }
@@ -568,7 +569,7 @@ func TestClockKindGatesOnKnobRoutes(t *testing.T) {
 			t.Errorf("%s %s = %d, want %d: %s", c.method, c.path, resp.StatusCode, c.want, b)
 		}
 	}
-	if _, err := a.devices.checkin(d.ID, deviceCheckin{}, nil, ""); err == nil || !strings.Contains(err.Error(), "checkin applies to kind") {
+	if _, err := a.devices.Checkin(d.ID, devices.Checkin{}, nil, ""); err == nil || !strings.Contains(err.Error(), "checkin applies to kind") {
 		t.Fatalf("checkin err = %v", err)
 	}
 }
@@ -576,48 +577,19 @@ func TestClockKindGatesOnKnobRoutes(t *testing.T) {
 func TestClockRecordNeverAuthenticates(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
-	token := newToken(deviceTokenPrefix)
-	a.devices.mu.Lock()
-	rec := a.devices.state.find(d.ID)
-	rec.TokenSHA256 = tokenHash(token)
-	rec.PendingTokenSHA256 = tokenHash(token)
-	a.devices.mu.Unlock()
-	if _, ok, err := a.devices.authenticate(token); ok || err != nil {
+	token := devices.NewToken(devices.TokenPrefix)
+	a.devices.WithState(func(st *devices.State) {
+		rec := st.Find(d.ID)
+		rec.TokenSHA256 = devices.TokenHash(token)
+		rec.PendingTokenSHA256 = devices.TokenHash(token)
+	})
+	if _, ok, err := a.devices.Authenticate(token); ok || err != nil {
 		t.Fatalf("clock authenticated: ok=%v err=%v", ok, err)
 	}
 	for _, p := range []string{"/v1/devices/self/config", "/v1/devices/self/view"} {
 		if resp, b := devReq(t, srv, "GET", p, token, ""); resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("GET %s = %d: %s", p, resp.StatusCode, b)
 		}
-	}
-}
-
-func TestOTASkipsClockRecords(t *testing.T) {
-	r := newDeviceRegistry(func() settingsKV { return nil })
-	if _, _, err := r.seenClock(testClockUID, nil, "d"); err != nil {
-		t.Fatal(err)
-	}
-	r.mu.Lock()
-	d := &r.state.Devices[0]
-	d.OTA = &knobOTA{Target: "0.9.0", Version: "0.9.0", Phase: otaPhaseDownloading}
-	d.LastCheckin = &deviceCheckin{FW: "0.9.0"}
-	r.mu.Unlock()
-	if r.otaTargets("0.9.0") {
-		t.Error("otaTargets counted a clock record")
-	}
-	if kept, release := r.holdUnlessKept("0.9.0"); kept {
-		t.Error("holdUnlessKept counted a clock record")
-	} else {
-		release()
-	}
-	d.OTA.Phase = otaPhaseFailed
-	d.OTA.Blocked = []string{"0.9.0"}
-	epoch := r.epochValue()
-	if err := r.otaRetire([]string{"0.9.0"}, ""); err != nil {
-		t.Fatal(err)
-	}
-	if r.epochValue() != epoch || len(r.state.Devices[0].OTA.Blocked) != 1 {
-		t.Error("otaRetire touched a clock record")
 	}
 }
 
@@ -651,7 +623,7 @@ func TestDoctorDevicesListsClockRecord(t *testing.T) {
 		t.Fatalf("clock judged by checkin: %q", res.Detail)
 	}
 	now := time.Now()
-	a.devices.now = func() time.Time { return now.Add(deviceStaleAfter + time.Minute) }
+	a.devices.Now = func() time.Time { return now.Add(deviceStaleAfter + time.Minute) }
 	res = checkDevices(a)
 	if res.Status != StatusWarn || !strings.Contains(res.Detail, d.ID+" seen=") {
 		t.Fatalf("stale clock: %+v", res)
@@ -671,10 +643,10 @@ func TestDoctorDevicesClockDisabled(t *testing.T) {
 func TestClockConfigChangeBumpsEpoch(t *testing.T) {
 	a, srv, _ := newClockApp(t)
 	d := registeredClock(t, a, srv)
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	resp, b := devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"moon_phase":false}`)
 	mustOK(t, "weather put", resp, b)
-	if got := a.devices.epochValue(); got != epoch+1 {
+	if got := a.devices.Epoch(); got != epoch+1 {
 		t.Fatalf("epoch after old-endpoint change = %d, want %d", got, epoch+1)
 	}
 	after := listDevices(t, srv)[0]
@@ -687,12 +659,12 @@ func TestClockConfigChangeBumpsEpoch(t *testing.T) {
 	}
 	resp, b = devReq(t, srv, "PUT", "/v1/apps", testToken, `{"app":"codex","enabled":false}`)
 	mustOK(t, "apps put", resp, b)
-	if got := a.devices.epochValue(); got != epoch+2 {
+	if got := a.devices.Epoch(); got != epoch+2 {
 		t.Fatalf("epoch after hidden app = %d, want %d", got, epoch+2)
 	}
 	resp, b = devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"refresh_minutes":30}`)
 	mustOK(t, "weather source put", resp, b)
-	if got := a.devices.epochValue(); got != epoch+2 {
+	if got := a.devices.Epoch(); got != epoch+2 {
 		t.Fatalf("a source-only change moved the epoch to %d", got)
 	}
 }
@@ -717,9 +689,9 @@ func TestReapplySettingsBumpsEpochAtMostOnce(t *testing.T) {
 	a.clockSync.mu.Lock()
 	a.clockSync.paused--
 	a.clockSync.mu.Unlock()
-	epoch := a.devices.epochValue()
+	epoch := a.devices.Epoch()
 	a.reapplySettings()
-	if got := a.devices.epochValue(); got > epoch+1 {
+	if got := a.devices.Epoch(); got > epoch+1 {
 		t.Fatalf("reapply moved the epoch %d times", got-epoch)
 	}
 	if got := listDevices(t, srv)[0].ConfigVersion; got != stored {

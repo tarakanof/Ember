@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/render"
 )
 
@@ -78,7 +79,7 @@ type coordinator struct {
 	keySeq         map[string]uint64
 	keyVal         map[string]any
 	restoreBackoff int
-	kv             settingsKV
+	kv             devices.KV
 
 	onPublishResult func(snap Snapshot, err error)
 

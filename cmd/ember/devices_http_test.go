@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const testHwID = "3cdc7561fc8c"
@@ -116,7 +118,7 @@ func TestDevicesListNeverShowsSecrets(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list = %d", resp.StatusCode)
 	}
-	if bytes.Contains(b, []byte(m.Token)) || bytes.Contains(b, []byte("token")) || bytes.Contains(b, []byte(tokenHash(m.Token))) {
+	if bytes.Contains(b, []byte(m.Token)) || bytes.Contains(b, []byte("token")) || bytes.Contains(b, []byte(devices.TokenHash(m.Token))) {
 		t.Fatalf("list leaks a secret: %s", b)
 	}
 	var out struct {
@@ -133,7 +135,7 @@ func TestDevicesListNeverShowsSecrets(t *testing.T) {
 func TestDevicesStoreHoldsHashOnly(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)
-	blob, ok, err := app.store.GetSetting(devicesKey)
+	blob, ok, err := app.store.GetSetting(devices.StateKey)
 	if err != nil || !ok {
 		t.Fatalf("store row missing: ok=%v err=%v", ok, err)
 	}
@@ -211,7 +213,7 @@ func TestDevicesPersistAcrossRestart(t *testing.T) {
 	if resp, _ := devReq(t, srv1, "PUT", "/v1/devices/"+m.ID+"/config", testToken, `{"home":"weather"}`); resp.StatusCode != http.StatusOK {
 		t.Fatalf("config put = %d", resp.StatusCode)
 	}
-	epoch := app1.devices.epochValue()
+	epoch := app1.devices.Epoch()
 	srv1.Close()
 	_ = app1.store.Close()
 
@@ -223,8 +225,8 @@ func TestDevicesPersistAcrossRestart(t *testing.T) {
 	if out["config"].(map[string]any)["home"] != "weather" || out["config_version"] != float64(2) {
 		t.Fatalf("checkin after restart = %v", out)
 	}
-	if app2.devices.epochValue() != epoch {
-		t.Fatalf("epoch after restart = %d, want %d", app2.devices.epochValue(), epoch)
+	if app2.devices.Epoch() != epoch {
+		t.Fatalf("epoch after restart = %d, want %d", app2.devices.Epoch(), epoch)
 	}
 }
 
@@ -245,7 +247,7 @@ func TestDeviceCheckinSendsConfigOnlyWhenStale(t *testing.T) {
 	if _, ok := out["config"]; ok || out["config_version"] != float64(1) {
 		t.Fatalf("current checkin = %v, want version only", out)
 	}
-	d := app.devices.list()[0]
+	d := app.devices.List()[0]
 	if d.LastCheckin == nil || d.LastCheckin.FW != "0.5.0" || d.LastCheckin.RSSI != -58 ||
 		d.LastCheckin.HeapInternalFree != 47104 || d.LastCheckin.UptimeS != 812 || d.LastCheckin.AppliedVersion != 1 {
 		t.Fatalf("last checkin = %+v", d.LastCheckin)
@@ -258,7 +260,7 @@ func TestDeviceCheckinFallsBackToRemoteIP(t *testing.T) {
 	if resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.5.0"}`); resp.StatusCode != http.StatusOK {
 		t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
 	}
-	if got := app.devices.list()[0].LastCheckin.IP; got != "127.0.0.1" {
+	if got := app.devices.List()[0].LastCheckin.IP; got != "127.0.0.1" {
 		t.Fatalf("ip = %q, want remote addr", got)
 	}
 	if resp, _ := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"ip":"not-an-ip"}`); resp.StatusCode != http.StatusBadRequest {
@@ -274,8 +276,8 @@ func TestDeviceSelfConfig(t *testing.T) {
 		t.Fatalf("self config = %d", resp.StatusCode)
 	}
 	var out struct {
-		Version int          `json:"config_version"`
-		Config  knobSettings `json:"config"`
+		Version int                  `json:"config_version"`
+		Config  devices.KnobSettings `json:"config"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
@@ -289,7 +291,7 @@ func TestDeviceConfigPutMergesAndBumpsVersion(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)
 	path := "/v1/devices/" + m.ID + "/config"
-	epoch0 := app.devices.epochValue()
+	epoch0 := app.devices.Epoch()
 
 	resp, b := devReq(t, srv, "PUT", path, testToken, `{"poll_ms":3000,"brightness":{"follow_ember":false,"level":100,"floor":5,"startup":80}}`)
 	if resp.StatusCode != http.StatusOK {
@@ -298,19 +300,19 @@ func TestDeviceConfigPutMergesAndBumpsVersion(t *testing.T) {
 	if resp.Header.Get("X-Ember-Config-Version") != "2" {
 		t.Fatalf("version header = %q, want 2", resp.Header.Get("X-Ember-Config-Version"))
 	}
-	var got knobSettings
+	var got devices.KnobSettings
 	_ = json.Unmarshal(b, &got)
-	if got.PollMS != 3000 || got.Brightness.Level != 100 || got.Home != "bot" || len(got.Pages) != len(knobPageIDs) {
+	if got.PollMS != 3000 || got.Brightness.Level != 100 || got.Home != "bot" || len(got.Pages) != len(devices.KnobPageIDs) {
 		t.Fatalf("merged = %+v", got)
 	}
-	if app.devices.epochValue() == epoch0 {
+	if app.devices.Epoch() == epoch0 {
 		t.Fatal("epoch did not move on config change")
 	}
 
-	epoch1 := app.devices.epochValue()
+	epoch1 := app.devices.Epoch()
 	resp, _ = devReq(t, srv, "PUT", path, testToken, `{}`)
-	if resp.StatusCode != http.StatusOK || resp.Header.Get("X-Ember-Config-Version") != "2" || app.devices.epochValue() != epoch1 {
-		t.Fatalf("empty put: status %d version %q epoch moved %v", resp.StatusCode, resp.Header.Get("X-Ember-Config-Version"), app.devices.epochValue() != epoch1)
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("X-Ember-Config-Version") != "2" || app.devices.Epoch() != epoch1 {
+		t.Fatalf("empty put: status %d version %q epoch moved %v", resp.StatusCode, resp.Header.Get("X-Ember-Config-Version"), app.devices.Epoch() != epoch1)
 	}
 
 	resp, b = devReq(t, srv, "GET", path, testToken, "")
@@ -344,7 +346,7 @@ func TestDeviceConfigPutRejectsInvalidMergedResult(t *testing.T) {
 	if _, after := devReq(t, srv, "GET", path, testToken, ""); !bytes.Equal(before, after) {
 		t.Fatalf("config changed by rejected puts:\n before %s\n after  %s", before, after)
 	}
-	if v := app.devices.list()[0].ConfigVersion; v != 1 {
+	if v := app.devices.List()[0].ConfigVersion; v != 1 {
 		t.Fatalf("version after rejected puts = %d, want 1", v)
 	}
 	if resp, _ := devReq(t, srv, "PUT", "/v1/devices/knob-000000/config", testToken, `{}`); resp.StatusCode != http.StatusNotFound {
@@ -372,12 +374,12 @@ func TestDevicePatchRenames(t *testing.T) {
 func TestDeviceRotateDeliversNewTokenAndRetiresOldOnFirstUse(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)
-	epoch0 := app.devices.epochValue()
+	epoch0 := app.devices.Epoch()
 	resp, b := devReq(t, srv, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
 	if resp.StatusCode != http.StatusAccepted || !bytes.Contains(b, []byte(`"rotation_pending":true`)) {
 		t.Fatalf("rotate = %d: %s", resp.StatusCode, b)
 	}
-	if app.devices.epochValue() == epoch0 {
+	if app.devices.Epoch() == epoch0 {
 		t.Fatal("epoch did not move on rotate")
 	}
 
@@ -403,7 +405,7 @@ func TestDeviceRotateDeliversNewTokenAndRetiresOldOnFirstUse(t *testing.T) {
 	if resp, _ := checkin(t, srv, m.Token, 1); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("old token after first use of new = %d, want 401", resp.StatusCode)
 	}
-	if app.devices.list()[0].RotationPending {
+	if app.devices.List()[0].RotationPending {
 		t.Fatal("rotation still pending after promotion")
 	}
 }
@@ -470,9 +472,9 @@ func TestDeviceRotationPromotionBumpsEpoch(t *testing.T) {
 	m := mintKnob(t, srv, http.StatusCreated)
 	devReq(t, srv, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
 	_, out := checkin(t, srv, m.Token, 1)
-	e0 := app.devices.epochValue()
+	e0 := app.devices.Epoch()
 	checkin(t, srv, out["new_token"].(string), 1)
-	if app.devices.epochValue() == e0 {
+	if app.devices.Epoch() == e0 {
 		t.Fatal("epoch did not move on rotation promotion")
 	}
 }
@@ -485,9 +487,9 @@ func TestDeviceConfigPutMergesNestedObjects(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("put = %d: %s", resp.StatusCode, b)
 	}
-	var got knobSettings
+	var got devices.KnobSettings
 	_ = json.Unmarshal(b, &got)
-	want := knobBrightness{FollowEmber: true, Level: 100, Floor: 5, Startup: 153}
+	want := devices.KnobBrightness{FollowEmber: true, Level: 100, Floor: 5, Startup: 153}
 	if got.Brightness != want || got.Bot.SleepyAfterS != 300 {
 		t.Fatalf("nested merge = %+v, want %+v", got, want)
 	}
@@ -496,7 +498,7 @@ func TestDeviceConfigPutMergesNestedObjects(t *testing.T) {
 		t.Fatalf("pages put = %d: %s", resp.StatusCode, b)
 	}
 	_ = json.Unmarshal(b, &got)
-	wantPages := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "day"}, {ID: "room"}, {ID: "nowplaying"}, {ID: "controls"}, {ID: "pomodoro"}}
+	wantPages := []devices.KnobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "day"}, {ID: "room"}, {ID: "nowplaying"}, {ID: "controls"}, {ID: "pomodoro"}}
 	if !reflect.DeepEqual(got.Pages, wantPages) {
 		t.Fatalf("pages replaced = %+v, want %+v", got.Pages, wantPages)
 	}
@@ -520,16 +522,16 @@ func TestDeviceConfigKeepsUnknownWellFormedPageIDs(t *testing.T) {
 func TestDeviceRegistryLoadFailureRefusesWrites(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	const bad = `{"devices":[{"id":`
-	if err := app.store.PutSetting(devicesKey, bad); err != nil {
+	if err := app.store.PutSetting(devices.StateKey, bad); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.devices.load(); err == nil {
+	if err := app.devices.Load(); err == nil {
 		t.Fatal("load of a corrupt blob succeeded")
 	}
 	if resp, _ := devReq(t, srv, "POST", "/v1/devices", testToken, `{"kind":"cinder-knob","hw_id":"`+testHwID+`"}`); resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("mint after failed load = %d, want 500", resp.StatusCode)
 	}
-	if blob, _, _ := app.store.GetSetting(devicesKey); blob != bad {
+	if blob, _, _ := app.store.GetSetting(devices.StateKey); blob != bad {
 		t.Fatalf("stored blob overwritten: %q", blob)
 	}
 	if got := checkDevices(app); got.Status != StatusFail || !strings.Contains(got.Detail, "load failed") {
@@ -540,13 +542,13 @@ func TestDeviceRegistryLoadFailureRefusesWrites(t *testing.T) {
 func TestDeviceRotateRetiresOldTokenAfterGrace(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
-	app.devices.now = func() time.Time { return now }
+	app.devices.Now = func() time.Time { return now }
 	m := mintKnob(t, srv, http.StatusCreated)
 	devReq(t, srv, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
 	_, out := checkin(t, srv, m.Token, 1)
 	newTok := out["new_token"].(string)
 
-	now = now.Add(deviceRotationGrace + time.Second)
+	now = now.Add(devices.RotationGrace + time.Second)
 	if resp, _ := checkin(t, srv, m.Token, 1); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("old token after grace = %d, want 401", resp.StatusCode)
 	}
@@ -558,11 +560,11 @@ func TestDeviceRotateRetiresOldTokenAfterGrace(t *testing.T) {
 func TestDeviceDeleteRevokes(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)
-	epoch0 := app.devices.epochValue()
+	epoch0 := app.devices.Epoch()
 	if resp, _ := devReq(t, srv, "DELETE", "/v1/devices/"+m.ID, testToken, ""); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete = %d, want 204", resp.StatusCode)
 	}
-	if app.devices.epochValue() == epoch0 {
+	if app.devices.Epoch() == epoch0 {
 		t.Fatal("epoch did not move on delete")
 	}
 	if resp, _ := checkin(t, srv, m.Token, 1); resp.StatusCode != http.StatusUnauthorized {
@@ -641,7 +643,7 @@ func TestDeviceTokensNeverLogged(t *testing.T) {
 	checkin(t, srv, m.Token, 0)
 	mintKnob(t, srv, http.StatusOK)
 	logs := buf.String()
-	for _, secret := range []string{m.Token, newTok, tokenHash(m.Token), tokenHash(newTok)} {
+	for _, secret := range []string{m.Token, newTok, devices.TokenHash(m.Token), devices.TokenHash(newTok)} {
 		if strings.Contains(logs, secret) {
 			t.Fatalf("logs contain a token or its hash")
 		}
@@ -654,7 +656,7 @@ func TestDeviceTokensNeverLogged(t *testing.T) {
 func TestDoctorReportsDevices(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
-	app.devices.now = func() time.Time { return now }
+	app.devices.Now = func() time.Time { return now }
 	if got := checkDevices(app); got.Status != StatusOK || got.Detail != "registered=0" {
 		t.Fatalf("empty = %+v", got)
 	}
@@ -679,7 +681,7 @@ func TestDeviceCheckinRecordsTheDisplayLink(t *testing.T) {
 	if resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.2","link_mhz":40,"link_fallback":true}`); resp.StatusCode != http.StatusOK {
 		t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
 	}
-	got := app.devices.list()[0].LastCheckin
+	got := app.devices.List()[0].LastCheckin
 	if got.LinkMHz != 40 || !got.LinkFallback {
 		t.Fatalf("link = %d MHz, fallback %v", got.LinkMHz, got.LinkFallback)
 	}
@@ -687,7 +689,7 @@ func TestDeviceCheckinRecordsTheDisplayLink(t *testing.T) {
 		t.Fatalf("bad link_mhz = %d, want 400", resp.StatusCode)
 	}
 	devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.1"}`)
-	if got := app.devices.list()[0].LastCheckin; got.LinkMHz != 0 || got.LinkFallback {
+	if got := app.devices.List()[0].LastCheckin; got.LinkMHz != 0 || got.LinkFallback {
 		t.Fatalf("older firmware: link = %d, %v", got.LinkMHz, got.LinkFallback)
 	}
 }
@@ -699,13 +701,13 @@ func TestDeviceCheckinRecordsTheWifiLink(t *testing.T) {
 	if resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, body); resp.StatusCode != http.StatusOK {
 		t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
 	}
-	got := app.devices.list()[0].LastCheckin.Wifi
-	want := deviceWifi{BSSID: "78:45:58:4b:c2:cd", Channel: 6, Disconnects: 3, LastReason: 203, RSSIMin: -83}
+	got := app.devices.List()[0].LastCheckin.Wifi
+	want := devices.Wifi{BSSID: "78:45:58:4b:c2:cd", Channel: 6, Disconnects: 3, LastReason: 203, RSSIMin: -83}
 	if got == nil || *got != want {
 		t.Fatalf("wifi = %+v, want %+v", got, want)
 	}
 	got.Disconnects = 99
-	if again := app.devices.list()[0].LastCheckin.Wifi; again.Disconnects != 3 {
+	if again := app.devices.List()[0].LastCheckin.Wifi; again.Disconnects != 3 {
 		t.Fatalf("list shares the stored wifi: disconnects = %d", again.Disconnects)
 	}
 	resp, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
@@ -718,7 +720,7 @@ func TestDeviceCheckinKeepsOnlyDisconnectsWhenTheKnobKnowsNoMore(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)
 	devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.8","wifi":{"disconnects":0}}`)
-	if got := app.devices.list()[0].LastCheckin.Wifi; got == nil || *got != (deviceWifi{}) {
+	if got := app.devices.List()[0].LastCheckin.Wifi; got == nil || *got != (devices.Wifi{}) {
 		t.Fatalf("wifi = %+v, want zero object", got)
 	}
 	resp, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
@@ -746,7 +748,7 @@ func TestDeviceCheckinDropsAnInvalidWifiObjectButKeepsTheCheckin(t *testing.T) {
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
 			}
-			got := app.devices.list()[0].LastCheckin
+			got := app.devices.List()[0].LastCheckin
 			if got.Wifi != nil || got.FW != "0.9.8" || got.RSSI != -70 {
 				t.Fatalf("checkin = %+v, wifi %+v", got, got.Wifi)
 			}
@@ -759,7 +761,7 @@ func TestDeviceCheckinWithoutWifiClearsTheStoredLink(t *testing.T) {
 	m := mintKnob(t, srv, http.StatusCreated)
 	devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.8","wifi":{"disconnects":2}}`)
 	devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.7"}`)
-	if got := app.devices.list()[0].LastCheckin.Wifi; got != nil {
+	if got := app.devices.List()[0].LastCheckin.Wifi; got != nil {
 		t.Fatalf("older firmware: wifi = %+v", got)
 	}
 }

@@ -250,12 +250,12 @@ func (a *App) knobDemo(id string, base knobView, now time.Time) *knobDemo {
 
 func (a *App) demoKnob(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id := r.PathValue("id")
-	st, err := a.devices.viewState(id)
+	st, err := a.devices.ViewState(id)
 	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return "", false
 	}
-	if !st.caps.hasFeature(featureDemo) {
+	if !st.Caps.HasFeature(featureDemo) {
 		writeError(w, http.StatusConflict, errDemoUnsupported)
 		return "", false
 	}
@@ -301,7 +301,7 @@ func (a *App) handleDemoStart(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDemoStop(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := a.devices.viewState(id); err != nil {
+	if _, err := a.devices.ViewState(id); err != nil {
 		a.writeDeviceError(w, r, err)
 		return
 	}
@@ -312,7 +312,7 @@ func (a *App) handleDemoStop(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDemoStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := a.devices.viewState(id); err != nil {
+	if _, err := a.devices.ViewState(id); err != nil {
 		a.writeDeviceError(w, r, err)
 		return
 	}
@@ -320,7 +320,7 @@ func (a *App) handleDemoStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDemoScenes(w http.ResponseWriter, r *http.Request) {
-	if _, err := a.devices.viewState(r.PathValue("id")); err != nil {
+	if _, err := a.devices.ViewState(r.PathValue("id")); err != nil {
 		a.writeDeviceError(w, r, err)
 		return
 	}

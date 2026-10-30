@@ -18,6 +18,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 var knobCapsFull = map[string]any{
@@ -46,7 +48,7 @@ func capsCheckinBody(t *testing.T, fw string, version int, caps any) string {
 
 func postCapsCheckin(t *testing.T, f *viewFixture, fw string, caps any) map[string]any {
 	t.Helper()
-	_, version, err := f.app.devices.versions(f.m.ID)
+	_, version, err := f.app.devices.Versions(f.m.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,73 +90,6 @@ func knobEffectiveCaps(t *testing.T, f *viewFixture) map[string]any {
 	return nil
 }
 
-func TestLegacyCapsTable(t *testing.T) {
-	base := []string{"bot", "pomodoro", "weather"}
-	withNP := []string{"bot", "pomodoro", "weather", "nowplaying"}
-	limits := &deviceCapsLimits{ViewBytes: 16383, ConfigBytes: 1024}
-	cases := []struct {
-		fw       string
-		pages    []string
-		features []string
-		limits   *deviceCapsLimits
-	}{
-		{"", base, []string{}, nil},
-		{"dev", base, []string{}, nil},
-		{"0.9", base, []string{}, nil},
-		{"0.6.9", base, []string{}, nil},
-		{"0.7.0", base, []string{"stats_intervals"}, nil},
-		{"0.8.0", base, []string{"stats_intervals", "view_wait"}, nil},
-		{"0.9.0-rc.1", base, []string{"stats_intervals", "view_wait"}, nil},
-		{"0.9.0", withNP, []string{"stats_intervals", "view_wait"}, nil},
-		{"0.9.5", withNP, []string{"stats_intervals", "view_wait"}, nil},
-		{"0.9.6", withNP, []string{"stats_intervals", "view_wait", "np_control"}, nil},
-		{"0.9.13", withNP, []string{"stats_intervals", "view_wait", "np_control"}, nil},
-		{"0.9.14", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump"}, nil},
-		{"0.9.16", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump", "ota_rollback"}, nil},
-		{"0.9.27", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump", "ota_rollback"}, nil},
-		{"0.9.28", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump", "ota_rollback"}, limits},
-		{"0.9.41", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump", "ota_rollback"}, limits},
-		{"0.10.0", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump", "ota_rollback"}, limits},
-		{"0.9.41+local", withNP, []string{"stats_intervals", "view_wait", "np_control", "coredump", "ota_rollback"}, limits},
-		{"0.9.0+build.7", withNP, []string{"stats_intervals", "view_wait"}, nil},
-		{"0.9.0-rc.1+build.7", base, []string{"stats_intervals", "view_wait"}, nil},
-	}
-	for _, c := range cases {
-		t.Run(c.fw, func(t *testing.T) {
-			got := legacyCaps(c.fw)
-			want := deviceCaps{View: []int{1, 1}, Pages: c.pages, Features: c.features, Limits: c.limits}
-			if !reflect.DeepEqual(got, want) {
-				t.Errorf("legacyCaps(%q) = %+v, want %+v", c.fw, got, want)
-			}
-			if err := got.validate(); err != nil {
-				t.Errorf("legacy caps for %q do not validate: %v", c.fw, err)
-			}
-		})
-	}
-}
-
-func TestLegacyCapsTableIsOrderedAndUsesKnownTokens(t *testing.T) {
-	known := []string{featureViewWait, featureNPControl, featureOTARollback, featureCoredump, featureStatsIntervals}
-	for i, row := range legacyKnobCaps {
-		if !semverPattern.MatchString(row.minFW) {
-			t.Errorf("row %d: %q is not a version", i, row.minFW)
-		}
-		if i > 0 && compareSemver(legacyKnobCaps[i-1].minFW, row.minFW) >= 0 {
-			t.Errorf("row %d (%s) is not after row %d (%s)", i, row.minFW, i-1, legacyKnobCaps[i-1].minFW)
-		}
-		for _, f := range row.features {
-			if !slices.Contains(known, f) {
-				t.Errorf("row %s: unknown feature token %q", row.minFW, f)
-			}
-		}
-		for _, p := range row.pages {
-			if !slices.Contains(knobPageIDs, p) {
-				t.Errorf("row %s: unknown page %q", row.minFW, p)
-			}
-		}
-	}
-}
-
 var versionLiteral = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 
 func TestVersionLiteralsOnlyInTheLegacyCapsTable(t *testing.T) {
@@ -188,7 +123,7 @@ func TestVersionLiteralsOnlyInTheLegacyCapsTable(t *testing.T) {
 				return true
 			}
 			s, err := strconv.Unquote(lit.Value)
-			if err == nil && versionLiteral.MatchString(s) && path != "devices_caps.go" {
+			if err == nil && versionLiteral.MatchString(s) && path != filepath.Join("..", "..", "internal", "devices", "caps.go") {
 				t.Errorf("%s: version literal %q; behaviour keys on caps, and only the legacy caps table may name a firmware version", fset.Position(lit.Pos()), s)
 			}
 			return true
@@ -217,7 +152,7 @@ func TestLegacyFirmwareViewIsUnchanged(t *testing.T) {
 				t.Fatalf("legacy view changed after a %s checkin:\n%s\n%s", fw, before, after)
 			}
 			assertDeviceGolden(t, "view_full", after)
-			if c := knobEffectiveCaps(t, f); c["source"] != capsSourceLegacy {
+			if c := knobEffectiveCaps(t, f); c["source"] != devices.CapsSourceLegacy {
 				t.Errorf("effective_caps = %v, want source legacy", c)
 			}
 		})
@@ -267,17 +202,17 @@ func TestCapsKnobViewMajorIsTheLowerOfServerAndFirmware(t *testing.T) {
 		if err := json.Unmarshal(goldenView(t, f), &v); err != nil {
 			t.Fatal(err)
 		}
-		if v.V != min(knobViewMajorMax, view[1]) {
-			t.Errorf("caps.view %v: v = %d, want %d", view, v.V, min(knobViewMajorMax, view[1]))
+		if v.V != min(devices.KnobViewMajorMax, view[1]) {
+			t.Errorf("caps.view %v: v = %d, want %d", view, v.V, min(devices.KnobViewMajorMax, view[1]))
 		}
 	}
 }
 
-func plantCaps(t *testing.T, f *viewFixture, caps *deviceCaps) {
+func plantCaps(t *testing.T, f *viewFixture, caps *devices.Caps) {
 	t.Helper()
-	f.app.devices.mu.Lock()
-	defer f.app.devices.mu.Unlock()
-	f.app.devices.state.findKnob(f.m.ID).Caps = caps
+	f.app.devices.WithState(func(st *devices.State) {
+		st.FindKnob(f.m.ID).Caps = caps
+	})
 }
 
 func TestCapsKnobViewDropsBlocksToFitViewBytes(t *testing.T) {
@@ -292,7 +227,7 @@ func TestCapsKnobViewDropsBlocksToFitViewBytes(t *testing.T) {
 		}
 	}
 	pages := []string{"bot", "pomodoro", "weather", "nowplaying"}
-	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}, Limits: &deviceCapsLimits{ViewBytes: len(full) - 1}})
+	plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: pages, Features: []string{}, Limits: &devices.CapsLimits{ViewBytes: len(full) - 1}})
 	body := goldenView(t, f)
 	if len(body) > len(full)-1 {
 		t.Fatalf("view is %d B, over the %d B limit", len(body), len(full)-1)
@@ -312,7 +247,7 @@ func TestCapsKnobViewStillOverViewBytesLogsOncePerDevice(t *testing.T) {
 	var logs syncBuffer
 	f.app.logger = slog.New(slog.NewTextHandler(&logs, nil))
 	pages := []string{"bot", "pomodoro", "weather", "nowplaying"}
-	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}, Limits: &deviceCapsLimits{ViewBytes: 10}})
+	plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: pages, Features: []string{}, Limits: &devices.CapsLimits{ViewBytes: 10}})
 	for range 3 {
 		body := goldenView(t, f)
 		keys := viewKeys(t, body)
@@ -323,9 +258,9 @@ func TestCapsKnobViewStillOverViewBytesLogsOncePerDevice(t *testing.T) {
 	if n := strings.Count(logs.String(), "knob view over its caps view_bytes"); n != 1 {
 		t.Fatalf("over-limit logs = %d, want 1:\n%s", n, logs.String())
 	}
-	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}})
+	plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: pages, Features: []string{}})
 	goldenView(t, f)
-	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{}, Limits: &deviceCapsLimits{ViewBytes: 10}})
+	plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: pages, Features: []string{}, Limits: &devices.CapsLimits{ViewBytes: 10}})
 	goldenView(t, f)
 	if n := strings.Count(logs.String(), "knob view over its caps view_bytes"); n != 2 {
 		t.Fatalf("over-limit logs after it fit and broke again = %d, want 2", n)
@@ -333,13 +268,13 @@ func TestCapsKnobViewStillOverViewBytesLogsOncePerDevice(t *testing.T) {
 }
 
 func TestCapsLimitFloors(t *testing.T) {
-	floor := defaultKnobConfigBytes()
+	floor := devices.DefaultKnobConfigBytes()
 	cases := []struct {
 		limits map[string]any
 		ok     bool
 	}{
-		{map[string]any{"view_bytes": capsMinViewBytes - 1}, false},
-		{map[string]any{"view_bytes": capsMinViewBytes}, true},
+		{map[string]any{"view_bytes": devices.CapsMinViewBytes - 1}, false},
+		{map[string]any{"view_bytes": devices.CapsMinViewBytes}, true},
 		{map[string]any{"view_bytes": 1}, false},
 		{map[string]any{"config_bytes": floor - 1}, false},
 		{map[string]any{"config_bytes": floor}, true},
@@ -392,7 +327,7 @@ func TestReorderedCapsDoNotWrite(t *testing.T) {
 	if got := kv.puts.Load() - base; got != 0 {
 		t.Fatalf("store writes for reordered caps = %d, want 0", got)
 	}
-	c := app.devices.list()[0].EffectiveCaps
+	c := app.devices.List()[0].EffectiveCaps
 	if !slices.Equal(c.Pages, []string{"bot", "weather"}) || !slices.Equal(c.Features, []string{"coredump", "view_wait"}) {
 		t.Fatalf("effective_caps = %+v, want the first page order and sorted features", c)
 	}
@@ -420,16 +355,16 @@ func TestInvalidCapsAreExposedOnceWithoutRewrites(t *testing.T) {
 	if n := strings.Count(logs.String(), "level=WARN msg=\"device caps dropped\""); n != 1 {
 		t.Fatalf("caps drop warnings = %d, want 1:\n%s", n, logs.String())
 	}
-	c := app.devices.list()[0].EffectiveCaps
-	if c.Source != capsSourceLegacy || !strings.Contains(c.CapsError, `page "bot" listed twice`) {
+	c := app.devices.List()[0].EffectiveCaps
+	if c.Source != devices.CapsSourceLegacy || !strings.Contains(c.CapsError, `page "bot" listed twice`) {
 		t.Fatalf("effective_caps = %+v, want legacy with caps_error", c)
 	}
 	post(knobCapsFull)
-	if c := app.devices.list()[0].EffectiveCaps; c.CapsError != "" || c.Source != capsSourceReported {
+	if c := app.devices.List()[0].EffectiveCaps; c.CapsError != "" || c.Source != devices.CapsSourceReported {
 		t.Fatalf("effective_caps after good caps = %+v", c)
 	}
 	post(nil)
-	if c := app.devices.list()[0].EffectiveCaps; c.CapsError != "" || c.Source != capsSourceLegacy {
+	if c := app.devices.List()[0].EffectiveCaps; c.CapsError != "" || c.Source != devices.CapsSourceLegacy {
 		t.Fatalf("effective_caps without caps = %+v, want legacy and no error", c)
 	}
 }
@@ -437,12 +372,12 @@ func TestInvalidCapsAreExposedOnceWithoutRewrites(t *testing.T) {
 func TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes(t *testing.T) {
 	f := newViewFixture(t)
 	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"page-0000000001","on":false},{"id":"page-0000000002","on":false}]}`)
-	cfg, _, _ := f.app.devices.config(f.m.ID)
+	cfg, _, _ := f.app.devices.Config(f.m.ID)
 	cur, _ := json.Marshal(cfg)
-	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather"}, Features: []string{},
-		Limits: &deviceCapsLimits{ConfigBytes: len(cur) - 100}})
+	plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather"}, Features: []string{},
+		Limits: &devices.CapsLimits{ConfigBytes: len(cur) - 100}})
 	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"page-0000000001","on":false}]}`)
-	cfg, _, _ = f.app.devices.config(f.m.ID)
+	cfg, _, _ = f.app.devices.Config(f.m.ID)
 	if shrunk, _ := json.Marshal(cfg); len(shrunk) <= len(cur)-100 {
 		t.Fatalf("shrunk config is %d B, want it still over the %d B limit", len(shrunk), len(cur)-100)
 	}
@@ -479,7 +414,7 @@ func TestCapsKnobKeepsAPageThatWasAlreadyOn(t *testing.T) {
 
 func TestCapsKnobConfigPutChecksConfigBytes(t *testing.T) {
 	f := newViewFixture(t)
-	cfg, _, err := f.app.devices.config(f.m.ID)
+	cfg, _, err := f.app.devices.Config(f.m.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,13 +442,13 @@ func TestCapsAreStoredExposedAndClearedOnDowngrade(t *testing.T) {
 	f := newViewFixture(t)
 	postCapsCheckin(t, f, "0.10.0", knobCapsFull)
 	c := knobEffectiveCaps(t, f)
-	if c["source"] != capsSourceReported || !reflect.DeepEqual(c["pages"], []any{"bot", "pomodoro", "weather", "nowplaying"}) ||
+	if c["source"] != devices.CapsSourceReported || !reflect.DeepEqual(c["pages"], []any{"bot", "pomodoro", "weather", "nowplaying"}) ||
 		!reflect.DeepEqual(c["limits"], map[string]any{"view_bytes": 16383.0, "config_bytes": 2048.0}) {
 		t.Fatalf("effective_caps = %v", c)
 	}
 	postCapsCheckin(t, f, "0.6.0", nil)
 	c = knobEffectiveCaps(t, f)
-	if c["source"] != capsSourceLegacy || !reflect.DeepEqual(c["pages"], []any{"bot", "pomodoro", "weather"}) ||
+	if c["source"] != devices.CapsSourceLegacy || !reflect.DeepEqual(c["pages"], []any{"bot", "pomodoro", "weather"}) ||
 		!reflect.DeepEqual(c["features"], []any{}) || c["limits"] != nil {
 		t.Fatalf("effective_caps after a downgrade = %v, want the legacy floor", c)
 	}
@@ -545,7 +480,7 @@ func TestInvalidCapsAreDroppedWithoutAck(t *testing.T) {
 			if _, ok := reply["caps_ack"]; ok {
 				t.Errorf("invalid caps acked: %v", reply)
 			}
-			if c := knobEffectiveCaps(t, f); c["source"] != capsSourceLegacy {
+			if c := knobEffectiveCaps(t, f); c["source"] != devices.CapsSourceLegacy {
 				t.Errorf("effective_caps = %v, want legacy after invalid caps", c)
 			}
 		})
@@ -595,22 +530,15 @@ func TestCapsCheckinWritesStoreOnlyWhenCapsChange(t *testing.T) {
 		t.Fatalf("store writes for a second legacy checkin = %d, want 3", got)
 	}
 
-	app.devices.mu.Lock()
-	app.devices.state.Devices[0].Caps = nil
-	app.devices.mu.Unlock()
+	app.devices.WithState(func(st *devices.State) {
+		st.Devices[0].Caps = nil
+	})
 	post(knobCapsFull)
-	if err := app.devices.load(); err != nil {
+	if err := app.devices.Load(); err != nil {
 		t.Fatal(err)
 	}
-	if c := app.devices.list()[0].EffectiveCaps; c == nil || c.Source != capsSourceReported {
+	if c := app.devices.List()[0].EffectiveCaps; c == nil || c.Source != devices.CapsSourceReported {
 		t.Fatalf("caps not persisted: %+v", c)
-	}
-}
-
-func TestClockRecordHasNoEffectiveCaps(t *testing.T) {
-	d := deviceRecord{ID: "clock-abcdef", Kind: deviceKindClock}
-	if v := d.view(); v.EffectiveCaps != nil {
-		t.Fatalf("clock effective_caps = %+v, want none", v.EffectiveCaps)
 	}
 }
 

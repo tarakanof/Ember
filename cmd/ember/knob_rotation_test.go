@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 func knobConfigRotation(t *testing.T, f *viewFixture) int {
@@ -28,7 +30,7 @@ func TestKnobRotationRoundTripsAndReachesTheKnob(t *testing.T) {
 	if got := knobConfigRotation(t, f); got != 0 {
 		t.Fatalf("default rotation = %d, want 0", got)
 	}
-	_, version, err := f.app.devices.versions(f.m.ID)
+	_, version, err := f.app.devices.Versions(f.m.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +83,7 @@ func TestCapsRotationsPresentAndMissing(t *testing.T) {
 	if reply["caps_ack"] != true {
 		t.Fatalf("reply = %v, want caps_ack", reply)
 	}
-	if c := knobEffectiveCaps(t, f); c["source"] != capsSourceReported || !reflect.DeepEqual(c["rotations"], []any{0.0, 180.0}) {
+	if c := knobEffectiveCaps(t, f); c["source"] != devices.CapsSourceReported || !reflect.DeepEqual(c["rotations"], []any{0.0, 180.0}) {
 		t.Fatalf("effective_caps = %v, want rotations [0 180]", c)
 	}
 	for _, caps := range []map[string]any{
@@ -92,7 +94,7 @@ func TestCapsRotationsPresentAndMissing(t *testing.T) {
 		if reply := postCapsCheckin(t, f, "0.10.0", caps); reply["caps_ack"] != true {
 			t.Fatalf("reply = %v, want caps_ack", reply)
 		}
-		if c := knobEffectiveCaps(t, f); c["source"] != capsSourceReported || !reflect.DeepEqual(c["rotations"], []any{0.0}) {
+		if c := knobEffectiveCaps(t, f); c["source"] != devices.CapsSourceReported || !reflect.DeepEqual(c["rotations"], []any{0.0}) {
 			t.Fatalf("effective_caps for caps %v = %v, want rotations [0]", caps, c)
 		}
 	}
@@ -129,7 +131,7 @@ func TestCapsKnobDowngradedToLegacyFirmwareKeepsAndFreesRotation(t *testing.T) {
 	postCapsCheckin(t, f, "0.10.0", map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "pomodoro", "weather"}, "rotations": []int{0, 180}})
 	putKnobConfig(t, f.srv, f.m.ID, `{"display":{"rotation":180}}`)
 	postCapsCheckin(t, f, "0.9.41", nil)
-	if c := knobEffectiveCaps(t, f); c["source"] != capsSourceLegacy || !reflect.DeepEqual(c["rotations"], []any{0.0}) {
+	if c := knobEffectiveCaps(t, f); c["source"] != devices.CapsSourceLegacy || !reflect.DeepEqual(c["rotations"], []any{0.0}) {
 		t.Fatalf("effective_caps after a downgrade = %v, want legacy with rotations [0]", c)
 	}
 	putKnobConfig(t, f.srv, f.m.ID, `{"poll_ms":3000}`)

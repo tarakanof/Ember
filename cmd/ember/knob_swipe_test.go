@@ -19,49 +19,6 @@ func knobConfigSwipePages(t *testing.T, f *viewFixture) *bool {
 	return cfg.SwipePages
 }
 
-func TestKnobSwipePagesDefaultsOn(t *testing.T) {
-	d := defaultKnobSettings()
-	if d.SwipePages == nil || !*d.SwipePages {
-		t.Fatalf("default swipe_pages = %v, want on", d.SwipePages)
-	}
-}
-
-func TestKnobSwipePagesStoredWithoutKeyReadsOn(t *testing.T) {
-	var s knobSettings
-	if err := json.Unmarshal([]byte(`{"pages":[{"id":"bot","on":true}],"home":"bot","bot":{"sleepy_after_s":300,"demo_hold_s":20}}`), &s); err != nil {
-		t.Fatal(err)
-	}
-	s.fillDefaults()
-	if s.SwipePages == nil || !*s.SwipePages {
-		t.Fatal("a stored record without swipe_pages reads it on")
-	}
-}
-
-func TestKnobSwipePagesCloneDoesNotShareThePointer(t *testing.T) {
-	cur := defaultKnobSettings()
-	c := cur.clone()
-	*c.SwipePages = false
-	if !*cur.SwipePages {
-		t.Fatal("clone shares swipe_pages with the original")
-	}
-}
-
-func TestKnobSwipePagesMergeFalseAndNull(t *testing.T) {
-	cur := defaultKnobSettings()
-	off, err := mergeKnobSettings(cur.clone(), []byte(`{"swipe_pages":false}`))
-	if err != nil || off.SwipePages == nil || *off.SwipePages || !*cur.SwipePages {
-		t.Fatalf("merge false: %v %v (original %v)", err, off.SwipePages, *cur.SwipePages)
-	}
-	kept, err := mergeKnobSettings(off.clone(), []byte(`{"poll_ms":3000}`))
-	if err != nil || kept.SwipePages == nil || *kept.SwipePages {
-		t.Fatalf("a partial PUT dropped swipe_pages false: %v %v", err, kept.SwipePages)
-	}
-	reset, err := mergeKnobSettings(off.clone(), []byte(`{"swipe_pages":null}`))
-	if err != nil || reset.SwipePages == nil || !*reset.SwipePages {
-		t.Fatalf("swipe_pages null = %v %v, want on", err, reset.SwipePages)
-	}
-}
-
 func TestKnobSwipePagesRoundTripsOverHTTP(t *testing.T) {
 	f := newViewFixture(t)
 	if got := knobConfigSwipePages(t, f); got == nil || !*got {

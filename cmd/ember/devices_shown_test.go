@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 func shownFixture(t *testing.T) *viewFixture {
@@ -22,7 +24,7 @@ func shownFixture(t *testing.T) *viewFixture {
 	f := newViewFixture(t)
 	f.app.viewClock = f.clk.Now
 	caps := maps.Clone(knobCapsFull)
-	caps["features"] = []string{featureViewWait, featureShown}
+	caps["features"] = []string{devices.FeatureViewWait, featureShown}
 	postCapsCheckin(t, f, "0.10.0", caps)
 	return f
 }
@@ -324,7 +326,7 @@ func deleteParkedOnTheRegistryLock() bool {
 			if strings.HasPrefix(l, "\t") || strings.HasPrefix(l, "runtime.") || strings.HasPrefix(l, "sync.") || strings.HasPrefix(l, "internal/sync.") {
 				continue
 			}
-			return strings.HasPrefix(l, "github.com/tarakanof/ember/cmd/ember.(*deviceRegistry).mutate(")
+			return strings.HasPrefix(l, "github.com/tarakanof/ember/internal/devices.(*Registry).mutate(")
 		}
 		return false
 	}

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -18,18 +20,18 @@ const (
 
 func (a *App) pomodoroBusy(now time.Time) bool { return a.pomodoroState(now).busy() }
 
-func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) error {
+func (a *App) otaCheckin(id string, report devices.Checkin, res *devices.CheckinResult) error {
 	if a.knobFW == nil {
 		return nil
 	}
-	gen, epoch := a.devices.otaGens()
-	snap, _, err := a.devices.otaSnapshot(id)
+	gen, epoch := a.devices.OTAGens()
+	snap, _, err := a.devices.OTASnapshot(id)
 	if err != nil {
 		return err
 	}
 	in := otaInput{
 		report:   report,
-		now:      a.devices.now().UTC(),
+		now:      a.devices.Now().UTC(),
 		pomodoro: a.pomodoroBusy(time.Now()),
 		coredump: res.CoredumpWanted != "",
 	}
@@ -37,7 +39,7 @@ func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) er
 		if m, ok := a.knobFW.get(snap.Target); ok {
 			in.target = &m
 		}
-	} else if snap.mode() == otaModeAuto {
+	} else if snap.EffectiveMode() == otaModeAuto {
 		m, ok := a.knobFW.newestAbove(report.FW, func(m firmwareMeta) bool {
 			return m.Channel == firmwareChannelRelease && !slices.Contains(snap.Blocked, m.Version)
 		})
@@ -48,20 +50,20 @@ func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) er
 	if a.otaReadHook != nil {
 		a.otaReadHook()
 	}
-	var offer *otaOffer
+	var offer *devices.OTAOffer
 	var waiting string
-	_, _, err = a.devices.updateOTA(id, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
+	_, _, err = a.devices.UpdateOTA(id, func(o *devices.KnobOTA, _ *devices.Checkin) (bool, error) {
 		offer, waiting = nil, ""
-		if o.Target != snap.Target || o.mode() != snap.mode() || o.Attempt != snap.Attempt || a.devices.fwGen != gen {
+		if o.Target != snap.Target || o.EffectiveMode() != snap.EffectiveMode() || o.Attempt != snap.Attempt || a.devices.FirmwareGenLocked() != gen {
 			applyOTAResult(o, report, in.now)
 			return false, nil
 		}
-		if o.Target != "" && in.target == nil && !otaActive(o.Phase) && a.devices.state.Epoch == epoch {
+		if o.Target != "" && in.target == nil && !devices.OTAActive(o.Phase) && a.devices.EpochLocked() == epoch {
 			o.Target, o.Retry = "", false
 			return true, nil
 		}
 		offer, waiting = stepOTA(o, in)
-		if offer == nil || o.Phase != otaPhaseOffered {
+		if offer == nil || o.Phase != devices.OTAPhaseOffered {
 			a.ota.notOffered(id)
 			return false, nil
 		}
@@ -70,9 +72,9 @@ func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) er
 			window = otaAutoNotStarted
 		}
 		if in.now.Sub(a.ota.offeredSince(id, o.Attempt, in.now)) >= window {
-			o.Phase, o.Error, o.FinishedAt = otaPhaseFailed, "not_started", &in.now
+			o.Phase, o.Error, o.FinishedAt = devices.OTAPhaseFailed, "not_started", &in.now
 			if offer.Auto {
-				o.block()
+				o.Block()
 			}
 			offer, waiting = nil, ""
 			a.ota.notOffered(id)
@@ -98,12 +100,12 @@ func (a *App) handleFirmwareDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errFirmwareNotFound)
 		return
 	}
-	now := a.devices.now().UTC()
+	now := a.devices.Now().UTC()
 	served, fresh := false, false
-	o, _, err := a.devices.updateOTA(id, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
-		served = o.servable(version)
-		if served && o.Phase == otaPhaseOffered {
-			o.Phase, o.StartedAt, fresh = otaPhaseDownloading, &now, true
+	o, _, err := a.devices.UpdateOTA(id, func(o *devices.KnobOTA, _ *devices.Checkin) (bool, error) {
+		served = o.Servable(version)
+		if served && o.Phase == devices.OTAPhaseOffered {
+			o.Phase, o.StartedAt, fresh = devices.OTAPhaseDownloading, &now, true
 		}
 		return false, nil
 	})
@@ -112,7 +114,7 @@ func (a *App) handleFirmwareDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !served {
-		a.logger.InfoContext(r.Context(), "knob firmware download refused", "device_id", id, "version", version, "offered", o.Version, "phase", o.phase())
+		a.logger.InfoContext(r.Context(), "knob firmware download refused", "device_id", id, "version", version, "offered", o.Version, "phase", o.EffectivePhase())
 		writeError(w, http.StatusConflict, errOTANotOffered)
 		return
 	}
@@ -129,7 +131,7 @@ func (a *App) handleFirmwareDownload(w http.ResponseWriter, r *http.Request) {
 	h.Set("ETag", `"`+meta.SHA256+`"`)
 	h.Set("Cache-Control", "no-store")
 	a.logger.InfoContext(r.Context(), "knob firmware download", "device_id", id, "version", version, "range", r.Header.Get("Range"))
-	cw := &otaCountingWriter{ResponseWriter: w, report: func(pos int64) { a.ota.advance(id, version, pos, a.devices.now()) }}
+	cw := &otaCountingWriter{ResponseWriter: w, report: func(pos int64) { a.ota.advance(id, version, pos, a.devices.Now()) }}
 	http.ServeContent(cw, r, "", time.Time{}, f)
 }
 
@@ -160,7 +162,7 @@ func (c *otaCountingWriter) Unwrap() http.ResponseWriter { return c.ResponseWrit
 
 func (a *App) handleDeviceOTAGet(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	o, last, err := a.devices.otaSnapshot(id)
+	o, last, err := a.devices.OTASnapshot(id)
 	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return
@@ -177,8 +179,8 @@ func (a *App) handleDeviceOTAPut(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
-	if req.Mode != nil && *req.Mode != otaModeManual && *req.Mode != otaModeAuto {
-		a.writeDeviceError(w, r, fmt.Errorf("%w: mode must be manual or auto", errDeviceBody))
+	if req.Mode != nil && *req.Mode != devices.OTAModeManual && *req.Mode != otaModeAuto {
+		a.writeDeviceError(w, r, fmt.Errorf("%w: mode must be manual or auto", devices.ErrBody))
 		return
 	}
 	var target *string
@@ -186,7 +188,7 @@ func (a *App) handleDeviceOTAPut(w http.ResponseWriter, r *http.Request) {
 	if len(req.Target) > 0 && !clearTarget {
 		var v string
 		if err := json.Unmarshal(req.Target, &v); err != nil {
-			a.writeDeviceError(w, r, fmt.Errorf("%w: target must be a version string or null", errDeviceBody))
+			a.writeDeviceError(w, r, fmt.Errorf("%w: target must be a version string or null", devices.ErrBody))
 			return
 		}
 		target = &v
@@ -197,8 +199,8 @@ func (a *App) handleDeviceOTAPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	var o knobOTA
-	var last *deviceCheckin
+	var o devices.KnobOTA
+	var last *devices.Checkin
 	var err error
 	for range otaPutTries {
 		o, last, err = a.putOTA(id, req.Mode, target, clearTarget, retry)
@@ -214,34 +216,34 @@ func (a *App) handleDeviceOTAPut(w http.ResponseWriter, r *http.Request) {
 		a.writeDeviceError(w, r, err)
 		return
 	}
-	a.logger.InfoContext(r.Context(), "knob ota updated", "device_id", id, "mode", o.mode(), "target", o.Target, "retry", retry)
+	a.logger.InfoContext(r.Context(), "knob ota updated", "device_id", id, "mode", o.EffectiveMode(), "target", o.Target, "retry", retry)
 	writeJSON(w, http.StatusOK, a.otaStatus(id, o, last))
 }
 
-func (a *App) putOTA(id string, mode, target *string, clearTarget, retry bool) (knobOTA, *deviceCheckin, error) {
-	gen := a.devices.firmwareGen()
-	snap, _, err := a.devices.otaSnapshot(id)
+func (a *App) putOTA(id string, mode, target *string, clearTarget, retry bool) (devices.KnobOTA, *devices.Checkin, error) {
+	gen := a.devices.FirmwareGen()
+	snap, _, err := a.devices.OTASnapshot(id)
 	if err != nil {
-		return knobOTA{}, nil, err
+		return devices.KnobOTA{}, nil, err
 	}
 	want := otaWants(snap, target, retry)
 	if want != "" {
 		if _, ok := a.knobFW.get(want); !ok {
-			return knobOTA{}, nil, errOTAUnknownImage
+			return devices.KnobOTA{}, nil, errOTAUnknownImage
 		}
 	}
 	if a.otaReadHook != nil {
 		a.otaReadHook()
 	}
-	return a.devices.updateOTA(id, func(o *knobOTA, last *deviceCheckin) (bool, error) {
-		if otaWants(*o, target, retry) != want || a.devices.fwGen != gen {
+	return a.devices.UpdateOTA(id, func(o *devices.KnobOTA, last *devices.Checkin) (bool, error) {
+		if otaWants(*o, target, retry) != want || a.devices.FirmwareGenLocked() != gen {
 			return false, errFirmwareChanged
 		}
 		return applyOTAPut(o, last, mode, target, clearTarget, retry)
 	})
 }
 
-func otaWants(o knobOTA, target *string, retry bool) string {
+func otaWants(o devices.KnobOTA, target *string, retry bool) string {
 	switch {
 	case target != nil:
 		return *target
@@ -253,40 +255,40 @@ func otaWants(o knobOTA, target *string, retry bool) string {
 	return o.Version
 }
 
-func applyOTAPut(o *knobOTA, last *deviceCheckin, mode, target *string, clearTarget, retry bool) (bool, error) {
+func applyOTAPut(o *devices.KnobOTA, last *devices.Checkin, mode, target *string, clearTarget, retry bool) (bool, error) {
 	if (target != nil || retry) && (last == nil || last.OTA == nil || !last.OTA.Rollback) {
 		return false, errNoRollback
 	}
 	if retry && target == nil && o.Target == "" && o.Version == "" {
-		return false, fmt.Errorf("%w: nothing to retry", errDeviceBody)
+		return false, fmt.Errorf("%w: nothing to retry", devices.ErrBody)
 	}
-	committed := o.Phase == otaPhaseInstalling || o.Phase == otaPhaseRestarting || o.Phase == otaPhaseVerifying
+	committed := o.Phase == devices.OTAPhaseInstalling || o.Phase == devices.OTAPhaseRestarting || o.Phase == devices.OTAPhaseVerifying
 	if committed && (retry || (clearTarget && o.Target != "") || (target != nil && *target != o.Version)) {
 		return false, errOTAInProgress
 	}
-	if clearTarget && o.Target != "" && o.Phase == otaPhaseDownloading {
+	if clearTarget && o.Target != "" && o.Phase == devices.OTAPhaseDownloading {
 		return false, errOTAInProgress
 	}
-	if target != nil && ((*target == o.Version && (o.Phase == otaPhaseFailed || o.Phase == otaPhaseRolledBack)) || slices.Contains(o.Blocked, *target)) {
+	if target != nil && ((*target == o.Version && (o.Phase == devices.OTAPhaseFailed || o.Phase == devices.OTAPhaseRolledBack)) || slices.Contains(o.Blocked, *target)) {
 		retry = true
 	}
 	bump := false
-	if mode != nil && *mode != o.mode() {
+	if mode != nil && *mode != o.EffectiveMode() {
 		o.Mode, bump = *mode, true
 	}
 	if clearTarget && o.Target != "" {
 		o.Target, o.Retry, bump = "", false, true
-		if o.Phase == otaPhaseOffered {
-			o.Phase = otaPhaseIdle
+		if o.Phase == devices.OTAPhaseOffered {
+			o.Phase = devices.OTAPhaseIdle
 		}
 	}
-	if clearTarget && (o.Phase == otaPhaseFailed || o.Phase == otaPhaseRolledBack) {
-		o.Phase, o.Error = otaPhaseIdle, ""
+	if clearTarget && (o.Phase == devices.OTAPhaseFailed || o.Phase == devices.OTAPhaseRolledBack) {
+		o.Phase, o.Error = devices.OTAPhaseIdle, ""
 	}
-	if target != nil && (*target != o.Target || !otaActive(o.phase())) {
+	if target != nil && (*target != o.Target || !devices.OTAActive(o.EffectivePhase())) {
 		o.Target, bump = *target, true
-		if o.Version != *target || !otaActive(o.phase()) {
-			o.Phase, o.Error, o.StartedAt, o.FinishedAt = otaPhaseIdle, "", nil, nil
+		if o.Version != *target || !devices.OTAActive(o.EffectivePhase()) {
+			o.Phase, o.Error, o.StartedAt, o.FinishedAt = devices.OTAPhaseIdle, "", nil, nil
 		}
 	}
 	if retry {
@@ -294,7 +296,7 @@ func applyOTAPut(o *knobOTA, last *deviceCheckin, mode, target *string, clearTar
 			o.Target = o.Version
 		}
 		o.Blocked = slices.DeleteFunc(o.Blocked, func(v string) bool { return v == o.Target })
-		o.Retry, o.Phase, o.Error, o.StartedAt, o.FinishedAt = true, otaPhaseIdle, "", nil, nil
+		o.Retry, o.Phase, o.Error, o.StartedAt, o.FinishedAt = true, devices.OTAPhaseIdle, "", nil, nil
 		bump = true
 	}
 	return bump, nil

@@ -7,23 +7,19 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const knobShownFresh = 2 * knobViewWaitMax
 
 var knobShownPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,23}(:[a-z]{1,8})?$`)
 
-type knobShown struct {
-	Page string    `json:"page"`
-	Face *string   `json:"face"`
-	At   time.Time `json:"at"`
-}
-
-func parseKnobShown(raw string, at time.Time) (knobShown, bool) {
+func parseKnobShown(raw string, at time.Time) (devices.KnobShown, bool) {
 	if !knobShownPattern.MatchString(raw) {
-		return knobShown{}, false
+		return devices.KnobShown{}, false
 	}
-	s := knobShown{At: at}
+	s := devices.KnobShown{At: at}
 	page, face, ok := strings.Cut(raw, ":")
 	s.Page = page
 	if ok {
@@ -34,7 +30,7 @@ func parseKnobShown(raw string, at time.Time) (knobShown, bool) {
 
 type knobShownStore struct {
 	mu      sync.Mutex
-	byID    map[string]knobShown
+	byID    map[string]devices.KnobShown
 	polled  map[string]time.Time
 	wake    chan struct{}
 	setHook func()
@@ -63,14 +59,14 @@ func (s *knobShownStore) polledUntil(id string, now time.Time) (time.Time, bool)
 	return at.Add(knobShownFresh), true
 }
 
-func (s *knobShownStore) set(id string, v knobShown) {
+func (s *knobShownStore) set(id string, v devices.KnobShown) {
 	if s.setHook != nil {
 		s.setHook()
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.byID == nil {
-		s.byID = map[string]knobShown{}
+		s.byID = map[string]devices.KnobShown{}
 	}
 	prev, ok := s.byID[id]
 	s.byID[id] = v
@@ -111,7 +107,7 @@ func (s *knobShownStore) freshUntil(id, page string, now time.Time) (time.Time, 
 	return v.At.Add(knobShownFresh), true
 }
 
-func (s *knobShownStore) fresh(id string, now time.Time) *knobShown {
+func (s *knobShownStore) fresh(id string, now time.Time) *devices.KnobShown {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	v, ok := s.byID[id]
@@ -139,9 +135,9 @@ func (a *App) noteKnobShown(id string, r *http.Request) {
 	raw, report := q.Get("shown"), q.Has("shown")
 	s, ok := parseKnobShown(raw, now)
 	has := false
-	a.devices.lockedKnob(id, func(caps *deviceCaps) {
+	a.devices.LockedKnob(id, func(caps *devices.Caps) {
 		a.knobShown.poll(id, now)
-		if !report || !caps.hasFeature(featureShown) {
+		if !report || !caps.HasFeature(featureShown) {
 			return
 		}
 		has = true
@@ -163,7 +159,7 @@ func (a *App) noteKnobShown(id string, r *http.Request) {
 	}
 }
 
-func (a *App) withShown(v deviceView) deviceView {
+func (a *App) withShown(v devices.View) devices.View {
 	if v.EffectiveCaps != nil && slices.Contains(v.EffectiveCaps.Features, featureShown) {
 		v.Shown = a.knobShown.fresh(v.ID, a.viewNow())
 	}

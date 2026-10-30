@@ -1,4 +1,4 @@
-package main
+package devices
 
 import (
 	"errors"
@@ -8,18 +8,22 @@ import (
 	"strings"
 )
 
-var knobPageIDs = []string{"bot", "day", "weather", "room", "nowplaying", "controls", "pomodoro"}
+const (
+	KnobNowPlayingPage = "nowplaying"
+)
+
+var KnobPageIDs = []string{"bot", "day", "weather", "room", "nowplaying", "controls", "pomodoro"}
 
 // knobMaxPages is the firmware's KS_MAX_PAGES: it drops pages past the 8th.
-const knobMaxPages = 8
+const KnobMaxPages = 8
 
 var knobPagesOffByDefault = []string{"room", "nowplaying", "controls", "pomodoro"}
 
 var knobPageIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,15}$`)
 
-type knobSettings struct {
-	Brightness     knobBrightness `json:"brightness"`
-	Pages          []knobPage     `json:"pages"`
+type KnobSettings struct {
+	Brightness     KnobBrightness `json:"brightness"`
+	Pages          []KnobPage     `json:"pages"`
 	Home           string         `json:"home"`
 	SwipePages     *bool          `json:"swipe_pages,omitempty"`
 	PollMS         int            `json:"poll_ms"`
@@ -29,18 +33,18 @@ type knobSettings struct {
 	LiveIntervalS  int            `json:"live_interval_s"`
 	Display        knobDisplay    `json:"display"`
 	Quiet          knobQuiet      `json:"quiet"`
-	Idle           *knobIdle      `json:"idle,omitempty"`
-	Apps           *knobApps      `json:"apps,omitempty"`
-	Room           *knobRoom      `json:"room,omitempty"`
+	Idle           *KnobIdle      `json:"idle,omitempty"`
+	Apps           *KnobApps      `json:"apps,omitempty"`
+	Room           *KnobRoom      `json:"room,omitempty"`
 }
 
-type knobIdle struct {
+type KnobIdle struct {
 	DimAfterS *int `json:"dim_after_s,omitempty"`
 	DimLevel  *int `json:"dim_level,omitempty"`
 	OffAfterS *int `json:"off_after_s,omitempty"`
 }
 
-type knobRoom struct {
+type KnobRoom struct {
 	Enabled      *bool `json:"enabled,omitempty"`
 	PresenceOffS *int  `json:"presence_off_s,omitempty"`
 	PresenceWake *bool `json:"presence_wake,omitempty"`
@@ -49,26 +53,26 @@ type knobRoom struct {
 
 const knobRoomPresenceOffMax = 86399
 
-type knobApps struct {
-	Pomodoro   *knobPomoApp    `json:"pomodoro,omitempty"`
-	Weather    *knobWeatherApp `json:"weather,omitempty"`
-	NowPlaying *knobNPApp      `json:"nowplaying,omitempty"`
+type KnobApps struct {
+	Pomodoro   *KnobPomoApp    `json:"pomodoro,omitempty"`
+	Weather    *KnobWeatherApp `json:"weather,omitempty"`
+	NowPlaying *KnobNPApp      `json:"nowplaying,omitempty"`
 }
 
-type knobPomoApp struct {
+type KnobPomoApp struct {
 	FocusColor *string `json:"focus_color,omitempty"`
 	BreakColor *string `json:"break_color,omitempty"`
 }
 
-type knobWeatherApp struct {
+type KnobWeatherApp struct {
 	Faces []string `json:"faces,omitempty"`
 }
 
-type knobNPApp struct {
+type KnobNPApp struct {
 	DimAfterS *int `json:"dim_after_s,omitempty"`
 }
 
-var knobWeatherFaces = []string{"temp", "rain", "cast", "wind", "days", "sun", "air"}
+var KnobWeatherFaces = []string{"temp", "rain", "cast", "wind", "days", "sun", "air"}
 
 var knobColorPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 
@@ -80,39 +84,39 @@ func clonePtr[T any](p *T) *T {
 	return &v
 }
 
-func (i *knobIdle) clone() *knobIdle {
+func (i *KnobIdle) clone() *KnobIdle {
 	if i == nil {
 		return nil
 	}
-	return &knobIdle{DimAfterS: clonePtr(i.DimAfterS), DimLevel: clonePtr(i.DimLevel), OffAfterS: clonePtr(i.OffAfterS)}
+	return &KnobIdle{DimAfterS: clonePtr(i.DimAfterS), DimLevel: clonePtr(i.DimLevel), OffAfterS: clonePtr(i.OffAfterS)}
 }
 
-func (r *knobRoom) clone() *knobRoom {
+func (r *KnobRoom) clone() *KnobRoom {
 	if r == nil {
 		return nil
 	}
-	return &knobRoom{Enabled: clonePtr(r.Enabled), PresenceOffS: clonePtr(r.PresenceOffS),
+	return &KnobRoom{Enabled: clonePtr(r.Enabled), PresenceOffS: clonePtr(r.PresenceOffS),
 		PresenceWake: clonePtr(r.PresenceWake), Moments: clonePtr(r.Moments)}
 }
 
-func (a *knobApps) clone() *knobApps {
+func (a *KnobApps) clone() *KnobApps {
 	if a == nil {
 		return nil
 	}
-	out := &knobApps{}
+	out := &KnobApps{}
 	if a.Pomodoro != nil {
-		out.Pomodoro = &knobPomoApp{FocusColor: clonePtr(a.Pomodoro.FocusColor), BreakColor: clonePtr(a.Pomodoro.BreakColor)}
+		out.Pomodoro = &KnobPomoApp{FocusColor: clonePtr(a.Pomodoro.FocusColor), BreakColor: clonePtr(a.Pomodoro.BreakColor)}
 	}
 	if a.Weather != nil {
-		out.Weather = &knobWeatherApp{Faces: slices.Clone(a.Weather.Faces)}
+		out.Weather = &KnobWeatherApp{Faces: slices.Clone(a.Weather.Faces)}
 	}
 	if a.NowPlaying != nil {
-		out.NowPlaying = &knobNPApp{DimAfterS: clonePtr(a.NowPlaying.DimAfterS)}
+		out.NowPlaying = &KnobNPApp{DimAfterS: clonePtr(a.NowPlaying.DimAfterS)}
 	}
 	return out
 }
 
-func (s *knobSettings) pruneEmptyV2() {
+func (s *KnobSettings) pruneEmptyV2() {
 	if i := s.Idle; i != nil && i.DimAfterS == nil && i.DimLevel == nil && i.OffAfterS == nil {
 		s.Idle = nil
 	}
@@ -137,7 +141,7 @@ func (s *knobSettings) pruneEmptyV2() {
 	}
 }
 
-func (s *knobSettings) normalizeColors() {
+func (s *KnobSettings) normalizeColors() {
 	if s.Apps == nil || s.Apps.Pomodoro == nil {
 		return
 	}
@@ -148,7 +152,7 @@ func (s *knobSettings) normalizeColors() {
 	}
 }
 
-func (s knobSettings) validateIdle() error {
+func (s KnobSettings) validateIdle() error {
 	i := s.Idle
 	if i == nil {
 		return nil
@@ -174,14 +178,14 @@ func (s knobSettings) validateIdle() error {
 	return nil
 }
 
-func (s knobSettings) validateRoom() error {
+func (s KnobSettings) validateRoom() error {
 	if s.Room == nil || s.Room.PresenceOffS == nil {
 		return nil
 	}
 	return inRange("room.presence_off_s", *s.Room.PresenceOffS, 0, knobRoomPresenceOffMax)
 }
 
-func (s knobSettings) validateApps() error {
+func (s KnobSettings) validateApps() error {
 	a := s.Apps
 	if a == nil {
 		return nil
@@ -197,12 +201,12 @@ func (s knobSettings) validateApps() error {
 		}
 	}
 	if w := a.Weather; w != nil && w.Faces != nil {
-		if len(w.Faces) < 1 || len(w.Faces) > len(knobWeatherFaces) {
-			return fmt.Errorf("apps.weather.faces lists %d, want 1-%d", len(w.Faces), len(knobWeatherFaces))
+		if len(w.Faces) < 1 || len(w.Faces) > len(KnobWeatherFaces) {
+			return fmt.Errorf("apps.weather.faces lists %d, want 1-%d", len(w.Faces), len(KnobWeatherFaces))
 		}
 		for i, f := range w.Faces {
-			if !slices.Contains(knobWeatherFaces, f) {
-				return fmt.Errorf("apps.weather.faces %q must be one of %v", f, knobWeatherFaces)
+			if !slices.Contains(KnobWeatherFaces, f) {
+				return fmt.Errorf("apps.weather.faces %q must be one of %v", f, KnobWeatherFaces)
 			}
 			if slices.Contains(w.Faces[:i], f) {
 				return fmt.Errorf("apps.weather.faces lists %q twice", f)
@@ -222,7 +226,7 @@ type knobQuiet struct {
 	DimLevel *int  `json:"dim_level,omitempty"`
 }
 
-const knobQuietDimDefault = brightnessNightLevelDefault
+const KnobQuietDimDefault = 20
 
 func (q knobQuiet) clone() knobQuiet {
 	if q.Calm != nil {
@@ -241,7 +245,7 @@ func (q *knobQuiet) fillDefaults() {
 		q.Calm = boolPtr(true)
 	}
 	if q.DimLevel == nil {
-		v := knobQuietDimDefault
+		v := KnobQuietDimDefault
 		q.DimLevel = &v
 	}
 }
@@ -267,24 +271,24 @@ var (
 )
 
 const (
-	knobStatsIntervalDefault = 60
-	knobLiveIntervalDefault  = 5
+	KnobStatsIntervalDefault = 60
+	KnobLiveIntervalDefault  = 5
 )
 
 const (
-	knobDiagOff   = "off"
-	knobDiagBasic = "basic"
-	knobDiagFull  = "full"
+	KnobDiagOff   = "off"
+	KnobDiagBasic = "basic"
+	KnobDiagFull  = "full"
 )
 
-type knobBrightness struct {
+type KnobBrightness struct {
 	FollowEmber bool `json:"follow_ember"`
 	Level       int  `json:"level"`
 	Floor       int  `json:"floor"`
 	Startup     int  `json:"startup"`
 }
 
-func (s knobSettings) pageOn(id string) bool {
+func (s KnobSettings) PageOn(id string) bool {
 	for _, p := range s.Pages {
 		if p.ID == id {
 			return p.On
@@ -293,7 +297,7 @@ func (s knobSettings) pageOn(id string) bool {
 	return false
 }
 
-type knobPage struct {
+type KnobPage struct {
 	ID string `json:"id"`
 	On bool   `json:"on"`
 }
@@ -334,7 +338,7 @@ func (b knobBot) clone() knobBot {
 	return b
 }
 
-func (s knobSettings) clone() knobSettings {
+func (s KnobSettings) clone() KnobSettings {
 	s.Pages = slices.Clone(s.Pages)
 	s.Bot = s.Bot.clone()
 	s.Display = s.Display.clone()
@@ -349,13 +353,13 @@ func (s knobSettings) clone() knobSettings {
 	return s
 }
 
-func defaultKnobSettings() knobSettings {
-	pages := make([]knobPage, 0, len(knobPageIDs))
-	for _, id := range knobPageIDs {
-		pages = append(pages, knobPage{ID: id, On: !slices.Contains(knobPagesOffByDefault, id)})
+func DefaultKnobSettings() KnobSettings {
+	pages := make([]KnobPage, 0, len(KnobPageIDs))
+	for _, id := range KnobPageIDs {
+		pages = append(pages, KnobPage{ID: id, On: !slices.Contains(knobPagesOffByDefault, id)})
 	}
-	return knobSettings{
-		Brightness: knobBrightness{FollowEmber: true, Level: 153, Floor: 10, Startup: 153},
+	return KnobSettings{
+		Brightness: KnobBrightness{FollowEmber: true, Level: 153, Floor: 10, Startup: 153},
 		Pages:      pages,
 		Home:       "bot",
 		SwipePages: boolPtr(true),
@@ -363,29 +367,29 @@ func defaultKnobSettings() knobSettings {
 		Bot: knobBot{SleepyAfterS: 300, DemoHoldS: 20, SourceLabel: boolPtr(true), WorkingRing: boolPtr(true),
 			WeatherMoments: boolPtr(true), WeatherEveryMin: new(knobWeatherEveryMinDefault)},
 		Display:     knobDisplay{FastLink: boolPtr(true)},
-		Quiet:       knobQuiet{Calm: boolPtr(true), DimLevel: new(knobQuietDimDefault)},
-		Diagnostics: knobDiagOff,
+		Quiet:       knobQuiet{Calm: boolPtr(true), DimLevel: new(KnobQuietDimDefault)},
+		Diagnostics: KnobDiagOff,
 
-		StatsIntervalS: knobStatsIntervalDefault,
-		LiveIntervalS:  knobLiveIntervalDefault,
+		StatsIntervalS: KnobStatsIntervalDefault,
+		LiveIntervalS:  KnobLiveIntervalDefault,
 	}
 }
 
-func (s *knobSettings) fillDefaults() {
+func (s *KnobSettings) FillDefaults() {
 	if s.Diagnostics == "" {
-		s.Diagnostics = knobDiagOff
+		s.Diagnostics = KnobDiagOff
 	}
 	if s.StatsIntervalS == 0 {
-		s.StatsIntervalS = knobStatsIntervalDefault
+		s.StatsIntervalS = KnobStatsIntervalDefault
 	}
 	if s.LiveIntervalS == 0 {
-		s.LiveIntervalS = knobLiveIntervalDefault
+		s.LiveIntervalS = KnobLiveIntervalDefault
 	}
 	s.fillFlagDefaults()
 	s.addKnownPages()
 }
 
-func (s *knobSettings) fillFlagDefaults() {
+func (s *KnobSettings) fillFlagDefaults() {
 	if s.SwipePages == nil {
 		s.SwipePages = boolPtr(true)
 	}
@@ -394,16 +398,16 @@ func (s *knobSettings) fillFlagDefaults() {
 	s.Quiet.fillDefaults()
 }
 
-func (s *knobSettings) addKnownPages() {
+func (s *KnobSettings) addKnownPages() {
 	if len(s.Pages) == 0 {
 		return
 	}
-	for _, id := range knobPageIDs {
-		if len(s.Pages) >= knobMaxPages {
+	for _, id := range KnobPageIDs {
+		if len(s.Pages) >= KnobMaxPages {
 			return
 		}
-		if !slices.ContainsFunc(s.Pages, func(p knobPage) bool { return p.ID == id }) {
-			s.Pages = append(s.Pages, knobPage{ID: id, On: false})
+		if !slices.ContainsFunc(s.Pages, func(p KnobPage) bool { return p.ID == id }) {
+			s.Pages = append(s.Pages, KnobPage{ID: id, On: false})
 		}
 	}
 }
@@ -429,7 +433,7 @@ func (b *knobBot) fillDefaults() {
 	}
 }
 
-func (s knobSettings) validate() error {
+func (s KnobSettings) Validate() error {
 	b := s.Brightness
 	if err := inRange("brightness.level", b.Level, 0, 255); err != nil {
 		return err
@@ -450,7 +454,7 @@ func (s knobSettings) validate() error {
 		return err
 	}
 	switch s.Diagnostics {
-	case knobDiagOff, knobDiagBasic, knobDiagFull:
+	case KnobDiagOff, KnobDiagBasic, KnobDiagFull:
 	default:
 		return fmt.Errorf("diagnostics %q must be off, basic or full", s.Diagnostics)
 	}
@@ -488,9 +492,9 @@ func (s knobSettings) validate() error {
 	return s.validateApps()
 }
 
-func (s knobSettings) validatePages() error {
-	if len(s.Pages) > knobMaxPages {
-		return fmt.Errorf("pages: %d listed, the knob shows at most %d", len(s.Pages), knobMaxPages)
+func (s KnobSettings) validatePages() error {
+	if len(s.Pages) > KnobMaxPages {
+		return fmt.Errorf("pages: %d listed, the knob shows at most %d", len(s.Pages), KnobMaxPages)
 	}
 	seen := make(map[string]bool, len(s.Pages))
 	homeOn := false
@@ -525,3 +529,9 @@ func inRange(field string, v, lo, hi int) error {
 	}
 	return nil
 }
+
+var ErrSettingBody = errors.New("invalid settings body")
+
+var ErrSettingNotObject = fmt.Errorf("%w: must be a JSON object", ErrSettingBody)
+
+func boolPtr(b bool) *bool { return &b }

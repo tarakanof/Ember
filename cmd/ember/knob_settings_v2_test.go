@@ -4,132 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
-
-func TestKnobV2KeysValidate(t *testing.T) {
-	cases := []struct {
-		name   string
-		mutate func(*knobSettings)
-		ok     bool
-	}{
-		{"dim never", func(s *knobSettings) { s.Idle = &knobIdle{DimAfterS: new(0)} }, true},
-		{"dim 30", func(s *knobSettings) { s.Idle = &knobIdle{DimAfterS: new(30)} }, true},
-		{"dim 29", func(s *knobSettings) { s.Idle = &knobIdle{DimAfterS: new(29)} }, false},
-		{"dim 86400", func(s *knobSettings) { s.Idle = &knobIdle{DimAfterS: new(86400)} }, true},
-		{"dim 86401", func(s *knobSettings) { s.Idle = &knobIdle{DimAfterS: new(86401)} }, false},
-		{"dim negative", func(s *knobSettings) { s.Idle = &knobIdle{DimAfterS: new(-1)} }, false},
-		{"level 0", func(s *knobSettings) { s.Idle = &knobIdle{DimLevel: new(0)} }, false},
-		{"level 1", func(s *knobSettings) { s.Idle = &knobIdle{DimLevel: new(1)} }, true},
-		{"level 255", func(s *knobSettings) { s.Idle = &knobIdle{DimLevel: new(255)} }, true},
-		{"level 256", func(s *knobSettings) { s.Idle = &knobIdle{DimLevel: new(256)} }, false},
-		{"off never", func(s *knobSettings) { s.Idle = &knobIdle{OffAfterS: new(0)} }, true},
-		{"off 59", func(s *knobSettings) { s.Idle = &knobIdle{OffAfterS: new(59)} }, false},
-		{"off 60", func(s *knobSettings) { s.Idle = &knobIdle{OffAfterS: new(60)} }, true},
-		{"off 86401", func(s *knobSettings) { s.Idle = &knobIdle{OffAfterS: new(86401)} }, false},
-		{"off after dim", func(s *knobSettings) { s.Idle = &knobIdle{DimAfterS: new(600), OffAfterS: new(601)} }, true},
-		{"off equals dim", func(s *knobSettings) { s.Idle = &knobIdle{DimAfterS: new(600), OffAfterS: new(600)} }, false},
-		{"off before dim", func(s *knobSettings) { s.Idle = &knobIdle{DimAfterS: new(600), OffAfterS: new(300)} }, false},
-		{"off with dim never", func(s *knobSettings) { s.Idle = &knobIdle{DimAfterS: new(0), OffAfterS: new(60)} }, true},
-		{"colour upper", func(s *knobSettings) { s.Apps = &knobApps{Pomodoro: &knobPomoApp{FocusColor: new("#FF6A3D")}} }, true},
-		{"colour lower", func(s *knobSettings) { s.Apps = &knobApps{Pomodoro: &knobPomoApp{BreakColor: new("#4fa9ff")}} }, true},
-		{"colour no hash", func(s *knobSettings) { s.Apps = &knobApps{Pomodoro: &knobPomoApp{FocusColor: new("FF6A3D")}} }, false},
-		{"colour short", func(s *knobSettings) { s.Apps = &knobApps{Pomodoro: &knobPomoApp{FocusColor: new("#FFF")}} }, false},
-		{"colour not hex", func(s *knobSettings) { s.Apps = &knobApps{Pomodoro: &knobPomoApp{FocusColor: new("#GGGGGG")}} }, false},
-		{"colour alpha", func(s *knobSettings) { s.Apps = &knobApps{Pomodoro: &knobPomoApp{FocusColor: new("#FF6A3DFF")}} }, false},
-		{"faces one", func(s *knobSettings) { s.Apps = &knobApps{Weather: &knobWeatherApp{Faces: []string{"sun"}}} }, true},
-		{"faces all", func(s *knobSettings) { s.Apps = &knobApps{Weather: &knobWeatherApp{Faces: knobWeatherFaces}} }, true},
-		{"faces empty", func(s *knobSettings) { s.Apps = &knobApps{Weather: &knobWeatherApp{Faces: []string{}}} }, false},
-		{"faces unknown", func(s *knobSettings) { s.Apps = &knobApps{Weather: &knobWeatherApp{Faces: []string{"snow"}}} }, false},
-		{"faces duplicate", func(s *knobSettings) { s.Apps = &knobApps{Weather: &knobWeatherApp{Faces: []string{"sun", "sun"}}} }, false},
-		{"faces eight", func(s *knobSettings) {
-			s.Apps = &knobApps{Weather: &knobWeatherApp{Faces: append([]string{"sun"}, knobWeatherFaces...)}}
-		}, false},
-		{"np dim 59", func(s *knobSettings) { s.Apps = &knobApps{NowPlaying: &knobNPApp{DimAfterS: new(59)}} }, false},
-		{"np dim 60", func(s *knobSettings) { s.Apps = &knobApps{NowPlaying: &knobNPApp{DimAfterS: new(60)}} }, true},
-		{"np dim 1800", func(s *knobSettings) { s.Apps = &knobApps{NowPlaying: &knobNPApp{DimAfterS: new(1800)}} }, true},
-		{"np dim 1801", func(s *knobSettings) { s.Apps = &knobApps{NowPlaying: &knobNPApp{DimAfterS: new(1801)}} }, false},
-		{"room empty", func(s *knobSettings) { s.Room = &knobRoom{} }, true},
-		{"presence off never", func(s *knobSettings) { s.Room = &knobRoom{PresenceOffS: new(0)} }, true},
-		{"presence off 86399", func(s *knobSettings) { s.Room = &knobRoom{PresenceOffS: new(86399)} }, true},
-		{"presence off 86400", func(s *knobSettings) { s.Room = &knobRoom{PresenceOffS: new(86400)} }, false},
-		{"presence off negative", func(s *knobSettings) { s.Room = &knobRoom{PresenceOffS: new(-1)} }, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			s := defaultKnobSettings()
-			c.mutate(&s)
-			err := s.validate()
-			if c.ok && err != nil {
-				t.Fatalf("want valid, got %v", err)
-			}
-			if !c.ok && err == nil {
-				t.Fatal("want error, got nil")
-			}
-		})
-	}
-}
-
-func TestKnobV2RejectsUnknownKeysAndPages(t *testing.T) {
-	for _, patch := range []string{
-		`{"idle":{"sleep_after_s":5}}`,
-		`{"apps":{"bot":{"x":1}}}`,
-		`{"apps":{"pomodoro":{"ring_color":"#FFFFFF"}}}`,
-		`{"apps":{"weather":{"units":"c"}}}`,
-		`{"apps":{"nowplaying":{"brightness":5}}}`,
-		`{"room":{"presence_on_s":5}}`,
-		`{"room":{"presence_off_s":1.5}}`,
-		`{"room":{"enabled":"yes"}}`,
-	} {
-		if _, err := mergeKnobSettings(defaultKnobSettings(), []byte(patch)); err == nil {
-			t.Errorf("%s accepted", patch)
-		}
-	}
-}
-
-func TestKnobV2MergeFieldByField(t *testing.T) {
-	cur := defaultKnobSettings()
-	got, err := mergeKnobSettings(cur.clone(), []byte(`{"idle":{"dim_after_s":600,"dim_level":40}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"idle":{"off_after_s":1800}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if i := got.Idle; *i.DimAfterS != 600 || *i.DimLevel != 40 || *i.OffAfterS != 1800 {
-		t.Fatalf("idle patch lost fields: %+v", i)
-	}
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"apps":{"weather":{"faces":["sun","temp","rain"]}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	prev := got.clone()
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"apps":{"weather":{"faces":["air"]},"pomodoro":{"focus_color":"#aabbcc"}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(got.Apps.Weather.Faces, []string{"air"}) {
-		t.Fatalf("faces must replace whole: %v", got.Apps.Weather.Faces)
-	}
-	if *got.Apps.Pomodoro.FocusColor != "#AABBCC" || got.Apps.Pomodoro.BreakColor != nil {
-		t.Fatalf("colour not upper-cased or stray break colour: %+v", got.Apps.Pomodoro)
-	}
-	if !reflect.DeepEqual(prev.Apps.Weather.Faces, []string{"sun", "temp", "rain"}) || prev.Apps.Pomodoro != nil {
-		t.Fatalf("merging into a clone wrote through: %+v", prev.Apps)
-	}
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"idle":{"dim_level":null},"apps":{"pomodoro":null}}`))
-	if err != nil || got.Idle.DimLevel != nil || got.Apps.Pomodoro != nil || *got.Idle.DimAfterS != 600 {
-		t.Fatalf("null must clear: %v %+v %+v", err, got.Idle, got.Apps)
-	}
-	got, err = mergeKnobSettings(got.clone(), []byte(`{}`))
-	if err != nil {
-		t.Fatalf("{} patch: %v", err)
-	}
-}
 
 const preV2StoredConfig = `{"brightness":{"follow_ember":false,"level":200,"floor":20,"startup":120},` +
 	`"pages":[{"id":"pomodoro","on":true},{"id":"bot","on":true},{"id":"nowplaying","on":true},{"id":"weather","on":false},{"id":"future-page","on":false},{"id":"day","on":false},{"id":"room","on":false},{"id":"controls","on":false}],` +
@@ -138,11 +18,11 @@ const preV2StoredConfig = `{"brightness":{"follow_ember":false,"level":200,"floo
 	`"diagnostics":"basic","stats_interval_s":120,"live_interval_s":2,"display":{"fast_link":false,"rotation":180},"quiet":{"calm":false,"dim_level":5}}`
 
 func TestKnobV2AbsentKeepsLegacyBytes(t *testing.T) {
-	var back knobSettings
+	var back devices.KnobSettings
 	if err := json.Unmarshal([]byte(preV2StoredConfig), &back); err != nil {
 		t.Fatal(err)
 	}
-	back.fillDefaults()
+	back.FillDefaults()
 	again, _ := json.Marshal(back)
 	if string(again) != preV2StoredConfig {
 		t.Fatalf("load/save changed the bytes\n got %s\nwant %s", again, preV2StoredConfig)
@@ -152,10 +32,10 @@ func TestKnobV2AbsentKeepsLegacyBytes(t *testing.T) {
 	for _, patch := range []string{`{}`, `{"idle":{}}`, `{"idle":null}`, `{"apps":{}}`, `{"apps":{"pomodoro":{}}}`,
 		`{"apps":{"weather":{"faces":null}}}`, `{"apps":{"pomodoro":{"focus_color":null,"break_color":null}}}`,
 		`{"room":{}}`, `{"room":null}`, `{"room":{"enabled":null,"moments":null}}`} {
-		_, v0, _ := f.app.devices.config(f.m.ID)
+		_, v0, _ := f.app.devices.Config(f.m.ID)
 		resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, patch)
 		mustOK(t, patch, resp, b)
-		cfg, v1, _ := f.app.devices.config(f.m.ID)
+		cfg, v1, _ := f.app.devices.Config(f.m.ID)
 		if v1 != v0 {
 			t.Fatalf("%s: config_version %d -> %d", patch, v0, v1)
 		}
@@ -165,49 +45,33 @@ func TestKnobV2AbsentKeepsLegacyBytes(t *testing.T) {
 	}
 }
 
-func TestKnobV2ClearingTheLastFieldReturnsToAbsent(t *testing.T) {
-	cur := defaultKnobSettings()
-	legacy, _ := json.Marshal(cur)
-	got, err := mergeKnobSettings(cur.clone(), []byte(`{"idle":{"dim_level":40},"apps":{"pomodoro":{"focus_color":"#aabbcc"},"weather":{"faces":["sun"]},"nowplaying":{"dim_after_s":60}},"room":{"enabled":true}}`))
-	if err != nil || got.Idle == nil || got.Apps == nil || got.Room == nil {
-		t.Fatalf("set: %v %+v", err, got)
-	}
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"idle":{"dim_level":null},"apps":{"pomodoro":{"focus_color":null},"weather":{"faces":null},"nowplaying":{"dim_after_s":null}},"room":{"enabled":null}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if now, _ := json.Marshal(got); string(now) != string(legacy) {
-		t.Fatalf("clearing every field left residue\n got %s\nwant %s", now, legacy)
-	}
-}
-
-func maxLegacyStoreSettings() knobSettings {
-	s := defaultKnobSettings()
+func maxLegacyStoreSettings() devices.KnobSettings {
+	s := devices.DefaultKnobSettings()
 	s.Pages = nil
-	for i := range knobMaxPages {
-		s.Pages = append(s.Pages, knobPage{ID: fmt.Sprintf("page-%011d", i), On: false})
+	for i := range devices.KnobMaxPages {
+		s.Pages = append(s.Pages, devices.KnobPage{ID: fmt.Sprintf("page-%011d", i), On: false})
 	}
 	s.Pages[0].On, s.Home = true, s.Pages[0].ID
-	s.Brightness = knobBrightness{FollowEmber: false, Level: 255, Floor: 255, Startup: 255}
-	s.PollMS, s.Diagnostics, s.StatsIntervalS, s.LiveIntervalS = 10000, knobDiagBasic, 300, 10
+	s.Brightness = devices.KnobBrightness{FollowEmber: false, Level: 255, Floor: 255, Startup: 255}
+	s.PollMS, s.Diagnostics, s.StatsIntervalS, s.LiveIntervalS = 10000, devices.KnobDiagBasic, 300, 10
 	s.Bot.SleepyAfterS, s.Bot.DemoHoldS = 86400, 600
 	s.Bot.SourceLabel, s.Bot.WorkingRing = boolPtr(false), boolPtr(false)
 	s.Bot.WeatherMoments, s.Bot.WeatherEveryMin = boolPtr(false), new(240)
 	s.Display.FastLink, s.Quiet.Calm, s.Quiet.DimLevel = boolPtr(false), boolPtr(false), new(255)
 	s.Display.Rotation = 270
 	s.SwipePages = boolPtr(false)
-	s.Idle = &knobIdle{DimAfterS: new(86399), DimLevel: new(255), OffAfterS: new(86400)}
-	s.Apps = &knobApps{
-		Pomodoro:   &knobPomoApp{FocusColor: new("#FFFFFF"), BreakColor: new("#FFFFFF")},
-		Weather:    &knobWeatherApp{Faces: slices.Clone(knobWeatherFaces)},
-		NowPlaying: &knobNPApp{DimAfterS: new(1800)},
+	s.Idle = &devices.KnobIdle{DimAfterS: new(86399), DimLevel: new(255), OffAfterS: new(86400)}
+	s.Apps = &devices.KnobApps{
+		Pomodoro:   &devices.KnobPomoApp{FocusColor: new("#FFFFFF"), BreakColor: new("#FFFFFF")},
+		Weather:    &devices.KnobWeatherApp{Faces: slices.Clone(devices.KnobWeatherFaces)},
+		NowPlaying: &devices.KnobNPApp{DimAfterS: new(1800)},
 	}
 	return s
 }
 
-func maxV2Settings() knobSettings {
+func maxV2Settings() devices.KnobSettings {
 	s := maxLegacyStoreSettings()
-	s.Room = &knobRoom{Enabled: boolPtr(false), PresenceOffS: new(86399), PresenceWake: boolPtr(false), Moments: boolPtr(false)}
+	s.Room = &devices.KnobRoom{Enabled: boolPtr(false), PresenceOffS: new(86399), PresenceWake: boolPtr(false), Moments: boolPtr(false)}
 	return s
 }
 
@@ -249,35 +113,6 @@ func TestConfigDepthCountsConfigAsLevelOne(t *testing.T) {
 	}
 }
 
-func TestKnobV2LargestConfigFitsDepthAndSize(t *testing.T) {
-	cases := []struct {
-		name  string
-		s     knobSettings
-		limit int
-	}{
-		{"without the room-only keys", maxLegacyStoreSettings(), legacyCfgSettingsMax},
-		{"with them", maxV2Settings(), knobCfgSettingsMax},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if err := c.s.validate(); err != nil {
-				t.Fatalf("the largest v2 config is rejected: %v", err)
-			}
-			b, err := json.Marshal(c.s)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(b) > c.limit {
-				t.Fatalf("the largest valid v2 config is %d B, over the knob's %d", len(b), c.limit)
-			}
-			if d := configDepth(t, b); d > cinderConfigMaxDepth {
-				t.Fatalf("config nests %d levels with config as level 1, cinder drops more than %d", d, cinderConfigMaxDepth)
-			}
-			t.Logf("largest valid v2 config: %d B of %d", len(b), c.limit)
-		})
-	}
-}
-
 func TestCapsKnobV2OverConfigBytes400(t *testing.T) {
 	put := func(f *viewFixture, body string) (*http.Response, []byte) {
 		return devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, body)
@@ -296,7 +131,7 @@ func TestCapsKnobV2OverConfigBytes400(t *testing.T) {
 	}
 
 	f = newViewFixture(t)
-	cfg, _, _ := f.app.devices.config(f.m.ID)
+	cfg, _, _ := f.app.devices.Config(f.m.ID)
 	cur, _ := json.Marshal(cfg)
 	postCapsCheckin(t, f, "0.10.0", map[string]any{"view": []int{1, 1}, "pages": pages,
 		"limits": map[string]any{"config_bytes": len(cur) + 40}})
@@ -308,53 +143,26 @@ func TestCapsKnobV2OverConfigBytes400(t *testing.T) {
 	}
 }
 
-func TestKnobRoomBlockMergesFieldByField(t *testing.T) {
-	cur := defaultKnobSettings()
-	got, err := mergeKnobSettings(cur.clone(), []byte(`{"room":{"enabled":true,"presence_off_s":0}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	prev := got.clone()
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"room":{"moments":false,"presence_off_s":600}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r := got.Room; !*r.Enabled || *r.PresenceOffS != 600 || *r.Moments || r.PresenceWake != nil {
-		t.Fatalf("room patch lost fields: %+v", r)
-	}
-	if *prev.Room.PresenceOffS != 0 || prev.Room.Moments != nil {
-		t.Fatalf("merging into a clone wrote through: %+v", prev.Room)
-	}
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"room":{"moments":null}}`))
-	if err != nil || got.Room.Moments != nil || !*got.Room.Enabled {
-		t.Fatalf("null must clear one key: %v %+v", err, got.Room)
-	}
-	got, err = mergeKnobSettings(got.clone(), []byte(`{"room":null}`))
-	if err != nil || got.Room != nil {
-		t.Fatalf("null must clear the block: %v %+v", err, got.Room)
-	}
-}
-
 func TestKnobRoomConfigRoundTripsThroughTheOwnerAndTheKnob(t *testing.T) {
 	f := newViewFixture(t)
 	resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken,
 		`{"pages":[{"id":"bot","on":true},{"id":"room","on":true}],"room":{"enabled":true,"presence_off_s":120}}`)
 	mustOK(t, "put room", resp, b)
-	check := func(where string, c knobSettings) {
+	check := func(where string, c devices.KnobSettings) {
 		t.Helper()
-		if !c.pageOn("room") || !*c.Room.Enabled || *c.Room.PresenceOffS != 120 {
+		if !c.PageOn("room") || !*c.Room.Enabled || *c.Room.PresenceOffS != 120 {
 			t.Fatalf("%s lost the room settings: %+v", where, c)
 		}
 	}
 	resp, b = devReq(t, f.srv, "GET", "/v1/devices/"+f.m.ID+"/config", testToken, "")
-	var owner knobSettings
+	var owner devices.KnobSettings
 	if err := json.Unmarshal(mustOK(t, "owner get", resp, b), &owner); err != nil {
 		t.Fatal(err)
 	}
 	check("owner get", owner)
 	resp, b = devReq(t, f.srv, "GET", "/v1/devices/self/config", f.m.Token, "")
 	var self struct {
-		Config knobSettings `json:"config"`
+		Config devices.KnobSettings `json:"config"`
 	}
 	if err := json.Unmarshal(mustOK(t, "self get", resp, b), &self); err != nil {
 		t.Fatal(err)
@@ -369,26 +177,6 @@ func TestKnobRoomPresenceOffOutOfRangeIs400(t *testing.T) {
 		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(b), "room.presence_off_s") {
 			t.Fatalf("presence_off_s %s = %d %s, want 400 naming the key", v, resp.StatusCode, b)
 		}
-	}
-}
-
-func TestKnobRoomPageReachesAStoredConfigOffWithoutABump(t *testing.T) {
-	const stored = `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
-		`"pages":[{"id":"bot","on":true},{"id":"day","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":false},{"id":"controls","on":false},{"id":"pomodoro","on":false}],` +
-		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20},"diagnostics":"off"}`
-	var s knobSettings
-	if err := json.Unmarshal([]byte(stored), &s); err != nil {
-		t.Fatal(err)
-	}
-	s.fillDefaults()
-	if err := s.validate(); err != nil {
-		t.Fatalf("a config with no room entries must stay valid: %v", err)
-	}
-	if last := s.Pages[len(s.Pages)-1]; last != (knobPage{ID: "room"}) {
-		t.Fatalf("last page = %+v, want room off", last)
-	}
-	if s.Room != nil {
-		t.Fatalf("a stored config must not gain a room block: %+v", s.Room)
 	}
 }
 

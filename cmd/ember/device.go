@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
@@ -131,9 +132,7 @@ type deviceProbe struct {
 }
 
 const (
-	rebootUptimeSlack  = 10 * time.Second
-	bootEstimateSlack  = 2 * time.Second
-	staleCheckinWindow = time.Minute
+	bootEstimateSlack = 2 * time.Second
 )
 
 func rebootDetected(last, cur deviceProbe) bool {
@@ -144,7 +143,7 @@ func rebootDetected(last, cur deviceProbe) bool {
 		return true
 	}
 	expected := last.uptimeSec + int64(cur.at.Sub(last.at)/time.Second)
-	return cur.uptimeSec+int64(rebootUptimeSlack/time.Second) < expected
+	return cur.uptimeSec+int64(devices.RebootUptimeSlack/time.Second) < expected
 }
 
 func (a *App) probeDevice(ctx context.Context, maxAge time.Duration) deviceProbe {

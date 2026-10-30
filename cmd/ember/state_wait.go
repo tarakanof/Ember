@@ -72,7 +72,7 @@ func (a *App) pomodoroReply() ([]byte, string, error) {
 
 func (a *App) handleState(w http.ResponseWriter, r *http.Request) {
 	a.serveStateFeed(w, r, stateFeedRoute, func() ([]byte, string, error) {
-		w.Header().Set(devicesEpochHeader, strconv.FormatUint(a.devices.epochValue(), 10))
+		w.Header().Set(devicesEpochHeader, strconv.FormatUint(a.devices.Epoch(), 10))
 		return a.stateReply()
 	})
 }

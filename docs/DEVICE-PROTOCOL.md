@@ -94,7 +94,7 @@ and fall under the same rules as the view.
 3. **Behaviour keys on capabilities, never on `fw`.** `fw` is for diagnostics
    and OTA only. A knob without `caps` is a legacy knob: the server maps its
    `fw` to capabilities with one table (`legacyKnobCaps` in
-   `devices_caps.go`), the only place in the server code where a version
+   `internal/devices/caps.go`), the only place in the server code where a version
    literal may appear (`TestVersionLiteralsOnlyInTheLegacyCapsTable`).
    Ember.app gates on `effective_caps`; its fw semver floors stay only as the
    fallback for a server that sends none, for two releases.

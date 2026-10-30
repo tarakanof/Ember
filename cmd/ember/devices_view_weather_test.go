@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/nowplaying"
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
@@ -294,7 +295,7 @@ func TestCapsKnobWithWeatherHiddenSkipsBuildingTheDetail(t *testing.T) {
 	f := facesViewFixture(t, june, "open-meteo", lonLat, lonLon,
 		facesProviders{openMeteo: openMeteoFacesStub(june, 3600, openMeteoTwoSpells)})
 	allocs := func(features ...string) float64 {
-		plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot"}, Features: features})
+		plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: []string{"bot"}, Features: features})
 		return testing.AllocsPerRun(20, func() {
 			if _, _, err := f.app.knobView(f.m.ID, june); err != nil {
 				t.Fatal(err)
@@ -313,7 +314,7 @@ func TestCapsKnobWithWeatherPageOffSkipsBuildingTheDetail(t *testing.T) {
 		facesProviders{openMeteo: openMeteoFacesStub(june, 3600, openMeteoTwoSpells)})
 	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"weather","on":false}]}`)
 	allocs := func(features ...string) float64 {
-		plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot", "weather"}, Features: features})
+		plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: []string{"bot", "weather"}, Features: features})
 		return testing.AllocsPerRun(20, func() {
 			if _, _, err := f.app.knobView(f.m.ID, june); err != nil {
 				t.Fatal(err)
@@ -338,12 +339,12 @@ func TestCapsKnobViewDropsWeatherDetailFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	pages := []string{"bot", "pomodoro", "weather", "nowplaying"}
-	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{featureWxFaces}})
+	plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: pages, Features: []string{featureWxFaces}})
 	full := goldenView(t, f)
 	if !strings.Contains(string(full), `"utc_offset"`) {
 		t.Fatalf("setup: full view without detail: %s", full)
 	}
-	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: pages, Features: []string{featureWxFaces}, Limits: &deviceCapsLimits{ViewBytes: len(full) - 1}})
+	plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: pages, Features: []string{featureWxFaces}, Limits: &devices.CapsLimits{ViewBytes: len(full) - 1}})
 	body := goldenView(t, f)
 	keys := viewKeys(t, body)
 	if strings.Contains(string(body), `"utc_offset"`) || keys["nowplaying"] == nil || keys["weather"] == nil {
@@ -354,8 +355,8 @@ func TestCapsKnobViewDropsWeatherDetailFirst(t *testing.T) {
 func TestKnobViewWorstCaseFitsHalfTheBuffer(t *testing.T) {
 	f := goldenViewFixture(t)
 	worstCaseView(t, f)
-	plantCaps(t, f, &deviceCaps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather", "nowplaying"},
-		Features: []string{featureNPCover, featureWxFaces}, Limits: &deviceCapsLimits{ViewBytes: 16383}})
+	plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "weather", "nowplaying"},
+		Features: []string{featureNPCover, featureWxFaces}, Limits: &devices.CapsLimits{ViewBytes: 16383}})
 	body := goldenView(t, f)
 	if a, ok := viewAccent(t, body); !ok || len(a) != 7 {
 		t.Fatalf("worst case lacks the accent: %s", body)

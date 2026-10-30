@@ -8,11 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 type statsFixture struct {
@@ -26,7 +27,7 @@ func newStatsFixture(t *testing.T) *statsFixture {
 	t.Helper()
 	app, srv := newDevicesApp(t, "")
 	clk := &stepClock{now: time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)}
-	app.devices.now = clk.Now
+	app.devices.Now = clk.Now
 	app.knobStats.now = clk.Now
 	return &statsFixture{app: app, srv: srv, clk: clk, m: mintKnob(t, srv, http.StatusCreated)}
 }
@@ -95,12 +96,6 @@ func num(t *testing.T, m map[string]any, key string) float64 {
 	return v
 }
 
-func TestKnobSettingsDiagnosticsDefaultsOff(t *testing.T) {
-	if got := defaultKnobSettings().Diagnostics; got != "off" {
-		t.Fatalf("default diagnostics = %q, want off", got)
-	}
-}
-
 func TestDeviceConfigPutDiagnosticsMergesAndValidates(t *testing.T) {
 	f := newStatsFixture(t)
 	resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, `{"diagnostics":"full"}`)
@@ -121,22 +116,22 @@ func TestDeviceConfigPutDiagnosticsMergesAndValidates(t *testing.T) {
 func TestDevicesLoadFillsMissingDiagnostics(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)
-	blob, _, _ := app.store.GetSetting(devicesKey)
+	blob, _, _ := app.store.GetSetting(devices.StateKey)
 	legacy := strings.Replace(blob, `,"diagnostics":"off"`, "", 1)
 	if legacy == blob {
 		t.Fatalf("stored blob lacks diagnostics: %s", blob)
 	}
-	if err := app.store.PutSetting(devicesKey, legacy); err != nil {
+	if err := app.store.PutSetting(devices.StateKey, legacy); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.devices.load(); err != nil {
+	if err := app.devices.Load(); err != nil {
 		t.Fatal(err)
 	}
-	cfg, _, err := app.devices.config(m.ID)
+	cfg, _, err := app.devices.Config(m.ID)
 	if err != nil || cfg.Diagnostics != "off" {
 		t.Fatalf("diagnostics after legacy load = %q (%v), want off", cfg.Diagnostics, err)
 	}
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		t.Fatalf("legacy config invalid after load: %v", err)
 	}
 }
@@ -610,7 +605,7 @@ func TestKnobStatsMinuteRingKeepsOnly24Hours(t *testing.T) {
 	start := f.clk.Now()
 	for range 25 * 60 {
 		f.clk.advance(time.Minute)
-		f.app.knobStats.record(f.m.ID, f.clk.Now(), knobSampleFromReport(deviceCheckin{RSSI: -60}, &knobStatsReport{PeriodMS: 60000}))
+		f.app.knobStats.record(f.m.ID, f.clk.Now(), knobSampleFromReport(devices.Checkin{RSSI: -60}, &knobStatsReport{PeriodMS: 60000}))
 	}
 	out := f.stats(t, "24h")
 	first, _ := time.Parse(time.RFC3339, out.Points[0]["t"].(string))
@@ -793,19 +788,6 @@ func TestKnobStatsRecordEmberBrightness(t *testing.T) {
 	}
 }
 
-func TestKnobSettingsIntervalDefaults(t *testing.T) {
-	d := defaultKnobSettings()
-	if d.StatsIntervalS != knobStatsIntervalDefault || d.LiveIntervalS != knobLiveIntervalDefault {
-		t.Fatalf("defaults = %d/%d, want %d/%d", d.StatsIntervalS, d.LiveIntervalS, knobStatsIntervalDefault, knobLiveIntervalDefault)
-	}
-	if !slices.Contains(knobStatsIntervals, d.StatsIntervalS) || !slices.Contains(knobLiveIntervals, d.LiveIntervalS) {
-		t.Fatalf("defaults %d/%d not in the allowed sets", d.StatsIntervalS, d.LiveIntervalS)
-	}
-	if err := d.validate(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestDeviceConfigPutIntervalsMergeAndValidate(t *testing.T) {
 	f := newStatsFixture(t)
 	resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, `{"stats_interval_s":120,"live_interval_s":2}`)
@@ -826,22 +808,22 @@ func TestDeviceConfigPutIntervalsMergeAndValidate(t *testing.T) {
 func TestDevicesLoadFillsMissingIntervals(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)
-	blob, _, _ := app.store.GetSetting(devicesKey)
+	blob, _, _ := app.store.GetSetting(devices.StateKey)
 	legacy := regexp.MustCompile(`,"(stats|live)_interval_s":\d+`).ReplaceAllString(blob, "")
 	if legacy == blob {
 		t.Fatalf("stored blob lacks the intervals: %s", blob)
 	}
-	if err := app.store.PutSetting(devicesKey, legacy); err != nil {
+	if err := app.store.PutSetting(devices.StateKey, legacy); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.devices.load(); err != nil {
+	if err := app.devices.Load(); err != nil {
 		t.Fatal(err)
 	}
-	cfg, _, err := app.devices.config(m.ID)
-	if err != nil || cfg.StatsIntervalS != knobStatsIntervalDefault || cfg.LiveIntervalS != knobLiveIntervalDefault {
+	cfg, _, err := app.devices.Config(m.ID)
+	if err != nil || cfg.StatsIntervalS != devices.KnobStatsIntervalDefault || cfg.LiveIntervalS != devices.KnobLiveIntervalDefault {
 		t.Fatalf("intervals after legacy load = %d/%d (%v)", cfg.StatsIntervalS, cfg.LiveIntervalS, err)
 	}
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		t.Fatalf("legacy config invalid after load: %v", err)
 	}
 }
@@ -871,7 +853,7 @@ func TestKnobStatsLiveRingHoldsTenMinutesAtTwoSeconds(t *testing.T) {
 	f.setDiagnostics(t, "basic")
 	for range 330 {
 		f.clk.advance(2 * time.Second)
-		f.app.knobStats.record(f.m.ID, f.clk.Now(), knobSampleFromReport(deviceCheckin{RSSI: -60}, &knobStatsReport{PeriodMS: 2000}))
+		f.app.knobStats.record(f.m.ID, f.clk.Now(), knobSampleFromReport(devices.Checkin{RSSI: -60}, &knobStatsReport{PeriodMS: 2000}))
 	}
 	pts := f.stats(t, "15m").Points
 	var live int
@@ -891,7 +873,7 @@ func TestKnobStatsMinuteRingDropsOlderThanADay(t *testing.T) {
 	f.setDiagnostics(t, "basic")
 	for range 2 * 24 * 12 {
 		f.clk.advance(5 * time.Minute)
-		f.app.knobStats.record(f.m.ID, f.clk.Now(), knobSampleFromReport(deviceCheckin{RSSI: -60}, &knobStatsReport{PeriodMS: 300000}))
+		f.app.knobStats.record(f.m.ID, f.clk.Now(), knobSampleFromReport(devices.Checkin{RSSI: -60}, &knobStatsReport{PeriodMS: 300000}))
 	}
 	if n := f.app.knobStats.minuteLen(f.m.ID); n > 24*12+1 {
 		t.Fatalf("minute ring holds %d buckets at a 5 min interval, want <= %d (24 h)", n, 24*12+1)

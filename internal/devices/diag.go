@@ -1,4 +1,4 @@
-package main
+package devices
 
 import (
 	"errors"
@@ -10,12 +10,12 @@ const (
 	diagTaskNameMax  = 16
 	diagStackTaskMax = 32
 	diagIdleTextMax  = 32
-	coredumpMaxBytes = 128 << 10
+	CoredumpMaxBytes = 128 << 10
 )
 
-type deviceDiag struct {
+type Diag struct {
 	Boots            int64          `json:"boots,omitempty"`
-	Crash            *deviceCrash   `json:"crash,omitempty"`
+	Crash            *Crash         `json:"crash,omitempty"`
 	HeapInternalMin  int            `json:"heap_internal_min,omitempty"`
 	HeapLargestMin   int            `json:"heap_largest_min,omitempty"`
 	ResetReason      string         `json:"reset_reason,omitempty"`
@@ -23,16 +23,16 @@ type deviceDiag struct {
 	Reboots          int64          `json:"reboots,omitempty"`
 	PrevResetReason  string         `json:"prev_reset_reason,omitempty"`
 	RebootsSinceSeen int64          `json:"reboots_since_seen,omitempty"`
-	Idle             *deviceIdle    `json:"idle,omitempty"`
+	Idle             *Idle          `json:"idle,omitempty"`
 }
 
-type deviceIdle struct {
+type Idle struct {
 	State     string `json:"state"`
 	InputAgeS int64  `json:"input_age_s"`
 	Wake      string `json:"wake"`
 }
 
-type deviceCrash struct {
+type Crash struct {
 	ELF    string `json:"elf,omitempty"`
 	ID     string `json:"id,omitempty"`
 	Size   int    `json:"size,omitempty"`
@@ -44,10 +44,10 @@ type deviceCrash struct {
 var (
 	diagReasonPattern = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
 	diagPCPattern     = regexp.MustCompile(`^0x[0-9a-f]{1,8}$`)
-	coredumpIDPattern = regexp.MustCompile(`^[0-9a-f]{8}$`)
+	CoredumpIDPattern = regexp.MustCompile(`^[0-9a-f]{8}$`)
 )
 
-func (d deviceDiag) validate() error {
+func (d Diag) Validate() error {
 	switch {
 	case d.Boots < 0:
 		return errors.New("boots must be >= 0")
@@ -70,11 +70,11 @@ func (d deviceDiag) validate() error {
 			return errors.New("crash.task must be 1..16 printable ASCII characters")
 		case (c.ID == "") != (c.Size == 0):
 			return errors.New("crash.id and crash.size come together")
-		case c.ID != "" && !coredumpIDPattern.MatchString(c.ID):
+		case c.ID != "" && !CoredumpIDPattern.MatchString(c.ID):
 			return errors.New("crash.id must be 8 lower-case hex digits")
-		case c.Size < 0 || c.Size > coredumpMaxBytes:
+		case c.Size < 0 || c.Size > CoredumpMaxBytes:
 			return errors.New("crash.size must be 1..131072")
-		case c.ELF != "" && !firmwareBuildPattern.MatchString(c.ELF):
+		case c.ELF != "" && !FirmwareBuildPattern.MatchString(c.ELF):
 			return errors.New("crash.elf must be 8 lower-case hex digits")
 		}
 	}
@@ -89,7 +89,7 @@ func (d deviceDiag) validate() error {
 	return nil
 }
 
-func (i deviceIdle) validate() error {
+func (i Idle) Validate() error {
 	switch {
 	case i.InputAgeS < 0:
 		return errors.New("input_age_s must be >= 0")
@@ -111,7 +111,7 @@ func validDiagTaskName(s string) bool {
 	return true
 }
 
-func (d *deviceDiag) clone() *deviceDiag {
+func (d *Diag) clone() *Diag {
 	if d == nil {
 		return nil
 	}
@@ -128,7 +128,7 @@ func (d *deviceDiag) clone() *deviceDiag {
 	return &c
 }
 
-func (d *deviceDiag) carryFrom(prev *deviceDiag) {
+func (d *Diag) carryFrom(prev *Diag) {
 	if prev == nil {
 		return
 	}
@@ -147,7 +147,7 @@ func (d *deviceDiag) carryFrom(prev *deviceDiag) {
 	}
 }
 
-func newDiagCrash(prev, cur *deviceDiag) *deviceCrash {
+func newDiagCrash(prev, cur *Diag) *Crash {
 	if cur == nil || cur.Crash == nil {
 		return nil
 	}

@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const brightnessSettingsKey = "brightness_json"
 
-const brightnessNightLevelDefault = 20
+const brightnessNightLevelDefault = devices.KnobQuietDimDefault
 
 const minStaleSeconds = int(2 * clockProbeTTL / time.Second)
 

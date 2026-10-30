@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const fullRoom = `{"t_c":23.4,"rh":41.2,"eco2":612,"tvoc":85,"aqi":2,"air":"normal","lux":312,"present":true,"age_s":{"climate":4,"air":1,"light":0,"presence":0}}`
@@ -27,7 +29,7 @@ func newRoomKnob(t *testing.T, dbPath string) roomKnob {
 	t.Helper()
 	app, srv := newDevicesApp(t, dbPath)
 	clk := &stepClock{now: time.Date(2026, 10, 30, 12, 0, 0, 500_000_000, time.UTC)}
-	app.devices.now = clk.Now
+	app.devices.Now = clk.Now
 	m := mintKnob(t, srv, http.StatusCreated)
 	return roomKnob{app: app, srv: srv, id: m.ID, tok: m.Token, clk: clk}
 }
@@ -45,8 +47,8 @@ func (k roomKnob) checkinRoom(t *testing.T, room string) {
 	k.checkin(t, `{"fw":"0.10.0","room":`+room+`}`)
 }
 
-func (k roomKnob) stored() *deviceRoom {
-	return k.app.devices.list()[0].LastCheckin.Room
+func (k roomKnob) stored() *devices.Room {
+	return k.app.devices.List()[0].LastCheckin.Room
 }
 
 func (k roomKnob) roomJSON(t *testing.T) map[string]any {
@@ -174,7 +176,7 @@ func TestRoomBlockSurvivesARestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.db")
 	k := newRoomKnob(t, path)
 	k.checkinRoom(t, fullRoom)
-	if err := k.app.devices.flush(); err != nil {
+	if err := k.app.devices.Flush(); err != nil {
 		t.Fatal(err)
 	}
 	_ = k.app.store.Close()
@@ -254,7 +256,7 @@ func TestANonObjectRoomKeepsTheCheckinAndTheLastBlock(t *testing.T) {
 			k.checkinRoom(t, `{"lux":100}`)
 			k.clk.advance(time.Second)
 			k.checkin(t, `{"fw":"0.10.1","room":`+room+`}`)
-			if got := k.app.devices.list()[0].LastCheckin.FW; got != "0.10.1" {
+			if got := k.app.devices.List()[0].LastCheckin.FW; got != "0.10.1" {
 				t.Fatalf("checkin not stored: fw = %q", got)
 			}
 			jsonEqual(t, k.roomJSON(t), `{"lux":100}`)
@@ -297,8 +299,8 @@ func TestDeletingAKnobForgetsItsRoomDropLog(t *testing.T) {
 func TestDeviceRecordCloneDeepCopiesTheRoom(t *testing.T) {
 	k := newRoomKnob(t, "")
 	k.checkinRoom(t, fullRoom)
-	rec := deviceRecord{LastCheckin: &deviceCheckin{Room: k.stored()}}
-	c := rec.clone()
+	rec := devices.Record{LastCheckin: &devices.Checkin{Room: k.stored()}}
+	c := rec.Clone()
 	assertNoSharedPointers(t, reflect.ValueOf(*rec.LastCheckin.Room), reflect.ValueOf(*c.LastCheckin.Room))
 	*c.LastCheckin.Room.AgeS.Climate = 99
 	*c.LastCheckin.Room.TempC = 99

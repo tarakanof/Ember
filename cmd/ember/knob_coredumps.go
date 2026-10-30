@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const coredumpsKept = 3
@@ -90,7 +92,7 @@ func (s *coredumpStore) deviceDir(device string) string {
 }
 
 func (s *coredumpStore) has(device, id string) bool {
-	if !coredumpIDPattern.MatchString(id) {
+	if !devices.CoredumpIDPattern.MatchString(id) {
 		return false
 	}
 	_, err := os.Stat(filepath.Join(s.deviceDir(device), id+".json"))
@@ -178,10 +180,10 @@ func sweepCoredumpDir(dir string) error {
 	for _, e := range entries {
 		name := e.Name()
 		stale := strings.HasPrefix(name, ".") && strings.Contains(name, ".tmp-")
-		if id, ok := strings.CutSuffix(name, ".bin"); ok && coredumpIDPattern.MatchString(id) {
+		if id, ok := strings.CutSuffix(name, ".bin"); ok && devices.CoredumpIDPattern.MatchString(id) {
 			stale = !present[id+".json"]
 		}
-		if id, ok := strings.CutSuffix(name, ".json"); ok && coredumpIDPattern.MatchString(id) {
+		if id, ok := strings.CutSuffix(name, ".json"); ok && devices.CoredumpIDPattern.MatchString(id) {
 			stale = !present[id+".bin"]
 		}
 		if !stale {
@@ -264,7 +266,7 @@ func (s *coredumpStore) storedLocked(device string) ([]coredumpSidecar, error) {
 	var out []coredumpSidecar
 	for _, e := range entries {
 		id, ok := strings.CutSuffix(e.Name(), ".json")
-		if !ok || !coredumpIDPattern.MatchString(id) {
+		if !ok || !devices.CoredumpIDPattern.MatchString(id) {
 			continue
 		}
 		blob, err := os.ReadFile(filepath.Join(s.deviceDir(device), e.Name()))
@@ -287,7 +289,7 @@ func (s *coredumpStore) storedLocked(device string) ([]coredumpSidecar, error) {
 }
 
 func (s *coredumpStore) open(device, id string) (coredumpMeta, []byte, error) {
-	if !coredumpIDPattern.MatchString(id) {
+	if !devices.CoredumpIDPattern.MatchString(id) {
 		return coredumpMeta{}, nil, errCoredumpNotFound
 	}
 	s.mu.Lock()
@@ -314,7 +316,7 @@ func (s *coredumpStore) open(device, id string) (coredumpMeta, []byte, error) {
 }
 
 func (s *coredumpStore) remove(device, id string) error {
-	if !coredumpIDPattern.MatchString(id) {
+	if !devices.CoredumpIDPattern.MatchString(id) {
 		return errCoredumpNotFound
 	}
 	s.mu.Lock()

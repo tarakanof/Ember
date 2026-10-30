@@ -10,22 +10,24 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 type countingKV struct {
-	settingsKV
+	devices.KV
 	puts atomic.Int64
 }
 
 func (c *countingKV) PutSetting(key, value string) error {
-	if key == devicesKey {
+	if key == devices.StateKey {
 		c.puts.Add(1)
 	}
-	return c.settingsKV.PutSetting(key, value)
+	return c.KV.PutSetting(key, value)
 }
 
 type failingKV struct {
-	settingsKV
+	devices.KV
 	fail atomic.Bool
 }
 
@@ -33,7 +35,7 @@ func (f *failingKV) PutSetting(key, value string) error {
 	if f.fail.Load() {
 		return errors.New("disk full")
 	}
-	return f.settingsKV.PutSetting(key, value)
+	return f.KV.PutSetting(key, value)
 }
 
 type stepClock struct {
@@ -55,10 +57,10 @@ func (c *stepClock) advance(d time.Duration) {
 
 func countDeviceWrites(t *testing.T, app *App) (*countingKV, *stepClock) {
 	t.Helper()
-	kv := &countingKV{settingsKV: app.store}
+	kv := &countingKV{KV: app.store}
 	clk := &stepClock{now: time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)}
-	app.devices.kv = func() settingsKV { return kv }
-	app.devices.now = clk.Now
+	app.devices.KV = func() devices.KV { return kv }
+	app.devices.Now = clk.Now
 	return kv, clk
 }
 
@@ -76,10 +78,10 @@ func TestDeviceCheckinWritesStoreAtMostOncePerPersistInterval(t *testing.T) {
 	if got := kv.puts.Load() - base; got != 0 {
 		t.Fatalf("store writes for 5 checkins inside the interval = %d, want 0", got)
 	}
-	if seen := app.devices.list()[0].LastCheckin; seen == nil || !seen.SeenAt.Equal(clk.Now().Add(-time.Minute)) {
+	if seen := app.devices.List()[0].LastCheckin; seen == nil || !seen.SeenAt.Equal(clk.Now().Add(-time.Minute)) {
 		t.Fatalf("in-memory last checkin = %+v", seen)
 	}
-	clk.advance(deviceCheckinPersistInterval)
+	clk.advance(devices.CheckinPersistInterval)
 	checkin(t, srv, m.Token, 1)
 	checkin(t, srv, m.Token, 1)
 	if got := kv.puts.Load() - base; got != 1 {
@@ -132,7 +134,7 @@ func TestDeviceLastCheckinSurvivesShutdown(t *testing.T) {
 	app1.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
 
 	app2, _ := newDevicesApp(t, db)
-	if seen := app2.devices.list()[0].LastCheckin; seen == nil || seen.FW != "0.5.0" {
+	if seen := app2.devices.List()[0].LastCheckin; seen == nil || seen.FW != "0.5.0" {
 		t.Fatalf("last checkin after restart = %+v, want the pre-shutdown one", seen)
 	}
 }
@@ -140,23 +142,23 @@ func TestDeviceLastCheckinSurvivesShutdown(t *testing.T) {
 func TestDeviceCheckinSucceedsWhenThePeriodicWriteFails(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	_, clk := countDeviceWrites(t, app)
-	kv := &failingKV{settingsKV: app.store}
-	app.devices.kv = func() settingsKV { return kv }
+	kv := &failingKV{KV: app.store}
+	app.devices.KV = func() devices.KV { return kv }
 	m := mintKnob(t, srv, http.StatusCreated)
 	kv.fail.Store(true)
-	clk.advance(deviceCheckinPersistInterval)
+	clk.advance(devices.CheckinPersistInterval)
 	resp, out := checkin(t, srv, m.Token, 0)
 	if resp.StatusCode != http.StatusOK || out["config_version"] != float64(1) || out["config"] == nil {
 		t.Fatalf("checkin with a failing store = %d %v, want 200 with the config", resp.StatusCode, out)
 	}
-	if err := app.devices.flush(); err == nil {
+	if err := app.devices.Flush(); err == nil {
 		t.Fatal("flush after a failed write found nothing dirty")
 	}
 	kv.fail.Store(false)
-	if err := app.devices.flush(); err != nil {
+	if err := app.devices.Flush(); err != nil {
 		t.Fatalf("flush once the store recovers = %v", err)
 	}
-	if blob, _, _ := app.store.GetSetting(devicesKey); !strings.Contains(blob, `"last_checkin"`) {
+	if blob, _, _ := app.store.GetSetting(devices.StateKey); !strings.Contains(blob, `"last_checkin"`) {
 		t.Fatalf("stored registry lacks the checkin: %s", blob)
 	}
 }
@@ -173,8 +175,8 @@ func TestDeviceLastCheckinWifiSurvivesRestart(t *testing.T) {
 	app1.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
 
 	app2, _ := newDevicesApp(t, db)
-	want := deviceWifi{BSSID: "78:45:58:4b:c2:cd", Channel: 6, Disconnects: 3, LastReason: 203, RSSIMin: -83}
-	if got := app2.devices.list()[0].LastCheckin.Wifi; got == nil || *got != want {
+	want := devices.Wifi{BSSID: "78:45:58:4b:c2:cd", Channel: 6, Disconnects: 3, LastReason: 203, RSSIMin: -83}
+	if got := app2.devices.List()[0].LastCheckin.Wifi; got == nil || *got != want {
 		t.Fatalf("wifi after restart = %+v, want %+v", got, want)
 	}
 }

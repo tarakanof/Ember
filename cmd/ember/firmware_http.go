@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -82,7 +84,7 @@ func (a *App) handleFirmwareUpload(w http.ResponseWriter, r *http.Request) {
 		a.writeFirmwareError(w, r, err)
 		return
 	}
-	img, created, err := store.put(desc, body, channel, replace, a.devices.otaTargets, a.devices.holdUnlessKept, a.otaRetirer(r.Context(), desc.Version))
+	img, created, err := store.put(desc, body, channel, replace, a.devices.OTATargets, a.devices.HoldUnlessKept, a.otaRetirer(r.Context(), desc.Version))
 	if err != nil && !created {
 		a.writeFirmwareError(w, r, err)
 		return
@@ -141,7 +143,7 @@ func (a *App) handleFirmwareELFByBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	build := r.PathValue("build")
 	m, ok := store.byBuild(build)
-	if !firmwareBuildPattern.MatchString(build) || !ok {
+	if !devices.FirmwareBuildPattern.MatchString(build) || !ok {
 		writeError(w, http.StatusNotFound, errFirmwareNotFound)
 		return
 	}
@@ -204,12 +206,12 @@ func (a *App) handleFirmwareDelete(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("keep") {
 	case "":
 	case firmwareKeepProtected:
-		hold = a.devices.holdUnlessKept
+		hold = a.devices.HoldUnlessKept
 	default:
 		a.rejectFirmware(w, r, http.StatusBadRequest, errors.New("keep must be protected"))
 		return
 	}
-	if err := store.removeGuarded(version, a.devices.otaTargets, hold, a.otaRetirer(r.Context(), "")); err != nil {
+	if err := store.removeGuarded(version, a.devices.OTATargets, hold, a.otaRetirer(r.Context(), "")); err != nil {
 		a.writeFirmwareError(w, r, err)
 		return
 	}
@@ -219,7 +221,7 @@ func (a *App) handleFirmwareDelete(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) otaRetirer(ctx context.Context, stored string) func([]string) {
 	return func(versions []string) {
-		if err := a.devices.otaRetire(versions, stored); err != nil {
+		if err := a.devices.OTARetire(versions, stored); err != nil {
 			a.logger.WarnContext(ctx, "knob ota state not cleared for removed firmware", "versions", versions, "err", err)
 		}
 	}

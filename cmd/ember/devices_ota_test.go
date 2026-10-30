@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
@@ -158,7 +159,7 @@ func TestOTAOfferCarriesTheExactContract(t *testing.T) {
 	if !strings.Contains(string(b), want) {
 		t.Fatalf("reply %s\nwant %s", b, want)
 	}
-	if st := k.status(t); st.Phase != otaPhaseOffered || st.From == nil || *st.From != "0.9.13" {
+	if st := k.status(t); st.Phase != devices.OTAPhaseOffered || st.From == nil || *st.From != "0.9.13" {
 		t.Fatalf("status = %+v", st)
 	}
 }
@@ -238,7 +239,7 @@ func TestOTAStaleCheckinGetsNoOffer(t *testing.T) {
 	if got := offerOf(t, checkinAt(800)); got != nil {
 		t.Fatalf("a stale checkin got an offer: %v", got)
 	}
-	if st := k.status(t); st.Phase == otaPhaseOffered {
+	if st := k.status(t); st.Phase == devices.OTAPhaseOffered {
 		t.Fatalf("a stale checkin stepped the OTA: %+v", st)
 	}
 	if got := offerOf(t, checkinAt(840)); got == nil {
@@ -282,7 +283,7 @@ func TestOTAAutoOffersOnlyNewerUnblockedReleases(t *testing.T) {
 				t.Fatalf("mode = %d", code)
 			}
 			if c.blocked {
-				_, _, err := k.app.devices.updateOTA(k.knob.ID, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
+				_, _, err := k.app.devices.UpdateOTA(k.knob.ID, func(o *devices.KnobOTA, _ *devices.Checkin) (bool, error) {
 					o.Blocked = []string{c.version}
 					return false, nil
 				})
@@ -318,14 +319,14 @@ func TestOTASetTargetBumpsTheEpoch(t *testing.T) {
 	k := newOTAKnob(t)
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
 	k.idle(t)
-	before := k.app.devices.epochValue()
+	before := k.app.devices.Epoch()
 	k.target(t, "0.9.14")
-	if after := k.app.devices.epochValue(); after <= before {
+	if after := k.app.devices.Epoch(); after <= before {
 		t.Fatalf("epoch %d -> %d", before, after)
 	}
-	mid := k.app.devices.epochValue()
+	mid := k.app.devices.Epoch()
 	k.idle(t)
-	if k.app.devices.epochValue() != mid {
+	if k.app.devices.Epoch() != mid {
 		t.Fatal("a checkin moved the epoch")
 	}
 }
@@ -435,13 +436,13 @@ func TestOTAProgressCountsBytesSent(t *testing.T) {
 		t.Fatalf("partial = %d bytes", len(b))
 	}
 	st := k.status(t)
-	if st.Phase != otaPhaseDownloading || st.Bytes == nil || *st.Bytes != 10000 || st.Size == nil || *st.Size != len(img) ||
+	if st.Phase != devices.OTAPhaseDownloading || st.Bytes == nil || *st.Bytes != 10000 || st.Size == nil || *st.Size != len(img) ||
 		st.ProgressPct == nil || *st.ProgressPct != 10000*100/len(img) || st.StartedAt == nil {
 		t.Fatalf("status = %+v", st)
 	}
 	k.download(t, "0.9.14", map[string]string{"Range": "bytes=10000-"})
 	st = k.status(t)
-	if *st.Bytes != int64(len(img)) || *st.ProgressPct != 100 || st.Phase != otaPhaseRestarting {
+	if *st.Bytes != int64(len(img)) || *st.ProgressPct != 100 || st.Phase != devices.OTAPhaseRestarting {
 		t.Fatalf("after resume = %+v", st)
 	}
 }
@@ -457,10 +458,10 @@ func TestOTAPhasesFollowTheKnob(t *testing.T) {
 		report string
 		phase  string
 	}{
-		{otaReport("0.9.13", runningBuild, "valid", "waiting", true, ""), otaPhaseInstalling},
-		{otaReport("0.9.13", runningBuild, "valid", "rebooting", true, ""), otaPhaseRestarting},
-		{otaReport("0.9.14", img.Build, "pending_verify", "idle", true, ""), otaPhaseVerifying},
-		{otaReport("0.9.14", img.Build, "valid", "idle", true, `{"result":"ok","version":"0.9.14"}`), otaPhaseDone},
+		{otaReport("0.9.13", runningBuild, "valid", "waiting", true, ""), devices.OTAPhaseInstalling},
+		{otaReport("0.9.13", runningBuild, "valid", "rebooting", true, ""), devices.OTAPhaseRestarting},
+		{otaReport("0.9.14", img.Build, "pending_verify", "idle", true, ""), devices.OTAPhaseVerifying},
+		{otaReport("0.9.14", img.Build, "valid", "idle", true, `{"result":"ok","version":"0.9.14"}`), devices.OTAPhaseDone},
 	}
 	for _, s := range steps {
 		if got := offerOf(t, k.checkin(t, s.report)); got != nil {
@@ -478,8 +479,8 @@ func TestOTAPhasesFollowTheKnob(t *testing.T) {
 
 func TestOTAFailureAndRollbackAreRecordedAndBlockAuto(t *testing.T) {
 	for _, c := range []struct{ last, phase, errCode string }{
-		{lastFor("failed", "sha256", "0.9.14", 1), otaPhaseFailed, "sha256"},
-		{lastFor("rolled_back", "no_checkin", "0.9.14", 1), otaPhaseRolledBack, "no_checkin"},
+		{lastFor("failed", "sha256", "0.9.14", 1), devices.OTAPhaseFailed, "sha256"},
+		{lastFor("rolled_back", "no_checkin", "0.9.14", 1), devices.OTAPhaseRolledBack, "no_checkin"},
 	} {
 		t.Run(c.phase, func(t *testing.T) {
 			k := newOTAKnob(t)
@@ -497,7 +498,7 @@ func TestOTAFailureAndRollbackAreRecordedAndBlockAuto(t *testing.T) {
 				t.Fatalf("status = %+v", st)
 			}
 			code, st := k.put(t, `{"retry":true}`)
-			if code != http.StatusOK || st.Phase != otaPhaseIdle || len(st.Blocked) != 0 {
+			if code != http.StatusOK || st.Phase != devices.OTAPhaseIdle || len(st.Blocked) != 0 {
 				t.Fatalf("retry = %d %+v", code, st)
 			}
 			offer := offerOf(t, k.idle(t))
@@ -524,7 +525,7 @@ func TestOTAIgnoresALastResultOfAnotherAttempt(t *testing.T) {
 		t.Fatal("no offer")
 	}
 	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, stale))
-	if st := k.status(t); st.Phase != otaPhaseOffered {
+	if st := k.status(t); st.Phase != devices.OTAPhaseOffered {
 		t.Fatalf("phase = %s, want offered", st.Phase)
 	}
 }
@@ -551,7 +552,7 @@ func TestOTAStatusShape(t *testing.T) {
 func TestOTAInvalidReportIsDroppedButTheCheckinKept(t *testing.T) {
 	k := newOTAKnob(t)
 	k.checkin(t, `{"fw":"0.9.13","fw_build":"XYZ","ota":{"image":"weird","rollback":true}}`)
-	c := k.app.devices.list()[0].LastCheckin
+	c := k.app.devices.List()[0].LastCheckin
 	if c == nil || c.FW != "0.9.13" || c.OTA != nil || c.FWBuild != "" {
 		t.Fatalf("checkin = %+v", c)
 	}
@@ -603,7 +604,7 @@ func TestOTADeleteKnobForgetsProgress(t *testing.T) {
 func TestKnobOTAGolden(t *testing.T) {
 	k := newOTAKnob(t)
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
-	k.app.devices.now = func() time.Time { return now }
+	k.app.devices.Now = func() time.Time { return now }
 	k.app.knobFW.now = func() time.Time { return now }
 	get := func(path string) json.RawMessage {
 		t.Helper()
@@ -650,7 +651,7 @@ func TestOTAFailureBeforeAnyByteIsRecordedByAttempt(t *testing.T) {
 		k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, lastFor("failed", "net", "0.9.14", n)))
 	}
 	st := k.status(t)
-	if st.Phase != otaPhaseFailed || st.Error == nil || *st.Error != "net" || st.Version == nil || *st.Version != "0.9.14" {
+	if st.Phase != devices.OTAPhaseFailed || st.Error == nil || *st.Error != "net" || st.Version == nil || *st.Version != "0.9.14" {
 		t.Fatalf("status = %+v", st)
 	}
 }
@@ -684,7 +685,7 @@ func TestOTAOldAttemptResultDoesNotFailARetry(t *testing.T) {
 	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, old))
 	k.download(t, "0.9.14", nil)
 	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "waiting", true, old))
-	if st := k.status(t); st.Phase != otaPhaseInstalling {
+	if st := k.status(t); st.Phase != devices.OTAPhaseInstalling {
 		t.Fatalf("phase = %s, want installing", st.Phase)
 	}
 }
@@ -694,7 +695,7 @@ func TestOTAManualOfferNotStartedFailsAfter30Minutes(t *testing.T) {
 		t.Run(fmt.Sprint("auto=", auto), func(t *testing.T) {
 			k := newOTAKnob(t)
 			now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
-			k.app.devices.now = func() time.Time { return now }
+			k.app.devices.Now = func() time.Time { return now }
 			k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "?channel=release")
 			k.idle(t)
 			if auto {
@@ -709,12 +710,12 @@ func TestOTAManualOfferNotStartedFailsAfter30Minutes(t *testing.T) {
 			reply := k.idle(t)
 			st := k.status(t)
 			if auto {
-				if st.Phase != otaPhaseOffered || offerOf(t, reply) == nil {
+				if st.Phase != devices.OTAPhaseOffered || offerOf(t, reply) == nil {
 					t.Fatalf("auto offer timed out: %+v", st)
 				}
 				return
 			}
-			if st.Phase != otaPhaseFailed || st.Error == nil || *st.Error != "not_started" || offerOf(t, reply) != nil {
+			if st.Phase != devices.OTAPhaseFailed || st.Error == nil || *st.Error != "not_started" || offerOf(t, reply) != nil {
 				t.Fatalf("status = %+v, offer %v", st, offerOf(t, reply))
 			}
 		})
@@ -724,7 +725,7 @@ func TestOTAManualOfferNotStartedFailsAfter30Minutes(t *testing.T) {
 func TestOTANotStartedClockRestartsWhileTheOfferIsWithheld(t *testing.T) {
 	k := newOTAKnob(t)
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
-	k.app.devices.now = func() time.Time { return now }
+	k.app.devices.Now = func() time.Time { return now }
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
 	k.idle(t)
 	k.target(t, "0.9.14")
@@ -740,7 +741,7 @@ func TestOTANotStartedClockRestartsWhileTheOfferIsWithheld(t *testing.T) {
 		now = now.Add(time.Minute)
 		k.idle(t)
 	}
-	if st := k.status(t); st.Phase != otaPhaseOffered {
+	if st := k.status(t); st.Phase != devices.OTAPhaseOffered {
 		t.Fatalf("phase = %s, want offered", st.Phase)
 	}
 }
@@ -754,7 +755,7 @@ func TestOTARetargetingTheFailedVersionIsARetry(t *testing.T) {
 	k.download(t, "0.9.14", nil)
 	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, lastFor("rolled_back", "boot", "0.9.14", n)))
 	code, st := k.put(t, `{"target":"0.9.14"}`)
-	if code != http.StatusOK || st.Phase != otaPhaseIdle || len(st.Blocked) != 0 {
+	if code != http.StatusOK || st.Phase != devices.OTAPhaseIdle || len(st.Blocked) != 0 {
 		t.Fatalf("re-target = %d %+v", code, st)
 	}
 	offer := offerOf(t, k.idle(t))
@@ -765,9 +766,9 @@ func TestOTARetargetingTheFailedVersionIsARetry(t *testing.T) {
 
 func TestOTATargetChangeDuringInstallIsRefused(t *testing.T) {
 	for _, step := range []struct{ phase, fw, image, knobPhase string }{
-		{otaPhaseInstalling, "0.9.13", "valid", "waiting"},
-		{otaPhaseRestarting, "0.9.13", "valid", "rebooting"},
-		{otaPhaseVerifying, "0.9.14", "pending_verify", "idle"},
+		{devices.OTAPhaseInstalling, "0.9.13", "valid", "waiting"},
+		{devices.OTAPhaseRestarting, "0.9.13", "valid", "rebooting"},
+		{devices.OTAPhaseVerifying, "0.9.14", "pending_verify", "idle"},
 	} {
 		t.Run(step.phase, func(t *testing.T) {
 			k := newOTAKnob(t)
@@ -814,11 +815,11 @@ func TestOTAProgressRestartsWithANewAttempt(t *testing.T) {
 	k.idle(t)
 	k.download(t, "0.9.14", map[string]string{"Range": "bytes=0-999"})
 	st := k.status(t)
-	if st.Phase != otaPhaseDownloading || st.Bytes == nil || *st.Bytes != 1000 {
+	if st.Phase != devices.OTAPhaseDownloading || st.Bytes == nil || *st.Bytes != 1000 {
 		t.Fatalf("status = %+v", st)
 	}
 	k.download(t, "0.9.14", map[string]string{"Range": "bytes=1000-"})
-	if st := k.status(t); st.Phase != otaPhaseRestarting || *st.Bytes != int64(len(img)) {
+	if st := k.status(t); st.Phase != devices.OTAPhaseRestarting || *st.Bytes != int64(len(img)) {
 		t.Fatalf("after the second download = %+v", st)
 	}
 }
@@ -834,7 +835,7 @@ func TestOTANewAttemptSkipsPastTheKnobsLastAttempt(t *testing.T) {
 		t.Fatalf("attempt = %d, want 2 (past the knob's 1)", n)
 	}
 	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, stale))
-	if st := k.status(t); st.Phase != otaPhaseOffered {
+	if st := k.status(t); st.Phase != devices.OTAPhaseOffered {
 		t.Fatalf("phase = %s, want offered", st.Phase)
 	}
 }
@@ -842,7 +843,7 @@ func TestOTANewAttemptSkipsPastTheKnobsLastAttempt(t *testing.T) {
 func TestOTANotStartedClockRestartsWithANewAttempt(t *testing.T) {
 	k := newOTAKnob(t)
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
-	k.app.devices.now = func() time.Time { return now }
+	k.app.devices.Now = func() time.Time { return now }
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 6}), "")
 	k.idle(t)
@@ -856,7 +857,7 @@ func TestOTANotStartedClockRestartsWithANewAttempt(t *testing.T) {
 		k.idle(t)
 		now = now.Add(time.Minute)
 	}
-	if st := k.status(t); st.Phase != otaPhaseOffered || *st.Version != "0.9.15" {
+	if st := k.status(t); st.Phase != devices.OTAPhaseOffered || *st.Version != "0.9.15" {
 		t.Fatalf("status = %+v, want 0.9.15 offered", st)
 	}
 }
@@ -864,7 +865,7 @@ func TestOTANotStartedClockRestartsWithANewAttempt(t *testing.T) {
 func TestOTAAutoOfferNotStartedFailsAfter24Hours(t *testing.T) {
 	k := newOTAKnob(t)
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
-	k.app.devices.now = func() time.Time { return now }
+	k.app.devices.Now = func() time.Time { return now }
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "?channel=release")
 	k.idle(t)
 	k.put(t, `{"mode":"auto"}`)
@@ -873,7 +874,7 @@ func TestOTAAutoOfferNotStartedFailsAfter24Hours(t *testing.T) {
 		now = now.Add(time.Hour)
 	}
 	st := k.status(t)
-	if st.Phase != otaPhaseFailed || st.Error == nil || *st.Error != "not_started" || len(st.Blocked) != 1 {
+	if st.Phase != devices.OTAPhaseFailed || st.Error == nil || *st.Error != "not_started" || len(st.Blocked) != 1 {
 		t.Fatalf("status = %+v", st)
 	}
 }
@@ -886,14 +887,14 @@ func TestOTARefusedOfferIsRecorded(t *testing.T) {
 	n := attemptOf(t, offerOf(t, k.idle(t)))
 	reply := k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, lastFor("failed", "refused", "0.9.14", n)))
 	st := k.status(t)
-	if st.Phase != otaPhaseFailed || *st.Error != "refused" || len(st.Blocked) != 1 || offerOf(t, reply) != nil {
+	if st.Phase != devices.OTAPhaseFailed || *st.Error != "refused" || len(st.Blocked) != 1 || offerOf(t, reply) != nil {
 		t.Fatalf("status = %+v, offer %v", st, offerOf(t, reply))
 	}
 }
 
 func blockVersions(t *testing.T, k otaKnob, versions ...string) {
 	t.Helper()
-	_, _, err := k.app.devices.updateOTA(k.knob.ID, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
+	_, _, err := k.app.devices.UpdateOTA(k.knob.ID, func(o *devices.KnobOTA, _ *devices.Checkin) (bool, error) {
 		o.Blocked = versions
 		return false, nil
 	})
@@ -925,7 +926,7 @@ func TestOTASuccessfulInstallUnblocksTheVersion(t *testing.T) {
 	blockVersions(t, k, "0.9.14", "0.9.15")
 	k.download(t, "0.9.14", nil)
 	k.checkin(t, otaReport("0.9.14", img.Build, "valid", "idle", true, ""))
-	if st := k.status(t); st.Phase != otaPhaseDone || len(st.Blocked) != 1 || st.Blocked[0] != "0.9.15" {
+	if st := k.status(t); st.Phase != devices.OTAPhaseDone || len(st.Blocked) != 1 || st.Blocked[0] != "0.9.15" {
 		t.Fatalf("status = %+v", st)
 	}
 }
@@ -961,7 +962,7 @@ func TestOTAManualInstallOfABlockedVersionMakesItAvailableAgain(t *testing.T) {
 
 func blockedOf(t *testing.T, k otaKnob) []string {
 	t.Helper()
-	o, _, err := k.app.devices.otaSnapshot(k.knob.ID)
+	o, _, err := k.app.devices.OTASnapshot(k.knob.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -975,7 +976,7 @@ func TestFirmwareDeletePrunesTheVersionFromEveryBlockedList(t *testing.T) {
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15"}), "")
 	blockVersions(t, k, "0.9.14", "0.9.15")
 	blockVersions(t, k2, "0.9.15", "0.9.14")
-	epoch := k.app.devices.state.Epoch
+	epoch := k.app.devices.Epoch()
 	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.15", testToken, ""); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
 	}
@@ -984,8 +985,8 @@ func TestFirmwareDeletePrunesTheVersionFromEveryBlockedList(t *testing.T) {
 			t.Fatalf("%s blocked = %v, want [0.9.14]", kn.knob.ID, got)
 		}
 	}
-	if k.app.devices.state.Epoch != epoch {
-		t.Fatalf("epoch bumped %d -> %d", epoch, k.app.devices.state.Epoch)
+	if k.app.devices.Epoch() != epoch {
+		t.Fatalf("epoch bumped %d -> %d", epoch, k.app.devices.Epoch())
 	}
 }
 
@@ -1167,8 +1168,8 @@ func parkTarget(t *testing.T, k otaKnob, version, result, errCode string) {
 
 func TestFirmwareDeleteOfAParkedTargetClearsIt(t *testing.T) {
 	for _, c := range []struct{ result, errCode string }{
-		{otaPhaseRolledBack, "health_render"},
-		{otaPhaseFailed, "sha256"},
+		{devices.OTAPhaseRolledBack, "health_render"},
+		{devices.OTAPhaseFailed, "sha256"},
 	} {
 		t.Run(c.result, func(t *testing.T) {
 			k := newOTAKnob(t)
@@ -1177,15 +1178,15 @@ func TestFirmwareDeleteOfAParkedTargetClearsIt(t *testing.T) {
 			if got := offerOf(t, k.idle(t)); got != nil {
 				t.Fatalf("parked target offered: %v", got)
 			}
-			epoch := k.app.devices.state.Epoch
+			epoch := k.app.devices.Epoch()
 			if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.14", testToken, ""); resp.StatusCode != http.StatusNoContent {
 				t.Fatalf("delete = %d: %s", resp.StatusCode, b)
 			}
-			if k.app.devices.state.Epoch == epoch {
+			if k.app.devices.Epoch() == epoch {
 				t.Fatal("clearing the target did not bump the epoch")
 			}
 			st := k.status(t)
-			if st.Target != nil || st.Version != nil || st.Phase != otaPhaseIdle || st.Error != nil || len(st.Blocked) != 0 {
+			if st.Target != nil || st.Version != nil || st.Phase != devices.OTAPhaseIdle || st.Error != nil || len(st.Blocked) != 0 {
 				t.Fatalf("status after delete = %+v", st)
 			}
 			if got := offerOf(t, k.idle(t)); got != nil {
@@ -1194,7 +1195,7 @@ func TestFirmwareDeleteOfAParkedTargetClearsIt(t *testing.T) {
 			if code, _ := k.put(t, `{"retry":true}`); code != http.StatusBadRequest {
 				t.Fatalf("retry after delete = %d, want 400", code)
 			}
-			o, _, _ := k.app.devices.otaSnapshot(k.knob.ID)
+			o, _, _ := k.app.devices.OTASnapshot(k.knob.ID)
 			if o.Attempt == 0 {
 				t.Fatal("attempt counter reset")
 			}
@@ -1206,7 +1207,7 @@ func TestFirmwareDeleteOfAParkedTargetLetsAutoOfferAgain(t *testing.T) {
 	k := newOTAKnob(t)
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 1}), "?channel=release")
-	parkTarget(t, k, "0.9.14", otaPhaseRolledBack, "health_render")
+	parkTarget(t, k, "0.9.14", devices.OTAPhaseRolledBack, "health_render")
 	if code, _ := k.put(t, `{"mode":"auto"}`); code != http.StatusOK {
 		t.Fatal("mode auto")
 	}
@@ -1225,7 +1226,7 @@ func TestFirmwareDeleteOfAnOldFailedVersionKeepsTheNewTarget(t *testing.T) {
 	k := newOTAKnob(t)
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 1}), "")
-	parkTarget(t, k, "0.9.14", otaPhaseFailed, "net")
+	parkTarget(t, k, "0.9.14", devices.OTAPhaseFailed, "net")
 	k.target(t, "0.9.15")
 	if resp, b := devReq(t, k.srv, "DELETE", "/v1/firmware/0.9.15", testToken, ""); resp.StatusCode != http.StatusConflict {
 		t.Fatalf("delete of an idle target = %d: %s", resp.StatusCode, b)
@@ -1252,7 +1253,7 @@ func TestFirmwareDeleteRefusesAnActiveUpdate(t *testing.T) {
 func TestFirmwareRetentionKeepsAParkedTarget(t *testing.T) {
 	k := newOTAKnob(t)
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.1"}), "")
-	parkTarget(t, k, "0.9.1", otaPhaseRolledBack, "no_checkin")
+	parkTarget(t, k, "0.9.1", devices.OTAPhaseRolledBack, "no_checkin")
 	for i := 2; i <= firmwareKept+1; i++ {
 		k.upload(t, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)}), "")
 	}
@@ -1264,7 +1265,7 @@ func TestFirmwareRetentionKeepsAParkedTarget(t *testing.T) {
 func TestOTACheckinClearsATargetWhoseImageIsGone(t *testing.T) {
 	k := newOTAKnob(t)
 	k.idle(t)
-	_, _, err := k.app.devices.updateOTA(k.knob.ID, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
+	_, _, err := k.app.devices.UpdateOTA(k.knob.ID, func(o *devices.KnobOTA, _ *devices.Checkin) (bool, error) {
 		o.Target, o.Retry = "0.9.99", true
 		return false, nil
 	})
@@ -1274,7 +1275,7 @@ func TestOTACheckinClearsATargetWhoseImageIsGone(t *testing.T) {
 	if got := offerOf(t, k.idle(t)); got != nil {
 		t.Fatalf("offer = %v", got)
 	}
-	if st := k.status(t); st.Target != nil || st.Phase != otaPhaseIdle {
+	if st := k.status(t); st.Target != nil || st.Phase != devices.OTAPhaseIdle {
 		t.Fatalf("status = %+v, want no target", st)
 	}
 }
@@ -1282,9 +1283,9 @@ func TestOTACheckinClearsATargetWhoseImageIsGone(t *testing.T) {
 func TestOTAClearingTheTargetDismissesAFailure(t *testing.T) {
 	k := newOTAKnob(t)
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
-	parkTarget(t, k, "0.9.14", otaPhaseRolledBack, "health_render")
+	parkTarget(t, k, "0.9.14", devices.OTAPhaseRolledBack, "health_render")
 	code, st := k.put(t, `{"target":null}`)
-	if code != http.StatusOK || st.Target != nil || st.Phase != otaPhaseIdle || st.Error != nil ||
+	if code != http.StatusOK || st.Target != nil || st.Phase != devices.OTAPhaseIdle || st.Error != nil ||
 		st.Version == nil || *st.Version != "0.9.14" || !slices.Equal(st.Blocked, []string{"0.9.14"}) {
 		t.Fatalf("dismiss = %d %+v", code, st)
 	}
@@ -1305,10 +1306,10 @@ func TestOTAClearingWithoutATargetDismissesAnAutoFailure(t *testing.T) {
 	}
 	n := attemptOf(t, offerOf(t, k.idle(t)))
 	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, lastFor("failed", "net", "0.9.14", n)))
-	if st := k.status(t); st.Phase != otaPhaseFailed || st.Target != nil {
+	if st := k.status(t); st.Phase != devices.OTAPhaseFailed || st.Target != nil {
 		t.Fatalf("status = %+v", st)
 	}
-	if code, st := k.put(t, `{"target":null}`); code != http.StatusOK || st.Phase != otaPhaseIdle || st.Error != nil {
+	if code, st := k.put(t, `{"target":null}`); code != http.StatusOK || st.Phase != devices.OTAPhaseIdle || st.Error != nil {
 		t.Fatalf("dismiss = %d %+v", code, st)
 	}
 	if got := offerOf(t, k.idle(t)); got != nil {
@@ -1334,7 +1335,7 @@ func (k otaKnob) deleteFW(t *testing.T, version string) int {
 func TestOTARetryDuringADeleteOfTheParkedVersionIsRefused(t *testing.T) {
 	k := newOTAKnob(t)
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
-	parkTarget(t, k, "0.9.14", otaPhaseRolledBack, "health_render")
+	parkTarget(t, k, "0.9.14", devices.OTAPhaseRolledBack, "health_render")
 	retry := make(chan int, 1)
 	del := 0
 	k.onceAfterRead(func() {
@@ -1354,7 +1355,7 @@ func TestOTARetryDuringADeleteOfTheParkedVersionIsRefused(t *testing.T) {
 	if code := recvWithin(t, retry, "retry"); del != http.StatusNoContent || code != http.StatusBadRequest {
 		t.Fatalf("delete = %d, retry = %d; want 204, 400", del, code)
 	}
-	if st := k.status(t); st.Target != nil || st.Version != nil || st.Phase != otaPhaseIdle {
+	if st := k.status(t); st.Target != nil || st.Version != nil || st.Phase != devices.OTAPhaseIdle {
 		t.Fatalf("status = %+v", st)
 	}
 	if got := offerOf(t, k.idle(t)); got != nil {
@@ -1365,7 +1366,7 @@ func TestOTARetryDuringADeleteOfTheParkedVersionIsRefused(t *testing.T) {
 func TestOTARetryBeforeADeleteHoldsTheVersion(t *testing.T) {
 	k := newOTAKnob(t)
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
-	parkTarget(t, k, "0.9.14", otaPhaseFailed, "net")
+	parkTarget(t, k, "0.9.14", devices.OTAPhaseFailed, "net")
 	var retry, del int
 	k.onceAfterRead(func() {
 		retry, _ = k.put(t, `{"retry":true}`)
@@ -1383,7 +1384,7 @@ func TestOTARetryBeforeADeleteHoldsTheVersion(t *testing.T) {
 func TestOTADeleteAfterDismissLeavesNothingToRetry(t *testing.T) {
 	k := newOTAKnob(t)
 	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
-	parkTarget(t, k, "0.9.14", otaPhaseRolledBack, "health_render")
+	parkTarget(t, k, "0.9.14", devices.OTAPhaseRolledBack, "health_render")
 	if code, _ := k.put(t, `{"target":null}`); code != http.StatusOK {
 		t.Fatal("dismiss")
 	}
@@ -1413,7 +1414,7 @@ func TestOTARetryOfAnEvictedVersionIsRefused(t *testing.T) {
 	if _, ok := k.app.knobFW.get("0.9.14"); ok {
 		t.Fatal("0.9.14 not evicted")
 	}
-	if st := k.status(t); st.Version != nil || st.Phase != otaPhaseIdle || len(st.Blocked) != 0 {
+	if st := k.status(t); st.Version != nil || st.Phase != devices.OTAPhaseIdle || len(st.Blocked) != 0 {
 		t.Fatalf("status after eviction = %+v", st)
 	}
 	if code, _ := k.put(t, `{"retry":true}`); code != http.StatusBadRequest {
@@ -1424,8 +1425,8 @@ func TestOTARetryOfAnEvictedVersionIsRefused(t *testing.T) {
 func TestOTARetryRefusesAMissingImage(t *testing.T) {
 	k := newOTAKnob(t)
 	k.idle(t)
-	_, _, err := k.app.devices.updateOTA(k.knob.ID, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
-		o.Version, o.Phase, o.Attempt = "0.9.14", otaPhaseFailed, 1
+	_, _, err := k.app.devices.UpdateOTA(k.knob.ID, func(o *devices.KnobOTA, _ *devices.Checkin) (bool, error) {
+		o.Version, o.Phase, o.Attempt = "0.9.14", devices.OTAPhaseFailed, 1
 		return false, nil
 	})
 	if err != nil {
@@ -1454,7 +1455,7 @@ func TestOTAPutTargetRacingItsDeleteIsRefused(t *testing.T) {
 func TestOTACheckinKeepsATargetReselectedAfterItsRead(t *testing.T) {
 	k := newOTAKnob(t)
 	k.idle(t)
-	_, _, err := k.app.devices.updateOTA(k.knob.ID, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
+	_, _, err := k.app.devices.UpdateOTA(k.knob.ID, func(o *devices.KnobOTA, _ *devices.Checkin) (bool, error) {
 		o.Target = "0.9.14"
 		return false, nil
 	})
@@ -1478,8 +1479,8 @@ func TestOTACheckinKeepsATargetReselectedAfterItsRead(t *testing.T) {
 func TestOTACheckinKeepsAMissingTargetWhileAnAttemptIsActive(t *testing.T) {
 	k := newOTAKnob(t)
 	k.idle(t)
-	_, _, err := k.app.devices.updateOTA(k.knob.ID, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
-		o.Target, o.Version, o.Phase, o.Attempt = "0.9.14", "0.9.14", otaPhaseDownloading, 1
+	_, _, err := k.app.devices.UpdateOTA(k.knob.ID, func(o *devices.KnobOTA, _ *devices.Checkin) (bool, error) {
+		o.Target, o.Version, o.Phase, o.Attempt = "0.9.14", "0.9.14", devices.OTAPhaseDownloading, 1
 		return false, nil
 	})
 	if err != nil {
@@ -1502,7 +1503,7 @@ func TestOTACancelDuringADownloadIsRefused(t *testing.T) {
 	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(b), "ota_in_progress") {
 		t.Fatalf("cancel while downloading = %d %s", resp.StatusCode, b)
 	}
-	if o, _, _ := k.app.devices.otaSnapshot(k.knob.ID); o.Target != "0.9.14" || o.Phase != otaPhaseDownloading {
+	if o, _, _ := k.app.devices.OTASnapshot(k.knob.ID); o.Target != "0.9.14" || o.Phase != devices.OTAPhaseDownloading {
 		t.Fatalf("record = %+v", o)
 	}
 	if st := k.status(t); st.Target == nil {
@@ -1589,14 +1590,14 @@ func TestOTAAutoCheckinRacingAnEvictionDoesNotOffer(t *testing.T) {
 	k.app.knobFW.rename = func(oldpath, newpath string) error {
 		if filepath.Base(oldpath) == "0.9.14" {
 			select {
-			case purgeGen <- k.app.devices.fwGen:
+			case purgeGen <- k.app.devices.FirmwareGenLocked():
 			default:
 			}
 		}
 		return park(oldpath, newpath)
 	}
 	var up <-chan int
-	readGen := k.app.devices.firmwareGen()
+	readGen := k.app.devices.FirmwareGen()
 	k.onceAfterRead(func() {
 		up = goReq(k.srv, "POST", "/v1/firmware", fakeFirmware(fwOpts{version: "0.9.30"}))
 		select {

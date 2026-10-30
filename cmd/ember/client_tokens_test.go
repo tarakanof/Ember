@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 type clientMint struct {
@@ -41,10 +43,10 @@ func mintClient(t *testing.T, srv *httptest.Server, name string, scopes ...strin
 func TestMintClientTokenReturnsScopedEkcToken(t *testing.T) {
 	_, srv := newDevicesApp(t, "")
 	m := mintClient(t, srv, "CI runner", "ingest")
-	if !strings.HasPrefix(m.Token, clientTokenPrefix) || len(m.Token) != 47 {
+	if !strings.HasPrefix(m.Token, devices.ClientTokenPrefix) || len(m.Token) != 47 {
 		t.Fatalf("token = %q, want ekc_ + 43 chars", m.Token)
 	}
-	if m.Kind != clientKind || !strings.HasPrefix(m.ID, "client-") || m.HwID != "" || m.Name != "CI runner" {
+	if m.Kind != devices.KindClient || !strings.HasPrefix(m.ID, "client-") || m.HwID != "" || m.Name != "CI runner" {
 		t.Fatalf("minted = %+v", m)
 	}
 	if !slices.Equal(m.Scopes, []string{"ingest"}) {
@@ -112,7 +114,7 @@ func TestClientRotateMintsAtOnceAndRevokesOld(t *testing.T) {
 	if err := json.Unmarshal(b, &r); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(r.Token, clientTokenPrefix) || r.Token == m.Token || r.ID != m.ID {
+	if !strings.HasPrefix(r.Token, devices.ClientTokenPrefix) || r.Token == m.Token || r.ID != m.ID {
 		t.Fatalf("rotated = %+v", r)
 	}
 	status := `{"source":"ci","tool":"gha","session":"1","state":"running"}`
@@ -205,7 +207,7 @@ func TestAdminClientCannotManageClients(t *testing.T) {
 
 func TestClientMintCapped(t *testing.T) {
 	_, srv := newDevicesApp(t, "")
-	for i := range maxClients {
+	for i := range devices.MaxClients {
 		mintClient(t, srv, "c"+strconv.Itoa(i), "ingest")
 	}
 	resp, b := devReq(t, srv, "POST", "/v1/devices", testToken, `{"kind":"client","name":"one too many","scopes":["ingest"]}`)
@@ -342,10 +344,10 @@ func TestBoundClientSourcesSurviveRotateAndRestart(t *testing.T) {
 func TestLegacyClientRecordWithoutSourcesStaysUnbound(t *testing.T) {
 	db := t.TempDir() + "/s.db"
 	app, srv := newDevicesApp(t, db)
-	token := clientTokenPrefix + strings.Repeat("A", 43)
+	token := devices.ClientTokenPrefix + strings.Repeat("A", 43)
 	legacy := `{"epoch":3,"devices":[{"id":"client-0a0b0c0d","kind":"client","hw_id":"","name":"old ci","token_sha256":"` +
-		tokenHash(token) + `","config":{},"config_version":0,"created_at":"2026-09-01T00:00:00Z","scopes":["ingest"]}]}`
-	if err := app.store.PutSetting(devicesKey, legacy); err != nil {
+		devices.TokenHash(token) + `","config":{},"config_version":0,"created_at":"2026-09-01T00:00:00Z","scopes":["ingest"]}]}`
+	if err := app.store.PutSetting(devices.StateKey, legacy); err != nil {
 		t.Fatal(err)
 	}
 	srv.Close()
@@ -463,10 +465,10 @@ func TestAllowSourceDeniesClientBearerWithoutCaller(t *testing.T) {
 	}{
 		{"master", req(testToken, nil), true},
 		{"no bearer", req("", nil), true},
-		{"unbound client", req(clientTokenPrefix+"x", &clientCaller{id: "client-1"}), true},
-		{"bound client, own source", req(clientTokenPrefix+"x", &clientCaller{id: "client-1", sources: []string{"ci"}}), true},
-		{"bound client, other source", req(clientTokenPrefix+"x", &clientCaller{id: "client-1", sources: []string{"lab"}}), false},
-		{"client bearer, no caller", req(clientTokenPrefix+"x", nil), false},
+		{"unbound client", req(devices.ClientTokenPrefix+"x", &clientCaller{id: "client-1"}), true},
+		{"bound client, own source", req(devices.ClientTokenPrefix+"x", &clientCaller{id: "client-1", sources: []string{"ci"}}), true},
+		{"bound client, other source", req(devices.ClientTokenPrefix+"x", &clientCaller{id: "client-1", sources: []string{"lab"}}), false},
+		{"client bearer, no caller", req(devices.ClientTokenPrefix+"x", nil), false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
