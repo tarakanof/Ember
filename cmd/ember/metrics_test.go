@@ -403,7 +403,7 @@ type fakePublisher struct {
 	notifyErr    error
 }
 
-func (p *fakePublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
+func (p *fakePublisher) CustomApp(ctx context.Context, name string, body []byte) error {
 	return p.customAppErr
 }
 func (p *fakePublisher) ClearApp(ctx context.Context, name string) error { return nil }
@@ -485,5 +485,36 @@ func TestMetrics_SessionsActiveExcludesStale(t *testing.T) {
 	}
 	if got := app.metrics.sessionsEvicted.Load(); got != 1 {
 		t.Errorf("sessionsEvicted = %d, want 1", got)
+	}
+}
+
+func TestObservabilityChainKeepsResponseController(t *testing.T) {
+	app := newAppForMetrics(t)
+	var deadlineErr error
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /rc", func(w http.ResponseWriter, r *http.Request) {
+		deadlineErr = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(time.Minute))
+		w.WriteHeader(http.StatusTeapot)
+	})
+	srv := httptest.NewServer(app.withObservability(mux))
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL + "/rc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if deadlineErr != nil {
+		t.Fatalf("SetWriteDeadline through the chain: %v", deadlineErr)
+	}
+	got := int64(0)
+	app.metrics.requestsTotal.Range(func(k, v any) bool {
+		if k.(requestKey) == (requestKey{"GET /rc", http.StatusTeapot}) {
+			got = loadAtomicInt(v)
+		}
+		return true
+	})
+	if got != 1 {
+		t.Fatalf("counted GET /rc 418 = %d, want 1", got)
 	}
 }

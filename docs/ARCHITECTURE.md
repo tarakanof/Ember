@@ -142,7 +142,7 @@ The aggregator and the only writer to the device.
   **notices**: app code builds a `notice` and hands it to the clock adapter
   (`coordinator_notices.go`, see "Notices" below), which is the only code that
   calls `Publisher.Notify`. The menu's `/v1/device` proxy uses `clockAccess`.
-  - **Channels.** State-change commands (upsert/delete/clear/shutdown) use a
+  - **Channels.** State-change commands (upsert/delete/clear/republish) use a
     64-slot channel; ticks use a 1-slot channel that drops on full, because a
     stale tick carries no information. `Send` never blocks: the goroutine can
     sit tens of seconds inside `onTick` against an unreachable clock, and a
@@ -1598,6 +1598,8 @@ streak tolerates, default 1, `0` = strict), `work_hours_gap_minutes` (default
 `POST /hooks/awtrix/button` (the device can't send a token) mapping
 middle=pause/resume/start, right=skip, left=stop — all on press (the AWTRIX3-era
 left+right chord is removed).
+
+The SQLite store runs WAL with `synchronous=NORMAL` (one fsync per checkpoint instead of per commit) and `busy_timeout=2000`, so an external reader on the volume cannot make a write fail at once.
 
 **Pomodoro state** (`cmd/ember/pomodoro_state.go`, #338). The readers of the
 timer go through one projection, `App.pomodoroState(now)` → `pomodoroState`:

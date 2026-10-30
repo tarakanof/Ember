@@ -284,3 +284,35 @@ func TestStateSinceMovesOnAStateChange(t *testing.T) {
 		t.Fatalf("state_since = %v, want the transition time %v", got, h.clk.t)
 	}
 }
+
+func TestReapCallbackMayCallBackIntoRegistry(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
+	policy := Policy{StaleAfter: 25 * time.Second, DoneTTL: 30 * time.Second}
+	var reg *Registry
+	var reaped, inner atomic.Int32
+	reg = New(clk.Now, func() Policy { return policy }, func(Reaped) {
+		reaped.Add(1)
+		inner.Store(int32(len(reg.View().Sessions)))
+	})
+
+	for name, call := range map[string]func(){
+		"Upsert": func() { reg.Upsert(sess("b", "running")) },
+		"Delete": func() { reg.Delete("none") },
+		"View":   func() { reg.View() },
+	} {
+		reg.Clear()
+		reg.Upsert(sess("a", "running"))
+		clk.Advance(time.Minute)
+		reaped.Store(0)
+		done := make(chan struct{})
+		go func() { defer close(done); call() }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: onReap calling back into the registry deadlocked", name)
+		}
+		if reaped.Load() != 1 {
+			t.Fatalf("%s: onReap calls = %d, want 1", name, reaped.Load())
+		}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -21,6 +22,7 @@ import (
 type recordingPublisher struct {
 	mu                sync.Mutex
 	customApps        []map[string]any
+	customBodies      [][]byte
 	customNames       []string
 	clearedApps       []string
 	notify            []map[string]any
@@ -105,10 +107,15 @@ func (p *recordingPublisher) ListApps(_ context.Context) ([]string, error) {
 	return out, nil
 }
 
-func (p *recordingPublisher) CustomApp(_ context.Context, name string, payload map[string]any) error {
+func (p *recordingPublisher) CustomApp(_ context.Context, name string, body []byte) error {
+	payload, err := decodeDeviceBody(body)
+	if err != nil {
+		return err
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.customApps = append(p.customApps, payload)
+	p.customBodies = append(p.customBodies, append([]byte(nil), body...))
 	p.customNames = append(p.customNames, name)
 	p.ops = append(p.ops, "push "+name)
 	return nil
@@ -436,10 +443,10 @@ func newTestServerWithToken(t *testing.T, token string) (*App, *httptest.Server)
 
 type noopPublisher struct{}
 
-func (noopPublisher) CustomApp(context.Context, string, map[string]any) error { return nil }
-func (noopPublisher) ClearApp(context.Context, string) error                  { return nil }
-func (noopPublisher) ListIcons(context.Context) ([]string, error)             { return nil, nil }
-func (noopPublisher) PutIcon(context.Context, string, []byte) error           { return nil }
+func (noopPublisher) CustomApp(context.Context, string, []byte) error { return nil }
+func (noopPublisher) ClearApp(context.Context, string) error          { return nil }
+func (noopPublisher) ListIcons(context.Context) ([]string, error)     { return nil, nil }
+func (noopPublisher) PutIcon(context.Context, string, []byte) error   { return nil }
 func (noopPublisher) DeleteIcons(context.Context, func(string) bool) ([]string, error) {
 	return nil, nil
 }
@@ -512,4 +519,33 @@ func TestScanSubcommandForwardsLeadingConfig(t *testing.T) {
 			t.Errorf("scanSubcommand(%q) = %q, %q, %v, %v; want %q, %q, %v, %q", c.args, sub, rest, ok, err, c.wantSub, c.wantRest, c.wantOK, c.wantErr)
 		}
 	}
+}
+
+func decodeDeviceBody(body []byte) (map[string]any, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	for k, v := range payload {
+		payload[k] = intifyJSON(v)
+	}
+	return payload, nil
+}
+
+func intifyJSON(v any) any {
+	switch x := v.(type) {
+	case float64:
+		if x == math.Trunc(x) && math.Abs(x) < 1<<53 {
+			return int(x)
+		}
+	case map[string]any:
+		for k, e := range x {
+			x[k] = intifyJSON(e)
+		}
+	case []any:
+		for i, e := range x {
+			x[i] = intifyJSON(e)
+		}
+	}
+	return v
 }

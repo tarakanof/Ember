@@ -57,7 +57,7 @@ func decodeBody(t *testing.T, rec *recorded) map[string]any {
 
 func TestPushApp(t *testing.T) {
 	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
-	err := c.PushApp(context.Background(), "ember weather", map[string]any{"text": "hi"})
+	err := c.PushApp(context.Background(), "ember weather", []byte(`{"text":"hi"}`))
 	if err != nil {
 		t.Fatalf("PushApp: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestReboot(t *testing.T) {
 func TestErrorEnvelopeDecoding(t *testing.T) {
 	c, _ := serve(t, http.StatusUnprocessableEntity,
 		`{"error":{"code":"validationFailed","message":"unknown key \"noScroll\"","field":"noScroll"}}`)
-	err := c.PushApp(context.Background(), "x", map[string]any{"noScroll": true})
+	err := c.PushApp(context.Background(), "x", []byte(`{"noScroll":true}`))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -447,14 +447,14 @@ func TestKeepAliveReusesConnection(t *testing.T) {
 	t.Cleanup(srv.Close)
 	c := NewClient(srv.URL, 2*time.Second)
 	for i := 0; i < 3; i++ {
-		if err := c.PushApp(context.Background(), "ember", map[string]any{"text": "x"}); err != nil {
+		if err := c.PushApp(context.Background(), "ember", []byte(`{"text":"x"}`)); err != nil {
 			t.Fatalf("PushApp %d: %v", i, err)
 		}
 	}
 	if err := c.PutIcon(context.Background(), "a.gif", []byte("GIF89a")); err != nil {
 		t.Fatalf("PutIcon: %v", err)
 	}
-	if err := c.PushApp(context.Background(), "ember", map[string]any{"text": "x"}); err != nil {
+	if err := c.PushApp(context.Background(), "ember", []byte(`{"text":"x"}`)); err != nil {
 		t.Fatalf("PushApp after PutIcon: %v", err)
 	}
 	if got := conns.Load(); got != 1 {

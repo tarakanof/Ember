@@ -75,8 +75,8 @@ type DeviceInfo struct {
 	BatteryPct    float64 `json:"batteryPercent"`
 }
 
-func (c *Client) PushApp(ctx context.Context, name string, payload map[string]any) error {
-	return c.doJSON(ctx, http.MethodPut, "/api/v1/apps/pushed/"+url.PathEscape(name), payload, nil)
+func (c *Client) PushApp(ctx context.Context, name string, body []byte) error {
+	return c.doBody(ctx, http.MethodPut, "/api/v1/apps/pushed/"+url.PathEscape(name), body, nil)
 }
 
 func (c *Client) DeleteApp(ctx context.Context, name string) error {
@@ -322,19 +322,29 @@ func (c *Client) doJSON(ctx context.Context, method, path string, payload map[st
 	if c.base == "" {
 		return errors.New("awtrix base URL is required")
 	}
-	var rdr io.Reader
+	var body []byte
 	if payload != nil {
-		body, err := json.Marshal(payload)
-		if err != nil {
+		var err error
+		if body, err = json.Marshal(payload); err != nil {
 			return err
 		}
+	}
+	return c.doBody(ctx, method, path, body, out)
+}
+
+func (c *Client) doBody(ctx context.Context, method, path string, body []byte, out any) error {
+	if c.base == "" {
+		return errors.New("awtrix base URL is required")
+	}
+	var rdr io.Reader
+	if body != nil {
 		rdr = bytes.NewReader(body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rdr)
 	if err != nil {
 		return err
 	}
-	if payload != nil {
+	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := c.hc.Do(req)

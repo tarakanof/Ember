@@ -9,7 +9,7 @@ import (
 )
 
 type Publisher interface {
-	CustomApp(ctx context.Context, name string, payload map[string]any) error
+	CustomApp(ctx context.Context, name string, body []byte) error
 	ClearApp(ctx context.Context, name string) error
 	ListApps(ctx context.Context) ([]string, error)
 	Notify(ctx context.Context, payload map[string]any) error
@@ -32,15 +32,15 @@ type disabledPublisher struct{}
 
 var _ Publisher = disabledPublisher{}
 
-func (disabledPublisher) CustomApp(context.Context, string, map[string]any) error { return nil }
-func (disabledPublisher) ClearApp(context.Context, string) error                  { return nil }
-func (disabledPublisher) ListApps(context.Context) ([]string, error)              { return nil, nil }
-func (disabledPublisher) Notify(context.Context, map[string]any) error            { return nil }
-func (disabledPublisher) DismissNotifyByName(context.Context, string) error       { return nil }
-func (disabledPublisher) PlayRTTTL(context.Context, string) error                 { return nil }
-func (disabledPublisher) Indicator(context.Context, int, map[string]any) error    { return nil }
-func (disabledPublisher) ClearIndicator(context.Context, int) error               { return nil }
-func (disabledPublisher) Settings(context.Context, map[string]any) error          { return nil }
+func (disabledPublisher) CustomApp(context.Context, string, []byte) error      { return nil }
+func (disabledPublisher) ClearApp(context.Context, string) error               { return nil }
+func (disabledPublisher) ListApps(context.Context) ([]string, error)           { return nil, nil }
+func (disabledPublisher) Notify(context.Context, map[string]any) error         { return nil }
+func (disabledPublisher) DismissNotifyByName(context.Context, string) error    { return nil }
+func (disabledPublisher) PlayRTTTL(context.Context, string) error              { return nil }
+func (disabledPublisher) Indicator(context.Context, int, map[string]any) error { return nil }
+func (disabledPublisher) ClearIndicator(context.Context, int) error            { return nil }
+func (disabledPublisher) Settings(context.Context, map[string]any) error       { return nil }
 func (disabledPublisher) ReadSettings(context.Context) (map[string]any, error) {
 	return map[string]any{}, nil
 }
@@ -59,8 +59,8 @@ func (p clockPublisher) publish(ctx context.Context, fn func(context.Context, *a
 	return p.k.do(ctx, callPublish, fn)
 }
 
-func (p clockPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
-	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.PushApp(ctx, name, payload) })
+func (p clockPublisher) CustomApp(ctx context.Context, name string, body []byte) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.PushApp(ctx, name, body) })
 }
 
 func (p clockPublisher) ClearApp(ctx context.Context, name string) error {
