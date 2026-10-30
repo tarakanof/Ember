@@ -8,23 +8,21 @@ import EmberKit
 public final class ReminderWatcher {
     @ObservationIgnored private let source: EventKitReminderSource
     @ObservationIgnored private let scheduler: ReminderScheduler
+    @ObservationIgnored private let prefsSync: ReminderPrefsSync
 
-    public var prefs: ReminderPrefs {
-        get { scheduler.prefs }
-        set {
-            ReminderWatcher.save(newValue)
-            scheduler.prefs = newValue
-        }
-    }
+    public var prefs: ReminderPrefs? { scheduler.prefs }
     public var upcoming: [DueReminder] { scheduler.upcoming }
     public var lastFireError: String? { scheduler.lastFireError }
 
-    public init(client: APIClient) {
+    public init(client: APIClient, settings: SettingsModels) {
         let source = EventKitReminderSource()
         let appNap = AppNapAssertion()
         self.source = source
-        scheduler = ReminderScheduler(source: source, client: client, prefs: ReminderWatcher.load(),
-                                      onArmedChange: { appNap.hold($0) })
+        let scheduler = ReminderScheduler(source: source, client: client, prefs: nil,
+                                          onArmedChange: { appNap.hold($0) })
+        self.scheduler = scheduler
+        prefsSync = ReminderPrefsSync(model: { settings.reminders }, legacy: .userDefaults(),
+                                      apply: { scheduler.prefs = $0 })
     }
 
     public var authorization: EKAuthorizationStatus { source.authorization }
@@ -39,7 +37,10 @@ public final class ReminderWatcher {
         scheduler.configure(client: client)
     }
 
-    public func start() { scheduler.sync() }
+    public func start() {
+        scheduler.sync()
+        prefsSync.start()
+    }
 
     @discardableResult
     public func requestAccess() async -> EKAuthorizationStatus {
@@ -47,16 +48,6 @@ public final class ReminderWatcher {
         refreshAuthorization()
         scheduler.sync()
         return authStatus
-    }
-
-    private static let key = "reminderPrefs"
-    static func load() -> ReminderPrefs {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let p = try? JSONDecoder().decode(ReminderPrefs.self, from: data) else { return ReminderPrefs() }
-        return p
-    }
-    static func save(_ p: ReminderPrefs) {
-        if let data = try? JSONEncoder().encode(p) { UserDefaults.standard.set(data, forKey: key) }
     }
 }
 

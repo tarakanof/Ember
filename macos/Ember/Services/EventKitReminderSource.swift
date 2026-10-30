@@ -21,7 +21,8 @@ final class EventKitReminderSource: ReminderSource, @unchecked Sendable {
             store.fetchReminders(matching: pred) { rems in
                 let due: [DueReminder] = (rems ?? []).compactMap { r in
                     guard let date = Self.dueDate(r) else { return nil }
-                    return DueReminder(id: r.calendarItemIdentifier, title: r.title ?? "", due: date)
+                    return DueReminder(id: r.calendarItemIdentifier, title: r.title ?? "", due: date,
+                                       externalID: r.calendarItemExternalIdentifier ?? "")
                 }
                 cont.resume(returning: due)
             }

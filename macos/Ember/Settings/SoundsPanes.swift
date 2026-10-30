@@ -12,7 +12,7 @@ struct ClockSoundsPane: View {
         @Bindable var usage = s.usage
         @Bindable var meetings = s.meetings
         @Bindable var weather = s.weather
-        @Bindable var watcher = env.reminderWatcher
+        @Bindable var reminders = s.reminders
         let names = device.melodies.map(\.name)
         Form {
             clockSection
@@ -49,15 +49,18 @@ struct ClockSoundsPane: View {
             }
 
             Section {
-                Toggle("Reminder due", isOn: $watcher.prefs.sound)
-                Toggle("Repeat until dismissed", isOn: $watcher.prefs.repeatSound)
-                    .disabled(!watcher.prefs.sound || !watcher.prefs.hold)
+                Toggle("Reminder due", isOn: $reminders.draft.sound)
+                Toggle("Repeat until dismissed", isOn: $reminders.draft.repeatSound)
+                    .disabled(!reminders.draft.sound || !reminders.draft.hold)
             } header: {
-                Text("This Mac")
+                Text("Apple Reminders")
             } footer: {
-                Text("Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start. Set the hours in Sounds & Alerts.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start. Set the hours in Sounds & Alerts.")
+                    SaveErrorFooter(error: reminders.saveError)
+                }
             }
-            .disabled(!watcher.prefs.enabled)
+            .disabled(!reminders.isLoaded || !reminders.draft.enabled)
         }
         .formStyle(.grouped)
         .autosaves(pomodoro)
@@ -65,6 +68,7 @@ struct ClockSoundsPane: View {
         .autosaves(usage)
         .autosaves(meetings)
         .autosaves(weather)
+        .autosaves(reminders)
         .autosaves(device.settings)
         .reloads {
             let s = env.settings
@@ -73,7 +77,8 @@ struct ClockSoundsPane: View {
             async let d: Void = s.usage.load()
             async let e: Void = s.meetings.load()
             async let f: Void = s.weather.load()
-            _ = await (b, c, d, e, f)
+            async let g: Void = s.reminders.load()
+            _ = await (b, c, d, e, f, g)
             await device.load()
         }
     }

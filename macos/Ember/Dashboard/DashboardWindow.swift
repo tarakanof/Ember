@@ -128,7 +128,7 @@ struct LiveDashboardSource: DashboardSource, Equatable {
             UpcomingItem(id: "r|\($0.id)", kind: .reminder, title: $0.title, date: $0.due)
         }
     }
-    var remindersEnabled: Bool { env.reminderWatcher.prefs.enabled }
+    var remindersEnabled: Bool { env.reminderWatcher.prefs?.enabled == true }
     var pomoConfig: PomoConfig? { env.settings.pomodoro.applied }
     var meetingsEnabled: Bool? { env.settings.meetings.applied?.enabled }
     var calendar: Calendar { .current }

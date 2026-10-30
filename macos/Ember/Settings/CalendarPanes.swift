@@ -6,10 +6,12 @@ struct CalendarSourcePane: View {
     @Environment(AppEnvironment.self) private var env
 
     private var model: ServerConfigModel<MeetingsConfig> { env.settings.meetings }
+    private var reminders: ServerConfigModel<ReminderPrefs> { env.settings.reminders }
 
     var body: some View {
         @Bindable var model = model
-        @Bindable var watcher = env.reminderWatcher
+        @Bindable var reminders = reminders
+        let watcher = env.reminderWatcher
         let c = model.draft
         Form {
             LoadStateSection(isLoaded: model.isLoaded, error: model.loadError,
@@ -56,20 +58,25 @@ struct CalendarSourcePane: View {
                 }
             }
 
+            LoadStateSection(isLoaded: reminders.isLoaded, error: reminders.loadError,
+                             offMessage: "This server doesn't keep reminder settings. Update the Ember server.",
+                             retry: { await reminders.load() })
+
             Section {
                 remindersAccess(watcher.authStatus)
-                Toggle("Ring the clock for due reminders", isOn: $watcher.prefs.enabled)
-                    .disabled(watcher.authStatus != .fullAccess)
-                StepperRow(title: "Ring", value: $watcher.prefs.leadMinutes,
-                           range: (0...30).including(watcher.prefs.leadMinutes)) { m in
+                Toggle("Ring the clock for due reminders", isOn: $reminders.draft.enabled)
+                    .disabled(watcher.authStatus != .fullAccess || !reminders.isLoaded)
+                StepperRow(title: "Ring", value: $reminders.draft.leadMinutes,
+                           range: ReminderPrefs.leadRange.including(reminders.draft.leadMinutes)) { m in
                     m == 0 ? Text("When due") : Text("\(m) min early")
                 }
-                .disabled(!watcher.prefs.enabled)
+                .disabled(!reminders.isLoaded || !reminders.draft.enabled)
             } header: {
                 Text("Apple Reminders")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("These settings apply only to this Mac, while it's awake and Ember is running.")
+                    Text("Saved on the server. Any Mac running Ember with Reminders access can ring the clock while it's awake; each reminder rings once.")
+                    SaveErrorFooter(error: reminders.saveError)
                     if let error = watcher.lastFireError {
                         Label("Last reminder didn't reach the clock: \(error)", systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.red)
@@ -77,7 +84,7 @@ struct CalendarSourcePane: View {
                 }
             }
 
-            if watcher.prefs.enabled, !watcher.upcoming.isEmpty {
+            if reminders.draft.enabled, !watcher.upcoming.isEmpty {
                 Section("Next Due") {
                     ForEach(watcher.upcoming) { r in
                         LabeledContent {
@@ -93,9 +100,13 @@ struct CalendarSourcePane: View {
         }
         .formStyle(.grouped)
         .autosaves(model)
+        .autosaves(reminders)
         .reloads {
             env.reminderWatcher.refreshAuthorization()
-            await model.load()
+            let s = env.settings
+            async let meetings: Void = s.meetings.load()
+            async let rems: Void = s.reminders.load()
+            _ = await (meetings, rems)
         }
     }
 
@@ -128,21 +139,24 @@ struct ClockCalendarAppPane: View {
     @State private var reminderPreview = PreviewModel()
 
     private var model: ClockAppLens<ClockConfig.Calendar> { env.clockCalendar }
+    private var reminders: ServerConfigModel<ReminderPrefs> { env.settings.reminders }
 
     var body: some View {
         let model = model
         let draft = model.binding
-        @Bindable var watcher = env.reminderWatcher
+        @Bindable var reminders = reminders
+        let r = reminders.draft
         let c = model.draft
         Form {
-            SourceLinkSection(source: .calendar, isOff: model.isLoaded && !c.enabled && !watcher.prefs.enabled)
+            SourceLinkSection(source: .calendar,
+                              isOff: model.isLoaded && !c.enabled && reminders.isLoaded && !r.enabled)
 
             Section {
                 VStack(alignment: .leading, spacing: 14) {
                     PanelPreview(title: "Next meeting", caption: "Calendar icon, title and minutes to go.",
                                  enabled: c.enabled, frame: meetingPreview.frame("meeting"))
                     PanelPreview(title: "Reminder", caption: "Bell and the reminder's title when it comes due.",
-                                 enabled: watcher.prefs.enabled,
+                                 enabled: r.enabled,
                                  frame: reminderPreview.frame("reminder"))
                 }
                 .settingsPreviewRow()
@@ -168,29 +182,35 @@ struct ClockCalendarAppPane: View {
             .disabled(!model.isLoaded || !c.enabled)
 
             Section {
-                Toggle("Keep on screen until dismissed", isOn: $watcher.prefs.hold)
-                StepperRow(title: "Show for", value: $watcher.prefs.popupDuration,
-                           range: (5...120).including(watcher.prefs.popupDuration), step: 5) { Text("\($0) s") }
-                    .disabled(watcher.prefs.hold)
-                InfoToggle("Native icon", isOn: $watcher.prefs.useNativeIcon, info: .reminderNativeIcon, requirement: .remindersOn)
-                TextField("Icon ID", text: $watcher.prefs.nativeIconId, prompt: Text(verbatim: "1234"))
-                    .disabled(!watcher.prefs.useNativeIcon)
+                Toggle("Keep on screen until dismissed", isOn: $reminders.draft.hold)
+                StepperRow(title: "Show for", value: $reminders.draft.popupDuration,
+                           range: (5...120).including(r.popupDuration), step: 5) { Text("\($0) s") }
+                    .disabled(r.hold)
+                InfoToggle("Native icon", isOn: $reminders.draft.useNativeIcon, info: .reminderNativeIcon, requirement: .remindersOn)
+                TextField("Icon ID", text: $reminders.draft.nativeIconId, prompt: Text(verbatim: "1234"))
+                    .disabled(!r.useNativeIcon)
             } header: {
                 Text("Apple Reminders")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(watcher.prefs.hold
+                    Text(r.hold
                          ? "The reminder stays on the clock until you press its middle button."
                          : "The reminder shows for the time above, then the clock carries on.")
-                    Text("These settings apply only to this Mac, while it's awake and Ember is running.")
+                    Text("Saved on the server and shared by every Mac running Ember.")
+                    SaveErrorFooter(error: reminders.saveError)
                 }
             }
-            .disabled(!watcher.prefs.enabled)
+            .disabled(!reminders.isLoaded || !r.enabled)
         }
         .formStyle(.grouped)
         .autosaves(model)
+        .autosaves(reminders)
         .previews(into: meetingPreview) { try await env.preview.fetchMeetingsPreview() }
         .previews(into: reminderPreview) { try await env.preview.fetchReminderPreview() }
-        .reloads { await model.load() }
+        .reloads {
+            async let clock: Void = model.load()
+            async let rems: Void = env.settings.reminders.load()
+            _ = await (clock, rems)
+        }
     }
 }

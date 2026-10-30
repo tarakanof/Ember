@@ -90,15 +90,57 @@ public struct ReminderPrefs: Codable, Equatable, Sendable {
         self.repeatSound = repeatSound
     }
 
+    enum CodingKeys: String, CodingKey {
+        case enabled, sound, hold
+        case leadMinutes = "lead_minutes"
+        case popupDuration = "popup_duration"
+        case useNativeIcon = "use_native_icon"
+        case nativeIconId = "native_icon_id"
+        case repeatSound = "repeat_sound"
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
-        sound = try c.decodeIfPresent(Bool.self, forKey: .sound) ?? true
-        leadMinutes = try c.decodeIfPresent(Int.self, forKey: .leadMinutes) ?? 0
-        popupDuration = try c.decodeIfPresent(Int.self, forKey: .popupDuration) ?? 8
-        useNativeIcon = try c.decodeIfPresent(Bool.self, forKey: .useNativeIcon) ?? false
-        nativeIconId = try c.decodeIfPresent(String.self, forKey: .nativeIconId) ?? ""
-        hold = try c.decodeIfPresent(Bool.self, forKey: .hold) ?? true
-        repeatSound = try c.decodeIfPresent(Bool.self, forKey: .repeatSound) ?? false
+        let d = ReminderPrefs()
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
+        sound = try c.decodeIfPresent(Bool.self, forKey: .sound) ?? d.sound
+        leadMinutes = try c.decodeIfPresent(Int.self, forKey: .leadMinutes) ?? d.leadMinutes
+        popupDuration = try c.decodeIfPresent(Int.self, forKey: .popupDuration) ?? d.popupDuration
+        useNativeIcon = try c.decodeIfPresent(Bool.self, forKey: .useNativeIcon) ?? d.useNativeIcon
+        nativeIconId = try c.decodeIfPresent(String.self, forKey: .nativeIconId) ?? d.nativeIconId
+        hold = try c.decodeIfPresent(Bool.self, forKey: .hold) ?? d.hold
+        repeatSound = try c.decodeIfPresent(Bool.self, forKey: .repeatSound) ?? d.repeatSound
+    }
+
+    public static let leadRange = 0...30
+    public static let popupDurationRange = 1...300
+    public static let maxNativeIconIdLength = 64
+
+    public var clampedForServer: ReminderPrefs {
+        var p = self
+        p.leadMinutes = min(max(leadMinutes, Self.leadRange.lowerBound), Self.leadRange.upperBound)
+        p.popupDuration = min(max(popupDuration, Self.popupDurationRange.lowerBound), Self.popupDurationRange.upperBound)
+        p.nativeIconId = String(nativeIconId.trimmingCharacters(in: .whitespaces).prefix(Self.maxNativeIconIdLength))
+        return p
+    }
+
+    public init?(legacyData data: Data) {
+        guard let l = try? JSONDecoder().decode(Legacy.self, from: data) else { return nil }
+        let d = ReminderPrefs()
+        self.init(enabled: l.enabled ?? d.enabled, sound: l.sound ?? d.sound,
+                  leadMinutes: l.leadMinutes ?? d.leadMinutes, popupDuration: l.popupDuration ?? d.popupDuration,
+                  useNativeIcon: l.useNativeIcon ?? d.useNativeIcon, nativeIconId: l.nativeIconId ?? d.nativeIconId,
+                  hold: l.hold ?? d.hold, repeatSound: l.repeatSound ?? d.repeatSound)
+    }
+
+    private struct Legacy: Decodable {
+        var enabled: Bool?
+        var sound: Bool?
+        var leadMinutes: Int?
+        var popupDuration: Int?
+        var useNativeIcon: Bool?
+        var nativeIconId: String?
+        var hold: Bool?
+        var repeatSound: Bool?
     }
 }
