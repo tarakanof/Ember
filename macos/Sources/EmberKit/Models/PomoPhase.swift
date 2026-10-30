@@ -44,4 +44,11 @@ extension PomoState {
         if running { return .running }
         return .parked
     }
+
+    func counted(since at: Date, now: Date) -> PomoState {
+        guard mode == .running else { return self }
+        var s = self
+        s.remainingSec = max(0, remainingSec - Int(now.timeIntervalSince(at).rounded(.down)))
+        return s
+    }
 }

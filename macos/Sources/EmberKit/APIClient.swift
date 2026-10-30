@@ -91,6 +91,7 @@ public enum RequestBudget: Sendable, CaseIterable {
     case clock
     case clockLong
     case transfer
+    case longPoll
 
     public var requestTimeout: TimeInterval {
         switch self {
@@ -98,6 +99,7 @@ public enum RequestBudget: Sendable, CaseIterable {
         case .clock: 12
         case .clockLong: 35
         case .transfer: 60
+        case .longPoll: 30
         }
     }
 
@@ -107,8 +109,17 @@ public enum RequestBudget: Sendable, CaseIterable {
         case .clock: 15
         case .clockLong: 40
         case .transfer: 600
+        case .longPoll: 35
         }
     }
+}
+
+public struct ConditionalReply<T: Sendable>: Sendable {
+    public let value: T?
+    public let etag: String?
+    public let waitCap: Int?
+
+    public var supportsWait: Bool { etag != nil && (waitCap ?? 0) > 0 }
 }
 
 public struct APIClient: Sendable {
@@ -151,6 +162,8 @@ public struct APIClient: Sendable {
             return (budget, URLSession(configuration: config))
         })
 
+    private static let waitCapHeader = "X-Ember-View-Wait"
+
     private static let notSentCodes: Set<URLError.Code> = [
         .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .notConnectedToInternet,
     ]
@@ -174,6 +187,7 @@ public struct APIClient: Sendable {
                                  query: [URLQueryItem], body: Data?,
                                  headers: [String: String] = [:], budget: RequestBudget,
                                  reportNotSent: Bool = false,
+                                 allowNotModified: Bool = false,
                                  progress: (@Sendable (Double) -> Void)? = nil) async throws -> (Data, HTTPURLResponse) {
         guard let baseURL else { throw APIError.notConfigured }
         var base = baseURL.absoluteString
@@ -214,7 +228,7 @@ public struct APIClient: Sendable {
         guard let http = resp as? HTTPURLResponse else {
             throw APIError.transport("non-HTTP response")
         }
-        guard (200..<300).contains(http.statusCode) else {
+        guard (200..<300).contains(http.statusCode) || (allowNotModified && http.statusCode == 304) else {
             if http.statusCode == 429 {
                 throw APIError.rateLimited(retryAfter: RateLimitBackoff.retryAfter(
                     header: http.value(forHTTPHeaderField: "Retry-After")))
@@ -251,6 +265,20 @@ public struct APIClient: Sendable {
                                               budget: RequestBudget = .server) async throws -> (T, HTTPURLResponse) {
         let (data, http) = try await performResponse("GET", path, query: query, body: nil, budget: budget)
         do { return (try Self.makeDecoder().decode(T.self, from: data), http) }
+        catch { throw APIError.decoding(String(describing: error)) }
+    }
+
+    public func getConditional<T: Decodable & Sendable>(_ path: String, etag: String?,
+                                                        wait: Int? = nil) async throws -> ConditionalReply<T> {
+        let waiting = etag == nil ? nil : wait
+        let (data, http) = try await performResponse(
+            "GET", path, query: waiting.map { [URLQueryItem(name: "wait", value: String($0))] } ?? [], body: nil,
+            headers: etag.map { ["If-None-Match": $0] } ?? [:], budget: waiting == nil ? .server : .longPoll,
+            allowNotModified: true)
+        let tag = http.value(forHTTPHeaderField: "ETag")
+        let cap = http.value(forHTTPHeaderField: Self.waitCapHeader).flatMap(Int.init)
+        guard http.statusCode != 304 else { return ConditionalReply(value: nil, etag: tag ?? etag, waitCap: cap) }
+        do { return ConditionalReply(value: try Self.makeDecoder().decode(T.self, from: data), etag: tag, waitCap: cap) }
         catch { throw APIError.decoding(String(describing: error)) }
     }
 
