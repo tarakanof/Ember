@@ -1611,7 +1611,8 @@ the clock are counted, not blocked. No prompt text is involved anywhere.
   sqlite file) keeps `day_events(at, kind, value)` with kinds `start`
   (value: the stop time), `break`, `resume`, `stop`, `auto_stop`, `stop_at`
   (value: the new stop time), and `day_replies(at, source, tool,
-  session_key)`; both are pruned at 400 days by the day tick. `workday.Replay`
+  session_key, repo, exact)` (unique on `source, tool, session_key, at`;
+  `repo` and `exact` added by #730, older rows are estimated); both are pruned at 400 days by the day tick. `workday.Replay`
   folds events, ordered by `(at, id)`, into periods (start, end, stop time,
   breaks, auto); events outside a period are ignored. Every new event's `at`
   is at least the previous one's, so replay order matches write order. On
@@ -1645,6 +1646,35 @@ the clock are counted, not blocked. No prompt text is involved anywhere.
   Claude session woken by a background task after it posted `done`. Misses:
   a reply more than 24 h after the session went quiet, or after a restart
   that dropped the memory.
+- **Exact replies** (#730, `POST /v1/day/replies`, `recordExactReplies`).
+  The producers post the user's own prompts, never their text: the Claude
+  hook on `UserPromptSubmit` (entrypoint `cli` without an Agent SDK version,
+  or `claude-desktop`) and `ember-claude-producer backfill` over the
+  transcripts; the T3 producer from `orchestration_v2_projection_messages`
+  (`role = 'user'`, `createdBy = 'user'`, not streaming, not in a subagent
+  thread) behind a cursor in its state dir (`t3-replies.cursor`, first run
+  60 days back); the Codex producer from `codex-tui` rollouts
+  (`response_item` user messages not starting with `#` or `<`). All skip
+  text starting with `<task-notification>`, `<task>`, `<local-command`,
+  `<system-reminder>`, `<bash-stdout>` or `<bash-stderr>`
+  (`producer.AutomatedPrompt`). `repo` is the main checkout's folder
+  (`producer.RepoFromCwd`: `git rev-parse --git-common-dir`, else the T3,
+  `.claude/worktrees`, `.worktrees` and `-wt` path rules), empty with
+  `send_project` off. An exact reply within 2 s of another exact one for the
+  same session key is the same prompt (`DayExactSameSpan`: the hook stamps
+  its own clock, backfill the transcript's), so a replay or a rerun backfill
+  adds nothing; one that hits an estimated row's key turns that row exact. A newly inserted reply within 2 min of now
+  takes the estimate's live path (`liveReply`: per-session throttle,
+  off-clock count, offer); older ones only go into history, with no offer,
+  no quiet change and no knob wake.
+- **Exact beats the estimate.** `dayTracker.exactAt` holds each `(source,
+  tool)` pair's newest exact `at` (loaded from the store on start, dropped
+  after 24 h). While a pair has one in the last 24 h, `noteDayReply` records
+  no estimate for it; a pair that never posts exact replies (an older
+  producer, another computer) keeps the estimate. History and the
+  off-clock count on start (`DayRepliesBetween`, `CountDayReplies`) drop an
+  estimated row when its pair has an exact one within 24 h either side, so
+  a backfill replaces the estimates it overlaps.
 - **Offer start.** Off, and no clock-in yet in this logical day: the first
   reply sets `offer_start` for 60 min, until a start or a dismiss; once
   raised, no new offer that day. Confirming is `start {at: offer_start}`, so

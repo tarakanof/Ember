@@ -26,6 +26,8 @@ type sessionState struct {
 	viaClaude    bool
 	project      string
 	startedAt    time.Time
+	tui          bool
+	repo         string
 }
 
 type fileStamp struct {
@@ -54,6 +56,8 @@ type watcher struct {
 	extraSeen      time.Time
 	extraKey       string
 	extraBound     bool
+	replies        []producer.Reply
+	nextReplies    time.Time
 }
 
 func newWatcher(cfg Config) *watcher {
@@ -193,6 +197,9 @@ func (w *watcher) tickWith(acct codexAccount) (posts []producer.StatusRequest, d
 				continue
 			}
 			ss = &sessionState{path: path, uuid: meta.id, viaClaude: meta.originator == claudeOriginator, project: producer.ProjectFromCwd(meta.cwd), startedAt: meta.started}
+			if meta.originator == tuiOriginator {
+				ss.tui, ss.repo = true, w.cfg.Project(producer.RepoFromCwd(meta.cwd))
+			}
 			w.sessions[path] = ss
 		}
 		if info.Size() < ss.offset {
@@ -206,6 +213,7 @@ func (w *watcher) tickWith(acct codexAccount) (posts []producer.StatusRequest, d
 			for _, ln := range lines {
 				ss.derived.foldEvent(ln, w.cfg.ContextPctEnabled, w.cfg.RatePctEnabled, w.cfg.ActivityTrailEnabled)
 			}
+			w.notePrompts(ss, lines)
 			ss.offset = newOffset
 			if ss.derived.rateSeq != seq {
 				w.bindSession(ss)

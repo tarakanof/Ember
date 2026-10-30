@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/workday"
 )
 
@@ -24,6 +25,8 @@ const (
 	dayTickInterval  = 15 * time.Second
 	dayEndedMemory   = 24 * time.Hour
 	dayKnobBreaks    = 16
+	dayExactFor      = pomodoro.DayExactWindow
+	dayReplyLive     = 2 * time.Minute
 )
 
 type dayTracker struct {
@@ -38,6 +41,7 @@ type dayTracker struct {
 	offReplies int
 	replyMarks map[string]time.Time
 	ended      map[string]dayEnded
+	exactAt    map[[2]string]time.Time
 	offerAt    time.Time
 	offerDay   string
 	summary    *knobDaySummary
@@ -105,6 +109,10 @@ func (a *App) loadDay() error {
 	if err != nil {
 		return err
 	}
+	exactAt, err := a.store.ExactDayReplyPairs(a.dayNow().Add(-dayExactFor))
+	if err != nil {
+		return err
+	}
 	log := workday.Replay(events)
 	d := &a.day
 	d.mu.Lock()
@@ -124,6 +132,7 @@ func (a *App) loadDay() error {
 	d.lastOut = log.LastClockOut()
 	d.armed = armed
 	d.lastReply = lastReply
+	d.exactAt = exactAt
 	d.offReplies = 0
 	if d.open == nil && !d.lastOut.IsZero() {
 		if d.offReplies, err = a.store.CountDayReplies(d.lastOut.Add(time.Second)); err != nil {
@@ -335,30 +344,74 @@ func (a *App) noteDayReply(s Session, prior string, now time.Time) {
 		d.mu.Unlock()
 		return
 	}
-	if last, ok := d.replyMarks[key]; ok && now.Sub(last) < dayReplyThrottle {
+	if at, ok := d.exactAt[[2]string{s.Source, s.Tool}]; ok && now.Sub(at) < dayExactFor {
 		d.mu.Unlock()
 		return
 	}
-	if d.replyMarks == nil {
-		d.replyMarks = map[string]time.Time{}
-	}
-	d.replyMarks[key] = now
-	d.lastReply = now
-	off := d.open == nil
-	if off {
-		d.offReplies++
-		today := cal.DayKey(now)
-		if d.offerDay != today && (d.lastStart.IsZero() || cal.DayKey(d.lastStart) != today) {
-			d.offerAt, d.offerDay = now, today
-		}
-	}
+	counted, off := d.liveReply(cal, key, now)
 	d.mu.Unlock()
+	if !counted {
+		return
+	}
 	if err := a.store.RecordDayReply(workday.Reply{At: now, Source: s.Source, Tool: s.Tool, SessionKey: key}); err != nil {
 		a.logger.Warn("day reply record failed", "err", err)
 	}
 	if off {
 		a.dayChanged()
 	}
+}
+
+func (d *dayTracker) liveReply(cal workday.Calendar, key string, at time.Time) (counted, off bool) {
+	if last, ok := d.replyMarks[key]; ok && at.Sub(last) < dayReplyThrottle {
+		return false, false
+	}
+	if d.replyMarks == nil {
+		d.replyMarks = map[string]time.Time{}
+	}
+	d.replyMarks[key] = at
+	if at.After(d.lastReply) {
+		d.lastReply = at
+	}
+	off = d.open == nil
+	if off {
+		d.offReplies++
+		today := cal.DayKey(at)
+		if d.offerDay != today && (d.lastStart.IsZero() || cal.DayKey(d.lastStart) != today) {
+			d.offerAt, d.offerDay = at, today
+		}
+	}
+	return true, off
+}
+
+func (a *App) recordExactReplies(rs []workday.Reply, now time.Time) error {
+	inserted, err := a.store.RecordDayReplies(rs)
+	if err != nil {
+		return err
+	}
+	cal := a.dayCalendar()
+	d := &a.day
+	d.mu.Lock()
+	if d.exactAt == nil {
+		d.exactAt = map[[2]string]time.Time{}
+	}
+	changed := false
+	for i, r := range rs {
+		pair := [2]string{r.Source, r.Tool}
+		if r.At.After(d.exactAt[pair]) {
+			d.exactAt[pair] = r.At
+		}
+		if !inserted[i] || now.Sub(r.At) > dayReplyLive {
+			continue
+		}
+		if _, off := d.liveReply(cal, r.SessionKey, r.At); off {
+			changed = true
+		}
+	}
+	d.mu.Unlock()
+	if changed {
+		a.dayChanged()
+	}
+	return nil
 }
 
 func (a *App) dayTick(now time.Time) {
@@ -388,6 +441,11 @@ func (a *App) dayTick(now time.Time) {
 		for k, e := range d.ended {
 			if now.Sub(e.at) >= dayEndedMemory {
 				delete(d.ended, k)
+			}
+		}
+		for k, at := range d.exactAt {
+			if now.Sub(at) >= dayExactFor {
+				delete(d.exactAt, k)
 			}
 		}
 	}

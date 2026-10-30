@@ -149,3 +149,29 @@ CREATE INDEX orchestration_v2_projection_turn_items_failed_error_idx
   ON orchestration_v2_projection_turn_items(thread_id, run_id, node_id, updated_at DESC, ordinal DESC, turn_item_id DESC)
   WHERE type = 'error'
     AND status = 'failed';
+-- Read for day clock replies (#730); copied from a T3 Code statev2.sqlite at migration 67.
+CREATE TABLE orchestration_v2_projection_messages (
+  message_id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  run_id TEXT,
+  node_id TEXT,
+  role TEXT NOT NULL,
+  streaming INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL
+);
+CREATE INDEX orchestration_v2_projection_messages_thread_created_idx
+  ON orchestration_v2_projection_messages(thread_id, created_at, message_id);
+CREATE INDEX orchestration_v2_projection_messages_latest_user_idx
+  ON orchestration_v2_projection_messages(thread_id, updated_at DESC, message_id DESC)
+  WHERE role = 'user';
+CREATE TABLE projection_projects (
+  project_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  workspace_root TEXT NOT NULL,
+  scripts_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);

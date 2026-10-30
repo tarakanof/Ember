@@ -31,8 +31,11 @@ func newHookHarness(t *testing.T) *hookHarness {
 	posts := &atomic.Int32{}
 	deletes := &atomic.Int32{}
 	bodies := &[]string{}
+	var mu sync.Mutex
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		defer mu.Unlock()
 		*bodies = append(*bodies, string(b))
 		switch r.Method {
 		case http.MethodPost:

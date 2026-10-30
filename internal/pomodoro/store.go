@@ -51,7 +51,9 @@ CREATE TABLE IF NOT EXISTS day_replies (
   at          INTEGER NOT NULL,
   source      TEXT NOT NULL,
   tool        TEXT NOT NULL,
-  session_key TEXT NOT NULL
+  session_key TEXT NOT NULL,
+  repo        TEXT NOT NULL DEFAULT '',
+  exact       INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_day_replies_at ON day_replies(at);
 `
@@ -69,6 +71,10 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
+	}
+	if err := migrateDayReplies(db); err != nil {
+		db.Close()
+		return nil, err
 	}
 	return &Store{db: db}, nil
 }

@@ -52,7 +52,8 @@ func (a *App) masterOnly(w http.ResponseWriter, r *http.Request, err error) bool
 
 func requiredScope(pattern string) string {
 	switch pattern {
-	case "POST /v1/status", "DELETE /v1/status", "POST /v1/usage", "POST /v1/notify", "POST /v1/reminders/fire":
+	case "POST /v1/status", "DELETE /v1/status", "POST /v1/usage", "POST /v1/notify", "POST /v1/reminders/fire",
+		"POST /v1/day/replies":
 		return scopeIngest
 	case "GET /v1/apps", "GET /v1/pomodoro/config", "GET /v1/usage/config", "GET /v1/display/config",
 		"GET /v1/brightness/config", "GET /v1/quiet/config", "GET /v1/clock/stats",

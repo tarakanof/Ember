@@ -30,6 +30,9 @@ type daemon struct {
 	alive   func(home string) bool
 	warned  map[[2]int]bool
 	store   *storeReader
+	prompts *storeReader
+
+	nextReplies time.Time
 }
 
 func newDaemon(cfg Config, client *producer.Client) *daemon {
@@ -41,6 +44,7 @@ func newDaemon(cfg Config, client *producer.Client) *daemon {
 		alive:   func(home string) bool { return serverAlive(home, pidAlive) },
 		warned:  map[[2]int]bool{},
 		store:   &storeReader{},
+		prompts: &storeReader{},
 	}
 }
 
@@ -66,6 +70,7 @@ func runDaemon() {
 	sweepMarkers(cfg.StateDir)
 	d := newDaemon(cfg, client)
 	defer d.store.Close()
+	defer d.prompts.Close()
 
 	base := time.Duration(cfg.PollIntervalMs) * time.Millisecond
 	failures := 0
@@ -91,6 +96,7 @@ func (d *daemon) poll(ctx context.Context) error {
 	if !d.alive(d.cfg.T3Home) {
 		// Hold no handle on T3's files while it is down, so its last close can remove -wal/-shm.
 		d.store.Close()
+		d.prompts.Close()
 		d.send(ctx, nil, d.watcher.dropAll())
 		return nil
 	}
@@ -104,6 +110,7 @@ func (d *daemon) poll(ctx context.Context) error {
 	}
 	posts, deletes := d.watcher.tick(snap.Threads, d.now())
 	d.send(ctx, posts, deletes)
+	d.sendReplies(ctx)
 	return nil
 }
 

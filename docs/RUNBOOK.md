@@ -980,12 +980,30 @@ clock".
   curl -s -H "$auth" "$EMBER_SERVER_URL/v1/day/history?days=7"
   ```
 
-- **Replies** are counted from session state: `done`/`waiting` → `running` on
-  a session the server already knew (or reaped or deleted within the last
-  24 h). A new
-  session never counts. Expect a few false positives (a T3 thread resumed by
-  a delegated child or a schedule; a background task waking a done Claude
-  session).
+- **Replies** are the user's own prompts where a producer can see them
+  (#730): the Claude hook (Claude Code CLI and desktop), the T3 producer and
+  the Codex producer (`codex-tui` only) post them to `POST /v1/day/replies`
+  without their text. Elsewhere (an older producer, a computer without the
+  new producers) they are estimated from session state: `done`/`waiting` →
+  `running` on a session the server already knew (or reaped or deleted
+  within the last 24 h); a new session never counts, and expect a few false
+  positives (a T3 thread resumed by a delegated child or a schedule; a
+  background task waking a done Claude session). Once a source and tool
+  post exact replies, the server stops estimating for that pair.
+- **After updating the producers:** `claude plugin marketplace update ember`
+  and `claude plugin update ember@ember`, then `/reload-plugins` (or restart)
+  in running Claude sessions; restart the T3 and Codex producers (Ember.app
+  does it on update). The T3 producer backfills its last 60 days on its
+  first run by itself. For Claude Code's transcripts (about 30 days kept):
+
+  ```sh
+  ember-claude-producer backfill --dry-run   # count only
+  ember-claude-producer backfill --days 30   # post; a rerun adds nothing
+  ```
+
+  It reads `~/.claude/projects/*/*.jsonl` (`$CLAUDE_CONFIG_DIR/projects`)
+  and prints only counts. A 404 means the server is older or the day clock
+  is off.
 - **Smoke run:** a scratch store and port as usual; the day tables live in
   the same sqlite file (`pomodoro.db_path`).
 
@@ -1762,6 +1780,10 @@ store, created on start. Nothing goes quiet until the first clock-in. A new
 knob's default pages put `day` where `pomodoro` was (Pomodoro stays, off);
 an existing knob's stored config gains `day` as an off page, with no config
 push. Turn the page on in Ember.app once the firmware has it.
+
+**Exact day replies (#730).** `day_replies` gains `repo` and `exact` and a
+unique index on `(source, tool, session_key, at)`, migrated on start
+(duplicate rows, if any, keep the first). Existing rows stay estimated.
 
 **Clock presentation moves to the clock config (#232).** The TC001's
 presentation settings (weather tiles and popups, icon ids, meeting tile and
