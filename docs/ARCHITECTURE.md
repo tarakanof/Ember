@@ -1589,6 +1589,8 @@ streak tolerates, default 1, `0` = strict), `work_hours_gap_minutes` (default
 middle=pause/resume/start, right=skip, left=stop — all on press (the AWTRIX3-era
 left+right chord is removed).
 
+The SQLite store runs WAL with `synchronous=NORMAL` (one fsync per checkpoint instead of per commit) and `busy_timeout=2000`, so an external reader on the volume cannot make a write fail at once.
+
 **Pomodoro state** (`cmd/ember/pomodoro_state.go`, #338). The readers of the
 timer go through one projection, `App.pomodoroState(now)` → `pomodoroState`:
 `On` (an engine exists and `pomodoro.enabled`), the engine `Status`, and

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -59,5 +61,36 @@ func TestIndicatorsOffOnStartup(t *testing.T) {
 		if idx != i+1 {
 			t.Errorf("cleared indicator %d = %d, want %d", i, idx, i+1)
 		}
+	}
+}
+
+type blockingIndicatorPublisher struct {
+	noopPublisher
+	calls atomic.Int32
+}
+
+func (p *blockingIndicatorPublisher) ClearIndicator(ctx context.Context, _ int) error {
+	p.calls.Add(1)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestClearIndicatorsHonoursContextBudget(t *testing.T) {
+	cfg := defaultConfig()
+	publisher := &blockingIndicatorPublisher{}
+	app := NewApp(cfg, publisher, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := app.ClearIndicators(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ClearIndicators err = %v, want deadline exceeded", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("ClearIndicators took %v with a 100ms budget", d)
+	}
+	if publisher.calls.Load() != 1 {
+		t.Fatalf("indicator calls = %d, want 1 (later calls skipped once the budget is spent)", publisher.calls.Load())
 	}
 }

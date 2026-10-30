@@ -201,7 +201,7 @@ func (a *App) routeTable() (http.Handler, []string) {
 	adminMux.Handle("POST /admin/reload", handleAdminReload(a))
 	mux.Handle("/admin/", rateLimit(a, adminRequireAuth(a, a.logger, adminMux)))
 
-	return loggingMiddleware(a.logger, observeRequests(a, mux)), patterns
+	return a.withObservability(mux), patterns
 }
 
 func (a *App) decodeOrReject(w http.ResponseWriter, r *http.Request, dst any, strict bool) bool {
@@ -293,6 +293,10 @@ func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler 
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (a *App) withObservability(next http.Handler) http.Handler {
+	return loggingMiddleware(a.logger, observeRequests(a, next))
 }
 
 func routePattern(h http.Handler, r *http.Request) string {

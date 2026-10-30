@@ -6,7 +6,7 @@ Small status aggregator for showing Claude/Codex activity on an awtrix-ng clock.
 
 The service is intentionally light:
 
-- one Go binary, stdlib only
+- one Go binary, stdlib first (a few small modules)
 - single AWTRIX HTTP transport (no MQTT — see [`STYLE.md`](docs/STYLE.md) §11)
 - bearer-token auth on write endpoints
 - HTTP input endpoint for laptop-side producers
@@ -205,7 +205,7 @@ series. Requests rejected by `requireAuth` / `adminRequireAuth` count
 against the outer prefix (`/v1/`, `/admin/`) rather than the specific
 route. The endpoint deliberately doesn't export Go runtime metrics
 (goroutines, GC) — that would require `prometheus/client_golang`,
-which we skip in line with the stdlib-only choice.
+which we skip in line with the stdlib-first choice.
 
 `/metrics` is unauthenticated and exposes the binary's git revision plus
 Go version. That is fine for the trusted-LAN deployment this service
