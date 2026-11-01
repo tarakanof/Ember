@@ -3175,7 +3175,8 @@ unreachable. The whole probe loop is gated by `awtrix.auto_rediscover` (config,
 default on; `/admin/doctor`'s `clock` check reports the source, reachability,
 and last re-discovery time/result; `"disabled"` under `EMBER_CLOCK=off`, which runs the server with no clock I/O at all, see RUNBOOK). The server also advertises
 itself as `_ember._tcp` so the menu app can discover it (gated by
-`EMBER_MDNS_ADVERTISE`); the app browses (`ServerDiscovery`) only while
+`EMBER_MDNS_ADVERTISE`, SRV target `ember-<hostname>.local`, never the host's
+own mDNS name, which the host's Avahi owns); the app browses (`ServerDiscovery`) only while
 Settings › Connection is open. Both directions require host/macvlan networking.
 
 The app can find the clock itself (#57), for a server that can't see

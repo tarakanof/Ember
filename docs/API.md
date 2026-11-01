@@ -349,7 +349,8 @@ falling `uptimeSeconds`) to trigger a republish of every pushed app — issue
 #73's Berry boot-ping hook (`POST /hooks/awtrix/boot`, config toggle
 `awtrix.boot_ping`) is the fast path that republishes instantly instead of
 waiting on the 30s watch. The server also advertises itself as `_ember._tcp`
-(default on; `EMBER_MDNS_ADVERTISE=0` to disable; TXT `version`, `path`); the
+(default on; `EMBER_MDNS_ADVERTISE=0` to disable; SRV target
+`ember-<hostname>.local`; TXT `version`, `path`); the
 macOS app and headless producers with an empty/`auto` `EMBER_SERVER_URL` find
 it that way (RUNBOOK "Headless / Linux producers"). **mDNS in both directions
 needs the container on host (or macvlan) networking** — multicast doesn't

@@ -112,7 +112,9 @@ func serverMatches(s DiscoveredServer, prefer string) bool {
 	if u, err := url.Parse(s.URL); err == nil {
 		urlHost = u.Hostname()
 	}
-	for _, c := range []string{s.Name, host, short, urlHost} {
+	machine := strings.TrimPrefix(strings.ToLower(host), discovery.AdvertisedHostPrefix)
+	machineShort, _, _ := strings.Cut(machine, ".")
+	for _, c := range []string{s.Name, host, short, machine, machineShort, urlHost} {
 		if c != "" && strings.EqualFold(c, prefer) {
 			return true
 		}

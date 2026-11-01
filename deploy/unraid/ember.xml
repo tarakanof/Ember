@@ -7,7 +7,9 @@
        _ember._tcp advertisement) need multicast, which does not cross the
        default Docker bridge. With host networking the server binds the host's
        :3627 directly (ensure it's free), so no published-port mapping is used.
-       Set EMBER_MDNS_ADVERTISE=0 to disable advertising. -->
+       The advertisement uses its own host record, ember-<hostname>.local, and
+       leaves <hostname>.local to Avahi. Set EMBER_MDNS_ADVERTISE=0 to disable
+       advertising. -->
   <Network>host</Network>
   <MyIP/>
   <!-- No <Shell> element: distroless image has no shell. Unraid's Console
@@ -69,7 +71,7 @@ See https://github.com/tarakanof/ember for full documentation.
 
   <Config Name="CONFIG_PATH" Target="CONFIG_PATH" Default="/etc/ember/config.json" Mode="" Description="Path to config.json inside the container. Default matches the bind mount above; only change if you renamed the file." Type="Variable" Display="advanced" Required="false" Mask="false">/etc/ember/config.json</Config>
 
-  <Config Name="EMBER_MDNS_ADVERTISE" Target="EMBER_MDNS_ADVERTISE" Default="" Mode="" Description="Optional. Set to 0 to stop advertising this server over mDNS (_ember._tcp), used by the macOS app's server discovery. Default on. (Requires host networking to reach the LAN.)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="EMBER_MDNS_ADVERTISE" Target="EMBER_MDNS_ADVERTISE" Default="" Mode="" Description="Optional. Set to 0 to stop advertising this server over mDNS (_ember._tcp), used by the macOS app's server discovery. Default on. Published as ember-&lt;hostname&gt;.local, so the host's own mDNS name stays with Avahi. (Requires host networking to reach the LAN.)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
   <Config Name="EMBER_TLS_CERT_FILE" Target="EMBER_TLS_CERT_FILE" Default="" Mode="" Description="Optional. Path to a PEM cert inside the container to enable HTTPS. Set both this and EMBER_TLS_KEY_FILE; bind-mount your cert dir separately. See README's TLS section." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 

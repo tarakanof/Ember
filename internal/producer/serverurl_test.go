@@ -72,6 +72,16 @@ func TestPickServerPrefersInstanceOrHost(t *testing.T) {
 	}
 }
 
+func TestPickServerMatchesMachineNameBehindAdvertisedHost(t *testing.T) {
+	nas := DiscoveredServer{Name: "Ember", Host: "ember-Tosaka.local.", URL: "http://192.0.2.60:3627"}
+	for _, prefer := range []string{"Tosaka", "tosaka", "Tosaka.local", "ember-tosaka", "ember-Tosaka.local"} {
+		got, err := PickServer([]DiscoveredServer{srvB, nas}, prefer)
+		if err != nil || got != nas {
+			t.Errorf("prefer %q: got %+v, %v", prefer, got, err)
+		}
+	}
+}
+
 func TestPickServerPreferenceMatchingNothingFails(t *testing.T) {
 	_, err := PickServer([]DiscoveredServer{srvA}, "nas")
 	if err == nil || !strings.Contains(err.Error(), `"nas"`) {
