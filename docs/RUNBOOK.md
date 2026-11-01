@@ -1639,6 +1639,13 @@ fingerprint doesn't exist on NG). The server advertises itself as
 - `EMBER_MDNS_ADVERTISE` (default on; `0`/`false`/`no`/`off` disables) gates only the
   advertising side; clock discovery and Settings › Devices › Clock still work with a
   configured URL.
+- The advertisement publishes its own host record, `ember-<hostname>.local`, as the
+  SRV target, never the machine's name: a second responder claiming `<hostname>.local`
+  makes Avahi rename the whole host (`Tosaka-2`, SMB and SSH included). `<hostname>.local`
+  is left to the host's own responder, so a URL using it needs Avahi (or equivalent)
+  running there. Clients connect by the resolved IP and `EMBER_SERVER_INSTANCE` still
+  accepts the plain machine name. A host already renamed by an older server stays
+  renamed until its Avahi restarts (Unraid: `/etc/rc.d/rc.avahidaemon restart`).
 - `EMBER_FIRMWARE_CHECK` (default on; `0`/`false`/`no`/`off` disables) gates the
   server's only call to the internet for the dashboard: a background lookup of the latest
   awtrix-ng release on GitHub (at most every 6h, 30 min after a failure, logged
