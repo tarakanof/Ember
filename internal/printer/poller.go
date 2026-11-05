@@ -312,7 +312,7 @@ func (p *Poller) use(f Found, manual bool, creds Credentials) {
 	if f.URL != p.target {
 		p.versionTried, p.versionFails = false, 0
 		p.failures, p.backoff = 0, 0
-		p.needJob = true
+		p.needJob, p.jobFails = true, 0
 	}
 	p.client, p.target, p.manual, p.identity = c, f.URL, manual, identity
 	p.State.setTarget(f.URL, host, !manual)
@@ -445,7 +445,7 @@ func (p *Poller) fetchJob(ctx context.Context) error {
 		}
 		return nil
 	}
-	p.needJob = false
+	p.needJob, p.jobFails = false, 0
 	ref, fetch := p.State.setJob(job)
 	if !fetch {
 		return nil

@@ -1105,3 +1105,55 @@ func TestOfflineFallbackBrowsesOncePerStep(t *testing.T) {
 		}
 	}
 }
+
+func TestThumbnailRetryAfterFailedJobReadsStillGetsItsTries(t *testing.T) {
+	s := newStubPrinter(t)
+	png := []byte("\x89PNG\r\n\x1a\nthumb")
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 3, progress: 5})
+		s.job = "broken"
+	})
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) {
+		s.job, s.thumbCode = jobJSON(3, "PRINTING", "a.bgcode"), http.StatusInternalServerError
+	})
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.job = "broken" })
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.job, s.thumbCode, s.thumb = jobJSON(3, "PRINTING", "a.bgcode"), 0, png })
+	for range 4 {
+		h.advance(h.step())
+	}
+	if h.snap().ThumbVersion == "" {
+		t.Fatal("thumbnail never fetched once the printer answered again")
+	}
+}
+
+func TestAddressChangeRestartsTheJobReadBudget(t *testing.T) {
+	oldAddr := newStubPrinter(t)
+	newAddr := newStubPrinter(t)
+	for _, s := range []*stubPrinter{oldAddr, newAddr} {
+		s.set(func(s *stubPrinter) {
+			s.status = statusJSON("PRINTING", &jobFields{id: 3, progress: 5})
+			s.job = "broken"
+		})
+	}
+	current := oldAddr.srv.URL
+	browse := func(context.Context) ([]Found, error) {
+		return []Found{{Host: "prusa-core-one.local.", URL: current}}, nil
+	}
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, browse)
+	for range 4 {
+		h.advance(h.step())
+	}
+	oldAddr.srv.Close()
+	current = newAddr.srv.URL
+	for range 6 {
+		h.advance(h.step())
+	}
+	if got := newAddr.hit("/api/v1/job"); got != jobTries {
+		t.Fatalf("job read %d times at the new address, want a fresh budget of %d", got, jobTries)
+	}
+}
