@@ -262,7 +262,7 @@ pre-releases the same way):
 | `usage` | Parses the view's `usage` block and shows the usage screens ("Usage") | `usage` is sent only with this token |
 | `shown` | Adds `?shown=<page>[:<face>]` to its view polls ("Shown page") | `shown` is read only with this token; the owner's device entry carries `shown` while fresh |
 | `lan_pair` | Re-pairs over the LAN with a code when it has a URL but no valid token (`POST /v1/devices/claim`, #658) | Ember.app's Forget dialog says the knob will show a pairing code only with this token; the server doesn't read it. Not to be confused with the server's own `lan_pair` in `GET /version` `features`, which says the claim routes exist |
-| `print_moments` | Plays the bot print moments (done, needs you) from the view's `print.event` and applies `bot.print_moments` ("Print") | `print` is sent for this token alone while the `bot` page is on and `bot.print_moments` is not `false`; Ember.app shows the Print moments toggle only with this token; the print demo scenes ("Demo mode") are offered only with it |
+| `print_moments` | Plays the bot print moments (done, needs you) from the view's `print.event` and applies `bot.print_moments` ("Print") | `print` is sent for this token alone while the `bot` page is on and `bot.print_moments` is not `false`; Ember.app shows the Print moments toggle only with this token; the print demo scenes ("Demo mode") are offered only with it, and a demo `print` is sent regardless of the conditions above |
 | `room` | Sends the checkin's `room` block ("Room readings") and applies the `room` config block and page ("Room settings") | The server stores a block from any knob, token or not, and sends the config to every knob; Ember.app shows the Room section and the `room` page row only with this token |
 
 Page ids in `caps.pages` need no registry: they are the config's page ids;
@@ -350,7 +350,11 @@ A weather scene's `view` carries a second `weather` block next to the real
 one, so a body can hold two. The worst case (the largest scene over the
 worst-case real view, `TestDemoOnTheWorstCaseViewFitsTheBuffer`) is about
 7 KB, under half the 16 KB view buffer; firmware budgeting JSON nodes should
-count both blocks.
+count both blocks. A print scene does the same with `print` (the real view
+carries its own for a `print_moments` knob with the printer set up): two
+blocks of at most ~0.8 KB each ("Print"), far under that worst case. A demo
+`view.print` ignores the real block's conditions (printer enabled, password
+set, `bot.print_moments`): the knob plays it as "Demo mode" says.
 
 **Reports.** While it holds a scene, the knob MUST add
 `?demo_id=<id>&demo_state=playing` to every view request (plain polls,

@@ -1152,3 +1152,34 @@ func TestDemoEventIDIsNeverZeroAndTakesTheIDsTail(t *testing.T) {
 		t.Errorf("a random demo id gave event id %d", got)
 	}
 }
+
+func TestDemoPrintQueueIsRejectedWholeWithoutPrintMoments(t *testing.T) {
+	f := demoFixture(t)
+	caps := knobCapsDemo.Clone()
+	caps.Features = slices.DeleteFunc(caps.Features, func(s string) bool { return s == featurePrintMoments })
+	plantCaps(t, f, caps)
+	if resp, _ := postDemo(t, f, `{"scenes":["bot.idle","moment.print_done"]}`); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("queue with a print scene = %d, want 400", resp.StatusCode)
+	}
+	if st := demoStatusOf(t, f); st.State != demoIdle {
+		t.Fatalf("a rejected queue started: %+v", st)
+	}
+}
+
+func TestDemoPrintQueueGivesEachScenePlayItsOwnEventID(t *testing.T) {
+	f := demoFixture(t)
+	postDemo(t, f, `{"scenes":["moment.print_done","moment.print_done"]}`)
+	eventID := func() uint64 {
+		var p knobPrint
+		if err := json.Unmarshal(viewDemo(t, goldenView(t, f)).View["print"], &p); err != nil || p.Event == nil {
+			t.Fatalf("print = %+v %v", p, err)
+		}
+		return p.Event.ID
+	}
+	first := eventID()
+	f.report(t, "d0000001", "playing")
+	f.report(t, "d0000001", "done")
+	if second := eventID(); second == first {
+		t.Fatalf("the queue's next print scene reused event id %d", first)
+	}
+}
