@@ -295,6 +295,9 @@ reason weather is unavailable while it is on, e.g. `tomorrow-io` or `weatherapi`
 without its key),
 `GET /v1/nowplaying/state`, `GET /v1/nowplaying/art?kind=album|artist|backdrop|cover&size=`
 (square baseline JPEG, ETag; `cover` is the knob's prepared 466 px circle; rate-limited),
+`GET /v1/print/thumb?kind=solid|ghost&v=` (device or owner token; the print job's picture as the
+knob's 466 px circle JPEG, `immutable` at `v` = the view's `print.thumb_version`, else `no-cache`;
+404 without a picture; rate-limited; DEVICE-PROTOCOL "Print"),
 `GET /v1/clock/health` (24h publish counts + clock RSSI/heap/uptime/current
 app, device probe cached 30s, latest NG release looked up on GitHub in the
 background every 6h — `EMBER_FIRMWARE_CHECK=0` disables it). Dashboard
@@ -316,7 +319,8 @@ single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
 `X-Ember-View-Wait`; `?demo_id=&demo_state=playing|done` report on a demo;
 `?shown=<page>[:<face>]` reports what the knob shows (`shown` caps feature;
 a malformed value is ignored, never a 400); `"quiet":true` while quiet hours are on, and a waiting
-poll wakes at the quiet-hours edges — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
+poll wakes at the quiet-hours edges; `print` for a knob with the `print` page or the `print_moments`
+caps feature while the printer is enabled — see ARCHITECTURE "Wire protocol", DEVICE-PROTOCOL "Print") (`/state` carries `X-Ember-Devices-Epoch`, bumped
 on any knob config change or rotation and on any clock record or clock config change). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
 the Plex poller). Knob LAN re-pair (unauthenticated, rate-limited, #658, DEVICE-PROTOCOL
 "Scope"; only when `/version` `features` lists `lan_pair`, since an older

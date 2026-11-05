@@ -1,8 +1,12 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"math"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/tarakanof/ember/internal/printer"
@@ -113,4 +117,65 @@ func (a *App) handlePrintConfigPut(w http.ResponseWriter, r *http.Request) {
 	if c, ok := serveSettingPut(a, w, r, a.settings.printer); ok {
 		writeJSON(w, http.StatusOK, c)
 	}
+}
+
+type printThumbCache struct {
+	mu    sync.Mutex
+	ver   string
+	bytes map[printer.ThumbKind][]byte
+}
+
+func (c *printThumbCache) get(data []byte, ver string, kind printer.ThumbKind) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ver != ver {
+		c.ver, c.bytes = ver, map[printer.ThumbKind][]byte{}
+	}
+	if b, ok := c.bytes[kind]; ok {
+		return b, nil
+	}
+	b, err := printer.BakeThumb(data, kind)
+	if err != nil {
+		return nil, err
+	}
+	c.bytes[kind] = b
+	return b, nil
+}
+
+func (a *App) handlePrintThumb(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	kind := printer.ThumbKind(q.Get("kind"))
+	if kind != printer.ThumbSolid && kind != printer.ThumbGhost {
+		writeError(w, http.StatusBadRequest, printer.ErrThumbKind)
+		return
+	}
+	snap := a.printer.State.At(time.Now())
+	data, ver := a.printer.State.Thumbnail()
+	if !snap.Enabled || snap.ThumbVersion == "" || ver != snap.ThumbVersion || len(data) == 0 {
+		writeError(w, http.StatusNotFound, errors.New("no print thumbnail"))
+		return
+	}
+	version := printThumbVersion(ver)
+	etag := fmt.Sprintf(`"%s-%s-%d"`, version, kind, printer.ThumbSize)
+	h := w.Header()
+	h.Set("ETag", etag)
+	if v := q.Get("v"); v != "" && v == version {
+		h.Set("Cache-Control", "public, max-age=86400, immutable")
+	} else {
+		h.Set("Cache-Control", "no-cache")
+	}
+	if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	body, err := a.printThumbs.get(data, version, kind)
+	if err != nil {
+		a.logger.Warn("print thumbnail bake failed", "kind", kind, "thumb_version", version, "err", err)
+		writeError(w, http.StatusNotFound, errors.New("print thumbnail unusable"))
+		return
+	}
+	h.Set("Content-Type", "image/jpeg")
+	h.Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }

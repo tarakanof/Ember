@@ -20,6 +20,8 @@ const (
 	featureUsage     = "usage"
 	featureShown     = "shown"
 	featureRoom      = "room"
+
+	featurePrintMoments = "print_moments"
 )
 
 func decodeCaps(raw json.RawMessage) (*devices.Caps, string) {

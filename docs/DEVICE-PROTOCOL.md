@@ -16,7 +16,7 @@ Every route the knob calls with its device token (`ekd_…`); the LAN re-pair ro
 | Route | What |
 |---|---|
 | `POST /v1/devices/self/checkin` | Health report in, optionally with `caps` ("Capabilities" below) and `room` ("Room readings"); reply carries `config_version`, `caps_ack` when the caps were accepted, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
-| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `usage` (with the `usage` feature while an account has a snapshot, "Usage"), `diag_live_until` (live mode only), `demo` (with the `demo` feature while a demo is set, "Demo mode") and `day` (with the `day` page in caps and on while the day clock is enabled, "Day clock"). `?demo_id=&demo_state=` report on the demo; `?shown=<page>[:<face>]` reports what the knob shows ("Shown page"). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
+| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `usage` (with the `usage` feature while an account has a snapshot, "Usage"), `diag_live_until` (live mode only), `demo` (with the `demo` feature while a demo is set, "Demo mode"), `day` (with the `day` page in caps and on while the day clock is enabled, "Day clock") and `print` (with the `print` page in caps and on, or the `print_moments` feature, while the printer is enabled, "Print"). `?demo_id=&demo_state=` report on the demo; `?shown=<page>[:<face>]` reports what the knob shows ("Shown page"). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
 | `GET /v1/devices/self/config` | `{config_version, config}`, the same pair a stale checkin carries. |
 | `PUT /v1/devices/self/coredump?id=` | The core dump a checkin asked for. |
 | `GET /v1/devices/self/firmware/{version}` | The image the checkin's `ota` offer names. |
@@ -24,6 +24,7 @@ Every route the knob calls with its device token (`ekd_…`); the LAN re-pair ro
 | `GET /v1/day/state`, `POST /v1/day/{start,break,resume,stop}`, `PUT /v1/day/stop_at`, `POST /v1/day/offer/dismiss` | Day clock (#729, "Day clock"); the reply is the `day` block (`day_action.json`). |
 | `POST /v1/nowplaying/control` | Player control, optional `Idempotency-Key`. |
 | `POST /v1/controls/action` | A gesture for the Mac-controller page (#515, cinder#144, #747): `{"gesture":"push|double_push|long_push|turn","steps":±1..20}`, `steps` only for `turn`. Optional `Idempotency-Key`. The knob names a gesture, never an action; actions live on the target Mac. Reply `controls_action.json` (202); 200 `{"status":"duplicate"}`; 403 `{"error":"controls page is off on this knob"}` unless the knob's last checkin lists `controls` in `caps.pages` and its stored settings have the page on (checked before the dedupe key and the rate limit, so a refusal burns neither); 503 when no Mac is set or it isn't listening (don't retry); 429 `Retry-After`. |
+| `GET /v1/print/thumb?kind=&v=` | The job's picture for the view's `print.thumb_version` ("Print"): `kind` `solid` or `ghost` (anything else 400), a 466 px baseline JPEG; device or owner token. `v` equal to the current `thumb_version` gives `public, max-age=86400, immutable`; any other `v`, or none, gives `no-cache`; 404 without a picture. |
 | `GET /v1/nowplaying/art?kind=&size=&v=` | Art for the view's `art_version`: `kind` `album`/`artist`/`backdrop`/`cover`, `size` the square edge in px from a fixed list per kind (album 240 or 120, artist 64 or 120, backdrop 466, cover 466; default the first, anything else 400; `cover` is the prepared circle, "Prepared cover"), `v` the `art_version` (public, no token). `v` equal to the current `art_version` (for `cover`, the `cover_version`) gives `public, max-age=86400, immutable` for every kind, `artist` included; any other `v`, or none, gives `no-cache`. |
 
 **Unauthenticated: LAN re-pair** (#658). A knob with Wi-Fi and an Ember
@@ -166,7 +167,7 @@ Since #341 the knob may say what it can do in every checkin (cinder#27):
   cinder#255; 1024 before). Floors:
   `view_bytes` ≥ 4096 (a full view without `nowplaying` is under 700 B;
   the rest is headroom for long host labels and future fields) and
-  `config_bytes` ≥ the default config's compact size (590 B today; it
+  `config_bytes` ≥ the default config's compact size (616 B today; it
   follows `defaultKnobSettings`), so the knob can always hold a view and
   the config a new record starts with.
 - `rotations` (optional): the display rotations in degrees the firmware can
@@ -201,10 +202,11 @@ dropped caps, `caps_error`; absent for the clock and on servers before
 - **View:** `v` = min(server max, `caps.view[1]`); the server max is 1. Only
   blocks whose page is in `caps.pages` and on in the knob's `pages` are sent
   (`bot` → `mood`, `pomodoro` → `pomo`, `weather` → `weather`, `nowplaying`
-  → `nowplaying`, `day` → `day`); a left-out block is absent, while a kept `pomo` or
+  → `nowplaying`, `day` → `day`, `print` → `print`, which `print_moments`
+  also brings, "Print"); a left-out block is absent, while a kept `pomo` or
   `weather` is still `null` when its feature is off (`day` is absent instead).
   A body over `limits.view_bytes` drops the weather detail ("Weather detail"), then
-  `nowplaying`, then `usage`, then `weather`, then `pomo`, then `day`; `mood` stays. If it is still
+  `nowplaying`, then `usage`, then `weather`, then `pomo`, then `print`, then `day`; `mood` stays. If it is still
   over, the server serves it and logs once per device (`knob view over
   its caps view_bytes`) until it fits again.
 - **Config PUT** (owner): 400 when it turns on a page that is not in
@@ -260,6 +262,7 @@ pre-releases the same way):
 | `usage` | Parses the view's `usage` block and shows the usage screens ("Usage") | `usage` is sent only with this token |
 | `shown` | Adds `?shown=<page>[:<face>]` to its view polls ("Shown page") | `shown` is read only with this token; the owner's device entry carries `shown` while fresh |
 | `lan_pair` | Re-pairs over the LAN with a code when it has a URL but no valid token (`POST /v1/devices/claim`, #658) | Ember.app's Forget dialog says the knob will show a pairing code only with this token; the server doesn't read it. Not to be confused with the server's own `lan_pair` in `GET /version` `features`, which says the claim routes exist |
+| `print_moments` | Plays the bot print moments (done, needs you) from the view's `print.event` and applies `bot.print_moments` ("Print") | `print` is sent for this token alone while the `bot` page is on and `bot.print_moments` is not `false`; Ember.app shows the Print moments toggle only with this token |
 | `room` | Sends the checkin's `room` block ("Room readings") and applies the `room` config block and page ("Room settings") | The server stores a block from any knob, token or not, and sends the config to every knob; Ember.app shows the Room section and the `room` page row only with this token |
 
 Page ids in `caps.pages` need no registry: they are the config's page ids;
@@ -287,6 +290,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `shown` or not | `shown` read only with the token and exposed on `GET /v1/devices` while the current caps list it and a poll carried it in the last 50 s; a malformed value is ignored with a 200 and logged once until a good one; the view's bytes and ETag never depend on it | `TestKnobShownPollReachesTheDeviceList`, `TestKnobShownGoesStaleFiftySecondsAfterTheLastPoll`, `TestKnobShownIsIgnoredWithoutTheShownCap`, `TestKnobShownMalformedValuesAreIgnoredAndLoggedOnce`, `TestKnobShownIsRecordedBeforeTheLongPollWaits`, `TestKnobShownRenameReplyCarriesIt`, `TestKnobShownLongestValidValuesAreKept`, `TestKnobShownIsForgottenWhenTheDeviceIsDeleted`, `TestKnobShownPollRacingADeleteLeavesNothingForTheReMintedKnob`, `TestKnobShownDisappearsWhenCapsWithdrawTheToken`, `TestKnobShownAtIsWholeSecondsUTC`, `TestKnobViewPollWithShownGolden` (`view_req_shown.json`, `devices_shown_test.go`); cinder side next: a host test that builds the fixture's query (tarakanof/cinder#246) |
 | new | any, `room` sent or not (cinder#304) | a checkin without `room` behaves as before and keeps the last block; a block with any subset of keys is stored and answered; a bad value drops only that value and the checkin still answers 200; a stale checkin's block is ignored; an old server ignores the key | `TestDeviceCheckinWithoutARoomStoresNone`, `TestDeviceCheckinAcceptsAnySubsetOfTheRoomBlock`, `TestDeviceCheckinWithoutARoomKeepsTheLastBlock`, `TestANewRoomBlockReplacesTheLastOneWhole`, `TestStaleCheckinDoesNotTouchTheRoomBlock`, `TestDeviceCheckinDropsOnlyTheBadRoomValues`, `TestANonObjectRoomKeepsTheCheckinAndTheLastBlock`, `TestDeviceCheckinGolden` (`checkin_req_full.json`, `devices_room_test.go`); cinder host test: `.room` in `NOT_YET_SENT` until the firmware sends it |
 | new | new, `room` or not (cinder#306) | the `room` page is off until the owner turns it on and a caps knob only with `room` in `caps.pages`; the app shows the Room section and the page row only with the token, since the page id is in every firmware's table; a config with the block over a 1024 knob's `config_bytes` is a 400; an absent block leaves a stored record's bytes and `config_version` alone | `TestKnobRoomConfigRoundTripsThroughTheOwnerAndTheKnob`, `TestKnobRoomPresenceOffOutOfRangeIs400`, `TestKnobRoomBlockMergesFieldByField`, `TestKnobRoomPageReachesAStoredConfigOffWithoutABump`, `TestCapsKnobCannotTurnOnTheRoomPageOutsideItsCaps`, `TestCapsKnobV2OverConfigBytes400`, `TestKnobV2LargestConfigFitsDepthAndSize`, `TestDeviceConfigV2Golden`; Ember.app `knobRoomNeedsTheRoomFeatureNotJustThePageId`, `knobWithoutCapsOrWithoutAKnobShowsNoRoom`; cinder host test: `room` in `PAGES_AHEAD` until its table has the row |
+| new | new, `print` page or `print_moments` or neither (#791, cinder#321, cinder#322) | `print` only for a caps knob with the `print` page in `caps.pages` and on, or with `print_moments`, the `bot` page on and `bot.print_moments` not `false`, and only while the printer is enabled with a password; last key; never for a legacy knob, whose view is byte-identical whether a printer prints or not; the page is off by default and only turns on with `print` in `caps.pages`; the ETag moves on a phase, a whole percent, an anchored time shift, a new job or event, and on temperatures only while `heating` (a simulated 2 h job: 129 changes in 1512 polls); `kind=solid`/`ghost` are 466 px circle JPEGs, immutable only at `v=<thumb_version>` | `TestKnobViewPrintGolden` (`view_print.json`, `devices_view_print_test.go`), `TestKnobViewPrintHeatingGolden` (`view_print_heating.json`), `TestKnobViewPrintAttentionGolden` (`view_print_attention.json`), `TestKnobViewSendsPrintOnlyToCapsKnobsWithThePageOrMoments`, `TestKnobViewPrintBlockFollowsThePhase`, `TestKnobViewPrintBlockStaysSmall`, `TestKnobViewPrintETagMovesOnlyOnWholePercentsAndPhases`, `TestPrintThumbRoute`, `TestBakeThumb*` (`internal/printer`), `TestKnobPrintPageReachesAStoredConfigOffWithoutABump`, `TestKnobPrintMomentsMergeAndClear` (`internal/devices`); Ember.app `knobPrintRowsNeedThePrintPageAndTheMomentsToken`; cinder host test: the three goldens parse, `print` in `PAGES_AHEAD` until its table has the row |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
 ## Demo mode
@@ -635,7 +639,7 @@ Readings go the other way ("Room readings").
 
 **Page.** `room` is a known page, off by default, right after `weather` in a
 new knob's list: `bot`, `day`, `weather`, `room`, `nowplaying`, `controls`,
-`pomodoro`. cinder's page table must equal this list (`test_pages.c`). A stored
+`print`, `pomodoro` (`print` since #791). cinder's page table must equal this list (`test_pages.c`). A stored
 config gains it as an off page at the end, without a `config_version` bump, like
 `day` and `controls`; the owner reorders it. The page takes no view block: the
 knob reads its own sensors, so it works with Ember down, and stays out of the
@@ -747,6 +751,91 @@ the block above (`day_action.json`); 404 while the day clock is disabled.
 | `POST /v1/day/stop` | — | no-op while off |
 | `PUT /v1/day/stop_at` | `{"stop_at":"HH:MM"}` (400 otherwise) | sets it again |
 | `POST /v1/day/offer/dismiss` | — | no-op; no new offer until the next day |
+
+## Print
+
+The printer status for the knob's `print` page (K1 Progress, K2
+Materialise; cinder#321) and the bot's print moments (B3 done, B4 needs
+you; cinder#322), #791. Ember polls PrusaLink (#789, ARCHITECTURE
+"Print"); the knob never talks to the printer. Rule 1: the block, the
+page, the token and the route are new, so old firmware never sees them.
+
+**Page.** `print` is a known page, off by default, after `controls` in a
+new knob's list. A stored config gains it as an off page at the end,
+without a `config_version` bump (it adds 26 B to the default config, 616 B
+now). With it the default list holds 8 pages, cinder's `KS_MAX_PAGES`, so
+a stored config that already lists 8 ids gains nothing. A config PUT turns
+it on only for a knob whose `caps.pages` lists it, and Ember.app shows the
+row only then.
+
+**Config.** `bot.print_moments` (bool, absent = `true`): `false` turns the
+print moments off. Like the v2 keys ("Idle and per-app options") the
+server never fills it, so a stored record keeps its bytes; a PUT merges it,
+`null` clears it, a non-boolean is a 400. Ember.app shows the Print
+moments toggle only with the `print_moments` token. Old firmware skips the
+key.
+
+**View block.** `print` is the view's last key, sent only to a caps knob
+that lists the `print` page with the page on, or that lists the
+`print_moments` feature with the `bot` page on and `bot.print_moments` not
+`false`; and only while `printer.enabled` and the server has the
+PrusaLink password (phase `off` sends nothing, absent never `null`). A
+legacy knob never gets it. Optional keys are absent when unknown.
+
+| Key | Meaning |
+|---|---|
+| `phase` | always: `offline`, `idle`, `heating`, `preparing`, `printing`, `finishing`, `paused`, `attention`, `finished`, `stopped` or `error` (#789's table) |
+| `progress` | whole percent 0-100 in every phase but `offline` and `idle`; 0 while `heating` and `preparing`, 100 once `finished` |
+| `ends_at` | Unix s, now + the printer's time left, anchored: it moves only when the estimate is more than 60 s off. The knob computes "left" from `X-Ember-Now`, so it ticks without a view change |
+| `started_at` | Unix s, now − time printing, anchored the same way; absent until the job has run |
+| `change_at` | Unix s of the next colour change (`filament_change_in`), anchored; absent when none |
+| `nozzle`, `nozzle_target`, `bed`, `bed_target` | whole degrees, **only while `heating`** |
+| `name` | the file's display name without the extension and PrusaSlicer's `_0.4n_0.2mm_PETG_COREONE_2h14m` suffix, ≤ 32 characters |
+| `material` | from that suffix when present (`PETG`, `PLA/PETG` for a multi-material job), ≤ 16 characters |
+| `thumb_version` | present when the job has a picture: `<hash>-<recipe>` (`5d73e113fbb7-r1`), the `v` for `GET /v1/print/thumb`; a new picture or recipe gives a new value |
+| `event` | `{id, kind, at}`, the newest edge of the last 30 min, in any phase: `kind` `started`, `attention`, `finished`, `stopped` or `error`, `at` Unix s, `id` increasing (Unix ms, exact in a double). The knob plays a moment once per `id`, never replays one it saw before a reboot when it is over 5 min old (cinder#322), and repeats B4 itself while `phase` stays `attention` |
+| `printer` | `printer.name` from the config ("CORE One"), ≤ 32 characters, for the label |
+
+Phases `offline` and `idle` carry only `phase`, `event` and `printer`. An
+`attention` right after a `finished` or `stopped` job (the finish screen's
+warning) carries `progress` 0 and no job keys, like `GET /v1/print/state`.
+
+**ETag.** The body hash moves on a phase change, each whole percent (about
+every 80 s on a 2 h job), an anchored time shift, a new job, picture or
+event, an event ageing out after 30 min, and on every temperature degree
+while `heating`. A simulated 2 h print polled every 5 s changes it 129
+times in 1512 polls (`TestKnobViewPrintETagMovesOnlyOnWholePercentsAndPhases`);
+a long poll wakes on each change. While `paused` the time left stays put,
+so `ends_at` slips one anchor step a minute.
+
+**Size.** About 260 B with every key; the worst case (32 three-byte
+characters of name, 16 of material, a 32-character label of escaped quotes,
+temperatures) stays under 512 B. It is dropped after `pomo` and before
+`day` to fit `view_bytes`.
+
+**Pictures.** `GET /v1/print/thumb?kind=solid|ghost&v=<thumb_version>`
+(device or owner token, rate-limited like the other routes) serves the
+job's PrusaLink PNG thumbnail baked for K2 as a 466 px baseline JPEG
+(q 80), recipe `r1`:
+
+1. crop to the picture's opaque box (alpha ≥ 8; a picture with no
+   transparency keeps its whole frame);
+2. scale it so the box's diagonal plus a 4 % margin each side fits the
+   r 208 circle (the whole model stays visible), centred on black 466 px,
+   transparent pixels black;
+3. an anti-aliased circle mask of r 208 and a rim fade × 1 → 0 from
+   r 170 to 208;
+4. `ghost` only: the luma (0.2126/0.7152/0.0722) at 25 % brightness.
+
+The knob blits the ghost and, clipped above the progress height, the
+solid, so a step invalidates one thin box. `v` equal to the current
+`thumb_version` gives `public, max-age=86400, immutable`; any other `v`
+gives `no-cache`. The ETag is `"<thumb_version>-<kind>-466"`. 404 when
+there is no picture (no job, PrusaLink has none, the printer is off). The
+server bakes each kind once per version and keeps only the newest
+version's two JPEGs in RAM. PrusaLink pictures over 1 MB or 2048 px a side
+are skipped when the job is read, so the view never names a picture the
+route can't bake.
 
 ## Idle and per-app options
 
@@ -1198,8 +1287,11 @@ Indented JSON; key order is the wire order.
 | `view_day_on.json` | The same knob 14 h 20 min after clock-in: `over_min` 140, `break_hint` |
 | `view_day_summary.json` | Right after `stop`: `"quiet": true`, `day` off with its `summary` |
 | `view_day_break.json` | On a second break: one finished break in `breaks`, the running one in `break_min` |
+| `view_print.json` | A knob with the `print` page and `print_moments` (caps `bot`, `print`): `printing` at 24 %, anchored `ends_at`, `started_at`, `change_at`, name and material from PrusaSlicer's file name, `thumb_version`, the `started` event, `printer` |
+| `view_print_heating.json` | The same knob while `heating`: `progress` 0, `nozzle`/`nozzle_target`/`bed`/`bed_target`, no `started_at` yet, no picture (no `thumb_version`) |
+| `view_print_attention.json` | The same knob when the printer stops for a colour change: `attention` and its event, the job's keys kept, `change_at` gone |
 | `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |
-| `config_default.json` | `GET …/self/config` for a new knob (pages `bot`, `day`, `weather`, then `room`, `nowplaying`, `controls` and `pomodoro` off), `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
+| `config_default.json` | `GET …/self/config` for a new knob (pages `bot`, `day`, `weather`, then `room`, `nowplaying`, `controls`, `print` and `pomodoro` off), `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
 | `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800, `room` with `presence_off_s` 86399 (1055 B compact; 969 B without `room`) |
 | `checkin_reply_config_v2.json` | A stale knob's checkin reply carrying that config |

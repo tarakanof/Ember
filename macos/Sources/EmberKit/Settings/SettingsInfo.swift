@@ -3,7 +3,7 @@ import Foundation
 public enum SettingsInfo: String, CaseIterable, Sendable {
     case knobPoll, knobStatsInterval, knobLiveInterval, knobFastLink, knobRotation
     case knobFollowBrightness, knobMinBrightness, knobStartupBrightness
-    case knobSleepy, knobSourceLabel, knobWorkingRing, knobWeatherMoments, knobWeatherEvery
+    case knobSleepy, knobSourceLabel, knobWorkingRing, knobWeatherMoments, knobWeatherEvery, knobPrintMoments
     case knobQuietCalm, knobQuietDim
     case clockAutoBrightness, clockUppercase
     case clockTimePerApp, clockAutoTransition, clockScrollSpeed, clockBlockNavigation
@@ -32,6 +32,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobWorkingRing: "A glint circles the bot's outline while an agent works"
         case .knobWeatherMoments: "The bot shows the weather when it changes"
         case .knobWeatherEvery: "How often the bot shows the weather when nothing changes"
+        case .knobPrintMoments: "The bot tells you when a print is done or the printer needs you"
         case .knobQuietCalm: "Keeps the bot calm during quiet hours, set in Sounds & Alerts"
         case .knobQuietDim: "The brightest the knob gets during quiet hours, set in Sounds & Alerts"
         case .clockAutoBrightness: "Lets the clock's light sensor set its brightness"
@@ -96,6 +97,8 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "When rain, snow or a storm starts, rain stops, the wind picks up or it turns hot or freezing, the bot page shows the weather above the eyes with a short line under them. Default: on."
         case .knobWeatherEvery:
             "Between changes, the bot also shows the current weather this often, at most every 30 min, and skips it when the line would read the same as last time. Never: only show a moment when the weather changes. Default: 30 min."
+        case .knobPrintMoments:
+            "When a print finishes, or the printer stops for a colour change or a problem, the bot page shows it for a few seconds with the bot's outline in Prusa orange, and repeats the reminder every 2 min while the printer waits. Needs a printer set up on the Ember server. Default: on."
         case .knobQuietCalm:
             "During quiet hours the bot skips its attention and excited animations, so a waiting or failed agent doesn't light up the room; the knob has no speaker, so they only change what it shows. Set the hours in Sounds & Alerts. Default: on."
         case .knobQuietDim:

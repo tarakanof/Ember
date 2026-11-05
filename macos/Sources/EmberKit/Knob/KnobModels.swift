@@ -213,7 +213,9 @@ public struct KnobCaps: Codable, Equatable, Sendable {
     public static let npDim = "np_dim"
     public static let demo = "demo"
     public static let room = "room"
+    public static let printMoments = "print_moments"
     public static let nowPlayingPage = "nowplaying"
+    public static let printPage = "print"
 
     static let legacyFeatureFloors: [String: [Int]] = [statsIntervals: [0, 7, 0]]
     static let swipePagesFloor = [0, 9, 15]
@@ -485,6 +487,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         public var workingRing: Bool?
         public var weatherMoments: Bool?
         public var weatherEveryMin: Int?
+        public var printMoments: Bool?
         enum CodingKeys: String, CodingKey {
             case sleepyAfterS = "sleepy_after_s"
             case demoHoldS = "demo_hold_s"
@@ -492,12 +495,14 @@ public struct KnobSettings: Codable, Equatable, Sendable {
             case workingRing = "working_ring"
             case weatherMoments = "weather_moments"
             case weatherEveryMin = "weather_every_min"
+            case printMoments = "print_moments"
         }
         public init(sleepyAfterS: Int, demoHoldS: Int, sourceLabel: Bool? = nil, workingRing: Bool? = nil,
-                    weatherMoments: Bool? = nil, weatherEveryMin: Int? = nil) {
+                    weatherMoments: Bool? = nil, weatherEveryMin: Int? = nil, printMoments: Bool? = nil) {
             self.sleepyAfterS = sleepyAfterS; self.demoHoldS = demoHoldS
             self.sourceLabel = sourceLabel; self.workingRing = workingRing
             self.weatherMoments = weatherMoments; self.weatherEveryMin = weatherEveryMin
+            self.printMoments = printMoments
         }
     }
 
@@ -645,7 +650,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public func pagesShown(on knob: KnobDevice?) -> [Page] {
         pages.filter { page in
             switch page.id {
-            case "controls": knob?.supports(page: page.id) == true
+            case "controls", KnobCaps.printPage: knob?.supports(page: page.id) == true
             case "room": knob?.showsRoom == true
             default: true
             }

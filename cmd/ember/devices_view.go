@@ -30,6 +30,7 @@ type knobView struct {
 	DiagLiveUntil *int64                 `json:"diag_live_until,omitempty"`
 	Demo          *knobDemo              `json:"demo,omitempty"`
 	Day           *knobDay               `json:"day,omitempty"`
+	Print         *knobPrint             `json:"print,omitempty"`
 }
 
 type knobMood struct {
@@ -162,6 +163,9 @@ func (a *App) buildKnobView(id string, now time.Time) ([]byte, string, string, e
 	if st.Caps != nil && st.Caps.HasPage(knobDayPage) && st.Cfg.PageOn(knobDayPage) {
 		v.Day = a.dayBlock(now, m.Running)
 	}
+	if knobWantsPrint(st.Caps, st.Cfg) {
+		v.Print = a.knobPrint(now)
+	}
 	body, err := json.Marshal(v)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("encode knob view: %w", err)
@@ -210,6 +214,7 @@ func (v *knobView) fit(body []byte, limit int) ([]byte, error) {
 		func() { v.Usage = nil },
 		func() { v.Weather.on = false },
 		func() { v.Pomo.on = false },
+		func() { v.Print = nil },
 		func() { v.Day = nil },
 	}
 	for _, drop := range drops {

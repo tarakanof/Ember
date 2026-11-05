@@ -2844,10 +2844,20 @@ keeps it on the default transport: mDNS browsing is injected
   The edge times are kept apart from the 30-min event list, so a hold
   longer than 30 min lasts.
 - **Thumbnail.** On a new job, `refs.thumbnail` (`/thumb/l/…`) is read once:
-  `image/png`, PNG magic, ≤ 1 MB, RAM only (`State.Thumbnail()`),
-  `thumb_version` = 12 hex digits of its SHA-256. 404, a wrong type, over
-  1 MB or not a PNG = no picture, not retried for that job; a transport or
-  5xx failure is retried on the next 2 polls.
+  `image/png`, PNG magic, a PNG header of at most 2048 px a side, ≤ 1 MB,
+  RAM only (`State.Thumbnail()`), `thumb_version` = 12 hex digits of its
+  SHA-256. 404, a wrong type, over 1 MB, over 2048 px or not a PNG = no
+  picture, not retried for that job; a transport or 5xx failure is retried
+  on the next 2 polls.
+- **Knob block and pictures** (#791, `cmd/ember/devices_view_print.go`).
+  The knob view's `print` block is built from the same `State.At(now)`
+  for a caps knob with the `print` page on, or the `print_moments` token
+  with the bot page on and `bot.print_moments` not false; temperatures
+  only while heating, `thumb_version` as `<hash>-<recipe>`. `GET
+  /v1/print/thumb?kind=solid|ghost` bakes the PNG into the knob's 466 px
+  circle JPEGs (`printer.BakeThumb`: opaque-box crop, diagonal fit,
+  rim fade; ghost = grey at 25 %), once per version and kind, newest
+  version only, in RAM. Contract: DEVICE-PROTOCOL "Print".
 - **Changes** notify `topicPrint` when a reader-visible value moves: phase,
   whole percent, an anchor, an event, the hold, the error, name, thumbnail,
   printer info; temperatures only while heating.
