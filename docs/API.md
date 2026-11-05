@@ -122,7 +122,7 @@ updates"),
 (knob demo mode, memory only: `{"scene":"…"}` or `{"scenes":[…]}` plus
 `"hold"` (ignored with `scenes`; capped at 60 s by knob and server), newest
 wins; unknown scene, both or neither of `scene` and `scenes` (even
-`"scenes": []`, or a print scene for a knob without `print_moments`) 400, a knob without the `demo` caps feature 409; status
+`"scenes": []`), or a print scene for a knob without `print_moments` 400, a knob without the `demo` caps feature 409; status
 `{state: idle|pending|playing|unanswered|restarted, scene, id, queue_left}`
 (`restarted`: the knob rebooted mid-demo, demo and queue dropped; a view
 poll with the knob token and no `demo_id` while a scene plays reads as that
