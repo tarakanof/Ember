@@ -122,21 +122,8 @@ public final class PrinterSettingsModel {
 
     public var previewMissing: Bool { preview.error == .featureOff }
 
-    public func flush() {
-        commitAddress()
-        let config = config
-        Task {
-            var rounds = 0
-            while config.hasUnsavedChanges, config.saveError == nil, rounds < 100 {
-                await config.saveNow()
-                rounds += 1
-                if config.hasUnsavedChanges { try? await Task.sleep(for: .milliseconds(100)) }
-            }
-        }
-    }
-
     public func refreshPreview() {
-        guard config.draft.enabled else { return }
+        guard config.draft.enabled, config.draft.clockApp else { return }
         preview.request { [fetchPreview] in try await fetchPreview() }
     }
 
@@ -151,5 +138,29 @@ public final class PrinterSettingsModel {
     public func saved() async {
         await refreshState()
         refreshPreview()
+    }
+}
+
+@MainActor
+public final class PrinterModelCache {
+    public static let shared = PrinterModelCache()
+
+    private var key: Key?
+    private var model: PrinterSettingsModel?
+
+    private struct Key: Equatable {
+        let baseURL: URL?
+        let token: String?
+    }
+
+    public init() {}
+
+    public func model(for client: APIClient) -> PrinterSettingsModel {
+        let next = Key(baseURL: client.baseURL, token: client.token)
+        if let model, key == next { return model }
+        let fresh = PrinterSettingsModel(client: client)
+        key = next
+        model = fresh
+        return fresh
     }
 }

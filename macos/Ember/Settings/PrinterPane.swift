@@ -6,8 +6,8 @@ struct PrinterSourcePane: View {
 
     var body: some View {
         let client = env.connection.client
-        PrinterPaneBody(model: PrinterSettingsModel(client: client))
-            .id("\(client.baseURL?.absoluteString ?? "")|\(client.token?.hashValue ?? 0)")
+        PrinterPaneBody(model: PrinterModelCache.shared.model(for: client))
+            .id(ObjectIdentifier(PrinterModelCache.shared.model(for: client)))
     }
 }
 
@@ -111,7 +111,7 @@ private struct PrinterPaneBody: View {
             if !active { model.commitAddress() }
         }
         .onDisappear {
-            model.flush()
+            model.commitAddress()
             model.preview.cancel()
         }
     }

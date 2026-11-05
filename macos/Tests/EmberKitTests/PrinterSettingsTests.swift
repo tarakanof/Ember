@@ -98,6 +98,7 @@ private func state(_ json: String) throws -> PrinterState {
     model.refreshPreview()
     for _ in 0..<50 { await Task.yield() }
     #expect(preview.response == nil && preview.isUnavailable)
+    #expect(model.previewResponse == nil && model.previewMissing)
     await model.refreshState()
     #expect(model.status == .connected(firmware: ""))
 }
@@ -240,19 +241,6 @@ private actor SaveLog {
 }
 
 @MainActor
-@Test func aPendingSaveStillReachesTheServerWhenThePaneClosesFirst() async {
-    let log = SaveLog()
-    var model: PrinterSettingsModel? = await loadedModel(PrinterConfig(enabled: true), saves: log)
-    model?.chooseManual()
-    model?.addressText = "http://192.168.1.50"
-    model?.flush()
-    model = nil
-    for _ in 0..<100 { await Task.yield() }
-    let saved = await log.saved
-    #expect(saved.map(\.url) == ["http://192.168.1.50"])
-}
-
-@MainActor
 @Test func aTransientPreviewErrorKeepsTheLastFrameAndPolling() async {
     final class Box: @unchecked Sendable { var fail = false }
     let box = Box()
@@ -326,35 +314,6 @@ private actor SaveLog {
     #expect(model.manualMode && model.addressText == "http://10.0.0.9")
 }
 
-private actor Gate {
-    private var open = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-    func wait() async { if open { return }; await withCheckedContinuation { waiters.append($0) } }
-    func release() { open = true; waiters.forEach { $0.resume() }; waiters = [] }
-}
-
-@MainActor
-@Test func anEditMadeDuringAnInFlightSaveStillReachesTheServerWhenThePaneCloses() async {
-    let log = SaveLog()
-    let gate = Gate()
-    var model: PrinterSettingsModel? = PrinterSettingsModel(
-        config: ServerConfigModel(initial: PrinterConfig(), load: { PrinterConfig(enabled: true) },
-                                  save: { c in await gate.wait(); await log.add(c) }),
-        state: { PrinterState(enabled: true, phase: "idle") },
-        preview: { throw APIError.http(status: 404, body: "") })
-    await model?.load()
-    model?.config.draft.notifyDone = false
-    model?.flush()
-    for _ in 0..<50 { await Task.yield() }
-    model?.config.draft.notifyAttention = false
-    model?.flush()
-    model = nil
-    await gate.release()
-    for _ in 0..<200 { try? await Task.sleep(for: .milliseconds(10)); if await log.saved.count == 2 { break } }
-    let saved = await log.saved
-    #expect(saved.count == 2 && saved.last?.notifyDone == false && saved.last?.notifyAttention == false)
-}
-
 @MainActor
 @Test func thePreviewFollowsTheClockToggle() async {
     let frame = PreviewResponse(width: 32, height: 8, activity: "print", frames: [CardFrame(card: "print", pixels: [])])
@@ -379,4 +338,31 @@ private actor Gate {
     model.config.draft.enabled = true
     await model.config.saveNow()
     #expect(model.config.saveError != nil && model.status == .disabled)
+}
+
+@MainActor
+@Test func theSameServerKeepsOneModelAcrossVisits() {
+    let cache = PrinterModelCache()
+    let a = APIClient(baseURL: URL(string: "http://10.0.0.2:3627"), token: "t")
+    let again = APIClient(baseURL: URL(string: "http://10.0.0.2:3627"), token: "t")
+    let other = APIClient(baseURL: URL(string: "http://10.0.0.3:3627"), token: "t")
+    let retoken = APIClient(baseURL: URL(string: "http://10.0.0.2:3627"), token: "u")
+    #expect(cache.model(for: a) === cache.model(for: again))
+    #expect(cache.model(for: other) !== cache.model(for: a))
+    #expect(cache.model(for: retoken) !== cache.model(for: other))
+}
+
+@MainActor
+@Test func noPreviewIsRequestedWhileTheClockAppIsOff() async {
+    actor Calls { var n = 0; func bump() { n += 1 } }
+    let calls = Calls()
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true, clockApp: false),
+                                  load: { PrinterConfig(enabled: true, clockApp: false) }, save: { _ in }),
+        state: { PrinterState(enabled: true, phase: "idle") },
+        preview: { await calls.bump(); throw APIError.http(status: 404, body: "") },
+        previewModel: PreviewModel(debounce: .zero, sleep: { _ in }))
+    model.refreshPreview()
+    for _ in 0..<50 { await Task.yield() }
+    #expect(await calls.n == 0)
 }
