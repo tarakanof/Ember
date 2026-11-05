@@ -212,7 +212,7 @@ func (c *coordinator) printEvent(now time.Time, cfg printer.Config, snap printer
 				total = render.PrintDuration(int(d.Seconds()))
 			}
 		}
-		if err := c.fireNotice(noticePrintDone, render.PrintDonePopupPayload(total, printDonePopupSec), printDoneRTTTL); err != nil {
+		if err := c.fireNotice(noticePrintDone, render.PrintDonePopupPayload(total, printDonePopupSec, c.printIcons != nil && c.printIcons()), printDoneRTTTL); err != nil {
 			return fail("finished", err)
 		}
 	case printer.EventAttention:

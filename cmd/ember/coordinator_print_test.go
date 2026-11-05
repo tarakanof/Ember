@@ -482,3 +482,40 @@ func TestPrintAttentionStillRepeatsWhenTheFirstPopupWasMissed(t *testing.T) {
 		t.Errorf("a prompt that outlived the missed first popup got %v", n)
 	}
 }
+
+func TestPrintDonePopupNamesTheBurstIconWhenProvisioned(t *testing.T) {
+	for _, armed := range []bool{true, false} {
+		r := newPrintNoteRig(t, nil)
+		r.c.printIcons = func() bool { return armed }
+		r.snap = printSnap(printer.PhaseFinished, nil)
+		r.event(printer.EventFinished, 100, printT0)
+		r.tick(3 * time.Second)
+		n := r.pub.NotifySnapshot()
+		if len(n) != 1 {
+			t.Fatalf("armed=%v: %d popups, want 1", armed, len(n))
+		}
+		icon, _ := n[0]["icon"].(string)
+		if armed {
+			if icon != render.PrintDoneIconName() {
+				t.Errorf("icon = %q, want the burst icon", icon)
+			}
+			if n[0]["draw"] != nil || n[0]["textOffsetX"] != nil {
+				t.Errorf("armed popup keeps the bitmap or text offset: %v", n[0])
+			}
+			if n[0]["text"] != "DONE 2:14" {
+				t.Errorf("text = %v", n[0]["text"])
+			}
+		} else if icon != "" || n[0]["draw"] == nil {
+			t.Errorf("unarmed popup = %v, want the static bitmap", n[0])
+		}
+	}
+}
+
+func TestPrintBurstIconIsProvisionedWithTheSweeps(t *testing.T) {
+	app, pub := printIconApp(t, true, true, nil)
+	app.ensureNativeIcons(context.Background())
+	want := render.PrintDoneIconName() + ".gif"
+	if !slices.Contains(pub.PutIconNamesSnapshot(), want) {
+		t.Errorf("uploaded %v, missing %s", pub.PutIconNamesSnapshot(), want)
+	}
+}

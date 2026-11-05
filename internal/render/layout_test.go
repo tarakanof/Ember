@@ -121,7 +121,7 @@ func TestTextPayloadsMaskTheIconGap(t *testing.T) {
 		"meeting popup":   MeetingPopupPayload("STANDUP", 2, 5),
 		"reminder popup":  ReminderPopupPayload("Call mom", "", 5, false),
 		"limit reset":     LimitResetPopupPayload("claude", 5),
-		"print done":      PrintDonePopupPayload("2:14", 10),
+		"print done":      PrintDonePopupPayload("2:14", 10, false),
 		"print attention": PrintAttentionPopupPayload(120),
 		"print error":     PrintErrorPopupPayload(30),
 	}

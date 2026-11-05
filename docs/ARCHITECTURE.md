@@ -2922,7 +2922,10 @@ keeps it on the default transport: mDNS browsing is injected
   (`TestEveryBottomBarStartsAtBarX0`).
   **Popups** (`checkPrint`, every coordinator tick and on every printer
   change) fire from state **events**, never from the level: `finished`
-  `DONE h:mm` (10 s, chime once), `attention` `CHECK PRINTER` (amber, 120 s,
+  `DONE h:mm` (10 s, chime once; its icon is the one-shot pixel burst GIF
+  `ember_print_done_<crc>`, provisioned and armed with the sweep icons so the
+  clock plays it locally, ending on the static done icon; unarmed, the
+  popup carries the static bitmap), `attention` `CHECK PRINTER` (amber, 120 s,
   repeated every 10 min while the phase is still attention, dismissed by name
   once it clears) and `error` red (30 s). Ids already handled are
   skipped; a `finished` or `error` event older than 5 min is dropped instead of

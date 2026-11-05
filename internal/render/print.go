@@ -192,6 +192,11 @@ func printIconSet() (map[string][]byte, error) {
 		}
 		out[fmt.Sprintf("%sh%d_%08x", PrintIconPrefix, h, crc32.ChecksumIEEE(data))] = data
 	}
+	burst, err := printBurstGIF()
+	if err != nil {
+		return nil, err
+	}
+	out[fmt.Sprintf("%sdone_%08x", PrintIconPrefix, crc32.ChecksumIEEE(burst))] = burst
 	return out, nil
 }
 
@@ -216,14 +221,58 @@ func PrintIconName(h int) string {
 	return ""
 }
 
+func PrintDoneIconName() string {
+	icons, _ := PrintIcons()
+	prefix := PrintIconPrefix + "done_"
+	for name := range icons {
+		if strings.HasPrefix(name, prefix) {
+			return name
+		}
+	}
+	return ""
+}
+
 func printSweepGIF(h int) ([]byte, error) {
 	var frames []Frame
-	palette := color.Palette{color.Black}
-	index := map[RGB]uint8{}
 	for _, hx := range printSweepX {
 		var f Frame
 		paintPrintIcon(&f, h, hx, colorRunning, printBed)
 		frames = append(frames, f)
+	}
+	return encodePrintGIF(frames, printSweepDelayCs, 0, false)
+}
+
+const (
+	printBurstDelayCs = 12
+	printBurstHoldCs  = 40
+	printBurstRadii   = 4
+)
+
+func printBurstGIF() ([]byte, error) {
+	var frames []Frame
+	for r := 2; r <= printBurstRadii; r++ {
+		var f Frame
+		paintPrintIconFor(&f, PrintView{Phase: PrintPhaseFinished, Progress: 100})
+		k := 1 - float64(r-2)/float64(printBurstRadii-1)
+		spark := mixRGB(colorWhite, colorDone, 1-k)
+		for _, d := range [][2]int{{r, 0}, {-r, 0}, {0, r}, {0, -r}, {r - 1, r - 1}, {1 - r, r - 1}, {r - 1, 1 - r}, {1 - r, 1 - r}} {
+			x, y := 3+d[0], 3+d[1]
+			if x >= 0 && x < iconW && y >= 0 && y < 8 {
+				paintCell(&f, x, y, spark)
+			}
+		}
+		frames = append(frames, f)
+	}
+	var last Frame
+	paintPrintIconFor(&last, PrintView{Phase: PrintPhaseFinished, Progress: 100})
+	frames = append(frames, last)
+	return encodePrintGIF(frames, printBurstDelayCs, printBurstHoldCs, true)
+}
+
+func encodePrintGIF(frames []Frame, delayCs, lastDelayCs int, once bool) ([]byte, error) {
+	palette := color.Palette{color.Black}
+	index := map[RGB]uint8{}
+	for _, f := range frames {
 		for y := 0; y < 8; y++ {
 			for x := 0; x < iconW; x++ {
 				c := f.Pixels[y][x]
@@ -238,7 +287,10 @@ func printSweepGIF(h int) ([]byte, error) {
 		}
 	}
 	g := &gif.GIF{}
-	for _, f := range frames {
+	if once {
+		g.LoopCount = -1
+	}
+	for i, f := range frames {
 		img := image.NewPaletted(image.Rect(0, 0, iconW, 8), palette)
 		for y := 0; y < 8; y++ {
 			for x := 0; x < iconW; x++ {
@@ -248,7 +300,11 @@ func printSweepGIF(h int) ([]byte, error) {
 			}
 		}
 		g.Image = append(g.Image, img)
-		g.Delay = append(g.Delay, printSweepDelayCs)
+		d := delayCs
+		if lastDelayCs > 0 && i == len(frames)-1 {
+			d = lastDelayCs
+		}
+		g.Delay = append(g.Delay, d)
 	}
 	var buf bytes.Buffer
 	if err := gif.EncodeAll(&buf, g); err != nil {
@@ -415,12 +471,20 @@ func printPopup(text string, c RGB, phase string, durationSec int) map[string]an
 	})
 }
 
-func PrintDonePopupPayload(total string, durationSec int) map[string]any {
+func PrintDonePopupPayload(total string, durationSec int, burstIcon bool) map[string]any {
 	text := "DONE"
 	if total != "" {
 		text += " " + total
 	}
-	return readOnce(printPopup(text, colorDone, PrintPhaseFinished, durationSec))
+	p := readOnce(printPopup(text, colorDone, PrintPhaseFinished, durationSec))
+	if burstIcon {
+		if name := PrintDoneIconName(); name != "" {
+			p["icon"] = name
+			delete(p, "draw")
+			delete(p, "textOffsetX")
+		}
+	}
+	return p
 }
 
 func PrintAttentionPopupPayload(durationSec int) map[string]any {
