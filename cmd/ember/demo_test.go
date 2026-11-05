@@ -22,7 +22,7 @@ import (
 var knobCapsDemo = &devices.Caps{
 	View:     []int{1, 1},
 	Pages:    []string{"bot", "pomodoro", "weather", "nowplaying"},
-	Features: []string{featureDemo, featureNPCover, devices.FeatureViewWait, featureWxFaces, featureWxMoments},
+	Features: []string{featureDemo, featureNPCover, devices.FeatureViewWait, featureWxFaces, featureWxMoments, featurePrintMoments},
 	Limits:   &devices.CapsLimits{ViewBytes: 16383, ConfigBytes: 2048},
 }
 
@@ -110,7 +110,7 @@ func (f *viewFixture) getQuery(t *testing.T, query, etag string) (*http.Response
 }
 
 func TestDemoCatalogHoldsTheIssueScenes(t *testing.T) {
-	want := map[string]int{demoGroupBot: 14, demoGroupMoments: 18, demoGroupFaces: 78, demoGroupPomo: 7, demoGroupNP: 5}
+	want := map[string]int{demoGroupBot: 14, demoGroupMoments: 18, demoGroupPrint: 2, demoGroupFaces: 78, demoGroupPomo: 7, demoGroupNP: 5}
 	got := map[string]int{}
 	var groups []string
 	seen := map[string]bool{}
@@ -130,10 +130,10 @@ func TestDemoCatalogHoldsTheIssueScenes(t *testing.T) {
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("scenes per group = %v, want %v", got, want)
 	}
-	if !slices.Equal(groups, []string{demoGroupBot, demoGroupMoments, demoGroupFaces, demoGroupPomo, demoGroupNP}) {
+	if !slices.Equal(groups, []string{demoGroupBot, demoGroupMoments, demoGroupPrint, demoGroupFaces, demoGroupPomo, demoGroupNP}) {
 		t.Errorf("groups are not contiguous in order: %v", groups)
 	}
-	for _, name := range []string{"bot.sleepy", "bot.asleep", "bot.chase_half", "bot.offline", "bot.quiet_calm", "moment.afterrain.quiet",
+	for _, name := range []string{"bot.sleepy", "bot.asleep", "bot.chase_half", "bot.offline", "bot.quiet_calm", "moment.afterrain.quiet", "moment.print_done", "moment.print_attention",
 		"face.air.fog", "face.days.dry", "sun.polar_night", "pomodoro.parked", "pomodoro.done", "nowplaying.nothing", "nowplaying.playing_light"} {
 		if !seen[name] {
 			t.Errorf("scene %q missing", name)
@@ -181,6 +181,12 @@ func TestEveryDemoSceneYieldsAValidViewAndMatchesItsGolden(t *testing.T) {
 				var w map[string]json.RawMessage
 				if err := json.Unmarshal(d.View["weather"], &w); err != nil || w["moon"] == nil || w["rain"] == nil {
 					t.Errorf("weather view lacks the detail: %s", d.View["weather"])
+				}
+			case strings.HasPrefix(sc.Name, "moment.print_"):
+				var p knobPrint
+				if err := json.Unmarshal(d.View["print"], &p); err != nil || p.Printer != "CORE One" || p.Event == nil || p.Event.ID == 0 ||
+					string(p.Event.Kind) != string(p.Phase) || d.Page != "bot" || d.Act != "" {
+					t.Errorf("print view = %s (%v), page %q act %q", d.View["print"], err, d.Page, d.Act)
 				}
 			case d.Page == "pomodoro":
 				if string(d.View["pomo"]) == "" || string(d.View["pomo"]) == "null" {
@@ -430,6 +436,30 @@ func TestDemoScenesCatalogRoute(t *testing.T) {
 	}
 	if len(got) != len(demoCatalog) {
 		t.Fatalf("%d scenes, want %d", len(got), len(demoCatalog))
+	}
+	caps := knobCapsDemo.Clone()
+	caps.Features = slices.DeleteFunc(caps.Features, func(s string) bool { return s == featurePrintMoments })
+	plantCaps(t, f, caps)
+	resp, b = devReq(t, f.srv, "GET", "/v1/devices/"+f.m.ID+"/demo/scenes", testToken, "")
+	mustOK(t, "scenes without print_moments", resp, b)
+	var without []map[string]string
+	if err := json.Unmarshal(b, &without); err != nil {
+		t.Fatal(err)
+	}
+	if len(without) != len(demoCatalog)-2 {
+		t.Fatalf("%d scenes without print_moments, want %d", len(without), len(demoCatalog)-2)
+	}
+	for _, sc := range without {
+		if sc["group"] == demoGroupPrint || strings.HasPrefix(sc["name"], "moment.print_") {
+			t.Fatalf("print scene offered to a knob without print_moments: %v", sc)
+		}
+	}
+	if resp, _ := postDemo(t, f, `{"scene":"moment.print_done"}`); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST of a print scene to a knob without print_moments = %d, want 400", resp.StatusCode)
+	}
+	plantCaps(t, f, knobCapsDemo.Clone())
+	if resp, _ := postDemo(t, f, `{"scene":"moment.print_attention"}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST of a print scene to a print_moments knob = %d, want 200", resp.StatusCode)
 	}
 	if got[0]["name"] != "bot.idle" || got[0]["group"] != demoGroupBot || got[0]["title"] != "Idle" || len(got[0]) != 3 {
 		t.Fatalf("first scene = %v", got[0])
@@ -1085,5 +1115,22 @@ func TestDemoKnobRestartAnswersTheLongPollAtOnce(t *testing.T) {
 	resp, body, after := waitThenAct(t, f, etag, func() { demoCheckin(t, f, 1, 41) })
 	if resp.StatusCode != http.StatusOK || viewDemo(t, body) != nil || after > 5*time.Second {
 		t.Fatalf("status %d after %v: %s", resp.StatusCode, after, body)
+	}
+}
+
+func TestDemoPrintSceneCarriesAFreshEventIDPerPlay(t *testing.T) {
+	f := demoFixture(t)
+	var ids []uint64
+	for range 2 {
+		postDemo(t, f, `{"scene":"moment.print_done"}`)
+		var p knobPrint
+		if err := json.Unmarshal(viewDemo(t, goldenView(t, f)).View["print"], &p); err != nil || p.Event == nil {
+			t.Fatalf("print = %+v %v", p, err)
+		}
+		ids = append(ids, p.Event.ID)
+		f.clk.advance(time.Minute)
+	}
+	if ids[0] == ids[1] {
+		t.Fatalf("a replay reused event id %d, the knob would not play the moment", ids[0])
 	}
 }

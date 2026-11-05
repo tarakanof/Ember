@@ -288,15 +288,20 @@ func (a *App) handleDemoStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("at most %d scenes", demoMaxScenes))
 		return
 	}
+	st, err := a.devices.ViewState(id)
+	if err != nil {
+		a.writeDeviceError(w, r, err)
+		return
+	}
 	for _, s := range scenes {
-		if _, ok := demoSceneByName[s]; !ok {
+		if sc, ok := demoSceneByName[s]; !ok || !sc.offeredTo(st.Caps) {
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown scene %q", s))
 			return
 		}
 	}
-	st := a.demos.start(id, scenes, hold, a.viewNow())
+	status := a.demos.start(id, scenes, hold, a.viewNow())
 	a.changes.notify(topicDemo)
-	writeJSON(w, http.StatusOK, st)
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (a *App) handleDemoStop(w http.ResponseWriter, r *http.Request) {
@@ -320,11 +325,18 @@ func (a *App) handleDemoStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDemoScenes(w http.ResponseWriter, r *http.Request) {
-	if _, err := a.devices.ViewState(r.PathValue("id")); err != nil {
+	st, err := a.devices.ViewState(r.PathValue("id"))
+	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, demoCatalog)
+	out := make([]demoScene, 0, len(demoCatalog))
+	for _, sc := range demoCatalog {
+		if sc.offeredTo(st.Caps) {
+			out = append(out, sc)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (a *App) noteDemoReport(id string, r *http.Request) {

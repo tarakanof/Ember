@@ -3504,7 +3504,7 @@ paths:
       tags: [devices]
       operationId: listKnobDemoScenes
       summary: The demo scene catalog
-      description: Every scene a demo can play, in display order, grouped Bot, Weather moments, Weather faces, Pomodoro, Now playing.
+      description: Every scene a demo can play, in display order, grouped Bot, Weather moments, Print moments, Weather faces, Pomodoro, Now playing. Print moments are listed only for a knob with `print_moments` in its caps.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
