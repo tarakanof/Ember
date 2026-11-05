@@ -2646,6 +2646,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The server refused Ember's token. Check it in Connection." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The server was started with the clock turned off (EMBER_CLOCK=off). Turn it back on to manage the clock here." : {},
     "The server's EMBER_PRUSALINK_PASSWORD isn't the printer's PrusaLink password. Read the right one on the printer under Settings → Network → PrusaLink, then fix it in the server's container." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",

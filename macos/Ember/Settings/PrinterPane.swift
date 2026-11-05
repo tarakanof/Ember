@@ -114,7 +114,7 @@ private struct PrinterPaneBody: View {
         .onDisappear {
             model.commitAddress()
             model.settleAddress()
-            model.preview.cancel()
+            model.resetLive()
         }
     }
 

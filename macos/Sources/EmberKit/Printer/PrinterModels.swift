@@ -122,7 +122,7 @@ public struct PrinterState: Codable, Sendable, Equatable {
 
 public enum PrinterStatusLine: Equatable, Sendable {
     case unknown
-    case unavailable(featureOff: Bool)
+    case unavailable(FeedError)
     case disabled
     case connected(firmware: String)
     case wrongPassword
@@ -133,7 +133,7 @@ public enum PrinterStatusLine: Equatable, Sendable {
 
     public init(_ state: PrinterState?, error: FeedError? = nil) {
         guard let state else {
-            self = error.map { .unavailable(featureOff: $0 == .featureOff) } ?? .unknown
+            self = error.map { .unavailable($0) } ?? .unknown
             return
         }
         guard state.enabled else { self = .disabled; return }
@@ -179,10 +179,12 @@ public enum PrinterStatusLine: Equatable, Sendable {
             "Ember found no PrusaLink printer on the network. Check the printer is on the same network, or enter its address."
         case .printerOff:
             "The printer didn't answer. It may be switched off or asleep."
-        case .unavailable(let featureOff):
-            featureOff
-                ? "This server doesn't support the printer. Update the Ember server."
-                : "Ember couldn't ask the server for the printer's state. Check the connection."
+        case .unavailable(.featureOff):
+            "This server doesn't support the printer. Update the Ember server."
+        case .unavailable(.unauthorized):
+            "The server refused Ember's token. Check it in Connection."
+        case .unavailable:
+            "Ember couldn't ask the server for the printer's state. Check the connection."
         case .unknown, .disabled, .connected, .other: nil
         }
     }

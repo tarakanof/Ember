@@ -56,8 +56,8 @@ private func state(_ json: String) throws -> PrinterState {
 }
 
 @Test func aFailedFetchIsShownNotHiddenAsChecking() {
-    #expect(PrinterStatusLine(nil, error: .featureOff) == .unavailable(featureOff: true))
-    #expect(PrinterStatusLine(nil, error: .offline) == .unavailable(featureOff: false))
+    #expect(PrinterStatusLine(nil, error: .featureOff) == .unavailable(.featureOff))
+    #expect(PrinterStatusLine(nil, error: .offline) == .unavailable(.offline))
     #expect(PrinterStatusLine(nil, error: .offline).isProblem)
 }
 
@@ -159,7 +159,7 @@ private actor SaveLog {
         state: { throw APIError.http(status: 404, body: "") },
         preview: { throw APIError.http(status: 404, body: "") })
     await model.refreshState()
-    #expect(model.status == .unavailable(featureOff: true))
+    #expect(model.status == .unavailable(.featureOff))
 }
 
 @MainActor
@@ -221,7 +221,7 @@ private actor SaveLog {
         config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
         state: { PrinterState(enabled: false, phase: "off") },
         preview: { throw APIError.http(status: 404, body: "") })
-    await model.refreshState()
+    await model.load()
     #expect(model.status == .unknown)
 }
 
@@ -288,7 +288,7 @@ private actor SaveLog {
     await model.refreshState()
     #expect(model.status == .connected(firmware: "6.3.0"))
     await model.refreshState()
-    #expect(model.status == .unavailable(featureOff: false))
+    #expect(model.status == .unavailable(.timedOut))
 }
 
 @MainActor
@@ -394,7 +394,7 @@ private actor SaveLog {
         config: ServerConfigModel(initial: PrinterConfig(enabled: false), load: { PrinterConfig() }, save: { _ in }),
         state: { PrinterState(enabled: true, phase: "offline", lastError: "wrong_password") },
         preview: { throw APIError.http(status: 404, body: "") })
-    await model.refreshState()
+    await model.load()
     #expect(model.status == .disabled)
 }
 
@@ -428,5 +428,60 @@ private actor SaveLog {
     await model.refreshState()
     box.fail = true
     await model.refreshState()
-    #expect(model.status == .unavailable(featureOff: false))
+    #expect(model.status == .unavailable(.unauthorized))
+}
+
+@MainActor
+@Test func theStatusWaitsForTheServerToTakeANewAddress() async {
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true, url: "http://10.0.0.99"),
+                                  load: { PrinterConfig(enabled: true, url: "http://10.0.0.99") }, save: { _ in }),
+        state: { PrinterState(enabled: true, phase: "idle",
+                              printer: PrinterInfo(host: "core.local", url: "http://10.0.0.5", discovered: true, firmware: "6.3.0")) },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.load()
+    #expect(model.status == .unknown)
+}
+
+@MainActor
+@Test func aManualPrinterThatIsUnreachableShowsItsOwnLine() async {
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true, url: "http://10.0.0.99"),
+                                  load: { PrinterConfig(enabled: true, url: "http://10.0.0.99") }, save: { _ in }),
+        state: { PrinterState(enabled: true, phase: "offline", lastError: "unreachable",
+                              printer: PrinterInfo(url: "http://10.0.0.99")) },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.load()
+    #expect(model.status == .printerOff)
+}
+
+@MainActor
+@Test func theStatusIsNotOffBeforeTheConfigLoads() async {
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(), load: { throw APIError.timedOut }, save: { _ in }),
+        state: { PrinterState(enabled: true, phase: "idle") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.load()
+    #expect(model.status == .connected(firmware: ""))
+}
+
+@MainActor
+@Test func closingThePaneForgetsTheLiveStateAndFrame() async {
+    let frame = PreviewResponse(width: 32, height: 8, activity: "print", frames: [CardFrame(card: "print", pixels: [])])
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
+        state: { PrinterState(enabled: true, phase: "idle") },
+        preview: { frame },
+        previewModel: PreviewModel(debounce: .zero, sleep: { _ in }))
+    await model.load()
+    model.refreshPreview()
+    for _ in 0..<50 { await Task.yield() }
+    #expect(model.previewResponse == frame && model.status == .connected(firmware: ""))
+    model.resetLive()
+    #expect(model.previewResponse == nil && model.status == .unknown)
+}
+
+@Test func aRefusedTokenPointsAtTheToken() {
+    let detail = PrinterStatusLine.unavailable(.unauthorized).detail
+    #expect(detail.map { String(localized: $0).contains("token") } == true)
 }

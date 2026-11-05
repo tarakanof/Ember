@@ -20,9 +20,14 @@ public final class PrinterSettingsModel {
     static let failuresBeforeUnavailable = 3
 
     public var status: PrinterStatusLine {
-        if config.saveError == nil, let state {
-            if config.draft.enabled, !state.enabled { return .unknown }
-            if !config.draft.enabled, state.enabled { return .disabled }
+        if config.isLoaded, config.saveError == nil, let state {
+            let draft = config.draft
+            if draft.enabled, !state.enabled { return .unknown }
+            if !draft.enabled, state.enabled { return .disabled }
+            if draft.enabled {
+                if !draft.isAuto, state.printer.url != draft.url { return .unknown }
+                if draft.isAuto, !state.printer.url.isEmpty, !state.printer.discovered { return .unknown }
+            }
         }
         return PrinterStatusLine(state, error: stateError)
     }
@@ -65,6 +70,14 @@ public final class PrinterSettingsModel {
         manualMode = !applied.isAuto
         addressText = applied.manualURL
         addressInvalid = false
+    }
+
+    public func resetLive() {
+        stateSeq += 1
+        state = nil
+        stateError = nil
+        failures = 0
+        preview.clear()
     }
 
     public func settleAddress() {
@@ -153,19 +166,15 @@ public final class PrinterSettingsModel {
 public final class PrinterModelCache {
     public static let shared = PrinterModelCache()
 
-    private var key: Key?
+    private var key: ServerIdentity?
     private var model: PrinterSettingsModel?
-
-    private struct Key: Equatable {
-        let baseURL: URL?
-        let token: String?
-    }
 
     public init() {}
 
     public func model(for client: APIClient) -> PrinterSettingsModel {
-        let next = Key(baseURL: client.baseURL, token: client.token)
+        let next = ServerIdentity(client)
         if let model, key == next { return model }
+        model?.config.cancelPendingSave()
         let fresh = PrinterSettingsModel(client: client)
         key = next
         model = fresh
