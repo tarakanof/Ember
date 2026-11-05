@@ -25,14 +25,17 @@ public enum AppNames {
         "print-error": "Printer Error",
     ]
 
-    public static func isKnown(_ wireName: String) -> Bool {
+    private static func key(_ wireName: String) -> String {
         let lower = wireName.lowercased()
-        return known[lower.hasPrefix("ember-") ? String(lower.dropFirst("ember-".count)) : lower] != nil
+        return lower.hasPrefix("ember-") ? String(lower.dropFirst("ember-".count)) : lower
+    }
+
+    static func isKnown(_ wireName: String) -> Bool {
+        known[key(wireName)] != nil
     }
 
     public static func display(_ wireName: String) -> LocalizedStringResource {
-        let lower = wireName.lowercased()
-        let name = lower.hasPrefix("ember-") ? String(lower.dropFirst("ember-".count)) : lower
+        let name = key(wireName)
         if let hit = known[name] { return hit }
         if name.hasPrefix("usage-") { return "Usage" }
         let words = wireName
