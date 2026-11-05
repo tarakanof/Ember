@@ -113,6 +113,10 @@ type State struct {
 
 	jobID     int
 	startedID int
+	endedSet  bool
+	endedID   int
+	endedKind EventKind
+	endedHeld bool
 	progress  float64
 	endsAt    time.Time
 	startedAt time.Time
@@ -161,12 +165,12 @@ func (s *State) At(now time.Time) Snapshot {
 		UpdatedAt:    s.updatedAt,
 		Printer:      s.info,
 	}
-	switch s.phase {
-	case PhaseOff, PhaseOffline, PhaseIdle:
+	switch {
+	case s.phase == PhaseOff, s.phase == PhaseOffline, s.phase == PhaseIdle, s.heldOverLocked():
 		out.JobID, out.EndsAt, out.StartedAt, out.ChangeAt = 0, time.Time{}, time.Time{}, time.Time{}
 		out.Name, out.Material, out.ThumbVersion = "", "", ""
-	case PhaseHeating, PhasePreparing:
-	case PhaseFinished:
+	case s.phase == PhaseHeating, s.phase == PhasePreparing:
+	case s.phase == PhaseFinished:
 		out.Progress = 100
 	default:
 		out.Progress = wholePercent(s.progress)
@@ -236,7 +240,11 @@ func (s *State) emitLocked(now time.Time, kind EventKind) {
 	case EventStopped:
 		s.stoppedAt = now
 	}
-	s.events = append(s.events, Event{ID: id, Kind: kind, At: now, JobID: s.jobID})
+	job := s.jobID
+	if s.heldOverLocked() {
+		job = 0
+	}
+	s.events = append(s.events, Event{ID: id, Kind: kind, At: now, JobID: job})
 	if len(s.events) > maxEvents {
 		s.events = s.events[len(s.events)-maxEvents:]
 	}
@@ -255,6 +263,7 @@ func (s *State) forget() {
 	defer s.mu.Unlock()
 	s.seen, s.prevPhase, s.rawState, s.updatedAt = false, "", "", time.Time{}
 	s.jobID, s.startedID, s.progress = 0, 0, 0
+	s.endedSet, s.endedID, s.endedKind, s.endedHeld = false, 0, "", false
 	s.endsAt, s.startedAt, s.changeAt = time.Time{}, time.Time{}, time.Time{}
 	s.nozzle, s.nozzleT, s.bed, s.bedT = 0, 0, 0, 0
 	s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
@@ -365,18 +374,30 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged bo
 		if j.TimePrinting != nil {
 			s.startedAt = anchor(s.startedAt, now.Add(-seconds(*j.TimePrinting)))
 		}
+		s.endedHeld = false
 	} else {
 		s.endsAt, s.changeAt = time.Time{}, time.Time{}
-		if !keepsEndedJob(phase) {
+		switch {
+		case keepsEndedJob(phase):
+			s.endedHeld = true
+		case phase == PhaseAttention && s.endedHeld:
+		default:
 			s.jobID, s.progress, s.startedAt = 0, 0, time.Time{}
 			s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
+			s.endedHeld = false
 		}
 	}
+	s.phase = phase
 
 	if s.seen {
 		s.edgesLocked(now, phase)
-	} else if d.Job != nil && (phase != PhaseAttention || jobUnderway(d.Job)) {
-		s.startedID = s.jobID
+	} else {
+		if d.Job != nil && (phase != PhaseAttention || jobUnderway(d.Job)) {
+			s.startedID = s.jobID
+		}
+		if kind, ok := endedKind(phase); ok {
+			s.endedSet, s.endedID, s.endedKind = true, s.jobID, kind
+		}
 	}
 	s.seen = true
 	s.prevPhase = phase
@@ -385,7 +406,24 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged bo
 }
 
 func keepsEndedJob(p Phase) bool {
-	return p == PhaseFinished || p == PhaseStopped || p == PhaseError
+	_, ok := endedKind(p)
+	return ok
+}
+
+func endedKind(p Phase) (EventKind, bool) {
+	switch p {
+	case PhaseFinished:
+		return EventFinished, true
+	case PhaseStopped:
+		return EventStopped, true
+	case PhaseError:
+		return EventError, true
+	}
+	return "", false
+}
+
+func (s *State) heldOverLocked() bool {
+	return s.phase == PhaseAttention && s.endedHeld
 }
 
 func jobUnderway(j *StatusJob) bool {
@@ -401,6 +439,9 @@ func isRunning(p Phase) bool {
 }
 
 func (s *State) edgesLocked(now time.Time, phase Phase) {
+	if isRunning(phase) {
+		s.endedSet = false
+	}
 	if isRunning(phase) && s.jobID != 0 && s.jobID != s.startedID {
 		s.startedID = s.jobID
 		s.emitLocked(now, EventStarted)
@@ -408,16 +449,16 @@ func (s *State) edgesLocked(now time.Time, phase Phase) {
 	if phase == s.prevPhase {
 		return
 	}
-	switch phase {
-	case PhaseAttention:
+	if phase == PhaseAttention {
 		s.emitLocked(now, EventAttention)
-	case PhaseFinished:
-		s.emitLocked(now, EventFinished)
-	case PhaseStopped:
-		s.emitLocked(now, EventStopped)
-	case PhaseError:
-		s.emitLocked(now, EventError)
+		return
 	}
+	kind, ok := endedKind(phase)
+	if !ok || (s.endedSet && s.endedID == s.jobID && s.endedKind == kind) {
+		return
+	}
+	s.endedSet, s.endedID, s.endedKind = true, s.jobID, kind
+	s.emitLocked(now, kind)
 }
 
 func seconds(v float64) time.Duration {
@@ -448,7 +489,7 @@ func (s *State) setJob(d *JobDoc) (thumbRef string, fetch bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if d == nil {
-		if !keepsEndedJob(s.phase) {
+		if !keepsEndedJob(s.phase) && !s.heldOverLocked() {
 			s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
 		}
 		return "", false

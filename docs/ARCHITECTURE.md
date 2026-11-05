@@ -2789,9 +2789,13 @@ keeps it on the default transport: mDNS browsing is injected
   `PLA/PETG`) and is empty without one (the CORE One sends no `meta`).
   The firmware answers `/api/v1/job` with 204 whenever `has_job()` is
   false, FINISHED and STOPPED included, so a finished, stopped or errored
-  print keeps its id, name, material and thumbnail for its hold; any other
-  phase without a job (idle, or a warning's ATTENTION over the finish
-  screen) clears them. `/api/version` is read again after the printer
+  print keeps its id, name, material and thumbnail for its hold. A warning
+  over the finish screen reports ATTENTION without a job and returns to
+  FINISHED/STOPPED when dismissed: the ended job is hidden from the
+  snapshot (and from the `attention` event) while it shows and comes back
+  after, and the return emits no second `finished`/`stopped` and keeps the
+  hold (an ended job's terminal edge fires once; a print running again
+  re-arms it). Any other phase without a job (idle) clears them. `/api/version` is read again after the printer
   comes back from `offline` (a firmware update reboots it).
 - **Events** `started` (a new `job.id` reaching heating, preparing,
   printing or finishing), `attention`, `finished`, `stopped`, `error`: one

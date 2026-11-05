@@ -1234,3 +1234,62 @@ func TestWarningOverTheFinishScreenCarriesNoOldJob(t *testing.T) {
 		t.Fatalf("attention event = %+v", snap.Event)
 	}
 }
+
+func TestWarningOverTheFinishScreenKeepsOneDoneAndItsJob(t *testing.T) {
+	for _, end := range []string{"FINISHED", "STOPPED"} {
+		t.Run(end, func(t *testing.T) {
+			s := newStubPrinter(t)
+			s.set(func(s *stubPrinter) {
+				s.thumb = []byte("\x89PNG\r\n\x1a\nthumb")
+				s.status = statusJSON("PRINTING", &jobFields{id: 8, progress: 20})
+				s.job = jobJSON(8, "PRINTING", "lid_0.4n_0.2mm_PLA_COREONE_1h2m.bgcode")
+			})
+			h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+			h.advance(h.step())
+			s.set(func(s *stubPrinter) { s.status = statusJSON(end, nil) })
+			h.advance(h.step())
+			hold := h.snap().HoldUntil
+			for _, st := range []string{"ATTENTION", "ATTENTION", end, end} {
+				s.set(func(s *stubPrinter) { s.status = statusJSON(st, nil) })
+				h.advance(h.step())
+			}
+			snap := h.snap()
+			ended := 0
+			for _, e := range snap.Events {
+				if e.Kind == EventFinished || e.Kind == EventStopped {
+					ended++
+				}
+			}
+			if ended != 1 {
+				t.Fatalf("events = %v, want one %s", eventKinds(snap), end)
+			}
+			if !snap.HoldUntil.Equal(hold) || snap.Name != "lid" || snap.JobID != 8 || snap.ThumbVersion == "" {
+				t.Fatalf("after the warning: hold %v (was %v) name %q job %d thumb %q", snap.HoldUntil, hold, snap.Name, snap.JobID, snap.ThumbVersion)
+			}
+		})
+	}
+}
+
+func TestReprintOfTheSameJobIDStillFinishes(t *testing.T) {
+	s := newStubPrinter(t)
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	for _, st := range []string{
+		statusJSON("PRINTING", &jobFields{id: 4, progress: 50}),
+		statusJSON("FINISHED", nil),
+		statusJSON("IDLE", nil),
+		statusJSON("PRINTING", &jobFields{id: 4, progress: 50}),
+		statusJSON("FINISHED", nil),
+	} {
+		s.set(func(s *stubPrinter) { s.status = st })
+		h.advance(h.step())
+	}
+	finished := 0
+	for _, e := range h.snap().Events {
+		if e.Kind == EventFinished {
+			finished++
+		}
+	}
+	if finished != 2 {
+		t.Fatalf("events = %v, want two finished (a reused job id after a printer reboot)", eventKinds(h.snap()))
+	}
+}
