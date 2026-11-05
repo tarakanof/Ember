@@ -13,11 +13,13 @@ import (
 
 	"github.com/tarakanof/ember/internal/devices"
 	"github.com/tarakanof/ember/internal/nowplaying"
+	"github.com/tarakanof/ember/internal/printer"
 )
 
 const (
 	demoGroupBot     = "Bot"
 	demoGroupMoments = "Weather moments"
+	demoGroupPrint   = "Print moments"
 	demoGroupFaces   = "Weather faces"
 	demoGroupPomo    = "Pomodoro"
 	demoGroupNP      = "Now playing"
@@ -36,7 +38,12 @@ type demoScene struct {
 	page    string
 	act     string
 	offline bool
+	needs   string
 	view    func(at time.Time, art *demoArt) knobView
+}
+
+func (s demoScene) offeredTo(caps *devices.Caps) bool {
+	return s.needs == "" || caps.HasFeature(s.needs)
 }
 
 type demoArt struct {
@@ -115,6 +122,7 @@ func buildDemoCatalog() []demoScene {
 	var out []demoScene
 	out = append(out, demoBotScenes()...)
 	out = append(out, demoMomentScenes()...)
+	out = append(out, demoPrintScenes()...)
 	out = append(out, demoFaceScenes()...)
 	out = append(out, demoPomoScenes()...)
 	out = append(out, demoNPScenes()...)
@@ -281,6 +289,31 @@ func demoMomentScenes() []demoScene {
 		}
 	}
 	return out
+}
+
+func demoPrintScenes() []demoScene {
+	const (
+		demoPrinter   = "CORE One"
+		demoPrintName = "bracket_v3"
+		demoPrintMat  = "PETG"
+		demoPrintRun  = 2*time.Hour + 14*time.Minute
+	)
+	printScene := func(name, title string, phase printer.Phase, kind printer.EventKind, progress int, left time.Duration) demoScene {
+		return demoScene{Name: "moment." + name, Group: demoGroupPrint, Title: title, page: "bot", needs: featurePrintMoments,
+			view: func(at time.Time, _ *demoArt) knobView {
+				p := &knobPrint{Phase: phase, Progress: new(progress), StartedAt: new(at.Add(-demoPrintRun).Unix()),
+					Name: demoPrintName, Material: demoPrintMat, Printer: demoPrinter,
+					Event: &knobPrintEvent{Kind: kind, At: at.Unix()}}
+				if left > 0 {
+					p.EndsAt = new(at.Add(left).Unix())
+				}
+				return knobView{Mood: block(&knobMood{}), Print: p}
+			}}
+	}
+	return []demoScene{
+		printScene("print_done", "PRINT DONE", printer.PhaseFinished, printer.EventFinished, 100, 0),
+		printScene("print_attention", "PRINT NEEDS YOU", printer.PhaseAttention, printer.EventAttention, 24, 6*time.Hour+45*time.Minute),
+	}
 }
 
 func demoFaceScenes() []demoScene {

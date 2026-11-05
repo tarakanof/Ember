@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
 )
 
 const (
@@ -243,23 +246,31 @@ func (a *App) knobDemo(id string, base knobView, now time.Time) *knobDemo {
 	if sc.view != nil {
 		v := sc.view(cur.since.Truncate(time.Second), art)
 		v.V, v.Epoch, v.ConfigVersion, v.Brightness = base.V, base.Epoch, base.ConfigVersion, base.Brightness
+		if v.Print != nil && v.Print.Event != nil {
+			v.Print.Event.ID = demoEventID(cur.id)
+		}
 		d.View = &v
 	}
 	return d
 }
 
-func (a *App) demoKnob(w http.ResponseWriter, r *http.Request) (string, bool) {
+func demoEventID(demoID string) uint64 {
+	n, _ := strconv.ParseUint(demoID[max(0, len(demoID)-8):], 16, 32)
+	return max(n, 1)
+}
+
+func (a *App) demoKnob(w http.ResponseWriter, r *http.Request) (string, *devices.Caps, bool) {
 	id := r.PathValue("id")
 	st, err := a.devices.ViewState(id)
 	if err != nil {
 		a.writeDeviceError(w, r, err)
-		return "", false
+		return "", nil, false
 	}
 	if !st.Caps.HasFeature(featureDemo) {
 		writeError(w, http.StatusConflict, errDemoUnsupported)
-		return "", false
+		return "", nil, false
 	}
-	return id, true
+	return id, st.Caps, true
 }
 
 func (a *App) handleDemoStart(w http.ResponseWriter, r *http.Request) {
@@ -271,7 +282,7 @@ func (a *App) handleDemoStart(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
-	id, ok := a.demoKnob(w, r)
+	id, caps, ok := a.demoKnob(w, r)
 	if !ok {
 		return
 	}
@@ -289,14 +300,19 @@ func (a *App) handleDemoStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, s := range scenes {
-		if _, ok := demoSceneByName[s]; !ok {
+		sc, ok := demoSceneByName[s]
+		if !ok {
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown scene %q", s))
 			return
 		}
+		if !sc.offeredTo(caps) {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("scene %q needs the %q caps feature", s, sc.needs))
+			return
+		}
 	}
-	st := a.demos.start(id, scenes, hold, a.viewNow())
+	status := a.demos.start(id, scenes, hold, a.viewNow())
 	a.changes.notify(topicDemo)
-	writeJSON(w, http.StatusOK, st)
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (a *App) handleDemoStop(w http.ResponseWriter, r *http.Request) {
@@ -320,11 +336,18 @@ func (a *App) handleDemoStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDemoScenes(w http.ResponseWriter, r *http.Request) {
-	if _, err := a.devices.ViewState(r.PathValue("id")); err != nil {
+	st, err := a.devices.ViewState(r.PathValue("id"))
+	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, demoCatalog)
+	out := make([]demoScene, 0, len(demoCatalog))
+	for _, sc := range demoCatalog {
+		if sc.offeredTo(st.Caps) {
+			out = append(out, sc)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (a *App) noteDemoReport(id string, r *http.Request) {

@@ -4797,7 +4797,9 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   `playing`. Newest POST wins. Nothing touches the store.
 - **Scenes** are a fixed catalog (`demoCatalog`): name, group, title, the
   knob page, an optional act, `offline`, and a builder for a whole fake view
-  from presets. Times are relative to the moment the scene became available
+  from presets, and optionally the caps feature it needs (`needs`: the print
+  scenes need `print_moments`; the catalog route lists, and POST accepts, a
+  scene only for a knob with it). Times are relative to the moment the scene became available
   (whole seconds), not to each request, so the demo view keeps one ETag
   while it plays and a long poll doesn't spin.
 - **Relay.** `knobView` adds `demo` after `diag_live_until` (only `day` and `print` follow it) for a knob whose caps
