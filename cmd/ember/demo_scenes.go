@@ -298,7 +298,7 @@ func demoPrintScenes() []demoScene {
 		demoPrintMat  = "PETG"
 		demoPrintRun  = 2*time.Hour + 14*time.Minute
 	)
-	print := func(name, title string, phase printer.Phase, kind printer.EventKind, progress int, left time.Duration) demoScene {
+	printScene := func(name, title string, phase printer.Phase, kind printer.EventKind, progress int, left time.Duration) demoScene {
 		return demoScene{Name: "moment." + name, Group: demoGroupPrint, Title: title, page: "bot", needs: featurePrintMoments,
 			view: func(at time.Time, _ *demoArt) knobView {
 				p := &knobPrint{Phase: phase, Progress: new(progress), StartedAt: new(at.Add(-demoPrintRun).Unix()),
@@ -311,8 +311,8 @@ func demoPrintScenes() []demoScene {
 			}}
 	}
 	return []demoScene{
-		print("print_done", "PRINT DONE", printer.PhaseFinished, printer.EventFinished, 100, 0),
-		print("print_attention", "PRINT NEEDS YOU", printer.PhaseAttention, printer.EventAttention, 24, 6*time.Hour+45*time.Minute),
+		printScene("print_done", "PRINT DONE", printer.PhaseFinished, printer.EventFinished, 100, 0),
+		printScene("print_attention", "PRINT NEEDS YOU", printer.PhaseAttention, printer.EventAttention, 24, 6*time.Hour+45*time.Minute),
 	}
 }
 

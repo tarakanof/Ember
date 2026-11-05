@@ -435,7 +435,12 @@ at its recheck.
   `printer` "CORE One" and an `event` whose `id` is the play's `demo.id` read
   as a number (below 2^32, so never a real event's Unix-ms id), so each play
   is a new id even within one second and the knob plays its B3 or B4 moment
-  once.
+  once. A demo `print.event` is the scene's own: it plays at once, skipping the
+  moment cadence and spacing, within the scene's ~8 s (no `act`), and its id
+  is neither read from nor written to the memory of real event ids, so a real
+  event still inside its 30 min window is not replayed when the demo ends
+  (real ids are Unix ms, always above 2^32, so "increasing" holds only among
+  real events).
   Offered by `GET …/demo/scenes` and accepted by `POST …/demo` only for a knob
   with `print_moments` in its caps (any other knob: not listed, 400).
 - Weather faces (`face.<face>.<sky>`): the seven faces × clear day, clear
@@ -808,7 +813,7 @@ legacy knob never gets it. Optional keys are absent when unknown.
 | `material` | from that suffix when present (`PETG`, `PLA/PETG` for a multi-material job), ≤ 16 characters (≤ 64 B) |
 | `thumb_version` | present when the job has a picture that bakes: `<hash>-<recipe>` (`5d73e113fbb7-r1`), the `v` for `GET /v1/print/thumb`; a new picture or recipe gives a new value. Absent: K2 falls back to K1's drawn printer |
 | `thumb_rows` | `[top, bottom]`, only with `thumb_version`: the pixel rows of the 466 px picture the model fills, `bottom` exclusive and always 300 (the model stands on the hero box's floor). The knob maps `progress` 0-100 onto these rows for the solid/ghost split |
-| `event` | `{id, kind, at}`, the newest edge of the last 30 min, in any phase: `kind` `started`, `attention`, `finished`, `stopped` or `error`, `at` Unix s, `id` increasing (Unix ms, exact in a double). The knob plays a moment once per `id`, never replays one it saw before a reboot when it is over 5 min old (cinder#322), and repeats B4 itself while `phase` stays `attention`. B3's "Print done · 2 h 14 m" is `event.at` − `started_at` while `phase` is `finished` (PrusaLink has no time left then, so `ends_at` is gone); once the printer is back to `idle` the job keys are gone and B3 shows no duration |
+| `event` | `{id, kind, at}`, the newest edge of the last 30 min, in any phase: `kind` `started`, `attention`, `finished`, `stopped` or `error`, `at` Unix s, `id` increasing among real events (Unix ms, exact in a double; a demo scene's id is below 2^32, "Demo mode"). The knob plays a moment once per `id`, never replays one it saw before a reboot when it is over 5 min old (cinder#322), and repeats B4 itself while `phase` stays `attention`. B3's "Print done · 2 h 14 m" is `event.at` − `started_at` while `phase` is `finished` (PrusaLink has no time left then, so `ends_at` is gone); once the printer is back to `idle` the job keys are gone and B3 shows no duration |
 | `printer` | `printer.name` from the config ("CORE One"), ≤ 32 characters (≤ 128 B), for the label |
 
 Phases `offline` and `idle` carry only `phase`, `event` and `printer`. An

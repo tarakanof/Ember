@@ -1141,3 +1141,14 @@ func TestDemoPrintSceneCarriesAFreshEventIDPerPlay(t *testing.T) {
 		t.Fatalf("event id changed during one play: %d then %d", again.Event.ID, same.Event.ID)
 	}
 }
+
+func TestDemoEventIDIsNeverZeroAndTakesTheIDsTail(t *testing.T) {
+	for id, want := range map[string]uint64{"00000000": 1, "d0c0ffee": 0xd0c0ffee, "0123456789abcdef": 0x89abcdef, "ff": 0xff} {
+		if got := demoEventID(id); got != want {
+			t.Errorf("demoEventID(%q) = %d, want %d", id, got, want)
+		}
+	}
+	if got := demoEventID(randomDemoID()); got == 0 || got >= 1<<32 {
+		t.Errorf("a random demo id gave event id %d", got)
+	}
+}
