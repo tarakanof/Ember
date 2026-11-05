@@ -38,8 +38,13 @@ public struct BotPose: Equatable, Sendable {
     public var badge = 0.0
     public var scaleX = 1.0, scaleY = 1.0
     public var offsetX = 0.0, offsetY = 0.0
+    public var fill = 0.0
+    public var printBadge = 0.0
+    public var sparkle = 0.0
 
     public init() {}
+
+    public var showsPrint: Bool { fill > 0 || printBadge > 0 || sparkle > 0 }
 
     public func quantized(toPixels radius: Double) -> BotPose {
         let step = 0.5 / max(radius, 1)
@@ -52,8 +57,16 @@ public struct BotPose: Equatable, Sendable {
         p.triangle = q(triangle, step); p.slump = q(slump, step); p.badge = q(badge, step)
         p.scaleX = q(scaleX, step / 2); p.scaleY = q(scaleY, step / 2)
         p.offsetX = q(offsetX, step); p.offsetY = q(offsetY, step)
+        p.fill = Self.fillPixels(fill, radius: radius) / Self.fillSpan(radius: radius)
+        p.sparkle = q(sparkle, step)
         return p
     }
+
+    public static func fillPixels(_ fill: Double, radius: Double) -> Double {
+        (min(max(fill, 0), 1) * fillSpan(radius: radius)).rounded()
+    }
+
+    static func fillSpan(radius: Double) -> Double { 2 * max(radius, 1) * (1 - BotRenderer.printRim) }
 }
 
 public struct BotBehavior: Sendable {
@@ -100,13 +113,13 @@ public struct BotBehavior: Sendable {
     public var reduceMotion = false {
         didSet {
             if reduceMotion {
-                nextHopAt = .infinity; hopStart = nil; popStart = nil
+                nextHopAt = .infinity; hopStart = nil; popStart = nil; sparkleStart = nil
                 if lastPoseAt < shakeAt { shakeAt = -.infinity }
                 nextHuffAt = .infinity
             } else {
                 nextSaccadeAt = 0
                 if mood == .waiting { nextHopAt = 0 }
-                if tuning.errorFX != nil && mood == .error && eyes == mood.eyes { nextHuffAt = -.infinity }
+                if tuning.errorFX != nil && mood == .error && eyes == targetEyes { nextHuffAt = -.infinity }
             }
         }
     }
@@ -114,8 +127,11 @@ public struct BotBehavior: Sendable {
     public private(set) var isAnimating = true
     public private(set) var nextEventAt = 0.0
     public private(set) var isTransitioning = false
+    public private(set) var print: BotPrint = .none
 
     static let transitionLength = 0.7
+    static let sparkleDelay = 0.3
+    static let sparkleLength = 0.9
 
     private var rng: SplitMix64
     private var eyes: BotEyes = .dash
@@ -141,6 +157,8 @@ public struct BotBehavior: Sendable {
     private var hopStart: Double?
     private var nextHopAt = Double.infinity
     private var shakeAt = -Double.infinity, huffAt = -Double.infinity, nextHuffAt = Double.infinity
+    private var sparkleStart: Double?
+    private var awakeSince = -Double.infinity
     private var lastPoseAt = -Double.infinity
 
     private let tuning: Tuning
@@ -160,9 +178,33 @@ public struct BotBehavior: Sendable {
         return true
     }
 
+    public mutating func setPrint(_ next: BotPrint, at t: Double) {
+        guard next != print else { return }
+        let wasDone = print == .done
+        print = next
+        let isDone = next == .done
+        guard isDone != wasDone else { return }
+        if isDone && mood == .sleepy {
+            enter(.idle, at: t)
+        } else {
+            if isDone { awakeSince = t }
+            swapEyesOnClose = true
+            if blinkStart == nil { startBlink(at: t); blinkSpeed = max(blinkSpeed, 1.6) }
+            else { doubleBlinkPending = true }
+        }
+        if isDone && !reduceMotion {
+            hopStart = t
+            sparkleStart = t + Self.sparkleDelay
+        } else {
+            sparkleStart = nil
+        }
+    }
+
+    private var targetEyes: BotEyes { print == .done ? .happy : mood.eyes }
+
     /// `t` is monotonic seconds.
     public mutating func pose(at t: Double) -> BotPose {
-        if mood == .idle && t - moodSince >= tuning.sleepAfter { enter(.sleepy, at: t) }
+        if mood == .idle && print != .done && t - max(moodSince, awakeSince) >= tuning.sleepAfter { enter(.sleepy, at: t) }
         if blinkStart == nil && t >= nextBlinkAt { startBlink(at: t) }
         if t >= nextSaccadeAt { startSaccade(at: t) }
         if t >= nextHopAt {
@@ -248,6 +290,19 @@ public struct BotBehavior: Sendable {
             }
         }
 
+        p.fill = print.fill
+        p.printBadge = print.isAttention ? 1 : 0
+        var sparkling = false
+        if let s = sparkleStart, t >= s {
+            let u = (t - s) / Self.sparkleLength
+            if u < 1 {
+                p.sparkle = max(u, .ulpOfOne)
+                sparkling = true
+            } else {
+                sparkleStart = nil
+            }
+        }
+
         var shaking = false, huffing = false
         if let fx = tuning.errorFX {
             let su = (t - shakeAt) / fx.shakeLength, hu = (t - huffAt) / fx.huffLength
@@ -263,12 +318,13 @@ public struct BotBehavior: Sendable {
         }
 
         isTransitioning = t < moodSince + Self.transitionLength && !reduceMotion
-        isAnimating = blinkStart != nil || sacActive || hopping || popping || shaking || huffing
+        isAnimating = blinkStart != nil || sacActive || hopping || popping || shaking || huffing || sparkling
             || [triangle, slump, badge, leanX, leanY].contains { $0.isActive(at: t) }
         var next = min(nextBlinkAt, nextSaccadeAt, nextHopAt)
         if tuning.errorFX != nil { next = min(next, nextHuffAt) }
         if shakeAt > t { next = min(next, shakeAt) }
-        if mood == .idle { next = min(next, moodSince + tuning.sleepAfter) }
+        if let s = sparkleStart, s > t { next = min(next, s) }
+        if mood == .idle && print != .done { next = min(next, max(moodSince, awakeSince) + tuning.sleepAfter) }
         nextEventAt = next
         return p
     }
@@ -298,7 +354,7 @@ public struct BotBehavior: Sendable {
     }
 
     private mutating func swapEyes(at t: Double) {
-        eyes = mood.eyes
+        eyes = targetEyes
         swapEyesOnClose = false
         if let fx = tuning.errorFX, mood == .error {
             shakeAt = reduceMotion ? -.infinity : t + fx.shakeAt

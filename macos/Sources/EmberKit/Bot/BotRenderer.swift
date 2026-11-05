@@ -12,6 +12,8 @@ public struct BotStyle: Sendable {
     public var hopScale: Double
     public var eyeGrow: CGSize = .zero
     public var plate: CGColor?
+    public var printTemplate = false
+    public var printMark: CGColor? = BotStyle.printMarkColor
 
     public init(body: CGColor, eyes: CGColor?, rim: CGColor? = nil, badge: CGColor? = nil,
                 shadow: Bool = false, fill: Double, eyeScale: Double = 1, hopScale: Double = 1,
@@ -21,9 +23,11 @@ public struct BotStyle: Sendable {
         self.plate = plate
     }
 
-    public static func menuBar(tint: CGColor) -> BotStyle {
+    public static func menuBar(tint: CGColor, template: Bool = false) -> BotStyle {
         var s = BotStyle(body: tint, eyes: nil, fill: 16.0 / 22, eyeScale: 1.25, hopScale: 0.5)
         s.eyeGrow = CGSize(width: 0.5 / 8, height: 0.5 / 8)
+        s.printTemplate = template
+        if template { s.printMark = nil }
         return s
     }
 
@@ -40,12 +44,20 @@ public struct BotStyle: Sendable {
 
     static let plateSize = 824.0 / 1024
     static let plateCorner = 0.225
+
+    public static let prusaOrange = CGColor(srgbRed: 250.0 / 255, green: 104.0 / 255, blue: 49.0 / 255, alpha: 1)
+    static let printMarkColor = CGColor(srgbRed: 0.07, green: 0.07, blue: 0.07, alpha: 1)
+    static let templateShade = 0.35
+
+    var printAccent: CGColor { printTemplate ? CGColor(gray: 0, alpha: 1) : Self.prusaOrange }
 }
 
 public enum BotRenderer {
     public static func draw(_ pose: BotPose, in ctx: CGContext, rect: CGRect, style: BotStyle) {
         let half = min(rect.width, rect.height) / 2
         let r = style.bodyRadius(side: 2 * half)
+        let m = ctx.userSpaceToDeviceSpaceTransform
+        let pixelRadius = r * abs(m.a * m.d - m.b * m.c).squareRoot()
         ctx.saveGState()
         defer { ctx.restoreGState() }
 
@@ -85,6 +97,7 @@ public enum BotRenderer {
             ctx.setLineWidth(0.02)
             ctx.strokePath()
         }
+        if pose.fill > 0 { drawFill(pose, body: body, pixelRadius: pixelRadius, style: style, in: ctx) }
 
         if let c = style.eyes { ctx.setFillColor(c); ctx.setStrokeColor(c) } else {
             ctx.setBlendMode(.clear)
@@ -97,18 +110,84 @@ public enum BotRenderer {
         ctx.setBlendMode(.normal)
 
         let badgeAt = CGPoint(x: cos(.pi / 4) * 0.98, y: sin(.pi / 4) * 0.98)
-        let showBadge = style.badge != nil && pose.badge > 0.01
-        if showBadge {
+        let showPrintBadge = pose.printBadge > 0
+        let showBadge = style.badge != nil && pose.badge > 0.01 && !showPrintBadge
+        if showBadge || showPrintBadge {
             ctx.setBlendMode(.clear)
-            ctx.fillEllipse(in: circle(badgeAt, 0.3 * pose.badge))
+            if showBadge { ctx.fillEllipse(in: circle(badgeAt, 0.3 * pose.badge)) }
+            if showPrintBadge { ctx.fillEllipse(in: circle(printBadgeAt, (printBadgeRadius + 0.08) * pose.printBadge)) }
             ctx.setBlendMode(.normal)
         }
         ctx.endTransparencyLayer()
+        ctx.setShadow(offset: .zero, blur: 0, color: nil)
         if showBadge, let badge = style.badge {
-            ctx.setShadow(offset: .zero, blur: 0, color: nil)
             ctx.setFillColor(badge)
             ctx.fillEllipse(in: circle(badgeAt, 0.22 * pose.badge))
         }
+        if showPrintBadge { drawPrintBadge(scale: pose.printBadge, style: style, in: ctx) }
+        if pose.sparkle > 0 { drawSparkle(pose.sparkle, style: style, in: ctx) }
+    }
+
+    static let printRim = 0.12
+    static let printBadgeAt = CGPoint(x: cos(.pi / 4) * 1.1, y: sin(.pi / 4) * 1.1)
+    static let printBadgeRadius = 0.38
+    static let sparkleAt = CGPoint(x: -0.8, y: 0.84)
+
+    static func fillLevel(_ fill: Double, pixelRadius: Double) -> Double {
+        -(1 - printRim) + BotPose.fillPixels(fill, radius: pixelRadius) / max(pixelRadius, 1)
+    }
+
+    static func drawFill(_ pose: BotPose, body: CGPath, pixelRadius: Double, style: BotStyle, in ctx: CGContext) {
+        let level = fillLevel(pose.fill, pixelRadius: pixelRadius)
+        guard level > -(1 - printRim) else { return }
+        var inset = CGAffineTransform(scaleX: 1 - printRim, y: 1 - printRim)
+        guard let inner = body.copy(using: &inset) else { return }
+        ctx.saveGState()
+        ctx.addPath(inner)
+        ctx.clip()
+        ctx.clip(to: CGRect(x: -2, y: -2, width: 4, height: level + 2))
+        if style.printTemplate {
+            ctx.setBlendMode(.copy)
+            ctx.setFillColor(CGColor(gray: 0, alpha: BotStyle.templateShade))
+        } else {
+            ctx.setFillColor(BotStyle.prusaOrange)
+        }
+        ctx.fill(CGRect(x: -2, y: -2, width: 4, height: 4))
+        ctx.restoreGState()
+    }
+
+    static func drawPrintBadge(scale k: Double, style: BotStyle, in ctx: CGContext) {
+        let c = printBadgeAt, rb = printBadgeRadius * k
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        ctx.setFillColor(style.printAccent)
+        ctx.fillEllipse(in: circle(c, rb))
+        if let mark = style.printMark { ctx.setFillColor(mark) } else { ctx.setBlendMode(.clear) }
+        let stem = CGRect(x: c.x - 0.13 * rb, y: c.y - 0.08 * rb, width: 0.26 * rb, height: 0.7 * rb)
+        ctx.addPath(CGPath(roundedRect: stem, cornerWidth: 0.13 * rb, cornerHeight: 0.13 * rb, transform: nil))
+        ctx.fillPath()
+        ctx.fillEllipse(in: circle(CGPoint(x: c.x, y: c.y - 0.42 * rb), 0.16 * rb))
+        ctx.endTransparencyLayer()
+    }
+
+    static func drawSparkle(_ u: Double, style: BotStyle, in ctx: CGContext) {
+        let size = 0.34 * sin(.pi * min(max(u, 0), 1))
+        guard size > 0.01 else { return }
+        let c = sparkleAt, spin = 0.5 * u
+        let star = CGMutablePath()
+        for i in 0..<8 {
+            let a = spin + Double(i) * .pi / 4
+            let rad = i.isMultiple(of: 2) ? size : 0.28 * size
+            let p = CGPoint(x: c.x + rad * cos(a), y: c.y + rad * sin(a))
+            if i == 0 { star.move(to: p) } else { star.addLine(to: p) }
+        }
+        star.closeSubpath()
+        ctx.saveGState()
+        ctx.addPath(star)
+        ctx.setFillColor(style.printAccent)
+        ctx.fillPath()
+        ctx.restoreGState()
     }
 
     static let ringPoints = 96

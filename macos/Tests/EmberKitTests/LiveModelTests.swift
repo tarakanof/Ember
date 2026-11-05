@@ -424,7 +424,7 @@ private func timedModel(_ now: Box<Date>) -> LiveModel {
         "/state", "/v1/pomodoro/state", "/v1/pomodoro/stats", "/v1/usage", "/v1/meetings/state",
         "/v1/apps", "/v1/device/config", "/v1/device/screen", "/v1/clock/health", "/v1/weather/state",
         "/v1/activity/summary?days=7", "/v1/pomodoro/heatmap?days=84",
-        "/v1/day/state", "/v1/day/history?days=28", "/v1/day/weeks?weeks=8",
+        "/v1/day/state", "/v1/day/history?days=28", "/v1/day/weeks?weeks=8", "/v1/print/state",
     ])
 }
 
@@ -608,4 +608,25 @@ private final class FetchHarness {
     #expect(!h.model.isTracked(.pomodoroCountdown))
     _ = await h.fetch(.pomodoroState, false)
     #expect(seen.value[1].value(forHTTPHeaderField: "If-None-Match") == nil)
+}
+
+@MainActor @Test func thePrintFeedLongPollsAndKeepsItsValueOnA304() async {
+    let seen = Box<[URLRequest]>([])
+    let body = #"{"enabled":true,"phase":"printing","progress":42,"event":{"id":1730800000123,"kind":"started","at":1730800000},"events":[],"printer":{"name":"CORE One"}}"#
+    let client = stubbedClient { req in
+        guard req.url?.path == "/v1/print/state" else { return (okResponse(req.url!, status: 404), Data()) }
+        seen.value.append(req)
+        if seen.value.count == 1 { return (tagged(req.url!), Data(body.utf8)) }
+        return (tagged(req.url!, status: 304), Data())
+    }
+    let h = FetchHarness(client)
+    let first = await h.fetch(.print, true)
+    #expect(first.serverWaits)
+    #expect(h.model.printer.value?.progress == 42)
+    #expect(h.model.printer.value?.event == PrinterEvent(id: 1_730_800_000_123, kind: "started", at: 1_730_800_000))
+    _ = await h.fetch(.print, true)
+    #expect(seen.value[1].value(forHTTPHeaderField: "If-None-Match") == #"W/"a""#)
+    #expect(seen.value[1].url?.query == "wait=25")
+    #expect(h.model.printer.value?.phase == "printing")
+    #expect(Feed.print.tier == .c)
 }

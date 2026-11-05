@@ -92,24 +92,41 @@ public struct PrinterInfo: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey { case name, host, url, discovered, hostname, firmware }
 }
 
+public struct PrinterEvent: Codable, Sendable, Equatable {
+    public var id: UInt64
+    public var kind: String
+    public var at: Int64
+
+    public init(id: UInt64, kind: String, at: Int64) {
+        self.id = id
+        self.kind = kind
+        self.at = at
+    }
+}
+
 public struct PrinterState: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var phase: String
     public var lastError: String
     public var printer: PrinterInfo
     public var updatedAt: Int64?
+    public var progress: Int?
+    public var event: PrinterEvent?
 
     public init(enabled: Bool = false, phase: String = "off", lastError: String = "",
-                printer: PrinterInfo = PrinterInfo(), updatedAt: Int64? = 1) {
+                printer: PrinterInfo = PrinterInfo(), updatedAt: Int64? = 1,
+                progress: Int? = nil, event: PrinterEvent? = nil) {
         self.enabled = enabled
         self.phase = phase
         self.lastError = lastError
         self.printer = printer
         self.updatedAt = updatedAt
+        self.progress = progress
+        self.event = event
     }
 
     enum CodingKeys: String, CodingKey {
-        case enabled, phase, printer
+        case enabled, phase, printer, progress, event
         case lastError = "last_error"
         case updatedAt = "updated_at"
     }
@@ -121,6 +138,8 @@ public struct PrinterState: Codable, Sendable, Equatable {
         lastError = try c.decodeIfPresent(String.self, forKey: .lastError) ?? ""
         printer = try c.decodeIfPresent(PrinterInfo.self, forKey: .printer) ?? PrinterInfo()
         updatedAt = try c.decodeIfPresent(Int64.self, forKey: .updatedAt)
+        progress = try c.decodeIfPresent(Int.self, forKey: .progress)
+        event = try? c.decodeIfPresent(PrinterEvent.self, forKey: .event)
     }
 }
 

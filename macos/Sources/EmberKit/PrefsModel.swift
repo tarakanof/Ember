@@ -46,12 +46,19 @@ public struct MenuPrefs: Equatable, Sendable {
     public var trayIdleGlyph: String
     public var trayStyle: String
     public var trayTint: String
+    public var botPrint: Bool
 
     public init(appIcon: String, trayClaudeGlyph: String, trayCodexGlyph: String, trayIdleGlyph: String,
-                trayStyle: String = "bot", trayTint: String = "color") {
+                trayStyle: String = "bot", trayTint: String = "color", botPrint: Bool = true) {
         self.appIcon = appIcon; self.trayClaudeGlyph = trayClaudeGlyph
         self.trayCodexGlyph = trayCodexGlyph; self.trayIdleGlyph = trayIdleGlyph
-        self.trayStyle = trayStyle; self.trayTint = trayTint
+        self.trayStyle = trayStyle; self.trayTint = trayTint; self.botPrint = botPrint
+    }
+
+    public var mayShowBotPrint: Bool { trayStyle == "bot" || appIcon == "bot" }
+
+    public func showsBotPrint(dockVisible: Bool) -> Bool {
+        botPrint && (trayStyle == "bot" || (appIcon == "bot" && dockVisible))
     }
 
     public static let `default` = MenuPrefs(
@@ -66,7 +73,8 @@ public struct MenuPrefs: Equatable, Sendable {
             trayCodexGlyph: trayGlyphs.contains(trayCodexGlyph) ? trayCodexGlyph : d.trayCodexGlyph,
             trayIdleGlyph: trayGlyphs.contains(trayIdleGlyph) ? trayIdleGlyph : d.trayIdleGlyph,
             trayStyle: trayStyles.contains(trayStyle) ? trayStyle : d.trayStyle,
-            trayTint: trayTints.contains(trayTint) ? trayTint : d.trayTint)
+            trayTint: trayTints.contains(trayTint) ? trayTint : d.trayTint,
+            botPrint: botPrint)
     }
 }
 

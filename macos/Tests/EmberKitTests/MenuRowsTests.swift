@@ -437,3 +437,31 @@ private func project(_ tool: String, source: String, state: String, id: String, 
     #expect(menu.showsActions)
     #expect(menu.apps.map(\.name) == ["claude"])
 }
+
+@Test func voiceOverHearsTheBotsPrint() {
+    let online = ConnectionHealth.online(since: Date(timeIntervalSince1970: 0))
+    let bot = MenuPrefs.default
+    #expect(MenuRows.label(connection: online, winning: nil, prefs: bot, print: .printing(percent: 42)).accessibilityValue == "Idle, printing 42 %")
+    #expect(MenuRows.label(connection: online, winning: nil, prefs: bot, print: .done).accessibilityValue == "Idle, print done")
+    #expect(MenuRows.label(connection: online, winning: nil, prefs: bot, print: .starting).accessibilityValue == "Idle, print starting")
+    #expect(MenuRows.label(connection: online, winning: nil, prefs: bot, print: .attention(percent: 3)).accessibilityValue == "Idle, printer needs you")
+    #expect(MenuRows.label(connection: online, winning: nil, prefs: bot, print: .none).accessibilityValue == "Idle")
+    var glyphs = bot
+    glyphs.trayStyle = "glyphs"
+    #expect(MenuRows.label(connection: online, winning: nil, prefs: glyphs, print: .printing(percent: 42)).accessibilityValue == "Idle")
+}
+
+@Test func botPrintNeedsTheBotSomewhere() {
+    var p = MenuPrefs.default
+    #expect(p.showsBotPrint(dockVisible: false))
+    p.botPrint = false
+    #expect(!p.showsBotPrint(dockVisible: true))
+    p = MenuPrefs.default
+    p.trayStyle = "glyphs"
+    #expect(p.showsBotPrint(dockVisible: true))
+    #expect(!p.showsBotPrint(dockVisible: false), "a Dock-only bot shows nothing while the app has no Dock tile")
+    #expect(p.mayShowBotPrint)
+    p.appIcon = "spark"
+    #expect(!p.showsBotPrint(dockVisible: true))
+    #expect(!p.mayShowBotPrint)
+}
