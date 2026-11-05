@@ -1,0 +1,40 @@
+{
+  "enabled": true,
+  "phase": "printing",
+  "printer_state": "PRINTING",
+  "job_id": 412,
+  "progress": 42,
+  "ends_at": 1793884680,
+  "started_at": 1793876640,
+  "change_at": 1793880960,
+  "nozzle": 240,
+  "nozzle_target": 240,
+  "bed": 85,
+  "bed_target": 85,
+  "name": "bracket_v3",
+  "material": "PETG",
+  "thumb_version": "1a2b3c4d5e6f",
+  "event": {
+    "id": 1793880000000,
+    "kind": "started",
+    "at": 1793876640,
+    "job_id": 412
+  },
+  "events": [
+    {
+      "id": 1793880000000,
+      "kind": "started",
+      "at": 1793876640,
+      "job_id": 412
+    }
+  ],
+  "updated_at": 1793880000,
+  "printer": {
+    "name": "CORE One",
+    "host": "prusa-core-one.local",
+    "url": "http://192.168.0.50",
+    "discovered": true,
+    "hostname": "prusa-core-one",
+    "firmware": "8.0.0"
+  }
+}

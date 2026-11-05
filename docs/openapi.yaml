@@ -74,6 +74,8 @@ tags:
     description: Now-playing reports, art and playback commands.
   - name: controls
     description: Knob gestures relayed to actions on one Mac (cinder#144).
+  - name: print
+    description: The Prusa printer's print state, read from PrusaLink by the server.
   - name: operator
     description: Health and version.
 
@@ -206,6 +208,24 @@ components:
             $ref: "#/components/schemas/Error"
 
   schemas:
+    PrintEvent:
+      type: object
+      required: [id, kind, at]
+      properties:
+        id: {type: integer, description: Increasing; a consumer acts once per id.}
+        kind: {type: string, enum: [started, attention, finished, stopped, error]}
+        at: {type: integer}
+        job_id: {type: integer}
+    PrintConfig:
+      type: object
+      properties:
+        enabled: {type: boolean, default: false}
+        url: {type: string, default: auto}
+        name: {type: string, default: CORE One, maxLength: 64}
+        clock_app: {type: boolean, default: true}
+        notify_done: {type: boolean, default: true}
+        notify_attention: {type: boolean, default: true}
+        done_hold_min: {type: integer, default: 30, minimum: 0, maximum: 1440, description: Minutes the done card is held; 0 means the default 30.}
     Error:
       type: object
       required: [error]
@@ -2471,6 +2491,126 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/print/state:
+    get:
+      tags: [print]
+      operationId: getPrintState
+      summary: The printer's print state
+      description: |
+        One poller on the server reads PrusaLink (#789); this is its state as
+        `printer.State.At(now)` sees it. Owner or a `read` client token (file
+        names are personal). Times are Unix seconds. `ends_at`, `started_at`
+        and `change_at` are anchored: they move only when the printer's
+        estimate is more than 60 s off. Job fields are absent for `off`,
+        `offline` and `idle`; temperatures are absent for `off` and
+        `offline`. `events` are the edges of the last 30 min (`started`,
+        `attention`, `finished`, `stopped`, `error`), ids increasing; `event`
+        is the newest. `hold_until` is set while a `finished` (done hold,
+        `printer.done_hold_min`) or `stopped` (10 min) card is held.
+        `last_error`: `no_password`, `wrong_password`, `unreachable`,
+        `not_found`. The password never appears here.
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          description: The print state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, phase, events, printer]
+                properties:
+                  enabled: {type: boolean}
+                  phase:
+                    type: string
+                    enum: [off, offline, idle, heating, preparing, printing, finishing, paused, attention, finished, stopped, error]
+                  last_error:
+                    type: string
+                    enum: [no_password, wrong_password, unreachable, not_found]
+                  printer_state:
+                    type: string
+                    description: PrusaLink's raw `printer.state` (`IDLE`, `PRINTING`, `ATTENTION` …).
+                  job_id: {type: integer}
+                  progress: {type: integer, minimum: 0, maximum: 100}
+                  ends_at: {type: integer}
+                  started_at: {type: integer}
+                  change_at: {type: integer, description: Next colour change (`filament_change_in`).}
+                  nozzle: {type: integer}
+                  nozzle_target: {type: integer}
+                  bed: {type: integer}
+                  bed_target: {type: integer}
+                  name: {type: string, maxLength: 32, description: File name without the extension and PrusaSlicer's suffix.}
+                  material: {type: string, description: From PrusaSlicer's file-name suffix when present.}
+                  thumb_version: {type: string, description: Present when the job's PNG thumbnail was read.}
+                  hold_until: {type: integer}
+                  event: {$ref: "#/components/schemas/PrintEvent"}
+                  events:
+                    type: array
+                    items: {$ref: "#/components/schemas/PrintEvent"}
+                  updated_at: {type: integer, description: Last successful status read.}
+                  printer:
+                    type: object
+                    properties:
+                      name: {type: string, description: "`printer.name` from the config."}
+                      host: {type: string, description: The mDNS host (auto) or the URL's host (manual).}
+                      url: {type: string}
+                      discovered: {type: boolean}
+                      hostname: {type: string, description: From `/api/version`.}
+                      firmware: {type: string, description: From `/api/version`.}
+              examples:
+                printing:
+                  externalValue: ../cmd/ember/testdata/print/state_printing.json
+                wrong_password:
+                  externalValue: ../cmd/ember/testdata/print/state_wrong_password.json
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/print/config:
+    get:
+      tags: [settings]
+      operationId: getPrintConfig
+      summary: Printer settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          description: The `printer` config block.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PrintConfig"}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putPrintConfig
+      summary: Merge printer settings
+      description: |
+        Merge semantics; stored in the settings overlay (`printer_json`) and
+        re-applied on start and `/admin/reload`. `url` is `auto` (mDNS
+        `_prusalink._tcp`) or `http(s)://host[:port]` without credentials or
+        a path. The password is never configured here: it comes from
+        `EMBER_PRUSALINK_PASSWORD` on the server.
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PrintConfig"}
+      responses:
+        "200":
+          description: The merged config.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PrintConfig"}
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

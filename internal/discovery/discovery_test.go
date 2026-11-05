@@ -236,3 +236,38 @@ func TestBrowseAWTRIXReturnsCtxErrWhenCancelledDuringProbe(t *testing.T) {
 		t.Fatalf("browseAWTRIX cancelled during the probe = (%+v, %v), want (none, context.Canceled)", got, err)
 	}
 }
+
+func TestBrowsePrusaLinkListsServicesWithIPv4URLs(t *testing.T) {
+	var asked string
+	lookup := func(ctx context.Context, svc string, add dnssd.AddFunc, _ dnssd.RmvFunc) error {
+		asked = svc
+		add(dnssd.BrowseEntry{Name: "Prusa CORE One", Host: "prusa-core-one.local.", Port: 80,
+			IPs: []net.IP{net.ParseIP("fe80::1"), net.ParseIP("192.168.0.50")}})
+		add(dnssd.BrowseEntry{Name: "Prusa MK4", Host: "prusa-mk4.local.", IPs: []net.IP{net.ParseIP("192.168.0.51")}})
+		add(dnssd.BrowseEntry{Name: "No address", Host: "ghost.local.", Port: 80})
+		add(dnssd.BrowseEntry{Name: "Prusa CORE One", Host: "prusa-core-one.local.", Port: 8080, IPs: []net.IP{net.ParseIP("192.168.0.52")}})
+		return nil
+	}
+	got, err := browsePrusaLink(context.Background(), time.Second, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asked != "_prusalink._tcp.local." {
+		t.Fatalf("browsed %q", asked)
+	}
+	want := []PrusaLink{
+		{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: "http://192.168.0.52:8080"},
+		{Name: "Prusa MK4", Host: "prusa-mk4.local.", URL: "http://192.168.0.51:80"},
+	}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("browsePrusaLink = %+v, want %+v", got, want)
+	}
+}
+
+func TestBrowsePrusaLinkReturnsCtxErr(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := browsePrusaLink(ctx, time.Second, noMDNS); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}

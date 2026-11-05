@@ -240,3 +240,49 @@ func browseAWTRIX(ctx context.Context, timeout time.Duration, lookupMDNS mdnsLoo
 	}
 	return cands, nil
 }
+
+const prusaLinkServiceType = "_prusalink._tcp.local."
+
+type PrusaLink struct {
+	Name string
+	Host string
+	URL  string
+}
+
+func BrowsePrusaLink(ctx context.Context, timeout time.Duration) ([]PrusaLink, error) {
+	return browsePrusaLink(ctx, timeout, dnssd.LookupType)
+}
+
+func browsePrusaLink(ctx context.Context, timeout time.Duration, lookupMDNS mdnsLookup) ([]PrusaLink, error) {
+	bctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var (
+		mu    sync.Mutex
+		seen  = map[string]PrusaLink{}
+		order []string
+	)
+	_ = lookupMDNS(bctx, prusaLinkServiceType, func(e dnssd.BrowseEntry) {
+		port := e.Port
+		if port == 0 {
+			port = 80
+		}
+		u := baseURLFor(e.IPs, port)
+		if u == "" {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if _, dup := seen[e.Host]; !dup {
+			order = append(order, e.Host)
+		}
+		seen[e.Host] = PrusaLink{Name: e.Name, Host: e.Host, URL: u}
+	}, func(dnssd.BrowseEntry) {})
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]PrusaLink, 0, len(order))
+	for _, h := range order {
+		out = append(out, seen[h])
+	}
+	return out, nil
+}

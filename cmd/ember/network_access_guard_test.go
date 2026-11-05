@@ -14,11 +14,12 @@ import (
 )
 
 var networkAllowlist = map[string]int{
-	"device_buttons.go:outboundIP:net.Dial":         1,
-	"app.go:newServerApp:discovery.BrowseAWTRIX":    1,
-	"main.go:main:discovery.Advertise":              1,
-	"healthcheck.go:healthcheckOnce:http.Transport": 1,
-	"healthcheck.go:runHealthcheck:http.Transport":  1,
+	"device_buttons.go:outboundIP:net.Dial":              1,
+	"app.go:newServerApp:discovery.BrowseAWTRIX":         1,
+	"print.go:browsePrusaLink:discovery.BrowsePrusaLink": 1,
+	"main.go:main:discovery.Advertise":                   1,
+	"healthcheck.go:healthcheckOnce:http.Transport":      1,
+	"healthcheck.go:runHealthcheck:http.Transport":       1,
 }
 
 var socketTypes = map[string]string{

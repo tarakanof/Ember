@@ -1494,6 +1494,36 @@ Manual, with real players (not covered by tests):
   refused the relay (Plexamp's support for the relayed player API is
   unverified); a volume 502 means the player's timeline gave no level.
 
+## Print status (Prusa CORE One, PrusaLink) — #789
+
+The server polls the printer's PrusaLink API and keeps one print state
+(ARCHITECTURE "Print status"). Off until `printer.enabled` is true
+(`PUT /v1/print/config {"enabled":true}` or `config.json`).
+
+| Env | Meaning |
+|---|---|
+| `EMBER_PRUSALINK_PASSWORD` | **Secret.** The printer's PrusaLink password. Used only for Digest auth; never logged, stored, answered or put in JSON. Unset = phase `off`, `last_error: no_password` |
+| `EMBER_PRUSALINK_USER` | Optional, default `maker` |
+
+**Read the password on the printer:** Settings → Network → PrusaLink (shows
+User and Password; "Generate Password" makes a new one, after which the
+container's env must be updated and the container restarted). The Unraid
+template has both variables (the password masked).
+
+**Address.** `printer.url` `auto` browses mDNS `_prusalink._tcp` (needs
+`--network host`, as production runs) and follows a new DHCP address when the
+printer goes offline. Several printers: set `printer.name` to the one you
+want (matched against the mDNS host and instance name). A printer on another
+VLAN or a Wi-Fi network that drops multicast: set `printer.url` to
+`http://<printer IP>`.
+
+**Check it.** `curl -s -H "Authorization: Bearer $EMBER_TOKEN" $EMBER/v1/print/state`
+— `phase`, `progress`, `ends_at`, `name`, `printer.firmware`,
+`printer.hostname`; `last_error` explains an `offline`. `/admin/doctor`'s
+`printer` check says the same in words. A scratch server for this follows
+the smoke-run rules (scratch port, temp DB, `EMBER_MDNS_ADVERTISE=0`,
+`EMBER_CLOCK=off`); a manual `printer.url` avoids depending on mDNS.
+
 ## AI usage card (threshold-gated, inside the main app)
 
 Claude + Codex subscription usage renders as a **usage card** inside the main

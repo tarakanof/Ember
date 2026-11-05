@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/tarakanof/ember/internal/printer"
 	"github.com/tarakanof/ember/internal/weather"
 )
 
@@ -124,6 +125,9 @@ func validateConfig(cfg Config) error {
 	if err := cfg.Reminders.validate(); err != nil {
 		return fmt.Errorf("%w: reminders.%v", ErrConfigValidate, err)
 	}
+	if err := cfg.Printer.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrConfigValidate, err)
+	}
 	return nil
 }
 
@@ -205,6 +209,7 @@ type Config struct {
 	Controls          ControlsConfig               `json:"controls"`
 	Reminders         RemindersConfig              `json:"reminders"`
 	UsageAccounts     map[string]usageAccountPrefs `json:"usage_accounts,omitempty"`
+	Printer           printer.Config               `json:"printer"`
 
 	clockPresentation *clockStoredConfig
 }
@@ -459,4 +464,5 @@ func (c *Config) applyDefaults() {
 	c.Weather.ApplyDefaults()
 	c.Meetings.applyDefaults()
 	c.Day.fillAbsent()
+	c.Printer.ApplyDefaults()
 }

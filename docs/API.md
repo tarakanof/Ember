@@ -17,7 +17,8 @@ registry since #340) and pass only their scopes: `ingest` (`POST`/`DELETE /v1/st
 `GET /v1/day/state` and actions), `read` (the non-secret
 settings GETs: apps, pomodoro/usage/display/brightness/quiet/day/reminders config,
 `/v1/day/{history,weeks}`,
-`/v1/clock/stats`, `/v1/devices/{id}/room`), `admin` (every bearer `/v1/` route except client-token
+`/v1/clock/stats`, `/v1/devices/{id}/room`, `GET /v1/print/state` and
+`GET /v1/print/config`), `admin` (every bearer `/v1/` route except client-token
 management). Wrong scope is 403. An optional `"sources":[…]` at mint (1-16,
 each ≤64 chars, needs `ingest`; 400 with `admin`, which could still `POST /v1/clear`) binds the token: `POST`/`DELETE
 /v1/status`, `POST /v1/day/replies` and `POST /v1/usage` naming another
@@ -196,7 +197,15 @@ is a 400, and so is a changed `severe_sound` under the Pomodoro
 `use_native_icon`, `native_icon_id` ≤64 chars, `hold`, `repeat_sound`;
 `PUT …?if_default=1` writes only while the stored values are the defaults,
 else 409 with the current values),
-`GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config` (also drives the
+`GET/PUT /v1/meetings/config`, `GET /v1/print/state` (owner or `read`: the
+printer's phase, progress, anchored `ends_at`/`started_at`/`change_at`,
+temperatures, short `name`, `material`, `thumb_version`, the last 30 min of
+`events`, `hold_until`, `last_error` `no_password|wrong_password|unreachable|not_found`,
+and `printer` `{name, host, url, discovered, hostname, firmware}` —
+ARCHITECTURE "Print status"), `GET/PUT /v1/print/config` (`enabled`, `url`
+`auto` or `http(s)://host[:port]`, `name`, `clock_app`, `notify_done`,
+`notify_attention`, `done_hold_min` 1-1440, 0 = 30; the password is env-only),
+`GET/PUT /v1/quiet/config` (also drives the
 knob view's `quiet`), `GET/PUT /v1/brightness/config` (every `…/config`
 settings PUT above is merge semantics: the body is a JSON object whose omitted
 keys keep their current value; an invalid merged result is a 400 and changes

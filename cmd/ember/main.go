@@ -21,6 +21,7 @@ import (
 
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/nowplaying"
+	"github.com/tarakanof/ember/internal/printer"
 	"github.com/tarakanof/ember/internal/weather"
 )
 
@@ -116,6 +117,7 @@ func main() {
 	} else if plexCfg.URL != "" || plexCfg.Token != "" {
 		logger.Warn("plex now-playing source disabled: EMBER_PLEX_URL must be http(s) and EMBER_PLEX_TOKEN set")
 	}
+	app.configurePrinter(printer.CredentialsFromEnv(os.Getenv))
 	if envOptIn(os.Getenv("EMBER_ARTIST_LOOKUP")) {
 		app.nowPlaying.Artists = nowplaying.NewArtistLookup(deezerAPIBase)
 		logger.Info("artist pictures: Deezer lookup on (artist names leave the server; unset EMBER_ARTIST_LOOKUP to stop)")
@@ -172,6 +174,7 @@ func main() {
 	workers.Go(func() { app.StartBrightness(ctx) })
 	workers.Go(func() { app.StartMeetings(ctx) })
 	workers.Go(func() { app.StartNowPlaying(ctx) })
+	workers.Go(func() { app.printer.Run(ctx) })
 	workers.Go(func() { app.StartReminderLoopGuard(ctx) })
 
 	if clockDisabled() {

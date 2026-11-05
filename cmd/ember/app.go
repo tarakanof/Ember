@@ -13,6 +13,7 @@ import (
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/nowplaying"
 	"github.com/tarakanof/ember/internal/pomodoro"
+	"github.com/tarakanof/ember/internal/printer"
 	"github.com/tarakanof/ember/internal/sessions"
 	"github.com/tarakanof/ember/internal/weather"
 )
@@ -115,6 +116,7 @@ type App struct {
 	meetingsURLs []string
 
 	nowPlaying *nowplaying.Service
+	printer    *printer.Poller
 	controls   *controlsService
 
 	meetings        *meetingsStore
@@ -154,6 +156,7 @@ type App struct {
 func newServerApp(cfg Config, logger *slog.Logger) *App {
 	app := NewApp(cfg, nil, logger)
 	app.browseFn = discovery.BrowseAWTRIX
+	app.printer = app.newPrinter(browsePrusaLink)
 	return app
 }
 
@@ -175,6 +178,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.nowPlaying = nowplaying.NewService()
 	a.controls = newControlsService()
 	a.nowPlaying.Reg.OnChange = func() { a.changes.notify(topicNowPlaying) }
+	a.printer = a.newPrinter(nil)
 	a.iconFetch = fetchLaMetricIcon
 	a.clockJobs = newClockJobGroup()
 	a.cfg.Store(&cfg)
