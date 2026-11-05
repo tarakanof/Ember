@@ -111,19 +111,20 @@ type State struct {
 	rawState  string
 	updatedAt time.Time
 
-	jobID     int
-	startedID int
-	endedSet  bool
-	endedKind EventKind
-	endedHeld bool
-	progress  float64
-	endsAt    time.Time
-	startedAt time.Time
-	changeAt  time.Time
-	nozzle    float64
-	nozzleT   float64
-	bed       float64
-	bedT      float64
+	jobID      int
+	startedID  int
+	endedSet   bool
+	endedKind  EventKind
+	endedHeld  bool
+	recovering bool
+	progress   float64
+	endsAt     time.Time
+	startedAt  time.Time
+	changeAt   time.Time
+	nozzle     float64
+	nozzleT    float64
+	bed        float64
+	bedT       float64
 
 	name     string
 	material string
@@ -262,7 +263,7 @@ func (s *State) forget() {
 	defer s.mu.Unlock()
 	s.seen, s.prevPhase, s.rawState, s.updatedAt = false, "", "", time.Time{}
 	s.jobID, s.startedID, s.progress = 0, 0, 0
-	s.endedSet, s.endedKind, s.endedHeld = false, "", false
+	s.endedSet, s.endedKind, s.endedHeld, s.recovering = false, "", false, false
 	s.endsAt, s.startedAt, s.changeAt = time.Time{}, time.Time{}, time.Time{}
 	s.nozzle, s.nozzleT, s.bed, s.bedT = 0, 0, 0, 0
 	s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
@@ -350,11 +351,16 @@ func ActiveStatus(d StatusDoc) bool {
 	return false
 }
 
-func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged bool) {
+func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged, active bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	phase := DerivePhase(d)
 	raw := strings.ToUpper(d.Printer.State)
+	s.recovering = raw == "BUSY" && d.Job == nil && s.seen && s.jobID != 0 && s.midPrintLocked(s.prevPhase)
+	if s.recovering {
+		phase = s.prevPhase
+	}
+	active = ActiveStatus(d) || s.recovering
 	stateChanged = !s.seen || raw != s.rawState
 	pr := d.Printer
 	s.nozzle, s.nozzleT, s.bed, s.bedT = pr.TempNozzle, pr.TargetNozzle, pr.TempBed, pr.TargetBed
@@ -374,7 +380,7 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged bo
 			s.startedAt = anchor(s.startedAt, now.Add(-seconds(*j.TimePrinting)))
 		}
 		s.endedHeld = false
-	} else {
+	} else if !s.recovering {
 		s.endsAt, s.changeAt = time.Time{}, time.Time{}
 		switch {
 		case keepsEndedJob(phase):
@@ -396,14 +402,18 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged bo
 		}
 		if kind, ok := endedKind(phase); ok {
 			s.endedSet, s.endedKind = true, kind
-		} else if phase == PhaseAttention && d.Job != nil && d.Job.Progress >= 100 {
-			s.endedSet, s.endedKind = true, EventFinished
+		} else if phase == PhaseAttention && (d.Job == nil || d.Job.Progress >= 100) {
+			s.endedSet, s.endedKind = true, ""
 		}
 	}
 	s.seen = true
 	s.prevPhase = phase
 	s.phase, s.lastErr = phase, ErrCodeNone
-	return stateChanged, jobChanged
+	return stateChanged, jobChanged, active
+}
+
+func (s *State) midPrintLocked(p Phase) bool {
+	return isRunning(p) || p == PhasePaused || (p == PhaseAttention && !s.endedHeld && !s.endedSet)
 }
 
 func keepsEndedJob(p Phase) bool {
@@ -455,7 +465,7 @@ func (s *State) edgesLocked(now time.Time, phase Phase) {
 		return
 	}
 	kind, ok := endedKind(phase)
-	if !ok || (s.endedSet && s.endedKind == kind) {
+	if !ok || (s.endedSet && (s.endedKind == "" || s.endedKind == kind)) {
 		return
 	}
 	s.endedSet, s.endedKind = true, kind
@@ -490,7 +500,7 @@ func (s *State) setJob(d *JobDoc) (thumbRef string, fetch bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if d == nil {
-		if !keepsEndedJob(s.phase) && !s.heldOverLocked() {
+		if !keepsEndedJob(s.phase) && !s.heldOverLocked() && !s.recovering {
 			s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
 		}
 		return "", false

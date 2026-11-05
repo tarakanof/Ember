@@ -410,8 +410,8 @@ func (p *Poller) poll(ctx context.Context) error {
 		return err
 	}
 	now := p.now()
-	stateChanged, jobChanged := p.State.observe(now, st)
-	p.active = ActiveStatus(st)
+	stateChanged, jobChanged, active := p.State.observe(now, st)
+	p.active = active
 	if !p.versionTried {
 		v, err := p.client.Version(ctx)
 		if errors.Is(err, ErrWrongPassword) {

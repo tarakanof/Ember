@@ -2757,7 +2757,7 @@ keeps it on the default transport: mDNS browsing is injected
   and the edge baseline, so the next printer's first poll is a baseline
   again and nothing carries over or replays.
 - **Cadence.** `GET /api/v1/status` every 5 s while a job is active
-  (`PRINTING`, `PAUSED`, `ATTENTION`, `BUSY` with a job), else 30 s.
+  (`PRINTING`, `PAUSED`, `ATTENTION`, and a `BUSY` recovery mid-print), else 30 s.
   `GET /api/v1/job` only when `printer.state` or `job.id` changes (and
   after an address change; a failed read is retried on the next 2 polls,
   then waits for the next change with one warning); `GET /api/version` once per printer (up to 3
@@ -2772,12 +2772,15 @@ keeps it on the default transport: mDNS browsing is injected
   through `State.At(now)` (a `Snapshot`), as now playing's readers go through
   `Registry.Current(now)`. Phases: `off` (disabled, or no password),
   `offline` (2 failed polls, wrong password, not found), `idle` (`IDLE`,
-  `READY`, `BUSY` without a job), `heating` (`PRINTING` under 1 % with a
+  `READY`, `BUSY` outside a print), `heating` (`PRINTING` under 1 % with a
   set target the nozzle or bed is more than 3° under), `preparing`
   (`PRINTING` under 1 % at temperature), `printing` (1–99 %), `finishing`
   (`PRINTING` at 100 %: park, cool, unload), `paused`, `attention`,
-  `finished`, `stopped`, `error`. `BUSY` with a job (crash or power-panic
-  recovery mid-print) derives like `PRINTING`.
+  `finished`, `stopped`, `error`. `BUSY` always arrives without a job
+  (`has_job()` excludes the recovery states); right after printing, a
+  pause or a print's attention it is a crash or power-panic recovery and
+  keeps the previous phase, the job, its anchors and the 5 s cadence,
+  otherwise it is `idle`.
 - **Anchors.** `ends_at` = now + `time_remaining`, `started_at` = now −
   `time_printing`, `change_at` = now + `filament_change_in`; each moves only
   when the new value is more than 60 s off, so a wobbling estimate doesn't
@@ -2799,8 +2802,9 @@ keeps it on the default transport: mDNS browsing is injected
   fires once: after `finished` (or `stopped`, `error`) no edge of the same
   kind fires again until a print runs, so the dismissal emits only the
   `attention` and the hold keeps its start. A server start that first
-  sees FINISHED, STOPPED, ERROR or an ATTENTION with the job at 100 %
-  counts that print as ended. Known limit: an end-of-print prompt at 100 %
+  sees FINISHED, STOPPED, ERROR, or an ATTENTION without the job or with
+  it at 100 %, counts that print as ended (the next terminal edge of any
+  kind is skipped until a print runs). Known limit: an end-of-print prompt at 100 %
   (unload) seen first after a restart is taken for that warning, so its
   `finished` is not emitted. Any other phase without a job (idle) clears
   the job fields. `/api/version` is read again after the printer

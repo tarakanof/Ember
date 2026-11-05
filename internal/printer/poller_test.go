@@ -1353,3 +1353,80 @@ func TestRestartDuringAWarningOverTheFinishScreenReplaysNoDone(t *testing.T) {
 		t.Fatalf("events = %v after a restart during the warning", kinds)
 	}
 }
+
+func TestRestartDuringAJoblessWarningOverTheFinishScreenReplaysNoDone(t *testing.T) {
+	for _, end := range []string{"FINISHED", "STOPPED"} {
+		t.Run(end, func(t *testing.T) {
+			s := newStubPrinter(t)
+			s.set(func(s *stubPrinter) { s.status = statusJSON("ATTENTION", nil) })
+			h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+			h.advance(h.step())
+			s.set(func(s *stubPrinter) { s.status = statusJSON(end, nil) })
+			h.advance(h.step())
+			if kinds := eventKinds(h.snap()); len(kinds) != 0 || !h.snap().HoldUntil.IsZero() {
+				t.Fatalf("events %v hold %v after a restart during a jobless warning", kinds, h.snap().HoldUntil)
+			}
+			s.set(func(s *stubPrinter) { s.status = statusJSON("PRINTING", &jobFields{id: 9, progress: 1}) })
+			h.advance(h.step())
+			s.set(func(s *stubPrinter) { s.status = statusJSON(end, nil) })
+			h.advance(h.step())
+			if kinds := eventKinds(h.snap()); len(kinds) != 2 {
+				t.Fatalf("the next print's end was swallowed: %v", kinds)
+			}
+		})
+	}
+}
+
+func TestRecoveryMidPrintKeepsTheJob(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) {
+		s.thumb = []byte("\x89PNG\r\n\x1a\nthumb")
+		s.status = statusJSON("PRINTING", &jobFields{id: 5, progress: 40, remaining: num(3000), printing: num(2000)})
+		s.job = jobJSON(5, "PRINTING", "bracket_v3_0.4n_0.2mm_PETG_COREONE_2h14m.bgcode")
+	})
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	endsAt := h.snap().EndsAt
+	s.set(func(s *stubPrinter) { s.status = statusJSON("BUSY", nil) })
+	for range 2 {
+		d := h.step()
+		snap := h.snap()
+		if snap.Phase != PhasePrinting || snap.Name != "bracket_v3" || snap.JobID != 5 || snap.ThumbVersion == "" || !snap.EndsAt.Equal(endsAt) {
+			t.Fatalf("during recovery: %+v", snap)
+		}
+		if d != PollActive {
+			t.Fatalf("recovery polled after %v, want %v", d, PollActive)
+		}
+		h.advance(d)
+	}
+	for _, st := range []string{
+		statusJSON("PAUSED", &jobFields{id: 5, progress: 40}),
+		statusJSON("PRINTING", &jobFields{id: 5, progress: 41}),
+	} {
+		s.set(func(s *stubPrinter) { s.status = st })
+		h.advance(h.step())
+	}
+	if got := s.hit("/thumb/l/usb/BRACKE~1.BGC"); got != 1 {
+		t.Fatalf("thumbnail fetched %d times across the recovery", got)
+	}
+	if kinds := eventKinds(h.snap()); len(kinds) != 0 {
+		t.Fatalf("recovery fired %v", kinds)
+	}
+}
+
+func TestBusyOutsideAPrintIsIdle(t *testing.T) {
+	s := newStubPrinter(t)
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	for _, st := range []string{
+		statusJSON("PRINTING", &jobFields{id: 5, progress: 50}),
+		statusJSON("FINISHED", nil),
+		statusJSON("IDLE", nil),
+		statusJSON("BUSY", nil),
+	} {
+		s.set(func(s *stubPrinter) { s.status = st })
+		h.advance(h.step())
+	}
+	if snap := h.snap(); snap.Phase != PhaseIdle || snap.JobID != 0 {
+		t.Fatalf("busy after a print = %+v", snap)
+	}
+}
