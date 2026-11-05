@@ -2788,15 +2788,21 @@ keeps it on the default transport: mDNS browsing is injected
   has been watching plus 30 s (it ran before the start); the first status
   that is not a jobless BUSY ends that rule, except a print-preview
   question (ATTENTION under 1 % for a job not yet seen printing), whose
-  `time_printing` is the previous print's, so the next read decides.
+  `time_printing` is the previous print's, so the next read decides. A
+  remote start (Connect, PrusaLink) skips the preview and reads PRINTING
+  at 0 % with that stale time until `PrintInit`: a read under 1 % that
+  looks "ran before" holds the decision and its `started` for one more
+  read, and a drop in `time_printing` then makes it a fresh start.
 - **Anchors.** `ends_at` = now + `time_remaining`, `started_at` = now −
   `time_printing`, `change_at` = now + `filament_change_in`; each moves only
   when the new value is more than 60 s off, so a wobbling estimate doesn't
   change readers' ETags every poll. A new `job.id` resets them; a missing
   estimate clears `ends_at`/`change_at`.
-  During a print-preview question (ATTENTION with the new job id at 0 %)
-  the firmware still reports the previous print's `time_printing`, so an
-  ATTENTION read anchors `started_at` only once the job has been seen
+  During a print-preview question (ATTENTION with the new job id at 0 %),
+  and in a remote start's PRINTING before `PrintInit`, the firmware still
+  reports the previous print's `time_printing`, so under 1 % `started_at`
+  is anchored only from a `time_printing` no longer than the job has been
+  seen (plus 30 s), and an ATTENTION read only once the job has been seen
   printing or paused, or is past 1 %; and a server start in that ATTENTION
   counts the job as started only past 1 %.
 - **Name.** `display_name` (else the 8.3 `name`) without the G-code

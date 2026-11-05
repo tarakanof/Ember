@@ -120,6 +120,8 @@ type State struct {
 	busyStart  bool
 	firstRead  time.Time
 	jobRan     bool
+	startHeld  bool
+	jobSeenAt  time.Time
 	progress   float64
 	endsAt     time.Time
 	startedAt  time.Time
@@ -267,7 +269,7 @@ func (s *State) forget() {
 	s.seen, s.prevPhase, s.rawState, s.updatedAt = false, "", "", time.Time{}
 	s.jobID, s.startedID, s.progress = 0, 0, 0
 	s.endedSet, s.endedKind, s.endedHeld, s.recovering, s.busyStart = false, "", false, false, false
-	s.firstRead, s.jobRan = time.Time{}, false
+	s.firstRead, s.jobRan, s.startHeld, s.jobSeenAt = time.Time{}, false, false, time.Time{}
 	s.endsAt, s.startedAt, s.changeAt = time.Time{}, time.Time{}, time.Time{}
 	s.nozzle, s.nozzleT, s.bed, s.bedT = 0, 0, 0, 0
 	s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
@@ -374,7 +376,7 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged, a
 	if j := d.Job; j != nil {
 		if j.ID != s.jobID {
 			jobChanged = true
-			s.jobID, s.jobRan = j.ID, false
+			s.jobID, s.jobRan, s.jobSeenAt = j.ID, false, now
 			s.endsAt, s.startedAt, s.changeAt = time.Time{}, time.Time{}, time.Time{}
 			s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
 		}
@@ -384,7 +386,8 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged, a
 		if phase != PhaseAttention {
 			s.jobRan = true
 		}
-		if j.TimePrinting != nil && (s.jobRan || j.Progress >= 1) {
+		fresh := j.Progress >= 1 || (j.TimePrinting != nil && seconds(*j.TimePrinting) <= now.Sub(s.jobSeenAt)+PollIdle)
+		if j.TimePrinting != nil && fresh && (s.jobRan || j.Progress >= 1) {
 			s.startedAt = anchor(s.startedAt, now.Add(-seconds(*j.TimePrinting)))
 		}
 		s.endedHeld = false
@@ -404,9 +407,14 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged, a
 
 	preview := phase == PhaseAttention && d.Job != nil && !s.jobRan && d.Job.Progress < 1
 	if s.seen && s.busyStart && (d.Job != nil || raw != "BUSY") && !preview {
-		s.busyStart = false
-		if d.Job != nil && ranBefore(d.Job, now.Sub(s.firstRead)) {
-			s.startedID = s.jobID
+		ran := d.Job != nil && ranBefore(d.Job, now.Sub(s.firstRead))
+		if ran && d.Job.Progress < 1 && !s.startHeld {
+			s.startHeld = true
+		} else {
+			s.busyStart, s.startHeld = false, false
+			if ran {
+				s.startedID = s.jobID
+			}
 		}
 	}
 	if s.seen {
@@ -470,7 +478,7 @@ func (s *State) edgesLocked(now time.Time, phase Phase) {
 	if isRunning(phase) {
 		s.endedSet = false
 	}
-	if isRunning(phase) && s.jobID != 0 && s.jobID != s.startedID {
+	if isRunning(phase) && !s.startHeld && s.jobID != 0 && s.jobID != s.startedID {
 		s.startedID = s.jobID
 		s.emitLocked(now, EventStarted)
 	}

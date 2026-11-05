@@ -1534,3 +1534,58 @@ func TestBusyStartThenAPreviewQuestionStillEmitsStarted(t *testing.T) {
 		t.Fatalf("events = %v, want the preview's attention and the print's started", kinds)
 	}
 }
+
+func TestBusyStartThenARemoteStartWithTheLastPrintsTimeStillEmitsStarted(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("BUSY", nil) })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	for _, st := range []string{
+		statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(7200)}),
+		statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(4), nozzle: 90, nozzleT: 240}),
+	} {
+		s.set(func(s *stubPrinter) { s.status = st })
+		h.advance(h.step())
+	}
+	if kinds := eventKinds(h.snap()); !slices.Equal(kinds, []EventKind{EventStarted}) {
+		t.Fatalf("events = %v, want started", kinds)
+	}
+}
+
+func TestBusyStartThenARecoveryInTheFirstLayerStaysSilent(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("BUSY", nil) })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	for _, st := range []string{
+		statusJSON("PRINTING", &jobFields{id: 6, progress: 0.5, printing: num(300)}),
+		statusJSON("PRINTING", &jobFields{id: 6, progress: 0.6, printing: num(305)}),
+		statusJSON("PRINTING", &jobFields{id: 6, progress: 1, printing: num(310)}),
+	} {
+		s.set(func(s *stubPrinter) { s.status = st })
+		h.advance(h.step())
+	}
+	if kinds := eventKinds(h.snap()); len(kinds) != 0 {
+		t.Fatalf("a recovered print fired %v", kinds)
+	}
+}
+
+func TestRemoteStartDoesNotAnchorTheLastPrintsTime(t *testing.T) {
+	s := newStubPrinter(t)
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(7200)})
+	})
+	h.advance(h.step())
+	if got := h.snap().StartedAt; !got.IsZero() {
+		t.Fatalf("started_at anchored to the last print's time: %v", got)
+	}
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(4)})
+	})
+	h.step()
+	if want := h.now.Add(-4 * time.Second).Truncate(time.Second); !h.snap().StartedAt.Equal(want) {
+		t.Fatalf("started_at = %v, want %v", h.snap().StartedAt, want)
+	}
+}
