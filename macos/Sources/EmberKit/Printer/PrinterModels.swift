@@ -97,18 +97,21 @@ public struct PrinterState: Codable, Sendable, Equatable {
     public var phase: String
     public var lastError: String
     public var printer: PrinterInfo
+    public var updatedAt: Int64?
 
     public init(enabled: Bool = false, phase: String = "off", lastError: String = "",
-                printer: PrinterInfo = PrinterInfo()) {
+                printer: PrinterInfo = PrinterInfo(), updatedAt: Int64? = 1) {
         self.enabled = enabled
         self.phase = phase
         self.lastError = lastError
         self.printer = printer
+        self.updatedAt = updatedAt
     }
 
     enum CodingKeys: String, CodingKey {
         case enabled, phase, printer
         case lastError = "last_error"
+        case updatedAt = "updated_at"
     }
 
     public init(from decoder: Decoder) throws {
@@ -117,6 +120,7 @@ public struct PrinterState: Codable, Sendable, Equatable {
         phase = try c.decodeIfPresent(String.self, forKey: .phase) ?? "off"
         lastError = try c.decodeIfPresent(String.self, forKey: .lastError) ?? ""
         printer = try c.decodeIfPresent(PrinterInfo.self, forKey: .printer) ?? PrinterInfo()
+        updatedAt = try c.decodeIfPresent(Int64.self, forKey: .updatedAt)
     }
 }
 
@@ -138,7 +142,7 @@ public enum PrinterStatusLine: Equatable, Sendable {
         }
         guard state.enabled else { self = .disabled; return }
         switch state.lastError {
-        case "": self = state.phase == "off" ? .unknown : .connected(firmware: state.printer.firmware)
+        case "": self = state.phase == "off" || state.updatedAt == nil ? .unknown : .connected(firmware: state.printer.firmware)
         case "wrong_password": self = .wrongPassword
         case "no_password": self = .passwordMissing
         case "not_found": self = .notFound

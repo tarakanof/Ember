@@ -7,7 +7,7 @@ private func state(_ json: String) throws -> PrinterState {
 }
 
 @Test func connectedShowsTheFirmware() throws {
-    let s = try state(#"{"enabled":true,"phase":"idle","printer":{"name":"CORE One","host":"core.local","discovered":true,"firmware":"6.3.0"}}"#)
+    let s = try state(#"{"enabled":true,"phase":"idle","updated_at":1700000000,"printer":{"name":"CORE One","host":"core.local","discovered":true,"firmware":"6.3.0"}}"#)
     #expect(PrinterStatusLine(s) == .connected(firmware: "6.3.0"))
 }
 
@@ -487,25 +487,46 @@ private actor SaveLog {
 }
 
 @MainActor
-@Test func everyErrorShowsItsLineThroughTheModelInBothAddressModes() async {
-    let cases: [(code: String, phase: String, line: PrinterStatusLine)] = [
-        ("no_password", "off", .passwordMissing),
-        ("wrong_password", "offline", .wrongPassword),
-        ("unreachable", "offline", .printerOff),
-        ("not_found", "offline", .notFound),
-    ]
-    let configs = [PrinterConfig(enabled: true), PrinterConfig(enabled: true, url: "http://10.0.0.5")]
-    let urls = ["", "http://10.0.0.5", "http://10.0.0.7"]
-    for config in configs {
-        for url in urls {
-            for c in cases {
-                let model = PrinterSettingsModel(
-                    config: ServerConfigModel(initial: config, load: { config }, save: { _ in }),
-                    state: { PrinterState(enabled: true, phase: c.phase, lastError: c.code, printer: PrinterInfo(url: url)) },
-                    preview: { throw APIError.http(status: 404, body: "") })
-                await model.load()
-                #expect(model.status == c.line, "\(c.code) config=\(config.url) state url=\(url)")
-            }
-        }
-    }
+private func status(config: PrinterConfig, _ state: PrinterState) async -> PrinterStatusLine {
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: config, load: { config }, save: { _ in }),
+        state: { state }, preview: { throw APIError.http(status: 404, body: "") })
+    await model.load()
+    return model.status
+}
+
+@MainActor
+@Test func everyErrorShowsItsLineThroughTheModelInAutoMode() async {
+    let auto = PrinterConfig(enabled: true)
+    let found = PrinterInfo(host: "core.local", url: "http://10.0.0.5", discovered: true)
+    #expect(await status(config: auto, PrinterState(enabled: true, phase: "off", lastError: "no_password")) == .passwordMissing)
+    #expect(await status(config: auto, PrinterState(enabled: true, phase: "offline", lastError: "wrong_password", printer: found)) == .wrongPassword)
+    #expect(await status(config: auto, PrinterState(enabled: true, phase: "offline", lastError: "unreachable", printer: found)) == .printerOff)
+    #expect(await status(config: auto, PrinterState(enabled: true, phase: "offline", lastError: "not_found")) == .notFound)
+}
+
+@MainActor
+@Test func everyErrorShowsItsLineThroughTheModelInManualMode() async {
+    let manual = PrinterConfig(enabled: true, url: "http://10.0.0.5")
+    let target = PrinterInfo(url: "http://10.0.0.5")
+    #expect(await status(config: manual, PrinterState(enabled: true, phase: "off", lastError: "no_password")) == .passwordMissing)
+    #expect(await status(config: manual, PrinterState(enabled: true, phase: "off", lastError: "no_password", printer: PrinterInfo(url: "http://10.0.0.9"))) == .passwordMissing)
+    #expect(await status(config: manual, PrinterState(enabled: true, phase: "offline", lastError: "wrong_password", printer: target)) == .wrongPassword)
+    #expect(await status(config: manual, PrinterState(enabled: true, phase: "offline", lastError: "unreachable", printer: target)) == .printerOff)
+}
+
+@MainActor
+@Test func aStaleErrorFromAnotherAddressWaitsForTheServer() async {
+    let manual = PrinterConfig(enabled: true, url: "http://10.0.0.5")
+    #expect(await status(config: manual, PrinterState(enabled: true, phase: "offline", lastError: "not_found")) == .unknown)
+    let old = PrinterInfo(url: "http://10.0.0.9")
+    #expect(await status(config: manual, PrinterState(enabled: true, phase: "offline", lastError: "wrong_password", printer: old)) == .unknown)
+}
+
+@MainActor
+@Test func aNewAddressThatHasNeverAnsweredIsNotConnected() async {
+    let manual = PrinterConfig(enabled: true, url: "http://10.0.0.5")
+    let target = PrinterInfo(url: "http://10.0.0.5", firmware: "6.3.0")
+    #expect(await status(config: manual, PrinterState(enabled: true, phase: "idle", printer: target, updatedAt: nil)) == .unknown)
+    #expect(await status(config: manual, PrinterState(enabled: true, phase: "idle", printer: target)) == .connected(firmware: "6.3.0"))
 }
