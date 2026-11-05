@@ -16,7 +16,9 @@ private func emberKitStrings() -> [LocalizedStringResource] {
     out += timers.flatMap { PomodoroControls.items(for: $0).map(\.title) }
     out += ["claude", "codex", "t3", "weather", "ember-weather-popup", "ember-forecast", "ember-air", "ember-air-popup",
             "ember-sun-popup", "pomodoro", "ember-meet", "ember-meeting", "ember-reminder", "ember-notify",
-            "ember-usage-alarm", "ember-usage-claude", "mystery"].map(AppNames.display)
+            "ember-usage-alarm", "ember-usage-claude", "mystery",
+            "ember-print", "ember-print-eta", "ember-print-pct", "ember-print-done", "ember-print-attention",
+            "ember-print-error"].map(AppNames.display)
     let session = try! JSONDecoder().decode(Session.self, from: Data(#"{"tool":"claude","state":"running","context_pct":5}"#.utf8))
     var sourced = session
     sourced.source = "m4"
@@ -43,4 +45,20 @@ private func emberKitStrings() -> [LocalizedStringResource] {
     let keys = Set((catalog["strings"] as? [String: Any] ?? [:]).keys)
     let missing = Set(emberKitStrings().map(\.key)).subtracting(keys).sorted()
     #expect(missing.isEmpty, "add to Localizable.xcstrings: \(missing)")
+}
+
+@Test func everyServerPrintAppIdHasAName() throws {
+    let cmd = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("cmd/ember")
+    let pattern = try NSRegularExpression(pattern: #""(ember-print[a-z-]*)""#)
+    var ids = Set<String>()
+    for file in ["notify_names.go", "coordinator_print.go"] {
+        let text = try String(contentsOf: cmd.appendingPathComponent(file), encoding: .utf8)
+        for m in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            ids.insert(String(text[Range(m.range(at: 1), in: text)!]))
+        }
+    }
+    #expect(ids.count >= 6)
+    for id in ids { #expect(AppNames.isKnown(id), "no name for \(id)") }
 }

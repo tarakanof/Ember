@@ -17,7 +17,18 @@ public enum AppNames {
         "reminder": "Reminder",
         "notify": "Notification",
         "usage-alarm": "Usage Reset",
+        "print": "Print",
+        "print-eta": "Print · Ready At",
+        "print-pct": "Print · Percent",
+        "print-done": "Print Done",
+        "print-attention": "Printer Needs You",
+        "print-error": "Printer Error",
     ]
+
+    public static func isKnown(_ wireName: String) -> Bool {
+        let lower = wireName.lowercased()
+        return known[lower.hasPrefix("ember-") ? String(lower.dropFirst("ember-".count)) : lower] != nil
+    }
 
     public static func display(_ wireName: String) -> LocalizedStringResource {
         let lower = wireName.lowercased()
