@@ -240,6 +240,8 @@ func TestKnobViewSendsPrintOnlyToCapsKnobsWithThePageOrMoments(t *testing.T) {
 			`{"pages":[{"id":"bot","on":true},{"id":"print","on":true}]}`, true},
 		{"moments with the bot page on", map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "print"}, "features": []string{"print_moments"}},
 			`{"pages":[{"id":"bot","on":true},{"id":"print","on":false}]}`, true},
+		{"moments on firmware without the print page", map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "weather"}, "features": []string{"print_moments"}},
+			`{"pages":[{"id":"bot","on":true},{"id":"weather","on":true}],"home":"bot"}`, true},
 		{"moments turned off", map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "print"}, "features": []string{"print_moments"}},
 			`{"pages":[{"id":"bot","on":true},{"id":"print","on":false}],"bot":{"print_moments":false}}`, false},
 		{"moments with the bot page off", map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "weather", "print"}, "features": []string{"print_moments"}},
