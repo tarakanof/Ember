@@ -2040,8 +2040,28 @@
     "Previous App" : {},
     "Previous Track" : {},
     "Print" : {},
+    "Print Done" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Print moments" : {},
+    "Print · Percent" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Print · Ready At" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Printer" : {},
+    "Printer Error" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Printer Needs You" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Printer address" : {},
     "Printer off" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
