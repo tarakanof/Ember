@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/pomodoro"
 	"github.com/tarakanof/ember/internal/printer"
 )
 
@@ -211,9 +213,10 @@ func TestKnobViewSendsPrintOnlyToCapsKnobsWithThePageOrMoments(t *testing.T) {
 	p := newPrintFixture(t)
 	f := p.viewFixture
 	p.printing(t, nil)
+	knobPrintOn(t, f)
 	legacy := goldenView(t, f)
 	if _, ok := viewPrint(t, legacy); ok {
-		t.Fatalf("legacy knob got print: %s", legacy)
+		t.Fatalf("legacy knob with the print page on got print: %s", legacy)
 	}
 	p.app.updateConfig(func(c *Config) { c.Printer.Enabled = false })
 	p.step(t, 5*time.Second)
@@ -419,8 +422,12 @@ func TestPrintThumbRoute(t *testing.T) {
 		t.Fatalf("anonymous = %d, want 401", resp.StatusCode)
 	}
 	read := mintClient(t, f.srv, "dash", "read")
-	if resp, _ := devReq(t, f.srv, "GET", path, read.Token, ""); resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("read client = %d, want 401", resp.StatusCode)
+	if resp, _ := devReq(t, f.srv, "GET", path, read.Token, ""); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("read client = %d, want 403", resp.StatusCode)
+	}
+	admin := mintClient(t, f.srv, "ops", "admin")
+	if resp, _ := devReq(t, f.srv, "GET", path, admin.Token, ""); resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin client = %d, want 200", resp.StatusCode)
 	}
 	if resp, b := devReq(t, f.srv, "GET", "/v1/print/thumb?kind=cover", f.m.Token, ""); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("kind=cover = %d %s", resp.StatusCode, b)
@@ -485,5 +492,59 @@ func TestPrintThumbRoute(t *testing.T) {
 	}
 	if resp, _ := devReq(t, f.srv, "GET", "/v1/print/thumb?kind=solid", f.m.Token, ""); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("no thumbnail = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestKnobViewPrintSkipsACorruptThumbnail(t *testing.T) {
+	p := newPrintFixture(t)
+	knobPrintOn(t, p.viewFixture)
+	postCapsCheckin(t, p.viewFixture, "0.10.0", knobCapsPrint)
+	good := pngBytes(t, 48, color.RGBA{0x30, 0xC0, 0x50, 255})
+	p.printing(t, good[:len(good)-24])
+	pr, ok := viewPrint(t, goldenView(t, p.viewFixture))
+	if !ok || pr["name"] != "bracket_v3" {
+		t.Fatalf("block = %v", pr)
+	}
+	if v, has := pr["thumb_version"]; has {
+		t.Fatalf("a truncated PNG got thumb_version %v; K2 would not fall back", v)
+	}
+	resp, _ := devReq(t, p.srv, "GET", "/v1/print/thumb?kind=solid", p.m.Token, "")
+	if resp.StatusCode != http.StatusNotFound || resp.Header.Get("ETag") != "" || strings.Contains(resp.Header.Get("Cache-Control"), "immutable") {
+		t.Fatalf("thumb = %d ETag %q Cache-Control %q", resp.StatusCode, resp.Header.Get("ETag"), resp.Header.Get("Cache-Control"))
+	}
+}
+
+func TestCapsKnobViewDropsPrintAfterPomoToFitViewBytes(t *testing.T) {
+	p := newPrintFixture(t)
+	f := p.viewFixture
+	postCapsCheckin(t, f, "0.10.0", map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "pomodoro", "print"}, "features": []string{}})
+	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"print","on":true}],"home":"bot"}`)
+	f.eng.Start(pomodoro.PhaseFocus)
+	p.printing(t, nil)
+	full := goldenView(t, f)
+	limited := func(n int) map[string]json.RawMessage {
+		t.Helper()
+		plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "print"}, Features: []string{},
+			Limits: &devices.CapsLimits{ViewBytes: n}})
+		body := goldenView(t, f)
+		if len(body) > n {
+			t.Fatalf("view is %d B, over %d", len(body), n)
+		}
+		return viewKeys(t, body)
+	}
+	keys := limited(len(full) - 1)
+	if _, ok := keys["pomo"]; ok {
+		t.Fatalf("pomo kept in an oversized view: %v", keys)
+	}
+	if _, ok := keys["print"]; !ok {
+		t.Fatalf("print dropped though dropping pomo was enough: %v", keys)
+	}
+	noPomo := len(full) - len(`,"pomo":`) - len(viewKeys(t, full)["pomo"])
+	keys = limited(noPomo - len(`"print":{}`))
+	if _, ok := keys["print"]; ok {
+		t.Fatalf("print kept in a view too small for it: %v", keys)
+	}
+	if _, ok := keys["mood"]; !ok {
+		t.Fatalf("mood dropped: %v", keys)
 	}
 }

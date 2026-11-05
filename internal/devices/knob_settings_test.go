@@ -398,6 +398,7 @@ func maxLegacyStoreSettings() KnobSettings {
 func maxV2Settings() KnobSettings {
 	s := maxLegacyStoreSettings()
 	s.Room = &KnobRoom{Enabled: boolPtr(false), PresenceOffS: new(86399), PresenceWake: boolPtr(false), Moments: boolPtr(false)}
+	s.Bot.PrintMoments = boolPtr(false)
 	return s
 }
 

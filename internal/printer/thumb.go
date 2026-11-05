@@ -35,30 +35,40 @@ const (
 var ErrThumbKind = errors.New("kind must be solid or ghost")
 
 func CheckThumb(b []byte) error {
+	_, _, err := decodeThumb(b)
+	return err
+}
+
+func decodeThumb(b []byte) (*image.RGBA, image.Rectangle, error) {
 	cfg, err := png.DecodeConfig(bytes.NewReader(b))
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrBadThumbnail, err)
+		return nil, image.Rectangle{}, fmt.Errorf("%w: %v", ErrBadThumbnail, err)
 	}
 	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > MaxThumbSidePx || cfg.Height > MaxThumbSidePx {
-		return fmt.Errorf("%w: %dx%d px", ErrBadThumbnail, cfg.Width, cfg.Height)
+		return nil, image.Rectangle{}, fmt.Errorf("%w: %dx%d px", ErrBadThumbnail, cfg.Width, cfg.Height)
 	}
-	return nil
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil, image.Rectangle{}, fmt.Errorf("%w: %v", ErrBadThumbnail, err)
+	}
+	src := image.NewRGBA(image.Rect(0, 0, img.Bounds().Dx(), img.Bounds().Dy()))
+	draw.Draw(src, src.Rect, img, img.Bounds().Min, draw.Src)
+	box := contentBox(src)
+	if box.Empty() {
+		return nil, image.Rectangle{}, fmt.Errorf("%w: fully transparent", ErrBadThumbnail)
+	}
+	return src, box, nil
 }
 
 func BakeThumb(b []byte, kind ThumbKind) ([]byte, error) {
 	if kind != ThumbSolid && kind != ThumbGhost {
 		return nil, ErrThumbKind
 	}
-	if err := CheckThumb(b); err != nil {
+	src, box, err := decodeThumb(b)
+	if err != nil {
 		return nil, err
 	}
-	img, err := png.Decode(bytes.NewReader(b))
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadThumbnail, err)
-	}
-	src := image.NewRGBA(image.Rect(0, 0, img.Bounds().Dx(), img.Bounds().Dy()))
-	draw.Draw(src, src.Rect, img, img.Bounds().Min, draw.Src)
-	out := bakeDisc(src, contentBox(src), kind)
+	out := bakeDisc(src, box, kind)
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, out, &jpeg.Options{Quality: thumbQuality}); err != nil {
 		return nil, fmt.Errorf("encode thumbnail: %w", err)
@@ -67,7 +77,7 @@ func BakeThumb(b []byte, kind ThumbKind) ([]byte, error) {
 }
 
 func contentBox(src *image.RGBA) image.Rectangle {
-	box := image.Rectangle{}
+	var box image.Rectangle
 	r := src.Rect
 	for y := r.Min.Y; y < r.Max.Y; y++ {
 		for x := r.Min.X; x < r.Max.X; x++ {
@@ -75,9 +85,6 @@ func contentBox(src *image.RGBA) image.Rectangle {
 				box = box.Union(image.Rect(x, y, x+1, y+1))
 			}
 		}
-	}
-	if box.Empty() {
-		return r
 	}
 	return box
 }

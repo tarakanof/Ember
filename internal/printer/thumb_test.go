@@ -109,7 +109,7 @@ func TestBakeThumbGhostIsADimGreyOfTheSolid(t *testing.T) {
 }
 
 func TestBakeThumbRejectsBadInput(t *testing.T) {
-	ok := encodePNG(t, image.NewNRGBA(image.Rect(0, 0, 4, 4)))
+	ok := encodePNG(t, opaque(4, 4))
 	if _, err := BakeThumb(ok, "cover"); !errors.Is(err, ErrThumbKind) {
 		t.Fatalf("kind cover: %v", err)
 	}
@@ -119,7 +119,29 @@ func TestBakeThumbRejectsBadInput(t *testing.T) {
 			t.Errorf("%s: %v, want ErrBadThumbnail", name, err)
 		}
 	}
-	if _, err := BakeThumb(encodePNG(t, image.NewNRGBA(image.Rect(0, 0, 4, 4))), ThumbGhost); err != nil {
-		t.Fatalf("fully transparent picture: %v", err)
+	clear := encodePNG(t, image.NewNRGBA(image.Rect(0, 0, 4, 4)))
+	if _, err := BakeThumb(clear, ThumbGhost); !errors.Is(err, ErrBadThumbnail) {
+		t.Fatalf("fully transparent picture: %v, want ErrBadThumbnail", err)
 	}
+	full := encodePNG(t, opaque(64, 64))
+	cut := full[:len(full)/2]
+	if _, err := png.DecodeConfig(bytes.NewReader(cut)); err != nil {
+		t.Fatalf("the cut PNG must keep a valid header: %v", err)
+	}
+	for name, b := range map[string][]byte{"truncated": cut, "transparent": clear} {
+		if err := CheckThumb(b); !errors.Is(err, ErrBadThumbnail) {
+			t.Errorf("CheckThumb(%s) = %v, want ErrBadThumbnail", name, err)
+		}
+	}
+	if err := CheckThumb(full); err != nil {
+		t.Fatalf("CheckThumb(good) = %v", err)
+	}
+}
+
+func opaque(w, h int) *image.NRGBA {
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = uint8(i), uint8(i>>3), 90, 255
+	}
+	return img
 }

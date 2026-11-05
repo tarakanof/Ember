@@ -666,12 +666,13 @@ block to every knob and doesn't key on the token; Ember.app writes it only with
 the token. Old firmware skips the unknown key.
 
 **Size.** With every key at its longest the block adds 86 B, so the largest
-valid config is 1055 B. That is over the 1024 B older firmware stores, and it
+valid config is 1055 B (1077 B with #791's `bot.print_moments`, which Ember.app
+likewise writes only for a knob with the `print_moments` token). That is over the 1024 B older firmware stores, and it
 counts only against 2048 B, since only firmware with the `room` token gets it
 (the same goes for #759's `brightness.source`). The largest config without those
 keys stays 969 B, under 1024 B. A knob reporting a 1024 `config_bytes` gets a
 400 for a PUT that grows past it, as for any config. The page adds 25 B to the
-default config (590 B).
+default config (590 B; 616 B since the `print` page).
 
 ## Quiet hours
 
@@ -808,13 +809,15 @@ times in 1512 polls (`TestKnobViewPrintETagMovesOnlyOnWholePercentsAndPhases`);
 a long poll wakes on each change. While `paused` the time left stays put,
 so `ends_at` slips one anchor step a minute.
 
-**Size.** About 260 B with every key; the worst case (32 three-byte
-characters of name, 16 of material, a 32-character label of escaped quotes,
-temperatures) stays under 512 B. It is dropped after `pomo` and before
+**Size.** 257 B for `view_print.json` (printing, a short name, every
+time, a picture and an event). An ASCII block reaches at most about
+380 B: `heating` with the four temperatures (~60 B), every time, a
+32-character name, a 16-character material and a 32-character label. With multi-byte names and an
+escaped label it stays under 512 B (`TestKnobViewPrintBlockStaysSmall`). It is dropped after `pomo` and before
 `day` to fit `view_bytes`.
 
 **Pictures.** `GET /v1/print/thumb?kind=solid|ghost&v=<thumb_version>`
-(device or owner token, rate-limited like the other routes) serves the
+(device, owner or `admin` client token, rate-limited like the other routes) serves the
 job's PrusaLink PNG thumbnail baked for K2 as a 466 px baseline JPEG
 (q 80), recipe `r1`:
 
@@ -833,9 +836,10 @@ solid, so a step invalidates one thin box. `v` equal to the current
 gives `no-cache`. The ETag is `"<thumb_version>-<kind>-466"`. 404 when
 there is no picture (no job, PrusaLink has none, the printer is off). The
 server bakes each kind once per version and keeps only the newest
-version's two JPEGs in RAM. PrusaLink pictures over 1 MB or 2048 px a side
-are skipped when the job is read, so the view never names a picture the
-route can't bake.
+version's two JPEGs in RAM. When the job is read, a PrusaLink picture that is
+over 1 MB or 2048 px a side, doesn't decode in full, or is fully
+transparent is skipped, so the view names only a picture the route can
+bake. A failed bake still answers 404 without `ETag` or `Cache-Control`.
 
 ## Idle and per-app options
 
@@ -1293,7 +1297,7 @@ Indented JSON; key order is the wire order.
 | `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |
 | `config_default.json` | `GET …/self/config` for a new knob (pages `bot`, `day`, `weather`, then `room`, `nowplaying`, `controls`, `print` and `pomodoro` off), `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
-| `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800, `room` with `presence_off_s` 86399 (1055 B compact; 969 B without `room`) |
+| `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800, `room` with `presence_off_s` 86399, `bot.print_moments` (1077 B compact; 969 B without `room` and `print_moments`) |
 | `checkin_reply_config_v2.json` | A stale knob's checkin reply carrying that config |
 | `claim_req.json` | A claim request: a fake `hw_id` (locally administered), `fw`, a fake 43-character `claim_key` |
 | `claim_reply.json` | The 201 reply, id `c_0123abcd` and code `482913` from a scripted random source |

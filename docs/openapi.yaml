@@ -2634,7 +2634,7 @@ paths:
         (no job, no thumbnail, printer off). Baked once per version and
         kind, kept in RAM (the newest version only). DEVICE-PROTOCOL.md
         "Print".
-      security: [{ownerToken: []}, {deviceToken: []}]
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [admin]}]
       parameters:
         - name: kind
           in: query
@@ -2660,6 +2660,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
   /v1/meetings/config:

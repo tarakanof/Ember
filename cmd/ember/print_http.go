@@ -149,7 +149,7 @@ func (a *App) handlePrintThumb(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, printer.ErrThumbKind)
 		return
 	}
-	snap := a.printer.State.At(time.Now())
+	snap := a.printer.State.At(a.viewNow())
 	data, ver := a.printer.State.Thumbnail()
 	if !snap.Enabled || snap.ThumbVersion == "" || ver != snap.ThumbVersion || len(data) == 0 {
 		writeError(w, http.StatusNotFound, errors.New("no print thumbnail"))
@@ -157,14 +157,14 @@ func (a *App) handlePrintThumb(w http.ResponseWriter, r *http.Request) {
 	}
 	version := printThumbVersion(ver)
 	etag := fmt.Sprintf(`"%s-%s-%d"`, version, kind, printer.ThumbSize)
-	h := w.Header()
-	h.Set("ETag", etag)
+	cache := "no-cache"
 	if v := q.Get("v"); v != "" && v == version {
-		h.Set("Cache-Control", "public, max-age=86400, immutable")
-	} else {
-		h.Set("Cache-Control", "no-cache")
+		cache = "public, max-age=86400, immutable"
 	}
+	h := w.Header()
 	if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		h.Set("ETag", etag)
+		h.Set("Cache-Control", cache)
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -174,6 +174,8 @@ func (a *App) handlePrintThumb(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("print thumbnail unusable"))
 		return
 	}
+	h.Set("ETag", etag)
+	h.Set("Cache-Control", cache)
 	h.Set("Content-Type", "image/jpeg")
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)

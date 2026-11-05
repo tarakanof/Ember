@@ -295,9 +295,6 @@ reason weather is unavailable while it is on, e.g. `tomorrow-io` or `weatherapi`
 without its key),
 `GET /v1/nowplaying/state`, `GET /v1/nowplaying/art?kind=album|artist|backdrop|cover&size=`
 (square baseline JPEG, ETag; `cover` is the knob's prepared 466 px circle; rate-limited),
-`GET /v1/print/thumb?kind=solid|ghost&v=` (device or owner token; the print job's picture as the
-knob's 466 px circle JPEG, `immutable` at `v` = the view's `print.thumb_version`, else `no-cache`;
-404 without a picture; rate-limited; DEVICE-PROTOCOL "Print"),
 `GET /v1/clock/health` (24h publish counts + clock RSSI/heap/uptime/current
 app, device probe cached 30s, latest NG release looked up on GitHub in the
 background every 6h — `EMBER_FIRMWARE_CHECK=0` disables it). Dashboard
@@ -314,7 +311,10 @@ otherwise, read without clock I/O), `/metrics`. Knob device token only: `POST /v
 413, CRC-checked or 400, 409 while another upload of this knob runs, 204 when
 stored or already stored), `GET /v1/devices/self/firmware/{version}` (only
 the image its checkin's `ota` offers: 409 for any other version, `Range`/`If-Range` (416 past the end),
-`ETag: "<sha256>"`, per-device rate limit), `GET /v1/devices/self/view` (the knob's
+`ETag: "<sha256>"`, per-device rate limit), `GET /v1/print/thumb?kind=solid|ghost&v=` (also the
+owner or an `admin` client token; the print job's picture as the knob's 466 px circle JPEG,
+`immutable` at `v` = the view's `print.thumb_version`, else `no-cache`; 404 without a picture;
+rate-limited; DEVICE-PROTOCOL "Print"), `GET /v1/devices/self/view` (the knob's
 single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
 `X-Ember-View-Wait`; `?demo_id=&demo_state=playing|done` report on a demo;
 `?shown=<page>[:<face>]` reports what the knob shows (`shown` caps feature;

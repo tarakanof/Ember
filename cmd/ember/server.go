@@ -193,7 +193,7 @@ func (a *App) routeTable() (http.Handler, []string) {
 	mux.Handle("PUT /v1/day/stop_at", rateLimit(a, requireControl(a, http.HandlerFunc(a.handleDayStopAt))))
 	mux.Handle("POST /v1/day/offer/dismiss", rateLimit(a, requireControl(a, http.HandlerFunc(a.handleDayOfferDismiss))))
 	mux.Handle("POST /v1/nowplaying/control", rateLimitAuthFailures(a, http.HandlerFunc(a.handleNowPlayingControl), http.HandlerFunc(a.handleNowPlayingControl)))
-	mux.Handle("GET /v1/print/thumb", rateLimit(a, deviceAuth(a, http.HandlerFunc(a.handlePrintThumb), http.HandlerFunc(a.handlePrintThumb))))
+	mux.Handle("GET /v1/print/thumb", rateLimit(a, deviceAuthWith(a, http.HandlerFunc(a.handlePrintThumb), http.HandlerFunc(a.handlePrintThumb), scopeAdmin, false)))
 	mux.Handle("POST /v1/controls/action", rateLimitAuthFailures(a, http.HandlerFunc(a.handleControlsAction), http.HandlerFunc(a.handleControlsAction)))
 
 	adminMux := newRouteMux(&patterns)

@@ -119,6 +119,7 @@ func TestThumbnailChecksTypeSizeAndMagic(t *testing.T) {
 		{"not png bytes", "image/png", []byte("GIF89a......"), true, false},
 		{"png magic only", "image/png", append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{1}, 100)...), true, false},
 		{"wider than 2048 px", "image/png", huge, true, false},
+		{"truncated pixel data", "image/png", png[:len(png)-20], true, false},
 		{"over a megabyte", "image/png", append(png, make([]byte, MaxThumbBytes)...), true, false},
 		{"none", "image/png", nil, true, true},
 	}
