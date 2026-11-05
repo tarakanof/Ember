@@ -24,6 +24,7 @@ func eventKinds(s Snapshot) []EventKind {
 
 func TestRecordedPrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
 	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.thumb = []byte("\x89PNG\r\n\x1a\nthumb") })
 	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
 	display := "bracket_v3_0.4n_0.2mm_PETG_COREONE_2h14m.bgcode"
 	steps := []struct {
@@ -65,8 +66,11 @@ func TestRecordedPrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
 			t.Fatalf("event ids not increasing: %+v", snap.Events)
 		}
 	}
-	if snap.Name != "bracket_v3" || snap.Material != "PETG" || snap.Progress != 100 || snap.JobID != 412 {
+	if snap.Name != "bracket_v3" || snap.Material != "PETG" || snap.Progress != 100 || snap.JobID != 412 || snap.ThumbVersion == "" {
 		t.Fatalf("finished snapshot = %+v", snap)
+	}
+	if b, _ := h.p.State.Thumbnail(); len(b) == 0 {
+		t.Fatal("finished print lost its thumbnail")
 	}
 	if snap.Printer.Firmware != "8.0.0+12345" || snap.Printer.Hostname != "prusa-core-one" {
 		t.Fatalf("printer info = %+v", snap.Printer)
@@ -1155,5 +1159,35 @@ func TestAddressChangeRestartsTheJobReadBudget(t *testing.T) {
 	}
 	if got := newAddr.hit("/api/v1/job"); got != jobTries {
 		t.Fatalf("job read %d times at the new address, want a fresh budget of %d", got, jobTries)
+	}
+}
+
+func TestStoppedKeepsTheJobAndIdleClearsIt(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 8, progress: 20})
+		s.job = jobJSON(8, "PRINTING", "lid_0.4n_0.2mm_PLA_COREONE_1h2m.bgcode")
+	})
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.status = statusJSON("STOPPED", nil) })
+	h.advance(h.step())
+	if snap := h.snap(); snap.Phase != PhaseStopped || snap.Name != "lid" || snap.Material != "PLA" || snap.Progress != 20 {
+		t.Fatalf("stopped snapshot = %+v", snap)
+	}
+	s.set(func(s *stubPrinter) { s.status = statusJSON("IDLE", nil) })
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.status = statusJSON("PRINTING", &jobFields{id: 8, progress: 1}) })
+	h.advance(h.step())
+	if snap := h.snap(); snap.Name != "lid" {
+		t.Fatalf("job not read again after idle: %+v", snap)
+	}
+	s.set(func(s *stubPrinter) { s.status = statusJSON("IDLE", nil) })
+	h.advance(h.step())
+	h.p.State.mu.Lock()
+	name := h.p.State.name
+	h.p.State.mu.Unlock()
+	if name != "" {
+		t.Fatalf("idle kept the old job name %q", name)
 	}
 }

@@ -440,7 +440,9 @@ func (s *State) setJob(d *JobDoc) (thumbRef string, fetch bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if d == nil {
-		s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
+		if s.phase == PhaseIdle {
+			s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
+		}
 		return "", false
 	}
 	if d.ID != 0 && d.ID != s.jobID {

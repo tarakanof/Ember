@@ -119,7 +119,7 @@ func (s *stubPrinter) serve(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		if s.job == "" {
+		if s.job == "" || !strings.Contains(s.status, `"job":`) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
