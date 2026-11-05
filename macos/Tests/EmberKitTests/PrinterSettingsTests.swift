@@ -145,7 +145,7 @@ private actor SaveLog {
     actor Calls { var n = 0; func bump() { n += 1 } }
     let calls = Calls()
     let model = PrinterSettingsModel(
-        config: ServerConfigModel(initial: PrinterConfig(), load: { PrinterConfig() }, save: { _ in }),
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
         state: { await calls.bump(); return PrinterState(enabled: true, phase: "idle") },
         preview: { throw APIError.http(status: 404, body: "") })
     await model.saved()
@@ -365,4 +365,68 @@ private actor SaveLog {
     model.refreshPreview()
     for _ in 0..<50 { await Task.yield() }
     #expect(await calls.n == 0)
+}
+
+@MainActor
+@Test func reopeningAfterAHalfChosenManualAddressMatchesTheServer() async {
+    let model = await loadedModel(PrinterConfig(enabled: true))
+    model.chooseManual()
+    model.addressText = "http://"
+    model.commitAddress()
+    #expect(model.manualMode && model.addressInvalid)
+    model.settleAddress()
+    #expect(!model.manualMode && !model.addressInvalid && model.addressText.isEmpty)
+}
+
+@MainActor
+@Test func settlingKeepsAnUnsavedAddress() async {
+    let model = await loadedModel(PrinterConfig(enabled: true))
+    model.chooseManual()
+    model.addressText = "http://192.168.1.50"
+    model.commitAddress()
+    model.settleAddress()
+    #expect(model.manualMode && model.addressText == "http://192.168.1.50")
+}
+
+@MainActor
+@Test func turningItOffShowsOffAtOnce() async {
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: false), load: { PrinterConfig() }, save: { _ in }),
+        state: { PrinterState(enabled: true, phase: "offline", lastError: "wrong_password") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.refreshState()
+    #expect(model.status == .disabled)
+}
+
+@MainActor
+@Test func aSuccessBetweenBlipsResetsTheFailureCount() async {
+    final class Box: @unchecked Sendable { var fail = false }
+    let box = Box()
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
+        state: { if box.fail { throw APIError.timedOut }; return PrinterState(enabled: true, phase: "idle") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.refreshState()
+    for _ in 0..<5 {
+        box.fail = true
+        await model.refreshState()
+        await model.refreshState()
+        box.fail = false
+        await model.refreshState()
+    }
+    #expect(model.status == .connected(firmware: ""))
+}
+
+@MainActor
+@Test func aRefusedTokenClearsTheStateAtOnce() async {
+    final class Box: @unchecked Sendable { var fail = false }
+    let box = Box()
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
+        state: { if box.fail { throw APIError.http(status: 401, body: "") }; return PrinterState(enabled: true, phase: "idle") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.refreshState()
+    box.fail = true
+    await model.refreshState()
+    #expect(model.status == .unavailable(featureOff: false))
 }

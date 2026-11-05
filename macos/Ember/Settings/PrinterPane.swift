@@ -110,8 +110,10 @@ private struct PrinterPaneBody: View {
         .onChange(of: appearsActive) { _, active in
             if !active { model.commitAddress() }
         }
+        .onAppear { model.settleAddress() }
         .onDisappear {
             model.commitAddress()
+            model.settleAddress()
             model.preview.cancel()
         }
     }

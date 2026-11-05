@@ -20,7 +20,10 @@ public final class PrinterSettingsModel {
     static let failuresBeforeUnavailable = 3
 
     public var status: PrinterStatusLine {
-        if config.draft.enabled, config.saveError == nil, state?.enabled == false { return .unknown }
+        if config.saveError == nil, let state {
+            if config.draft.enabled, !state.enabled { return .unknown }
+            if !config.draft.enabled, state.enabled { return .disabled }
+        }
         return PrinterStatusLine(state, error: stateError)
     }
 
@@ -62,6 +65,11 @@ public final class PrinterSettingsModel {
         manualMode = !applied.isAuto
         addressText = applied.manualURL
         addressInvalid = false
+    }
+
+    public func settleAddress() {
+        guard !config.hasUnsavedChanges else { return }
+        syncAddress()
     }
 
     public func chooseAuto() {
