@@ -91,6 +91,7 @@ func (a *App) disarmWaitIcons() {
 	defer a.waitArmMu.Unlock()
 	a.clockGen++
 	a.waitIcons.Store(false)
+	a.printIcons.Store(false)
 }
 
 func (a *App) clockGeneration() uint64 {
@@ -106,6 +107,16 @@ func (a *App) armWaitIcons(gen uint64, armed bool) bool {
 		return false
 	}
 	a.waitIcons.Store(armed)
+	return armed
+}
+
+func (a *App) armPrintIcons(gen uint64, armed bool) bool {
+	a.waitArmMu.Lock()
+	defer a.waitArmMu.Unlock()
+	if gen != a.clockGen {
+		return false
+	}
+	a.printIcons.Store(armed)
 	return armed
 }
 
@@ -171,6 +182,39 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 	}
 	if a.armWaitIcons(gen, armed) && slices.ContainsFunc(have, staleWaitIcon(wait)) {
 		a.deleteStaleWaitIcons(ctx, wait)
+	}
+	a.provisionPrintIcons(ctx, gen, present, have)
+}
+
+func (a *App) provisionPrintIcons(ctx context.Context, gen uint64, present map[string]bool, have []string) {
+	pcfg := a.cfg.Load().Printer
+	icons, err := render.PrintIcons()
+	if err != nil {
+		a.logger.Error("print icons: encode failed", "err", err)
+	}
+	armed := pcfg.Enabled && pcfg.ClockAppEnabled() && len(icons) > 0
+	if armed {
+		for name, data := range icons {
+			if ctx.Err() != nil {
+				return
+			}
+			if !present[name] && !a.putIcon(ctx, name+".gif", data) {
+				armed = false
+			}
+		}
+	}
+	stale := func(file string) bool {
+		name := strings.TrimSuffix(file, ".gif")
+		return strings.HasPrefix(name, render.PrintIconPrefix) && icons[name] == nil
+	}
+	if a.armPrintIcons(gen, armed) && slices.ContainsFunc(have, stale) {
+		deleted, err := a.publisher.DeleteIcons(ctx, stale)
+		for _, file := range deleted {
+			a.logger.Info("stale print icon deleted", "name", file)
+		}
+		if err != nil {
+			a.clockJobFailed(ctx, "icon provision: stale print icon delete failed", "err", err)
+		}
 	}
 }
 

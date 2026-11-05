@@ -24,6 +24,9 @@ const (
 	noticePomodoro
 	noticeMessage
 	noticeUsageReset
+	noticePrintDone
+	noticePrintAttention
+	noticePrintError
 )
 
 var noticeNames = map[noticeKind]string{
@@ -35,6 +38,10 @@ var noticeNames = map[noticeKind]string{
 	noticePomodoro:   notifyNamePomodoro,
 	noticeMessage:    notifyNameNotify,
 	noticeUsageReset: notifyNameUsageAlarm,
+
+	noticePrintDone:      notifyNamePrintDone,
+	noticePrintAttention: notifyNamePrintAttention,
+	noticePrintError:     notifyNamePrintError,
 }
 
 type noticePriority int

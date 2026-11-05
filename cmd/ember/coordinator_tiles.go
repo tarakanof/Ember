@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/meetings"
+	"github.com/tarakanof/ember/internal/printer"
 	"github.com/tarakanof/ember/internal/render"
 	"github.com/tarakanof/ember/internal/weather"
 )
@@ -23,6 +24,10 @@ type tileInputs struct {
 	nextMeet  meetings.Occurrence
 	haveMeet  bool
 	meetFresh bool
+
+	printCfg   printer.Config
+	print      printer.Snapshot
+	printIcons bool
 }
 
 type tileView struct {
@@ -38,7 +43,7 @@ type tile struct {
 	view   func(in *tileInputs) (tileView, bool)
 }
 
-var tiles = []tile{weatherTile, forecastTile, airTile, meetTile}
+var tiles = []tile{weatherTile, forecastTile, airTile, meetTile, printTile, printReadyTile, printPctTile}
 
 const legacyUsagePrefix = "ember-usage-"
 
@@ -177,6 +182,7 @@ func (c *coordinator) tileInputs(now time.Time) tileInputs {
 		in.nextMeet, in.haveMeet = c.meetings.next(now)
 		in.meetFresh = c.meetings.fresh(now)
 	}
+	c.printTileInputs(&in, now)
 	return in
 }
 

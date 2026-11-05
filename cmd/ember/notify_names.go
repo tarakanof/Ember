@@ -16,6 +16,10 @@ const (
 	notifyNameUsageAlarm   = "ember-usage-alarm"
 	notifyNamePomodoro     = "ember-pomodoro"
 	notifyNameNotify       = "ember-notify"
+
+	notifyNamePrintDone      = "ember-print-done"
+	notifyNamePrintAttention = "ember-print-attention"
+	notifyNamePrintError     = "ember-print-error"
 )
 
 func isAPINotFound(err error) bool {

@@ -61,6 +61,7 @@ func (a *App) routeTable() (http.Handler, []string) {
 	mux.HandleFunc("GET /v1/pomodoro/preview", a.handlePomodoroPreview)
 	mux.HandleFunc("GET /v1/reminders/preview", a.handleReminderPreview)
 	mux.HandleFunc("GET /v1/meetings/preview", a.handleMeetingsPreview)
+	mux.HandleFunc("GET /v1/print/preview", a.handlePrintPreview)
 	mux.HandleFunc("GET /v1/meetings/state", a.handleMeetingsState)
 	mux.HandleFunc("GET /v1/usage", a.handleUsageSnapshot)
 	mux.Handle("GET /v1/activity/summary", rateLimit(a, http.HandlerFunc(a.handleActivitySummary)))

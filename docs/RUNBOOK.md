@@ -1524,6 +1524,36 @@ VLAN or a Wi-Fi network that drops multicast: set `printer.url` to
 the smoke-run rules (scratch port, temp DB, `EMBER_MDNS_ADVERTISE=0`,
 `EMBER_CLOCK=off`); a manual `printer.url` avoids depending on mDNS.
 
+**TC001 app and popups (#790).** `printer.clock_app` (default on) puts the
+print in the clock's rotation while a print runs (and 30 min after it
+finishes); `notify_done` and `notify_attention` gate the popups. On-device
+check, against a live printer (reads only; a scratch server never publishes
+to the real clock):
+
+1. Start a print on the CORE One (or use a test file with a short colour
+   change).
+2. Within about 10 s the clock shows a new app: the printer icon with its
+   head at the top and a green nozzle that sweeps side to side, `NN%` /
+   time left / ready-at cards every 3 s, and an orange bar on the bottom row.
+   While heating it shows the nozzle degrees and a red bar instead.
+3. As the print grows, the line under the nozzle (the bed) sinks one row at
+   about a third and two thirds of the print.
+4. Pause on the printer's screen: the clock shows `PAUSE` in amber. Resume.
+5. When the print finishes, the clock plays a popup `DONE h:mm` once, with a
+   chime unless quiet hours / the day clock are off, and the app stays for
+   `done_hold_min` minutes, then leaves.
+6. Open a filament prompt on the printer: an amber `CHECK PRINTER` popup,
+   repeated every 10 min while the prompt stays.
+7. Card order: after heating → printing and after a pause → resume, the
+   clock's loop shows the three cards one after the other (the ready-at and
+   percent cards are pushed later than the first; if NG appends new apps
+   to the end of its loop, report it).
+8. Idle check: with no print running, the clock's app loop holds no
+   `ember-print*` entry and Ember pushed none (the app is not published when
+   idle, so the link carries no extra traffic). The animated icons are
+   `ember_print_h1..3_*.gif` in the clock's icon store; a clock reboot or move
+   provisions them again, and until they exist the icon is drawn static.
+
 ## AI usage card (threshold-gated, inside the main app)
 
 Claude + Codex subscription usage renders as a **usage card** inside the main

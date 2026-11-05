@@ -1812,6 +1812,15 @@ paths:
                   externalValue: ../cmd/ember/testdata/dashboard/weather_state.json
                 empty:
                   externalValue: ../cmd/ember/testdata/dashboard/weather_state_empty.json
+  /v1/print/preview:
+    get:
+      tags: [read]
+      operationId: getPrintPreview
+      summary: Preview frames of the TC001 print app (the sample print while none runs)
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
   /v1/meetings/preview:
     get:
       tags: [read]

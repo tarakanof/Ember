@@ -124,13 +124,14 @@ type App struct {
 	meetings        *meetingsStore
 	meetingsFetcher *icsFetcher
 
-	iconFetch func(ctx context.Context, id string) (data []byte, ext string, err error)
-	iconMu    sync.Mutex
-	clockJobs *clockJobGroup
-	iconHold  atomic.Int32
-	waitIcons atomic.Bool
-	waitArmMu sync.Mutex
-	clockGen  uint64
+	iconFetch  func(ctx context.Context, id string) (data []byte, ext string, err error)
+	iconMu     sync.Mutex
+	clockJobs  *clockJobGroup
+	iconHold   atomic.Int32
+	waitIcons  atomic.Bool
+	printIcons atomic.Bool
+	waitArmMu  sync.Mutex
+	clockGen   uint64
 
 	republish  republishGate
 	browseFn   browseFunc
@@ -227,6 +228,8 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.hiddenApps = map[string]bool{}
 	a.coord.hiddenApps = a.hiddenAppsSet
 	a.coord.waitIcons = a.waitIcons.Load
+	a.coord.printIcons = a.printIcons.Load
+	a.coord.printSnap = func(now time.Time) printer.Snapshot { return a.printer.State.At(now) }
 	a.coord.soundObject = a.soundObjectAPI
 	a.coord.refreshSound = a.refreshCapabilities
 	a.coord.usage = a.usage
