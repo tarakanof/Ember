@@ -20,7 +20,7 @@ public final class PrinterSettingsModel {
     static let failuresBeforeUnavailable = 3
 
     public var status: PrinterStatusLine {
-        if config.draft.enabled, state?.enabled == false { return .unknown }
+        if config.draft.enabled, config.saveError == nil, state?.enabled == false { return .unknown }
         return PrinterStatusLine(state, error: stateError)
     }
 
@@ -116,7 +116,7 @@ public final class PrinterSettingsModel {
     }
 
     public var previewResponse: PreviewResponse? {
-        guard config.draft.enabled, !previewMissing else { return nil }
+        guard config.draft.enabled, config.draft.clockApp, !previewMissing else { return nil }
         return preview.response
     }
 
@@ -125,7 +125,14 @@ public final class PrinterSettingsModel {
     public func flush() {
         commitAddress()
         let config = config
-        Task { await config.saveNow() }
+        Task {
+            var rounds = 0
+            while config.hasUnsavedChanges, config.saveError == nil, rounds < 100 {
+                await config.saveNow()
+                rounds += 1
+                if config.hasUnsavedChanges { try? await Task.sleep(for: .milliseconds(100)) }
+            }
+        }
     }
 
     public func refreshPreview() {
@@ -138,7 +145,7 @@ public final class PrinterSettingsModel {
         async let c: Void = config.load()
         async let s: Void = refreshState()
         _ = await (c, s)
-        if config.applied != before, !config.hasUnsavedChanges { syncAddress() }
+        if before == nil || config.applied?.url != before?.url, !config.hasUnsavedChanges { syncAddress() }
     }
 
     public func saved() async {

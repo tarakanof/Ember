@@ -64,7 +64,9 @@ private func state(_ json: String) throws -> PrinterState {
 @Test func addressesAreValidatedLikeTheServer() {
     #expect(PrinterConfig.validatedAddress(" http://192.168.1.50/ ") == "http://192.168.1.50")
     #expect(PrinterConfig.validatedAddress("https://core.local:8443") == "https://core.local:8443")
-    for bad in ["", "192.168.1.50", "http://", "ftp://core.local", "http://u:p@core.local",
+    #expect(PrinterConfig.validatedAddress("192.168.1.50") == "http://192.168.1.50")
+    #expect(PrinterConfig.validatedAddress("core.local:8080") == "http://core.local:8080")
+    for bad in ["", "http://", "ftp://core.local", "http://u:p@core.local",
                 "http://core.local/path", "http://core.local?x=1"] {
         #expect(PrinterConfig.validatedAddress(bad) == nil, "\(bad)")
     }
@@ -121,7 +123,7 @@ private actor SaveLog {
     #expect(!model.manualMode)
     model.chooseManual()
     #expect(model.manualMode && model.config.draft.isAuto && !model.config.hasUnsavedChanges)
-    model.addressText = "192.168.1.50"
+    model.addressText = "http://"
     model.commitAddress()
     #expect(model.addressInvalid && model.config.draft.isAuto)
     model.addressText = "http://192.168.1.50"
@@ -322,4 +324,59 @@ private actor SaveLog {
     box.url = "http://10.0.0.9"
     await model.load()
     #expect(model.manualMode && model.addressText == "http://10.0.0.9")
+}
+
+private actor Gate {
+    private var open = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async { if open { return }; await withCheckedContinuation { waiters.append($0) } }
+    func release() { open = true; waiters.forEach { $0.resume() }; waiters = [] }
+}
+
+@MainActor
+@Test func anEditMadeDuringAnInFlightSaveStillReachesTheServerWhenThePaneCloses() async {
+    let log = SaveLog()
+    let gate = Gate()
+    var model: PrinterSettingsModel? = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(), load: { PrinterConfig(enabled: true) },
+                                  save: { c in await gate.wait(); await log.add(c) }),
+        state: { PrinterState(enabled: true, phase: "idle") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model?.load()
+    model?.config.draft.notifyDone = false
+    model?.flush()
+    for _ in 0..<50 { await Task.yield() }
+    model?.config.draft.notifyAttention = false
+    model?.flush()
+    model = nil
+    await gate.release()
+    for _ in 0..<200 { try? await Task.sleep(for: .milliseconds(10)); if await log.saved.count == 2 { break } }
+    let saved = await log.saved
+    #expect(saved.count == 2 && saved.last?.notifyDone == false && saved.last?.notifyAttention == false)
+}
+
+@MainActor
+@Test func thePreviewFollowsTheClockToggle() async {
+    let frame = PreviewResponse(width: 32, height: 8, activity: "print", frames: [CardFrame(card: "print", pixels: [])])
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
+        state: { PrinterState(enabled: true, phase: "idle") },
+        preview: { frame },
+        previewModel: PreviewModel(debounce: .zero, sleep: { _ in }))
+    model.refreshPreview()
+    for _ in 0..<50 { await Task.yield() }
+    model.config.draft.clockApp = false
+    #expect(model.previewResponse == nil)
+}
+
+@MainActor
+@Test func aFailedSaveOfTheToggleDoesNotLeaveCheckingForever() async {
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(), load: { PrinterConfig() }, save: { _ in throw APIError.timedOut }),
+        state: { PrinterState(enabled: false, phase: "off") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.load()
+    model.config.draft.enabled = true
+    await model.config.saveNow()
+    #expect(model.config.saveError != nil && model.status == .disabled)
 }

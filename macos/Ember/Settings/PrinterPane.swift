@@ -74,7 +74,7 @@ private struct PrinterPaneBody: View {
                 Toggle("Notify when a print is done", isOn: $config.draft.notifyDone)
                 Toggle("Notify when the printer needs you", isOn: $config.draft.notifyAttention)
                 StepperRow(title: "Keep \"done\" on the clock for", value: $config.draft.doneHoldMin,
-                           range: PrinterConfig.holdRange.including(c.doneHoldMin), step: 5) { Text("\($0) min") }
+                           range: (5...PrinterConfig.holdRange.upperBound).including(c.doneHoldMin), step: 5) { Text("\($0) min") }
             } header: {
                 Text("Clock")
             }
@@ -102,6 +102,7 @@ private struct PrinterPaneBody: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
                 if Task.isCancelled { break }
+                if model.config.loadError == .featureOff { continue }
                 await model.refreshState()
                 if !model.previewMissing { model.refreshPreview() }
             }

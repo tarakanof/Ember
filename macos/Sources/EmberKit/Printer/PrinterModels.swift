@@ -49,13 +49,15 @@ public struct PrinterConfig: Codable, Sendable, Equatable {
     public var manualURL: String { isAuto ? "" : url }
 
     public static func validatedAddress(_ text: String) -> String? {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return nil }
+        if !t.contains("://") { t = "http://" + t }
         guard let u = URLComponents(string: t), let scheme = u.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               let host = u.host, !host.isEmpty,
               u.user == nil, u.password == nil, u.query == nil, u.fragment == nil,
-              u.path.isEmpty else { return nil }
-        return t
+              u.path.isEmpty || u.path == "/" else { return nil }
+        return t.hasSuffix("/") ? String(t.dropLast()) : t
     }
 }
 
