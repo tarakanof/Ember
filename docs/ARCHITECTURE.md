@@ -2786,7 +2786,9 @@ keeps it on the default transport: mDNS browsing is injected
   menu or a filament load) takes the next job as already started, without
   a `started`, only when that job's `time_printing` is longer than Ember
   has been watching plus 30 s (it ran before the start); the first status
-  that is not a jobless BUSY ends that rule.
+  that is not a jobless BUSY ends that rule, except a print-preview
+  question (ATTENTION under 1 % for a job not yet seen printing), whose
+  `time_printing` is the previous print's, so the next read decides.
 - **Anchors.** `ends_at` = now + `time_remaining`, `started_at` = now −
   `time_printing`, `change_at` = now + `filament_change_in`; each moves only
   when the new value is more than 60 s off, so a wobbling estimate doesn't

@@ -402,7 +402,8 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged, a
 	}
 	s.phase = phase
 
-	if s.seen && s.busyStart && (d.Job != nil || raw != "BUSY") {
+	preview := phase == PhaseAttention && d.Job != nil && !s.jobRan && d.Job.Progress < 1
+	if s.seen && s.busyStart && (d.Job != nil || raw != "BUSY") && !preview {
 		s.busyStart = false
 		if d.Job != nil && ranBefore(d.Job, now.Sub(s.firstRead)) {
 			s.startedID = s.jobID

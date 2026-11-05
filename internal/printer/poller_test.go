@@ -1517,3 +1517,20 @@ func TestPreviewWithTheLastPrintsTimeAfterARestartStillEmitsStarted(t *testing.T
 		t.Fatalf("started_at = %v, want %v", snap.StartedAt, want)
 	}
 }
+
+func TestBusyStartThenAPreviewQuestionStillEmitsStarted(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("BUSY", nil) })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	for _, st := range []string{
+		statusJSON("ATTENTION", &jobFields{id: 6, progress: 0, printing: num(7200)}),
+		statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(2), nozzle: 90, nozzleT: 240}),
+	} {
+		s.set(func(s *stubPrinter) { s.status = st })
+		h.advance(h.step())
+	}
+	if kinds := eventKinds(h.snap()); !slices.Equal(kinds, []EventKind{EventAttention, EventStarted}) {
+		t.Fatalf("events = %v, want the preview's attention and the print's started", kinds)
+	}
+}
