@@ -2741,9 +2741,14 @@ keeps it on the default transport: mDNS browsing is injected
   the same host at a new address (a DHCP move, polled in the same step,
   well within a minute), never to a neighbour, however close its name. A
   fallback printer (no name match) is also followed by host, and every
-  5 min (on idle steps, or while latched on a wrong password) a browse
-  looks for the named printer and moves to it once it appears. Changing
-  `printer.name` selects again and lifts a wrong-password latch. A manual `http://host[:port]` is never
+  5 min (whatever it is doing, also while latched on a wrong password, and
+  also when mDNS answers nothing) a browse looks for the named printer and
+  moves to it once it appears. Changing `printer.name` selects again and
+  lifts a wrong-password latch. A printer whose own hostname is renamed is
+  therefore not followed: it stays `offline` until `printer.name` changes
+  or the server restarts (the price of never jumping to a neighbour).
+  `not_found` and a disable clear the reported address; a browse error is
+  what the `not_found` warning logs. A manual `http://host[:port]` is never
   rediscovered. Nothing found: `offline` with `not_found`, retried on the
   backoff below. Host networking is required for mDNS (production runs
   `--network host`).
@@ -2797,8 +2802,9 @@ keeps it on the default transport: mDNS browsing is injected
   longer than 30 min lasts.
 - **Thumbnail.** On a new job, `refs.thumbnail` (`/thumb/l/…`) is read once:
   `image/png`, PNG magic, ≤ 1 MB, RAM only (`State.Thumbnail()`),
-  `thumb_version` = 12 hex digits of its SHA-256. 404 = no picture, not
-  retried for that job; a transient failure is retried on the next 2 polls.
+  `thumb_version` = 12 hex digits of its SHA-256. 404, a wrong type, over
+  1 MB or not a PNG = no picture, not retried for that job; a transport or
+  5xx failure is retried on the next 2 polls.
 - **Changes** notify `topicPrint` when a reader-visible value moves: phase,
   whole percent, an anchor, an event, the hold, the error, name, thumbnail,
   printer info; temperatures only while heating.

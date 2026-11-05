@@ -23,6 +23,7 @@ const (
 var (
 	ErrWrongPassword = errors.New("prusalink: wrong password")
 	ErrNoThumbnail   = errors.New("prusalink: no thumbnail")
+	ErrBadThumbnail  = errors.New("prusalink: unusable thumbnail")
 	errStaleTwice    = errors.New("prusalink: nonce stale twice")
 	pngMagic         = []byte("\x89PNG\r\n\x1a\n")
 )
@@ -214,17 +215,17 @@ func (c *Client) Thumbnail(ctx context.Context, ref string) ([]byte, error) {
 		return nil, &StatusError{Code: resp.StatusCode}
 	}
 	if mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); mt != "image/png" {
-		return nil, fmt.Errorf("prusalink: thumbnail type %q", mt)
+		return nil, fmt.Errorf("%w: type %q", ErrBadThumbnail, mt)
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, MaxThumbBytes+1))
 	if err != nil {
 		return nil, scrub(err)
 	}
 	if len(b) > MaxThumbBytes {
-		return nil, fmt.Errorf("prusalink: thumbnail over %d bytes", MaxThumbBytes)
+		return nil, fmt.Errorf("%w: over %d bytes", ErrBadThumbnail, MaxThumbBytes)
 	}
 	if !bytes.HasPrefix(b, pngMagic) {
-		return nil, fmt.Errorf("prusalink: thumbnail is not a PNG")
+		return nil, fmt.Errorf("%w: not a PNG", ErrBadThumbnail)
 	}
 	return b, nil
 }

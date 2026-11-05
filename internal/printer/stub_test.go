@@ -31,6 +31,7 @@ type stubPrinter struct {
 	job        string
 	thumb      []byte
 	thumbType  string
+	thumbCode  int
 	version    string
 	hits       map[string]int
 	unauth     int
@@ -128,6 +129,10 @@ func (s *stubPrinter) serve(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(s.version))
 	case strings.HasPrefix(r.URL.Path, "/thumb/l/"):
+		if s.thumbCode != 0 {
+			w.WriteHeader(s.thumbCode)
+			return
+		}
 		if s.thumb == nil {
 			http.NotFound(w, r)
 			return

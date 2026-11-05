@@ -73,6 +73,7 @@ type Poller struct {
 	versionTried bool
 	versionFails int
 	fallbackAt   time.Time
+	browseErr    error
 	thumbFails   int
 	thumbFailRef string
 	changeKey    string
@@ -185,7 +186,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 		if p.manual || (p.client != nil && p.selName != cfg.Name) {
 			p.disconnect()
 		}
-		if p.client != nil && !p.matched && !p.active && p.fallbackDue() {
+		if p.client != nil && !p.matched && p.fallbackDue() {
 			p.discover(ctx, cfg.Name, creds)
 			if ctx.Err() != nil {
 				return 0
@@ -196,8 +197,9 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 				if ctx.Err() != nil {
 					return 0
 				}
+				p.State.setTarget("", "", false)
 				p.State.setOffline(ErrCodeNotFound)
-				p.logOnce(ErrCodeNotFound, errors.New("no _prusalink._tcp service on the network"))
+				p.logOnce(ErrCodeNotFound, cmpErr(p.browseErr, errors.New("no _prusalink._tcp service on the network")))
 				return p.nextBackoff()
 			}
 		}
@@ -305,6 +307,7 @@ func (p *Poller) use(f Found, manual bool, creds Credentials) {
 	}
 	if f.URL != p.target {
 		p.versionTried, p.versionFails = false, 0
+		p.failures, p.backoff = 0, 0
 		p.needJob = true
 	}
 	p.client, p.target, p.manual, p.identity = c, f.URL, manual, identity
@@ -315,12 +318,13 @@ func (p *Poller) discover(ctx context.Context, name string, creds Credentials) b
 	if p.browse == nil {
 		return false
 	}
-	found, err := p.browse(ctx)
-	if err != nil || len(found) == 0 {
-		return false
-	}
 	if p.client != nil && !p.matched {
 		p.fallbackAt = p.now().Add(FallbackBrowse)
+	}
+	found, err := p.browse(ctx)
+	p.browseErr = err
+	if err != nil || len(found) == 0 {
+		return false
 	}
 	f, matched := Choose(found, name)
 	if p.client != nil && (p.matched || !matched) {
@@ -446,6 +450,10 @@ func (p *Poller) fetchJob(ctx context.Context) error {
 	case errors.Is(err, ErrNoThumbnail):
 		p.thumbFails = 0
 		p.State.setThumb(ref, nil)
+	case errors.Is(err, ErrBadThumbnail):
+		p.thumbFails = 0
+		p.State.setThumb(ref, nil)
+		p.logger.Info("printer thumbnail skipped", "err", err)
 	default:
 		if key := strconv.Itoa(job.ID) + "\x00" + ref; p.thumbFailRef != key {
 			p.thumbFails, p.thumbFailRef = 0, key
@@ -481,4 +489,11 @@ func (p *Poller) notifyIfChanged() {
 	if p.OnChange != nil {
 		p.OnChange()
 	}
+}
+
+func cmpErr(err, fallback error) error {
+	if err != nil {
+		return err
+	}
+	return fallback
 }

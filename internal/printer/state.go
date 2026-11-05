@@ -259,7 +259,7 @@ func (s *State) forget() {
 	s.nozzle, s.nozzleT, s.bed, s.bedT = 0, 0, 0, 0
 	s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
 	s.events, s.finishedAt, s.stoppedAt = nil, time.Time{}, time.Time{}
-	s.info.Hostname, s.info.Firmware = "", ""
+	s.info = Info{Name: s.info.Name}
 }
 
 func (s *State) setOff(code ErrorCode) {

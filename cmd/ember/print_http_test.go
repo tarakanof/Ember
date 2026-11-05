@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -212,5 +214,41 @@ func TestPrinterDoctorCheck(t *testing.T) {
 	app.printer.Step(context.Background())
 	if c := checkPrinter(app); c.Status != StatusWarn || !strings.Contains(c.Detail, printer.PasswordEnv) {
 		t.Fatalf("no password = %+v", c)
+	}
+}
+
+func TestNoPrinterPasswordInFixtures(t *testing.T) {
+	secrets := []string{printTestPassword, "pw-sentinel-7f3a9c"}
+	if real := os.Getenv(printer.PasswordEnv); real != "" {
+		secrets = append(secrets, real)
+	}
+	var files []string
+	for _, root := range []string{"testdata", "../../internal/printer", "../../docs", "../../deploy"} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() && !strings.HasSuffix(path, "_test.go") {
+				files = append(files, path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(files) < 10 {
+		t.Fatalf("scanned only %d files", len(files))
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, s := range secrets {
+			if strings.Contains(string(b), s) {
+				t.Errorf("%s contains printer password #%d", f, i)
+			}
+		}
 	}
 }

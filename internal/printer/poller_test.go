@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -489,7 +490,7 @@ func TestReenablingReplaysNoStaleEdge(t *testing.T) {
 
 func TestThumbnailRetriesCountPerJob(t *testing.T) {
 	s := newStubPrinter(t)
-	s.set(func(s *stubPrinter) { s.thumb, s.thumbType = []byte("\x89PNG\r\n\x1a\nx"), "text/plain" })
+	s.set(func(s *stubPrinter) { s.thumbCode = http.StatusInternalServerError })
 	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
 	job := func(id int) {
 		s.set(func(s *stubPrinter) {
@@ -889,7 +890,7 @@ func TestVersionRetriedAfterAFailure(t *testing.T) {
 
 func TestThumbnailRetriesResetForAReprintOfTheSameFile(t *testing.T) {
 	s := newStubPrinter(t)
-	s.set(func(s *stubPrinter) { s.thumb, s.thumbType = []byte("\x89PNG\r\n\x1a\nx"), "text/plain" })
+	s.set(func(s *stubPrinter) { s.thumbCode = http.StatusInternalServerError })
 	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
 	job := func(id int) {
 		s.set(func(s *stubPrinter) {
@@ -949,5 +950,110 @@ func TestAutoModePrinterOffGoesOfflineAndBacksOff(t *testing.T) {
 	}
 	if warns != 1 {
 		t.Fatalf("warn lines = %d", warns)
+	}
+}
+
+func TestUnusableThumbnailIsNotRetried(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) {
+		s.thumb, s.thumbType = []byte("\x89PNG\r\n\x1a\nx"), "image/jpeg"
+		s.status = statusJSON("PRINTING", &jobFields{id: 3, progress: 5})
+		s.job = jobJSON(3, "PRINTING", "a.bgcode")
+	})
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	for range 4 {
+		h.advance(h.step())
+	}
+	if got := s.hit("/thumb/l/usb/BRACKE~1.BGC"); got != 1 {
+		t.Fatalf("unusable thumbnail fetched %d times", got)
+	}
+}
+
+func TestFallbackThrottleHoldsWhenMDNSGoesQuiet(t *testing.T) {
+	s := newStubPrinter(t)
+	net := &lan{}
+	net.set(Found{Host: "workshop.local.", URL: s.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	h.advance(h.step())
+	net.set()
+	for range 20 {
+		h.advance(h.step())
+	}
+	if net.n > 3 {
+		t.Fatalf("%d browses in 10 min with mDNS quiet", net.n)
+	}
+}
+
+func TestPrintingFallbackStillYieldsToTheNamedPrinter(t *testing.T) {
+	mk4 := newStubPrinter(t)
+	core := newStubPrinter(t)
+	mk4.set(func(s *stubPrinter) { s.status = statusJSON("PRINTING", &jobFields{id: 1, progress: 30}) })
+	core.set(func(s *stubPrinter) { s.status = statusJSON("PRINTING", &jobFields{id: 2, progress: 10}) })
+	net := &lan{}
+	net.set(Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	h.advance(h.step())
+	net.set(Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL}, Found{Host: "prusa-core-one.local.", URL: core.srv.URL})
+	for range 61 {
+		h.advance(h.step())
+	}
+	if got := h.snap().Printer.URL; got != core.srv.URL {
+		t.Fatalf("after 5 min of active polls still on %s", got)
+	}
+}
+
+func TestNotFoundAndDisableClearTheOldAddress(t *testing.T) {
+	s := newStubPrinter(t)
+	net := &lan{}
+	net.set(Found{Host: "prusa-core-one.local.", URL: s.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	h.advance(h.step())
+	net.set()
+	h.mu.Lock()
+	h.cfg.Name = "MK4"
+	h.mu.Unlock()
+	h.advance(h.step())
+	if snap := h.snap(); snap.LastError != ErrCodeNotFound || snap.Printer.URL != "" || snap.Printer.Host != "" {
+		t.Fatalf("not_found keeps %+v", snap.Printer)
+	}
+	h2 := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h2.advance(h2.step())
+	h2.mu.Lock()
+	h2.cfg.Enabled = false
+	h2.mu.Unlock()
+	h2.advance(h2.step())
+	if got := h2.snap().Printer; got.URL != "" || got.Host != "" || got.Firmware != "" {
+		t.Fatalf("disabled keeps %+v", got)
+	}
+}
+
+func TestNewManualURLStartsWithAFreshFailureCount(t *testing.T) {
+	dead := newStubPrinter(t)
+	h := newHarness(t, manualConfig(dead.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	dead.srv.Close()
+	for range 4 {
+		h.advance(h.step())
+	}
+	other := newStubPrinter(t)
+	h.mu.Lock()
+	h.cfg = manualConfig(other.srv.URL)
+	h.mu.Unlock()
+	other.srv.Close()
+	first := h.step()
+	h.advance(first)
+	second := h.step()
+	if first != PollIdle || second != Backoff[0] {
+		t.Fatalf("new URL: polls after %v then %v, want %v then %v", first, second, PollIdle, Backoff[0])
+	}
+}
+
+func TestBrowseErrorIsLogged(t *testing.T) {
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto}, testPassword, func(context.Context) ([]Found, error) {
+		return nil, fmt.Errorf("listen udp 224.0.0.251:5353: permission denied")
+	})
+	h.step()
+	if !strings.Contains(h.logs.String(), "permission denied") {
+		t.Fatalf("browse error not logged:\n%s", h.logs.String())
 	}
 }
