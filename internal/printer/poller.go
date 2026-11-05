@@ -229,6 +229,9 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	}
 	switch {
 	case err == nil:
+		if p.failures >= offlineAfter {
+			p.versionTried, p.versionFails = false, 0
+		}
 		p.failures, p.backoff = 0, 0
 		if p.loggedErr != "" {
 			p.logger.Info("printer reachable", "url", p.target)

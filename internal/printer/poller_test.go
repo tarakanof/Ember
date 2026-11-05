@@ -1191,3 +1191,46 @@ func TestStoppedKeepsTheJobAndIdleClearsIt(t *testing.T) {
 		t.Fatalf("idle kept the old job name %q", name)
 	}
 }
+
+func TestVersionReadAgainAfterTheRecovery(t *testing.T) {
+	s := newStubPrinter(t)
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.status = "not json" })
+	for range 3 {
+		h.advance(h.step())
+	}
+	if h.snap().Phase != PhaseOffline {
+		t.Fatalf("phase = %s", h.snap().Phase)
+	}
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("IDLE", nil)
+		s.version = `{"hostname":"prusa-core-one","firmware":"8.1.0"}`
+	})
+	h.advance(h.step())
+	h.advance(h.step())
+	if got := h.snap().Printer.Firmware; got != "8.1.0" {
+		t.Fatalf("firmware after the reboot = %q", got)
+	}
+}
+
+func TestWarningOverTheFinishScreenCarriesNoOldJob(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 8, progress: 20})
+		s.job = jobJSON(8, "PRINTING", "lid_0.4n_0.2mm_PLA_COREONE_1h2m.bgcode")
+	})
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.status = statusJSON("ATTENTION", nil) })
+	h.advance(h.step())
+	snap := h.snap()
+	if snap.Phase != PhaseAttention || snap.Name != "" || snap.JobID != 0 || snap.Progress != 0 {
+		t.Fatalf("jobless attention = phase %s name %q job %d progress %d", snap.Phase, snap.Name, snap.JobID, snap.Progress)
+	}
+	if snap.Event == nil || snap.Event.Kind != EventAttention || snap.Event.JobID != 0 {
+		t.Fatalf("attention event = %+v", snap.Event)
+	}
+}

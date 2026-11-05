@@ -367,6 +367,10 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged bo
 		}
 	} else {
 		s.endsAt, s.changeAt = time.Time{}, time.Time{}
+		if !keepsEndedJob(phase) {
+			s.jobID, s.progress, s.startedAt = 0, 0, time.Time{}
+			s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
+		}
 	}
 
 	if s.seen {
@@ -378,6 +382,10 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged bo
 	s.prevPhase = phase
 	s.phase, s.lastErr = phase, ErrCodeNone
 	return stateChanged, jobChanged
+}
+
+func keepsEndedJob(p Phase) bool {
+	return p == PhaseFinished || p == PhaseStopped || p == PhaseError
 }
 
 func jobUnderway(j *StatusJob) bool {
@@ -440,7 +448,7 @@ func (s *State) setJob(d *JobDoc) (thumbRef string, fetch bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if d == nil {
-		if s.phase == PhaseIdle {
+		if !keepsEndedJob(s.phase) {
 			s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
 		}
 		return "", false

@@ -2788,9 +2788,11 @@ keeps it on the default transport: mDNS browsing is injected
   suffix, at most 32 runes; `material` comes from that suffix (`PLA;PETG` →
   `PLA/PETG`) and is empty without one (the CORE One sends no `meta`).
   The firmware answers `/api/v1/job` with 204 whenever `has_job()` is
-  false, FINISHED and STOPPED included, so a 204 clears the name,
-  material and thumbnail only once the phase is `idle`; a finished or
-  stopped print keeps them for its hold.
+  false, FINISHED and STOPPED included, so a finished, stopped or errored
+  print keeps its id, name, material and thumbnail for its hold; any other
+  phase without a job (idle, or a warning's ATTENTION over the finish
+  screen) clears them. `/api/version` is read again after the printer
+  comes back from `offline` (a firmware update reboots it).
 - **Events** `started` (a new `job.id` reaching heating, preparing,
   printing or finishing), `attention`, `finished`, `stopped`, `error`: one
   per edge between two successful polls of this process, ids increasing
