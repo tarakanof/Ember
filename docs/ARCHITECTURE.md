@@ -2790,12 +2790,20 @@ keeps it on the default transport: mDNS browsing is injected
   The firmware answers `/api/v1/job` with 204 whenever `has_job()` is
   false, FINISHED and STOPPED included, so a finished, stopped or errored
   print keeps its id, name, material and thumbnail for its hold. A warning
-  over the finish screen reports ATTENTION without a job and returns to
-  FINISHED/STOPPED when dismissed: the ended job is hidden from the
-  snapshot (and from the `attention` event) while it shows and comes back
-  after, and the return emits no second `finished`/`stopped` and keeps the
-  hold (an ended job's terminal edge fires once; a print running again
-  re-arms it). Any other phase without a job (idle) clears them. `/api/version` is read again after the printer
+  over the finish screen reports ATTENTION and returns to FINISHED/STOPPED
+  once dismissed. Readings of the Buddy source differ on whether that
+  ATTENTION carries the job (the Printing FSM lives until the finish
+  screen is left), so both are handled: with the job, the snapshot shows
+  it; without, the ended job is held but hidden (also from the `attention`
+  event) and comes back after. Either way an ended print's terminal edge
+  fires once: after `finished` (or `stopped`, `error`) no edge of the same
+  kind fires again until a print runs, so the dismissal emits only the
+  `attention` and the hold keeps its start. A server start that first
+  sees FINISHED, STOPPED, ERROR or an ATTENTION with the job at 100 %
+  counts that print as ended. Known limit: an end-of-print prompt at 100 %
+  (unload) seen first after a restart is taken for that warning, so its
+  `finished` is not emitted. Any other phase without a job (idle) clears
+  the job fields. `/api/version` is read again after the printer
   comes back from `offline` (a firmware update reboots it).
 - **Events** `started` (a new `job.id` reaching heating, preparing,
   printing or finishing), `attention`, `finished`, `stopped`, `error`: one

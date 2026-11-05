@@ -114,7 +114,6 @@ type State struct {
 	jobID     int
 	startedID int
 	endedSet  bool
-	endedID   int
 	endedKind EventKind
 	endedHeld bool
 	progress  float64
@@ -263,7 +262,7 @@ func (s *State) forget() {
 	defer s.mu.Unlock()
 	s.seen, s.prevPhase, s.rawState, s.updatedAt = false, "", "", time.Time{}
 	s.jobID, s.startedID, s.progress = 0, 0, 0
-	s.endedSet, s.endedID, s.endedKind, s.endedHeld = false, 0, "", false
+	s.endedSet, s.endedKind, s.endedHeld = false, "", false
 	s.endsAt, s.startedAt, s.changeAt = time.Time{}, time.Time{}, time.Time{}
 	s.nozzle, s.nozzleT, s.bed, s.bedT = 0, 0, 0, 0
 	s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
@@ -396,7 +395,9 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged bo
 			s.startedID = s.jobID
 		}
 		if kind, ok := endedKind(phase); ok {
-			s.endedSet, s.endedID, s.endedKind = true, s.jobID, kind
+			s.endedSet, s.endedKind = true, kind
+		} else if phase == PhaseAttention && d.Job != nil && d.Job.Progress >= 100 {
+			s.endedSet, s.endedKind = true, EventFinished
 		}
 	}
 	s.seen = true
@@ -454,10 +455,10 @@ func (s *State) edgesLocked(now time.Time, phase Phase) {
 		return
 	}
 	kind, ok := endedKind(phase)
-	if !ok || (s.endedSet && s.endedID == s.jobID && s.endedKind == kind) {
+	if !ok || (s.endedSet && s.endedKind == kind) {
 		return
 	}
-	s.endedSet, s.endedID, s.endedKind = true, s.jobID, kind
+	s.endedSet, s.endedKind = true, kind
 	s.emitLocked(now, kind)
 }
 

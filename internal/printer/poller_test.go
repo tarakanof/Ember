@@ -1270,14 +1270,13 @@ func TestWarningOverTheFinishScreenKeepsOneDoneAndItsJob(t *testing.T) {
 	}
 }
 
-func TestReprintOfTheSameJobIDStillFinishes(t *testing.T) {
+func TestNextPrintAfterADoneFinishesAgain(t *testing.T) {
 	s := newStubPrinter(t)
 	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
 	for _, st := range []string{
 		statusJSON("PRINTING", &jobFields{id: 4, progress: 50}),
 		statusJSON("FINISHED", nil),
-		statusJSON("IDLE", nil),
-		statusJSON("PRINTING", &jobFields{id: 4, progress: 50}),
+		statusJSON("PRINTING", &jobFields{id: 5, progress: 1}),
 		statusJSON("FINISHED", nil),
 	} {
 		s.set(func(s *stubPrinter) { s.status = st })
@@ -1290,6 +1289,67 @@ func TestReprintOfTheSameJobIDStillFinishes(t *testing.T) {
 		}
 	}
 	if finished != 2 {
-		t.Fatalf("events = %v, want two finished (a reused job id after a printer reboot)", eventKinds(h.snap()))
+		t.Fatalf("events = %v, want a finished per print", eventKinds(h.snap()))
+	}
+}
+
+func TestWarningWithTheJobOverTheFinishScreenKeepsOneDone(t *testing.T) {
+	for _, end := range []string{"FINISHED", "STOPPED"} {
+		t.Run(end, func(t *testing.T) {
+			s := newStubPrinter(t)
+			s.set(func(s *stubPrinter) {
+				s.status = statusJSON("PRINTING", &jobFields{id: 8, progress: 60})
+				s.job = jobJSON(8, "PRINTING", "lid_0.4n_0.2mm_PLA_COREONE_1h2m.bgcode")
+			})
+			h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+			h.advance(h.step())
+			s.set(func(s *stubPrinter) { s.status = statusJSON(end, nil) })
+			h.advance(h.step())
+			hold := h.snap().HoldUntil
+			for _, st := range []string{
+				statusJSON("ATTENTION", &jobFields{id: 8, progress: 100, printing: num(3720)}),
+				statusJSON(end, nil),
+			} {
+				s.set(func(s *stubPrinter) { s.status = st })
+				h.advance(h.step())
+			}
+			snap := h.snap()
+			if kinds := eventKinds(snap); len(kinds) != 2 || kinds[1] != EventAttention {
+				t.Fatalf("events = %v, want the end and one attention", kinds)
+			}
+			if !snap.HoldUntil.Equal(hold) || snap.Name != "lid" {
+				t.Fatalf("hold %v (was %v) name %q", snap.HoldUntil, hold, snap.Name)
+			}
+		})
+	}
+}
+
+func TestRestartThenAWarningOverTheFinishScreenReplaysNoDone(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	for _, st := range []string{
+		statusJSON("ATTENTION", &jobFields{id: 8, progress: 100}),
+		statusJSON("FINISHED", nil),
+	} {
+		s.set(func(s *stubPrinter) { s.status = st })
+		h.advance(h.step())
+	}
+	snap := h.snap()
+	if kinds := eventKinds(snap); !slices.Equal(kinds, []EventKind{EventAttention}) || !snap.HoldUntil.IsZero() {
+		t.Fatalf("events %v hold %v, want only the attention", kinds, snap.HoldUntil)
+	}
+}
+
+func TestRestartDuringAWarningOverTheFinishScreenReplaysNoDone(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("ATTENTION", &jobFields{id: 8, progress: 100}) })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	h.advance(h.step())
+	if kinds := eventKinds(h.snap()); len(kinds) != 0 {
+		t.Fatalf("events = %v after a restart during the warning", kinds)
 	}
 }
