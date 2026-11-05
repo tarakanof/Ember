@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -243,6 +244,10 @@ func (a *App) knobDemo(id string, base knobView, now time.Time) *knobDemo {
 	if sc.view != nil {
 		v := sc.view(cur.since.Truncate(time.Second), art)
 		v.V, v.Epoch, v.ConfigVersion, v.Brightness = base.V, base.Epoch, base.ConfigVersion, base.Brightness
+		if v.Print != nil && v.Print.Event != nil {
+			n, _ := strconv.ParseUint(cur.id, 16, 32)
+			v.Print.Event.ID = n
+		}
 		d.View = &v
 	}
 	return d

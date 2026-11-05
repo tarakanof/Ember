@@ -303,7 +303,7 @@ func demoPrintScenes() []demoScene {
 			view: func(at time.Time, _ *demoArt) knobView {
 				p := &knobPrint{Phase: phase, Progress: new(progress), StartedAt: new(at.Add(-demoPrintRun).Unix()),
 					Name: demoPrintName, Material: demoPrintMat, Printer: demoPrinter,
-					Event: &knobPrintEvent{ID: uint64(at.UnixMilli()), Kind: kind, At: at.Unix()}}
+					Event: &knobPrintEvent{Kind: kind, At: at.Unix()}}
 				if left > 0 {
 					p.EndsAt = new(at.Add(left).Unix())
 				}

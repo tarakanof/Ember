@@ -432,8 +432,10 @@ at its recheck.
   page `bot`, with weather that fits the kind.
 - Print moments (`moment.print_done`, `moment.print_attention`): page `bot`,
   no `act`, a view whose `print` block has `phase` `finished` or `attention`,
-  `printer` "CORE One" and an `event` whose `id` is the play's start in Unix
-  ms, so each play is a new id and the knob plays its B3 or B4 moment once.
+  `printer` "CORE One" and an `event` whose `id` is the play's `demo.id` read
+  as a number (below 2^32, so never a real event's Unix-ms id), so each play
+  is a new id even within one second and the knob plays its B3 or B4 moment
+  once.
   Offered by `GET …/demo/scenes` and accepted by `POST …/demo` only for a knob
   with `print_moments` in its caps (any other knob: not listed, 400).
 - Weather faces (`face.<face>.<sky>`): the seven faces × clear day, clear
@@ -1325,7 +1327,7 @@ Indented JSON; key order is the wire order.
 | `view_print_attention.json` | The same knob when the printer stops for a colour change: `attention` and its event, the job's keys kept, `change_at` gone |
 | `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |
 | `config_default.json` | `GET …/self/config` for a new knob (pages `bot`, `day`, `weather`, then `room`, `nowplaying`, `controls`, `print` and `pomodoro` off), `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
-| `demo/moment.print_done.json`, `demo/moment.print_attention.json` | The print moment scenes (new, #798): `bot` page, a `view` with a `print` block (`finished` at 100 %; `attention` at 24 % with `ends_at`) and an `event` id in Unix ms |
+| `demo/moment.print_done.json`, `demo/moment.print_attention.json` | The print moment scenes (new, #798): `bot` page, a `view` with a `print` block (`finished` at 100 %; `attention` at 24 % with `ends_at`) and an `event` id taken from the demo id |
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments`, `print_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default |
 | `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800, `room` with `presence_off_s` 86399, `bot.print_moments` (1077 B compact; 969 B without `room` and `print_moments`) |
 | `checkin_reply_config_v2.json` | A stale knob's checkin reply carrying that config |

@@ -1121,16 +1121,23 @@ func TestDemoKnobRestartAnswersTheLongPollAtOnce(t *testing.T) {
 func TestDemoPrintSceneCarriesAFreshEventIDPerPlay(t *testing.T) {
 	f := demoFixture(t)
 	var ids []uint64
-	for range 2 {
+	for range 3 {
 		postDemo(t, f, `{"scene":"moment.print_done"}`)
 		var p knobPrint
 		if err := json.Unmarshal(viewDemo(t, goldenView(t, f)).View["print"], &p); err != nil || p.Event == nil {
 			t.Fatalf("print = %+v %v", p, err)
 		}
 		ids = append(ids, p.Event.ID)
-		f.clk.advance(time.Minute)
 	}
-	if ids[0] == ids[1] {
-		t.Fatalf("a replay reused event id %d, the knob would not play the moment", ids[0])
+	if ids[0] == 0 || ids[0] == ids[1] || ids[1] == ids[2] {
+		t.Fatalf("replays within one second reused event ids %v, the knob would not play the moment", ids)
+	}
+	postDemo(t, f, `{"scene":"moment.print_done"}`)
+	var again, same knobPrint
+	_ = json.Unmarshal(viewDemo(t, goldenView(t, f)).View["print"], &again)
+	f.clk.advance(time.Second)
+	_ = json.Unmarshal(viewDemo(t, goldenView(t, f)).View["print"], &same)
+	if again.Event.ID != same.Event.ID {
+		t.Fatalf("event id changed during one play: %d then %d", again.Event.ID, same.Event.ID)
 	}
 }
