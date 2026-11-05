@@ -445,7 +445,7 @@ func TestPrintThumbRoute(t *testing.T) {
 			if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/jpeg" {
 				t.Fatalf("%s = %d %s", kind, resp.StatusCode, resp.Header.Get("Content-Type"))
 			}
-			if cc := resp.Header.Get("Cache-Control"); cc != "public, max-age=86400, immutable" {
+			if cc := resp.Header.Get("Cache-Control"); cc != "private, max-age=86400, immutable" {
 				t.Fatalf("%s at the current v: Cache-Control %q", kind, cc)
 			}
 			img, err := jpeg.Decode(bytes.NewReader(b))
@@ -498,6 +498,12 @@ func TestPrintThumbRoute(t *testing.T) {
 		t.Fatalf("the old job's v = %d, want 404 so a solid and ghost can't mix", resp.StatusCode)
 	}
 
+	p.app.updateConfig(func(c *Config) { c.Printer.Enabled = false })
+	p.step(t, 5*time.Second)
+	if resp, _ := devReq(t, f.srv, "GET", "/v1/print/thumb?kind=solid", f.m.Token, ""); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("printer disabled = %d, want 404", resp.StatusCode)
+	}
+	p.app.updateConfig(func(c *Config) { c.Printer.Enabled = true })
 	p.fp.setJob(0, "", "", nil)
 	p.fp.setStatus("IDLE", nil, 30, 0, 30, 0)
 	p.step(t, 5*time.Second)

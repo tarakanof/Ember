@@ -174,7 +174,7 @@ func (a *App) handlePrintThumb(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("ETag", etag)
 	if v == version {
-		h.Set("Cache-Control", "public, max-age=86400, immutable")
+		h.Set("Cache-Control", "private, max-age=86400, immutable")
 	} else {
 		h.Set("Cache-Control", "no-cache")
 	}

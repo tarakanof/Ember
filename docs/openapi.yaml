@@ -2630,7 +2630,7 @@ paths:
         brightness: the knob draws the solid from the progress row down to
         `thumb_rows[1]` and the ghost above it. `v` equal to the view's
         `print.thumb_version` (`<hash>-<recipe>`) makes the reply
-        `public, max-age=86400, immutable`; without `v` the current picture
+        `private, max-age=86400, immutable`; without `v` the current picture
         comes with `no-cache`; any other `v` is a 404 (the job changed).
         The ETag is `"<thumb_version>-<kind>-466"`. 404 without a picture
         (no job, no thumbnail, printer off, a picture that doesn't bake).

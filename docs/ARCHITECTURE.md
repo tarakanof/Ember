@@ -4733,7 +4733,7 @@ polls. Contract: DEVICE-PROTOCOL.md "Demo mode".
   from presets. Times are relative to the moment the scene became available
   (whole seconds), not to each request, so the demo view keeps one ETag
   while it plays and a long poll doesn't spin.
-- **Relay.** `knobView` adds `demo` as the last key for a knob whose caps
+- **Relay.** `knobView` adds `demo` after `diag_live_until` (only `day` and `print` follow it) for a knob whose caps
   list `demo`; the fake view copies the real `v`, `epoch`, `config_version`
   and `brightness`. Setting or stopping a demo and a report that changes
   state notify `topicDemo`, which wakes waiting view polls.
