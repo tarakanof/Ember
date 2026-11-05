@@ -47,6 +47,12 @@ public final class PreviewModel {
         }
     }
 
+    public func clear() {
+        cancel()
+        response = nil
+        error = nil
+    }
+
     public func cancel() {
         generation += 1
         task?.cancel()
