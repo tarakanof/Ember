@@ -92,7 +92,6 @@ func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 		"pomodoro preview":          row7FromFrame(RenderPomodoro(pomo)),
 	}
 	for name, f := range printGoldenCases() {
-		f := f
 		cases["print "+name] = row7FromFrame(&f)
 	}
 	for _, phase := range []string{PrintPhasePrinting, PrintPhaseAttention, PrintPhaseFinished, PrintPhaseHeating} {

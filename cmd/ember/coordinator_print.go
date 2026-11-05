@@ -16,7 +16,6 @@ const (
 	printErrorPopupSec    = 30
 	printAttentionRepeat  = 10 * time.Minute
 	printDoneGrace        = 5 * time.Minute
-	printAttentionGrace   = 2 * time.Minute
 	printNoticeCallBudget = 10 * time.Second
 	printRetryAfter       = 30 * time.Second
 	printHeatStep         = 5
@@ -218,10 +217,6 @@ func (c *coordinator) printEvent(now time.Time, cfg printer.Config, snap printer
 		}
 	case printer.EventAttention:
 		if !cfg.NotifyAttentionEnabled() || snap.Phase != printer.PhaseAttention {
-			return true
-		}
-		if age > printAttentionGrace {
-			st.attnOn, st.attnNext = true, now
 			return true
 		}
 		if err := c.fireNotice(noticePrintAttention, render.PrintAttentionPopupPayload(printAttentionPopSec), printAttentionRTTTL); err != nil {

@@ -74,7 +74,6 @@ func printGoldenCases() map[string]Frame {
 
 func TestPrintGoldenFrames(t *testing.T) {
 	for name, f := range printGoldenCases() {
-		f := f
 		got := printFrameText(&f)
 		path := filepath.Join("testdata", "print", name+".txt")
 		if *updatePrintGolden {
