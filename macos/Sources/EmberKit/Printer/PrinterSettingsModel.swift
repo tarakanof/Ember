@@ -106,6 +106,19 @@ public final class PrinterSettingsModel {
         }
     }
 
+    public var previewResponse: PreviewResponse? {
+        guard config.draft.enabled, !previewMissing else { return nil }
+        return preview.response
+    }
+
+    public var previewMissing: Bool { preview.error == .featureOff }
+
+    public func flush() {
+        commitAddress()
+        let config = config
+        Task { await config.saveNow() }
+    }
+
     public func refreshPreview() {
         guard config.draft.enabled else { return }
         preview.request { [fetchPreview] in try await fetchPreview() }

@@ -99,7 +99,6 @@ private func state(_ json: String) throws -> PrinterState {
     #expect(model.status == .connected(firmware: ""))
 }
 
-
 @MainActor
 private func loadedModel(_ c: PrinterConfig, saves: SaveLog = SaveLog()) async -> PrinterSettingsModel {
     let model = PrinterSettingsModel(
@@ -158,7 +157,6 @@ private actor SaveLog {
     await model.refreshState()
     #expect(model.status == .unavailable(featureOff: true))
 }
-
 
 @MainActor
 @Test func aReloadKeepsTheManualChoiceAndTheTypedAddress() async {
@@ -236,4 +234,51 @@ private actor SaveLog {
     model.refreshPreview()
     for _ in 0..<50 { await Task.yield() }
     #expect(await calls.n == 0)
+}
+
+@MainActor
+@Test func aPendingSaveStillReachesTheServerWhenThePaneClosesFirst() async {
+    let log = SaveLog()
+    var model: PrinterSettingsModel? = await loadedModel(PrinterConfig(enabled: true), saves: log)
+    model?.chooseManual()
+    model?.addressText = "http://192.168.1.50"
+    model?.flush()
+    model = nil
+    for _ in 0..<100 { await Task.yield() }
+    let saved = await log.saved
+    #expect(saved.map(\.url) == ["http://192.168.1.50"])
+}
+
+@MainActor
+@Test func aTransientPreviewErrorKeepsTheLastFrameAndPolling() async {
+    final class Box: @unchecked Sendable { var fail = false }
+    let box = Box()
+    let frame = PreviewResponse(width: 32, height: 8, activity: "print", frames: [CardFrame(card: "print", pixels: [])])
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
+        state: { PrinterState(enabled: true, phase: "idle") },
+        preview: { if box.fail { throw APIError.timedOut }; return frame },
+        previewModel: PreviewModel(debounce: .zero, sleep: { _ in }))
+    model.refreshPreview()
+    for _ in 0..<50 { await Task.yield() }
+    #expect(model.previewResponse == frame)
+    box.fail = true
+    model.refreshPreview()
+    for _ in 0..<50 { await Task.yield() }
+    #expect(model.previewResponse == frame && !model.previewMissing)
+}
+
+@MainActor
+@Test func turningThePrinterOffHidesThePreview() async {
+    let frame = PreviewResponse(width: 32, height: 8, activity: "print", frames: [CardFrame(card: "print", pixels: [])])
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
+        state: { PrinterState(enabled: true, phase: "idle") },
+        preview: { frame },
+        previewModel: PreviewModel(debounce: .zero, sleep: { _ in }))
+    model.refreshPreview()
+    for _ in 0..<50 { await Task.yield() }
+    #expect(model.previewResponse == frame)
+    model.config.draft.enabled = false
+    #expect(model.previewResponse == nil)
 }

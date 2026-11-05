@@ -44,7 +44,7 @@ private struct PrinterPaneBody: View {
                 if !model.manualMode {
                     if let host = model.foundHost {
                         LabeledContent("Found") { Text(verbatim: host) }
-                    } else if c.enabled, model.status != .unknown {
+                    } else if c.enabled, model.status != .unknown, model.status != .passwordMissing {
                         LabeledContent("Found") { Text("Nothing yet").foregroundStyle(.secondary) }
                     }
                 } else {
@@ -80,7 +80,7 @@ private struct PrinterPaneBody: View {
             }
             .disabled(!config.isLoaded || !c.enabled)
 
-            if model.preview.error == nil, let response = model.preview.response {
+            if let response = model.previewResponse {
                 Section {
                     PreviewCanvas(frames: response.frames, maxPitch: PanelPreview.maxPitch)
                         .ledBezel()
@@ -103,14 +103,14 @@ private struct PrinterPaneBody: View {
                 try? await Task.sleep(for: .seconds(10))
                 if Task.isCancelled { break }
                 await model.refreshState()
-                if !model.preview.isUnavailable { model.refreshPreview() }
+                if !model.previewMissing { model.refreshPreview() }
             }
         }
         .onChange(of: appearsActive) { _, active in
             if !active { model.commitAddress() }
         }
         .onDisappear {
-            model.commitAddress()
+            model.flush()
             model.preview.cancel()
         }
     }
