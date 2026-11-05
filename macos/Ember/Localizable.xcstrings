@@ -878,6 +878,10 @@
     "Calendar, bar above" : {},
     "Calendar, bar below" : {},
     "Calm bot" : {},
+    "Can't read the printer status" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Cancel" : {},
     "Cancel Update" : {},
     "Capabilities" : {},
@@ -1264,6 +1268,10 @@
     "Ember brightness" : {},
     "Ember can open at login only when it runs from the Applications folder." : {},
     "Ember can't reach the server. Check that it's running, or change its address in Connection settings." : {},
+    "Ember couldn't ask the server for the printer's state. Check the connection." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Ember couldn't register the knob: %@" : {
       "comment" : "Knob setup error; the argument is a short reason (\"Unauthorized — check the token in Connection settings.\")."
     },
@@ -2877,6 +2885,7 @@
     "Use" : {},
     "Use Current Location" : {},
     "Use Full Diagnostics" : {},
+    "Use http:// or https:// and the printer's host, for example http://192.168.1.50." : {},
     "Use http://address:port for the Ember address. The knob can't use https, IPv6 or a path." : {},
     "Use http://address:port. The knob can't use https, IPv6 or a path." : {},
     "Use source color" : {},

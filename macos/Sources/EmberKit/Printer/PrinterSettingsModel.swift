@@ -8,11 +8,15 @@ public final class PrinterSettingsModel {
     public let preview: PreviewModel
     public private(set) var state: PrinterState?
     public private(set) var stateError: FeedError?
+    public var manualMode = false
+    public var addressText = ""
+    public private(set) var addressInvalid = false
 
     @ObservationIgnored private let fetchState: @Sendable () async throws -> PrinterState
     @ObservationIgnored private let fetchPreview: @Sendable () async throws -> PreviewResponse
+    @ObservationIgnored private var stateSeq = 0
 
-    public var status: PrinterStatusLine { PrinterStatusLine(state) }
+    public var status: PrinterStatusLine { PrinterStatusLine(state, error: stateError) }
 
     public var foundHost: String? {
         guard let state, state.printer.discovered, !state.printer.host.isEmpty else { return nil }
@@ -26,6 +30,7 @@ public final class PrinterSettingsModel {
         preview = PreviewModel()
         fetchState = { try await client.get("/v1/print/state") }
         fetchPreview = { try await client.get("/v1/print/preview") }
+        wire()
     }
 
     init(config: ServerConfigModel<PrinterConfig>,
@@ -36,13 +41,55 @@ public final class PrinterSettingsModel {
         self.preview = previewModel
         fetchState = state
         fetchPreview = preview
+        wire()
+    }
+
+    private func wire() {
+        config.onSaved = { [weak self] _, _ in
+            guard let self else { return }
+            Task { await self.saved() }
+        }
+    }
+
+    public func syncAddress() {
+        guard let applied = config.applied else { return }
+        manualMode = !applied.isAuto
+        addressText = applied.manualURL
+        addressInvalid = false
+    }
+
+    public func chooseAuto() {
+        manualMode = false
+        addressInvalid = false
+        config.draft.url = PrinterConfig.auto
+    }
+
+    public func chooseManual() {
+        manualMode = true
+        if !config.draft.isAuto { addressText = config.draft.url }
+    }
+
+    public func commitAddress() {
+        guard manualMode else { return }
+        if let url = PrinterConfig.validatedAddress(addressText) {
+            addressInvalid = false
+            addressText = url
+            config.draft.url = url
+        } else {
+            addressInvalid = true
+        }
     }
 
     public func refreshState() async {
+        stateSeq += 1
+        let seq = stateSeq
         do {
-            state = try await fetchState()
+            let next = try await fetchState()
+            guard seq == stateSeq else { return }
+            state = next
             stateError = nil
         } catch {
+            guard seq == stateSeq else { return }
             state = nil
             stateError = FeedError(error)
         }
@@ -56,6 +103,7 @@ public final class PrinterSettingsModel {
         async let c: Void = config.load()
         async let s: Void = refreshState()
         _ = await (c, s)
+        syncAddress()
     }
 
     public func saved() async {

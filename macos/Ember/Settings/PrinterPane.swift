@@ -13,8 +13,10 @@ struct PrinterSourcePane: View {
 
 private struct PrinterPaneBody: View {
     @State var model: PrinterSettingsModel
+    @FocusState private var addressFocused: Bool
 
     var body: some View {
+        @Bindable var model = model
         @Bindable var config = model.config
         let c = config.draft
         Form {
@@ -38,15 +40,26 @@ private struct PrinterPaneBody: View {
                     Text("Manual").tag(false)
                 }
                 .pickerStyle(.segmented)
-                if c.isAuto {
+                if !model.manualMode {
                     if let host = model.foundHost {
                         LabeledContent("Found") { Text(verbatim: host) }
                     } else if c.enabled, model.status != .unknown {
                         LabeledContent("Found") { Text("Nothing yet").foregroundStyle(.secondary) }
                     }
                 } else {
-                    TextField("Printer address", text: $config.draft.url, prompt: Text(verbatim: "http://192.168.1.50"))
+                    TextField("Printer address", text: $model.addressText, prompt: Text(verbatim: "http://192.168.1.50"))
                         .autocorrectionDisabled()
+                        .focused($addressFocused)
+                        .onSubmit { model.commitAddress() }
+                        .onChange(of: addressFocused) { _, focused in
+                            if !focused { model.commitAddress() }
+                        }
+                    if model.addressInvalid {
+                        Label("Use http:// or https:// and the printer's host, for example http://192.168.1.50.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.callout)
+                    }
                 }
             } header: {
                 Text("Connection")
@@ -85,10 +98,11 @@ private struct PrinterPaneBody: View {
             model.refreshPreview()
         }
         .task {
-            config.onSaved = { _, _ in Task { await model.saved() } }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
+                if Task.isCancelled { break }
                 await model.refreshState()
+                model.refreshPreview()
             }
         }
         .onDisappear { model.preview.cancel() }
@@ -96,8 +110,8 @@ private struct PrinterPaneBody: View {
 
     private var addressMode: Binding<Bool> {
         Binding(
-            get: { model.config.draft.isAuto },
-            set: { model.config.draft.url = $0 ? PrinterConfig.auto : "" })
+            get: { !model.manualMode },
+            set: { if $0 { model.chooseAuto() } else { model.chooseManual() } })
     }
 
     @ViewBuilder private var statusRow: some View {

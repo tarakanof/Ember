@@ -46,9 +46,16 @@ public struct PrinterConfig: Codable, Sendable, Equatable {
 
     public var isAuto: Bool { url == Self.auto }
 
-    public var manualURL: String {
-        get { isAuto ? "" : url }
-        set { url = newValue.trimmingCharacters(in: .whitespaces) }
+    public var manualURL: String { isAuto ? "" : url }
+
+    public static func validatedAddress(_ text: String) -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let u = URLComponents(string: t), let scheme = u.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = u.host, !host.isEmpty,
+              u.user == nil, u.password == nil, u.query == nil, u.fragment == nil,
+              u.path.isEmpty else { return nil }
+        return t
     }
 }
 
@@ -113,6 +120,7 @@ public struct PrinterState: Codable, Sendable, Equatable {
 
 public enum PrinterStatusLine: Equatable, Sendable {
     case unknown
+    case unavailable(featureOff: Bool)
     case disabled
     case connected(firmware: String)
     case wrongPassword
@@ -121,11 +129,14 @@ public enum PrinterStatusLine: Equatable, Sendable {
     case printerOff
     case other(String)
 
-    public init(_ state: PrinterState?) {
-        guard let state else { self = .unknown; return }
+    public init(_ state: PrinterState?, error: FeedError? = nil) {
+        guard let state else {
+            self = error.map { .unavailable(featureOff: $0 == .featureOff) } ?? .unknown
+            return
+        }
         guard state.enabled else { self = .disabled; return }
         switch state.lastError {
-        case "": self = state.phase == "off" ? .passwordMissing : .connected(firmware: state.printer.firmware)
+        case "": self = state.phase == "off" ? .unknown : .connected(firmware: state.printer.firmware)
         case "wrong_password": self = .wrongPassword
         case "no_password": self = .passwordMissing
         case "not_found": self = .notFound
@@ -136,7 +147,7 @@ public enum PrinterStatusLine: Equatable, Sendable {
 
     public var isProblem: Bool {
         switch self {
-        case .wrongPassword, .passwordMissing, .notFound, .printerOff, .other: true
+        case .wrongPassword, .passwordMissing, .notFound, .printerOff, .other, .unavailable: true
         case .unknown, .disabled, .connected: false
         }
     }
@@ -144,6 +155,7 @@ public enum PrinterStatusLine: Equatable, Sendable {
     public var title: LocalizedStringResource {
         switch self {
         case .unknown: "Checking…"
+        case .unavailable: "Can't read the printer status"
         case .disabled: "Off"
         case .connected(let firmware):
             firmware.isEmpty ? "Connected" : "Connected · firmware \(firmware)"
@@ -165,6 +177,10 @@ public enum PrinterStatusLine: Equatable, Sendable {
             "Ember found no PrusaLink printer on the network. Check the printer is on the same network, or enter its address."
         case .printerOff:
             "The printer didn't answer. It may be switched off or asleep."
+        case .unavailable(let featureOff):
+            featureOff
+                ? "This server doesn't support the printer. Update the Ember server."
+                : "Ember couldn't ask the server for the printer's state. Check the connection."
         case .unknown, .disabled, .connected, .other: nil
         }
     }

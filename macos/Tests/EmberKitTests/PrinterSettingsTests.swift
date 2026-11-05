@@ -49,9 +49,24 @@ private func state(_ json: String) throws -> PrinterState {
     #expect(PrinterStatusLine.wrongPassword.isProblem)
 }
 
-@Test func enabledWithPhaseOffAndNoErrorMeansNoPassword() throws {
+@Test func enabledWithPhaseOffAndNoErrorIsStillChecking() throws {
     let s = try state(#"{"enabled":true,"phase":"off"}"#)
-    #expect(PrinterStatusLine(s) == .passwordMissing)
+    #expect(PrinterStatusLine(s) == .unknown)
+}
+
+@Test func aFailedFetchIsShownNotHiddenAsChecking() {
+    #expect(PrinterStatusLine(nil, error: .featureOff) == .unavailable(featureOff: true))
+    #expect(PrinterStatusLine(nil, error: .offline) == .unavailable(featureOff: false))
+    #expect(PrinterStatusLine(nil, error: .offline).isProblem)
+}
+
+@Test func addressesAreValidatedLikeTheServer() {
+    #expect(PrinterConfig.validatedAddress(" http://192.168.1.50/ ") == "http://192.168.1.50")
+    #expect(PrinterConfig.validatedAddress("https://core.local:8443") == "https://core.local:8443")
+    for bad in ["", "192.168.1.50", "http://", "ftp://core.local", "http://u:p@core.local",
+                "http://core.local/path", "http://core.local?x=1"] {
+        #expect(PrinterConfig.validatedAddress(bad) == nil, "\(bad)")
+    }
 }
 
 @Test func configRoundTripsTheServerKeys() throws {
@@ -82,4 +97,64 @@ private func state(_ json: String) throws -> PrinterState {
     #expect(preview.response == nil && preview.isUnavailable)
     await model.refreshState()
     #expect(model.status == .connected(firmware: ""))
+}
+
+
+@MainActor
+private func loadedModel(_ c: PrinterConfig, saves: SaveLog = SaveLog()) async -> PrinterSettingsModel {
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(), load: { c }, save: { await saves.add($0) }),
+        state: { PrinterState(enabled: true, phase: "idle") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.load()
+    return model
+}
+
+private actor SaveLog {
+    private(set) var saved: [PrinterConfig] = []
+    func add(_ c: PrinterConfig) { saved.append(c) }
+}
+
+@MainActor
+@Test func switchingToManualChangesNothingUntilAValidAddressIsCommitted() async {
+    let model = await loadedModel(PrinterConfig(enabled: true))
+    #expect(!model.manualMode)
+    model.chooseManual()
+    #expect(model.manualMode && model.config.draft.isAuto && !model.config.hasUnsavedChanges)
+    model.addressText = "192.168.1.50"
+    model.commitAddress()
+    #expect(model.addressInvalid && model.config.draft.isAuto)
+    model.addressText = "http://192.168.1.50"
+    model.commitAddress()
+    #expect(!model.addressInvalid && model.config.draft.url == "http://192.168.1.50")
+}
+
+@MainActor
+@Test func aManualServerAddressOpensInManualMode() async {
+    let model = await loadedModel(PrinterConfig(enabled: true, url: "http://10.0.0.5"))
+    #expect(model.manualMode && model.addressText == "http://10.0.0.5")
+    model.chooseAuto()
+    #expect(!model.manualMode && model.config.draft.isAuto)
+}
+
+@MainActor
+@Test func aSaveRefreshesTheState() async {
+    actor Calls { var n = 0; func bump() { n += 1 } }
+    let calls = Calls()
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(), load: { PrinterConfig() }, save: { _ in }),
+        state: { await calls.bump(); return PrinterState(enabled: true, phase: "idle") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.saved()
+    #expect(await calls.n == 1 && model.status == .connected(firmware: ""))
+}
+
+@MainActor
+@Test func aFailedFetchLeavesAnUnavailableLine() async {
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(), load: { PrinterConfig() }, save: { _ in }),
+        state: { throw APIError.http(status: 404, body: "") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.refreshState()
+    #expect(model.status == .unavailable(featureOff: true))
 }
