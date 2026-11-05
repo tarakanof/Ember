@@ -2295,6 +2295,7 @@
     "Show on Clock" : {},
     "Show on the clock" : {},
     "Show on the knob" : {},
+    "Show print progress on the bot" : {},
     "Show seconds" : {},
     "Show the host's name" : {},
     "Show the printer" : {},
@@ -3035,6 +3036,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "While the server's printer is on, the bot fills in Prusa orange as a print runs, hops when it's done and shows “!” when the printer needs you. An agent that's waiting or in error hides it." : {},
     "Why the knob last started, as ESP-IDF reports it." : {},
     "Wi-Fi" : {},
     "Wi-Fi passwords are 8 to 63 characters." : {},
@@ -3262,6 +3264,18 @@
     "on target on average" : {},
     "pending" : {},
     "poor" : {},
+    "print done" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "printer needs you" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "printing %lld %%" : {
+      "comment" : "VoiceOver: appended to the menu-bar state while the bot shows a print; its progress in whole percent.",
+      "extractionState" : "manual"
+    },
     "rate-limited" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"

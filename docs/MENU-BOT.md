@@ -16,10 +16,11 @@ per-tool glyphs, "Menu-bar colour" switches between Colored and Monochrome, and
 |---|---|
 | `macos/Sources/EmberKit/Bot/BotBehavior.swift` | The animation state machine. Pure and deterministic for a seed, so it is unit-tested. Produces a `BotPose` per frame. |
 | `macos/Sources/EmberKit/Bot/BotRenderer.swift` | CoreGraphics drawing of a `BotPose`, with a `BotStyle` for the menu bar and one for the Dock. |
+| `macos/Sources/EmberKit/Bot/BotPrint.swift` | `BotPrint` (none, printing, attention, done) and `BotPrintTracker`, the pure rule that turns the printer's state, the winning agent and the setting into one `BotPrint`, and plays `done` once per event id. |
 | `macos/Ember/MenuBar/BotAnimator.swift` | The one frame loop. Owns the behavior, sets each frame on the `NSStatusBarButton` directly, drives the `NSDockTile` view, crossfades the menu-bar colour. Not `@Observable`: see Performance. |
 | `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the tool glyph, or the bot's current frame when its `MenuRows.LabelState` changes (the animator takes over from the next frame). Tells VoiceOver the state in words (label "Ember", value from `MenuRows.accessibilityValue`), since the icon only shows it through colour and eyes. |
 | `macos/Ember/MenuBar/StatusItemAccessibility.swift` | Puts that value on the `NSStatusBarButton` by hand: `MenuBarExtra` forwards the label (as AXTitle) but drops `accessibilityValue`. `StatusItemButton.find()` locates the button for this and for the animator. |
-| `macos/Ember/AppEnvironment.swift` | `feedBot()` pushes the winning session's state into the animator. `feedMenuBarLabel()` keeps `menuBarLabel` (a `MenuRows.LabelState`) current and sets it only when it changes, so the label skips polls that only move a timestamp or activity text. `applyAppIcon` switches the Dock tile. |
+| `macos/Ember/AppEnvironment.swift` | `feedBot()` pushes the winning session's state into the animator. `feedBotPrint()` runs the `BotPrintTracker` on `live.printer`, the winning state and the setting, stores the played done id (`bot.printDonePlayed`) and wakes itself when a done ends; `feedPrintHold()` holds the `.print` feed only while the setting is on and the bot shows in the menu bar or Dock. `feedMenuBarLabel()` keeps `menuBarLabel` (a `MenuRows.LabelState`) current and sets it only when it changes, so the label skips polls that only move a timestamp or activity text. `applyAppIcon` switches the Dock tile. |
 | `macos/Tests/EmberKitTests/BotBehaviorTests.swift` | Behavior and renderer tests. |
 | `macos/Sources/EmberKit/KnobFace/` | The knob's bot (and its other pages) for Settings' previews: the same `BotBehavior` with `Tuning` from `knob-theme.json` (1 s hop at 75 % squash, every 2.8 s median: the knob's waiting phase A from cinder 0.9.73; its later phases, double hops, peeks and nudges are not drawn) and cinder 0.9.77's blink and error (a mood change's blink hides the eyes whole before the shape swaps, and reblinks if it opened first; error splits its gaze 45/25/30 between the viewer, down and the sides, shakes the eyes 0.3 s after the swap, then huffs every 25 s median), drawn in the knob's Head style: a plain 9 px outline whose squash variant is picked by sy/sx, so the pop pulses only the eyes; the lid is a clip line from the top (the eye droops and widens instead of shrinking), and tilt and rise mirror with the gaze side. The menu-bar and Dock bot share `BotBehavior` but not these: `Tuning.mac` leaves `blinkHide` and `errorFX` nil, and `BotRenderer` keeps its shrinking lids and one-way tilt. See ARCHITECTURE "Knob page previews". |
 
@@ -40,6 +41,40 @@ the bot drifts into it after 5 minutes of `idle`.
 Colours come from `stateColorRGB`, the same palette the tool glyphs use. With
 "Monochrome" every mood renders as a template image, so mood only shows through
 shape and eyes.
+
+## Print
+
+While the server's printer is enabled (#789) and Settings → App → "Show print
+progress on the bot" is on (default), the bot shows a print in Prusa orange
+#FA6831, the colour the knob uses for printer moments. Design: Obsidian
+`Personal/Ember/Specs/2026-11-05-print-status-design.md`, M1.
+
+| Printer | Bot |
+|---|---|
+| heating, preparing, printing, finishing, paused | a flat orange level inside the ball, under the eyes, at the whole percent |
+| attention | the same level plus a static orange "!" badge top right |
+| event `finished` | the ball fills, happy eyes, one hop and a sparkle, for 60 s |
+| anything else | nothing |
+
+- The agents keep the eyes and the outline: the fill is inset by 12 % of the
+  radius, so the mood colour stays as a rim. An agent in `waiting` or
+  `error` hides the fill, the badge and a done (a done that arrives then is
+  played once the agent stops, inside the event's 30 min).
+- Done plays once per event id. The id is stored in `UserDefaults`
+  (`bot.printDonePlayed`), so a restart within the event's 30 min doesn't
+  replay it. A done wakes a sleepy bot and swaps its eyes behind a blink,
+  like a mood change; the mood itself doesn't change.
+- Reduce motion: no hop and no sparkle; the fill, the badge and the happy
+  eyes still show.
+- Monochrome: the fill is a 35 % template shade (it replaces the body's
+  alpha), the badge a template disc with the "!" cut out. Colored with an
+  idle or sleepy agent (normally a template image) draws a coloured image
+  in the menu bar's foreground colour instead, since orange can't be a
+  template; `AppleInterfaceThemeChangedNotification` redraws it.
+- The Dock bot shows the same pose at its own scale; the print badge takes
+  the place of a mood badge.
+- VoiceOver: the menu-bar value gets ", printing 42 %", ", print done" or
+  ", printer needs you".
 
 ## How it moves
 
@@ -177,6 +212,18 @@ The loop only runs while something moves. It renders at 24 fps during blinks,
 glances and hops, 60 fps only during the 0.7 s mood morph, and otherwise sleeps
 until the next scheduled event (at most 10 s). It stops completely when neither
 the menu bar nor a visible Dock tile shows the bot.
+
+A print adds no running animation. The level is flat and quantised to whole
+pixels of each target: `BotPose.quantized(toPixels:)` rounds `fill` to
+`1 / (2 × radius)`, and `BotRenderer` draws the level at exactly that
+rounding of its own pixel radius (from the context's device transform), so
+the menu bar gets one push per pixel, about every 3 % (33 over a whole
+print), and the Dock one per Dock pixel while it is visible. The done
+moment's hop and sparkle run at 24 fps for about 1.2 s. The `.print` feed
+long-polls `/v1/print/state`, whose ETag ignores temperatures, so a running
+print wakes the app about once per percent; `MenuRows.LabelState` changes
+with the VoiceOver percent, which re-renders the label (one extra frame)
+at the same rate.
 
 Many consecutive poses differ by less than a pixel, so the loop compares
 `BotPose.quantized(toPixels:)` for each target (the 16 px menu-bar radius, the

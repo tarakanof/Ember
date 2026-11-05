@@ -41,6 +41,15 @@ final class BotAnimator {
                 bot.restart()
             }
         }
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(500))
+                let bot = BotAnimator.shared
+                if bot.pose.showsPrint { bot.restart() }
+            }
+        }
         restart()
     }
 
@@ -62,6 +71,13 @@ final class BotAnimator {
         let fg = Self.menuBarForeground()
         let a = tintFrom ?? fg, b = tintTo ?? fg
         return a.blended(withFraction: max(k, 0), of: b) ?? b
+    }
+
+    func setPrint(_ print: BotPrint) {
+        let before = behavior.print
+        behavior.setPrint(print, at: Self.now)
+        guard !behavior.print.looksLike(before, radius: Self.menuBarRadius) else { return }
+        restart()
     }
 
     func showInMenuBar(_ on: Bool, colored: Bool) {
@@ -152,12 +168,14 @@ final class BotAnimator {
     }
 
     private func drawLiveFrame() {
-        let tint = menuBarColored ? tint(at: Self.now) : nil
+        var tint = menuBarColored ? tint(at: Self.now) : nil
+        if menuBarColored && tint == nil && pose.showsPrint { tint = Self.menuBarForeground() }
         liveImage.isTemplate = tint == nil
         guard let ctx = liveContext else { return }
         let rect = CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height)
         ctx.clear(rect)
-        BotRenderer.draw(pose, in: ctx, rect: rect, style: .menuBar(tint: tint?.cgColor ?? NSColor.black.cgColor))
+        BotRenderer.draw(pose, in: ctx, rect: rect,
+                         style: .menuBar(tint: tint?.cgColor ?? NSColor.black.cgColor, template: tint == nil))
         guard let cg = ctx.makeImage() else { return }
         let rep = NSBitmapImageRep(cgImage: cg)
         rep.size = liveImage.size

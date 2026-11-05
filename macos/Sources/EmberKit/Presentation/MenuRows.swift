@@ -44,6 +44,17 @@ public enum MenuRows {
         }
     }
 
+    public static func printAccessibility(_ print: BotPrint) -> LocalizedStringResource? {
+        switch print {
+        case .none: nil
+        case .printing(let percent):
+            LocalizedStringResource("printing \(percent) %",
+                                    comment: "VoiceOver: appended to the menu-bar state while the bot shows a print; its progress in whole percent.")
+        case .attention: "printer needs you"
+        case .done: "print done"
+        }
+    }
+
     public struct LabelState: Equatable, Sendable {
         public let state: String
         public let glyph: String
@@ -52,12 +63,17 @@ public enum MenuRows {
         public let accessibilityValue: String
     }
 
-    public static func label(connection: ConnectionHealth, winning: Session?, prefs: MenuPrefs) -> LabelState {
-        LabelState(state: winning?.state ?? "idle",
-                   glyph: glyphForTool(winning?.tool ?? "", prefs),
-                   trayStyle: prefs.trayStyle,
-                   trayTint: prefs.trayTint,
-                   accessibilityValue: String(localized: accessibilityValue(connection: connection, winning: winning)))
+    public static func label(connection: ConnectionHealth, winning: Session?, prefs: MenuPrefs,
+                             print: BotPrint = .none) -> LabelState {
+        var value = String(localized: accessibilityValue(connection: connection, winning: winning))
+        if prefs.trayStyle == "bot", let suffix = printAccessibility(print) {
+            value += ", " + String(localized: suffix)
+        }
+        return LabelState(state: winning?.state ?? "idle",
+                          glyph: glyphForTool(winning?.tool ?? "", prefs),
+                          trayStyle: prefs.trayStyle,
+                          trayTint: prefs.trayTint,
+                          accessibilityValue: value)
     }
 
     public struct SessionRow: Identifiable, Sendable {
