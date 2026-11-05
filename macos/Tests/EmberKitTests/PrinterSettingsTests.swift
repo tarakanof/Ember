@@ -530,3 +530,16 @@ private func status(config: PrinterConfig, _ state: PrinterState) async -> Print
     #expect(await status(config: manual, PrinterState(enabled: true, phase: "idle", printer: target, updatedAt: nil)) == .unknown)
     #expect(await status(config: manual, PrinterState(enabled: true, phase: "idle", printer: target)) == .connected(firmware: "6.3.0"))
 }
+
+@MainActor
+@Test func aCommittedAddressIsSentToTheServer() async {
+    let log = SaveLog()
+    let model = await loadedModel(PrinterConfig(enabled: true), saves: log)
+    model.chooseManual()
+    model.addressText = "http://192.168.1.50"
+    model.commitAddress()
+    #expect(model.config.hasPendingSave)
+    await model.config.saveNow()
+    let saved = await log.saved
+    #expect(saved.map(\.url) == ["http://192.168.1.50"])
+}
