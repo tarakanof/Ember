@@ -9,6 +9,8 @@ import (
 	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -176,7 +178,7 @@ func TestKnobViewPrintGolden(t *testing.T) {
 	p := newPrintFixture(t)
 	knobPrintOn(t, p.viewFixture)
 	postCapsCheckin(t, p.viewFixture, "0.10.0", knobCapsPrint)
-	p.printing(t, pngBytes(t, 32, color.RGBA{0xFA, 0x68, 0x31, 255}))
+	p.printing(t, fixturePNG(t))
 	assertDeviceGolden(t, "view_print", goldenView(t, p.viewFixture))
 }
 
@@ -184,7 +186,7 @@ func TestKnobViewPrintAttentionGolden(t *testing.T) {
 	p := newPrintFixture(t)
 	knobPrintOn(t, p.viewFixture)
 	postCapsCheckin(t, p.viewFixture, "0.10.0", knobCapsPrint)
-	p.printing(t, pngBytes(t, 32, color.RGBA{0xFA, 0x68, 0x31, 255}))
+	p.printing(t, fixturePNG(t))
 	p.fp.setStatus("ATTENTION", &fakeJob{id: 412, progress: 24.9, remaining: 6480, printing: 1560, change: 0}, 240, 240, 85, 85)
 	p.step(t, time.Minute)
 	body := goldenView(t, p.viewFixture)
@@ -590,4 +592,13 @@ func absDiff(a, b uint32) uint32 {
 		return a - b
 	}
 	return b - a
+}
+
+func fixturePNG(t *testing.T) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "print", "thumb_orange.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
