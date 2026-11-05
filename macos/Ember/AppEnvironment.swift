@@ -38,6 +38,13 @@ public final class AppEnvironment {
     }
 
     public private(set) var menuBarLabel = MenuRows.label(connection: .connecting, winning: nil, prefs: .default)
+    public private(set) var botPrint: BotPrint = .none
+    @ObservationIgnored private let printDoneStore = BotPrintDoneStore(defaults: AppEnvironment.prefsDefaults)
+    @ObservationIgnored private var printTracker = BotPrintTracker(
+        playedDoneID: BotPrintDoneStore(defaults: AppEnvironment.prefsDefaults).load())
+    @ObservationIgnored private var printDoneTimer: Task<Void, Never>?
+    @ObservationIgnored private var printHold: Task<Void, Never>?
+    private var appIsRegular = false
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "app")
 
@@ -52,7 +59,8 @@ public final class AppEnvironment {
             trayCodexGlyph: d.string(forKey: "trayCodexGlyph") ?? MenuPrefs.default.trayCodexGlyph,
             trayIdleGlyph: d.string(forKey: "trayIdleGlyph") ?? MenuPrefs.default.trayIdleGlyph,
             trayStyle: d.string(forKey: "trayStyle") ?? MenuPrefs.default.trayStyle,
-            trayTint: d.string(forKey: "trayTint") ?? MenuPrefs.default.trayTint
+            trayTint: d.string(forKey: "trayTint") ?? MenuPrefs.default.trayTint,
+            botPrint: d.object(forKey: "botPrint") as? Bool ?? MenuPrefs.default.botPrint
         ).validated()
     }
 
@@ -64,6 +72,7 @@ public final class AppEnvironment {
         d.set(p.trayIdleGlyph, forKey: "trayIdleGlyph")
         d.set(p.trayStyle, forKey: "trayStyle")
         d.set(p.trayTint, forKey: "trayTint")
+        d.set(p.botPrint, forKey: "botPrint")
     }
 
     private func feedBot() {
@@ -77,11 +86,59 @@ public final class AppEnvironment {
 
     private func feedMenuBarLabel() {
         let label = withObservationTracking {
-            MenuRows.label(connection: live.connection, winning: live.winningSession, prefs: prefs)
+            MenuRows.label(connection: live.connection, winning: live.winningSession, prefs: prefs, print: botPrint)
         } onChange: { [weak self] in
             Task { @MainActor in self?.feedMenuBarLabel() }
         }
         if label != menuBarLabel { menuBarLabel = label }
+    }
+
+    private func botPrintInputs() -> (state: PrinterState?, agent: String, on: Bool) {
+        (live.connection.isOnline ? live.printer.value : nil, live.winningSession?.state ?? "idle",
+         prefs.showsBotPrint(dockVisible: appIsRegular))
+    }
+
+    private func feedBotPrint() {
+        withObservationTracking {
+            _ = botPrintInputs()
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedBotPrint() }
+        }
+        updateBotPrint()
+    }
+
+    private func updateBotPrint() {
+        let inputs = botPrintInputs()
+        let played = printTracker.playedDoneID
+        let next = printTracker.update(state: inputs.state, agentState: inputs.agent, enabled: inputs.on, now: Date())
+        if let id = printTracker.playedDoneID, id != played {
+            printDoneStore.save(id)
+        }
+        if next != botPrint { botPrint = next }
+        BotAnimator.shared.setPrint(next)
+        printDoneTimer?.cancel()
+        printDoneTimer = nil
+        if let end = printTracker.doneEndsAt {
+            printDoneTimer = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(max(end.timeIntervalSinceNow, 0) + 0.05))
+                guard !Task.isCancelled else { return }
+                self?.updateBotPrint()
+            }
+        }
+    }
+
+    private func feedPrintHold() {
+        let wanted = withObservationTracking {
+            prefs.showsBotPrint(dockVisible: appIsRegular)
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedPrintHold() }
+        }
+        if wanted, printHold == nil {
+            printHold = Task { [live] in await live.track(.print) }
+        } else if !wanted, let hold = printHold {
+            hold.cancel()
+            printHold = nil
+        }
     }
 
     private func feedClockRecord() {
@@ -162,6 +219,10 @@ public final class AppEnvironment {
         AppEnvironment.applyAppIcon(prefs.appIcon)
         BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
         feedBot()
+        appIsRegular = BotAnimator.shared.isDockVisible
+        BotAnimator.shared.onDockVisibilityChange = { [weak self] visible in self?.appIsRegular = visible }
+        feedPrintHold()
+        feedBotPrint()
         feedMenuBarLabel()
         feedClockRecord()
         reconcileProducers()

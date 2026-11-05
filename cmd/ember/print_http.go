@@ -106,7 +106,7 @@ func printState(s printer.Snapshot) printStateDTO {
 }
 
 func (a *App) handlePrintState(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, printState(a.printer.State.At(time.Now())))
+	a.serveStateFeed(w, r, printFeedRoute, a.printStateReply)
 }
 
 func (a *App) handlePrintConfigGet(w http.ResponseWriter, r *http.Request) {

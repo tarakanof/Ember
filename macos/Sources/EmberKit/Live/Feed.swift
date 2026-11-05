@@ -5,6 +5,7 @@ public enum Feed: Hashable, CaseIterable, Sendable {
     case stats, usage, meetings, apps
     case screen, clockHealth, weather, activity, heatmap
     case dayState, dayHistory, dayWeeks
+    case print
     case pomodoroCountdown
 
     public enum Tier: Sendable, Equatable {
@@ -15,7 +16,7 @@ public enum Feed: Hashable, CaseIterable, Sendable {
         switch self {
         case .state, .pomodoroState: .a
         case .stats, .usage, .meetings, .apps: .b
-        case .screen, .clockHealth, .weather, .activity, .heatmap, .dayState, .dayHistory, .dayWeeks, .pomodoroCountdown: .c
+        case .screen, .clockHealth, .weather, .activity, .heatmap, .dayState, .dayHistory, .dayWeeks, .print, .pomodoroCountdown: .c
         }
     }
 
@@ -30,7 +31,7 @@ public enum Feed: Hashable, CaseIterable, Sendable {
     public var heldCadence: Duration {
         switch self {
         case .state, .pomodoroState, .pomodoroCountdown: .seconds(3)
-        case .stats, .usage: .seconds(30)
+        case .stats, .usage, .print: .seconds(30)
         case .meetings, .apps: .seconds(60)
         case .screen: .seconds(1)
         case .clockHealth, .dayState: .seconds(15)

@@ -2513,10 +2513,39 @@ paths:
         `printer.done_hold_min`) or `stopped` (10 min) card is held.
         `last_error`: `no_password`, `wrong_password`, `unreachable`,
         `not_found`. The password never appears here.
+
+        The weak `ETag` moves only on `enabled`, `phase`, whole-percent
+        `progress`, `last_error`, the newest `event` id, `job_id` and the
+        `printer` block; temperatures, the anchored times and `updated_at`
+        don't move it, so a `wait` long-poll (the menu-bar bot's `.print`
+        feed, #793) sleeps through a 5 s poll that only changed a
+        temperature. A 304 therefore may carry stale temperatures: read
+        without `If-None-Match` to see them. `X-Ember-View-Wait` advertises
+        the longest `wait`.
       security: [{ownerToken: []}, {clientToken: [read]}]
+      parameters:
+        - name: wait
+          in: query
+          description: >-
+            Whole seconds to hold a request whose `If-None-Match` still
+            matches; a value above 25 is clamped to 25. Anything else is a 400.
+          schema:
+            type: integer
+            minimum: 0
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
       responses:
         "200":
           description: The print state.
+          headers:
+            ETag:
+              schema:
+                type: string
+            X-Ember-View-Wait:
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -2565,6 +2594,16 @@ paths:
                   externalValue: ../cmd/ember/testdata/print/state_printing.json
                 wrong_password:
                   externalValue: ../cmd/ember/testdata/print/state_wrong_password.json
+        "304":
+          description: Unchanged, at once or when the wait ended. Carries the same tag.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          description: Too many waiting requests from this client; `Retry-After` is 2.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

@@ -22,6 +22,7 @@ public final class LiveModel {
     public private(set) var dayHistory: Loadable<DayHistory> = .loading
     public private(set) var dayWeeks: Loadable<DayWeeks> = .loading
     public private(set) var heatmap: Loadable<Heatmap> = .loading
+    public private(set) var printer: Loadable<PrinterState> = .loading
     public private(set) var serverVersion: String?
     private var versionSaysClockDisabled = false
     private var versionReadSeq: Int?
@@ -213,6 +214,7 @@ public final class LiveModel {
         dayHistory = .loading
         dayWeeks = .loading
         heatmap = .loading
+        printer = .loading
         reportedPower = nil
         serverVersion = nil
         versionSaysClockDisabled = false
@@ -247,6 +249,7 @@ public final class LiveModel {
         case .dayHistory: return await load(feed, \.dayHistory) { try await c.get("/v1/day/history", query: Self.days(DayStrip.defaultCount)) }
         case .dayWeeks: return await load(feed, \.dayWeeks) { try await c.get("/v1/day/weeks", query: Self.weeks(8)) }
         case .heatmap: return await load(feed, \.heatmap) { try await c.get("/v1/pomodoro/heatmap", query: Self.days(84)) }
+        case .print: return await fetchPrint(c, mayWait: mayWait)
         }
     }
 
@@ -429,6 +432,19 @@ public final class LiveModel {
         } catch {
             let e = FeedError(error)
             if isCurrent(.pomodoroState, ticket) { applyFailure(.pomodoroState, \.pomodoro, e) }
+            return .failed(e, retryAfter: (error as? APIError)?.retryAfter)
+        }
+    }
+
+    private func fetchPrint(_ c: APIClient, mayWait: Bool) async -> FeedTick {
+        let ticket = issue(.print)
+        do {
+            let reply: ConditionalReply<PrinterState> = try await conditional(c, .print, "/v1/print/state", mayWait: mayWait)
+            guard isCurrent(.print, ticket) else { return .ok }
+            return applyReply(.print, \.printer, reply)
+        } catch {
+            let e = FeedError(error)
+            if isCurrent(.print, ticket) { applyFailure(.print, \.printer, e) }
             return .failed(e, retryAfter: (error as? APIError)?.retryAfter)
         }
     }
