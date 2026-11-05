@@ -29,6 +29,7 @@ struct GeneralPane: View {
                 }
                 .pickerStyle(.segmented)
                 Toggle("Show print progress on the bot", isOn: $env.prefs.botPrint)
+                    .disabled(!env.prefs.mayShowBotPrint)
             } header: {
                 Text("Menu Bar")
             } footer: {

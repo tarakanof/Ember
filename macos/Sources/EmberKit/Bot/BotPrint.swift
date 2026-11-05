@@ -51,11 +51,12 @@ public struct BotPrintTracker: Sendable {
             playedDoneID = e.id
             doneEndsAt = now.addingTimeInterval(Self.doneLength)
         }
+        let active = Self.fillPhases.contains(state.phase)
         if let end = doneEndsAt {
-            if now < end { return .done }
+            if now < end && !active { return .done }
             doneEndsAt = nil
         }
-        guard Self.fillPhases.contains(state.phase) else { return .none }
+        guard active else { return .none }
         let percent = min(max(state.progress ?? 0, 0), 100)
         return state.phase == "attention" ? .attention(percent: percent) : .printing(percent: percent)
     }

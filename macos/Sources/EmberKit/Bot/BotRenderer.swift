@@ -134,12 +134,12 @@ public enum BotRenderer {
     static let sparkleAt = CGPoint(x: -0.8, y: 0.84)
 
     static func fillLevel(_ fill: Double, pixelRadius: Double) -> Double {
-        -1 + BotPose.fillPixels(fill, radius: pixelRadius) / max(pixelRadius, 1)
+        -(1 - printRim) + BotPose.fillPixels(fill, radius: pixelRadius) / max(pixelRadius, 1)
     }
 
     static func drawFill(_ pose: BotPose, body: CGPath, pixelRadius: Double, style: BotStyle, in ctx: CGContext) {
         let level = fillLevel(pose.fill, pixelRadius: pixelRadius)
-        guard level > -1 else { return }
+        guard level > -(1 - printRim) else { return }
         var inset = CGAffineTransform(scaleX: 1 - printRim, y: 1 - printRim)
         guard let inner = body.copy(using: &inset) else { return }
         ctx.saveGState()

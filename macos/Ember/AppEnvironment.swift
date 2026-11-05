@@ -42,6 +42,7 @@ public final class AppEnvironment {
     @ObservationIgnored private var printTracker = BotPrintTracker(playedDoneID: AppEnvironment.loadPlayedDoneID())
     @ObservationIgnored private var printDoneTimer: Task<Void, Never>?
     @ObservationIgnored private var printHold: Task<Void, Never>?
+    private var appIsRegular = false
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "app")
 
@@ -96,7 +97,8 @@ public final class AppEnvironment {
     }
 
     private func botPrintInputs() -> (state: PrinterState?, agent: String, on: Bool) {
-        (live.connection.isOnline ? live.printer.value : nil, live.winningSession?.state ?? "idle", prefs.showsBotPrint)
+        (live.connection.isOnline ? live.printer.value : nil, live.winningSession?.state ?? "idle",
+         prefs.showsBotPrint(dockVisible: appIsRegular))
     }
 
     private func feedBotPrint() {
@@ -130,7 +132,7 @@ public final class AppEnvironment {
 
     private func feedPrintHold() {
         let wanted = withObservationTracking {
-            prefs.showsBotPrint
+            prefs.showsBotPrint(dockVisible: appIsRegular)
         } onChange: { [weak self] in
             Task { @MainActor in self?.feedPrintHold() }
         }
@@ -220,6 +222,8 @@ public final class AppEnvironment {
         AppEnvironment.applyAppIcon(prefs.appIcon)
         BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
         feedBot()
+        appIsRegular = BotAnimator.shared.isDockVisible
+        BotAnimator.shared.onDockVisibilityChange = { [weak self] visible in self?.appIsRegular = visible }
         feedPrintHold()
         feedBotPrint()
         feedMenuBarLabel()

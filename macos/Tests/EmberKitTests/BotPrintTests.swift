@@ -88,10 +88,11 @@ private func frames(_ b: inout BotBehavior, from: Double, seconds: Double) -> [B
         var p = BotPose()
         p.fill = BotPrint.printing(percent: percent).fill
         let key = p.quantized(toPixels: r)
-        #expect(abs(key.fill * 2 * r - (key.fill * 2 * r).rounded()) < 1e-9)
+        let span = 2 * r * (1 - BotRenderer.printRim)
+        #expect(abs(key.fill * span - (key.fill * span).rounded()) < 1e-9)
         if keys.last != key { keys.append(key) }
     }
-    #expect(keys.count == 33, "pushes over a whole print: \(keys.count)")
+    #expect(keys.count == 29, "pushes over a whole print: \(keys.count)")
     var a = BotPose(), b = BotPose()
     a.fill = 0.41; b.fill = 0.42
     #expect(a.quantized(toPixels: r) == b.quantized(toPixels: r))
@@ -227,4 +228,41 @@ private func isOrange(_ p: (r: UInt8, g: UInt8, b: UInt8, a: UInt8)) -> Bool {
     #expect(!BotPrint.printing(percent: 100).looksLike(.done, radius: r))
     #expect(!BotPrint.none.looksLike(.printing(percent: 0), radius: r))
     #expect(BotPrint.done.looksLike(.done, radius: r))
+}
+
+@Test func attentionOrANewPrintEndsDoneEarly() {
+    for next in [printer("attention", 100, event: finished(7)), printer("heating", 0, event: finished(7))] {
+        var t = BotPrintTracker()
+        #expect(t.update(state: printer("finished", 100, event: finished(7)), agentState: "idle", enabled: true, now: t0) == .done)
+        let shown = t.update(state: next, agentState: "idle", enabled: true, now: t0.addingTimeInterval(10))
+        #expect(shown == (next.phase == "attention" ? .attention(percent: 100) : .printing(percent: 0)))
+        #expect(t.doneEndsAt == nil)
+        #expect(t.update(state: printer("finished", 100, event: finished(7)), agentState: "idle", enabled: true, now: t0.addingTimeInterval(20)) == BotPrint.none)
+    }
+}
+
+@Test func theLevelSpansTheWholeInnerBall() {
+    let style = BotStyle.menuBar(tint: CGColor(gray: 1, alpha: 1))
+    func orangeRows(_ percent: Int) -> Int {
+        var pose = BotPose()
+        pose.fill = BotPrint.printing(percent: percent).fill
+        let px = render(pose, style: style)
+        return (0..<44).filter { y in (14...30).contains { x in isOrange(px(x, y)) } }.count
+    }
+    #expect(orangeRows(0) == 0)
+    #expect(orangeRows(4) > 0, "4 % already shows a level")
+    #expect(orangeRows(95) < orangeRows(100))
+}
+
+@Test func doneOnAnIdleBotIsNoMoodMorphAndDelaysSleep() {
+    var b = BotBehavior(seed: 10, now: 0)
+    _ = frames(&b, from: 0, seconds: 200)
+    b.setPrint(.done, at: 200)
+    _ = b.pose(at: 200.05)
+    #expect(!b.isTransitioning)
+    b.setPrint(.none, at: 260)
+    _ = frames(&b, from: 260, seconds: 200)
+    #expect(b.mood == .idle, "sleep counts from the done")
+    _ = frames(&b, from: 460, seconds: 50)
+    #expect(b.mood == .sleepy)
 }

@@ -57,14 +57,16 @@ public struct BotPose: Equatable, Sendable {
         p.triangle = q(triangle, step); p.slump = q(slump, step); p.badge = q(badge, step)
         p.scaleX = q(scaleX, step / 2); p.scaleY = q(scaleY, step / 2)
         p.offsetX = q(offsetX, step); p.offsetY = q(offsetY, step)
-        p.fill = Self.fillPixels(fill, radius: radius) / (2 * max(radius, 1))
+        p.fill = Self.fillPixels(fill, radius: radius) / Self.fillSpan(radius: radius)
         p.sparkle = q(sparkle, step)
         return p
     }
 
     public static func fillPixels(_ fill: Double, radius: Double) -> Double {
-        (min(max(fill, 0), 1) * 2 * max(radius, 1)).rounded()
+        (min(max(fill, 0), 1) * fillSpan(radius: radius)).rounded()
     }
+
+    static func fillSpan(radius: Double) -> Double { 2 * max(radius, 1) * (1 - BotRenderer.printRim) }
 }
 
 public struct BotBehavior: Sendable {
@@ -156,6 +158,7 @@ public struct BotBehavior: Sendable {
     private var nextHopAt = Double.infinity
     private var shakeAt = -Double.infinity, huffAt = -Double.infinity, nextHuffAt = Double.infinity
     private var sparkleStart: Double?
+    private var awakeSince = -Double.infinity
     private var lastPoseAt = -Double.infinity
 
     private let tuning: Tuning
@@ -184,7 +187,7 @@ public struct BotBehavior: Sendable {
         if isDone && mood == .sleepy {
             enter(.idle, at: t)
         } else {
-            if isDone && mood == .idle { moodSince = t }
+            if isDone { awakeSince = t }
             swapEyesOnClose = true
             if blinkStart == nil { startBlink(at: t); blinkSpeed = max(blinkSpeed, 1.6) }
             else { doubleBlinkPending = true }
@@ -201,7 +204,7 @@ public struct BotBehavior: Sendable {
 
     /// `t` is monotonic seconds.
     public mutating func pose(at t: Double) -> BotPose {
-        if mood == .idle && print != .done && t - moodSince >= tuning.sleepAfter { enter(.sleepy, at: t) }
+        if mood == .idle && print != .done && t - max(moodSince, awakeSince) >= tuning.sleepAfter { enter(.sleepy, at: t) }
         if blinkStart == nil && t >= nextBlinkAt { startBlink(at: t) }
         if t >= nextSaccadeAt { startSaccade(at: t) }
         if t >= nextHopAt {
@@ -321,7 +324,7 @@ public struct BotBehavior: Sendable {
         if tuning.errorFX != nil { next = min(next, nextHuffAt) }
         if shakeAt > t { next = min(next, shakeAt) }
         if let s = sparkleStart, s > t { next = min(next, s) }
-        if mood == .idle && print != .done { next = min(next, moodSince + tuning.sleepAfter) }
+        if mood == .idle && print != .done { next = min(next, max(moodSince, awakeSince) + tuning.sleepAfter) }
         nextEventAt = next
         return p
     }

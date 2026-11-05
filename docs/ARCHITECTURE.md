@@ -2871,8 +2871,9 @@ keeps it on the default transport: mDNS browsing is injected
   a weak `ETag` and the `?wait=` long-poll. The tag moves on `enabled`,
   phase, whole percent, `last_error`, the newest event id, job id and the
   printer block, never on temperatures, anchored times or `updated_at`, so
-  Ember.app's `.print` feed (`LiveModel.printer`, held only while the bot
-  shows prints) parks through the 5 s polls of a running print and wakes
+  Ember.app's `.print` feed (`LiveModel.printer`, held while "Show print
+  progress on the bot" is on and the bot is in the menu bar or a visible
+  Dock tile, whether or not the server's printer is enabled) parks through the 5 s polls of a running print and wakes
   about once per percent. A 304 can carry stale temperatures; the Printer
   settings pane reads without `If-None-Match`.
 - **Config** `printer.{enabled,url,name,clock_app,notify_done,notify_attention,done_hold_min}`

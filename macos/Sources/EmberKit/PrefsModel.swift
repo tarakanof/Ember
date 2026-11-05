@@ -55,7 +55,11 @@ public struct MenuPrefs: Equatable, Sendable {
         self.trayStyle = trayStyle; self.trayTint = trayTint; self.botPrint = botPrint
     }
 
-    public var showsBotPrint: Bool { botPrint && (trayStyle == "bot" || appIcon == "bot") }
+    public var mayShowBotPrint: Bool { trayStyle == "bot" || appIcon == "bot" }
+
+    public func showsBotPrint(dockVisible: Bool) -> Bool {
+        botPrint && (trayStyle == "bot" || (appIcon == "bot" && dockVisible))
+    }
 
     public static let `default` = MenuPrefs(
         appIcon: "bot", trayClaudeGlyph: "claude",

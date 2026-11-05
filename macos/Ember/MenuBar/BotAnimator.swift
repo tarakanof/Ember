@@ -17,6 +17,7 @@ final class BotAnimator {
     private weak var statusButton: NSStatusBarButton?
     private let liveImage = NSImage(size: NSSize(width: 22, height: 22))
     private var buttonTemplate: Bool?
+    private var drawnForeground: NSColor?
     private let liveContext = CGContext(data: nil, width: 44, height: 44, bitsPerComponent: 8, bytesPerRow: 0,
                                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
@@ -41,15 +42,6 @@ final class BotAnimator {
                 bot.restart()
             }
         }
-        DistributedNotificationCenter.default().addObserver(
-            forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
-        ) { _ in
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(500))
-                let bot = BotAnimator.shared
-                if bot.pose.showsPrint { bot.restart() }
-            }
-        }
         restart()
     }
 
@@ -68,7 +60,7 @@ final class BotAnimator {
     private func tint(at t: Double) -> NSColor? {
         let k = (t - tintStart) / Self.tintFade
         guard k < 1 else { return tintTo }
-        let fg = Self.menuBarForeground()
+        let fg = menuBarForeground()
         let a = tintFrom ?? fg, b = tintTo ?? fg
         return a.blended(withFraction: max(k, 0), of: b) ?? b
     }
@@ -102,8 +94,15 @@ final class BotAnimator {
         restart()
     }
 
+    var onDockVisibilityChange: ((Bool) -> Void)?
+
+    var isDockVisible: Bool { isRegular }
+
     func activationPolicyDidChange(_ policy: NSApplication.ActivationPolicy) {
-        isRegular = policy == .regular
+        let regular = policy == .regular
+        guard regular != isRegular else { return }
+        isRegular = regular
+        onDockVisibilityChange?(regular)
     }
 
     private var dockVisible: Bool { dockEnabled && isRegular }
@@ -137,6 +136,7 @@ final class BotAnimator {
                 dockShown = dockKey
                 renderDock()
             }
+            if let drawn = drawnForeground, menuBarForeground() != drawn { menuBarStale = true }
             if menuBarEnabled && (menuBarStale || fading) {
                 menuBarStale = !pushMenuBar()
             }
@@ -169,7 +169,12 @@ final class BotAnimator {
 
     private func drawLiveFrame() {
         var tint = menuBarColored ? tint(at: Self.now) : nil
-        if menuBarColored && tint == nil && pose.showsPrint { tint = Self.menuBarForeground() }
+        drawnForeground = nil
+        if menuBarColored && tint == nil && pose.showsPrint {
+            let fg = menuBarForeground()
+            tint = fg
+            drawnForeground = fg
+        }
         liveImage.isTemplate = tint == nil
         guard let ctx = liveContext else { return }
         let rect = CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height)
@@ -202,9 +207,10 @@ final class BotAnimator {
         }
     }
 
-    private static func menuBarForeground() -> NSColor {
+    private func menuBarForeground() -> NSColor {
         let bar = NSApplication.shared.windows.first { $0.className == "NSStatusBarWindow" }
-        let appearance = bar?.contentView?.effectiveAppearance ?? NSApplication.shared.effectiveAppearance
+        let appearance = statusButton?.effectiveAppearance ?? bar?.contentView?.effectiveAppearance
+            ?? NSApplication.shared.effectiveAppearance
         return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .white : .black
     }
 

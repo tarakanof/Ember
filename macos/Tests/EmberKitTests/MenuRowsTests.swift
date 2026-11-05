@@ -452,12 +452,15 @@ private func project(_ tool: String, source: String, state: String, id: String, 
 
 @Test func botPrintNeedsTheBotSomewhere() {
     var p = MenuPrefs.default
-    #expect(p.showsBotPrint)
+    #expect(p.showsBotPrint(dockVisible: false))
     p.botPrint = false
-    #expect(!p.showsBotPrint)
+    #expect(!p.showsBotPrint(dockVisible: true))
     p = MenuPrefs.default
     p.trayStyle = "glyphs"
-    #expect(p.showsBotPrint)
+    #expect(p.showsBotPrint(dockVisible: true))
+    #expect(!p.showsBotPrint(dockVisible: false), "a Dock-only bot shows nothing while the app has no Dock tile")
+    #expect(p.mayShowBotPrint)
     p.appIcon = "spark"
-    #expect(!p.showsBotPrint)
+    #expect(!p.showsBotPrint(dockVisible: true))
+    #expect(!p.mayShowBotPrint)
 }
