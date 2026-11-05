@@ -1223,8 +1223,11 @@ without relaunch. Hybrid layout:
   fixed-width sidebar `Settings` window (height resizable only, like System
   Settings; three groups: **App** (General, Connection, Permissions,
   Sounds & Alerts), **Sources** (Agents, Day Clock, Focus, Weather, Calendar,
-  Music: where data comes from, set once; Day Clock moved there from App in
-  #741, and a stored `app/day-clock` selection opens it) and **Devices** (Clock
+  Music, Printer: where data comes from, set once; Day Clock moved there from
+  App in #741, and a stored `app/day-clock` selection opens it; the Printer
+  pane has its own `PrinterSettingsModel` (config, state poll, preview), kept
+  per server in `PrinterModelCache` so pending saves and edits outlive the
+  pane, and shows the server's PrusaLink status, never the password, #792) and **Devices** (Clock
   and Knob, each with its hardware pages and an Apps subtree holding that
   device's presentation of each source; the knob's Day Clock app shows only
   when its caps list the `day` page (#739); a source pane and its device apps bind the same config model,

@@ -1,0 +1,195 @@
+import Foundation
+
+public struct PrinterConfig: Codable, Sendable, Equatable {
+    public static let auto = "auto"
+    public static let holdRange = 1...1440
+
+    public var enabled: Bool
+    public var url: String
+    public var name: String
+    public var clockApp: Bool
+    public var notifyDone: Bool
+    public var notifyAttention: Bool
+    public var doneHoldMin: Int
+
+    public init(enabled: Bool = false, url: String = PrinterConfig.auto, name: String = "CORE One",
+                clockApp: Bool = true, notifyDone: Bool = true, notifyAttention: Bool = true,
+                doneHoldMin: Int = 30) {
+        self.enabled = enabled
+        self.url = url
+        self.name = name
+        self.clockApp = clockApp
+        self.notifyDone = notifyDone
+        self.notifyAttention = notifyAttention
+        self.doneHoldMin = doneHoldMin
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, url, name
+        case clockApp = "clock_app"
+        case notifyDone = "notify_done"
+        case notifyAttention = "notify_attention"
+        case doneHoldMin = "done_hold_min"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        let url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        self.url = url.isEmpty ? Self.auto : url
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "CORE One"
+        clockApp = try c.decodeIfPresent(Bool.self, forKey: .clockApp) ?? true
+        notifyDone = try c.decodeIfPresent(Bool.self, forKey: .notifyDone) ?? true
+        notifyAttention = try c.decodeIfPresent(Bool.self, forKey: .notifyAttention) ?? true
+        doneHoldMin = try c.decodeIfPresent(Int.self, forKey: .doneHoldMin) ?? 30
+    }
+
+    public var isAuto: Bool { url == Self.auto }
+
+    public var manualURL: String { isAuto ? "" : url }
+
+    public static func validatedAddress(_ text: String) -> String? {
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return nil }
+        if !t.contains("://") { t = "http://" + t }
+        guard let u = URLComponents(string: t), let scheme = u.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = u.host, !host.isEmpty,
+              u.user == nil, u.password == nil, u.query == nil, u.fragment == nil,
+              u.path.isEmpty || u.path == "/" else { return nil }
+        return t.hasSuffix("/") ? String(t.dropLast()) : t
+    }
+}
+
+public struct PrinterInfo: Codable, Sendable, Equatable {
+    public var name: String
+    public var host: String
+    public var url: String
+    public var discovered: Bool
+    public var hostname: String
+    public var firmware: String
+
+    public init(name: String = "", host: String = "", url: String = "", discovered: Bool = false,
+                hostname: String = "", firmware: String = "") {
+        self.name = name
+        self.host = host
+        self.url = url
+        self.discovered = discovered
+        self.hostname = hostname
+        self.firmware = firmware
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        host = try c.decodeIfPresent(String.self, forKey: .host) ?? ""
+        url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        discovered = try c.decodeIfPresent(Bool.self, forKey: .discovered) ?? false
+        hostname = try c.decodeIfPresent(String.self, forKey: .hostname) ?? ""
+        firmware = try c.decodeIfPresent(String.self, forKey: .firmware) ?? ""
+    }
+
+    enum CodingKeys: String, CodingKey { case name, host, url, discovered, hostname, firmware }
+}
+
+public struct PrinterState: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var phase: String
+    public var lastError: String
+    public var printer: PrinterInfo
+    public var updatedAt: Int64?
+
+    public init(enabled: Bool = false, phase: String = "off", lastError: String = "",
+                printer: PrinterInfo = PrinterInfo(), updatedAt: Int64? = 1) {
+        self.enabled = enabled
+        self.phase = phase
+        self.lastError = lastError
+        self.printer = printer
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, phase, printer
+        case lastError = "last_error"
+        case updatedAt = "updated_at"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        phase = try c.decodeIfPresent(String.self, forKey: .phase) ?? "off"
+        lastError = try c.decodeIfPresent(String.self, forKey: .lastError) ?? ""
+        printer = try c.decodeIfPresent(PrinterInfo.self, forKey: .printer) ?? PrinterInfo()
+        updatedAt = try c.decodeIfPresent(Int64.self, forKey: .updatedAt)
+    }
+}
+
+public enum PrinterStatusLine: Equatable, Sendable {
+    case unknown
+    case unavailable(FeedError)
+    case disabled
+    case connected(firmware: String)
+    case wrongPassword
+    case passwordMissing
+    case notFound
+    case printerOff
+    case other(String)
+
+    public init(_ state: PrinterState?, error: FeedError? = nil) {
+        guard let state else {
+            self = error.map { .unavailable($0) } ?? .unknown
+            return
+        }
+        guard state.enabled else { self = .disabled; return }
+        switch state.lastError {
+        case "": self = state.phase == "off" || state.updatedAt == nil ? .unknown : .connected(firmware: state.printer.firmware)
+        case "wrong_password": self = .wrongPassword
+        case "no_password": self = .passwordMissing
+        case "not_found": self = .notFound
+        case "unreachable": self = .printerOff
+        default: self = .other(state.lastError)
+        }
+    }
+
+    public var isProblem: Bool {
+        switch self {
+        case .wrongPassword, .passwordMissing, .notFound, .printerOff, .other, .unavailable: true
+        case .unknown, .disabled, .connected: false
+        }
+    }
+
+    public var title: LocalizedStringResource {
+        switch self {
+        case .unknown: "Checking…"
+        case .unavailable: "Can't read the printer status"
+        case .disabled: "Off"
+        case .connected(let firmware):
+            firmware.isEmpty ? "Connected" : "Connected · firmware \(firmware)"
+        case .wrongPassword: "Wrong password"
+        case .passwordMissing: "Password missing on the server"
+        case .notFound: "Not found on the network"
+        case .printerOff: "Printer off"
+        case .other(let code): "Problem: \(code)"
+        }
+    }
+
+    public var detail: LocalizedStringResource? {
+        switch self {
+        case .wrongPassword:
+            "The server's EMBER_PRUSALINK_PASSWORD isn't the printer's PrusaLink password. Read the right one on the printer under Settings → Network → PrusaLink, then fix it in the server's container."
+        case .passwordMissing:
+            "Set EMBER_PRUSALINK_PASSWORD in the Ember server's container. Read it on the printer under Settings → Network → PrusaLink. This app never asks for or stores it."
+        case .notFound:
+            "Ember found no PrusaLink printer on the network. Check the printer is on the same network, or enter its address."
+        case .printerOff:
+            "The printer didn't answer. It may be switched off or asleep."
+        case .unavailable(.featureOff):
+            "This server doesn't support the printer. Update the Ember server."
+        case .unavailable(.unauthorized):
+            "The server refused Ember's token. Check it in Connection."
+        case .unavailable:
+            "Ember couldn't ask the server for the printer's state. Check the connection."
+        case .unknown, .disabled, .connected, .other: nil
+        }
+    }
+}

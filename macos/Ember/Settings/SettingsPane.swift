@@ -30,6 +30,7 @@ extension SourceID {
         case .weather:  "Weather"
         case .calendar: "Calendar"
         case .music:    "Music"
+        case .printer:  "Printer"
         }
     }
 
@@ -41,6 +42,7 @@ extension SourceID {
         case .weather:  "cloud.sun"
         case .calendar: "calendar"
         case .music:    "music.note"
+        case .printer:  "printer"
         }
     }
 }

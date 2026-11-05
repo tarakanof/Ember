@@ -9,6 +9,7 @@ public enum SourceID: String, CaseIterable, Sendable {
     case dayClock = "day-clock"
     case focus, weather, calendar
     case music
+    case printer
 }
 
 public enum HardwarePage: String, CaseIterable, Sendable {
