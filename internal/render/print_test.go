@@ -134,8 +134,8 @@ func TestPrintSweepGIFKeepsTheNozzleAtTheTop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(icons) != printBedLevels {
-		t.Fatalf("%d icons, want %d", len(icons), printBedLevels)
+	if len(icons) != printBedLevels+1 {
+		t.Fatalf("%d icons, want %d", len(icons), printBedLevels+1)
 	}
 	for h := 1; h <= printBedLevels; h++ {
 		name := PrintIconName(h)
@@ -203,7 +203,7 @@ func TestPrintAttentionBlinksItsLabelNatively(t *testing.T) {
 
 func TestPrintPopupsFitNGSchema(t *testing.T) {
 	for name, p := range map[string]map[string]any{
-		"done":      PrintDonePopupPayload("2:14", 10),
+		"done":      PrintDonePopupPayload("2:14", 10, false),
 		"attention": PrintAttentionPopupPayload(120),
 		"error":     PrintErrorPopupPayload(30),
 	} {
@@ -211,10 +211,54 @@ func TestPrintPopupsFitNGSchema(t *testing.T) {
 			t.Errorf("%s: %v", name, errs)
 		}
 	}
-	if got := PrintDonePopupPayload("2:14", 10)["text"]; got != "DONE 2:14" {
+	if got := PrintDonePopupPayload("2:14", 10, false)["text"]; got != "DONE 2:14" {
 		t.Errorf("done text = %v", got)
 	}
-	if got := PrintDonePopupPayload("", 10)["text"]; got != "DONE" {
+	if got := PrintDonePopupPayload("", 10, false)["text"]; got != "DONE" {
 		t.Errorf("done text without a total = %v", got)
+	}
+}
+
+func TestPrintBurstGIFPlaysOnceAndEndsOnTheDoneIcon(t *testing.T) {
+	icons, err := PrintIcons()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := PrintDoneIconName()
+	g, err := gif.DecodeAll(bytes.NewReader(icons[name]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.LoopCount != -1 {
+		t.Errorf("LoopCount = %d, want -1 (play once)", g.LoopCount)
+	}
+	if len(g.Image) < 2 {
+		t.Fatalf("%d frames", len(g.Image))
+	}
+	for i, img := range g.Image {
+		if b := img.Bounds(); b.Dx() != 8 || b.Dy() != 8 {
+			t.Errorf("frame %d is %v, want 8x8", i, b)
+		}
+	}
+	want := printPopupIcon(PrintPhaseFinished)
+	last := g.Image[len(g.Image)-1]
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			r, gg, b, _ := last.At(x, y).RGBA()
+			got := int(r>>8)<<16 | int(gg>>8)<<8 | int(b>>8)
+			if got != want[y*8+x] {
+				t.Fatalf("last frame (%d,%d) = %06x, want %06x", x, y, got, want[y*8+x])
+			}
+		}
+	}
+}
+
+func TestPrintDonePopupUsesTheBurstIcon(t *testing.T) {
+	p := PrintDonePopupPayload("2:14", 10, true)
+	if p["icon"] != PrintDoneIconName() || p["draw"] != nil {
+		t.Errorf("popup = %v", p)
+	}
+	if errs := CheckNGPayload(p, true); len(errs) > 0 {
+		t.Error(errs)
 	}
 }
