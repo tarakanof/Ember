@@ -24,7 +24,7 @@ Every route the knob calls with its device token (`ekd_…`); the LAN re-pair ro
 | `GET /v1/day/state`, `POST /v1/day/{start,break,resume,stop}`, `PUT /v1/day/stop_at`, `POST /v1/day/offer/dismiss` | Day clock (#729, "Day clock"); the reply is the `day` block (`day_action.json`). |
 | `POST /v1/nowplaying/control` | Player control, optional `Idempotency-Key`. |
 | `POST /v1/controls/action` | A gesture for the Mac-controller page (#515, cinder#144, #747): `{"gesture":"push|double_push|long_push|turn","steps":±1..20}`, `steps` only for `turn`. Optional `Idempotency-Key`. The knob names a gesture, never an action; actions live on the target Mac. Reply `controls_action.json` (202); 200 `{"status":"duplicate"}`; 403 `{"error":"controls page is off on this knob"}` unless the knob's last checkin lists `controls` in `caps.pages` and its stored settings have the page on (checked before the dedupe key and the rate limit, so a refusal burns neither); 503 when no Mac is set or it isn't listening (don't retry); 429 `Retry-After`. |
-| `GET /v1/print/thumb?kind=&v=` | The job's picture for the view's `print.thumb_version` ("Print"): `kind` `solid` or `ghost` (anything else 400), a 466 px baseline JPEG; device or owner token. `v` equal to the current `thumb_version` gives `public, max-age=86400, immutable`; any other `v`, or none, gives `no-cache`; 404 without a picture. |
+| `GET /v1/print/thumb?kind=&v=` | The job's picture for the view's `print.thumb_version` ("Print"): `kind` `solid` or `ghost` (anything else 400), a 466 px baseline JPEG; device, owner or `admin` client token. `v` equal to the current `thumb_version` gives `public, max-age=86400, immutable`; any other `v`, or none, gives `no-cache`; 404 without a picture. |
 | `GET /v1/nowplaying/art?kind=&size=&v=` | Art for the view's `art_version`: `kind` `album`/`artist`/`backdrop`/`cover`, `size` the square edge in px from a fixed list per kind (album 240 or 120, artist 64 or 120, backdrop 466, cover 466; default the first, anything else 400; `cover` is the prepared circle, "Prepared cover"), `v` the `art_version` (public, no token). `v` equal to the current `art_version` (for `cover`, the `cover_version`) gives `public, max-age=86400, immutable` for every kind, `artist` included; any other `v`, or none, gives `no-cache`. |
 
 **Unauthenticated: LAN re-pair** (#658). A knob with Wi-Fi and an Ember
@@ -759,13 +759,18 @@ The printer status for the knob's `print` page (K1 Progress, K2
 Materialise; cinder#321) and the bot's print moments (B3 done, B4 needs
 you; cinder#322), #791. Ember polls PrusaLink (#789, ARCHITECTURE
 "Print"); the knob never talks to the printer. Rule 1: the block, the
-page, the token and the route are new, so old firmware never sees them.
+token and the route are new, so old firmware never sees them; the page id
+is new too, and old firmware gets its off entry in the config like any
+unknown id, which it keeps without showing.
 
 **Page.** `print` is a known page, off by default, after `controls` in a
 new knob's list. A stored config gains it as an off page at the end,
 without a `config_version` bump (it adds 26 B to the default config, 616 B
 now). With it the default list holds 8 pages, cinder's `KS_MAX_PAGES`, so
-a stored config that already lists 8 ids gains nothing. A config PUT turns
+a stored config that already lists 8 ids gains nothing. When known pages
+are appended (a stored config, or a pages PUT that lists only some), `print`
+goes last, after `pomodoro`, so a list cut at 8 by a custom id loses
+`print` rather than an established page. A config PUT turns
 it on only for a knob whose `caps.pages` lists it, and Ember.app shows the
 row only then.
 
@@ -793,8 +798,9 @@ legacy knob never gets it. Optional keys are absent when unknown.
 | `nozzle`, `nozzle_target`, `bed`, `bed_target` | whole degrees, **only while `heating`** |
 | `name` | the file's display name without the extension and PrusaSlicer's `_0.4n_0.2mm_PETG_COREONE_2h14m` suffix, ≤ 32 characters |
 | `material` | from that suffix when present (`PETG`, `PLA/PETG` for a multi-material job), ≤ 16 characters |
-| `thumb_version` | present when the job has a picture: `<hash>-<recipe>` (`5d73e113fbb7-r1`), the `v` for `GET /v1/print/thumb`; a new picture or recipe gives a new value |
-| `event` | `{id, kind, at}`, the newest edge of the last 30 min, in any phase: `kind` `started`, `attention`, `finished`, `stopped` or `error`, `at` Unix s, `id` increasing (Unix ms, exact in a double). The knob plays a moment once per `id`, never replays one it saw before a reboot when it is over 5 min old (cinder#322), and repeats B4 itself while `phase` stays `attention` |
+| `thumb_version` | present when the job has a picture that bakes: `<hash>-<recipe>` (`5d73e113fbb7-r1`), the `v` for `GET /v1/print/thumb`; a new picture or recipe gives a new value. Absent: K2 falls back to K1's drawn printer |
+| `thumb_rows` | `[top, bottom]`, only with `thumb_version`: the pixel rows of the 466 px picture the model fills, `bottom` exclusive and always 300 (the model stands on the hero box's floor). The knob maps `progress` 0-100 onto these rows for the solid/ghost split |
+| `event` | `{id, kind, at}`, the newest edge of the last 30 min, in any phase: `kind` `started`, `attention`, `finished`, `stopped` or `error`, `at` Unix s, `id` increasing (Unix ms, exact in a double). The knob plays a moment once per `id`, never replays one it saw before a reboot when it is over 5 min old (cinder#322), and repeats B4 itself while `phase` stays `attention`. B3's "Print done · 2 h 14 m" is `event.at` − `started_at` while `phase` is `finished` (PrusaLink has no time left then, so `ends_at` is gone); once the printer is back to `idle` the job keys are gone and B3 shows no duration |
 | `printer` | `printer.name` from the config ("CORE One"), ≤ 32 characters, for the label |
 
 Phases `offline` and `idle` carry only `phase`, `event` and `printer`. An
@@ -809,12 +815,14 @@ times in 1512 polls (`TestKnobViewPrintETagMovesOnlyOnWholePercentsAndPhases`);
 a long poll wakes on each change. While `paused` the time left stays put,
 so `ends_at` slips one anchor step a minute.
 
-**Size.** 257 B for `view_print.json` (printing, a short name, every
-time, a picture and an event). An ASCII block reaches at most about
-380 B: `heating` with the four temperatures (~60 B), every time, a
-32-character name, a 16-character material and a 32-character label. With multi-byte names and an
-escaped label it stays under 512 B (`TestKnobViewPrintBlockStaysSmall`). It is dropped after `pomo` and before
-`day` to fit `view_bytes`.
+**Size.** 280 B for `view_print.json` (printing, a short name, every
+time, a picture with its rows and an event). A plain-ASCII block reaches
+about 400 B: `heating` with the four temperatures (~60 B), every time, a
+picture, a 32-character name, a 16-character material and a 32-character
+label. `encoding/json` writes `<`, `>`, `&` and control characters as
+6-byte `\u00XX` escapes, so a name, material and label made only of those
+reach about 800 B, the bound `TestKnobViewPrintBlockStaysSmall` pins
+(832 B). It is dropped after `pomo` and before `day` to fit `view_bytes`.
 
 **Pictures.** `GET /v1/print/thumb?kind=solid|ghost&v=<thumb_version>`
 (device, owner or `admin` client token, rate-limited like the other routes) serves the
@@ -823,23 +831,29 @@ job's PrusaLink PNG thumbnail baked for K2 as a 466 px baseline JPEG
 
 1. crop to the picture's opaque box (alpha ≥ 8; a picture with no
    transparency keeps its whole frame);
-2. scale it so the box's diagonal plus a 4 % margin each side fits the
-   r 208 circle (the whole model stays visible), centred on black 466 px,
-   transparent pixels black;
+2. scale it to fit the hero box x 93-373, y 110-300 (280 × 190 px, the
+   K2 mockup's model area, clear of the text band below y 300), centred
+   across and standing on its floor at y 300, on black 466 px,
+   transparent pixels black; the rows it fills are the view's
+   `thumb_rows`;
 3. an anti-aliased circle mask of r 208 and a rim fade × 1 → 0 from
-   r 170 to 208;
+   r 170 to 208 (it reaches only the hero box's corners);
 4. `ghost` only: the luma (0.2126/0.7152/0.0722) at 25 % brightness.
 
-The knob blits the ghost and, clipped above the progress height, the
-solid, so a step invalidates one thin box. `v` equal to the current
+The knob blits the ghost and, clipped above the progress row
+`bottom − (bottom − top) × progress / 100`, the solid, so a step
+invalidates one thin box. `v` equal to the current
 `thumb_version` gives `public, max-age=86400, immutable`; any other `v`
 gives `no-cache`. The ETag is `"<thumb_version>-<kind>-466"`. 404 when
 there is no picture (no job, PrusaLink has none, the printer is off). The
-server bakes each kind once per version and keeps only the newest
-version's two JPEGs in RAM. When the job is read, a PrusaLink picture that is
+server decodes the PNG once per version, bakes both kinds and the rows
+together the first time the view or the route needs them, and keeps only
+the newest version's two JPEGs in RAM; a failed bake is remembered for the
+version, so it is not retried per request. When the job is read, a PrusaLink picture that is
 over 1 MB or 2048 px a side, doesn't decode in full, or is fully
 transparent is skipped, so the view names only a picture the route can
-bake. A failed bake still answers 404 without `ETag` or `Cache-Control`.
+bake; if a bake still fails, the view leaves out `thumb_version` and the
+route answers 404 without `ETag` or `Cache-Control`.
 
 ## Idle and per-app options
 
@@ -1291,7 +1305,7 @@ Indented JSON; key order is the wire order.
 | `view_day_on.json` | The same knob 14 h 20 min after clock-in: `over_min` 140, `break_hint` |
 | `view_day_summary.json` | Right after `stop`: `"quiet": true`, `day` off with its `summary` |
 | `view_day_break.json` | On a second break: one finished break in `breaks`, the running one in `break_min` |
-| `view_print.json` | A knob with the `print` page and `print_moments` (caps `bot`, `print`): `printing` at 24 %, anchored `ends_at`, `started_at`, `change_at`, name and material from PrusaSlicer's file name, `thumb_version`, the `started` event, `printer` |
+| `view_print.json` | A knob with the `print` page and `print_moments` (caps `bot`, `print`): `printing` at 24 %, anchored `ends_at`, `started_at`, `change_at`, name and material from PrusaSlicer's file name, `thumb_version` and `thumb_rows` (a square picture: `[110, 300]`), the `started` event, `printer` |
 | `view_print_heating.json` | The same knob while `heating`: `progress` 0, `nozzle`/`nozzle_target`/`bed`/`bed_target`, no `started_at` yet, no picture (no `thumb_version`) |
 | `view_print_attention.json` | The same knob when the printer stops for a colour change: `attention` and its event, the job's keys kept, `change_at` gone |
 | `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |

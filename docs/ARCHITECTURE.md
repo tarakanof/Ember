@@ -2844,20 +2844,23 @@ keeps it on the default transport: mDNS browsing is injected
   The edge times are kept apart from the 30-min event list, so a hold
   longer than 30 min lasts.
 - **Thumbnail.** On a new job, `refs.thumbnail` (`/thumb/l/…`) is read once:
-  `image/png`, PNG magic, a PNG header of at most 2048 px a side, ≤ 1 MB,
-  RAM only (`State.Thumbnail()`), `thumb_version` = 12 hex digits of its
-  SHA-256. 404, a wrong type, over 1 MB, over 2048 px or not a PNG = no
-  picture, not retried for that job; a transport or 5xx failure is retried
+  `image/png`, PNG magic, ≤ 1 MB, at most 2048 px a side, decoding in full
+  with at least one opaque pixel (`printer.CheckThumb`), RAM only
+  (`State.Thumbnail()`), `thumb_version` = 12 hex digits of its SHA-256.
+  404, a wrong type, over 1 MB or 2048 px, not a PNG, a truncated or fully
+  transparent one = no picture, not retried for that job; a transport or 5xx failure is retried
   on the next 2 polls.
 - **Knob block and pictures** (#791, `cmd/ember/devices_view_print.go`).
   The knob view's `print` block is built from the same `State.At(now)`
   for a caps knob with the `print` page on, or the `print_moments` token
   with the bot page on and `bot.print_moments` not false; temperatures
-  only while heating, `thumb_version` as `<hash>-<recipe>`. `GET
-  /v1/print/thumb?kind=solid|ghost` bakes the PNG into the knob's 466 px
-  circle JPEGs (`printer.BakeThumb`: opaque-box crop, diagonal fit,
-  rim fade; ghost = grey at 25 %), once per version and kind, newest
-  version only, in RAM. Contract: DEVICE-PROTOCOL "Print".
+  only while heating, `thumb_version` as `<hash>-<recipe>` plus
+  `thumb_rows`. `printer.BakeThumbs` turns the PNG into the knob's two
+  466 px circle JPEGs (opaque-box crop, fitted into the K2 hero box
+  x 93-373, y 110-300 standing on y 300, rim fade; ghost = grey at 25 %)
+  and the rows the model fills; `printThumbCache` runs it once per version
+  for the view and `GET /v1/print/thumb?kind=solid|ghost` together, keeps
+  the newest version (or its error) only. Contract: DEVICE-PROTOCOL "Print".
 - **Changes** notify `topicPrint` when a reader-visible value moves: phase,
   whole percent, an anchor, an event, the hold, the error, name, thumbnail,
   printer info; temperatures only while heating.

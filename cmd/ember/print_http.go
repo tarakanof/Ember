@@ -120,26 +120,36 @@ func (a *App) handlePrintConfigPut(w http.ResponseWriter, r *http.Request) {
 }
 
 type printThumbCache struct {
-	mu    sync.Mutex
-	ver   string
-	bytes map[printer.ThumbKind][]byte
+	mu     sync.Mutex
+	ver    string
+	thumbs printer.Thumbs
+	err    error
 }
 
-func (c *printThumbCache) get(data []byte, ver string, kind printer.ThumbKind) ([]byte, error) {
+func (c *printThumbCache) get(data []byte, ver string) (printer.Thumbs, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.ver != ver {
-		c.ver, c.bytes = ver, map[printer.ThumbKind][]byte{}
+		c.thumbs, c.err = printer.BakeThumbs(data)
+		c.ver = ver
 	}
-	if b, ok := c.bytes[kind]; ok {
-		return b, nil
+	return c.thumbs, c.err
+}
+
+func (a *App) printThumbsFor(s printer.Snapshot) (printer.Thumbs, string, bool) {
+	data, ver := a.printer.State.Thumbnail()
+	if !s.Enabled || s.ThumbVersion == "" || ver != s.ThumbVersion || len(data) == 0 {
+		return printer.Thumbs{}, "", false
 	}
-	b, err := printer.BakeThumb(data, kind)
+	version := printThumbVersion(ver)
+	th, err := a.printThumbs.get(data, version)
 	if err != nil {
-		return nil, err
+		if a.printThumbFailed.changed("print", version) {
+			a.logger.Warn("print thumbnail bake failed", "thumb_version", version, "err", err)
+		}
+		return printer.Thumbs{}, "", false
 	}
-	c.bytes[kind] = b
-	return b, nil
+	return th, version, true
 }
 
 func (a *App) handlePrintThumb(w http.ResponseWriter, r *http.Request) {
@@ -149,33 +159,24 @@ func (a *App) handlePrintThumb(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, printer.ErrThumbKind)
 		return
 	}
-	snap := a.printer.State.At(a.viewNow())
-	data, ver := a.printer.State.Thumbnail()
-	if !snap.Enabled || snap.ThumbVersion == "" || ver != snap.ThumbVersion || len(data) == 0 {
+	th, version, ok := a.printThumbsFor(a.printer.State.At(a.viewNow()))
+	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("no print thumbnail"))
 		return
 	}
-	version := printThumbVersion(ver)
+	body, _ := th.Kind(kind)
 	etag := fmt.Sprintf(`"%s-%s-%d"`, version, kind, printer.ThumbSize)
-	cache := "no-cache"
-	if v := q.Get("v"); v != "" && v == version {
-		cache = "public, max-age=86400, immutable"
-	}
 	h := w.Header()
+	h.Set("ETag", etag)
+	if v := q.Get("v"); v != "" && v == version {
+		h.Set("Cache-Control", "public, max-age=86400, immutable")
+	} else {
+		h.Set("Cache-Control", "no-cache")
+	}
 	if etagMatches(r.Header.Get("If-None-Match"), etag) {
-		h.Set("ETag", etag)
-		h.Set("Cache-Control", cache)
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
-	body, err := a.printThumbs.get(data, version, kind)
-	if err != nil {
-		a.logger.Warn("print thumbnail bake failed", "kind", kind, "thumb_version", version, "err", err)
-		writeError(w, http.StatusNotFound, errors.New("print thumbnail unusable"))
-		return
-	}
-	h.Set("ETag", etag)
-	h.Set("Cache-Control", cache)
 	h.Set("Content-Type", "image/jpeg")
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)

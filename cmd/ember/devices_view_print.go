@@ -25,6 +25,7 @@ type knobPrint struct {
 	Name         string          `json:"name,omitempty"`
 	Material     string          `json:"material,omitempty"`
 	ThumbVersion string          `json:"thumb_version,omitempty"`
+	ThumbRows    *[2]int         `json:"thumb_rows,omitempty"`
 	Event        *knobPrintEvent `json:"event,omitempty"`
 	Printer      string          `json:"printer"`
 }
@@ -52,7 +53,17 @@ func printThumbVersion(ver string) string {
 }
 
 func (a *App) knobPrint(now time.Time) *knobPrint {
-	return newKnobPrint(a.printer.State.At(now))
+	s := a.printer.State.At(now)
+	p := newKnobPrint(s)
+	if p == nil || p.ThumbVersion == "" {
+		return p
+	}
+	if th, _, ok := a.printThumbsFor(s); ok {
+		p.ThumbRows = &[2]int{th.Top, th.Bottom}
+	} else {
+		p.ThumbVersion = ""
+	}
+	return p
 }
 
 func newKnobPrint(s printer.Snapshot) *knobPrint {

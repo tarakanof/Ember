@@ -22,6 +22,10 @@
     "name": "bracket_v3",
     "material": "PETG",
     "thumb_version": "5d73e113fbb7-r1",
+    "thumb_rows": [
+      110,
+      300
+    ],
     "event": {
       "id": 1782043205000,
       "kind": "started",

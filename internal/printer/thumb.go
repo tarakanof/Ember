@@ -23,14 +23,25 @@ const (
 	ThumbSize      = 466
 	MaxThumbSidePx = 2048
 
+	ThumbHeroLeft   = 93
+	ThumbHeroRight  = 373
+	ThumbHeroTop    = 110
+	ThumbHeroBottom = 300
+
 	thumbRadius    = 208.0
 	thumbRimInner  = 170.0
 	thumbGhostGain = 0.25
 	thumbAlphaCut  = 8
-	thumbPad       = 0.04
 	thumbQuality   = 80
 	thumbMaxTaps   = 8
 )
+
+type Thumbs struct {
+	Solid  []byte
+	Ghost  []byte
+	Top    int
+	Bottom int
+}
 
 var ErrThumbKind = errors.New("kind must be solid or ghost")
 
@@ -60,20 +71,49 @@ func decodeThumb(b []byte) (*image.RGBA, image.Rectangle, error) {
 	return src, box, nil
 }
 
-func BakeThumb(b []byte, kind ThumbKind) ([]byte, error) {
-	if kind != ThumbSolid && kind != ThumbGhost {
-		return nil, ErrThumbKind
-	}
+func BakeThumbs(b []byte) (Thumbs, error) {
 	src, box, err := decodeThumb(b)
 	if err != nil {
-		return nil, err
+		return Thumbs{}, err
 	}
-	out := bakeDisc(src, box, kind)
-	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, out, &jpeg.Options{Quality: thumbQuality}); err != nil {
-		return nil, fmt.Errorf("encode thumbnail: %w", err)
+	fit := heroFit(box)
+	out := Thumbs{Top: fit.top, Bottom: ThumbHeroBottom}
+	for _, kind := range []ThumbKind{ThumbSolid, ThumbGhost} {
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, bakeDisc(src, box, fit, kind), &jpeg.Options{Quality: thumbQuality}); err != nil {
+			return Thumbs{}, fmt.Errorf("encode thumbnail: %w", err)
+		}
+		if kind == ThumbSolid {
+			out.Solid = buf.Bytes()
+		} else {
+			out.Ghost = buf.Bytes()
+		}
 	}
-	return buf.Bytes(), nil
+	return out, nil
+}
+
+func (t Thumbs) Kind(k ThumbKind) ([]byte, error) {
+	switch k {
+	case ThumbSolid:
+		return t.Solid, nil
+	case ThumbGhost:
+		return t.Ghost, nil
+	}
+	return nil, ErrThumbKind
+}
+
+type heroPlacement struct {
+	scale  float64
+	cx     float64
+	bottom float64
+	top    int
+}
+
+func heroFit(box image.Rectangle) heroPlacement {
+	w, h := float64(box.Dx()), float64(box.Dy())
+	scale := min(float64(ThumbHeroRight-ThumbHeroLeft)/w, float64(ThumbHeroBottom-ThumbHeroTop)/h)
+	top := ThumbHeroBottom - int(math.Round(h*scale))
+	return heroPlacement{scale: scale, cx: float64(ThumbHeroLeft+ThumbHeroRight) / 2, bottom: ThumbHeroBottom, top: min(max(top, ThumbHeroTop), ThumbHeroBottom-1)}
 }
 
 func contentBox(src *image.RGBA) image.Rectangle {
@@ -89,16 +129,14 @@ func contentBox(src *image.RGBA) image.Rectangle {
 	return box
 }
 
-func bakeDisc(src *image.RGBA, box image.Rectangle, kind ThumbKind) *image.RGBA {
+func bakeDisc(src *image.RGBA, box image.Rectangle, fit heroPlacement, kind ThumbKind) *image.RGBA {
 	out := image.NewRGBA(image.Rect(0, 0, ThumbSize, ThumbSize))
 	for i := 3; i < len(out.Pix); i += 4 {
 		out.Pix[i] = 255
 	}
-	w, h := float64(box.Dx()), float64(box.Dy())
-	scale := 2 * thumbRadius / (math.Hypot(w, h) * (1 + 2*thumbPad))
 	c := float64(ThumbSize) / 2
-	cx, cy := float64(box.Min.X)+w/2, float64(box.Min.Y)+h/2
-	taps := min(max(int(math.Ceil(1/scale)), 1), thumbMaxTaps)
+	bx, by := float64(box.Min.X)+float64(box.Dx())/2, float64(box.Max.Y)
+	taps := min(max(int(math.Ceil(1/fit.scale)), 1), thumbMaxTaps)
 	for y := range ThumbSize {
 		for x := range ThumbSize {
 			k := discGain(float64(x)+0.5-c, float64(y)+0.5-c)
@@ -108,9 +146,9 @@ func bakeDisc(src *image.RGBA, box image.Rectangle, kind ThumbKind) *image.RGBA 
 			var acc [3]float64
 			for sy := range taps {
 				for sx := range taps {
-					dx := float64(x) + (float64(sx)+0.5)/float64(taps) - c
-					dy := float64(y) + (float64(sy)+0.5)/float64(taps) - c
-					p := bilinear(src, cx+dx/scale, cy+dy/scale)
+					dx := float64(x) + (float64(sx)+0.5)/float64(taps) - fit.cx
+					dy := float64(y) + (float64(sy)+0.5)/float64(taps) - fit.bottom
+					p := sampleIn(src, box, bx+dx/fit.scale, by+dy/fit.scale)
 					for ch := range 3 {
 						acc[ch] += p[ch]
 					}
@@ -129,6 +167,13 @@ func bakeDisc(src *image.RGBA, box image.Rectangle, kind ThumbKind) *image.RGBA 
 		}
 	}
 	return out
+}
+
+func sampleIn(src *image.RGBA, box image.Rectangle, fx, fy float64) [3]float64 {
+	if fx < float64(box.Min.X) || fy < float64(box.Min.Y) || fx >= float64(box.Max.X) || fy >= float64(box.Max.Y) {
+		return [3]float64{}
+	}
+	return bilinear(src, fx, fy)
 }
 
 func discGain(dx, dy float64) float64 {

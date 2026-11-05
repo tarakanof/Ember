@@ -2622,17 +2622,19 @@ paths:
       summary: The job's thumbnail baked for the knob
       description: |
         A 466 px baseline JPEG (q 80) of the current job's PNG thumbnail for
-        the knob's K2 face: cropped to the picture's opaque box, scaled so
-        the box's diagonal fits an r 208 circle (4 % margin), centred on
-        black, with a rim fade (× 1 → 0 from r 170 to 208). `kind=solid` is
+        the knob's K2 face: cropped to the picture's opaque box, fitted into
+        the hero box x 93-373, y 110-300 standing on y 300 (the view's
+        `print.thumb_rows` are the rows it fills), on black in an r 208
+        circle with a rim fade (× 1 → 0 from r 170 to 208). `kind=solid` is
         the picture; `kind=ghost` is the same disc desaturated at 25 %
         brightness, so the knob can draw the ghost and the solid clipped
         above the progress height. `v` equal to the view's
         `print.thumb_version` (`<hash>-<recipe>`) makes the reply
         `public, max-age=86400, immutable`; any other `v` gives `no-cache`.
         The ETag is `"<thumb_version>-<kind>-466"`. 404 without a picture
-        (no job, no thumbnail, printer off). Baked once per version and
-        kind, kept in RAM (the newest version only). DEVICE-PROTOCOL.md
+        (no job, no thumbnail, printer off, a picture that doesn't bake).
+        Both kinds are baked together once per version and kept in RAM (the
+        newest version only). DEVICE-PROTOCOL.md
         "Print".
       security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [admin]}]
       parameters:
@@ -4329,7 +4331,7 @@ paths:
         not false, while the printer is enabled and has a password: `phase`,
         `progress`, anchored `ends_at`/`started_at`/`change_at`, temperatures
         only while `heating`, `name`, `material`, `thumb_version` (the `v`
-        of `GET /v1/print/thumb`), `event {id, kind, at}` and `printer`
+        of `GET /v1/print/thumb`) with `thumb_rows`, `event {id, kind, at}` and `printer`
         (DEVICE-PROTOCOL.md "Print"). With the `demo` caps feature, `demo` carries a
         demo scene set from Ember.app: `{id, page, view?, act?, offline?,
         hold}`, where `view` is a whole view that replaces the real one while

@@ -115,10 +115,11 @@ type App struct {
 
 	meetingsURLs []string
 
-	nowPlaying  *nowplaying.Service
-	printer     *printer.Poller
-	printThumbs printThumbCache
-	controls    *controlsService
+	nowPlaying       *nowplaying.Service
+	printer          *printer.Poller
+	printThumbs      printThumbCache
+	printThumbFailed checkinDropLog
+	controls         *controlsService
 
 	meetings        *meetingsStore
 	meetingsFetcher *icsFetcher

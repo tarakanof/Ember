@@ -134,7 +134,7 @@ func TestKnobNowPlayingPageIsKnownAndOffByDefault(t *testing.T) {
 	s := KnobSettings{Pages: []KnobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "x", On: true}}}
 	s.FillDefaults()
 	want := []KnobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "x", On: true},
-		{ID: "day", On: false}, {ID: "room", On: false}, {ID: "nowplaying", On: false}, {ID: "controls", On: false}, {ID: "print", On: false}}
+		{ID: "day", On: false}, {ID: "room", On: false}, {ID: "nowplaying", On: false}, {ID: "controls", On: false}, {ID: "pomodoro", On: false}}
 	if len(s.Pages) != len(want) {
 		t.Fatalf("pages = %+v", s.Pages)
 	}

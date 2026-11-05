@@ -20,6 +20,8 @@ const KnobMaxPages = 8
 
 var knobPagesOffByDefault = []string{"room", "nowplaying", "controls", "print", "pomodoro"}
 
+var knobAppendOrder = append(slices.DeleteFunc(slices.Clone(KnobPageIDs), func(id string) bool { return id == KnobPrintPage }), KnobPrintPage)
+
 var knobPageIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,15}$`)
 
 type KnobSettings struct {
@@ -407,7 +409,7 @@ func (s *KnobSettings) addKnownPages() {
 	if len(s.Pages) == 0 {
 		return
 	}
-	for _, id := range KnobPageIDs {
+	for _, id := range knobAppendOrder {
 		if len(s.Pages) >= KnobMaxPages {
 			return
 		}

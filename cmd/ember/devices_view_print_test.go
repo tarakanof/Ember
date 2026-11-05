@@ -325,9 +325,9 @@ func TestKnobViewPrintBlockStaysSmall(t *testing.T) {
 	worst := typical
 	worst.Phase = printer.PhaseHeating
 	worst.Nozzle, worst.NozzleTarget, worst.Bed, worst.BedTarget = 290, 290, 120, 120
-	worst.Name = strings.Repeat("\u8f74", printer.MaxNameRunes)
-	worst.Material = strings.Repeat("PETG/", 40)
-	worst.Printer.Name = strings.Repeat(`"`, 64)
+	worst.Name = strings.Repeat("<", printer.MaxNameRunes)
+	worst.Material = strings.Repeat("&", 40)
+	worst.Printer.Name = strings.Repeat("\x01", 64)
 	b, err = json.Marshal(newKnobPrint(worst))
 	if err != nil {
 		t.Fatal(err)
@@ -336,9 +336,10 @@ func TestKnobViewPrintBlockStaysSmall(t *testing.T) {
 	if err := json.Unmarshal(b, &back); err != nil || len([]rune(back.Material)) != knobPrintMaterialRunes || len([]rune(back.Printer)) != knobPrintLabelRunes {
 		t.Fatalf("worst block = %s (%v)", b, err)
 	}
-	if len(b) > 512 {
-		t.Fatalf("worst block is %d B, want at most 512: %s", len(b), b)
+	if len(b)+len(`,"thumb_rows":[110,300]`) > 832 {
+		t.Fatalf("worst block is %d B before thumb_rows, want at most 832 with them: %s", len(b), b)
 	}
+	t.Logf("worst block: %d B", len(b))
 }
 
 func TestKnobViewPrintETagMovesOnlyOnWholePercentsAndPhases(t *testing.T) {
@@ -416,6 +417,9 @@ func TestPrintThumbRoute(t *testing.T) {
 	ver, _ := pr["thumb_version"].(string)
 	if !strings.HasSuffix(ver, "-"+printer.ThumbRecipe) {
 		t.Fatalf("thumb_version = %q", ver)
+	}
+	if rows, _ := pr["thumb_rows"].([]any); len(rows) != 2 || rows[1] != float64(printer.ThumbHeroBottom) {
+		t.Fatalf("thumb_rows = %v", pr["thumb_rows"])
 	}
 	path := "/v1/print/thumb?kind=solid&v=" + ver
 	if resp, _ := devReq(t, f.srv, "GET", path, "", ""); resp.StatusCode != http.StatusUnauthorized {
@@ -517,20 +521,26 @@ func TestKnobViewPrintSkipsACorruptThumbnail(t *testing.T) {
 func TestCapsKnobViewDropsPrintAfterPomoToFitViewBytes(t *testing.T) {
 	p := newPrintFixture(t)
 	f := p.viewFixture
-	postCapsCheckin(t, f, "0.10.0", map[string]any{"view": []int{1, 1}, "pages": []string{"bot", "pomodoro", "print"}, "features": []string{}})
-	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"print","on":true}],"home":"bot"}`)
+	f.app.zone = time.UTC
+	f.app.dayClock = f.clk.Now
+	pages := []string{"bot", "day", "pomodoro", "print"}
+	postCapsCheckin(t, f, "0.10.0", map[string]any{"view": []int{1, 1}, "pages": pages, "features": []string{}})
+	putKnobConfig(t, f.srv, f.m.ID, `{"pages":[{"id":"bot","on":true},{"id":"day","on":true},{"id":"pomodoro","on":true},{"id":"print","on":true}],"home":"bot"}`)
 	f.eng.Start(pomodoro.PhaseFocus)
 	p.printing(t, nil)
 	full := goldenView(t, f)
 	limited := func(n int) map[string]json.RawMessage {
 		t.Helper()
-		plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: []string{"bot", "pomodoro", "print"}, Features: []string{},
+		plantCaps(t, f, &devices.Caps{View: []int{1, 1}, Pages: pages, Features: []string{},
 			Limits: &devices.CapsLimits{ViewBytes: n}})
 		body := goldenView(t, f)
 		if len(body) > n {
 			t.Fatalf("view is %d B, over %d", len(body), n)
 		}
 		return viewKeys(t, body)
+	}
+	if _, ok := viewKeys(t, full)["day"]; !ok {
+		t.Fatalf("the full view lacks day: %s", full)
 	}
 	keys := limited(len(full) - 1)
 	if _, ok := keys["pomo"]; ok {
@@ -546,5 +556,8 @@ func TestCapsKnobViewDropsPrintAfterPomoToFitViewBytes(t *testing.T) {
 	}
 	if _, ok := keys["mood"]; !ok {
 		t.Fatalf("mood dropped: %v", keys)
+	}
+	if _, ok := keys["day"]; !ok {
+		t.Fatalf("day dropped before print: %v", keys)
 	}
 }
