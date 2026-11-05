@@ -52,11 +52,10 @@ func (s *printFeedStub) serve(t *testing.T) *httptest.Server {
 	return srv
 }
 
-func printFeedReq(t *testing.T, srv *httptest.Server, query, etag string) (*http.Response, string) {
-	t.Helper()
+func printFeedDo(srv *httptest.Server, query, etag string) (*http.Response, error) {
 	req, err := http.NewRequest("GET", srv.URL+"/v1/print/state"+query, nil)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	if etag != "" {
@@ -64,9 +63,18 @@ func printFeedReq(t *testing.T, srv *httptest.Server, query, etag string) (*http
 	}
 	resp, err := srv.Client().Do(req)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	resp.Body.Close()
+	return resp, nil
+}
+
+func printFeedReq(t *testing.T, srv *httptest.Server, query, etag string) (*http.Response, string) {
+	t.Helper()
+	resp, err := printFeedDo(srv, query, etag)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return resp, resp.Header.Get("ETag")
 }
 
@@ -109,22 +117,30 @@ func TestPrintStateLongPollWakesOnProgress(t *testing.T) {
 	type result struct {
 		code int
 		took time.Duration
+		err  error
 	}
 	done := make(chan result, 1)
 	start := time.Now()
 	go func() {
-		resp, _ := printFeedReq(t, srv, "?wait=20", etag)
-		done <- result{resp.StatusCode, time.Since(start)}
+		resp, err := printFeedDo(srv, "?wait=20", etag)
+		if err != nil {
+			done <- result{err: err}
+			return
+		}
+		done <- result{code: resp.StatusCode, took: time.Since(start)}
 	}()
 	select {
 	case r := <-done:
-		t.Fatalf("long-poll answered %d before any change", r.code)
+		t.Fatalf("long-poll answered %d (%v) before any change", r.code, r.err)
 	case <-time.After(300 * time.Millisecond):
 	}
 	stub.set(44, 240)
 	app.printer.Step(context.Background())
 	select {
 	case r := <-done:
+		if r.err != nil {
+			t.Fatal(r.err)
+		}
 		if r.code != http.StatusOK || r.took > 5*time.Second {
 			t.Fatalf("long-poll = %d after %v, want 200 soon after the change", r.code, r.took)
 		}
