@@ -79,7 +79,7 @@ func (c Config) Validate() error {
 		return fmt.Errorf("printer.name: at most %d characters", maxNameRunes)
 	}
 	if c.DoneHoldMin < 0 || c.DoneHoldMin > maxDoneHoldMin {
-		return fmt.Errorf("printer.done_hold_min %d out of range [1, %d]", c.DoneHoldMin, maxDoneHoldMin)
+		return fmt.Errorf("printer.done_hold_min %d out of range [1, %d] (0 = %d)", c.DoneHoldMin, maxDoneHoldMin, DefaultDoneHoldMin)
 	}
 	return nil
 }

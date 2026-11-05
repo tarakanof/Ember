@@ -204,7 +204,7 @@ temperatures, short `name`, `material`, `thumb_version`, the last 30 min of
 and `printer` `{name, host, url, discovered, hostname, firmware}` —
 ARCHITECTURE "Print status"), `GET/PUT /v1/print/config` (`enabled`, `url`
 `auto` or `http(s)://host[:port]`, `name`, `clock_app`, `notify_done`,
-`notify_attention`, `done_hold_min` 1-1440; the password is env-only),
+`notify_attention`, `done_hold_min` 1-1440, 0 = 30; the password is env-only),
 `GET/PUT /v1/quiet/config` (also drives the
 knob view's `quiet`), `GET/PUT /v1/brightness/config` (every `…/config`
 settings PUT above is merge semantics: the body is a JSON object whose omitted

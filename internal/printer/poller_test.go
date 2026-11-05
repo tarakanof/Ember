@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -332,16 +333,175 @@ func TestChoosePrefersTheConfiguredName(t *testing.T) {
 		{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: "http://10.0.0.2"},
 		{Name: "Workshop", Host: "core-one.local.", URL: "http://10.0.0.4"},
 	}
-	cases := []struct{ name, want string }{
-		{"CORE One", "http://10.0.0.4"},
-		{"Prusa CORE One", "http://10.0.0.2"},
-		{"MK4", "http://10.0.0.3"},
-		{"XL", "http://10.0.0.4"},
+	cases := []struct {
+		name, want string
+		matched    bool
+	}{
+		{"CORE One", "http://10.0.0.4", true},
+		{"Prusa CORE One", "http://10.0.0.2", true},
+		{"MK4", "http://10.0.0.3", true},
+		{"XL", "http://10.0.0.4", false},
 	}
 	for _, c := range cases {
-		if got := Choose(found, c.name).URL; got != c.want {
-			t.Errorf("Choose(%q) = %s, want %s", c.name, got, c.want)
+		if got, matched := Choose(found, c.name); got.URL != c.want || matched != c.matched {
+			t.Errorf("Choose(%q) = %s %v, want %s %v", c.name, got.URL, matched, c.want, c.matched)
 		}
+	}
+	coreOnes := []Found{
+		{Host: "prusa-core-one-l.local.", URL: "http://10.0.0.5"},
+		{Host: "prusa-core-one.local.", URL: "http://10.0.0.6"},
+	}
+	if got, _ := Choose(coreOnes, "CORE One"); got.URL != "http://10.0.0.6" {
+		t.Errorf("Choose(CORE One) picked %s, want the CORE One, not the CORE One L", got.URL)
+	}
+}
+
+type lan struct {
+	mu    sync.Mutex
+	found []Found
+	n     int
+}
+
+func (l *lan) set(f ...Found) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.found = f
+}
+
+func (l *lan) browse(context.Context) ([]Found, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.n++
+	return slices.Clone(l.found), nil
+}
+
+func TestAutoModeNeverSwitchesToAnotherPrinterWhenTheNamedOneIsOff(t *testing.T) {
+	core := newStubPrinter(t)
+	mk4 := newStubPrinter(t)
+	mk4.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	net := &lan{}
+	net.set(Found{Host: "prusa-core-one.local.", URL: core.srv.URL}, Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	core.set(func(s *stubPrinter) { s.status = statusJSON("PRINTING", &jobFields{id: 7, progress: 50}) })
+	h.advance(h.step())
+	core.srv.Close()
+	net.set(Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL})
+	for range 5 {
+		h.advance(h.step())
+	}
+	snap := h.snap()
+	if snap.Printer.URL != core.srv.URL || snap.Phase != PhaseOffline {
+		t.Fatalf("switched to %s (%s), want to stay offline on the CORE One", snap.Printer.URL, snap.Phase)
+	}
+	if len(snap.Events) != 0 || mk4.total() != 0 {
+		t.Fatalf("events %v, MK4 requests %d", eventKinds(snap), mk4.total())
+	}
+}
+
+func TestAutoModeFallbackMovesToTheNamedPrinterWhenItAppears(t *testing.T) {
+	core := newStubPrinter(t)
+	mk4 := newStubPrinter(t)
+	mk4.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	net := &lan{}
+	net.set(Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	h.advance(h.step())
+	if got := h.snap().Printer.URL; got != mk4.srv.URL {
+		t.Fatalf("fallback = %s, want the only printer", got)
+	}
+	core.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	net.set(Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL}, Found{Host: "prusa-core-one.local.", URL: core.srv.URL})
+	h.advance(h.step())
+	snap := h.snap()
+	if snap.Printer.URL != core.srv.URL || snap.Printer.Host != "prusa-core-one.local" {
+		t.Fatalf("printer = %+v, want the CORE One once it appears", snap.Printer)
+	}
+	if len(snap.Events) != 0 {
+		t.Fatalf("switching printers fired %v", eventKinds(snap))
+	}
+	browsed := net.n
+	h.advance(h.step())
+	if net.n != browsed {
+		t.Fatal("kept browsing after the named printer was found")
+	}
+}
+
+func TestNameChangeSelectsAnotherPrinter(t *testing.T) {
+	core := newStubPrinter(t)
+	mk4 := newStubPrinter(t)
+	net := &lan{}
+	net.set(Found{Host: "prusa-core-one.local.", URL: core.srv.URL}, Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	h.advance(h.step())
+	h.mu.Lock()
+	h.cfg.Name = "MK4"
+	h.mu.Unlock()
+	h.advance(h.step())
+	if got := h.snap().Printer.URL; got != mk4.srv.URL {
+		t.Fatalf("after renaming to MK4 polling %s", got)
+	}
+}
+
+func TestSwitchingPrinterStartsAFreshBaseline(t *testing.T) {
+	a := newStubPrinter(t)
+	b := newStubPrinter(t)
+	a.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 7, progress: 50, printing: num(600)})
+		s.job = jobJSON(7, "PRINTING", "part_a.gcode")
+	})
+	b.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	h := newHarness(t, manualConfig(a.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	h.mu.Lock()
+	h.cfg = manualConfig(b.srv.URL)
+	h.mu.Unlock()
+	h.advance(h.step())
+	snap := h.snap()
+	if len(snap.Events) != 0 || snap.JobID == 7 || snap.Name == "part_a" || !snap.StartedAt.IsZero() {
+		t.Fatalf("printer B inherited printer A's job: %+v", snap)
+	}
+}
+
+func TestReenablingReplaysNoStaleEdge(t *testing.T) {
+	s := newStubPrinter(t)
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("PRINTING", &jobFields{id: 1, progress: 50}) })
+	h.advance(h.step())
+	h.mu.Lock()
+	h.cfg.Enabled = false
+	h.mu.Unlock()
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	h.advance(3 * time.Hour)
+	h.mu.Lock()
+	h.cfg.Enabled = true
+	h.mu.Unlock()
+	h.advance(h.step())
+	if ev := eventKinds(h.snap()); len(ev) != 0 {
+		t.Fatalf("re-enabling fired %v for a print that ended while disabled", ev)
+	}
+}
+
+func TestThumbnailRetriesCountPerJob(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.thumb, s.thumbType = []byte("\x89PNG\r\n\x1a\nx"), "text/plain" })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	job := func(id int) {
+		s.set(func(s *stubPrinter) {
+			s.status = statusJSON("PRINTING", &jobFields{id: id, progress: 5})
+			s.job = strings.Replace(jobJSON(id, "PRINTING", "a.bgcode"), "BRACKE~1.BGC\",\"display", fmt.Sprintf("J%d.BGC\",\"display", id), 1)
+			s.job = strings.Replace(s.job, "/thumb/l/usb/BRACKE~1.BGC", fmt.Sprintf("/thumb/l/usb/J%d.BGC", id), 1)
+		})
+	}
+	job(1)
+	h.advance(h.step())
+	h.advance(h.step())
+	job(2)
+	for range 4 {
+		h.advance(h.step())
+	}
+	if got := s.hit("/thumb/l/usb/J2.BGC"); got != thumbTries {
+		t.Fatalf("job 2 thumbnail tried %d times, want %d", got, thumbTries)
 	}
 }
 
@@ -401,6 +561,26 @@ func TestMissingThumbnailIsNoPicture(t *testing.T) {
 	}
 	if got := s.hit("/thumb/l/usb/BRACKE~1.BGC"); got != 1 {
 		t.Fatalf("missing thumbnail asked %d times, want once per job", got)
+	}
+}
+
+func TestDoneHoldOutlastsTheEventWindow(t *testing.T) {
+	s := newStubPrinter(t)
+	cfg := manualConfig(s.srv.URL)
+	cfg.DoneHoldMin = 60
+	h := newHarness(t, cfg, testPassword, nil)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("PRINTING", &jobFields{id: 1, progress: 50}) })
+	h.step()
+	s.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	h.advance(PollActive)
+	h.step()
+	doneAt := h.now
+	h.advance(45 * time.Minute)
+	if got := h.snap().HoldUntil; !got.Equal(doneAt.Add(time.Hour)) {
+		t.Fatalf("60-minute hold at +45 min = %v, want %v", got, doneAt.Add(time.Hour))
+	}
+	if len(h.snap().Events) != 0 {
+		t.Fatal("event kept past 30 min")
 	}
 }
 

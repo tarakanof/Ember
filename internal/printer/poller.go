@@ -57,7 +57,10 @@ type Poller struct {
 
 	client       *Client
 	target       string
+	identity     string
 	manual       bool
+	selName      string
+	matched      bool
 	failures     int
 	backoff      int
 	active       bool
@@ -66,6 +69,7 @@ type Poller struct {
 	needJob      bool
 	versionTried bool
 	thumbFails   int
+	thumbFailRef string
 	changeKey    string
 }
 
@@ -111,6 +115,10 @@ func (p *Poller) Wake() {
 }
 
 func (p *Poller) Run(ctx context.Context) {
+	select {
+	case <-p.wake:
+	default:
+	}
 	for {
 		d := p.Step(ctx)
 		if ctx.Err() != nil {
@@ -135,7 +143,9 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	p.State.configure(cfg.Enabled, time.Duration(cfg.DoneHoldMin)*time.Minute, cfg.Name)
 	if !cfg.Enabled {
 		p.disconnect()
+		p.identity = ""
 		p.latched, p.loggedErr = "", ""
+		p.State.forget()
 		p.State.setOff(ErrCodeNone)
 		return PollDisabled
 	}
@@ -157,8 +167,14 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 			p.use(Found{Host: hostOf(cfg.URL), URL: cfg.URL}, true, creds)
 		}
 	} else {
-		if p.manual {
+		if p.manual || (p.client != nil && p.selName != cfg.Name) {
 			p.disconnect()
+		}
+		if p.client != nil && !p.matched && !p.active {
+			p.discover(ctx, cfg.Name, creds)
+			if ctx.Err() != nil {
+				return 0
+			}
 		}
 		if p.client == nil {
 			if !p.discover(ctx, cfg.Name, creds) {
@@ -171,8 +187,12 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 			}
 		}
 	}
-	if p.client.creds != creds {
+	if p.client != nil && p.client.creds != creds {
 		p.use(Found{Host: p.State.At(p.now()).Printer.Host, URL: p.target}, p.manual, creds)
+	}
+	if p.client == nil {
+		p.State.setOffline(ErrCodeUnreachable)
+		return p.nextBackoff()
 	}
 
 	err := p.poll(ctx)
@@ -247,12 +267,21 @@ func (p *Poller) use(f Found, manual bool, creds Credentials) {
 		p.disconnect()
 		return
 	}
+	host := strings.TrimSuffix(f.Host, ".")
+	identity := host
+	if manual {
+		identity = f.URL
+	}
+	if p.identity != "" && identity != p.identity {
+		p.State.forget()
+		p.thumbFails, p.thumbFailRef = 0, ""
+	}
 	if f.URL != p.target {
 		p.versionTried = false
 		p.needJob = true
 	}
-	p.client, p.target, p.manual = c, f.URL, manual
-	p.State.setTarget(f.URL, strings.TrimSuffix(f.Host, "."), !manual)
+	p.client, p.target, p.manual, p.identity = c, f.URL, manual, identity
+	p.State.setTarget(f.URL, host, !manual)
 }
 
 func (p *Poller) discover(ctx context.Context, name string, creds Credentials) bool {
@@ -263,31 +292,46 @@ func (p *Poller) discover(ctx context.Context, name string, creds Credentials) b
 	if err != nil || len(found) == 0 {
 		return false
 	}
-	f := Choose(found, name)
+	f, matched := Choose(found, name)
+	if !matched && p.client != nil {
+		same := slices.IndexFunc(found, func(c Found) bool { return strings.TrimSuffix(c.Host, ".") == p.identity })
+		if p.matched || same < 0 {
+			return false
+		}
+		f = found[same]
+	}
 	if f.URL != p.target {
-		p.logger.Info("printer discovered", "host", f.Host, "url", f.URL, "candidates", len(found))
+		p.logger.Info("printer discovered", "host", f.Host, "url", f.URL, "candidates", len(found), "name_match", matched)
 	}
 	p.use(f, false, creds)
+	p.selName, p.matched = name, matched
 	return p.client != nil
 }
 
-func Choose(found []Found, name string) Found {
+func Choose(found []Found, name string) (Found, bool) {
 	sorted := slices.Clone(found)
 	slices.SortFunc(sorted, func(a, b Found) int { return strings.Compare(a.Host+a.URL, b.Host+b.URL) })
 	want := squash(name)
-	if want != "" {
-		for _, f := range sorted {
-			if squash(hostLabel(f.Host)) == want || squash(f.Name) == want {
-				return f
-			}
+	if want == "" {
+		return sorted[0], false
+	}
+	for _, f := range sorted {
+		if squash(hostLabel(f.Host)) == want || squash(f.Name) == want {
+			return f, true
 		}
-		for _, f := range sorted {
-			if strings.Contains(squash(hostLabel(f.Host)), want) || strings.Contains(squash(f.Name), want) {
-				return f
+	}
+	best, bestLen := -1, 0
+	for i, f := range sorted {
+		for _, label := range []string{squash(hostLabel(f.Host)), squash(f.Name)} {
+			if strings.Contains(label, want) && (best < 0 || len(label) < bestLen) {
+				best, bestLen = i, len(label)
 			}
 		}
 	}
-	return sorted[0]
+	if best >= 0 {
+		return sorted[best], true
+	}
+	return sorted[0], false
 }
 
 func hostLabel(h string) string {
@@ -368,6 +412,9 @@ func (p *Poller) fetchJob(ctx context.Context) error {
 		p.thumbFails = 0
 		p.State.setThumb(ref, nil)
 	default:
+		if p.thumbFailRef != ref {
+			p.thumbFails, p.thumbFailRef = 0, ref
+		}
 		p.thumbFails++
 		if p.thumbFails < thumbTries {
 			p.State.forgetThumbRef(ref)

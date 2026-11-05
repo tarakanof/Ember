@@ -136,8 +136,10 @@ type State struct {
 	thumb    []byte
 	thumbVer string
 
-	events []Event
-	lastID uint64
+	events     []Event
+	lastID     uint64
+	finishedAt time.Time
+	stoppedAt  time.Time
 }
 
 func NewState() *State {
@@ -197,23 +199,19 @@ func wholePercent(p float64) int {
 }
 
 func (s *State) holdUntilLocked(now time.Time) time.Time {
-	var kind EventKind
+	var at time.Time
 	hold := s.doneHold
 	switch s.phase {
 	case PhaseFinished:
-		kind = EventFinished
+		at = s.finishedAt
 	case PhaseStopped:
-		kind, hold = EventStopped, StoppedHold
-	default:
+		at, hold = s.stoppedAt, StoppedHold
+	}
+	if at.IsZero() {
 		return time.Time{}
 	}
-	for i := len(s.events) - 1; i >= 0; i-- {
-		if e := s.events[i]; e.Kind == kind {
-			if until := e.At.Add(hold); now.Before(until) {
-				return until
-			}
-			return time.Time{}
-		}
+	if until := at.Add(hold); now.Before(until) {
+		return until
 	}
 	return time.Time{}
 }
@@ -240,6 +238,12 @@ func (s *State) emitLocked(now time.Time, kind EventKind) {
 		id = s.lastID + 1
 	}
 	s.lastID = id
+	switch kind {
+	case EventFinished:
+		s.finishedAt = now
+	case EventStopped:
+		s.stoppedAt = now
+	}
 	s.events = append(s.events, Event{ID: id, Kind: kind, At: now, JobID: s.jobID})
 	if len(s.events) > maxEvents {
 		s.events = s.events[len(s.events)-maxEvents:]
@@ -252,6 +256,18 @@ func (s *State) configure(enabled bool, doneHold time.Duration, name string) {
 	s.enabled = enabled
 	s.doneHold = doneHold
 	s.info.Name = name
+}
+
+func (s *State) forget() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen, s.prevPhase, s.rawState, s.updatedAt = false, "", "", time.Time{}
+	s.jobID, s.startedID, s.progress = 0, 0, 0
+	s.endsAt, s.startedAt, s.changeAt = time.Time{}, time.Time{}, time.Time{}
+	s.nozzle, s.nozzleT, s.bed, s.bedT = 0, 0, 0, 0
+	s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
+	s.events, s.finishedAt, s.stoppedAt = nil, time.Time{}, time.Time{}
+	s.info.Hostname, s.info.Firmware = "", ""
 }
 
 func (s *State) setOff(code ErrorCode) {

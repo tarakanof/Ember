@@ -2733,14 +2733,23 @@ keeps it on the default transport: mDNS browsing is injected
   carry only the operation and cause, never the request.
 - **Address.** `printer.url` `auto` (default) browses `_prusalink._tcp`
   (3 s) and keeps the answer in RAM. Several printers: the one whose mDNS
-  host or instance name equals `printer.name` (letters and digits,
-  case-folded), else contains it, else the first by host. A poll failure
-  that would make or keep the phase `offline` browses again first, so a
-  printer that moved to a new DHCP address is polled at the new one in the
-  same step (well within a minute). A manual `http://host[:port]` is never
+  host label or instance name equals `printer.name` (letters and digits,
+  case-folded), else the shortest one containing it (so "CORE One" picks
+  `prusa-core-one`, not `prusa-core-one-l`), else the first by host. A
+  printer chosen by name is the only one ever polled: a poll failure that
+  would make or keep the phase `offline` browses again first and follows
+  only a name match (the same printer at a new DHCP address, polled in the
+  same step, well within a minute), never another printer. A fallback
+  printer (no name match) is followed by host only, and every idle step
+  browses again so the named printer is picked once it appears. Changing
+  `printer.name` selects again. A manual `http://host[:port]` is never
   rediscovered. Nothing found: `offline` with `not_found`, retried on the
   backoff below. Host networking is required for mDNS (production runs
   `--network host`).
+- **Identity.** A different printer (another mDNS host, another manual URL)
+  or disabling the printer clears the state: job, anchors, events, holds
+  and the edge baseline, so the next printer's first poll is a baseline
+  again and nothing carries over or replays.
 - **Cadence.** `GET /api/v1/status` every 5 s while a job is active
   (`PRINTING`, `PAUSED`, `ATTENTION`, `BUSY` with a job), else 30 s.
   `GET /api/v1/job` only when `printer.state` or `job.id` changes (and
@@ -2777,9 +2786,11 @@ keeps it on the default transport: mDNS browsing is injected
   or mid-print replays nothing; a printer that went `offline` and comes back
   is compared with its last online phase. Notifications and bot moments act
   on events, never on a level.
-- **Holds.** `Snapshot.HoldUntil` is the `finished` event + `done_hold_min`
-  (30) or the `stopped` event + 10 min while the phase still says so; zero
-  otherwise (and after a restart, which saw no event).
+- **Holds.** `Snapshot.HoldUntil` is the `finished` edge + `done_hold_min`
+  (30; 0 in a PUT means 30) or the `stopped` edge + 10 min while the phase
+  still says so; zero otherwise (and after a restart, which saw no edge).
+  The edge times are kept apart from the 30-min event list, so a hold
+  longer than 30 min lasts.
 - **Thumbnail.** On a new job, `refs.thumbnail` (`/thumb/l/…`) is read once:
   `image/png`, PNG magic, ≤ 1 MB, RAM only (`State.Thumbnail()`),
   `thumb_version` = 12 hex digits of its SHA-256. 404 = no picture, not

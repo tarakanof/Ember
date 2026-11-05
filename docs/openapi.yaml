@@ -225,7 +225,7 @@ components:
         clock_app: {type: boolean, default: true}
         notify_done: {type: boolean, default: true}
         notify_attention: {type: boolean, default: true}
-        done_hold_min: {type: integer, default: 30, minimum: 1, maximum: 1440}
+        done_hold_min: {type: integer, default: 30, minimum: 0, maximum: 1440, description: Minutes the done card is held; 0 means the default 30.}
     Error:
       type: object
       required: [error]
