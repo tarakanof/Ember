@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/printer"
 	"github.com/tarakanof/ember/internal/render"
 )
 
@@ -64,6 +65,10 @@ type coordinator struct {
 	hiddenApps func() map[string]bool
 
 	waitIcons func() bool
+
+	printSnap  func(time.Time) printer.Snapshot
+	printIcons func() bool
+	printNotes printNotifyState
 
 	soundObject  func() bool
 	refreshSound func(context.Context)
@@ -353,5 +358,6 @@ func (c *coordinator) onTick() {
 
 	c.publish(snap)
 	c.reconcileTiles(c.clk.Now())
+	c.checkPrint(c.clk.Now())
 	c.checkLimitAlarms(c.clk.Now(), snap)
 }

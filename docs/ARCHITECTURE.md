@@ -2870,9 +2870,56 @@ keeps it on the default transport: mDNS browsing is injected
 - **Config** `printer.{enabled,url,name,clock_app,notify_done,notify_attention,done_hold_min}`
   in `config.json` and the overlay key `printer_json` (`PUT /v1/print/config`,
   owner); `/admin/reload` re-reads it and wakes the poller. `clock_app` and
-  the notify toggles are stored here for #790. `/admin/doctor` has a
+  the notify toggles drive the TC001 app and popups below. `/admin/doctor` has a
   `printer` check (Warn for a missing or wrong password, not found,
   unreachable; never Fail, a switched-off printer is normal).
+- **TC001 app and popups** (#790; `internal/render/print.go`,
+  `cmd/ember/coordinator_print.go`). The app is three rotating tiles on the
+  existing `tiles` ledger, so the clock's own rotation does the 3 s card
+  change and nothing is pushed per card: `ember-print` (time left + hourglass,
+  or the percent when there is no estimate; the status card in every other
+  phase), `ember-print-eta` (ready-at clock) and `ember-print-pct`, the last
+  two only while printing or preparing with an estimate. Each lasts
+  `durationMs` 3 s. In the rotation while the phase is heating, preparing,
+  printing, finishing, paused or attention, and for `finished` / `stopped`
+  while `Snapshot.HoldUntil` is set (so it leaves `done_hold_min` after the
+  edge although the printer still says FINISHED, and a restart that saw no
+  edge never shows it); absent for idle, offline, off and error.
+  `printer.clock_app` false removes it, a disabled printer and an idle one
+  touch the clock not at all (`reconcile` only clears what it tracks).
+  Heating shows the nozzle degrees and a heat bar, finishing `COOL`, paused
+  `PAUSE`, finished `DONE`, stopped `STOP`; attention a native `PRINT` label
+  with `textBlinkMs` (the clock blinks it, no frames from Ember). Colour
+  change soon (`change_at` within 2 min) draws the bar's remaining part amber;
+  it is steady, not blinking: a blink of drawn pixels would need a push per
+  half second on a link that already drops packets.
+  **The icon** draws the CORE One as it moves: the head stays on rows 1-2,
+  the bed row sinks from row 3 to 6 as the part grows under the nozzle
+  (`ceil(progress*3/100)` rows, never a part rising toward a fixed bed), the
+  nozzle pixel carries the state colour (red heating, green printing, amber
+  paused/attention, blue finished, grey stopped). While *printing* the
+  nozzle sweeps: four 8-frame GIFs (one per bed level, `ember_print_h<n>_<crc>`)
+  are provisioned once next to the wait icons when the printer and
+  `clock_app` are on (`provisionPrintIcons`, armed with `printIcons`, the
+  clock generation guard of `armWaitIcons`) and play on the clock, so the
+  frame budget on the link is zero beyond the card pushes (a body change a
+  minute, a percent, a bed step). Unarmed, the same icon is drawn static in
+  the bitmap, which is also what `GET /v1/print/preview` shows. The payload
+  with a GIF icon draws only cols 8-31, so row 7 still starts at `barX0`
+  (`TestEveryBottomBarStartsAtBarX0`).
+  **Popups** (`checkPrint`, every coordinator tick and on every printer
+  change) fire from state **events**, never from the level: `finished`
+  `DONE h:mm` (10 s, chime once), `attention` `CHECK PRINTER` (amber, 120 s,
+  repeated every 10 min while the phase is still attention, dismissed by name
+  once it clears) and `error` red (30 s). Ids already handled are
+  skipped; an event older than 5 min (2 min for attention) is dropped
+  instead of popping late; a failed push is retried on the next tick; a
+  `finished` pops once per job id. State has no persistence, so a restart
+  that first reads FINISHED has no event and pops nothing. Sounds and the
+  quiet-hours / day-clock rule are `showNotice`'s, as for reminders (quiet:
+  the popup shows without sound). `notify_done` gates `finished`,
+  `notify_attention` gates `attention` and `error`; `started` and `stopped`
+  never pop.
 
 ### Knob controls — `cmd/ember/controls*.go`, `macos/Sources/EmberKit/Controls`, `macos/Ember/Services/*Controls*` (#515)
 

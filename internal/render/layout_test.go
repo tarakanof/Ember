@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -90,6 +91,15 @@ func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 		"pomodoro device":           row7FromPayload(t, PomodoroPayload(pomo, 60)),
 		"pomodoro preview":          row7FromFrame(RenderPomodoro(pomo)),
 	}
+	for name, f := range printGoldenCases() {
+		f := f
+		cases["print "+name] = row7FromFrame(&f)
+	}
+	for _, phase := range []string{PrintPhasePrinting, PrintPhaseAttention, PrintPhaseFinished, PrintPhaseHeating} {
+		for _, armed := range []bool{false, true} {
+			cases[fmt.Sprintf("print payload %s armed=%t", phase, armed)] = row7FromPayload(t, PrintPayload(printSample(phase), PrintCardTime, armed, 60))
+		}
+	}
 	for name, row := range cases {
 		if got := firstBarCol(row); got != barX0 {
 			t.Errorf("%s: row-7 bar starts at col %d, want barX0=%d", name, got, barX0)
@@ -112,6 +122,9 @@ func TestTextPayloadsMaskTheIconGap(t *testing.T) {
 		"meeting popup":   MeetingPopupPayload("STANDUP", 2, 5),
 		"reminder popup":  ReminderPopupPayload("Call mom", "", 5, false),
 		"limit reset":     LimitResetPopupPayload("claude", 5),
+		"print done":      PrintDonePopupPayload("2:14", 10),
+		"print attention": PrintAttentionPopupPayload(120),
+		"print error":     PrintErrorPopupPayload(30),
 	}
 	for name, p := range cases {
 		if _, ok := p["text"]; !ok {

@@ -21,7 +21,12 @@ func (a *App) newPrinter(browse printer.BrowseFunc, now func() time.Time) *print
 		Logger: a.logger,
 		Now:    now,
 	})
-	p.OnChange = func() { a.changes.notify(topicPrint) }
+	p.OnChange = func() {
+		a.changes.notify(topicPrint)
+		if a.coord != nil {
+			a.coord.Send(coordCmd{kind: cmdTick})
+		}
+	}
 	return p
 }
 
@@ -58,7 +63,10 @@ func (a *App) printerSettingSpec() settingSpec[printer.Config] {
 			c.Printer = p
 			return nil
 		},
-		after: func(Config) { a.printer.Wake() },
+		after: func(Config) {
+			a.printer.Wake()
+			a.provisionIconsInBackground()
+		},
 	}
 }
 
