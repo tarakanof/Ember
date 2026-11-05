@@ -134,10 +134,10 @@ func TestPrintSweepGIFKeepsTheNozzleAtTheTop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(icons) != printBedLevels+1 {
-		t.Fatalf("%d icons, want %d", len(icons), printBedLevels+1)
+	if len(icons) != printBedLevels {
+		t.Fatalf("%d icons, want %d", len(icons), printBedLevels)
 	}
-	for h := 0; h <= printBedLevels; h++ {
+	for h := 1; h <= printBedLevels; h++ {
 		name := PrintIconName(h)
 		g, err := gif.DecodeAll(bytes.NewReader(icons[name]))
 		if err != nil {

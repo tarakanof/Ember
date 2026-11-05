@@ -228,7 +228,11 @@ func (c *coordinator) printEvent(now time.Time, cfg printer.Config, snap printer
 		}
 		st.fired[key] = struct{}{}
 	case printer.EventAttention:
-		if !cfg.NotifyAttentionEnabled() || age > printAttentionGrace || snap.Phase != printer.PhaseAttention {
+		if !cfg.NotifyAttentionEnabled() || snap.Phase != printer.PhaseAttention {
+			return true
+		}
+		if age > printAttentionGrace {
+			st.attnOn, st.attnNext = true, now
 			return true
 		}
 		if err := c.fireNotice(noticePrintAttention, render.PrintAttentionPopupPayload(printAttentionPopSec), printAttentionRTTTL); err != nil {

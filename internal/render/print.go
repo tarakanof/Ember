@@ -184,8 +184,8 @@ var printSweepX = []int{2, 3, 4, 5, 5, 4, 3, 2}
 const printSweepDelayCs = 25
 
 func printIconSet() (map[string][]byte, error) {
-	out := make(map[string][]byte, printBedLevels+1)
-	for h := 0; h <= printBedLevels; h++ {
+	out := make(map[string][]byte, printBedLevels)
+	for h := 1; h <= printBedLevels; h++ {
 		data, err := printSweepGIF(h)
 		if err != nil {
 			return nil, err
@@ -200,8 +200,8 @@ var printIcons = sync.OnceValues(printIconSet)
 func PrintIcons() (map[string][]byte, error) { return printIcons() }
 
 func PrintIconName(h int) string {
-	if h < 0 {
-		h = 0
+	if h < 1 {
+		h = 1
 	}
 	if h > printBedLevels {
 		h = printBedLevels

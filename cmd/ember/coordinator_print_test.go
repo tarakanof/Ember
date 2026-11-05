@@ -481,3 +481,13 @@ func TestPrintFailedPopupWaitsBeforeRetrying(t *testing.T) {
 		t.Errorf("no retry after the wait: %d attempts", calls)
 	}
 }
+
+func TestPrintAttentionStillRepeatsWhenTheFirstPopupWasMissed(t *testing.T) {
+	r := newPrintNoteRig(t, nil)
+	r.snap = printSnap(printer.PhaseAttention, nil)
+	r.event(printer.EventAttention, 100, printT0.Add(-10*time.Minute))
+	r.tick(time.Second)
+	if n := r.pub.NotifySnapshot(); len(n) != 1 || n[0]["name"] != notifyNamePrintAttention {
+		t.Errorf("a prompt that outlived the missed first popup got %v", n)
+	}
+}

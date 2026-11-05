@@ -1547,7 +1547,7 @@ to the real clock):
 7. Idle check: with no print running, the clock's app loop holds no
    `ember-print*` entry and Ember pushed none (the app is not published when
    idle, so the link carries no extra traffic). The animated icons are
-   `ember_print_h0..3_*.gif` in the clock's icon store; a clock reboot or move
+   `ember_print_h1..3_*.gif` in the clock's icon store; a clock reboot or move
    provisions them again, and until they exist the icon is drawn static.
 
 ## AI usage card (threshold-gated, inside the main app)

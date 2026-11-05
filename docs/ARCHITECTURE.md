@@ -186,7 +186,7 @@ The aggregator and the only writer to the device.
     unreachable the snapshot stays in the store and the next start restores it.
 - **Rotating tiles — one module** (`cmd/ember/coordinator_tiles.go`, #145).
   The standalone apps Ember owns (`ember-weather`, `ember-forecast`,
-  `ember-air`, `ember-meet`) are one `tile` value each in `tiles`: app name,
+  `ember-air`, `ember-meet`, and the print app's `ember-print`, `ember-print-eta`, `ember-print-pct`) are one `tile` value each in `tiles`: app name,
   preview card, `toggle` (the tile's own switch), `live` (device-only gate:
   feature on, data fresh, meeting inside the lead window) and `view`, which
   resolves the content once into both the device payload and the preview
@@ -2898,7 +2898,7 @@ keeps it on the default transport: mDNS browsing is injected
   (`ceil(progress*3/100)` rows, never a part rising toward a fixed bed), the
   nozzle pixel carries the state colour (red heating, green printing, amber
   paused/attention, blue finished, grey stopped). While *printing* the
-  nozzle sweeps: four 8-frame GIFs (one per bed level, `ember_print_h<n>_<crc>`)
+  nozzle sweeps: three 8-frame GIFs (one per bed level 1-3, `ember_print_h<n>_<crc>`; a printing job is past 1 %)
   are provisioned once next to the wait icons when the printer and
   `clock_app` are on (`provisionPrintIcons`, armed with `printIcons`, the
   clock generation guard of `armWaitIcons`) and play on the clock, so the
@@ -6154,6 +6154,8 @@ with an 8px icon, so nothing jumps sideways as the device rotates between apps:
 | 8–31 | 7 | bottom bar: session bar, rate bar, usage bar, weather/AQI strip, Pomodoro progress (NG's native progress also starts at x=8 under an icon) | `barX0`, `barW`, `barRow` |
 
 `TestEveryBottomBarStartsAtBarX0` pins every app's row-7 bar to `barX0`.
+The print app (see "Print status") follows it: icon cols 0-7, cards from col 9,
+hourglass at cols 27-29, bar on row 7 from col 8.
 Hourly data (weather and AQI strips, forecast bars) share one rule, `hourSlot`:
 hour *i* of an N-hour window owns `24/N` whole columns from col 8. Windows that
 divide 24 fill the bar; others (22 h) leave an even dark tail on the right
