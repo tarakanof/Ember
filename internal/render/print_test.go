@@ -63,6 +63,7 @@ func printGoldenCases() map[string]Frame {
 		"printing_pct":   PrintTileFrame(printSample(PrintPhasePrinting), PrintCardPct),
 		"no_estimate":    PrintTileFrame(noEst, PrintCardTime),
 		"colour_change":  PrintTileFrame(soon, PrintCardTime),
+		"preparing":      PrintTileFrame(printSample(PrintPhasePreparing), PrintCardTime),
 		"finishing":      PrintTileFrame(printSample(PrintPhaseFinishing), PrintCardTime),
 		"paused":         PrintTileFrame(printSample(PrintPhasePaused), PrintCardTime),
 		"attention":      PrintTileFrame(printSample(PrintPhaseAttention), PrintCardTime),

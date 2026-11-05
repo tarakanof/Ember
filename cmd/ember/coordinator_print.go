@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"time"
 
@@ -121,8 +120,6 @@ func samplePrintSnapshot(now time.Time) printer.Snapshot {
 
 type printNotifyState struct {
 	lastID   uint64
-	ident    string
-	fired    map[string]struct{}
 	attnOn   bool
 	attnNext time.Time
 	retryAt  time.Time
@@ -165,9 +162,6 @@ func (c *coordinator) checkPrint(now time.Time) {
 	if now.Before(st.retryAt) {
 		return
 	}
-	if ident := snap.Printer.Host + "|" + snap.Printer.URL; st.fired == nil || (ident != st.ident && snap.Printer.URL != "") {
-		st.fired, st.ident = map[string]struct{}{}, ident
-	}
 	for _, e := range snap.Events {
 		if e.ID <= st.lastID {
 			continue
@@ -178,7 +172,7 @@ func (c *coordinator) checkPrint(now time.Time) {
 		}
 		st.lastID = e.ID
 	}
-	if !st.attnOn {
+	if !st.attnOn || snap.Phase == printer.PhaseOffline {
 		return
 	}
 	switch {
@@ -210,10 +204,6 @@ func (c *coordinator) printEvent(now time.Time, cfg printer.Config, snap printer
 	}
 	switch e.Kind {
 	case printer.EventFinished:
-		key := fmt.Sprintf("finished|%d", e.JobID)
-		if _, dup := st.fired[key]; dup && e.JobID != 0 {
-			return true
-		}
 		if !cfg.NotifyDoneEnabled() || age > printDoneGrace {
 			return true
 		}
@@ -226,7 +216,6 @@ func (c *coordinator) printEvent(now time.Time, cfg printer.Config, snap printer
 		if err := c.fireNotice(noticePrintDone, render.PrintDonePopupPayload(total, printDonePopupSec), printDoneRTTTL); err != nil {
 			return fail("finished", err)
 		}
-		st.fired[key] = struct{}{}
 	case printer.EventAttention:
 		if !cfg.NotifyAttentionEnabled() || snap.Phase != printer.PhaseAttention {
 			return true

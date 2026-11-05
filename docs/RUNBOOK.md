@@ -1544,7 +1544,11 @@ to the real clock):
    `done_hold_min` minutes, then leaves.
 6. Open a filament prompt on the printer: an amber `CHECK PRINTER` popup,
    repeated every 10 min while the prompt stays.
-7. Idle check: with no print running, the clock's app loop holds no
+7. Card order: after heating → printing and after a pause → resume, the
+   clock's loop shows the three cards one after the other (the ready-at and
+   percent cards are pushed later than the first; if NG appends new apps
+   to the end of its loop, report it).
+8. Idle check: with no print running, the clock's app loop holds no
    `ember-print*` entry and Ember pushed none (the app is not published when
    idle, so the link carries no extra traffic). The animated icons are
    `ember_print_h1..3_*.gif` in the clock's icon store; a clock reboot or move

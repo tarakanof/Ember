@@ -2913,7 +2913,7 @@ keeps it on the default transport: mDNS browsing is injected
   repeated every 10 min while the phase is still attention, dismissed by name
   once it clears) and `error` red (30 s). Ids already handled are
   skipped; an event older than 5 min (2 min for attention) is dropped
-  instead of popping late; a failed push or dismissal waits 30 s and retries; a printer change runs only the tile and popup work (`cmdPrint`), never the agent card cursor; heating temperatures show in 5° steps so a warm-up is not pushed every poll; a
+  instead of popping late; a failed push or dismissal waits 30 s and retries; a printer that drops `offline` mid-attention keeps its popup and repeat; a printer change runs only the tile and popup work (`cmdPrint`), never the agent card cursor; heating temperatures show in 5° steps so a warm-up is not pushed every poll; a
   `finished` pops once per job id. State has no persistence, so a restart
   that first reads FINISHED has no event and pops nothing. Sounds and the
   quiet-hours / day-clock rule are `showNotice`'s, as for reminders (quiet:

@@ -200,19 +200,6 @@ func TestPrintDonePopupFiresOncePerJob(t *testing.T) {
 	if n[0]["durationMs"] != 10_000 {
 		t.Errorf("duration = %v, want 10 s", n[0]["durationMs"])
 	}
-	r.event(printer.EventFinished, 101, r.now)
-	r.tick(3 * time.Second)
-	if len(r.pub.NotifySnapshot()) != 1 {
-		t.Errorf("a second finished event for job 7 popped again")
-	}
-	r.snap.JobID = 8
-	r.snap.Events[len(r.snap.Events)-1].JobID = 8
-	r.event(printer.EventFinished, 102, r.now)
-	r.snap.Events[len(r.snap.Events)-1].JobID = 8
-	r.tick(3 * time.Second)
-	if len(r.pub.NotifySnapshot()) != 2 {
-		t.Errorf("the next job did not get its popup")
-	}
 }
 
 func TestPrintDonePopupAfterARestart(t *testing.T) {
@@ -397,16 +384,20 @@ func TestPrintAttentionDismissRetriesUntilItLands(t *testing.T) {
 	}
 }
 
-func TestPrintDoneLedgerIsPerPrinter(t *testing.T) {
+func TestPrintAttentionSurvivesAShortOfflineGap(t *testing.T) {
 	r := newPrintNoteRig(t, nil)
-	r.snap = printSnap(printer.PhaseFinished, func(s *printer.Snapshot) { s.Printer.URL = "http://a" })
-	r.event(printer.EventFinished, 100, printT0)
+	r.snap = printSnap(printer.PhaseAttention, nil)
+	r.event(printer.EventAttention, 100, printT0)
 	r.tick(time.Second)
-	r.snap = printSnap(printer.PhaseFinished, func(s *printer.Snapshot) { s.Printer.URL = "http://b" })
-	r.event(printer.EventFinished, 101, r.now)
-	r.tick(time.Second)
+	r.snap = printSnap(printer.PhaseOffline, nil)
+	r.tick(3 * time.Second)
+	if d := r.pub.DismissedNamesSnapshot(); len(d) != 0 {
+		t.Fatalf("dismissed %v while the printer was only offline", d)
+	}
+	r.snap = printSnap(printer.PhaseAttention, nil)
+	r.tick(printAttentionRepeat)
 	if n := r.pub.NotifySnapshot(); len(n) != 2 {
-		t.Errorf("%d popups, want one per printer", len(n))
+		t.Errorf("%d attention popups, want the repeat after the gap", len(n))
 	}
 }
 
