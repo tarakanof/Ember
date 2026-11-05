@@ -378,3 +378,33 @@ func TestPrintSweepIconsStayAwayWhenTheAppIsOff(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintAttentionDismissRetriesUntilItLands(t *testing.T) {
+	r := newPrintNoteRig(t, nil)
+	r.snap = printSnap(printer.PhaseAttention, nil)
+	r.event(printer.EventAttention, 100, printT0)
+	r.tick(time.Second)
+	r.pub.dismissByNameErr = errors.New("clock down")
+	r.snap = printSnap(printer.PhasePrinting, nil)
+	r.tick(3 * time.Second)
+	r.tick(3 * time.Second)
+	r.pub.dismissByNameErr = nil
+	r.tick(3 * time.Second)
+	r.tick(3 * time.Second)
+	if d := r.pub.DismissedNamesSnapshot(); len(d) != 3 {
+		t.Errorf("dismiss attempts = %d, want 3 (two failed, one landed, then stop)", len(d))
+	}
+}
+
+func TestPrintDoneLedgerIsPerPrinter(t *testing.T) {
+	r := newPrintNoteRig(t, nil)
+	r.snap = printSnap(printer.PhaseFinished, func(s *printer.Snapshot) { s.Printer.URL = "http://a" })
+	r.event(printer.EventFinished, 100, printT0)
+	r.tick(time.Second)
+	r.snap = printSnap(printer.PhaseFinished, func(s *printer.Snapshot) { s.Printer.URL = "http://b" })
+	r.event(printer.EventFinished, 101, r.now)
+	r.tick(time.Second)
+	if n := r.pub.NotifySnapshot(); len(n) != 2 {
+		t.Errorf("%d popups, want one per printer", len(n))
+	}
+}

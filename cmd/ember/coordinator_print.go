@@ -115,6 +115,7 @@ func samplePrintSnapshot(now time.Time) printer.Snapshot {
 
 type printNotifyState struct {
 	lastID   uint64
+	ident    string
 	fired    map[string]struct{}
 	attnOn   bool
 	attnNext time.Time
@@ -145,8 +146,8 @@ func (c *coordinator) checkPrint(now time.Time) {
 	cfg := c.loadCfg().Printer
 	snap := c.printSnap(now)
 	st := &c.printNotes
-	if st.fired == nil {
-		st.fired = map[string]struct{}{}
+	if ident := snap.Printer.Host + "|" + snap.Printer.URL; st.fired == nil || (ident != st.ident && snap.Printer.URL != "") {
+		st.fired, st.ident = map[string]struct{}{}, ident
 	}
 	for _, e := range snap.Events {
 		if e.ID <= st.lastID {
@@ -162,12 +163,13 @@ func (c *coordinator) checkPrint(now time.Time) {
 	}
 	switch {
 	case snap.Phase != printer.PhaseAttention || !snap.Enabled:
-		st.attnOn = false
 		ctx, cancel := context.WithTimeout(c.runCtx(), printNoticeCallBudget)
 		defer cancel()
 		if err := c.dismissNotice(ctx, noticePrintAttention); err != nil && !isAPINotFound(err) {
 			c.logger.Warn("print attention dismiss failed", "err", err)
+			return
 		}
+		st.attnOn = false
 	case cfg.NotifyAttentionEnabled() && !now.Before(st.attnNext):
 		if err := c.fireNotice(noticePrintAttention, render.PrintAttentionPopupPayload(printAttentionPopSec), printAttentionRTTTL); err != nil {
 			c.logger.Warn("print attention popup failed", "err", err)
