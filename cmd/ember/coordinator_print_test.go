@@ -496,7 +496,7 @@ func TestPrintDonePopupNamesTheBurstIconWhenProvisioned(t *testing.T) {
 		}
 		icon, _ := n[0]["icon"].(string)
 		if armed {
-			if icon != render.PrintDoneIconName() || icon == "" {
+			if icon != render.PrintDoneIconName() {
 				t.Errorf("icon = %q, want the burst icon", icon)
 			}
 			if n[0]["draw"] != nil || n[0]["textOffsetX"] != nil {

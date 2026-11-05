@@ -229,6 +229,9 @@ func TestPrintBurstGIFPlaysOnceAndEndsOnTheDoneIcon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if d := g.Delay[len(g.Delay)-1]; d != printBurstHoldCs {
+		t.Errorf("last frame delay = %d, want %d", d, printBurstHoldCs)
+	}
 	if g.LoopCount != -1 {
 		t.Errorf("LoopCount = %d, want -1 (play once)", g.LoopCount)
 	}
