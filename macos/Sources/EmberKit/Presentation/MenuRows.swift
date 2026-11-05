@@ -47,6 +47,7 @@ public enum MenuRows {
     public static func printAccessibility(_ print: BotPrint) -> LocalizedStringResource? {
         switch print {
         case .none: nil
+        case .starting: "print starting"
         case .printing(let percent):
             LocalizedStringResource("printing \(percent) %",
                                     comment: "VoiceOver: appended to the menu-bar state while the bot shows a print; its progress in whole percent.")

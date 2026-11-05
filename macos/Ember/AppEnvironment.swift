@@ -39,7 +39,9 @@ public final class AppEnvironment {
 
     public private(set) var menuBarLabel = MenuRows.label(connection: .connecting, winning: nil, prefs: .default)
     public private(set) var botPrint: BotPrint = .none
-    @ObservationIgnored private var printTracker = BotPrintTracker(playedDoneID: AppEnvironment.loadPlayedDoneID())
+    @ObservationIgnored private let printDoneStore = BotPrintDoneStore(defaults: AppEnvironment.prefsDefaults)
+    @ObservationIgnored private var printTracker = BotPrintTracker(
+        playedDoneID: BotPrintDoneStore(defaults: AppEnvironment.prefsDefaults).load())
     @ObservationIgnored private var printDoneTimer: Task<Void, Never>?
     @ObservationIgnored private var printHold: Task<Void, Never>?
     private var appIsRegular = false
@@ -48,11 +50,6 @@ public final class AppEnvironment {
 
     static let prefsDefaults = UserDefaults.standard
     static let lastReconciledVersionKey = "producers.lastReconciledVersion"
-    static let printDonePlayedKey = "bot.printDonePlayed"
-
-    static func loadPlayedDoneID() -> UInt64? {
-        (prefsDefaults.object(forKey: printDonePlayedKey) as? NSNumber)?.uint64Value
-    }
 
     static func loadPrefs() -> MenuPrefs {
         let d = prefsDefaults
@@ -115,7 +112,7 @@ public final class AppEnvironment {
         let played = printTracker.playedDoneID
         let next = printTracker.update(state: inputs.state, agentState: inputs.agent, enabled: inputs.on, now: Date())
         if let id = printTracker.playedDoneID, id != played {
-            Self.prefsDefaults.set(NSNumber(value: id), forKey: Self.printDonePlayedKey)
+            printDoneStore.save(id)
         }
         if next != botPrint { botPrint = next }
         BotAnimator.shared.setPrint(next)

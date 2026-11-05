@@ -443,6 +443,7 @@ private func project(_ tool: String, source: String, state: String, id: String, 
     let bot = MenuPrefs.default
     #expect(MenuRows.label(connection: online, winning: nil, prefs: bot, print: .printing(percent: 42)).accessibilityValue == "Idle, printing 42 %")
     #expect(MenuRows.label(connection: online, winning: nil, prefs: bot, print: .done).accessibilityValue == "Idle, print done")
+    #expect(MenuRows.label(connection: online, winning: nil, prefs: bot, print: .starting).accessibilityValue == "Idle, print starting")
     #expect(MenuRows.label(connection: online, winning: nil, prefs: bot, print: .attention(percent: 3)).accessibilityValue == "Idle, printer needs you")
     #expect(MenuRows.label(connection: online, winning: nil, prefs: bot, print: .none).accessibilityValue == "Idle")
     var glyphs = bot

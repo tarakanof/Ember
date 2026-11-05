@@ -2708,7 +2708,8 @@ and `TestPackageOpensNoSocketsOfItsOwn` keeps requests on the default transport.
 
 The Prusa CORE One's print, read from PrusaLink on the printer itself, for
 the TC001 app (#790), the knob's `print` block (#791), Ember.app's Printer
-settings (#792) and the menu-bar bot's fill (#793, `docs/MENU-BOT.md` "Print"). Design: Obsidian `Personal/Ember/Specs/2026-11-05-print-status-design.md`;
+settings (#792) and the menu-bar bot's fill (#793, `docs/MENU-BOT.md`
+"Print"). Design: Obsidian `Personal/Ember/Specs/2026-11-05-print-status-design.md`;
 the API as the Buddy firmware serves it: `…-print-status-research.md` beside it.
 One poller on the server; nothing is fetched per device.
 
@@ -2870,12 +2871,15 @@ keeps it on the default transport: mDNS browsing is injected
 - **`/v1/print/state`** is a state feed like `/state`: `serveStateFeed` with
   a weak `ETag` and the `?wait=` long-poll. The tag moves on `enabled`,
   phase, whole percent, `last_error`, the newest event id, job id and the
-  printer block, never on temperatures, anchored times or `updated_at`, so
-  Ember.app's `.print` feed (`LiveModel.printer`, held while "Show print
-  progress on the bot" is on and the bot is in the menu bar or a visible
-  Dock tile, whether or not the server's printer is enabled) parks through the 5 s polls of a running print and wakes
-  about once per percent. A 304 can carry stale temperatures; the Printer
-  settings pane reads without `If-None-Match`.
+  printer block, never on any other field (temperatures, anchored times,
+  `updated_at`, `name`, `material`, `thumb_version`, `hold_until`,
+  `printer_state`, older `events`), so Ember.app's `.print` feed
+  (`LiveModel.printer`, held while "Show print progress on the bot" is on
+  and the bot is in the menu bar or a visible Dock tile, whether or not the
+  server's printer is enabled) parks through the 5 s polls of a running
+  print and wakes about once per percent. A 304 can therefore carry stale
+  values of those fields; the Printer settings pane reads without
+  `If-None-Match`.
 - **Config** `printer.{enabled,url,name,clock_app,notify_done,notify_attention,done_hold_min}`
   in `config.json` and the overlay key `printer_json` (`PUT /v1/print/config`,
   owner); `/admin/reload` re-reads it and wakes the poller. `clock_app` and

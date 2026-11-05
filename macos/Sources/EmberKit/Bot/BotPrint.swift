@@ -2,13 +2,14 @@ import Foundation
 
 public enum BotPrint: Equatable, Sendable {
     case none
+    case starting
     case printing(percent: Int)
     case attention(percent: Int)
     case done
 
     public var fill: Double {
         switch self {
-        case .none: 0
+        case .none, .starting: 0
         case .printing(let p), .attention(let p): Double(min(max(p, 0), 100)) / 100
         case .done: 1
         }
@@ -29,10 +30,29 @@ public enum BotPrint: Equatable, Sendable {
     }
 }
 
+public struct BotPrintDoneStore {
+    public static let key = "bot.printDonePlayed"
+
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults) {
+        self.defaults = defaults
+    }
+
+    public func load() -> UInt64? {
+        (defaults.object(forKey: Self.key) as? NSNumber)?.uint64Value
+    }
+
+    public func save(_ id: UInt64) {
+        defaults.set(NSNumber(value: id), forKey: Self.key)
+    }
+}
+
 public struct BotPrintTracker: Sendable {
     public static let doneLength: TimeInterval = 60
     public static let eventWindow: TimeInterval = 30 * 60
     static let fillPhases: Set<String> = ["heating", "preparing", "printing", "finishing", "paused", "attention"]
+    static let startPhases: Set<String> = ["heating", "preparing"]
 
     public private(set) var playedDoneID: UInt64?
     public private(set) var doneEndsAt: Date?
@@ -42,7 +62,12 @@ public struct BotPrintTracker: Sendable {
     }
 
     public mutating func update(state: PrinterState?, agentState: String, enabled: Bool, now: Date) -> BotPrint {
-        guard enabled, let state, state.enabled, agentState != "waiting", agentState != "error" else {
+        guard enabled, agentState != "waiting", agentState != "error" else {
+            doneEndsAt = nil
+            return .none
+        }
+        guard let state, state.enabled else {
+            if let end = doneEndsAt, now < end { return .done }
             doneEndsAt = nil
             return .none
         }
@@ -58,6 +83,7 @@ public struct BotPrintTracker: Sendable {
         }
         guard active else { return .none }
         let percent = min(max(state.progress ?? 0, 0), 100)
-        return state.phase == "attention" ? .attention(percent: percent) : .printing(percent: percent)
+        if state.phase == "attention" { return .attention(percent: percent) }
+        return Self.startPhases.contains(state.phase) ? .starting : .printing(percent: percent)
     }
 }

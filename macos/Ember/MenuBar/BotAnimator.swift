@@ -208,8 +208,8 @@ final class BotAnimator {
     }
 
     private func menuBarForeground() -> NSColor {
-        let bar = NSApplication.shared.windows.first { $0.className == "NSStatusBarWindow" }
-        let appearance = statusButton?.effectiveAppearance ?? bar?.contentView?.effectiveAppearance
+        let appearance = statusButton?.effectiveAppearance
+            ?? NSApplication.shared.windows.first { $0.className == "NSStatusBarWindow" }?.contentView?.effectiveAppearance
             ?? NSApplication.shared.effectiveAppearance
         return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .white : .black
     }

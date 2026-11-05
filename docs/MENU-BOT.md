@@ -16,7 +16,7 @@ per-tool glyphs, "Menu-bar colour" switches between Colored and Monochrome, and
 |---|---|
 | `macos/Sources/EmberKit/Bot/BotBehavior.swift` | The animation state machine. Pure and deterministic for a seed, so it is unit-tested. Produces a `BotPose` per frame. |
 | `macos/Sources/EmberKit/Bot/BotRenderer.swift` | CoreGraphics drawing of a `BotPose`, with a `BotStyle` for the menu bar and one for the Dock. |
-| `macos/Sources/EmberKit/Bot/BotPrint.swift` | `BotPrint` (none, printing, attention, done) and `BotPrintTracker`, the pure rule that turns the printer's state, the winning agent and the setting into one `BotPrint`, and plays `done` once per event id. |
+| `macos/Sources/EmberKit/Bot/BotPrint.swift` | `BotPrint` (none, starting, printing, attention, done), `BotPrintTracker`, the pure rule that turns the printer's state, the winning agent and the setting into one `BotPrint` and plays `done` once per event id, and `BotPrintDoneStore`, which keeps the played id in `UserDefaults`. |
 | `macos/Ember/MenuBar/BotAnimator.swift` | The one frame loop. Owns the behavior, sets each frame on the `NSStatusBarButton` directly, drives the `NSDockTile` view, crossfades the menu-bar colour. Not `@Observable`: see Performance. |
 | `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the tool glyph, or the bot's current frame when its `MenuRows.LabelState` changes (the animator takes over from the next frame). Tells VoiceOver the state in words (label "Ember", value from `MenuRows.accessibilityValue`), since the icon only shows it through colour and eyes. |
 | `macos/Ember/MenuBar/StatusItemAccessibility.swift` | Puts that value on the `NSStatusBarButton` by hand: `MenuBarExtra` forwards the label (as AXTitle) but drops `accessibilityValue`. `StatusItemButton.find()` locates the button for this and for the animator. |
@@ -51,7 +51,8 @@ progress on the bot" is on (default), the bot shows a print in Prusa orange
 
 | Printer | Bot |
 |---|---|
-| heating, preparing, printing, finishing, paused | a flat orange level inside the ball, under the eyes, at the whole percent |
+| heating, preparing | nothing yet (the level is 0); VoiceOver says "print starting" |
+| printing, finishing, paused | a flat orange level inside the ball, under the eyes, at the whole percent |
 | attention | the same level plus a static orange "!" badge top right |
 | event `finished` | the ball fills, happy eyes, one hop and a sparkle, for 60 s |
 | anything else | nothing |
@@ -66,7 +67,8 @@ progress on the bot" is on (default), the bot shows a print in Prusa orange
   replay it. A done wakes a sleepy bot and swaps its eyes behind a blink,
   like a mood change; the mood itself doesn't change (no morph), and the
   5-minute sleep timer counts from the done. Attention or a new print ends
-  a done early.
+  a done early; a moment without printer state (a dropped connection, a
+  server switch) doesn't, the done runs out its 60 s.
 - Reduce motion: no hop and no sparkle; the fill, the badge and the happy
   eyes still show.
 - Monochrome: the fill is a 35 % template shade (it replaces the body's
@@ -81,8 +83,8 @@ progress on the bot" is on (default), the bot shows a print in Prusa orange
   non-template image isn't re-tinted per display.
 - The Dock bot shows the same pose at its own scale; the print badge takes
   the place of a mood badge.
-- VoiceOver: the menu-bar value gets ", printing 42 %", ", print done" or
-  ", printer needs you".
+- VoiceOver: the menu-bar value gets ", print starting", ", printing 42 %",
+  ", print done" or ", printer needs you".
 
 ## How it moves
 

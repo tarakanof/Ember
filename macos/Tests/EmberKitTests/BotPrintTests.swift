@@ -15,7 +15,10 @@ private func finished(_ id: UInt64, at: Date = t0) -> PrinterEvent {
 
 @Test func fillFollowsTheActivePhases() {
     var t = BotPrintTracker()
-    for phase in ["heating", "preparing", "printing", "finishing", "paused"] {
+    for phase in ["heating", "preparing"] {
+        #expect(t.update(state: printer(phase, 0), agentState: "idle", enabled: true, now: t0) == .starting, "\(phase)")
+    }
+    for phase in ["printing", "finishing", "paused"] {
         #expect(t.update(state: printer(phase, 42), agentState: "idle", enabled: true, now: t0) == .printing(percent: 42), "\(phase)")
     }
     #expect(t.update(state: printer("attention", 42), agentState: "running", enabled: true, now: t0) == .attention(percent: 42))
@@ -23,7 +26,8 @@ private func finished(_ id: UInt64, at: Date = t0) -> PrinterEvent {
         #expect(t.update(state: printer(phase, 100), agentState: "idle", enabled: true, now: t0) == BotPrint.none, "\(phase)")
     }
     #expect(t.update(state: printer("printing", 140), agentState: "idle", enabled: true, now: t0) == .printing(percent: 100))
-    #expect(t.update(state: printer("heating"), agentState: "idle", enabled: true, now: t0) == .printing(percent: 0))
+    #expect(t.update(state: printer("printing"), agentState: "idle", enabled: true, now: t0) == .printing(percent: 0))
+    #expect(BotPrint.starting.fill == 0)
 }
 
 @Test func theSettingAndThePrinterSwitchTheFillOff() {
@@ -235,7 +239,7 @@ private func isOrange(_ p: (r: UInt8, g: UInt8, b: UInt8, a: UInt8)) -> Bool {
         var t = BotPrintTracker()
         #expect(t.update(state: printer("finished", 100, event: finished(7)), agentState: "idle", enabled: true, now: t0) == .done)
         let shown = t.update(state: next, agentState: "idle", enabled: true, now: t0.addingTimeInterval(10))
-        #expect(shown == (next.phase == "attention" ? .attention(percent: 100) : .printing(percent: 0)))
+        #expect(shown == (next.phase == "attention" ? .attention(percent: 100) : .starting))
         #expect(t.doneEndsAt == nil)
         #expect(t.update(state: printer("finished", 100, event: finished(7)), agentState: "idle", enabled: true, now: t0.addingTimeInterval(20)) == BotPrint.none)
     }
@@ -265,4 +269,47 @@ private func isOrange(_ p: (r: UInt8, g: UInt8, b: UInt8, a: UInt8)) -> Bool {
     #expect(b.mood == .idle, "sleep counts from the done")
     _ = frames(&b, from: 460, seconds: 50)
     #expect(b.mood == .sleepy)
+}
+
+@Test func aMissingPrinterStateHoldsAPlayingDone() {
+    var t = BotPrintTracker()
+    #expect(t.update(state: printer("finished", 100, event: finished(7)), agentState: "idle", enabled: true, now: t0) == .done)
+    #expect(t.update(state: nil, agentState: "idle", enabled: true, now: t0.addingTimeInterval(20)) == .done)
+    #expect(t.update(state: printer("off", enabled: false), agentState: "idle", enabled: true, now: t0.addingTimeInterval(30)) == .done)
+    #expect(t.update(state: nil, agentState: "idle", enabled: true, now: t0.addingTimeInterval(61)) == BotPrint.none)
+    #expect(t.doneEndsAt == nil)
+    var off = BotPrintTracker()
+    _ = off.update(state: printer("finished", 100, event: finished(7)), agentState: "idle", enabled: true, now: t0)
+    #expect(off.update(state: nil, agentState: "idle", enabled: false, now: t0.addingTimeInterval(5)) == BotPrint.none, "the setting hides it at once")
+}
+
+@Test func thePlayedDoneIDSurvivesARestart() throws {
+    let suite = "BotPrintDoneStoreTests-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let store = BotPrintDoneStore(defaults: defaults)
+    #expect(store.load() == nil)
+    var first = BotPrintTracker(playedDoneID: store.load())
+    let s = printer("finished", 100, event: finished(1_800_000_000_123))
+    #expect(first.update(state: s, agentState: "idle", enabled: true, now: t0) == .done)
+    store.save(try #require(first.playedDoneID))
+    var restarted = BotPrintTracker(playedDoneID: BotPrintDoneStore(defaults: defaults).load())
+    #expect(restarted.update(state: s, agentState: "idle", enabled: true, now: t0.addingTimeInterval(120)) == BotPrint.none)
+}
+
+@Test func aShownPrintAddsNoFrameLoopWakes() {
+    for seed in UInt64(0)..<10 {
+        for shown in [BotPrint.printing(percent: 42), .attention(percent: 42), .starting] {
+            var plain = BotBehavior(seed: seed, now: 0)
+            var printing = BotBehavior(seed: seed, now: 0)
+            printing.setPrint(shown, at: 0)
+            for t in stride(from: 0.0, to: 120, by: 1.0 / 24) {
+                _ = plain.pose(at: t)
+                _ = printing.pose(at: t)
+                #expect(plain.isAnimating == printing.isAnimating && plain.nextEventAt == printing.nextEventAt
+                        && plain.isTransitioning == printing.isTransitioning, "seed \(seed) \(shown) t \(t)")
+                if plain.isAnimating != printing.isAnimating { break }
+            }
+        }
+    }
 }
