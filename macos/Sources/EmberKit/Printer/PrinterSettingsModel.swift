@@ -24,7 +24,7 @@ public final class PrinterSettingsModel {
             let draft = config.draft
             if draft.enabled, !state.enabled { return .unknown }
             if !draft.enabled, state.enabled { return .disabled }
-            if draft.enabled {
+            if draft.enabled, state.lastError.isEmpty {
                 if !draft.isAuto, state.printer.url != draft.url { return .unknown }
                 if draft.isAuto, !state.printer.url.isEmpty, !state.printer.discovered { return .unknown }
             }

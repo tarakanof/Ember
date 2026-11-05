@@ -485,3 +485,27 @@ private actor SaveLog {
     let detail = PrinterStatusLine.unavailable(.unauthorized).detail
     #expect(detail.map { String(localized: $0).contains("token") } == true)
 }
+
+@MainActor
+@Test func everyErrorShowsItsLineThroughTheModelInBothAddressModes() async {
+    let cases: [(code: String, phase: String, line: PrinterStatusLine)] = [
+        ("no_password", "off", .passwordMissing),
+        ("wrong_password", "offline", .wrongPassword),
+        ("unreachable", "offline", .printerOff),
+        ("not_found", "offline", .notFound),
+    ]
+    let configs = [PrinterConfig(enabled: true), PrinterConfig(enabled: true, url: "http://10.0.0.5")]
+    let urls = ["", "http://10.0.0.5", "http://10.0.0.7"]
+    for config in configs {
+        for url in urls {
+            for c in cases {
+                let model = PrinterSettingsModel(
+                    config: ServerConfigModel(initial: config, load: { config }, save: { _ in }),
+                    state: { PrinterState(enabled: true, phase: c.phase, lastError: c.code, printer: PrinterInfo(url: url)) },
+                    preview: { throw APIError.http(status: 404, body: "") })
+                await model.load()
+                #expect(model.status == c.line, "\(c.code) config=\(config.url) state url=\(url)")
+            }
+        }
+    }
+}
