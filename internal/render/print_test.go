@@ -241,6 +241,21 @@ func TestPrintBurstGIFPlaysOnceAndEndsOnTheDoneIcon(t *testing.T) {
 		}
 	}
 	want := printPopupIcon(PrintPhaseFinished)
+	differs := false
+	for _, img := range g.Image[:len(g.Image)-1] {
+		for y := 0; y < 8 && !differs; y++ {
+			for x := 0; x < 8; x++ {
+				r, gg, b, _ := img.At(x, y).RGBA()
+				if int(r>>8)<<16|int(gg>>8)<<8|int(b>>8) != want[y*8+x] {
+					differs = true
+					break
+				}
+			}
+		}
+	}
+	if !differs {
+		t.Error("no earlier frame differs from the final icon: there is no burst")
+	}
 	last := g.Image[len(g.Image)-1]
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 8; x++ {

@@ -239,25 +239,25 @@ func printSweepGIF(h int) ([]byte, error) {
 		paintPrintIcon(&f, h, hx, colorRunning, printBed)
 		frames = append(frames, f)
 	}
-	return encodePrintGIF(frames, printSweepDelayCs, 0)
+	return encodePrintGIF(frames, printSweepDelayCs, 0, false)
 }
 
 const (
-	printBurstDelayCs = 8
+	printBurstDelayCs = 10
 	printBurstHoldCs  = 40
-	printBurstRadii   = 4
+	printBurstRadii   = 5
 )
 
 func printBurstGIF() ([]byte, error) {
 	var frames []Frame
-	for r := 1; r <= printBurstRadii; r++ {
+	for r := 2; r <= printBurstRadii; r++ {
 		var f Frame
 		paintPrintIconFor(&f, PrintView{Phase: PrintPhaseFinished, Progress: 100})
-		k := 1 - float64(r-1)/float64(printBurstRadii)
+		k := 1 - float64(r-2)/float64(printBurstRadii-1)
 		spark := mixRGB(colorWhite, colorDone, 1-k)
 		for _, d := range [][2]int{{r, 0}, {-r, 0}, {0, r}, {0, -r}, {r - 1, r - 1}, {1 - r, r - 1}, {r - 1, 1 - r}, {1 - r, 1 - r}} {
 			x, y := 4+d[0], 4+d[1]
-			if x >= 0 && x < iconW && y >= 0 && y < 8 && !f.Dirty[y][x] {
+			if x >= 0 && x < iconW && y >= 0 && y < 8 {
 				paintCell(&f, x, y, spark)
 			}
 		}
@@ -266,10 +266,10 @@ func printBurstGIF() ([]byte, error) {
 	var last Frame
 	paintPrintIconFor(&last, PrintView{Phase: PrintPhaseFinished, Progress: 100})
 	frames = append(frames, last)
-	return encodePrintGIF(frames, printBurstDelayCs, printBurstHoldCs)
+	return encodePrintGIF(frames, printBurstDelayCs, printBurstHoldCs, true)
 }
 
-func encodePrintGIF(frames []Frame, delayCs, lastDelayCs int) ([]byte, error) {
+func encodePrintGIF(frames []Frame, delayCs, lastDelayCs int, once bool) ([]byte, error) {
 	palette := color.Palette{color.Black}
 	index := map[RGB]uint8{}
 	for _, f := range frames {
@@ -287,7 +287,7 @@ func encodePrintGIF(frames []Frame, delayCs, lastDelayCs int) ([]byte, error) {
 		}
 	}
 	g := &gif.GIF{}
-	if lastDelayCs > 0 {
+	if once {
 		g.LoopCount = -1
 	}
 	for i, f := range frames {
@@ -481,7 +481,6 @@ func PrintDonePopupPayload(total string, durationSec int, burstIcon bool) map[st
 		if name := PrintDoneIconName(); name != "" {
 			p["icon"] = name
 			delete(p, "draw")
-			delete(p, "textCenter")
 			delete(p, "textOffsetX")
 		}
 	}
