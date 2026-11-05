@@ -95,6 +95,10 @@ See https://github.com/tarakanof/ember for full documentation.
 
   <Config Name="EMBER_PLEX_WEBHOOK_KEY" Target="EMBER_PLEX_WEBHOOK_KEY" Default="" Mode="" Description="Optional. Enables POST /hooks/plex?key=... (Plex Pass webhook triggers an immediate poll). Unset = 404." Type="Variable" Display="advanced" Required="false" Mask="true"/>
 
+  <Config Name="EMBER_PRUSALINK_PASSWORD" Target="EMBER_PRUSALINK_PASSWORD" Default="" Mode="" Description="Optional. The Prusa printer's PrusaLink password (printer: Settings › Network › PrusaLink). Enables the print status poller once printer.enabled is on; used only for Digest auth, never logged or stored." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
+  <Config Name="EMBER_PRUSALINK_USER" Target="EMBER_PRUSALINK_USER" Default="" Mode="" Description="Optional. PrusaLink user; empty means maker." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
   <Config Name="EMBER_ARTIST_LOOKUP" Target="EMBER_ARTIST_LOOKUP" Default="" Mode="" Description="Optional, off by default. Set to 1 to look up artist pictures on Deezer: every artist name played leaves your network." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
   <Config Name="EMBER_FIRMWARE_CHECK" Target="EMBER_FIRMWARE_CHECK" Default="" Mode="" Description="Optional. Checks GitHub for new awtrix-ng releases for the clock, on by default; set to 0 to disable. Skipped when EMBER_CLOCK=off. See RUNBOOK." Type="Variable" Display="advanced" Required="false" Mask="false"/>

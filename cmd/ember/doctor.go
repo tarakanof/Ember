@@ -151,6 +151,12 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	}
 
 	if app == nil {
+		res.Checks["printer"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
+	} else {
+		res.Checks["printer"] = checkPrinter(app)
+	}
+
+	if app == nil {
 		res.Checks["capabilities"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["capabilities"] = checkCapabilities(app)

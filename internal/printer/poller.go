@@ -1,0 +1,402 @@
+package printer
+
+import (
+	"context"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+	"unicode"
+)
+
+const (
+	PollActive   = 5 * time.Second
+	PollIdle     = 30 * time.Second
+	PollDisabled = 5 * time.Minute
+	offlineAfter = 2
+	thumbTries   = 3
+)
+
+var Backoff = []time.Duration{30 * time.Second, 60 * time.Second, 120 * time.Second, 300 * time.Second}
+
+type Found struct {
+	Name string
+	Host string
+	URL  string
+}
+
+type BrowseFunc func(ctx context.Context) ([]Found, error)
+
+type Options struct {
+	Config func() Config
+	Browse BrowseFunc
+	HTTP   *http.Client
+	Logger *slog.Logger
+	Now    func() time.Time
+}
+
+type Poller struct {
+	State    *State
+	OnChange func()
+
+	cfg    func() Config
+	browse BrowseFunc
+	hc     *http.Client
+	logger *slog.Logger
+	now    func() time.Time
+	wake   chan struct{}
+
+	credsMu sync.Mutex
+	creds   Credentials
+
+	client       *Client
+	target       string
+	manual       bool
+	failures     int
+	backoff      int
+	active       bool
+	latched      string
+	loggedErr    string
+	needJob      bool
+	versionTried bool
+	thumbFails   int
+	changeKey    string
+}
+
+func NewPoller(o Options) *Poller {
+	if o.Logger == nil {
+		o.Logger = slog.New(slog.DiscardHandler)
+	}
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	if o.Config == nil {
+		o.Config = func() Config { return Config{} }
+	}
+	return &Poller{
+		State:  NewState(),
+		cfg:    o.Config,
+		browse: o.Browse,
+		hc:     o.HTTP,
+		logger: o.Logger,
+		now:    o.Now,
+		wake:   make(chan struct{}, 1),
+	}
+}
+
+func (p *Poller) SetCredentials(c Credentials) {
+	p.credsMu.Lock()
+	p.creds = c
+	p.credsMu.Unlock()
+	p.Wake()
+}
+
+func (p *Poller) credentials() Credentials {
+	p.credsMu.Lock()
+	defer p.credsMu.Unlock()
+	return p.creds
+}
+
+func (p *Poller) Wake() {
+	select {
+	case p.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (p *Poller) Run(ctx context.Context) {
+	for {
+		d := p.Step(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		t := time.NewTimer(d)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+		case <-p.wake:
+			t.Stop()
+		}
+	}
+}
+
+func (p *Poller) Step(ctx context.Context) time.Duration {
+	defer p.notifyIfChanged()
+	cfg := p.cfg()
+	cfg.ApplyDefaults()
+	p.State.configure(cfg.Enabled, time.Duration(cfg.DoneHoldMin)*time.Minute, cfg.Name)
+	if !cfg.Enabled {
+		p.disconnect()
+		p.latched, p.loggedErr = "", ""
+		p.State.setOff(ErrCodeNone)
+		return PollDisabled
+	}
+	creds := p.credentials()
+	if creds.Password == "" {
+		p.disconnect()
+		p.State.setOff(ErrCodeNoPassword)
+		p.logOnce(ErrCodeNoPassword, errors.New("PrusaLink password unset ("+PasswordEnv+")"))
+		return PollDisabled
+	}
+	key := latchKey(cfg, creds)
+	if p.latched == key {
+		return PollDisabled
+	}
+	p.latched = ""
+
+	if !cfg.Auto() {
+		if !p.manual || p.target != cfg.URL {
+			p.use(Found{Host: hostOf(cfg.URL), URL: cfg.URL}, true, creds)
+		}
+	} else {
+		if p.manual {
+			p.disconnect()
+		}
+		if p.client == nil {
+			if !p.discover(ctx, cfg.Name, creds) {
+				if ctx.Err() != nil {
+					return 0
+				}
+				p.State.setOffline(ErrCodeNotFound)
+				p.logOnce(ErrCodeNotFound, errors.New("no _prusalink._tcp service on the network"))
+				return p.nextBackoff()
+			}
+		}
+	}
+	if p.client.creds != creds {
+		p.use(Found{Host: p.State.At(p.now()).Printer.Host, URL: p.target}, p.manual, creds)
+	}
+
+	err := p.poll(ctx)
+	if err != nil && ctx.Err() != nil {
+		return 0
+	}
+	if err != nil && !errors.Is(err, ErrWrongPassword) && cfg.Auto() && p.failures+1 >= offlineAfter {
+		prev := p.target
+		if p.discover(ctx, cfg.Name, creds) && p.target != prev {
+			p.failures = 0
+			err = p.poll(ctx)
+		}
+	}
+	switch {
+	case err == nil:
+		p.failures, p.backoff = 0, 0
+		if p.loggedErr != "" {
+			p.logger.Info("printer reachable", "url", p.target)
+			p.loggedErr = ""
+		}
+		if p.active {
+			return PollActive
+		}
+		return PollIdle
+	case errors.Is(err, ErrWrongPassword):
+		p.latched = key
+		p.State.setOffline(ErrCodeWrongPassword)
+		p.logOnce(ErrCodeWrongPassword, err)
+		return PollDisabled
+	case ctx.Err() != nil:
+		return 0
+	}
+	p.failures++
+	p.logOnce(ErrCodeUnreachable, err)
+	if p.failures < offlineAfter {
+		if p.active {
+			return PollActive
+		}
+		return PollIdle
+	}
+	p.State.setOffline(ErrCodeUnreachable)
+	return p.nextBackoff()
+}
+
+func latchKey(cfg Config, c Credentials) string {
+	sum := sha256.Sum256([]byte(cfg.URL + "\x00" + c.User + "\x00" + c.Password))
+	return string(sum[:])
+}
+
+func (p *Poller) nextBackoff() time.Duration {
+	d := Backoff[min(p.backoff, len(Backoff)-1)]
+	p.backoff++
+	return d
+}
+
+func (p *Poller) logOnce(code ErrorCode, err error) {
+	if p.loggedErr == string(code) {
+		return
+	}
+	p.loggedErr = string(code)
+	p.logger.Warn("printer poll failed", "reason", string(code), "url", p.target, "err", err)
+}
+
+func (p *Poller) disconnect() {
+	p.client, p.target, p.manual = nil, "", false
+	p.failures, p.versionTried = 0, false
+}
+
+func (p *Poller) use(f Found, manual bool, creds Credentials) {
+	c, err := NewClient(f.URL, creds, p.hc)
+	if err != nil {
+		p.disconnect()
+		return
+	}
+	if f.URL != p.target {
+		p.versionTried = false
+		p.needJob = true
+	}
+	p.client, p.target, p.manual = c, f.URL, manual
+	p.State.setTarget(f.URL, strings.TrimSuffix(f.Host, "."), !manual)
+}
+
+func (p *Poller) discover(ctx context.Context, name string, creds Credentials) bool {
+	if p.browse == nil {
+		return false
+	}
+	found, err := p.browse(ctx)
+	if err != nil || len(found) == 0 {
+		return false
+	}
+	f := Choose(found, name)
+	if f.URL != p.target {
+		p.logger.Info("printer discovered", "host", f.Host, "url", f.URL, "candidates", len(found))
+	}
+	p.use(f, false, creds)
+	return p.client != nil
+}
+
+func Choose(found []Found, name string) Found {
+	sorted := slices.Clone(found)
+	slices.SortFunc(sorted, func(a, b Found) int { return strings.Compare(a.Host+a.URL, b.Host+b.URL) })
+	want := squash(name)
+	if want != "" {
+		for _, f := range sorted {
+			if squash(hostLabel(f.Host)) == want || squash(f.Name) == want {
+				return f
+			}
+		}
+		for _, f := range sorted {
+			if strings.Contains(squash(hostLabel(f.Host)), want) || strings.Contains(squash(f.Name), want) {
+				return f
+			}
+		}
+	}
+	return sorted[0]
+}
+
+func hostLabel(h string) string {
+	h = strings.TrimSuffix(h, ".")
+	return strings.TrimSuffix(h, ".local")
+}
+
+func squash(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+func (p *Poller) poll(ctx context.Context) error {
+	if p.client == nil {
+		return errors.New("prusalink: no printer address")
+	}
+	st, err := p.client.Status(ctx)
+	if err != nil {
+		return err
+	}
+	now := p.now()
+	stateChanged, jobChanged := p.State.observe(now, st)
+	p.active = ActiveStatus(st)
+	if !p.versionTried {
+		v, err := p.client.Version(ctx)
+		if errors.Is(err, ErrWrongPassword) {
+			return err
+		}
+		if err == nil {
+			p.State.setVersion(v)
+		}
+		p.versionTried = true
+	}
+	if stateChanged || jobChanged || p.needJob {
+		if err := p.fetchJob(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Poller) fetchJob(ctx context.Context) error {
+	job, err := p.client.Job(ctx)
+	if errors.Is(err, ErrWrongPassword) {
+		return err
+	}
+	if err != nil {
+		p.needJob = true
+		p.logger.Debug("printer job read failed", "err", err)
+		return nil
+	}
+	p.needJob = false
+	ref, fetch := p.State.setJob(job)
+	if !fetch {
+		return nil
+	}
+	b, err := p.client.Thumbnail(ctx, ref)
+	switch {
+	case err == nil:
+		p.thumbFails = 0
+		p.State.setThumb(ref, b)
+	case errors.Is(err, ErrWrongPassword):
+		return err
+	case errors.Is(err, ErrNoThumbnail):
+		p.thumbFails = 0
+		p.State.setThumb(ref, nil)
+	default:
+		p.thumbFails++
+		if p.thumbFails < thumbTries {
+			p.State.forgetThumbRef(ref)
+			p.needJob = true
+		} else {
+			p.thumbFails = 0
+			p.State.setThumb(ref, nil)
+			p.logger.Info("printer thumbnail skipped", "err", err)
+		}
+	}
+	return nil
+}
+
+func (p *Poller) notifyIfChanged() {
+	s := p.State.At(p.now())
+	evID := uint64(0)
+	if s.Event != nil {
+		evID = s.Event.ID
+	}
+	key := fmt.Sprint(s.Enabled, s.Phase, s.Progress, s.EndsAt.Unix(), s.StartedAt.Unix(), s.ChangeAt.Unix(),
+		s.Name, s.Material, s.ThumbVersion, evID, s.HoldUntil.Unix(), s.LastError, s.JobID, s.Printer)
+	if s.Phase == PhaseHeating {
+		key += fmt.Sprint(int(s.Nozzle), int(s.NozzleTarget), int(s.Bed), int(s.BedTarget))
+	}
+	if key == p.changeKey {
+		return
+	}
+	p.changeKey = key
+	if p.OnChange != nil {
+		p.OnChange()
+	}
+}

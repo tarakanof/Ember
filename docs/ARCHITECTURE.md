@@ -2701,6 +2701,99 @@ and `TestPackageOpensNoSocketsOfItsOwn` keeps requests on the default transport.
     are undocumented by Apple; the ones read have been stable since iTunes.
 - **Not built yet:** iTunes album fallback, Plex websocket.
 
+### Print status — `internal/printer`, `cmd/ember/print*.go` (#789)
+
+The Prusa CORE One's print, read from PrusaLink on the printer itself, for
+the TC001 app (#790), the knob's `print` block (#791) and Ember.app's Printer
+settings (#792). Design: Obsidian `Personal/Ember/Specs/2026-11-05-print-status-design.md`;
+the API as the Buddy firmware serves it: `…-print-status-research.md` beside it.
+One poller on the server; nothing is fetched per device.
+
+`internal/printer` holds the PrusaLink client, Digest auth, parsing, phase
+derivation, the state and the poller; `cmd/ember/print*.go` wires it into the
+App (config overlay, routes, doctor). Like `internal/nowplaying`, its tests
+run behind a loopback-only `TestMain`, and `TestPackageOpensNoSocketsOfItsOwn`
+keeps it on the default transport: mDNS browsing is injected
+(`discovery.BrowsePrusaLink`, only in `newServerApp`).
+
+- **Digest** (stdlib `crypto/md5`), the RFC 2069 form the firmware's
+  `req_parser.cpp` checks: `HA1 = MD5(user:realm:password)`,
+  `HA2 = MD5(GET:uri)`, `response = MD5(HA1:nonce:HA2)`, no `qop`. The
+  client keeps the last nonce and sends it up front; the printer expires a
+  nonce after 300 s and answers `401 stale=true`, which gets exactly one
+  retry with the new nonce. A `401 stale=false` to a request that carried
+  credentials is a wrong password: the poller latches `wrong_password` and
+  sends nothing more until `printer.url`, the user or the password changes
+  (a config PUT or `/admin/reload` wakes it). Redirects are refused (the
+  `Authorization` header must not follow to another host); a path that
+  would leave the printer's host is refused before sending. User
+  `EMBER_PRUSALINK_USER` (default `maker`), password
+  `EMBER_PRUSALINK_PASSWORD`, env only. `printer.Credentials` logs as
+  `user=… password_set=…` (`LogValue`, `String`, `GoString`), and errors
+  carry only the operation and cause, never the request.
+- **Address.** `printer.url` `auto` (default) browses `_prusalink._tcp`
+  (3 s) and keeps the answer in RAM. Several printers: the one whose mDNS
+  host or instance name equals `printer.name` (letters and digits,
+  case-folded), else contains it, else the first by host. A poll failure
+  that would make or keep the phase `offline` browses again first, so a
+  printer that moved to a new DHCP address is polled at the new one in the
+  same step (well within a minute). A manual `http://host[:port]` is never
+  rediscovered. Nothing found: `offline` with `not_found`, retried on the
+  backoff below. Host networking is required for mDNS (production runs
+  `--network host`).
+- **Cadence.** `GET /api/v1/status` every 5 s while a job is active
+  (`PRINTING`, `PAUSED`, `ATTENTION`, `BUSY` with a job), else 30 s.
+  `GET /api/v1/job` only when `printer.state` or `job.id` changes (and
+  after an address change); `GET /api/version` once per address. A failed
+  poll counts; the second in a row turns the phase `offline`
+  (`unreachable`) and the next polls wait 30, 60, 120, then 300 s. One
+  `printer poll failed` warning per distinct reason, one `printer reachable`
+  info on recovery. Disabled or no password: no requests, the loop sleeps
+  5 min or until woken.
+- **State.** `printer.State` holds the last answer; every reader goes
+  through `State.At(now)` (a `Snapshot`), as now playing's readers go through
+  `Registry.Current(now)`. Phases: `off` (disabled, or no password),
+  `offline` (2 failed polls, wrong password, not found), `idle` (`IDLE`,
+  `READY`, `BUSY` without a job), `heating` (`PRINTING` under 1 % with a
+  set target the nozzle or bed is more than 3° under), `preparing`
+  (`PRINTING` under 1 % at temperature), `printing` (1–99 %), `finishing`
+  (`PRINTING` at 100 %: park, cool, unload), `paused`, `attention`,
+  `finished`, `stopped`, `error`. `BUSY` with a job (crash or power-panic
+  recovery mid-print) derives like `PRINTING`.
+- **Anchors.** `ends_at` = now + `time_remaining`, `started_at` = now −
+  `time_printing`, `change_at` = now + `filament_change_in`; each moves only
+  when the new value is more than 60 s off, so a wobbling estimate doesn't
+  change readers' ETags every poll. A new `job.id` resets them; a missing
+  estimate clears `ends_at`/`change_at`.
+- **Name.** `display_name` (else the 8.3 `name`) without the G-code
+  extension and PrusaSlicer's `_<nozzle>n_<layer>mm_<MATERIAL>_<PRINTER>_<time>`
+  suffix, at most 32 runes; `material` comes from that suffix (`PLA;PETG` →
+  `PLA/PETG`) and is empty without one (the CORE One sends no `meta`).
+- **Events** `started` (a new `job.id` reaching heating, preparing,
+  printing or finishing), `attention`, `finished`, `stopped`, `error`: one
+  per edge between two successful polls of this process, ids increasing
+  (Unix ms, bumped past the last), kept 30 min, at most 32. The first poll
+  after a start is a baseline and emits nothing, so a restart mid-FINISHED
+  or mid-print replays nothing; a printer that went `offline` and comes back
+  is compared with its last online phase. Notifications and bot moments act
+  on events, never on a level.
+- **Holds.** `Snapshot.HoldUntil` is the `finished` event + `done_hold_min`
+  (30) or the `stopped` event + 10 min while the phase still says so; zero
+  otherwise (and after a restart, which saw no event).
+- **Thumbnail.** On a new job, `refs.thumbnail` (`/thumb/l/…`) is read once:
+  `image/png`, PNG magic, ≤ 1 MB, RAM only (`State.Thumbnail()`),
+  `thumb_version` = 12 hex digits of its SHA-256. 404 = no picture, not
+  retried for that job; a transient failure is retried on the next 2 polls.
+- **Changes** notify `topicPrint` when a reader-visible value moves: phase,
+  whole percent, an anchor, an event, the hold, the error, name, thumbnail,
+  printer info; temperatures only while heating.
+- **Config** `printer.{enabled,url,name,clock_app,notify_done,notify_attention,done_hold_min}`
+  in `config.json` and the overlay key `printer_json` (`PUT /v1/print/config`,
+  owner); `/admin/reload` re-reads it and wakes the poller. `clock_app` and
+  the notify toggles are stored here for #790. `/admin/doctor` has a
+  `printer` check (Warn for a missing or wrong password, not found,
+  unreachable; never Fail, a switched-off printer is normal).
+
 ### Knob controls — `cmd/ember/controls*.go`, `macos/Sources/EmberKit/Controls`, `macos/Ember/Services/*Controls*` (#515)
 
 The knob as a Mac controller (cinder#144, option C: Ember relay). Phase C1

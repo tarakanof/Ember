@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/printer"
 	"github.com/tarakanof/ember/internal/weather"
 )
 
@@ -53,6 +54,7 @@ type appSettings struct {
 	controls      *setting[ControlsConfig]
 	reminders     *setting[RemindersConfig]
 	day           *setting[DayConfig]
+	printer       *setting[printer.Config]
 }
 
 func newAppSettings(a *App) appSettings {
@@ -83,6 +85,7 @@ func newAppSettings(a *App) appSettings {
 		controls:        register(o, controlsSettingSpec()),
 		reminders:       register(o, remindersSettingSpec()),
 		day:             register(o, a.daySettingSpec()),
+		printer:         register(o, a.printerSettingSpec()),
 	}
 }
 

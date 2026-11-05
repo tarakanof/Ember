@@ -1,0 +1,116 @@
+package main
+
+import (
+	"math"
+	"net/http"
+	"time"
+
+	"github.com/tarakanof/ember/internal/printer"
+)
+
+type printEventDTO struct {
+	ID    uint64            `json:"id"`
+	Kind  printer.EventKind `json:"kind"`
+	At    int64             `json:"at"`
+	JobID int               `json:"job_id,omitempty"`
+}
+
+type printInfoDTO struct {
+	Name       string `json:"name"`
+	Host       string `json:"host,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Discovered bool   `json:"discovered"`
+	Hostname   string `json:"hostname,omitempty"`
+	Firmware   string `json:"firmware,omitempty"`
+}
+
+type printStateDTO struct {
+	Enabled      bool            `json:"enabled"`
+	Phase        printer.Phase   `json:"phase"`
+	LastError    string          `json:"last_error,omitempty"`
+	PrinterState string          `json:"printer_state,omitempty"`
+	JobID        int             `json:"job_id,omitempty"`
+	Progress     *int            `json:"progress,omitempty"`
+	EndsAt       *int64          `json:"ends_at,omitempty"`
+	StartedAt    *int64          `json:"started_at,omitempty"`
+	ChangeAt     *int64          `json:"change_at,omitempty"`
+	Nozzle       *int            `json:"nozzle,omitempty"`
+	NozzleTarget *int            `json:"nozzle_target,omitempty"`
+	Bed          *int            `json:"bed,omitempty"`
+	BedTarget    *int            `json:"bed_target,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Material     string          `json:"material,omitempty"`
+	ThumbVersion string          `json:"thumb_version,omitempty"`
+	HoldUntil    *int64          `json:"hold_until,omitempty"`
+	Event        *printEventDTO  `json:"event,omitempty"`
+	Events       []printEventDTO `json:"events"`
+	UpdatedAt    *int64          `json:"updated_at,omitempty"`
+	Printer      printInfoDTO    `json:"printer"`
+}
+
+func unixOrNil(t time.Time) *int64 {
+	if t.IsZero() {
+		return nil
+	}
+	v := t.Unix()
+	return &v
+}
+
+func degrees(v float64) *int {
+	d := int(math.Round(v))
+	return &d
+}
+
+func printEvent(e printer.Event) printEventDTO {
+	return printEventDTO{ID: e.ID, Kind: e.Kind, At: e.At.Unix(), JobID: e.JobID}
+}
+
+func printState(s printer.Snapshot) printStateDTO {
+	out := printStateDTO{
+		Enabled:   s.Enabled,
+		Phase:     s.Phase,
+		LastError: string(s.LastError),
+		Events:    []printEventDTO{},
+		UpdatedAt: unixOrNil(s.UpdatedAt),
+		Printer: printInfoDTO{Name: s.Printer.Name, Host: s.Printer.Host, URL: s.Printer.URL, Discovered: s.Printer.Discovered,
+			Hostname: s.Printer.Hostname, Firmware: s.Printer.Firmware},
+	}
+	for _, e := range s.Events {
+		out.Events = append(out.Events, printEvent(e))
+	}
+	if s.Event != nil {
+		e := printEvent(*s.Event)
+		out.Event = &e
+	}
+	switch s.Phase {
+	case printer.PhaseOff, printer.PhaseOffline:
+		return out
+	}
+	out.PrinterState = s.PrinterState
+	out.Nozzle, out.NozzleTarget = degrees(s.Nozzle), degrees(s.NozzleTarget)
+	out.Bed, out.BedTarget = degrees(s.Bed), degrees(s.BedTarget)
+	if s.Phase == printer.PhaseIdle {
+		return out
+	}
+	progress := s.Progress
+	out.JobID = s.JobID
+	out.Progress = &progress
+	out.EndsAt, out.StartedAt, out.ChangeAt = unixOrNil(s.EndsAt), unixOrNil(s.StartedAt), unixOrNil(s.ChangeAt)
+	out.Name, out.Material, out.ThumbVersion = s.Name, s.Material, s.ThumbVersion
+	out.HoldUntil = unixOrNil(s.HoldUntil)
+	return out
+}
+
+func (a *App) handlePrintState(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, printState(a.printer.State.At(time.Now())))
+}
+
+func (a *App) handlePrintConfigGet(w http.ResponseWriter, r *http.Request) {
+	serveSettingGet(w, a.settings.printer)
+}
+
+func (a *App) handlePrintConfigPut(w http.ResponseWriter, r *http.Request) {
+	if c, ok := serveSettingPut(a, w, r, a.settings.printer); ok {
+		writeJSON(w, http.StatusOK, c)
+	}
+}

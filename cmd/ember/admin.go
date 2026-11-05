@@ -230,6 +230,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.cfgMu.Unlock()
 		app.resyncPomodoroAfterReload()
 		app.reapplySettings()
+		app.printer.Wake()
 		app.changes.notify(topicConfig | topicPomodoro)
 		app.provisionClockInBackground()
 		logOutcome(http.StatusOK, len(changed), "")
