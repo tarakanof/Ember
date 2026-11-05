@@ -202,7 +202,9 @@ printer's phase, progress, anchored `ends_at`/`started_at`/`change_at`,
 temperatures, short `name`, `material`, `thumb_version`, the last 30 min of
 `events`, `hold_until`, `last_error` `no_password|wrong_password|unreachable|not_found`,
 and `printer` `{name, host, url, discovered, hostname, firmware}` —
-ARCHITECTURE "Print status"), `GET/PUT /v1/print/config` (`enabled`, `url`
+ARCHITECTURE "Print status"; weak `ETag` + `?wait=` long-poll like
+`/v1/pomodoro/state`, the tag ignoring temperatures, the anchored times and
+`updated_at`), `GET/PUT /v1/print/config` (`enabled`, `url`
 `auto` or `http(s)://host[:port]`, `name`, `clock_app`, `notify_done`,
 `notify_attention`, `done_hold_min` 1-1440, 0 = 30; the password is env-only),
 `GET/PUT /v1/quiet/config` (also drives the
