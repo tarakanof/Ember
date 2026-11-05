@@ -195,9 +195,11 @@ func statusJSON(state string, j *jobFields) string {
 	if j.remaining != nil {
 		job += fmt.Sprintf(`,"time_remaining":%d`, int(*j.remaining))
 	}
+	printing := 0
 	if j.printing != nil {
-		job += fmt.Sprintf(`,"time_printing":%d`, int(*j.printing))
+		printing = int(*j.printing)
 	}
+	job += fmt.Sprintf(`,"time_printing":%d`, printing)
 	if j.filamentChangeSeconds != nil {
 		job += fmt.Sprintf(`,"filament_change_in":%d`, int(*j.filamentChangeSeconds))
 	}

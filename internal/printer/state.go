@@ -118,6 +118,8 @@ type State struct {
 	endedHeld  bool
 	recovering bool
 	busyStart  bool
+	firstRead  time.Time
+	jobRan     bool
 	progress   float64
 	endsAt     time.Time
 	startedAt  time.Time
@@ -265,6 +267,7 @@ func (s *State) forget() {
 	s.seen, s.prevPhase, s.rawState, s.updatedAt = false, "", "", time.Time{}
 	s.jobID, s.startedID, s.progress = 0, 0, 0
 	s.endedSet, s.endedKind, s.endedHeld, s.recovering, s.busyStart = false, "", false, false, false
+	s.firstRead, s.jobRan = time.Time{}, false
 	s.endsAt, s.startedAt, s.changeAt = time.Time{}, time.Time{}, time.Time{}
 	s.nozzle, s.nozzleT, s.bed, s.bedT = 0, 0, 0, 0
 	s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
@@ -371,14 +374,17 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged, a
 	if j := d.Job; j != nil {
 		if j.ID != s.jobID {
 			jobChanged = true
-			s.jobID = j.ID
+			s.jobID, s.jobRan = j.ID, false
 			s.endsAt, s.startedAt, s.changeAt = time.Time{}, time.Time{}, time.Time{}
 			s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
 		}
 		s.progress = j.Progress
 		s.endsAt = anchorAfter(s.endsAt, now, j.TimeRemaining)
 		s.changeAt = anchorAfter(s.changeAt, now, j.FilamentChangeIn)
-		if j.TimePrinting != nil {
+		if phase != PhaseAttention {
+			s.jobRan = true
+		}
+		if j.TimePrinting != nil && (s.jobRan || j.Progress >= 1) {
 			s.startedAt = anchor(s.startedAt, now.Add(-seconds(*j.TimePrinting)))
 		}
 		s.endedHeld = false
@@ -396,17 +402,18 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged, a
 	}
 	s.phase = phase
 
-	if s.seen && s.busyStart && d.Job != nil {
+	if s.seen && s.busyStart && (d.Job != nil || raw != "BUSY") {
 		s.busyStart = false
-		if jobUnderway(d.Job) {
+		if d.Job != nil && ranBefore(d.Job, now.Sub(s.firstRead)) {
 			s.startedID = s.jobID
 		}
 	}
 	if s.seen {
 		s.edgesLocked(now, phase)
 	} else {
+		s.firstRead = now
 		s.busyStart = raw == "BUSY" && d.Job == nil
-		if d.Job != nil && (phase != PhaseAttention || jobUnderway(d.Job)) {
+		if d.Job != nil && (phase != PhaseAttention || d.Job.Progress >= 1) {
 			s.startedID = s.jobID
 		}
 		if kind, ok := endedKind(phase); ok {
@@ -446,8 +453,8 @@ func (s *State) heldOverLocked() bool {
 	return s.phase == PhaseAttention && s.endedHeld
 }
 
-func jobUnderway(j *StatusJob) bool {
-	return j.Progress >= 1 || (j.TimePrinting != nil && *j.TimePrinting > 0)
+func ranBefore(j *StatusJob, since time.Duration) bool {
+	return j.TimePrinting != nil && seconds(*j.TimePrinting) > since+PollIdle
 }
 
 func isRunning(p Phase) bool {

@@ -2782,13 +2782,21 @@ keeps it on the default transport: mDNS browsing is injected
   is a crash or power-panic recovery, or a filament load from a print
   preview's question, and keeps the previous phase, the job, its anchors
   and the 5 s cadence; otherwise (or after an offline gap) it is `idle`.
-  A server start that first sees BUSY takes the first job seen afterwards,
-  if already under way, as started without a `started`.
+  A server start that first sees BUSY (a recovery, or just the preheat
+  menu or a filament load) takes the next job as already started, without
+  a `started`, only when that job's `time_printing` is longer than Ember
+  has been watching plus 30 s (it ran before the start); the first status
+  that is not a jobless BUSY ends that rule.
 - **Anchors.** `ends_at` = now + `time_remaining`, `started_at` = now −
   `time_printing`, `change_at` = now + `filament_change_in`; each moves only
   when the new value is more than 60 s off, so a wobbling estimate doesn't
   change readers' ETags every poll. A new `job.id` resets them; a missing
   estimate clears `ends_at`/`change_at`.
+  During a print-preview question (ATTENTION with the new job id at 0 %)
+  the firmware still reports the previous print's `time_printing`, so an
+  ATTENTION read anchors `started_at` only once the job has been seen
+  printing or paused, or is past 1 %; and a server start in that ATTENTION
+  counts the job as started only past 1 %.
 - **Name.** `display_name` (else the 8.3 `name`) without the G-code
   extension and PrusaSlicer's `_<nozzle>n_<layer>mm_<MATERIAL>_<PRINTER>_<time>`
   suffix, at most 32 runes; `material` comes from that suffix (`PLA;PETG` →

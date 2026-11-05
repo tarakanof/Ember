@@ -917,11 +917,16 @@ func TestThumbnailRetriesResetForAReprintOfTheSameFile(t *testing.T) {
 
 func TestRestartDuringPrintPreviewStillEmitsStarted(t *testing.T) {
 	s := newStubPrinter(t)
-	s.set(func(s *stubPrinter) { s.status = statusJSON("ATTENTION", &jobFields{id: 5, progress: 0}) })
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("ATTENTION", &jobFields{id: 5, progress: 0, printing: num(7200)})
+	})
 	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
 	h.advance(h.step())
+	if got := h.snap().StartedAt; !got.IsZero() {
+		t.Fatalf("print preview anchored started_at to the last print's duration: %v", got)
+	}
 	s.set(func(s *stubPrinter) {
-		s.status = statusJSON("PRINTING", &jobFields{id: 5, progress: 0, nozzle: 100, nozzleT: 240})
+		s.status = statusJSON("PRINTING", &jobFields{id: 5, progress: 0, printing: num(3), nozzle: 100, nozzleT: 240})
 	})
 	h.advance(h.step())
 	if ev := eventKinds(h.snap()); !slices.Equal(ev, []EventKind{EventStarted}) {
@@ -1468,5 +1473,47 @@ func TestBusyAfterAnOfflineGapIsNotARecovery(t *testing.T) {
 	d := h.step()
 	if snap := h.snap(); snap.Phase != PhaseIdle || snap.JobID != 0 || d != PollIdle {
 		t.Fatalf("BUSY after a 6 h gap = phase %s job %d next %v", snap.Phase, snap.JobID, d)
+	}
+}
+
+func TestBusyStartThenANewPrintStillEmitsStarted(t *testing.T) {
+	for _, between := range []string{"IDLE", "BUSY"} {
+		t.Run(between, func(t *testing.T) {
+			s := newStubPrinter(t)
+			s.set(func(s *stubPrinter) { s.status = statusJSON("BUSY", nil) })
+			h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+			h.advance(h.step())
+			for range 20 {
+				s.set(func(s *stubPrinter) { s.status = statusJSON(between, nil) })
+				h.advance(h.step())
+			}
+			s.set(func(s *stubPrinter) {
+				s.status = statusJSON("PRINTING", &jobFields{id: 9, progress: 0, printing: num(14), nozzle: 100, nozzleT: 240})
+			})
+			h.advance(h.step())
+			if kinds := eventKinds(h.snap()); !slices.Equal(kinds, []EventKind{EventStarted}) {
+				t.Fatalf("events = %v, want the new print's started", kinds)
+			}
+		})
+	}
+}
+
+func TestPreviewWithTheLastPrintsTimeAfterARestartStillEmitsStarted(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("ATTENTION", &jobFields{id: 6, progress: 0, printing: num(7200)})
+	})
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(2), nozzle: 90, nozzleT: 240})
+	})
+	h.advance(h.step())
+	snap := h.snap()
+	if kinds := eventKinds(snap); !slices.Equal(kinds, []EventKind{EventStarted}) {
+		t.Fatalf("events = %v", kinds)
+	}
+	if want := h.now.Add(-PollActive).Add(-2 * time.Second); !snap.StartedAt.Equal(want.Truncate(time.Second)) {
+		t.Fatalf("started_at = %v, want %v", snap.StartedAt, want)
 	}
 }
