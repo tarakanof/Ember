@@ -6,6 +6,9 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -281,3 +284,27 @@ func (h *harness) advance(d time.Duration) {
 }
 
 func (h *harness) snap() Snapshot { return h.p.State.At(h.p.now()) }
+
+func pngOfSize(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, w, h))); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func testPNG(t *testing.T, seed uint8) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 8, 4))
+	for y := range 4 {
+		for x := range 8 {
+			img.SetNRGBA(x, y, color.NRGBA{R: seed * 40, G: uint8(x * 30), B: uint8(y * 60), A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}

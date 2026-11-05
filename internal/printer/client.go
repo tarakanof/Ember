@@ -227,5 +227,8 @@ func (c *Client) Thumbnail(ctx context.Context, ref string) ([]byte, error) {
 	if !bytes.HasPrefix(b, pngMagic) {
 		return nil, fmt.Errorf("%w: not a PNG", ErrBadThumbnail)
 	}
+	if err := CheckThumb(b); err != nil {
+		return nil, err
+	}
 	return b, nil
 }

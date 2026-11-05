@@ -104,7 +104,8 @@ func TestClientRejectsPathsThatLeaveThePrinter(t *testing.T) {
 }
 
 func TestThumbnailChecksTypeSizeAndMagic(t *testing.T) {
-	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{1}, 100)...)
+	png := testPNG(t, 1)
+	huge := pngOfSize(t, MaxThumbSidePx+1, 1)
 	cases := []struct {
 		name    string
 		typ     string
@@ -116,6 +117,8 @@ func TestThumbnailChecksTypeSizeAndMagic(t *testing.T) {
 		{"png with params", "image/png; charset=binary", png, false, false},
 		{"wrong type", "image/jpeg", png, true, false},
 		{"not png bytes", "image/png", []byte("GIF89a......"), true, false},
+		{"png magic only", "image/png", append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{1}, 100)...), true, false},
+		{"wider than 2048 px", "image/png", huge, true, false},
 		{"over a megabyte", "image/png", append(png, make([]byte, MaxThumbBytes)...), true, false},
 		{"none", "image/png", nil, true, true},
 	}

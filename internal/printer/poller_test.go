@@ -24,7 +24,7 @@ func eventKinds(s Snapshot) []EventKind {
 
 func TestRecordedPrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
 	s := newStubPrinter(t)
-	s.set(func(s *stubPrinter) { s.thumb = []byte("\x89PNG\r\n\x1a\nthumb") })
+	s.set(func(s *stubPrinter) { s.thumb = testPNG(t, 1) })
 	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
 	display := "bracket_v3_0.4n_0.2mm_PETG_COREONE_2h14m.bgcode"
 	steps := []struct {
@@ -517,7 +517,7 @@ func TestThumbnailRetriesCountPerJob(t *testing.T) {
 
 func TestThumbnailFetchedOncePerJob(t *testing.T) {
 	s := newStubPrinter(t)
-	png := []byte("\x89PNG\r\n\x1a\nthumb")
+	png := testPNG(t, 1)
 	s.set(func(s *stubPrinter) {
 		s.thumb = png
 		s.status = statusJSON("PRINTING", &jobFields{id: 3, progress: 5})
@@ -671,7 +671,7 @@ func TestOnChangeFiresOnPhaseNotOnSteadyPolls(t *testing.T) {
 
 func TestPasswordNeverLeaks(t *testing.T) {
 	s := newStubPrinter(t)
-	png := []byte("\x89PNG\r\n\x1a\nthumb")
+	png := testPNG(t, 1)
 	s.set(func(s *stubPrinter) {
 		s.thumb = png
 		s.status = statusJSON("PRINTING", &jobFields{id: 3, progress: 5})
@@ -965,7 +965,7 @@ func TestAutoModePrinterOffGoesOfflineAndBacksOff(t *testing.T) {
 func TestUnusableThumbnailIsNotRetried(t *testing.T) {
 	s := newStubPrinter(t)
 	s.set(func(s *stubPrinter) {
-		s.thumb, s.thumbType = []byte("\x89PNG\r\n\x1a\nx"), "image/jpeg"
+		s.thumb, s.thumbType = testPNG(t, 2), "image/jpeg"
 		s.status = statusJSON("PRINTING", &jobFields{id: 3, progress: 5})
 		s.job = jobJSON(3, "PRINTING", "a.bgcode")
 	})
@@ -1117,7 +1117,7 @@ func TestOfflineFallbackBrowsesOncePerStep(t *testing.T) {
 
 func TestThumbnailRetryAfterFailedJobReadsStillGetsItsTries(t *testing.T) {
 	s := newStubPrinter(t)
-	png := []byte("\x89PNG\r\n\x1a\nthumb")
+	png := testPNG(t, 1)
 	s.set(func(s *stubPrinter) {
 		s.status = statusJSON("PRINTING", &jobFields{id: 3, progress: 5})
 		s.job = "broken"
@@ -1245,7 +1245,7 @@ func TestWarningOverTheFinishScreenKeepsOneDoneAndItsJob(t *testing.T) {
 		t.Run(end, func(t *testing.T) {
 			s := newStubPrinter(t)
 			s.set(func(s *stubPrinter) {
-				s.thumb = []byte("\x89PNG\r\n\x1a\nthumb")
+				s.thumb = testPNG(t, 1)
 				s.status = statusJSON("PRINTING", &jobFields{id: 8, progress: 20})
 				s.job = jobJSON(8, "PRINTING", "lid_0.4n_0.2mm_PLA_COREONE_1h2m.bgcode")
 			})
@@ -1385,7 +1385,7 @@ func TestRestartDuringAJoblessWarningOverTheFinishScreenReplaysNoDone(t *testing
 func TestRecoveryMidPrintKeepsTheJob(t *testing.T) {
 	s := newStubPrinter(t)
 	s.set(func(s *stubPrinter) {
-		s.thumb = []byte("\x89PNG\r\n\x1a\nthumb")
+		s.thumb = testPNG(t, 1)
 		s.status = statusJSON("PRINTING", &jobFields{id: 5, progress: 40, remaining: num(3000), printing: num(2000)})
 		s.job = jobJSON(5, "PRINTING", "bracket_v3_0.4n_0.2mm_PETG_COREONE_2h14m.bgcode")
 	})
