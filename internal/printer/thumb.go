@@ -77,17 +77,17 @@ func BakeThumbs(b []byte) (Thumbs, error) {
 		return Thumbs{}, err
 	}
 	fit := heroFit(box)
+	solid, ghost := bakeDiscs(src, box, fit)
 	out := Thumbs{Top: fit.top, Bottom: ThumbHeroBottom}
-	for _, kind := range []ThumbKind{ThumbSolid, ThumbGhost} {
+	for _, d := range []struct {
+		img *image.RGBA
+		dst *[]byte
+	}{{solid, &out.Solid}, {ghost, &out.Ghost}} {
 		var buf bytes.Buffer
-		if err := jpeg.Encode(&buf, bakeDisc(src, box, fit, kind), &jpeg.Options{Quality: thumbQuality}); err != nil {
+		if err := jpeg.Encode(&buf, d.img, &jpeg.Options{Quality: thumbQuality}); err != nil {
 			return Thumbs{}, fmt.Errorf("encode thumbnail: %w", err)
 		}
-		if kind == ThumbSolid {
-			out.Solid = buf.Bytes()
-		} else {
-			out.Ghost = buf.Bytes()
-		}
+		*d.dst = buf.Bytes()
 	}
 	return out, nil
 }
@@ -129,14 +129,16 @@ func contentBox(src *image.RGBA) image.Rectangle {
 	return box
 }
 
-func bakeDisc(src *image.RGBA, box image.Rectangle, fit heroPlacement, kind ThumbKind) *image.RGBA {
-	out := image.NewRGBA(image.Rect(0, 0, ThumbSize, ThumbSize))
-	for i := 3; i < len(out.Pix); i += 4 {
-		out.Pix[i] = 255
+func bakeDiscs(src *image.RGBA, box image.Rectangle, fit heroPlacement) (solid, ghost *image.RGBA) {
+	solid = image.NewRGBA(image.Rect(0, 0, ThumbSize, ThumbSize))
+	ghost = image.NewRGBA(solid.Rect)
+	for i := 3; i < len(solid.Pix); i += 4 {
+		solid.Pix[i], ghost.Pix[i] = 255, 255
 	}
 	c := float64(ThumbSize) / 2
 	bx, by := float64(box.Min.X)+float64(box.Dx())/2, float64(box.Max.Y)
 	taps := min(max(int(math.Ceil(1/fit.scale)), 1), thumbMaxTaps)
+	px := func(v float64) uint8 { return uint8(min(max(v+0.5, 0), 255)) }
 	for y := range ThumbSize {
 		for x := range ThumbSize {
 			k := discGain(float64(x)+0.5-c, float64(y)+0.5-c)
@@ -155,18 +157,16 @@ func bakeDisc(src *image.RGBA, box image.Rectangle, fit heroPlacement, kind Thum
 				}
 			}
 			n := float64(taps * taps)
-			rgb := [3]float64{acc[0] / n, acc[1] / n, acc[2] / n}
-			if kind == ThumbGhost {
-				l := (0.2126*rgb[0] + 0.7152*rgb[1] + 0.0722*rgb[2]) * thumbGhostGain
-				rgb = [3]float64{l, l, l}
-			}
-			o := out.PixOffset(x, y)
+			rgb := [3]float64{acc[0] / n * k, acc[1] / n * k, acc[2] / n * k}
+			l := px((0.2126*rgb[0] + 0.7152*rgb[1] + 0.0722*rgb[2]) * thumbGhostGain)
+			o := solid.PixOffset(x, y)
 			for ch := range 3 {
-				out.Pix[o+ch] = uint8(min(max(rgb[ch]*k+0.5, 0), 255))
+				solid.Pix[o+ch] = px(rgb[ch])
+				ghost.Pix[o+ch] = l
 			}
 		}
 	}
-	return out
+	return solid, ghost
 }
 
 func sampleIn(src *image.RGBA, box image.Rectangle, fx, fy float64) [3]float64 {

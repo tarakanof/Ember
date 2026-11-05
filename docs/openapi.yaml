@@ -2627,10 +2627,11 @@ paths:
         `print.thumb_rows` are the rows it fills), on black in an r 208
         circle with a rim fade (× 1 → 0 from r 170 to 208). `kind=solid` is
         the picture; `kind=ghost` is the same disc desaturated at 25 %
-        brightness, so the knob can draw the ghost and the solid clipped
-        above the progress height. `v` equal to the view's
+        brightness: the knob draws the solid from the progress row down to
+        `thumb_rows[1]` and the ghost above it. `v` equal to the view's
         `print.thumb_version` (`<hash>-<recipe>`) makes the reply
-        `public, max-age=86400, immutable`; any other `v` gives `no-cache`.
+        `public, max-age=86400, immutable`; without `v` the current picture
+        comes with `no-cache`; any other `v` is a 404 (the job changed).
         The ETag is `"<thumb_version>-<kind>-466"`. 404 without a picture
         (no job, no thumbnail, printer off, a picture that doesn't bake).
         Both kinds are baked together once per version and kept in RAM (the

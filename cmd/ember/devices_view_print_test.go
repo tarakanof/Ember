@@ -456,8 +456,23 @@ func TestPrintThumbRoute(t *testing.T) {
 			}
 		}
 	}
-	if resp, _ := devReq(t, f.srv, "GET", "/v1/print/thumb?kind=ghost&v=stale", f.m.Token, ""); resp.Header.Get("Cache-Control") != "no-cache" {
-		t.Fatalf("stale v: Cache-Control %q", resp.Header.Get("Cache-Control"))
+	if resp, _ := devReq(t, f.srv, "GET", "/v1/print/thumb?kind=ghost&v=stale", f.m.Token, ""); resp.StatusCode != http.StatusNotFound || resp.Header.Get("Cache-Control") != "" {
+		t.Fatalf("stale v = %d, Cache-Control %q, want 404 without caching", resp.StatusCode, resp.Header.Get("Cache-Control"))
+	}
+	if resp, _ := devReq(t, f.srv, "GET", "/v1/print/thumb?kind=ghost", f.m.Token, ""); resp.StatusCode != http.StatusOK || resp.Header.Get("Cache-Control") != "no-cache" {
+		t.Fatalf("no v = %d, Cache-Control %q, want the current picture, no-cache", resp.StatusCode, resp.Header.Get("Cache-Control"))
+	}
+	_, solidBody := devReq(t, f.srv, "GET", "/v1/print/thumb?kind=solid&v="+ver, f.m.Token, "")
+	_, ghostBody := devReq(t, f.srv, "GET", "/v1/print/thumb?kind=ghost&v="+ver, f.m.Token, "")
+	solidImg, err1 := jpeg.Decode(bytes.NewReader(solidBody))
+	ghostImg, err2 := jpeg.Decode(bytes.NewReader(ghostBody))
+	if err1 != nil || err2 != nil {
+		t.Fatal(err1, err2)
+	}
+	sr, sg, sb, _ := solidImg.At(233, 205).RGBA()
+	gr, gg, gb, _ := ghostImg.At(233, 205).RGBA()
+	if sg>>8 < 150 || sr>>8 > 90 || gg>>8 > 70 || absDiff(gr>>8, gg>>8) > 3 || absDiff(gb>>8, gg>>8) > 3 {
+		t.Fatalf("solid %d,%d,%d ghost %d,%d,%d: want the green model and a dim grey ghost", sr>>8, sg>>8, sb>>8, gr>>8, gg>>8, gb>>8)
 	}
 	if resp, _ := npDo(t, f.srv, "GET", "/v1/print/thumb?kind=ghost", f.m.Token, nil, map[string]string{"If-None-Match": etag}); resp.StatusCode != http.StatusNotModified {
 		t.Fatalf("If-None-Match = %d, want 304", resp.StatusCode)
@@ -477,8 +492,8 @@ func TestPrintThumbRoute(t *testing.T) {
 	if next == "" || next == ver {
 		t.Fatalf("new job thumb_version = %q, was %q", next, ver)
 	}
-	if resp, _ := devReq(t, f.srv, "GET", "/v1/print/thumb?kind=solid&v="+ver, f.m.Token, ""); resp.Header.Get("Cache-Control") != "no-cache" {
-		t.Fatalf("the old job's v must not be immutable now: %q", resp.Header.Get("Cache-Control"))
+	if resp, _ := devReq(t, f.srv, "GET", "/v1/print/thumb?kind=solid&v="+ver, f.m.Token, ""); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("the old job's v = %d, want 404 so a solid and ghost can't mix", resp.StatusCode)
 	}
 
 	p.fp.setJob(0, "", "", nil)
@@ -560,4 +575,11 @@ func TestCapsKnobViewDropsPrintAfterPomoToFitViewBytes(t *testing.T) {
 	if _, ok := keys["day"]; !ok {
 		t.Fatalf("day dropped before print: %v", keys)
 	}
+}
+
+func absDiff(a, b uint32) uint32 {
+	if a > b {
+		return a - b
+	}
+	return b - a
 }

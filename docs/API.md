@@ -313,7 +313,8 @@ stored or already stored), `GET /v1/devices/self/firmware/{version}` (only
 the image its checkin's `ota` offers: 409 for any other version, `Range`/`If-Range` (416 past the end),
 `ETag: "<sha256>"`, per-device rate limit), `GET /v1/print/thumb?kind=solid|ghost&v=` (also the
 owner or an `admin` client token; the print job's picture as the knob's 466 px circle JPEG,
-`immutable` at `v` = the view's `print.thumb_version`, else `no-cache`; 404 without a picture;
+`immutable` at `v` = the view's `print.thumb_version`, `no-cache` without `v`, 404 for another `v` or
+without a picture;
 rate-limited; DEVICE-PROTOCOL "Print"), `GET /v1/devices/self/view` (the knob's
 single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
 `X-Ember-View-Wait`; `?demo_id=&demo_state=playing|done` report on a demo;

@@ -166,9 +166,14 @@ func (a *App) handlePrintThumb(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := th.Kind(kind)
 	etag := fmt.Sprintf(`"%s-%s-%d"`, version, kind, printer.ThumbSize)
+	v := q.Get("v")
+	if v != "" && v != version {
+		writeError(w, http.StatusNotFound, errors.New("print thumbnail changed: read the view again"))
+		return
+	}
 	h := w.Header()
 	h.Set("ETag", etag)
-	if v := q.Get("v"); v != "" && v == version {
+	if v == version {
 		h.Set("Cache-Control", "public, max-age=86400, immutable")
 	} else {
 		h.Set("Cache-Control", "no-cache")
