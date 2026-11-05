@@ -768,7 +768,9 @@
     },
     "At once" : {},
     "Attention hold" : {},
+    "Auto" : {},
     "Auto clock-out" : {},
+    "Auto looks for the printer on your network by its PrusaLink name. The password is read by the server from EMBER_PRUSALINK_PASSWORD; this app never asks for it." : {},
     "Auto-stop" : {},
     "Automatic (release builds, when the knob is idle)" : {},
     "Automatic brightness" : {},
@@ -985,6 +987,10 @@
     },
     "Connected · %@" : {
       "comment" : "Settings › Connection status: the server's version (\"0.28.0\")."
+    },
+    "Connected · firmware %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
     },
     "Connected · v%@" : {
       "comment" : "Dashboard window subtitle when the server's host is unknown: its version (\"0.29.0\").",
@@ -1271,6 +1277,10 @@
     },
     "Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server; this Mac searches too, for when the server can't." : {},
     "Ember flame" : {},
+    "Ember found no PrusaLink printer on the network. Check the printer is on the same network, or enter its address." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Ember gives the knob its own token; your server token never leaves this Mac." : {},
     "Ember isn't connected to a server" : {},
     "Ember keeps the newest three crash dumps. Decode one with `esp-coredump info_corefile -c <dump.bin> <cinder.elf>`. Download ELF saves the cinder.elf of the build that crashed when Ember has it; otherwise use build/cinder.elf from the matching firmware build." : {},
@@ -1395,6 +1405,7 @@
     "Forget “%@”?" : {
       "comment" : "Settings › Knob confirm title; the argument is the knob's name (\"Desk knob\")."
     },
+    "Found" : {},
     "Found via Bonjour. Click Use to fill in the server URL. The server must run on host networking, and Ember needs Local Network access." : {},
     "Frame rate" : {},
     "Free" : {},
@@ -1538,6 +1549,7 @@
     "Joining %@" : {
       "comment" : "Knob setup progress step; the argument is the Wi-Fi network name."
     },
+    "Keep \"done\" on the clock for" : {},
     "Keep on screen until dismissed" : {},
     "Keep reporting finished sessions" : {},
     "Keeps recent tool calls in the activity card" : {
@@ -1631,6 +1643,7 @@
     "Lowest free" : {},
     "Lowest since start" : {},
     "MCP" : {},
+    "Manual" : {},
     "Mark %@ as Release?" : {
       "comment" : "Settings › Knob Firmware & updates: confirmation title before moving a stored image to the Release channel; the argument is its version (\"Mark 0.9.17 as Release?\")."
     },
@@ -1781,6 +1794,10 @@
       "comment" : "VoiceOver summary of a day without a clock-in; the argument is the off-clock reply count."
     },
     "Not delivered yet" : {},
+    "Not found on the network" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Not found on this Mac. You can turn it on now; it reports once the app runs." : {},
     "Not in use" : {},
     "Not installed: the app is missing its launch agent." : {
@@ -1811,6 +1828,8 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Notify when a print is done" : {},
+    "Notify when the printer needs you" : {},
     "Now" : {},
     "Now Playing" : {},
     "Now Playing on the Server" : {},
@@ -1863,6 +1882,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "On the Clock" : {},
     "On the clock" : {},
     "On the knob" : {
       "comment" : "Settings › Knob Firmware & updates image row badge (green): the knob runs this build."
@@ -1924,6 +1944,10 @@
       "extractionState" : "manual"
     },
     "Password" : {},
+    "Password missing on the server" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Past the stop time" : {},
     "Pause" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2007,7 +2031,17 @@
     "Preview unavailable: the server didn't answer." : {},
     "Previous App" : {},
     "Previous Track" : {},
+    "Printer" : {},
+    "Printer address" : {},
+    "Printer off" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Privacy: the track's title, artist, album, position and artwork go to your Ember server, and anyone on your network can read what's playing from it (no token needed). Artist pictures come from Deezer only if the server has EMBER_ARTIST_LOOKUP=1; then the artist's name leaves your network." : {},
+    "Problem: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Processor" : {},
     "Processor load" : {},
     "Processor, memory, temperature and Wi-Fi, every minute." : {},
@@ -2214,6 +2248,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Set EMBER_PRUSALINK_PASSWORD in the Ember server's container. Read it on the printer under Settings → Network → PrusaLink. This app never asks for or stores it." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Set Up" : {},
     "Set Up Ember…" : {},
     "Set Up Knob" : {},
@@ -2245,9 +2283,11 @@
     "Show for" : {},
     "Show next meeting" : {},
     "Show on Clock" : {},
+    "Show on the clock" : {},
     "Show on the knob" : {},
     "Show seconds" : {},
     "Show the host's name" : {},
+    "Show the printer" : {},
     "Show the weather every" : {},
     "Show tile from" : {},
     "Show usage from" : {},
@@ -2558,6 +2598,10 @@
     },
     "The menu bar shows the glyph of the tool that's most active." : {},
     "The overlay draws rain, snow or storms over whatever is showing." : {},
+    "The printer didn't answer. It may be switched off or asleep." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The reminder shows for the time above, then the clock carries on." : {},
     "The reminder stays on the clock until you press its middle button." : {},
     "The request from knob %@ expired. It will show a new code." : {
@@ -2595,6 +2639,10 @@
       "extractionState" : "manual"
     },
     "The server was started with the clock turned off (EMBER_CLOCK=off). Turn it back on to manage the clock here." : {},
+    "The server's EMBER_PRUSALINK_PASSWORD isn't the printer's PrusaLink password. Read the right one on the printer under Settings → Network → PrusaLink, then fix it in the server's container." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The server's activity overlay is off, so new agent time isn't stored." : {},
     "The source names this Mac on the clock; up to 4 characters fit best. The token must match the server's EMBER_TOKEN." : {},
     "The tune the clock plays" : {
@@ -2629,6 +2677,7 @@
     "This server doesn't keep reminder settings. Update the Ember server." : {},
     "This server doesn't support Pomodoro settings. Update the Ember server." : {},
     "This server doesn't support meetings. Update the Ember server." : {},
+    "This server doesn't support the printer. Update the Ember server." : {},
     "This server doesn't support these settings. Update the Ember server." : {},
     "This server doesn't support this setting. Update the server." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2995,6 +3044,10 @@
     },
     "Wrap around" : {},
     "Writes the agent's computer name along the bottom of the face" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Wrong password" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },

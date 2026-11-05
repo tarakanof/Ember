@@ -63,7 +63,7 @@ struct KnobDetail: View {
         case .weather: return s.weather.isLoaded && !s.weather.draft.enabled
         case .calendar: return s.meetings.isLoaded && !s.meetings.draft.enabled
         case .dayClock: return s.day.isLoaded && !s.day.draft.enabled
-        case .agents, .music: return false
+        case .agents, .music, .printer: return false
         }
     }
 

@@ -113,7 +113,7 @@ func unknownStoredValueFallsBackToConnection(name: String) {
 @Test func treeGroupsAppSourcesAndDevices() {
     let tree = SettingsTree(devices: [clock, knob])
     #expect(tree.app == [.app(.general), .app(.connection), .app(.permissions), .app(.sounds)])
-    #expect(tree.sources == [.source(.agents), .source(.dayClock), .source(.focus), .source(.weather), .source(.calendar), .source(.music)])
+    #expect(tree.sources == [.source(.agents), .source(.dayClock), .source(.focus), .source(.weather), .source(.calendar), .source(.music), .source(.printer)])
     #expect(tree.devices.map(\.id) == ["clock", "knob-61fc8c"])
     let c = tree.devices[0]
     #expect(c.route == .device("clock", .hardware(.status)))
