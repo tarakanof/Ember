@@ -24,7 +24,7 @@ func (a *App) newPrinter(browse printer.BrowseFunc, now func() time.Time) *print
 	p.OnChange = func() {
 		a.changes.notify(topicPrint)
 		if a.coord != nil {
-			a.coord.Send(coordCmd{kind: cmdTick})
+			a.coord.Send(coordCmd{kind: cmdPrint})
 		}
 	}
 	return p

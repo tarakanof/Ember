@@ -30,6 +30,7 @@ const (
 	cmdDelete
 	cmdClear
 	cmdRepublish
+	cmdPrint
 )
 
 type coordCmd struct {
@@ -219,6 +220,8 @@ func (c *coordinator) handle(cmd coordCmd) {
 		c.onClear()
 	case cmdRepublish:
 		c.onRepublish()
+	case cmdPrint:
+		c.onPrint()
 	}
 }
 

@@ -16,5 +16,11 @@ func (a *App) printPreview(now time.Time) render.Preview {
 	if !printInRotation(in.print) {
 		in.print = samplePrintSnapshot(now)
 	}
-	return previewTiles(in, printTile.card, printReadyTile.card, printPctTile.card)
+	var cards []string
+	for _, t := range []*tile{&printTile, &printReadyTile, &printPctTile} {
+		if t.live(&in) {
+			cards = append(cards, t.card)
+		}
+	}
+	return previewTiles(in, cards...)
 }

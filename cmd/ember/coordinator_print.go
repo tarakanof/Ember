@@ -19,6 +19,8 @@ const (
 	printDoneGrace        = 5 * time.Minute
 	printAttentionGrace   = 2 * time.Minute
 	printNoticeCallBudget = 10 * time.Second
+	printRetryAfter       = 30 * time.Second
+	printHeatStep         = 5
 
 	printDoneRTTTL      = "done:d=8,o=6,b=160:c,e,g,2c7"
 	printAttentionRTTTL = "attn:d=8,o=6,b=200:a,p,a"
@@ -47,9 +49,9 @@ func printViewOf(s printer.Snapshot, now time.Time) render.PrintView {
 	v := render.PrintView{
 		Phase:        string(s.Phase),
 		Progress:     s.Progress,
-		Nozzle:       int(math.Round(s.Nozzle)),
+		Nozzle:       stepDegrees(s.Nozzle),
 		NozzleTarget: int(math.Round(s.NozzleTarget)),
-		Bed:          int(math.Round(s.Bed)),
+		Bed:          stepDegrees(s.Bed),
 		BedTarget:    int(math.Round(s.BedTarget)),
 	}
 	if !s.EndsAt.IsZero() {
@@ -61,6 +63,10 @@ func printViewOf(s printer.Snapshot, now time.Time) render.PrintView {
 		v.ChangeSoon = true
 	}
 	return v
+}
+
+func stepDegrees(v float64) int {
+	return int(math.Round(v/printHeatStep)) * printHeatStep
 }
 
 func printTileOf(card int, needEstimate bool) func(in *tileInputs) (tileView, bool) {
@@ -119,6 +125,7 @@ type printNotifyState struct {
 	fired    map[string]struct{}
 	attnOn   bool
 	attnNext time.Time
+	retryAt  time.Time
 }
 
 func (c *coordinator) printTileInputs(in *tileInputs, now time.Time) {
@@ -139,6 +146,15 @@ func (c *coordinator) fireNotice(kind noticeKind, payload map[string]any, rtttl 
 	return c.showNotice(ctx, n)
 }
 
+func (c *coordinator) onPrint() {
+	if c.snapshot == nil {
+		return
+	}
+	now := c.clk.Now()
+	c.reconcileTiles(now)
+	c.checkPrint(now)
+}
+
 func (c *coordinator) checkPrint(now time.Time) {
 	if c.printSnap == nil {
 		return
@@ -146,6 +162,9 @@ func (c *coordinator) checkPrint(now time.Time) {
 	cfg := c.loadCfg().Printer
 	snap := c.printSnap(now)
 	st := &c.printNotes
+	if now.Before(st.retryAt) {
+		return
+	}
 	if ident := snap.Printer.Host + "|" + snap.Printer.URL; st.fired == nil || (ident != st.ident && snap.Printer.URL != "") {
 		st.fired, st.ident = map[string]struct{}{}, ident
 	}
@@ -154,6 +173,7 @@ func (c *coordinator) checkPrint(now time.Time) {
 			continue
 		}
 		if !c.printEvent(now, cfg, snap, e) {
+			st.retryAt = now.Add(printRetryAfter)
 			return
 		}
 		st.lastID = e.ID
@@ -167,12 +187,14 @@ func (c *coordinator) checkPrint(now time.Time) {
 		defer cancel()
 		if err := c.dismissNotice(ctx, noticePrintAttention); err != nil && !isAPINotFound(err) {
 			c.logger.Warn("print attention dismiss failed", "err", err)
+			st.retryAt = now.Add(printRetryAfter)
 			return
 		}
 		st.attnOn = false
 	case cfg.NotifyAttentionEnabled() && !now.Before(st.attnNext):
 		if err := c.fireNotice(noticePrintAttention, render.PrintAttentionPopupPayload(printAttentionPopSec), printAttentionRTTTL); err != nil {
 			c.logger.Warn("print attention popup failed", "err", err)
+			st.retryAt = now.Add(printRetryAfter)
 			return
 		}
 		st.attnNext = now.Add(printAttentionRepeat)

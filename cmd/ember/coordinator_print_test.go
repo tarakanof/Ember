@@ -276,7 +276,7 @@ func TestPrintDonePopupRetriesAfterAFailedPush(t *testing.T) {
 	r.tick(3 * time.Second)
 	fail = false
 	r.tick(3 * time.Second)
-	r.tick(3 * time.Second)
+	r.tick(printRetryAfter)
 	if n := r.pub.NotifySnapshot(); len(n) != 1 {
 		t.Errorf("%d popups after the retry, want 1", len(n))
 	}
@@ -388,9 +388,10 @@ func TestPrintAttentionDismissRetriesUntilItLands(t *testing.T) {
 	r.snap = printSnap(printer.PhasePrinting, nil)
 	r.tick(3 * time.Second)
 	r.tick(3 * time.Second)
+	r.tick(printRetryAfter)
 	r.pub.dismissByNameErr = nil
-	r.tick(3 * time.Second)
-	r.tick(3 * time.Second)
+	r.tick(printRetryAfter)
+	r.tick(printRetryAfter)
 	if d := r.pub.DismissedNamesSnapshot(); len(d) != 3 {
 		t.Errorf("dismiss attempts = %d, want 3 (two failed, one landed, then stop)", len(d))
 	}
@@ -406,5 +407,77 @@ func TestPrintDoneLedgerIsPerPrinter(t *testing.T) {
 	r.tick(time.Second)
 	if n := r.pub.NotifySnapshot(); len(n) != 2 {
 		t.Errorf("%d popups, want one per printer", len(n))
+	}
+}
+
+func TestPrintPreviewShowsOnlyTheCardsTheClockRotates(t *testing.T) {
+	app := NewApp(func() Config { c := defaultConfig(); c.applyDefaults(); return c }(), &recordingPublisher{}, testLogger())
+	in := tileInputs{now: printT0, printCfg: app.cfg.Load().Printer, print: printSnap(printer.PhasePaused, nil)}
+	var cards []string
+	for _, tl := range []*tile{&printTile, &printReadyTile, &printPctTile} {
+		if tl.live(&in) {
+			cards = append(cards, tl.card)
+		}
+	}
+	if !slices.Equal(cards, []string{"print"}) {
+		t.Errorf("paused shows cards %v, want one", cards)
+	}
+}
+
+func TestPrintTilePayloadsFitNGSchema(t *testing.T) {
+	for _, icons := range []bool{false, true} {
+		for _, phase := range []printer.Phase{printer.PhaseHeating, printer.PhasePrinting, printer.PhaseAttention, printer.PhaseFinished} {
+			in := printInputs(printSnap(phase, nil), true, icons)
+			for _, tl := range []*tile{&printTile, &printReadyTile, &printPctTile} {
+				v, ok := tl.view(&in)
+				if !ok {
+					continue
+				}
+				if errs := render.CheckNGPayload(v.payload, false); len(errs) > 0 {
+					t.Errorf("%s %s icons=%t: %v", tl.app, phase, icons, errs)
+				}
+			}
+		}
+	}
+}
+
+func TestPrinterChangeRunsPrintWorkWithoutAdvancingTheCards(t *testing.T) {
+	r := newPrintNoteRig(t, nil)
+	r.c.snapshot = func() Snapshot { return Snapshot{} }
+	r.c.cardCursor = 4
+	r.snap = printSnap(printer.PhaseFinished, nil)
+	r.event(printer.EventFinished, 100, printT0)
+	r.c.handle(coordCmd{kind: cmdPrint})
+	if len(r.pub.NotifySnapshot()) != 1 {
+		t.Errorf("a printer change did not run the popup check")
+	}
+	if r.c.cardCursor != 4 {
+		t.Errorf("cardCursor moved to %d on a printer change", r.c.cardCursor)
+	}
+}
+
+func TestPrintHeatingTemperaturesMoveInSteps(t *testing.T) {
+	a := printViewOf(printSnap(printer.PhaseHeating, func(s *printer.Snapshot) { s.Nozzle, s.Bed = 151, 41 }), printT0)
+	b := printViewOf(printSnap(printer.PhaseHeating, func(s *printer.Snapshot) { s.Nozzle, s.Bed = 152, 42 }), printT0)
+	if a.Nozzle != b.Nozzle || a.Bed != b.Bed {
+		t.Errorf("a 2° wobble changes the view: %+v vs %+v", a, b)
+	}
+}
+
+func TestPrintFailedPopupWaitsBeforeRetrying(t *testing.T) {
+	r := newPrintNoteRig(t, nil)
+	calls := 0
+	r.pub.failNotify = func() error { calls++; return errors.New("down") }
+	r.snap = printSnap(printer.PhaseFinished, nil)
+	r.event(printer.EventFinished, 100, printT0)
+	for range 5 {
+		r.tick(3 * time.Second)
+	}
+	if calls != 1 {
+		t.Errorf("%d attempts in 15 s, want 1", calls)
+	}
+	r.tick(30 * time.Second)
+	if calls != 2 {
+		t.Errorf("no retry after the wait: %d attempts", calls)
 	}
 }
