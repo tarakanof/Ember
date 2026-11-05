@@ -14,6 +14,7 @@ struct PrinterSourcePane: View {
 private struct PrinterPaneBody: View {
     @State var model: PrinterSettingsModel
     @FocusState private var addressFocused: Bool
+    @Environment(\.appearsActive) private var appearsActive
 
     var body: some View {
         @Bindable var model = model
@@ -79,7 +80,7 @@ private struct PrinterPaneBody: View {
             }
             .disabled(!config.isLoaded || !c.enabled)
 
-            if let response = model.preview.response {
+            if model.preview.error == nil, let response = model.preview.response {
                 Section {
                     PreviewCanvas(frames: response.frames, maxPitch: PanelPreview.maxPitch)
                         .ledBezel()
@@ -102,10 +103,16 @@ private struct PrinterPaneBody: View {
                 try? await Task.sleep(for: .seconds(10))
                 if Task.isCancelled { break }
                 await model.refreshState()
-                model.refreshPreview()
+                if !model.preview.isUnavailable { model.refreshPreview() }
             }
         }
-        .onDisappear { model.preview.cancel() }
+        .onChange(of: appearsActive) { _, active in
+            if !active { model.commitAddress() }
+        }
+        .onDisappear {
+            model.commitAddress()
+            model.preview.cancel()
+        }
     }
 
     private var addressMode: Binding<Bool> {

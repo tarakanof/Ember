@@ -16,7 +16,10 @@ public final class PrinterSettingsModel {
     @ObservationIgnored private let fetchPreview: @Sendable () async throws -> PreviewResponse
     @ObservationIgnored private var stateSeq = 0
 
-    public var status: PrinterStatusLine { PrinterStatusLine(state, error: stateError) }
+    public var status: PrinterStatusLine {
+        if config.draft.enabled, state?.enabled == false { return .unknown }
+        return PrinterStatusLine(state, error: stateError)
+    }
 
     public var foundHost: String? {
         guard let state, state.printer.discovered, !state.printer.host.isEmpty else { return nil }
@@ -66,17 +69,25 @@ public final class PrinterSettingsModel {
 
     public func chooseManual() {
         manualMode = true
+        addressInvalid = false
         if !config.draft.isAuto { addressText = config.draft.url }
+        commitAddress(warn: false)
     }
 
-    public func commitAddress() {
+    public func commitAddress(warn: Bool = true) {
         guard manualMode else { return }
-        if let url = PrinterConfig.validatedAddress(addressText) {
+        let text = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty {
+            addressInvalid = false
+        } else if let url = PrinterConfig.validatedAddress(text) {
             addressInvalid = false
             addressText = url
-            config.draft.url = url
+            if config.draft.url != url {
+                config.draft.url = url
+                config.scheduleSave()
+            }
         } else {
-            addressInvalid = true
+            addressInvalid = warn
         }
     }
 
@@ -96,14 +107,16 @@ public final class PrinterSettingsModel {
     }
 
     public func refreshPreview() {
+        guard config.draft.enabled else { return }
         preview.request { [fetchPreview] in try await fetchPreview() }
     }
 
     public func load() async {
+        let before = config.applied
         async let c: Void = config.load()
         async let s: Void = refreshState()
         _ = await (c, s)
-        syncAddress()
+        if config.applied != before, !config.hasUnsavedChanges { syncAddress() }
     }
 
     public func saved() async {

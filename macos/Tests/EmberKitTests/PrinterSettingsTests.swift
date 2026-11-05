@@ -88,7 +88,7 @@ private func state(_ json: String) throws -> PrinterState {
 @Test func previewStaysAbsentWhileTheRouteIsMissing() async {
     let preview = PreviewModel(debounce: .zero, sleep: { _ in })
     let model = PrinterSettingsModel(
-        config: ServerConfigModel(initial: PrinterConfig(), load: { PrinterConfig() }, save: { _ in }),
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
         state: { PrinterState(enabled: true, phase: "idle") },
         preview: { throw APIError.http(status: 404, body: "not found") },
         previewModel: preview)
@@ -157,4 +157,83 @@ private actor SaveLog {
         preview: { throw APIError.http(status: 404, body: "") })
     await model.refreshState()
     #expect(model.status == .unavailable(featureOff: true))
+}
+
+
+@MainActor
+@Test func aReloadKeepsTheManualChoiceAndTheTypedAddress() async {
+    let model = await loadedModel(PrinterConfig(enabled: true))
+    model.chooseManual()
+    model.addressText = "http://192.168"
+    await model.load()
+    #expect(model.manualMode && model.addressText == "http://192.168")
+}
+
+@MainActor
+@Test func aReloadDuringAPendingSaveDoesNotFlipThePicker() async {
+    let model = await loadedModel(PrinterConfig(enabled: true))
+    model.chooseManual()
+    model.addressText = "http://192.168.1.50"
+    model.commitAddress()
+    await model.load()
+    #expect(model.manualMode && model.config.draft.url == "http://192.168.1.50")
+}
+
+@MainActor
+@Test func manualAutoManualCommitsTheAddressTheFieldShows() async {
+    let model = await loadedModel(PrinterConfig(enabled: true, url: "http://10.0.0.5"))
+    model.chooseAuto()
+    #expect(model.config.draft.isAuto)
+    model.chooseManual()
+    #expect(model.manualMode && model.config.draft.url == "http://10.0.0.5" && !model.addressInvalid)
+}
+
+@MainActor
+@Test func anEmptyManualFieldNeitherWarnsNorChangesAnything() async {
+    let model = await loadedModel(PrinterConfig(enabled: true))
+    model.chooseManual()
+    model.commitAddress()
+    #expect(!model.addressInvalid && model.config.draft.isAuto)
+}
+
+@MainActor
+@Test func foundHostNeedsADiscoveredPrinterWithAHost() async {
+    let discovered = PrinterState(enabled: true, phase: "idle",
+                                  printer: PrinterInfo(host: "core.local", discovered: true))
+    let manual = PrinterState(enabled: true, phase: "idle",
+                              printer: PrinterInfo(host: "core.local", discovered: false))
+    func model(_ s: PrinterState) async -> PrinterSettingsModel {
+        let m = PrinterSettingsModel(
+            config: ServerConfigModel(initial: PrinterConfig(), load: { PrinterConfig() }, save: { _ in }),
+            state: { s }, preview: { throw APIError.http(status: 404, body: "") })
+        await m.refreshState()
+        return m
+    }
+    #expect(await model(discovered).foundHost == "core.local")
+    #expect(await model(manual).foundHost == nil)
+}
+
+@MainActor
+@Test func turningItOnShowsCheckingUntilTheServerCatchesUp() async {
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
+        state: { PrinterState(enabled: false, phase: "off") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.refreshState()
+    #expect(model.status == .unknown)
+}
+
+@MainActor
+@Test func noPreviewIsRequestedWhileThePrinterIsOff() async {
+    actor Calls { var n = 0; func bump() { n += 1 } }
+    let calls = Calls()
+    let preview = PreviewModel(debounce: .zero, sleep: { _ in })
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(), load: { PrinterConfig() }, save: { _ in }),
+        state: { PrinterState() },
+        preview: { await calls.bump(); throw APIError.http(status: 404, body: "") },
+        previewModel: preview)
+    model.refreshPreview()
+    for _ in 0..<50 { await Task.yield() }
+    #expect(await calls.n == 0)
 }
