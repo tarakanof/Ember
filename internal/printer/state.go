@@ -117,6 +117,7 @@ type State struct {
 	endedKind  EventKind
 	endedHeld  bool
 	recovering bool
+	busyStart  bool
 	progress   float64
 	endsAt     time.Time
 	startedAt  time.Time
@@ -263,7 +264,7 @@ func (s *State) forget() {
 	defer s.mu.Unlock()
 	s.seen, s.prevPhase, s.rawState, s.updatedAt = false, "", "", time.Time{}
 	s.jobID, s.startedID, s.progress = 0, 0, 0
-	s.endedSet, s.endedKind, s.endedHeld, s.recovering = false, "", false, false
+	s.endedSet, s.endedKind, s.endedHeld, s.recovering, s.busyStart = false, "", false, false, false
 	s.endsAt, s.startedAt, s.changeAt = time.Time{}, time.Time{}, time.Time{}
 	s.nozzle, s.nozzleT, s.bed, s.bedT = 0, 0, 0, 0
 	s.name, s.material, s.thumbRef, s.thumb, s.thumbVer = "", "", "", nil, ""
@@ -356,7 +357,8 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged, a
 	defer s.mu.Unlock()
 	phase := DerivePhase(d)
 	raw := strings.ToUpper(d.Printer.State)
-	s.recovering = raw == "BUSY" && d.Job == nil && s.seen && s.jobID != 0 && s.midPrintLocked(s.prevPhase)
+	s.recovering = raw == "BUSY" && d.Job == nil && s.seen && s.jobID != 0 && s.midPrintLocked(s.prevPhase) &&
+		now.Sub(s.updatedAt) < 2*PollIdle
 	if s.recovering {
 		phase = s.prevPhase
 	}
@@ -394,9 +396,16 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged, a
 	}
 	s.phase = phase
 
+	if s.seen && s.busyStart && d.Job != nil {
+		s.busyStart = false
+		if jobUnderway(d.Job) {
+			s.startedID = s.jobID
+		}
+	}
 	if s.seen {
 		s.edgesLocked(now, phase)
 	} else {
+		s.busyStart = raw == "BUSY" && d.Job == nil
 		if d.Job != nil && (phase != PhaseAttention || jobUnderway(d.Job)) {
 			s.startedID = s.jobID
 		}

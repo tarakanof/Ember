@@ -1430,3 +1430,43 @@ func TestBusyOutsideAPrintIsIdle(t *testing.T) {
 		t.Fatalf("busy after a print = %+v", snap)
 	}
 }
+
+func TestRestartDuringARecoveryReplaysNoStarted(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("BUSY", nil) })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 5, progress: 60, printing: num(5000)})
+	})
+	h.advance(h.step())
+	if kinds := eventKinds(h.snap()); len(kinds) != 0 {
+		t.Fatalf("a resumed print after a restart in BUSY fired %v", kinds)
+	}
+	s.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 6, progress: 0, nozzle: 100, nozzleT: 240})
+	})
+	h.advance(h.step())
+	if kinds := eventKinds(h.snap()); !slices.Equal(kinds, []EventKind{EventFinished, EventStarted}) {
+		t.Fatalf("events = %v", kinds)
+	}
+}
+
+func TestBusyAfterAnOfflineGapIsNotARecovery(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("PRINTING", &jobFields{id: 5, progress: 50}) })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.status = "not json" })
+	for range 4 {
+		h.advance(h.step())
+	}
+	h.advance(6 * time.Hour)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("BUSY", nil) })
+	d := h.step()
+	if snap := h.snap(); snap.Phase != PhaseIdle || snap.JobID != 0 || d != PollIdle {
+		t.Fatalf("BUSY after a 6 h gap = phase %s job %d next %v", snap.Phase, snap.JobID, d)
+	}
+}

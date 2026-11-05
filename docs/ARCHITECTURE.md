@@ -2778,9 +2778,12 @@ keeps it on the default transport: mDNS browsing is injected
   (`PRINTING` at 100 %: park, cool, unload), `paused`, `attention`,
   `finished`, `stopped`, `error`. `BUSY` always arrives without a job
   (`has_job()` excludes the recovery states); right after printing, a
-  pause or a print's attention it is a crash or power-panic recovery and
-  keeps the previous phase, the job, its anchors and the 5 s cadence,
-  otherwise it is `idle`.
+  pause or a print's attention (within a minute of the last good read) it
+  is a crash or power-panic recovery, or a filament load from a print
+  preview's question, and keeps the previous phase, the job, its anchors
+  and the 5 s cadence; otherwise (or after an offline gap) it is `idle`.
+  A server start that first sees BUSY takes the first job seen afterwards,
+  if already under way, as started without a `started`.
 - **Anchors.** `ends_at` = now + `time_remaining`, `started_at` = now −
   `time_printing`, `change_at` = now + `filament_change_in`; each moves only
   when the new value is more than 60 s off, so a wobbling estimate doesn't
@@ -2805,8 +2808,9 @@ keeps it on the default transport: mDNS browsing is injected
   sees FINISHED, STOPPED, ERROR, or an ATTENTION without the job or with
   it at 100 %, counts that print as ended (the next terminal edge of any
   kind is skipped until a print runs). Known limit: an end-of-print prompt at 100 %
-  (unload) seen first after a restart is taken for that warning, so its
-  `finished` is not emitted. Any other phase without a job (idle) clears
+  (unload) seen first after a restart is taken for that warning; its
+  `finished` is lost only if the printer then goes straight to FINISHED
+  (a return to PRINTING lifts the block). Any other phase without a job (idle) clears
   the job fields. `/api/version` is read again after the printer
   comes back from `offline` (a firmware update reboots it).
 - **Events** `started` (a new `job.id` reaching heating, preparing,
