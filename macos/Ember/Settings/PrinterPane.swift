@@ -44,7 +44,7 @@ private struct PrinterPaneBody: View {
                 if !model.manualMode {
                     if let host = model.foundHost {
                         LabeledContent("Found") { Text(verbatim: host) }
-                    } else if c.enabled, model.status != .unknown, model.status != .passwordMissing {
+                    } else if c.enabled, model.status == .notFound {
                         LabeledContent("Found") { Text("Nothing yet").foregroundStyle(.secondary) }
                     }
                 } else {

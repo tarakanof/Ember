@@ -20,7 +20,8 @@ private func state(_ json: String) throws -> PrinterState {
         ("something_new", .other("something_new")),
     ]
     for (code, line) in cases {
-        let s = try state(#"{"enabled":true,"phase":"offline","last_error":"\#(code)"}"#)
+        let phase = code == "no_password" ? "off" : "offline"
+        let s = try state(#"{"enabled":true,"phase":"\#(phase)","last_error":"\#(code)"}"#)
         #expect(PrinterStatusLine(s) == line, "\(code)")
     }
 }
@@ -281,4 +282,44 @@ private actor SaveLog {
     #expect(model.previewResponse == frame)
     model.config.draft.enabled = false
     #expect(model.previewResponse == nil)
+}
+
+@MainActor
+@Test func aBlipKeepsTheLastStateUntilItRepeats() async {
+    final class Box: @unchecked Sendable { var fail = false }
+    let box = Box()
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(enabled: true), load: { PrinterConfig(enabled: true) }, save: { _ in }),
+        state: { if box.fail { throw APIError.timedOut }; return PrinterState(enabled: true, phase: "idle", printer: PrinterInfo(firmware: "6.3.0")) },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.refreshState()
+    box.fail = true
+    await model.refreshState()
+    await model.refreshState()
+    #expect(model.status == .connected(firmware: "6.3.0"))
+    await model.refreshState()
+    #expect(model.status == .unavailable(featureOff: false))
+}
+
+@MainActor
+@Test func clearingAManualFieldRestoresTheSavedAddress() async {
+    let model = await loadedModel(PrinterConfig(enabled: true, url: "http://10.0.0.5"))
+    model.addressText = ""
+    model.commitAddress()
+    #expect(model.addressText == "http://10.0.0.5" && model.config.draft.url == "http://10.0.0.5")
+}
+
+@MainActor
+@Test func aReloadPicksUpAnAddressAnotherMacChanged() async {
+    final class Box: @unchecked Sendable { var url = "auto" }
+    let box = Box()
+    let model = PrinterSettingsModel(
+        config: ServerConfigModel(initial: PrinterConfig(), load: { PrinterConfig(enabled: true, url: box.url) }, save: { _ in }),
+        state: { PrinterState(enabled: true, phase: "idle") },
+        preview: { throw APIError.http(status: 404, body: "") })
+    await model.load()
+    #expect(!model.manualMode)
+    box.url = "http://10.0.0.9"
+    await model.load()
+    #expect(model.manualMode && model.addressText == "http://10.0.0.9")
 }

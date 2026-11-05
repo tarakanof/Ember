@@ -15,6 +15,9 @@ public final class PrinterSettingsModel {
     @ObservationIgnored private let fetchState: @Sendable () async throws -> PrinterState
     @ObservationIgnored private let fetchPreview: @Sendable () async throws -> PreviewResponse
     @ObservationIgnored private var stateSeq = 0
+    @ObservationIgnored private var failures = 0
+
+    static let failuresBeforeUnavailable = 3
 
     public var status: PrinterStatusLine {
         if config.draft.enabled, state?.enabled == false { return .unknown }
@@ -79,6 +82,7 @@ public final class PrinterSettingsModel {
         let text = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty {
             addressInvalid = false
+            if !config.draft.isAuto { addressText = config.draft.url }
         } else if let url = PrinterConfig.validatedAddress(text) {
             addressInvalid = false
             addressText = url
@@ -97,12 +101,17 @@ public final class PrinterSettingsModel {
         do {
             let next = try await fetchState()
             guard seq == stateSeq else { return }
+            failures = 0
             state = next
             stateError = nil
         } catch {
             guard seq == stateSeq else { return }
-            state = nil
-            stateError = FeedError(error)
+            let e = FeedError(error)
+            failures += 1
+            if state == nil || failures >= Self.failuresBeforeUnavailable || e == .featureOff || e == .unauthorized {
+                state = nil
+                stateError = e
+            }
         }
     }
 
