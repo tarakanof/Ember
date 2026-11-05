@@ -97,14 +97,6 @@ type Snapshot struct {
 	Printer      Info
 }
 
-func (s Snapshot) JobPhase() bool {
-	switch s.Phase {
-	case PhaseHeating, PhasePreparing, PhasePrinting, PhaseFinishing, PhasePaused, PhaseAttention:
-		return true
-	}
-	return false
-}
-
 type State struct {
 	mu sync.Mutex
 
@@ -282,12 +274,6 @@ func (s *State) setOffline(code ErrorCode) {
 	s.phase, s.lastErr = PhaseOffline, code
 }
 
-func (s *State) setError(code ErrorCode) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.lastErr = code
-}
-
 func (s *State) setTarget(url, host string, discovered bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -301,12 +287,6 @@ func (s *State) setVersion(v VersionDoc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.info.Hostname, s.info.Firmware = v.Hostname, v.Firmware
-}
-
-func (s *State) hasVersion() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.info.Firmware != "" || s.info.Hostname != ""
 }
 
 func DerivePhase(d StatusDoc) Phase {
@@ -391,13 +371,17 @@ func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged bo
 
 	if s.seen {
 		s.edgesLocked(now, phase)
-	} else if d.Job != nil {
+	} else if d.Job != nil && (phase != PhaseAttention || jobUnderway(d.Job)) {
 		s.startedID = s.jobID
 	}
 	s.seen = true
 	s.prevPhase = phase
 	s.phase, s.lastErr = phase, ErrCodeNone
 	return stateChanged, jobChanged
+}
+
+func jobUnderway(j *StatusJob) bool {
+	return j.Progress >= 1 || (j.TimePrinting != nil && *j.TimePrinting > 0)
 }
 
 func isRunning(p Phase) bool {

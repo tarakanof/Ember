@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,11 +17,13 @@ import (
 )
 
 const (
-	PollActive   = 5 * time.Second
-	PollIdle     = 30 * time.Second
-	PollDisabled = 5 * time.Minute
-	offlineAfter = 2
-	thumbTries   = 3
+	PollActive     = 5 * time.Second
+	PollIdle       = 30 * time.Second
+	PollDisabled   = 5 * time.Minute
+	offlineAfter   = 2
+	thumbTries     = 3
+	versionTries   = 3
+	FallbackBrowse = 5 * time.Minute
 )
 
 var Backoff = []time.Duration{30 * time.Second, 60 * time.Second, 120 * time.Second, 300 * time.Second}
@@ -68,6 +71,8 @@ type Poller struct {
 	loggedErr    string
 	needJob      bool
 	versionTried bool
+	versionFails int
+	fallbackAt   time.Time
 	thumbFails   int
 	thumbFailRef string
 	changeKey    string
@@ -158,7 +163,17 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	}
 	key := latchKey(cfg, creds)
 	if p.latched == key {
-		return PollDisabled
+		if !cfg.Auto() || p.client == nil || p.matched || !p.fallbackDue() {
+			return PollDisabled
+		}
+		prev := p.identity
+		p.discover(ctx, cfg.Name, creds)
+		if ctx.Err() != nil {
+			return 0
+		}
+		if p.identity == prev {
+			return PollDisabled
+		}
 	}
 	p.latched = ""
 
@@ -170,7 +185,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 		if p.manual || (p.client != nil && p.selName != cfg.Name) {
 			p.disconnect()
 		}
-		if p.client != nil && !p.matched && !p.active {
+		if p.client != nil && !p.matched && !p.active && p.fallbackDue() {
 			p.discover(ctx, cfg.Name, creds)
 			if ctx.Err() != nil {
 				return 0
@@ -238,8 +253,16 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 }
 
 func latchKey(cfg Config, c Credentials) string {
-	sum := sha256.Sum256([]byte(cfg.URL + "\x00" + c.User + "\x00" + c.Password))
+	sel := cfg.URL
+	if cfg.Auto() {
+		sel += "\x00" + cfg.Name
+	}
+	sum := sha256.Sum256([]byte(sel + "\x00" + c.User + "\x00" + c.Password))
 	return string(sum[:])
+}
+
+func (p *Poller) fallbackDue() bool {
+	return !p.now().Before(p.fallbackAt)
 }
 
 func (p *Poller) nextBackoff() time.Duration {
@@ -258,26 +281,30 @@ func (p *Poller) logOnce(code ErrorCode, err error) {
 
 func (p *Poller) disconnect() {
 	p.client, p.target, p.manual = nil, "", false
-	p.failures, p.versionTried = 0, false
+	p.failures, p.versionTried, p.versionFails = 0, false, 0
 }
 
 func (p *Poller) use(f Found, manual bool, creds Credentials) {
-	c, err := NewClient(f.URL, creds, p.hc)
-	if err != nil {
-		p.disconnect()
-		return
-	}
 	host := strings.TrimSuffix(f.Host, ".")
 	identity := host
 	if manual {
 		identity = f.URL
 	}
+	if p.client != nil && f.URL == p.target && manual == p.manual && identity == p.identity && p.client.creds == creds {
+		return
+	}
+	c, err := NewClient(f.URL, creds, p.hc)
+	if err != nil {
+		p.disconnect()
+		return
+	}
 	if p.identity != "" && identity != p.identity {
 		p.State.forget()
 		p.thumbFails, p.thumbFailRef = 0, ""
+		p.versionTried, p.versionFails = false, 0
 	}
 	if f.URL != p.target {
-		p.versionTried = false
+		p.versionTried, p.versionFails = false, 0
 		p.needJob = true
 	}
 	p.client, p.target, p.manual, p.identity = c, f.URL, manual, identity
@@ -292,19 +319,25 @@ func (p *Poller) discover(ctx context.Context, name string, creds Credentials) b
 	if err != nil || len(found) == 0 {
 		return false
 	}
+	if p.client != nil && !p.matched {
+		p.fallbackAt = p.now().Add(FallbackBrowse)
+	}
 	f, matched := Choose(found, name)
-	if !matched && p.client != nil {
+	if p.client != nil && (p.matched || !matched) {
 		same := slices.IndexFunc(found, func(c Found) bool { return strings.TrimSuffix(c.Host, ".") == p.identity })
-		if p.matched || same < 0 {
+		if same < 0 {
 			return false
 		}
-		f = found[same]
+		f, matched = found[same], p.matched
 	}
 	if f.URL != p.target {
 		p.logger.Info("printer discovered", "host", f.Host, "url", f.URL, "candidates", len(found), "name_match", matched)
 	}
 	p.use(f, false, creds)
 	p.selName, p.matched = name, matched
+	if !matched {
+		p.fallbackAt = p.now().Add(FallbackBrowse)
+	}
 	return p.client != nil
 }
 
@@ -375,8 +408,10 @@ func (p *Poller) poll(ctx context.Context) error {
 		}
 		if err == nil {
 			p.State.setVersion(v)
+			p.versionTried = true
+		} else if p.versionFails++; p.versionFails >= versionTries {
+			p.versionTried = true
 		}
-		p.versionTried = true
 	}
 	if stateChanged || jobChanged || p.needJob {
 		if err := p.fetchJob(ctx); err != nil {
@@ -412,8 +447,8 @@ func (p *Poller) fetchJob(ctx context.Context) error {
 		p.thumbFails = 0
 		p.State.setThumb(ref, nil)
 	default:
-		if p.thumbFailRef != ref {
-			p.thumbFails, p.thumbFailRef = 0, ref
+		if key := strconv.Itoa(job.ID) + "\x00" + ref; p.thumbFailRef != key {
+			p.thumbFails, p.thumbFailRef = 0, key
 		}
 		p.thumbFails++
 		if p.thumbFails < thumbTries {

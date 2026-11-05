@@ -412,6 +412,11 @@ func TestAutoModeFallbackMovesToTheNamedPrinterWhenItAppears(t *testing.T) {
 	core.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
 	net.set(Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL}, Found{Host: "prusa-core-one.local.", URL: core.srv.URL})
 	h.advance(h.step())
+	if got := h.snap().Printer.URL; got != mk4.srv.URL {
+		t.Fatalf("browsed again before %v: now on %s", FallbackBrowse, got)
+	}
+	h.advance(FallbackBrowse)
+	h.advance(h.step())
 	snap := h.snap()
 	if snap.Printer.URL != core.srv.URL || snap.Printer.Host != "prusa-core-one.local" {
 		t.Fatalf("printer = %+v, want the CORE One once it appears", snap.Printer)
@@ -792,5 +797,157 @@ func TestConfigValidate(t *testing.T) {
 		if err := cfg.Validate(); (err == nil) != c.ok {
 			t.Errorf("Validate(url=%q hold=%d) = %v, want ok=%v", c.url, c.hold, err, c.ok)
 		}
+	}
+}
+
+func TestAutoModeNeverSwitchesToAPartialNameNeighbour(t *testing.T) {
+	core := newStubPrinter(t)
+	coreL := newStubPrinter(t)
+	coreL.set(func(s *stubPrinter) { s.status = statusJSON("FINISHED", nil) })
+	net := &lan{}
+	net.set(Found{Host: "prusa-core-one.local.", URL: core.srv.URL}, Found{Host: "prusa-core-one-l.local.", URL: coreL.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	core.set(func(s *stubPrinter) { s.status = statusJSON("PRINTING", &jobFields{id: 7, progress: 50}) })
+	h.advance(h.step())
+	core.srv.Close()
+	net.set(Found{Host: "prusa-core-one-l.local.", URL: coreL.srv.URL})
+	for range 5 {
+		h.advance(h.step())
+	}
+	if snap := h.snap(); snap.Printer.URL != core.srv.URL || snap.Phase != PhaseOffline || coreL.total() != 0 {
+		t.Fatalf("moved to %s (%s), CORE One L requests %d", snap.Printer.URL, snap.Phase, coreL.total())
+	}
+}
+
+func TestFallbackPrinterKeepsItsNonceAndBrowsesSparingly(t *testing.T) {
+	s := newStubPrinter(t)
+	net := &lan{}
+	net.set(Found{Name: "Workshop", Host: "workshop.local.", URL: s.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	for range 10 {
+		h.advance(h.step())
+	}
+	if net.n > 2 {
+		t.Fatalf("%d browses over 10 idle polls (5 min)", net.n)
+	}
+	if s.unauth != 1 {
+		t.Fatalf("%d challenges over 10 polls, want the nonce kept (1)", s.unauth)
+	}
+}
+
+func TestWrongPasswordRetriesAfterANameChange(t *testing.T) {
+	core := newStubPrinter(t)
+	core.set(func(s *stubPrinter) { s.password = "core-password" })
+	mk4 := newStubPrinter(t)
+	net := &lan{}
+	net.set(Found{Host: "prusa-core-one.local.", URL: core.srv.URL}, Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	h.advance(h.step())
+	if h.snap().LastError != ErrCodeWrongPassword {
+		t.Fatal("want wrong_password on the CORE One")
+	}
+	h.mu.Lock()
+	h.cfg.Name = "MK4"
+	h.mu.Unlock()
+	h.advance(h.step())
+	if snap := h.snap(); snap.Printer.URL != mk4.srv.URL || snap.LastError != ErrCodeNone || snap.Phase != PhaseIdle {
+		t.Fatalf("after renaming: %s %s %q", snap.Printer.URL, snap.Phase, snap.LastError)
+	}
+}
+
+func TestWrongPasswordOnAFallbackStillFindsTheNamedPrinter(t *testing.T) {
+	mk4 := newStubPrinter(t)
+	mk4.set(func(s *stubPrinter) { s.password = "mk4-password" })
+	core := newStubPrinter(t)
+	net := &lan{}
+	net.set(Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	h.advance(h.step())
+	if h.snap().LastError != ErrCodeWrongPassword {
+		t.Fatal("want wrong_password on the fallback")
+	}
+	net.set(Found{Host: "prusa-mk4.local.", URL: mk4.srv.URL}, Found{Host: "prusa-core-one.local.", URL: core.srv.URL})
+	h.advance(FallbackBrowse)
+	h.advance(h.step())
+	if snap := h.snap(); snap.Printer.URL != core.srv.URL || snap.LastError != ErrCodeNone {
+		t.Fatalf("named printer not found after a fallback's wrong password: %s %q", snap.Printer.URL, snap.LastError)
+	}
+}
+
+func TestVersionRetriedAfterAFailure(t *testing.T) {
+	s := newStubPrinter(t)
+	version := ""
+	s.set(func(s *stubPrinter) { version, s.version = s.version, "" })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.version = version })
+	h.advance(h.step())
+	if got := h.snap().Printer.Firmware; got != "8.0.0+12345" {
+		t.Fatalf("firmware = %q after one failed /api/version", got)
+	}
+}
+
+func TestThumbnailRetriesResetForAReprintOfTheSameFile(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.thumb, s.thumbType = []byte("\x89PNG\r\n\x1a\nx"), "text/plain" })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	job := func(id int) {
+		s.set(func(s *stubPrinter) {
+			s.status = statusJSON("PRINTING", &jobFields{id: id, progress: 5})
+			s.job = jobJSON(id, "PRINTING", "a.bgcode")
+		})
+	}
+	job(1)
+	h.advance(h.step())
+	h.advance(h.step())
+	before := s.hit("/thumb/l/usb/BRACKE~1.BGC")
+	job(2)
+	for range 4 {
+		h.advance(h.step())
+	}
+	if got := s.hit("/thumb/l/usb/BRACKE~1.BGC") - before; got != thumbTries {
+		t.Fatalf("reprint tried the thumbnail %d times, want %d", got, thumbTries)
+	}
+}
+
+func TestRestartDuringPrintPreviewStillEmitsStarted(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) { s.status = statusJSON("ATTENTION", &jobFields{id: 5, progress: 0}) })
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 5, progress: 0, nozzle: 100, nozzleT: 240})
+	})
+	h.advance(h.step())
+	if ev := eventKinds(h.snap()); !slices.Equal(ev, []EventKind{EventStarted}) {
+		t.Fatalf("events = %v", ev)
+	}
+}
+
+func TestAutoModePrinterOffGoesOfflineAndBacksOff(t *testing.T) {
+	s := newStubPrinter(t)
+	net := &lan{}
+	net.set(Found{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: s.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	h.advance(h.step())
+	s.srv.Close()
+	var delays []time.Duration
+	for range 5 {
+		d := h.step()
+		delays = append(delays, d)
+		h.advance(d)
+	}
+	want := []time.Duration{PollIdle, 30 * time.Second, 60 * time.Second, 120 * time.Second, 300 * time.Second}
+	if !slices.Equal(delays, want) || h.snap().Phase != PhaseOffline || h.snap().LastError != ErrCodeUnreachable {
+		t.Fatalf("delays %v phase %s error %q", delays, h.snap().Phase, h.snap().LastError)
+	}
+	warns := 0
+	for _, l := range h.logs.lines() {
+		if strings.Contains(l, "level=WARN") {
+			warns++
+		}
+	}
+	if warns != 1 {
+		t.Fatalf("warn lines = %d", warns)
 	}
 }

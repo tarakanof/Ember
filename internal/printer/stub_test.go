@@ -121,6 +121,10 @@ func (s *stubPrinter) serve(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(s.job))
 	case r.URL.Path == "/api/version":
+		if s.version == "" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(s.version))
 	case strings.HasPrefix(r.URL.Path, "/thumb/l/"):

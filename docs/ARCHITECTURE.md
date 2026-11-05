@@ -2735,14 +2735,15 @@ keeps it on the default transport: mDNS browsing is injected
   (3 s) and keeps the answer in RAM. Several printers: the one whose mDNS
   host label or instance name equals `printer.name` (letters and digits,
   case-folded), else the shortest one containing it (so "CORE One" picks
-  `prusa-core-one`, not `prusa-core-one-l`), else the first by host. A
-  printer chosen by name is the only one ever polled: a poll failure that
-  would make or keep the phase `offline` browses again first and follows
-  only a name match (the same printer at a new DHCP address, polled in the
-  same step, well within a minute), never another printer. A fallback
-  printer (no name match) is followed by host only, and every idle step
-  browses again so the named printer is picked once it appears. Changing
-  `printer.name` selects again. A manual `http://host[:port]` is never
+  `prusa-core-one`, not `prusa-core-one-l`), else the first by host. Once
+  chosen, a printer is followed by its mDNS host: a poll failure that would
+  make or keep the phase `offline` browses again first and moves only to
+  the same host at a new address (a DHCP move, polled in the same step,
+  well within a minute), never to a neighbour, however close its name. A
+  fallback printer (no name match) is also followed by host, and every
+  5 min (on idle steps, or while latched on a wrong password) a browse
+  looks for the named printer and moves to it once it appears. Changing
+  `printer.name` selects again and lifts a wrong-password latch. A manual `http://host[:port]` is never
   rediscovered. Nothing found: `offline` with `not_found`, retried on the
   backoff below. Host networking is required for mDNS (production runs
   `--network host`).
@@ -2753,7 +2754,9 @@ keeps it on the default transport: mDNS browsing is injected
 - **Cadence.** `GET /api/v1/status` every 5 s while a job is active
   (`PRINTING`, `PAUSED`, `ATTENTION`, `BUSY` with a job), else 30 s.
   `GET /api/v1/job` only when `printer.state` or `job.id` changes (and
-  after an address change); `GET /api/version` once per address. A failed
+  after an address change); `GET /api/version` once per printer (up to 3
+  tries). The client, and with it the nonce, is kept while the address and
+  credentials stay the same. A failed
   poll counts; the second in a row turns the phase `offline`
   (`unreachable`) and the next polls wait 30, 60, 120, then 300 s. One
   `printer poll failed` warning per distinct reason, one `printer reachable`
@@ -2783,7 +2786,8 @@ keeps it on the default transport: mDNS browsing is injected
   per edge between two successful polls of this process, ids increasing
   (Unix ms, bumped past the last), kept 30 min, at most 32. The first poll
   after a start is a baseline and emits nothing, so a restart mid-FINISHED
-  or mid-print replays nothing; a printer that went `offline` and comes back
+  or mid-print replays nothing (a job first seen in a print-preview
+  ATTENTION, at 0 % and no printing time, still gets its `started`); a printer that went `offline` and comes back
   is compared with its last online phase. Notifications and bot moments act
   on events, never on a level.
 - **Holds.** `Snapshot.HoldUntil` is the `finished` edge + `done_hold_min`
