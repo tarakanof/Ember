@@ -115,6 +115,10 @@ func (s *stubPrinter) serve(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(s.status))
 	case r.URL.Path == "/api/v1/job":
+		if s.job == "broken" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		if s.job == "" {
 			w.WriteHeader(http.StatusNoContent)
 			return

@@ -2759,7 +2759,8 @@ keeps it on the default transport: mDNS browsing is injected
 - **Cadence.** `GET /api/v1/status` every 5 s while a job is active
   (`PRINTING`, `PAUSED`, `ATTENTION`, `BUSY` with a job), else 30 s.
   `GET /api/v1/job` only when `printer.state` or `job.id` changes (and
-  after an address change); `GET /api/version` once per printer (up to 3
+  after an address change; a failed read is retried on the next 2 polls,
+  then waits for the next change with one warning); `GET /api/version` once per printer (up to 3
   tries). The client, and with it the nonce, is kept while the address and
   credentials stay the same. A failed
   poll counts; the second in a row turns the phase `offline`

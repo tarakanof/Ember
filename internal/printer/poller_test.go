@@ -1057,3 +1057,51 @@ func TestBrowseErrorIsLogged(t *testing.T) {
 		t.Fatalf("browse error not logged:\n%s", h.logs.String())
 	}
 }
+
+func TestFailingJobReadStopsAfterThreeTries(t *testing.T) {
+	s := newStubPrinter(t)
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PRINTING", &jobFields{id: 3, progress: 5})
+		s.job = "broken"
+	})
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	for range 20 {
+		h.advance(h.step())
+	}
+	if got := s.hit("/api/v1/job"); got != jobTries {
+		t.Fatalf("job read %d times in 20 polls, want %d", got, jobTries)
+	}
+	warns := 0
+	for _, l := range h.logs.lines() {
+		if strings.Contains(l, "printer job read failed") {
+			warns++
+		}
+	}
+	if warns != 1 {
+		t.Fatalf("job failure logged %d times", warns)
+	}
+	s.set(func(s *stubPrinter) {
+		s.status = statusJSON("PAUSED", &jobFields{id: 3, progress: 5})
+		s.job = jobJSON(3, "PAUSED", "a.bgcode")
+	})
+	h.advance(h.step())
+	if h.snap().Name != "a" {
+		t.Fatalf("job not read again after a state change: %q", h.snap().Name)
+	}
+}
+
+func TestOfflineFallbackBrowsesOncePerStep(t *testing.T) {
+	s := newStubPrinter(t)
+	net := &lan{}
+	net.set(Found{Host: "workshop.local.", URL: s.srv.URL})
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, net.browse)
+	h.advance(h.step())
+	s.srv.Close()
+	for range 8 {
+		before := net.n
+		h.advance(h.step())
+		if net.n-before > 1 {
+			t.Fatalf("%d browses in one step", net.n-before)
+		}
+	}
+}

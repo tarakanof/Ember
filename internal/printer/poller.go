@@ -22,6 +22,7 @@ const (
 	PollDisabled   = 5 * time.Minute
 	offlineAfter   = 2
 	thumbTries     = 3
+	jobTries       = 3
 	versionTries   = 3
 	FallbackBrowse = 5 * time.Minute
 )
@@ -74,6 +75,8 @@ type Poller struct {
 	versionFails int
 	fallbackAt   time.Time
 	browseErr    error
+	browsed      bool
+	jobFails     int
 	thumbFails   int
 	thumbFailRef string
 	changeKey    string
@@ -144,6 +147,7 @@ func (p *Poller) Run(ctx context.Context) {
 
 func (p *Poller) Step(ctx context.Context) time.Duration {
 	defer p.notifyIfChanged()
+	p.browsed = false
 	cfg := p.cfg()
 	cfg.ApplyDefaults()
 	p.State.configure(cfg.Enabled, time.Duration(cfg.DoneHoldMin)*time.Minute, cfg.Name)
@@ -216,7 +220,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	if err != nil && ctx.Err() != nil {
 		return 0
 	}
-	if err != nil && !errors.Is(err, ErrWrongPassword) && cfg.Auto() && p.failures+1 >= offlineAfter {
+	if err != nil && !errors.Is(err, ErrWrongPassword) && cfg.Auto() && p.failures+1 >= offlineAfter && !p.browsed {
 		prev := p.target
 		if p.discover(ctx, cfg.Name, creds) && p.target != prev {
 			p.failures = 0
@@ -322,7 +326,7 @@ func (p *Poller) discover(ctx context.Context, name string, creds Credentials) b
 		p.fallbackAt = p.now().Add(FallbackBrowse)
 	}
 	found, err := p.browse(ctx)
-	p.browseErr = err
+	p.browsed, p.browseErr = true, err
 	if err != nil || len(found) == 0 {
 		return false
 	}
@@ -417,6 +421,9 @@ func (p *Poller) poll(ctx context.Context) error {
 			p.versionTried = true
 		}
 	}
+	if stateChanged || jobChanged {
+		p.jobFails = 0
+	}
 	if stateChanged || jobChanged || p.needJob {
 		if err := p.fetchJob(ctx); err != nil {
 			return err
@@ -431,8 +438,11 @@ func (p *Poller) fetchJob(ctx context.Context) error {
 		return err
 	}
 	if err != nil {
-		p.needJob = true
-		p.logger.Debug("printer job read failed", "err", err)
+		p.jobFails++
+		p.needJob = p.jobFails < jobTries
+		if !p.needJob {
+			p.logger.Warn("printer job read failed", "err", err, "tries", p.jobFails)
+		}
 		return nil
 	}
 	p.needJob = false
