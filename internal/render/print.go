@@ -243,9 +243,9 @@ func printSweepGIF(h int) ([]byte, error) {
 }
 
 const (
-	printBurstDelayCs = 10
+	printBurstDelayCs = 12
 	printBurstHoldCs  = 40
-	printBurstRadii   = 5
+	printBurstRadii   = 4
 )
 
 func printBurstGIF() ([]byte, error) {
@@ -256,7 +256,7 @@ func printBurstGIF() ([]byte, error) {
 		k := 1 - float64(r-2)/float64(printBurstRadii-1)
 		spark := mixRGB(colorWhite, colorDone, 1-k)
 		for _, d := range [][2]int{{r, 0}, {-r, 0}, {0, r}, {0, -r}, {r - 1, r - 1}, {1 - r, r - 1}, {r - 1, 1 - r}, {1 - r, 1 - r}} {
-			x, y := 4+d[0], 4+d[1]
+			x, y := 3+d[0], 3+d[1]
 			if x >= 0 && x < iconW && y >= 0 && y < 8 {
 				paintCell(&f, x, y, spark)
 			}
