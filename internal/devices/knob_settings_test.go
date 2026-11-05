@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -57,11 +58,11 @@ func TestKnobSettingsValidate(t *testing.T) {
 				s.Pages[i].On = false
 			}
 		}, false},
-		{"new page id", func(s *KnobSettings) { s.Pages = append(s.Pages, KnobPage{ID: "clock_2", On: true}) }, true},
-		{"malformed page id", func(s *KnobSettings) { s.Pages = append(s.Pages, KnobPage{ID: "Clock", On: true}) }, false},
-		{"empty page id", func(s *KnobSettings) { s.Pages = append(s.Pages, KnobPage{ID: "", On: true}) }, false},
-		{"long page id", func(s *KnobSettings) { s.Pages = append(s.Pages, KnobPage{ID: "a234567890123456x", On: true}) }, false},
-		{"duplicate page", func(s *KnobSettings) { s.Pages = append(s.Pages, KnobPage{ID: "bot", On: true}) }, false},
+		{"new page id", func(s *KnobSettings) { s.Pages[len(s.Pages)-1] = KnobPage{ID: "clock_2", On: true} }, true},
+		{"malformed page id", func(s *KnobSettings) { s.Pages[len(s.Pages)-1] = KnobPage{ID: "Clock", On: true} }, false},
+		{"empty page id", func(s *KnobSettings) { s.Pages[len(s.Pages)-1] = KnobPage{ID: "", On: true} }, false},
+		{"long page id", func(s *KnobSettings) { s.Pages[len(s.Pages)-1] = KnobPage{ID: "a234567890123456x", On: true} }, false},
+		{"duplicate page", func(s *KnobSettings) { s.Pages[len(s.Pages)-1] = KnobPage{ID: "bot", On: true} }, false},
 		{"subset of pages", func(s *KnobSettings) { s.Pages = []KnobPage{{ID: "pomodoro", On: true}}; s.Home = "pomodoro" }, true},
 		{"reordered pages", func(s *KnobSettings) {
 			s.Pages = []KnobPage{{ID: "weather", On: true}, {ID: "bot", On: true}, {ID: "pomodoro", On: false}}
@@ -114,7 +115,7 @@ func TestKnobSettingsWireShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
-		`"pages":[{"id":"bot","on":true},{"id":"day","on":true},{"id":"weather","on":true},{"id":"room","on":false},{"id":"nowplaying","on":false},{"id":"controls","on":false},{"id":"pomodoro","on":false}],` +
+		`"pages":[{"id":"bot","on":true},{"id":"day","on":true},{"id":"weather","on":true},{"id":"room","on":false},{"id":"nowplaying","on":false},{"id":"controls","on":false},{"id":"print","on":false},{"id":"pomodoro","on":false}],` +
 		`"home":"bot","swipe_pages":true,"poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20,"source_label":true,"working_ring":true,"weather_moments":true,"weather_every_min":30},"diagnostics":"off",` +
 		`"stats_interval_s":60,"live_interval_s":5,"display":{"fast_link":true,"rotation":0},"quiet":{"calm":true,"dim_level":20}}`
 	if string(b) != want {
@@ -124,7 +125,7 @@ func TestKnobSettingsWireShape(t *testing.T) {
 
 func TestKnobNowPlayingPageIsKnownAndOffByDefault(t *testing.T) {
 	d := DefaultKnobSettings()
-	if d.PageOn("room") || d.PageOn("nowplaying") || d.PageOn("controls") || d.PageOn("pomodoro") || !d.PageOn("weather") || !d.PageOn("day") {
+	if d.PageOn("room") || d.PageOn("nowplaying") || d.PageOn("controls") || d.PageOn("print") || d.PageOn("pomodoro") || !d.PageOn("weather") || !d.PageOn("day") {
 		t.Fatalf("defaults: %+v", d.Pages)
 	}
 	if err := d.Validate(); err != nil {
@@ -397,6 +398,7 @@ func maxLegacyStoreSettings() KnobSettings {
 func maxV2Settings() KnobSettings {
 	s := maxLegacyStoreSettings()
 	s.Room = &KnobRoom{Enabled: boolPtr(false), PresenceOffS: new(86399), PresenceWake: boolPtr(false), Moments: boolPtr(false)}
+	s.Bot.PrintMoments = boolPtr(false)
 	return s
 }
 
@@ -497,8 +499,8 @@ func TestKnobRoomPageReachesAStoredConfigOffWithoutABump(t *testing.T) {
 	if err := s.Validate(); err != nil {
 		t.Fatalf("a config with no room entries must stay valid: %v", err)
 	}
-	if last := s.Pages[len(s.Pages)-1]; last != (KnobPage{ID: "room"}) {
-		t.Fatalf("last page = %+v, want room off", last)
+	if got := s.Pages[len(s.Pages)-2:]; got[0] != (KnobPage{ID: "room"}) || got[1] != (KnobPage{ID: "print"}) {
+		t.Fatalf("last pages = %+v, want room then print, both off", got)
 	}
 	if s.Room != nil {
 		t.Fatalf("a stored config must not gain a room block: %+v", s.Room)
@@ -627,5 +629,52 @@ func TestKnobBotFlagsDefaultOnAndMerge(t *testing.T) {
 	}
 	if null.Bot.WorkingRing == nil || !*null.Bot.WorkingRing {
 		t.Fatalf("null must read as on: %+v", null.Bot)
+	}
+}
+
+func TestKnobPrintPageReachesAStoredConfigOffWithoutABump(t *testing.T) {
+	const stored = `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
+		`"pages":[{"id":"bot","on":true},{"id":"day","on":true},{"id":"weather","on":true},{"id":"room","on":false},{"id":"nowplaying","on":false},{"id":"controls","on":false},{"id":"pomodoro","on":false}],` +
+		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20},"diagnostics":"off"}`
+	var s KnobSettings
+	if err := json.Unmarshal([]byte(stored), &s); err != nil {
+		t.Fatal(err)
+	}
+	s.FillDefaults()
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Pages) != KnobMaxPages || s.Pages[len(s.Pages)-1] != (KnobPage{ID: KnobPrintPage}) {
+		t.Fatalf("pages = %+v, want print appended off", s.Pages)
+	}
+	if s.Bot.PrintMoments != nil || !s.PrintMomentsOn() {
+		t.Fatalf("a stored config must not gain bot.print_moments and reads as on: %+v", s.Bot.PrintMoments)
+	}
+	b, err := json.Marshal(s.Bot)
+	if err != nil || strings.Contains(string(b), "print_moments") {
+		t.Fatalf("bot = %s %v, want no print_moments key", b, err)
+	}
+}
+
+func TestKnobPrintMomentsMergeAndClear(t *testing.T) {
+	cur := DefaultKnobSettings()
+	got, err := mergeKnobSettings(cur.clone(), []byte(`{"bot":{"print_moments":false}}`))
+	if err != nil || got.Bot.PrintMoments == nil || *got.Bot.PrintMoments || got.PrintMomentsOn() {
+		t.Fatalf("merge false = %+v %v", got.Bot, err)
+	}
+	if got.Bot.WeatherMoments == nil || !*got.Bot.WeatherMoments || got.Bot.SleepyAfterS != 300 {
+		t.Fatalf("merge touched other bot keys: %+v", got.Bot)
+	}
+	again := got.clone()
+	*again.Bot.PrintMoments = true
+	if *got.Bot.PrintMoments {
+		t.Fatal("clone shares the print_moments pointer")
+	}
+	got, err = mergeKnobSettings(got.clone(), []byte(`{"bot":{"print_moments":null}}`))
+	if err != nil || got.Bot.PrintMoments != nil || !got.PrintMomentsOn() {
+		t.Fatalf("null must clear the key: %+v %v", got.Bot, err)
+	}
+	if _, err := mergeKnobSettings(cur.clone(), []byte(`{"bot":{"print_moments":"on"}}`)); err == nil {
+		t.Fatal("a string print_moments must be rejected")
 	}
 }

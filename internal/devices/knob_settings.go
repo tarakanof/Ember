@@ -10,14 +10,17 @@ import (
 
 const (
 	KnobNowPlayingPage = "nowplaying"
+	KnobPrintPage      = "print"
 )
 
-var KnobPageIDs = []string{"bot", "day", "weather", "room", "nowplaying", "controls", "pomodoro"}
+var KnobPageIDs = []string{"bot", "day", "weather", "room", "nowplaying", "controls", "print", "pomodoro"}
 
 // knobMaxPages is the firmware's KS_MAX_PAGES: it drops pages past the 8th.
 const KnobMaxPages = 8
 
-var knobPagesOffByDefault = []string{"room", "nowplaying", "controls", "pomodoro"}
+var knobPagesOffByDefault = []string{"room", "nowplaying", "controls", "print", "pomodoro"}
+
+var knobAppendOrder = append(slices.DeleteFunc(slices.Clone(KnobPageIDs), func(id string) bool { return id == KnobPrintPage }), KnobPrintPage)
 
 var knobPageIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,15}$`)
 
@@ -288,6 +291,8 @@ type KnobBrightness struct {
 	Startup     int  `json:"startup"`
 }
 
+func (s KnobSettings) PrintMomentsOn() bool { return s.Bot.PrintMoments == nil || *s.Bot.PrintMoments }
+
 func (s KnobSettings) PageOn(id string) bool {
 	for _, p := range s.Pages {
 		if p.ID == id {
@@ -310,6 +315,7 @@ type knobBot struct {
 	WorkingRing     *bool `json:"working_ring,omitempty"`
 	WeatherMoments  *bool `json:"weather_moments,omitempty"`
 	WeatherEveryMin *int  `json:"weather_every_min,omitempty"`
+	PrintMoments    *bool `json:"print_moments,omitempty"`
 }
 
 const (
@@ -335,6 +341,7 @@ func (b knobBot) clone() knobBot {
 		v := *b.WeatherEveryMin
 		b.WeatherEveryMin = &v
 	}
+	b.PrintMoments = clonePtr(b.PrintMoments)
 	return b
 }
 
@@ -402,7 +409,7 @@ func (s *KnobSettings) addKnownPages() {
 	if len(s.Pages) == 0 {
 		return
 	}
-	for _, id := range KnobPageIDs {
+	for _, id := range knobAppendOrder {
 		if len(s.Pages) >= KnobMaxPages {
 			return
 		}

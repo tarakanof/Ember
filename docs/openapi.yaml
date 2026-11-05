@@ -2615,6 +2615,58 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/print/thumb:
+    get:
+      tags: [print]
+      operationId: getPrintThumb
+      summary: The job's thumbnail baked for the knob
+      description: |
+        A 466 px baseline JPEG (q 80) of the current job's PNG thumbnail for
+        the knob's K2 face: cropped to the picture's opaque box, fitted into
+        the hero box x 93-373, y 110-300 standing on y 300 (the view's
+        `print.thumb_rows` are the rows it fills), on black in an r 208
+        circle with a rim fade (× 1 → 0 from r 170 to 208). `kind=solid` is
+        the picture; `kind=ghost` is the same disc desaturated at 25 %
+        brightness: the knob draws the solid from the progress row down to
+        `thumb_rows[1]` and the ghost above it. `v` equal to the view's
+        `print.thumb_version` (`<hash>-<recipe>`) makes the reply
+        `private, max-age=86400, immutable`; without `v` the current picture
+        comes with `no-cache`; any other `v` is a 404 (the job changed).
+        The ETag is `"<thumb_version>-<kind>-466"`. 404 without a picture
+        (no job, no thumbnail, printer off, a picture that doesn't bake).
+        Both kinds are baked together once per version and kept in RAM (the
+        newest version only). DEVICE-PROTOCOL.md
+        "Print".
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [admin]}]
+      parameters:
+        - name: kind
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [solid, ghost]
+        - name: v
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A baseline JPEG with an ETag.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                contentEncoding: binary
+        "304":
+          description: Unchanged since If-None-Match.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/meetings/config:
     get:
       tags: [settings]
@@ -4274,7 +4326,14 @@ paths:
         black) and `cover_version` (`<art_version>-<recipe>`, the `v` for
         `kind=cover`) when there is a picture, then `cover_light: true` when
         the cover's text band is light (absent otherwise, never false)
-        (DEVICE-PROTOCOL.md "Prepared cover"). With the `demo` caps feature, `demo` (last key) carries a
+        (DEVICE-PROTOCOL.md "Prepared cover"). `print` (#791) is sent to a
+        caps knob with the `print` page in `caps.pages` and on, or with the
+        `print_moments` feature, the `bot` page on and `bot.print_moments`
+        not false, while the printer is enabled and has a password: `phase`,
+        `progress`, anchored `ends_at`/`started_at`/`change_at`, temperatures
+        only while `heating`, `name`, `material`, `thumb_version` (the `v`
+        of `GET /v1/print/thumb`) with `thumb_rows`, `event {id, kind, at}` and `printer`
+        (DEVICE-PROTOCOL.md "Print"). With the `demo` caps feature, `demo` carries a
         demo scene set from Ember.app: `{id, page, view?, act?, offline?,
         hold}`, where `view` is a whole view that replaces the real one while
         the scene plays (DEVICE-PROTOCOL.md "Demo mode").
@@ -4347,6 +4406,12 @@ paths:
                   externalValue: ../cmd/ember/testdata/devices/view_faces_polar_dry.json
                 view_usage:
                   externalValue: ../cmd/ember/testdata/devices/view_usage.json
+                view_print:
+                  externalValue: ../cmd/ember/testdata/devices/view_print.json
+                view_print_heating:
+                  externalValue: ../cmd/ember/testdata/devices/view_print_heating.json
+                view_print_attention:
+                  externalValue: ../cmd/ember/testdata/devices/view_print_attention.json
                 demo_storm:
                   externalValue: ../cmd/ember/testdata/devices/demo/moment.storm.full.json
         "304":

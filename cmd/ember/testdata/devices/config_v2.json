@@ -50,7 +50,8 @@
       "source_label": false,
       "working_ring": false,
       "weather_moments": false,
-      "weather_every_min": 240
+      "weather_every_min": 240,
+      "print_moments": false
     },
     "diagnostics": "basic",
     "stats_interval_s": 300,

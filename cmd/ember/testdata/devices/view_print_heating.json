@@ -1,0 +1,33 @@
+{
+  "v": 1,
+  "epoch": 2,
+  "config_version": 2,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 0,
+    "done": 0,
+    "source": ""
+  },
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "print": {
+    "phase": "heating",
+    "progress": 0,
+    "ends_at": 1782051245,
+    "nozzle": 182,
+    "nozzle_target": 240,
+    "bed": 72,
+    "bed_target": 85,
+    "name": "bracket_v3",
+    "material": "PETG",
+    "event": {
+      "id": 1782043205000,
+      "kind": "started",
+      "at": 1782043205
+    },
+    "printer": "CORE One"
+  }
+}

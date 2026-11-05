@@ -259,6 +259,7 @@ func knobPageTitle(_ id: String) -> LocalizedStringKey {
     case "weather": "Weather"
     case "nowplaying": "Now Playing"
     case "controls": "Controls"
+    case "print": "Print"
     case "room": "Room"
     default: LocalizedStringKey(id.capitalized)
     }
@@ -340,6 +341,7 @@ struct KnobBotSection: View {
         let knob = env.knob
         let s = knob.settings.draft
         let moments = knob.knob?.supports(feature: KnobCaps.wxMoments) == true
+        let printMoments = knob.knob?.supports(feature: KnobCaps.printMoments) == true
         Section {
             StepperRow(title: "Bot gets sleepy after", value: Binding(
                 get: { s.bot.sleepyAfterS / 60 },
@@ -377,6 +379,12 @@ struct KnobBotSection: View {
                     m == 0 ? Text("Never") : Text(verbatim: DurationText.minutes(m))
                 }
                 .disabled(s.bot.weatherMoments == false)
+            }
+            if printMoments {
+                InfoToggle("Print moments", isOn: Binding(
+                    get: { s.bot.printMoments ?? true },
+                    set: { v in knob.edit { $0.bot.printMoments = v } }),
+                    info: .knobPrintMoments, requirement: .loading)
             }
         } header: {
             Text("Bot")

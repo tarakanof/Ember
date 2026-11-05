@@ -167,6 +167,18 @@ import Foundation
     #expect(KnobSettings.weatherEveryRange == 0...240)
 }
 
+@Test func knobPrintMomentsStayOffTheWireUntilSetAndPatchAlone() throws {
+    let base = #""brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true}],"home":"bot","poll_ms":2000"#
+    let s = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + #","bot":{"sleepy_after_s":300,"demo_hold_s":20,"weather_moments":true}}"#).utf8))
+    #expect(s.bot.printMoments == nil)
+    #expect(!String(decoding: try JSONEncoder().encode(s), as: UTF8.self).contains("print_moments"))
+    var edited = s
+    edited.bot.printMoments = false
+    #expect(edited.patch(from: s) == ["bot": .object(["print_moments": .bool(false)])])
+    let set = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + #","bot":{"sleepy_after_s":300,"demo_hold_s":20,"print_moments":false}}"#).utf8))
+    #expect(set.bot.printMoments == false)
+}
+
 @Test func knobWeatherEveryOffersNeverOrThirtyToTwoForty() {
     #expect(KnobSettings.weatherEveryFloor == 30)
     #expect(KnobSettings.weatherEveryShown(0) == 0)

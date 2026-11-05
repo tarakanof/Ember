@@ -311,12 +311,17 @@ otherwise, read without clock I/O), `/metrics`. Knob device token only: `POST /v
 413, CRC-checked or 400, 409 while another upload of this knob runs, 204 when
 stored or already stored), `GET /v1/devices/self/firmware/{version}` (only
 the image its checkin's `ota` offers: 409 for any other version, `Range`/`If-Range` (416 past the end),
-`ETag: "<sha256>"`, per-device rate limit), `GET /v1/devices/self/view` (the knob's
+`ETag: "<sha256>"`, per-device rate limit), `GET /v1/print/thumb?kind=solid|ghost&v=` (also the
+owner or an `admin` client token; the print job's picture as the knob's 466 px circle JPEG,
+`immutable` at `v` = the view's `print.thumb_version`, `no-cache` without `v`, 404 for another `v` or
+without a picture;
+rate-limited; DEVICE-PROTOCOL "Print"), `GET /v1/devices/self/view` (the knob's
 single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
 `X-Ember-View-Wait`; `?demo_id=&demo_state=playing|done` report on a demo;
 `?shown=<page>[:<face>]` reports what the knob shows (`shown` caps feature;
 a malformed value is ignored, never a 400); `"quiet":true` while quiet hours are on, and a waiting
-poll wakes at the quiet-hours edges — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
+poll wakes at the quiet-hours edges; `print` for a caps knob with the `print` page in `caps.pages` and on, or with the `print_moments`
+caps feature, the bot page on and `bot.print_moments` not false, while the printer is enabled with a password — see ARCHITECTURE "Wire protocol", DEVICE-PROTOCOL "Print") (`/state` carries `X-Ember-Devices-Epoch`, bumped
 on any knob config change or rotation and on any clock record or clock config change). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
 the Plex poller). Knob LAN re-pair (unauthenticated, rate-limited, #658, DEVICE-PROTOCOL
 "Scope"; only when `/version` `features` lists `lan_pair`, since an older

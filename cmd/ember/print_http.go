@@ -1,8 +1,12 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"math"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/tarakanof/ember/internal/printer"
@@ -113,4 +117,73 @@ func (a *App) handlePrintConfigPut(w http.ResponseWriter, r *http.Request) {
 	if c, ok := serveSettingPut(a, w, r, a.settings.printer); ok {
 		writeJSON(w, http.StatusOK, c)
 	}
+}
+
+type printThumbCache struct {
+	mu     sync.Mutex
+	ver    string
+	thumbs printer.Thumbs
+	err    error
+}
+
+func (c *printThumbCache) get(data []byte, ver string) (printer.Thumbs, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ver != ver {
+		c.thumbs, c.err = printer.BakeThumbs(data)
+		c.ver = ver
+	}
+	return c.thumbs, c.err
+}
+
+func (a *App) printThumbsFor(s printer.Snapshot) (printer.Thumbs, string, bool) {
+	data, ver := a.printer.State.Thumbnail()
+	if !s.Enabled || s.ThumbVersion == "" || ver != s.ThumbVersion || len(data) == 0 {
+		return printer.Thumbs{}, "", false
+	}
+	version := printThumbVersion(ver)
+	th, err := a.printThumbs.get(data, version)
+	if err != nil {
+		if a.printThumbFailed.changed("print", version) {
+			a.logger.Warn("print thumbnail bake failed", "thumb_version", version, "err", err)
+		}
+		return printer.Thumbs{}, "", false
+	}
+	return th, version, true
+}
+
+func (a *App) handlePrintThumb(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	kind := printer.ThumbKind(q.Get("kind"))
+	if kind != printer.ThumbSolid && kind != printer.ThumbGhost {
+		writeError(w, http.StatusBadRequest, printer.ErrThumbKind)
+		return
+	}
+	th, version, ok := a.printThumbsFor(a.printer.State.At(a.viewNow()))
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("no print thumbnail"))
+		return
+	}
+	body, _ := th.Kind(kind)
+	etag := fmt.Sprintf(`"%s-%s-%d"`, version, kind, printer.ThumbSize)
+	v := q.Get("v")
+	if v != "" && v != version {
+		writeError(w, http.StatusNotFound, errors.New("print thumbnail changed: read the view again"))
+		return
+	}
+	h := w.Header()
+	h.Set("ETag", etag)
+	if v == version {
+		h.Set("Cache-Control", "private, max-age=86400, immutable")
+	} else {
+		h.Set("Cache-Control", "no-cache")
+	}
+	if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	h.Set("Content-Type", "image/jpeg")
+	h.Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }

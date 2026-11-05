@@ -14,11 +14,12 @@ const (
 	printerBrowseTimeout = 3 * time.Second
 )
 
-func (a *App) newPrinter(browse printer.BrowseFunc) *printer.Poller {
+func (a *App) newPrinter(browse printer.BrowseFunc, now func() time.Time) *printer.Poller {
 	p := printer.NewPoller(printer.Options{
 		Config: func() printer.Config { return a.cfg.Load().Printer },
 		Browse: browse,
 		Logger: a.logger,
+		Now:    now,
 	})
 	p.OnChange = func() { a.changes.notify(topicPrint) }
 	return p

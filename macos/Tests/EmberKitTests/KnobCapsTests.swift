@@ -164,3 +164,17 @@ private func degrees(_ c: [KnobRotationChoice]) -> [Int] { c.map(\.degrees) }
     #expect(!on.showsSwipeFooter(for: oldFW))
     #expect(!on.showsSwipeToggle(for: nil))
 }
+
+@Test func knobPrintRowsNeedThePrintPageAndTheMomentsToken() throws {
+    let base = #""brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true},{"id":"print","on":false}],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20}"#
+    let s = try JSONDecoder().decode(KnobSettings.self, from: Data(("{" + base + "}").utf8))
+    #expect(KnobCaps.printPage == "print" && KnobCaps.printMoments == "print_moments")
+    let printing = knob(fw: "0.10.0", caps: KnobCaps(pages: ["bot", "print"], features: [KnobCaps.printMoments], source: "reported"))
+    #expect(s.pagesShown(on: printing).map(\.id) == ["bot", "print"])
+    #expect(printing.supports(feature: KnobCaps.printMoments))
+    let older = knob(fw: "0.10.0", caps: KnobCaps(pages: ["bot"], features: [], source: "reported"))
+    #expect(s.pagesShown(on: older).map(\.id) == ["bot"], "the server appends print to every stored config")
+    #expect(!older.supports(feature: KnobCaps.printMoments))
+    #expect(s.pagesShown(on: knob(fw: "9.9.9")).map(\.id) == ["bot"], "no semver fallback for the print page")
+    #expect(s.pagesShown(on: nil).map(\.id) == ["bot"])
+}

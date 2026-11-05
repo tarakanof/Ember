@@ -2039,6 +2039,8 @@
     "Preview unavailable: the server didn't answer." : {},
     "Previous App" : {},
     "Previous Track" : {},
+    "Print" : {},
+    "Print moments" : {},
     "Printer" : {},
     "Printer address" : {},
     "Printer off" : {
@@ -2468,6 +2470,10 @@
       "extractionState" : "manual"
     },
     "The bot shows the weather when it changes" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "The bot tells you when a print is done or the printer needs you" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -2984,6 +2990,10 @@
       "extractionState" : "manual"
     },
     "When a phase ends, the next one starts at once. Off leaves the next phase waiting until you start it. Default: off." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "When a print finishes, or the printer stops for a colour change or a problem, the bot page shows it for a few seconds with the bot's outline in Prusa orange, and repeats the reminder every 2 min while the printer waits. Needs a printer set up on the Ember server. Default: on." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
