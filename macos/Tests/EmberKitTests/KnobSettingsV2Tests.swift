@@ -42,6 +42,7 @@ private func knob(features: [String]) -> KnobDevice {
         #expect(s.apps?.weather?.faces == ["temp", "rain", "cast", "wind", "days", "sun", "air"])
         #expect(s.apps?.nowplaying?.dimAfterS == 1800)
         #expect(s.room == .init(enabled: false, presenceOffS: 86399, presenceWake: false, moments: false))
+        #expect(s.brightness.source == "knob-aabbccddeeff")
         #expect(s.patch(from: s).isEmpty)
     }
 }

@@ -2,7 +2,7 @@ import Foundation
 
 public enum SettingsInfo: String, CaseIterable, Sendable {
     case knobPoll, knobStatsInterval, knobLiveInterval, knobFastLink, knobRotation
-    case knobFollowBrightness, knobMinBrightness, knobStartupBrightness
+    case knobFollowBrightness, knobBrightnessSource, knobMinBrightness, knobStartupBrightness
     case knobSleepy, knobSourceLabel, knobWorkingRing, knobWeatherMoments, knobWeatherEvery, knobPrintMoments
     case knobQuietCalm, knobQuietDim
     case clockAutoBrightness, clockUppercase
@@ -24,7 +24,8 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobLiveInterval: "How often the knob reports while its Hardware page is open"
         case .knobFastLink: "Runs the knob's screen link at 80 MHz instead of 40 MHz"
         case .knobRotation: "Turns the knob's picture, in degrees"
-        case .knobFollowBrightness: "Matches the brightness Ember works out for displays without a light sensor"
+        case .knobFollowBrightness: "Matches the brightness Ember works out from the room light"
+        case .knobBrightnessSource: "Whose light sensor sets this knob's brightness"
         case .knobMinBrightness: "The dimmest the knob ever gets"
         case .knobStartupBrightness: "The level the screen lights at when the knob starts"
         case .knobSleepy: "Idle time before the bot gets sleepy"
@@ -82,7 +83,9 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobRotation:
             "Turns the screen and touch so the knob reads right however it's mounted. Only the angles its firmware can apply are offered; a knob that can't apply the saved angle shows 0°. Default: 0°."
         case .knobFollowBrightness:
-            "The knob has no light sensor, so it uses the level Ember works out from the clock's light sensor, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on."
+            "Uses the level Ember works out from the knob's own light sensor, else the clock's, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on."
+        case .knobBrightnessSource:
+            "Automatic uses the knob's own light sensor while it reports, then the clock's, then sunrise and sunset. Pick the clock or another knob when this knob's sensor sits in a bad spot, for example where its own screen lights it; a source that stops reporting falls back to Automatic. Default: Automatic."
         case .knobMinBrightness:
             "The knob never goes below this, whether it follows Ember or not, except during quiet hours, when Quiet brightness applies; set the hours in Sounds & Alerts. Raising it above Brightness raises Brightness too. Default: 4 percent."
         case .knobStartupBrightness:

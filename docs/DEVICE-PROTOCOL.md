@@ -16,7 +16,7 @@ Every route the knob calls with its device token (`ekd_…`); the LAN re-pair ro
 | Route | What |
 |---|---|
 | `POST /v1/devices/self/checkin` | Health report in, optionally with `caps` ("Capabilities" below) and `room` ("Room readings"); reply carries `config_version`, `caps_ack` when the caps were accepted, the `config` when the knob's is stale, `new_token` during a rotation, `diag_live_until`, `coredump_wanted`/`coredump_ack`, an `ota` offer. A 200 carries `X-Ember-Now`. |
-| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness`, then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `usage` (with the `usage` feature while an account has a snapshot, "Usage"), `diag_live_until` (live mode only), `demo` (with the `demo` feature while a demo is set, "Demo mode"), `day` (with the `day` page in caps and on while the day clock is enabled, "Day clock") and `print` (with the `print` page in caps and on, or the `print_moments` feature with the `bot` page on and `bot.print_moments` not false, while the printer is enabled with a password, "Print"). `?demo_id=&demo_state=` report on the demo; `?shown=<page>[:<face>]` reports what the knob shows ("Shown page"). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
+| `GET /v1/devices/self/view` | The one poll: `v`, `epoch`, `config_version`, `mood`, `pomo`, `weather` (with reported caps: only for pages in `caps.pages` and on, "Capabilities"; with `wx_faces` it carries the detail keys, "Weather detail"), `brightness` (this knob's level, "Per-device brightness"), then `quiet` (only while quiet hours are on), `nowplaying` (only with the `nowplaying` page on; with `np_cover` it carries `accent`, `cover_version` and, on a light cover, `cover_light`, "Prepared cover"), `usage` (with the `usage` feature while an account has a snapshot, "Usage"), `diag_live_until` (live mode only), `demo` (with the `demo` feature while a demo is set, "Demo mode"), `day` (with the `day` page in caps and on while the day clock is enabled, "Day clock") and `print` (with the `print` page in caps and on, or the `print_moments` feature with the `bot` page on and `bot.print_moments` not false, while the printer is enabled with a password, "Print"). `?demo_id=&demo_state=` report on the demo; `?shown=<page>[:<face>]` reports what the knob shows ("Shown page"). Strong `ETag`, `If-None-Match` answers 304. `?wait=N` long-polls up to the `X-Ember-View-Wait` cap (25 s). A 200 or 304 carries `X-Ember-Now` (server Unix seconds), the anchor for `ends_at` and `position_at`, and `X-Ember-View-Wait`; error replies (400, 401, 429) carry neither. |
 | `GET /v1/devices/self/config` | `{config_version, config}`, the same pair a stale checkin carries. |
 | `PUT /v1/devices/self/coredump?id=` | The core dump a checkin asked for. |
 | `GET /v1/devices/self/firmware/{version}` | The image the checkin's `ota` offer names. |
@@ -290,6 +290,7 @@ Ember.app lists a knob app only when its page is in `effective_caps.pages`.
 | new | new, `shown` or not | `shown` read only with the token and exposed on `GET /v1/devices` while the current caps list it and a poll carried it in the last 50 s; a malformed value is ignored with a 200 and logged once until a good one; the view's bytes and ETag never depend on it | `TestKnobShownPollReachesTheDeviceList`, `TestKnobShownGoesStaleFiftySecondsAfterTheLastPoll`, `TestKnobShownIsIgnoredWithoutTheShownCap`, `TestKnobShownMalformedValuesAreIgnoredAndLoggedOnce`, `TestKnobShownIsRecordedBeforeTheLongPollWaits`, `TestKnobShownRenameReplyCarriesIt`, `TestKnobShownLongestValidValuesAreKept`, `TestKnobShownIsForgottenWhenTheDeviceIsDeleted`, `TestKnobShownPollRacingADeleteLeavesNothingForTheReMintedKnob`, `TestKnobShownDisappearsWhenCapsWithdrawTheToken`, `TestKnobShownAtIsWholeSecondsUTC`, `TestKnobViewPollWithShownGolden` (`view_req_shown.json`, `devices_shown_test.go`); cinder side next: a host test that builds the fixture's query (tarakanof/cinder#246) |
 | new | any, `room` sent or not (cinder#304) | a checkin without `room` behaves as before and keeps the last block; a block with any subset of keys is stored and answered; a bad value drops only that value and the checkin still answers 200; a stale checkin's block is ignored; an old server ignores the key | `TestDeviceCheckinWithoutARoomStoresNone`, `TestDeviceCheckinAcceptsAnySubsetOfTheRoomBlock`, `TestDeviceCheckinWithoutARoomKeepsTheLastBlock`, `TestANewRoomBlockReplacesTheLastOneWhole`, `TestStaleCheckinDoesNotTouchTheRoomBlock`, `TestDeviceCheckinDropsOnlyTheBadRoomValues`, `TestANonObjectRoomKeepsTheCheckinAndTheLastBlock`, `TestDeviceCheckinGolden` (`checkin_req_full.json`, `devices_room_test.go`); cinder host test: `.room` in `NOT_YET_SENT` until the firmware sends it |
 | new | new, `room` or not (cinder#306) | the `room` page is off until the owner turns it on and a caps knob only with `room` in `caps.pages`; the app shows the Room section and the page row only with the token, since the page id is in every firmware's table; a config with the block over a 1024 knob's `config_bytes` is a 400; an absent block leaves a stored record's bytes and `config_version` alone | `TestKnobRoomConfigRoundTripsThroughTheOwnerAndTheKnob`, `TestKnobRoomPresenceOffOutOfRangeIs400`, `TestKnobRoomBlockMergesFieldByField`, `TestKnobRoomPageReachesAStoredConfigOffWithoutABump`, `TestCapsKnobCannotTurnOnTheRoomPageOutsideItsCaps`, `TestCapsKnobV2OverConfigBytes400`, `TestKnobV2LargestConfigFitsDepthAndSize`, `TestDeviceConfigV2Golden`; Ember.app `knobRoomNeedsTheRoomFeatureNotJustThePageId`, `knobWithoutCapsOrWithoutAKnobShowsNoRoom`; cinder host test: once its page table has `room`, `room` goes in `PAGES_AHEAD` (Ember's `checkin_req_caps.json` doesn't list it) |
+| new | any, `room.lux` sent or not (#759) | a knob with no `lux` gets the global level (clock, sun, default); a knob with `lux` gets its own; `brightness.source` set to `clock`, the clock's id or another knob wins while fresh, an unknown, deleted or stale source falls through; the view's `brightness` shape is unchanged; old firmware skips `brightness.source` | `TestKnobWithoutLuxGetsTheGlobalLevel`, `TestTwoKnobsWithDifferentLuxGetDifferentLevels`, `TestBrightnessSourceWinsOverTheOwnSensor`, `TestBrightnessSourceNamesTheClockByItsRegistryID`, `TestAnUnknownOrStaleSourceFallsToTheOwnSensor`, `TestAStaleKnobSampleFallsToTheClockThenTheSun`, `TestAKnobLuxChangeWakesItsLongPoll`, `TestAKnobSampleSurvivesBetweenCheckinsAtTheMinimumStaleSeconds`, `TestAStaleCheckinDoesNotFeedTheTracker`, `TestLuxOlderThanTheKnobsContractIsIgnored`, `TestTheTickAgesKnobTrackersAndNotifies`, `TestTheTickPrunesTrackersOfDeletedDevices`, `TestBrightnessSourceLimitsMoveOnlyThatSource`, `TestBrightnessSourcesValidate`, `TestKnobStatsBrightnessLevelIsTheDevicesOwn`, `TestKnobBrightnessSourceMergesAndClears`, `TestKnobV2LargestConfigFitsDepthAndSize` (998 B with `source`, under 1024), `TestDeviceConfigV2Golden` (`config_v2.json` carries the longest `source`); Ember.app `brightnessSourcesListAutomaticTheClockAndOtherKnobsWithLux`, `brightnessSourcesHideWithoutAChoice`, `clearingTheBrightnessSourceSendsNull` |
 | new | new, `print` page or `print_moments` or neither (#791, cinder#321, cinder#322) | `print` only for a caps knob with the `print` page in `caps.pages` and on, or with `print_moments`, the `bot` page on and `bot.print_moments` not `false`, and only while the printer is enabled with a password; last key; never for a legacy knob, whose view is byte-identical whether a printer prints or not; the page is off by default and, for a caps knob, only turns on with `print` in `caps.pages`; the ETag moves on a phase, a whole percent, an anchored time shift, a new job or event, and on temperatures only while `heating` (a simulated 2 h job with 2 min of heating: 129 changes in 1512 polls; each further minute of heating adds about 10); `kind=solid`/`ghost` are 466 px circle JPEGs, immutable only at `v=<thumb_version>` | `TestKnobViewPrintGolden` (`view_print.json`, `devices_view_print_test.go`), `TestKnobViewPrintHeatingGolden` (`view_print_heating.json`), `TestKnobViewPrintAttentionGolden` (`view_print_attention.json`), `TestKnobViewSendsPrintOnlyToCapsKnobsWithThePageOrMoments`, `TestKnobViewPrintBlockFollowsThePhase`, `TestKnobViewPrintBlockStaysSmall`, `TestKnobViewPrintETagMovesOnlyOnWholePercentsAndPhases`, `TestPrintThumbRoute`, `TestBakeThumb*` (`internal/printer`), `TestKnobPrintPageReachesAStoredConfigOffWithoutABump`, `TestKnobPrintMomentsMergeAndClear` (`internal/devices`); Ember.app `knobPrintRowsNeedThePrintPageAndTheMomentsToken`; cinder host test: the three goldens parse and are in `COVERED`; once its page table has `print`, `print` goes in `PAGES_AHEAD`, and once it sends `print_moments`, that goes in `FEATURES_AHEAD` (Ember's `checkin_req_caps.json` lists neither) |
 | new | new, page not in caps | config PUT 400; the view omits the block | `TestCapsKnobConfigPutRejectsPagesOutsideCaps`, `TestCapsKnobKeepsAPageThatWasAlreadyOn`, `TestCapsKnobConfigPutChecksConfigBytes`, `TestCapsKnobMayShrinkAConfigAlreadyOverConfigBytes`, `TestCapsKnobViewDropsBlocksToFitViewBytes`, `TestCapsKnobViewStillOverViewBytesLogsOncePerDevice` |
 
@@ -611,7 +612,8 @@ per knob and is the only thing that talks to Home Assistant. Design:
 
 A knob sends a key only when its chip is found and the reading is under
 60 s old, so every key is optional and `{}` is a valid block. The server
-doesn't enforce the 60 s.
+doesn't enforce the 60 s when storing the block; brightness ignores a `lux`
+whose `age_s.light` is over 60 ("Per-device brightness").
 
 | Key | Meaning | Valid |
 |---|---|---|
@@ -689,12 +691,74 @@ the token. Old firmware skips the unknown key.
 
 **Size.** With every key at its longest the block adds 86 B, so the largest
 valid config is 1055 B (1077 B with #791's `bot.print_moments`, which Ember.app
-likewise writes only for a knob with the `print_moments` token). That is over the 1024 B older firmware stores, and it
-counts only against 2048 B, since only firmware with the `room` token gets it
-(the same goes for #759's `brightness.source`). The largest config without those
-keys stays 969 B, under 1024 B. A knob reporting a 1024 `config_bytes` gets a
+likewise writes only for a knob with the `print_moments` token; 1106 B with
+#759's `brightness.source` at its longest, "Per-device brightness"). That is over the 1024 B older firmware stores; the room-only keys
+count only against 2048 B, since only firmware with the `room` token gets them.
+The largest config without those keys stays 969 B, under 1024 B.
+`brightness.source` is not gated on the token (a sensorless knob may follow
+another knob), so it counts against 1024 B too: the largest config without the
+room-only keys but with the longest `source` is 998 B. A knob reporting a 1024 `config_bytes` gets a
 400 for a PUT that grows past it, as for any config. The page adds 25 B to the
 default config (590 B; 616 B since the `print` page).
+
+## Per-device brightness
+
+Ember resolves a brightness level per knob (#759; design in the room sensors
+note above). The view's `brightness` block keeps its shape, `level` and
+`night`, so firmware needs no change; only the level it carries is now this
+knob's.
+
+**Order.** For each knob, the first that applies:
+
+1. `brightness.follow_ember` off: the knob's fixed level (the knob does this;
+   the view still carries Ember's level).
+2. `brightness.source`, if set and its sensor's sample is fresh.
+3. The knob's own light sensor (`room.lux` in its checkin), while fresh.
+4. The TC001's `lightLevel`.
+5. The sun schedule, then `day_level`.
+
+`night` is the sun schedule's call in every case, as before.
+
+**Input.** A checkin carrying `room.lux` feeds that knob's tracker, dated at the
+checkin's `seen_at`; a `lux` whose `age_s.light` is over 60 (the knob sends a
+reading only under 60 s old) is ignored; a stale checkin ("Knob reboot") feeds nothing, and a
+checkin without `lux` leaves the tracker to age. Each light sensor has its own
+tracker (the same log mapping, EMA, hysteresis and stale rule as the clock's),
+and the 60 s server tick ages all of them. A knob tracker's stale limit is
+`max(stale_seconds, 120)`, so a 60 s checkin cadence never reads stale between
+checkins. A tracker change notifies the view long-poll, so a knob whose level
+moved gets a new view at once; with checkins every 60 s, a lamp switched on
+shows within about a minute. Deleting a knob forgets its tracker, and each tick
+drops a tracker whose device is no longer registered (a delete racing a
+checkin).
+
+**Config.** One optional key in the `brightness` block:
+
+```json
+"brightness": {"follow_ember": true, "level": 153, "floor": 10, "startup": 153, "source": "clock"}
+```
+
+| Key | Valid | Absent = | Meaning |
+|---|---|---|---|
+| `brightness.source` | `clock` or a device id, `^[a-z][a-z0-9_-]{0,16}$` | automatic (steps 3-5) | Whose sensor sets this knob's level. `clock` and the clock's registry id (`clock-…`) both name the TC001 |
+
+An id that names no device, a deleted device or a sensor with a stale sample
+falls through to step 3 and never fails the config. An owner PUT merges it like
+the other `brightness` keys; `null` or `""` clears it. Old firmware skips the
+unknown key. Ember.app writes it only from the brightness source picker, which
+it shows only when there is a choice. Size: "Room settings".
+
+**Per-source limits.** The BH1750 reports lux and the TC001 its own scale, so
+the server's brightness config (`GET/PUT /v1/brightness/config`, not the knob
+config) takes optional `sources` entries keyed by tracker: `clock` or a knob
+id, at most 32. An entry's `lux_dark` and `lux_bright` replace the shared values for that
+sensor only; an absent or 0 value keeps the shared one. The knob never sees
+them. Deleting a knob leaves its entry in place (it is server config, written
+only by the owner) and it counts toward the 32 until the owner removes it.
+
+**Unchanged.** `GET /v1/display/brightness` has no device identity and stays
+the global answer: the TC001, then the sun, then `day_level`. The
+`brightness_level` in `GET /v1/devices/{id}/stats` is the knob's own level.
 
 ## Quiet hours
 
@@ -1342,7 +1406,7 @@ Indented JSON; key order is the wire order.
 | `controls_action.json` | A controls action reply: `{"status":"queued","target"}` (#515; no firmware parses it yet, so cinder's next sync adds a host test or skips it) |
 | `config_default.json` | `GET …/self/config` for a new knob (pages `bot`, `day`, `weather`, then `room`, `nowplaying`, `controls`, `print` and `pomodoro` off), `quiet` at its defaults (`calm` true, `dim_level` 20), `display.rotation` 0, `bot.weather_moments` true and `weather_every_min` 30, `swipe_pages` true |
 | `demo/<scene>.json` | One per scene: a knob with every page and `demo`, `wx_faces`, `np_cover`, `wx_moments`, `print_moments` in its caps, the scene set with id `d0c0ffee`; the real view around it is the idle default. The print moment scenes carry a `print` block like `view_print_attention.json`'s without `thumb_version` and `thumb_rows` (no baked picture) |
-| `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800, `room` with `presence_off_s` 86399, `bot.print_moments` (1077 B compact; 969 B without `room` and `print_moments`) |
+| `config_v2.json` | `GET …/self/config` for the largest valid v1 config (8 pages with 16-character ids, maximum values) plus every v2 key at its longest: `idle` 86399/255/86400, both Pomodoro colours, all 7 weather faces, `nowplaying.dim_after_s` 1800, `room` with `presence_off_s` 86399, `bot.print_moments`, `brightness.source` at 17 characters (1106 B compact; 969 B without `room`, `print_moments` and `source`, 998 B with only `source` of those) |
 | `checkin_reply_config_v2.json` | A stale knob's checkin reply carrying that config |
 | `claim_req.json` | A claim request: a fake `hw_id` (locally administered), `fw`, a fake 43-character `claim_key` |
 | `claim_reply.json` | The 201 reply, id `c_0123abcd` and code `482913` from a scripted random source |

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -370,7 +371,7 @@ func TestBrightnessEndpointNeitherProbesNorAdvancesFilter(t *testing.T) {
 	app.clockProbe.at = time.Time{}
 	app.clockProbe.mu.Unlock()
 	app.brightness.mu.Lock()
-	st := app.brightness.st
+	st := maps.Clone(app.brightness.st)
 	app.brightness.mu.Unlock()
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -385,7 +386,7 @@ func TestBrightnessEndpointNeitherProbesNorAdvancesFilter(t *testing.T) {
 	}
 	app.brightness.mu.Lock()
 	defer app.brightness.mu.Unlock()
-	if app.brightness.st != st {
+	if !maps.Equal(app.brightness.st, st) {
 		t.Errorf("GET changed the filter state: %+v -> %+v", st, app.brightness.st)
 	}
 }

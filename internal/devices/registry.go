@@ -642,6 +642,7 @@ type CheckinResult struct {
 	CapsAck        bool      `json:"caps_ack,omitempty"`
 	NewCrash       *Crash    `json:"-"`
 	BootedAt       time.Time `json:"-"`
+	SeenAt         time.Time `json:"-"`
 	Stale          bool      `json:"-"`
 }
 
@@ -659,7 +660,7 @@ func (r *Registry) Checkin(id string, report Checkin, caps *Caps, capsErr string
 		return CheckinResult{}, ErrNotFound
 	}
 	report.SeenAt = r.Now().UTC()
-	res := CheckinResult{ConfigVersion: d.ConfigVersion, CapsAck: caps != nil}
+	res := CheckinResult{ConfigVersion: d.ConfigVersion, CapsAck: caps != nil, SeenAt: report.SeenAt}
 	stale := knobCheckinStale(d.LastCheckin, report)
 	res.Stale = stale
 	capsChanged := !stale && (!d.Caps.equal(caps) || d.CapsError != capsErr)

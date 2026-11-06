@@ -40,6 +40,9 @@
         }
       }
     },
+    "%@ (not available)" : {
+      "comment" : "Settings › Knob › Display › Brightness source: a saved source device Ember no longer lists (\"knob-a1b2c3 (not available)\")."
+    },
     "%@ (not supported by this firmware)" : {
       "comment" : "Settings › Knob › Display: a saved rotation the knob's firmware can't apply (\"180° (not supported by this firmware)\")."
     },
@@ -797,12 +800,17 @@
     "Auto clock-out" : {},
     "Auto looks for the printer on your network by its PrusaLink name. The password is read by the server from EMBER_PRUSALINK_PASSWORD; this app never asks for it." : {},
     "Auto-stop" : {},
+    "Automatic" : {},
     "Automatic (release builds, when the knob is idle)" : {},
     "Automatic brightness" : {},
     "Automatic updates are on: if %@ is newer than the knob's firmware, the knob installs it once it has been idle for 10 minutes." : {
       "comment" : "Settings › Knob Firmware & updates: confirmation before marking an image as Release while Automatic updates are on; the argument is its version."
     },
     "Automatic updates install only Release builds." : {},
+    "Automatic uses the knob's own light sensor while it reports, then the clock's, then sunrise and sunset. Pick the clock or another knob when this knob's sensor sits in a bad spot, for example where its own screen lights it; a source that stops reporting falls back to Automatic. Default: Automatic." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Automation: Music" : {},
     "Available once Ember has loaded this setting." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -879,6 +887,7 @@
     "Breaks" : {},
     "Brightness" : {},
     "Brightness at startup" : {},
+    "Brightness source" : {},
     "Built-in" : {},
     "Built-in Apps" : {},
     "Built-in plays Ember's own tune. Pick a melody stored on the clock, or choose Custom and type a stored melody's name or an RTTTL tune." : {
@@ -1682,7 +1691,7 @@
     },
     "Mark as Release" : {},
     "Master volume" : {},
-    "Matches the brightness Ember works out for displays without a light sensor" : {
+    "Matches the brightness Ember works out from the room light" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -2574,13 +2583,9 @@
     "The knob checks in with Ember every minute and picks up setting changes within a few seconds." : {},
     "The knob didn't report its hardware ID. Update its firmware." : {},
     "The knob didn't return a scan. Type the network name." : {},
-    "The knob dims and brightens with the clock. It never goes below the minimum, except during quiet hours. Set the hours in Sounds & Alerts." : {},
+    "The knob dims and brightens with the room light. It never goes below the minimum, except during quiet hours. Set the hours in Sounds & Alerts." : {},
     "The knob forgets its Wi-Fi, Ember address and token, then restarts to its setup screen. Ember keeps its settings here until you forget it." : {},
     "The knob has already started this update. Wait until it finishes." : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
-      "extractionState" : "manual"
-    },
-    "The knob has no light sensor, so it uses the level Ember works out from the clock's light sensor, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -2937,6 +2942,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Uses the level Ember works out from the knob's own light sensor, else the clock's, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "VS Code" : {},
     "Very weak" : {},
     "View" : {},
@@ -3070,6 +3079,10 @@
       "extractionState" : "manual"
     },
     "While the server's printer is on, the bot fills in Prusa orange as a print runs, hops when it's done and shows “!” when the printer needs you. An agent that's waiting or in error hides it." : {},
+    "Whose light sensor sets this knob's brightness" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Why the knob last started, as ESP-IDF reports it." : {},
     "Wi-Fi" : {},
     "Wi-Fi passwords are 8 to 63 characters." : {},
