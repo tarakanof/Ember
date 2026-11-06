@@ -129,6 +129,10 @@ func TestStatuslineUsageCarriesTheAccountButNoRawIDs(t *testing.T) {
 	var mu sync.Mutex
 	var bodies []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		bodies = append(bodies, string(b))
