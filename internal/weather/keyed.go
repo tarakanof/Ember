@@ -11,12 +11,12 @@ import (
 	"time"
 )
 
-type keyedProvider struct {
+type KeyedProvider struct {
 	Env         string
 	minInterval time.Duration
 }
 
-var KeyedProviders = map[string]keyedProvider{
+var KeyedProviders = map[string]KeyedProvider{
 	TomorrowIO: {Env: TomorrowKeyEnv, minInterval: 5 * time.Minute},
 	WeatherAPI: {Env: WeatherAPIKeyEnv, minInterval: 5 * time.Minute},
 }

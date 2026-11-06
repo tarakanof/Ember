@@ -48,7 +48,7 @@ type CapsLimits struct {
 	ConfigBytes int `json:"config_bytes,omitempty"`
 }
 
-type effectiveCapsView struct {
+type EffectiveCapsView struct {
 	View      []int       `json:"view"`
 	Pages     []string    `json:"pages"`
 	Features  []string    `json:"features"`
@@ -241,12 +241,12 @@ func effectiveCaps(d Record) (Caps, string) {
 	return legacyCaps(fw), CapsSourceLegacy
 }
 
-func (d Record) effectiveCapsView() *effectiveCapsView {
+func (d Record) effectiveCapsView() *EffectiveCapsView {
 	if d.Kind != KindKnob {
 		return nil
 	}
 	c, source := effectiveCaps(d)
-	return &effectiveCapsView{View: c.View, Pages: c.Pages, Features: c.Features, Limits: c.Limits,
+	return &EffectiveCapsView{View: c.View, Pages: c.Pages, Features: c.Features, Limits: c.Limits,
 		Rotations: slices.Clone(c.rotations()), Source: source, CapsError: d.CapsError}
 }
 
