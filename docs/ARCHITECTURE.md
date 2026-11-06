@@ -2826,23 +2826,22 @@ keeps it on the default transport: mDNS browsing is injected
   has been watching plus 30 s (it ran before the start); the first status
   that is not a jobless BUSY ends that rule, except a print-preview
   question (ATTENTION under 1 % for a job not yet seen printing), whose
-  `time_printing` is the previous print's, so the next read decides. A
-  remote start (Connect, PrusaLink) skips the preview and reads PRINTING
-  at 0 % with that stale time until `PrintInit`: a read under 1 % that
-  looks "ran before" holds the decision and its `started` for one more
-  read, and a drop in `time_printing` then makes it a fresh start.
+  `time_printing` is the previous print's, so the next read decides.
 - **Anchors.** `ends_at` = now + `time_remaining`, `started_at` = now −
   `time_printing`, `change_at` = now + `filament_change_in`; each moves only
   when the new value is more than 60 s off, so a wobbling estimate doesn't
   change readers' ETags every poll. A new `job.id` resets them; a missing
   estimate clears `ends_at`/`change_at`.
-  During a print-preview question (ATTENTION with the new job id at 0 %),
-  and in a remote start's PRINTING before `PrintInit`, the firmware still
-  reports the previous print's `time_printing`, so under 1 % `started_at`
-  is anchored only from a `time_printing` no longer than the job has been
-  seen (plus 30 s), and an ATTENTION read only once the job has been seen
-  printing or paused, or is past 1 %; and a server start in that ATTENTION
-  counts the job as started only past 1 %.
+  During a print-preview question (ATTENTION with the new job id at 0 %)
+  the firmware still reports the previous print's `time_printing` (the
+  recording: 704 s for 8 s, then 8 s once PRINTING), so under 1 %
+  `started_at` is anchored only once the job has been seen outside
+  ATTENTION, and only from a `time_printing` no longer than the job has
+  been seen (plus 30 s); and a server start in that ATTENTION counts the
+  job as started only past 1 %. The recording needs only the first of the
+  two; the second guards a remote start that would read PRINTING with the
+  previous print's time, which the recording does not show (a remote start
+  read 0), and stays so the snapshot does not change.
 - **Name.** `display_name` (else the 8.3 `name`) without the G-code
   extension and PrusaSlicer's `_<nozzle>n_<layer>mm_<MATERIAL>_<PRINTER>_<time>`
   suffix, at most 32 runes; `material` comes from that suffix (`PLA;PETG` →
@@ -2867,6 +2866,34 @@ keeps it on the default transport: mDNS browsing is injected
   (a return to PRINTING lifts the block). Any other phase without a job (idle) clears
   the job fields. `/api/version` is read again after the printer
   comes back from `offline` (a firmware update reboots it).
+- **Recorded trace and defensive rules** (#795). The start-up rules fit a
+  recording of the CORE One on firmware 7.0.0+16903, polled every 2 s on
+  2026-11-06 (Obsidian `Personal/Ember/Specs/attachments/2026-11-06-prusalink-trace.jsonl`):
+  a print sent from PrusaSlicer (IDLE → PRINTING 0 % for ~4 m 40 s of
+  preheat → user pause and resume → 48 s at PRINTING 100 % → FINISHED →
+  IDLE), then a print started on the printer's screen (IDLE → ATTENTION
+  for 8 s, job PAUSED with the new id and the previous print's
+  `time_printing` → PRINTING → user stop at ~50 % → STOPPED → IDLE). Both
+  ends answer `/api/v1/job` 204 with no `status.job`; a remote start reads
+  `time_printing` 0, not the previous print's. The fixtures are trimmed
+  copies with the file names anonymised
+  (`internal/printer/testdata/core-one-*.jsonl`, one JSON line per poll:
+  `t`, `status_code`, `status`, `job_code`, `job`); `replay_test.go` plays
+  them through the real poller against the stub (`stubPrinter.play`), checks
+  the phases, one event per edge and the holds, restarts the poller at every
+  row, and replays every third row. Rules the recording
+  does not exercise stay, as firmware readings of the Buddy source with no
+  trace (their tests drive hand-made answers): BUSY recoveries
+  (`recovering`) and a server start in BUSY (`busyStart`); an errored print
+  (`ERROR` keeps the job like FINISHED and STOPPED); a warning over the
+  finish screen, with or without the job (`endedHeld`, `endedSet` with an
+  empty kind); a colour change (`filament_change_in`); the "fresh enough"
+  test on `time_printing` for `started_at` (`jobSeenAt`). Removed because the
+  recording disproves them: holding a start's `started` one read for a
+  remote start that reads PRINTING with the previous print's
+  `time_printing` before `PrintInit` (`startHeld`). Heating
+  versus preparing flips at the target (nozzle and bed wobble about 3° under
+  it during preheat); the snapshot contract is unchanged.
 - **Events** `started` (a new `job.id` reaching heating, preparing,
   printing or finishing), `attention`, `finished`, `stopped`, `error`: one
   per edge between two successful polls of this process, ids increasing

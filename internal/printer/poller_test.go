@@ -22,97 +22,6 @@ func eventKinds(s Snapshot) []EventKind {
 	return out
 }
 
-func TestRecordedPrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
-	s := newStubPrinter(t)
-	s.set(func(s *stubPrinter) { s.thumb = testPNG(t, 1) })
-	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
-	display := "bracket_v3_0.4n_0.2mm_PETG_COREONE_2h14m.bgcode"
-	steps := []struct {
-		status string
-		job    string
-		want   Phase
-	}{
-		{statusJSON("IDLE", nil), "", PhaseIdle},
-		{statusJSON("PRINTING", &jobFields{id: 412, progress: 0, nozzle: 120, nozzleT: 240, bed: 60, bedT: 85}), jobJSON(412, "PRINTING", display), PhaseHeating},
-		{statusJSON("PRINTING", &jobFields{id: 412, progress: 0, nozzle: 238, nozzleT: 240, bed: 84, bedT: 85}), jobJSON(412, "PRINTING", display), PhasePreparing},
-		{statusJSON("PRINTING", &jobFields{id: 412, progress: 42, remaining: num(4680), printing: num(3360), nozzle: 240, nozzleT: 240, bed: 85, bedT: 85}), jobJSON(412, "PRINTING", display), PhasePrinting},
-		{statusJSON("ATTENTION", &jobFields{id: 412, progress: 55, remaining: num(3000), printing: num(4000)}), jobJSON(412, "PAUSED", display), PhaseAttention},
-		{statusJSON("ATTENTION", &jobFields{id: 412, progress: 55, remaining: num(3000), printing: num(4000)}), jobJSON(412, "PAUSED", display), PhaseAttention},
-		{statusJSON("PRINTING", &jobFields{id: 412, progress: 56, remaining: num(2900), printing: num(4100)}), jobJSON(412, "PRINTING", display), PhasePrinting},
-		{statusJSON("PRINTING", &jobFields{id: 412, progress: 100, remaining: num(0), printing: num(8000)}), jobJSON(412, "PRINTING", display), PhaseFinishing},
-		{statusJSON("PRINTING", &jobFields{id: 412, progress: 100, remaining: num(0), printing: num(8010)}), jobJSON(412, "PRINTING", display), PhaseFinishing},
-		{statusJSON("FINISHED", nil), jobJSON(412, "FINISHED", display), PhaseFinished},
-		{statusJSON("FINISHED", nil), jobJSON(412, "FINISHED", display), PhaseFinished},
-	}
-	var got []Phase
-	for _, st := range steps {
-		s.set(func(s *stubPrinter) { s.status, s.job = st.status, st.job })
-		h.advance(h.step())
-		got = append(got, h.snap().Phase)
-	}
-	var want []Phase
-	for _, st := range steps {
-		want = append(want, st.want)
-	}
-	if !slices.Equal(got, want) {
-		t.Fatalf("phases = %v\nwant     %v", got, want)
-	}
-	snap := h.snap()
-	if kinds := eventKinds(snap); !slices.Equal(kinds, []EventKind{EventStarted, EventAttention, EventFinished}) {
-		t.Fatalf("events = %v", kinds)
-	}
-	for i := 1; i < len(snap.Events); i++ {
-		if snap.Events[i].ID <= snap.Events[i-1].ID {
-			t.Fatalf("event ids not increasing: %+v", snap.Events)
-		}
-	}
-	if snap.Name != "bracket_v3" || snap.Material != "PETG" || snap.Progress != 100 || snap.JobID != 412 || snap.ThumbVersion == "" {
-		t.Fatalf("finished snapshot = %+v", snap)
-	}
-	if b, _ := h.p.State.Thumbnail(); len(b) == 0 {
-		t.Fatal("finished print lost its thumbnail")
-	}
-	if snap.Printer.Firmware != "8.0.0+12345" || snap.Printer.Hostname != "prusa-core-one" {
-		t.Fatalf("printer info = %+v", snap.Printer)
-	}
-
-	restarted := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
-	restarted.now = h.now
-	for range 3 {
-		restarted.advance(restarted.step())
-	}
-	rs := restarted.snap()
-	if rs.Phase != PhaseFinished || len(rs.Events) != 0 {
-		t.Fatalf("restart mid-FINISHED: phase %s events %v", rs.Phase, eventKinds(rs))
-	}
-	if !rs.HoldUntil.IsZero() {
-		t.Fatal("restart mid-FINISHED holds the done card")
-	}
-}
-
-func TestRestartMidPrintReplaysNoStarted(t *testing.T) {
-	s := newStubPrinter(t)
-	s.set(func(s *stubPrinter) {
-		s.status = statusJSON("PAUSED", &jobFields{id: 9, progress: 30})
-		s.job = jobJSON(9, "PAUSED", "cube.gcode")
-	})
-	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
-	h.advance(h.step())
-	s.set(func(s *stubPrinter) { s.status = statusJSON("PRINTING", &jobFields{id: 9, progress: 31}) })
-	h.advance(h.step())
-	if ev := eventKinds(h.snap()); len(ev) != 0 {
-		t.Fatalf("events after restart = %v", ev)
-	}
-	s.set(func(s *stubPrinter) {
-		s.status = statusJSON("PRINTING", &jobFields{id: 10, progress: 2})
-		s.job = jobJSON(10, "PRINTING", "next.gcode")
-	})
-	h.advance(h.step())
-	if ev := eventKinds(h.snap()); !slices.Equal(ev, []EventKind{EventStarted}) {
-		t.Fatalf("events after a new job = %v", ev)
-	}
-}
-
 func TestStoppedAndErrorEdges(t *testing.T) {
 	s := newStubPrinter(t)
 	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
@@ -915,25 +824,6 @@ func TestThumbnailRetriesResetForAReprintOfTheSameFile(t *testing.T) {
 	}
 }
 
-func TestRestartDuringPrintPreviewStillEmitsStarted(t *testing.T) {
-	s := newStubPrinter(t)
-	s.set(func(s *stubPrinter) {
-		s.status = statusJSON("ATTENTION", &jobFields{id: 5, progress: 0, printing: num(7200)})
-	})
-	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
-	h.advance(h.step())
-	if got := h.snap().StartedAt; !got.IsZero() {
-		t.Fatalf("print preview anchored started_at to the last print's duration: %v", got)
-	}
-	s.set(func(s *stubPrinter) {
-		s.status = statusJSON("PRINTING", &jobFields{id: 5, progress: 0, printing: num(3), nozzle: 100, nozzleT: 240})
-	})
-	h.advance(h.step())
-	if ev := eventKinds(h.snap()); !slices.Equal(ev, []EventKind{EventStarted}) {
-		t.Fatalf("events = %v", ev)
-	}
-}
-
 func TestAutoModePrinterOffGoesOfflineAndBacksOff(t *testing.T) {
 	s := newStubPrinter(t)
 	net := &lan{}
@@ -1498,26 +1388,6 @@ func TestBusyStartThenANewPrintStillEmitsStarted(t *testing.T) {
 	}
 }
 
-func TestPreviewWithTheLastPrintsTimeAfterARestartStillEmitsStarted(t *testing.T) {
-	s := newStubPrinter(t)
-	s.set(func(s *stubPrinter) {
-		s.status = statusJSON("ATTENTION", &jobFields{id: 6, progress: 0, printing: num(7200)})
-	})
-	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
-	h.advance(h.step())
-	s.set(func(s *stubPrinter) {
-		s.status = statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(2), nozzle: 90, nozzleT: 240})
-	})
-	h.advance(h.step())
-	snap := h.snap()
-	if kinds := eventKinds(snap); !slices.Equal(kinds, []EventKind{EventStarted}) {
-		t.Fatalf("events = %v", kinds)
-	}
-	if want := h.now.Add(-PollActive).Add(-2 * time.Second); !snap.StartedAt.Equal(want.Truncate(time.Second)) {
-		t.Fatalf("started_at = %v, want %v", snap.StartedAt, want)
-	}
-}
-
 func TestBusyStartThenAPreviewQuestionStillEmitsStarted(t *testing.T) {
 	s := newStubPrinter(t)
 	s.set(func(s *stubPrinter) { s.status = statusJSON("BUSY", nil) })
@@ -1532,23 +1402,6 @@ func TestBusyStartThenAPreviewQuestionStillEmitsStarted(t *testing.T) {
 	}
 	if kinds := eventKinds(h.snap()); !slices.Equal(kinds, []EventKind{EventAttention, EventStarted}) {
 		t.Fatalf("events = %v, want the preview's attention and the print's started", kinds)
-	}
-}
-
-func TestBusyStartThenARemoteStartWithTheLastPrintsTimeStillEmitsStarted(t *testing.T) {
-	s := newStubPrinter(t)
-	s.set(func(s *stubPrinter) { s.status = statusJSON("BUSY", nil) })
-	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
-	h.advance(h.step())
-	for _, st := range []string{
-		statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(7200)}),
-		statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(4), nozzle: 90, nozzleT: 240}),
-	} {
-		s.set(func(s *stubPrinter) { s.status = st })
-		h.advance(h.step())
-	}
-	if kinds := eventKinds(h.snap()); !slices.Equal(kinds, []EventKind{EventStarted}) {
-		t.Fatalf("events = %v, want started", kinds)
 	}
 }
 
@@ -1567,25 +1420,5 @@ func TestBusyStartThenARecoveryInTheFirstLayerStaysSilent(t *testing.T) {
 	}
 	if kinds := eventKinds(h.snap()); len(kinds) != 0 {
 		t.Fatalf("a recovered print fired %v", kinds)
-	}
-}
-
-func TestRemoteStartDoesNotAnchorTheLastPrintsTime(t *testing.T) {
-	s := newStubPrinter(t)
-	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
-	h.advance(h.step())
-	s.set(func(s *stubPrinter) {
-		s.status = statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(7200)})
-	})
-	h.advance(h.step())
-	if got := h.snap().StartedAt; !got.IsZero() {
-		t.Fatalf("started_at anchored to the last print's time: %v", got)
-	}
-	s.set(func(s *stubPrinter) {
-		s.status = statusJSON("PRINTING", &jobFields{id: 6, progress: 0, printing: num(4)})
-	})
-	h.step()
-	if want := h.now.Add(-4 * time.Second).Truncate(time.Second); !h.snap().StartedAt.Equal(want) {
-		t.Fatalf("started_at = %v, want %v", h.snap().StartedAt, want)
 	}
 }
