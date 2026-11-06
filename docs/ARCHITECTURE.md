@@ -2838,10 +2838,14 @@ keeps it on the default transport: mDNS browsing is injected
   `started_at` is anchored only once the job has been seen outside
   ATTENTION, and only from a `time_printing` no longer than the job has
   been seen (plus 30 s); and a server start in that ATTENTION counts the
-  job as started only past 1 %. The recording needs only the first of the
-  two; the second guards a remote start that would read PRINTING with the
-  previous print's time, which the recording does not show (a remote start
-  read 0), and stays so the snapshot does not change.
+  job as started only past 1 %. The recording needs only the first
+  condition (seen outside ATTENTION). The time check guards a remote start
+  that would read PRINTING with the previous print's time, which the
+  recording does not show (a remote start read 0): kept as defensive, and
+  because removing it would change `started_at` for such an answer
+  (acceptance 5 of #795). Its cost: a server start in the middle of a
+  preheat (0 %, `time_printing` already past the watched time) leaves
+  `started_at` empty until 1 %.
 - **Name.** `display_name` (else the 8.3 `name`) without the G-code
   extension and PrusaSlicer's `_<nozzle>n_<layer>mm_<MATERIAL>_<PRINTER>_<time>`
   suffix, at most 32 runes; `material` comes from that suffix (`PLA;PETG` →
@@ -2887,13 +2891,17 @@ keeps it on the default transport: mDNS browsing is injected
   (`recovering`) and a server start in BUSY (`busyStart`); an errored print
   (`ERROR` keeps the job like FINISHED and STOPPED); a warning over the
   finish screen, with or without the job (`endedHeld`, `endedSet` with an
-  empty kind); a colour change (`filament_change_in`); the "fresh enough"
+  empty kind); a prompt mid-print (ATTENTION with the job, as a colour
+  change would send); the "fresh enough"
   test on `time_printing` for `started_at` (`jobSeenAt`). Removed because the
   recording disproves them: holding a start's `started` one read for a
   remote start that reads PRINTING with the previous print's
   `time_printing` before `PrintInit` (`startHeld`). Heating
-  versus preparing flips at the target (nozzle and bed wobble about 3° under
-  it during preheat); the snapshot contract is unchanged.
+  versus preparing flips during the staged preheat (the target steps, e.g.
+  170 → 150 → 230 °C on the nozzle, and the temperature wobbles about the
+  3° margin); the snapshot contract is unchanged. The recording has no BUSY,
+  so `startHeld` goes on the evidence of a start straight out of IDLE only;
+  the server-start-in-BUSY path stays untested by any recording.
 - **Events** `started` (a new `job.id` reaching heating, preparing,
   printing or finishing), `attention`, `finished`, `stopped`, `error`: one
   per edge between two successful polls of this process, ids increasing

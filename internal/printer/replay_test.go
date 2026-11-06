@@ -72,8 +72,9 @@ func replay(t *testing.T, s *stubPrinter, h *harness, rows []traceRow) []Snapsho
 }
 
 const (
-	remoteTrace = "core-one-remote-print.jsonl"
-	screenTrace = "core-one-screen-print-stopped.jsonl"
+	sampleDisplayName = "sample-part_0.2mm_PLA_COREONE_6m.bgcode"
+	remoteTrace       = "core-one-remote-print.jsonl"
+	screenTrace       = "core-one-screen-print-stopped.jsonl"
 )
 
 func coarsePhases(snaps []Snapshot) []Phase {
@@ -98,12 +99,14 @@ type edge struct {
 
 func edgesOf(snaps []Snapshot) []edge {
 	var out []edge
-	seen := 0
+	var last uint64
 	for i, sn := range snaps {
-		for _, e := range sn.Events[min(seen, len(sn.Events)):] {
-			out = append(out, edge{e.Kind, e.JobID, i})
+		for _, e := range sn.Events {
+			if e.ID > last {
+				out = append(out, edge{e.Kind, e.JobID, i})
+				last = e.ID
+			}
 		}
-		seen = len(sn.Events)
 	}
 	return out
 }
@@ -146,7 +149,7 @@ func TestReplayRemotePrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
 		}
 	}
 	done := snaps[edges[1].Row]
-	if done.Phase != PhaseFinished || done.Name == "" || done.JobID != 694 || done.Progress != 100 || done.ThumbVersion == "" {
+	if name, _ := ShortName(sampleDisplayName); done.Phase != PhaseFinished || done.Name != name || done.JobID != 694 || done.Progress != 100 || done.ThumbVersion == "" {
 		t.Fatalf("finished snapshot = %+v", done)
 	}
 	if want := done.Events[1].At.Add(30 * time.Minute); !done.HoldUntil.Equal(want) {
@@ -208,7 +211,7 @@ func TestReplayScreenStartedPrintStopsWithOneEventPerEdge(t *testing.T) {
 		t.Fatalf("started_at = %v, want %v", snaps[first].StartedAt, want)
 	}
 	stopped := snaps[edges[2].Row]
-	if stopped.Phase != PhaseStopped || stopped.Name == "" || stopped.JobID != 695 || stopped.ThumbVersion == "" || stopped.Progress < 50 {
+	if name, _ := ShortName(sampleDisplayName); stopped.Phase != PhaseStopped || stopped.Name != name || stopped.JobID != 695 || stopped.ThumbVersion == "" || stopped.Progress < 50 {
 		t.Fatalf("stopped snapshot = %+v", stopped)
 	}
 	if want := stopped.Events[2].At.Add(StoppedHold); !stopped.HoldUntil.Equal(want) {
@@ -270,7 +273,7 @@ func TestReplayRestartAtEveryRowReplaysNoEndedOrRunningEdge(t *testing.T) {
 	}
 }
 
-func TestReplayAtTheServersPollingCadence(t *testing.T) {
+func TestReplayEveryThirdRowYieldsTheSameEvents(t *testing.T) {
 	for _, name := range []string{remoteTrace, screenTrace} {
 		_, _, _, full := playTrace(t, name)
 		var want []EventKind
