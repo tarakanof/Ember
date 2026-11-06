@@ -1251,6 +1251,7 @@
       "extractionState" : "manual"
     },
     "Done: an agent finished." : {},
+    "Done: take the print out." : {},
     "Double press" : {},
     "Download Crash Dump…" : {},
     "Download ELF…" : {},
@@ -1386,6 +1387,7 @@
     "Failures" : {},
     "Fast display link" : {},
     "Find Clock from This Mac…" : {},
+    "Finishing up." : {},
     "Firmware" : {},
     "Firmware %@ · %@ · %@" : {
       "comment" : "Settings › Knob Crash dumps row details: the firmware that crashed, the dump's size and when Ember received it (\"Firmware 0.9.14 · 64 KB · 6 Oct 2026 at 10:00\").",
@@ -1486,6 +1488,7 @@
       "extractionState" : "manual"
     },
     "Header" : {},
+    "Heating up for a print." : {},
     "Hidden" : {},
     "Hide when idle" : {},
     "Hold" : {},
@@ -1564,6 +1567,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Idle." : {},
     "Idle. Push the knob to start a focus round." : {},
     "Idle: no agent is working." : {},
     "Imperial (°F)" : {},
@@ -1817,6 +1821,7 @@
     "No meetings in the next 36 hours." : {},
     "No music data from Ember." : {},
     "No observation yet" : {},
+    "No printer data from Ember." : {},
     "No server URL" : {},
     "No server found?" : {},
     "No stops yet" : {},
@@ -1995,6 +2000,9 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Paused at %lld%%." : {
+      "comment" : "Knob 3D printer preview: the paused job's progress (\"Paused at 46%.\")."
+    },
     "Paused by claude-hooks.disabled" : {},
     "Paused while reporting is off (claude-hooks.disabled)" : {},
     "Paused · round %lld" : {
@@ -2075,10 +2083,17 @@
     "Previous Track" : {},
     "Print moments" : {},
     "Printer address" : {},
+    "Printer error: see the printer." : {},
     "Printer off" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Printer off." : {},
+    "Printer off: the printer isn't set up in Ember." : {},
+    "Printing, %lld%% done." : {
+      "comment" : "Knob 3D printer preview: the job's progress (\"Printing, 42% done.\")."
+    },
+    "Printing." : {},
     "Privacy: the track's title, artist, album, position and artwork go to your Ember server, and anyone on your network can read what's playing from it (no token needed). Artist pictures come from Deezer only if the server has EMBER_ARTIST_LOOKUP=1; then the artist's name leaves your network." : {},
     "Problem: %@" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2108,6 +2123,7 @@
     "Reading what's playing…" : {},
     "Reads reminders with a due time to ring the clock. Needed while reminder alarms are on." : {},
     "Reads the playing track's position and artwork from Music. Needed while Apple Music is sent to Ember." : {},
+    "Ready: the printer is on and idle." : {},
     "Reconnects" : {},
     "Redraws the screen faster (a full frame in about 25 ms instead of 35) and halves the time in which a redraw can tear. 80 MHz is beyond the panel's rated speed, so the knob checks the link at startup and every 5 s and drops back to 40 MHz by itself if a check fails. Changing it restarts the knob; default: on." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2423,6 +2439,9 @@
     "Stopped %@" : {
       "comment" : "Hover on a stop-time point: when the day ended, as a clock time."
     },
+    "Stopped at %lld%%." : {
+      "comment" : "Knob 3D printer preview: the stopped job's progress (\"Stopped at 46%.\")."
+    },
     "Stopped automatically" : {},
     "Stops the clock's buttons from switching apps" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2647,6 +2666,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The printer needs you." : {},
     "The reminder shows for the time above, then the clock carries on." : {},
     "The reminder stays on the clock until you press its middle button." : {},
     "The request from knob %@ expired. It will show a new code." : {
