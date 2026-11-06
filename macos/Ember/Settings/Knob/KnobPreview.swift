@@ -57,6 +57,14 @@ struct KnobPreviewData {
     var pomodoro: PomoState? { env.live.pomodoro.value }
     var pomodoroFetchedAt: Date? { env.live.lastFetched(.pomodoroState) }
     var weather: WeatherState? { env.live.weather.value }
+    var printer: PrinterState? { env.live.printer.value }
+    var printLink: KnobPrintFace.Link {
+        switch env.live.printer {
+        case .loaded: .fed
+        case .loading: .connecting
+        case .failed: .offline
+        }
+    }
 
     var pomodoroNote: String? {
         let p = env.settings.pomodoro
@@ -88,6 +96,8 @@ struct KnobPreviewData {
             KnobNowPlayingLive(state: nowPlaying?.state, offline: nowPlaying?.failed ?? false, offset: nowPlaying?.serverOffset ?? 0,
                                pictures: nowPlaying?.pictures ?? .init(),
                                animated: animated, brightness: brightness)
+        case "print":
+            KnobPrintLive(state: printer, link: printLink, animated: animated, windowVisible: windowVisible, theme: theme, brightness: brightness)
         default:
             Circle().fill(.black)
         }
@@ -99,6 +109,7 @@ struct KnobPreviewData {
         case "pomodoro": pomodoroCaption
         case "weather": weatherCaption
         case "nowplaying": nowPlayingCaption
+        case "print": printCaption
         default: Text(verbatim: "")
         }
     }
@@ -151,6 +162,35 @@ struct KnobPreviewData {
         return s.state == "paused"
             ? Text("Paused: \(what)", comment: "Knob now-playing preview: the paused track (\"Paused: Song - Artist\").")
             : Text("Playing: \(what)", comment: "Knob now-playing preview: the playing track (\"Playing: Song - Artist\").")
+    }
+
+    private var printCaption: Text {
+        let link = printLink
+        if link == .connecting { return Text("No printer data from Ember yet.") }
+        if link == .offline && printer == nil { return Text("No printer data from Ember.") }
+        let block = KnobPrintBlock(state: printer)
+        let f = KnobPrintFace(block: block, now: .now, link: link, theme: theme)
+        let p = block?.progress ?? 0
+        let state: Text = switch f.look {
+        case .none:
+            printer?.enabled == true ? Text("Printer off.") : Text("Printer off: the printer isn't set up in Ember.")
+        case .offline: Text("Printer off.")
+        case .idle: block?.phase == .idle ? Text("Ready: the printer is on and idle.") : Text("Idle.")
+        case .heating: Text("Heating up for a print.")
+        case .progress where block?.phase == .preparing: Text("Preparing the print.")
+        case .progress where block?.endsAt == nil: Text("Printing.")
+        case .progress:
+            Text("Printing, \(p)% done.", comment: "Knob 3D printer preview: the job's progress (\"Printing, 42% done.\").")
+        case .finishing: Text("Finishing up.")
+        case .paused: Text("Paused at \(p)%.", comment: "Knob 3D printer preview: the paused job's progress (\"Paused at 46%.\").")
+        case .attention: Text("The printer needs you.")
+        case .done: Text("Done: take the print out.")
+        case .stopped: Text("Stopped at \(p)%.", comment: "Knob 3D printer preview: the stopped job's progress (\"Stopped at 46%.\").")
+        case .error: Text("Printer error: see the printer.")
+        }
+        guard link == .offline else { return state }
+        return Text("\(state) Ember is offline, so this is the last state it sent.",
+                    comment: "Knob 3D printer preview while Ember can't be reached: the last printer state (\"Printer off.\", \"Printing, 42% done.\") and a note.")
     }
 
     private var weatherCaption: Text {
@@ -280,6 +320,10 @@ private struct KnobPreviewFeeds: ViewModifier {
         page == nil && env.knob.settings.draft.pages.contains { $0.id == "nowplaying" && $0.on }
     }
 
+    private var showsPrint: Bool {
+        page == "print" || (page == nil && env.knob.settings.draft.pagesShown(on: env.knob.knob).contains { $0.id == "print" })
+    }
+
     private var showsWeather: Bool {
         page == "weather" || (page == nil && env.knob.settings.draft.pages.contains { $0.id == "weather" && $0.on })
     }
@@ -287,6 +331,7 @@ private struct KnobPreviewFeeds: ViewModifier {
     func body(content: Content) -> some View {
         content
             .holdsLive(.weather, in: env.live, while: page == nil || page == "weather")
+            .holdsLive(.print, in: env.live, while: showsPrint && visible)
             .task(id: "\(env.connection.serverURL?.absoluteString ?? "")|\(page ?? "")|\(overviewNeedsNowPlaying)") {
                 let overview = page == nil
                 guard page == "nowplaying" || (overview && overviewNeedsNowPlaying) else { return }

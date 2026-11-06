@@ -4411,6 +4411,39 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three
   pictures from `/v1/nowplaying/art` once per `art_version`, only while a
   preview is up; burn-in dimming and drift are not drawn; text folds with the firmware's own tables, `KnobTextFold`, tested against np.c; failed picture fetches retry with a 5-60 s back-off; Knob > Now Playing is its own app page from firmware 0.9.0; `GET /v1/nowplaying/state` sends `X-Ember-Now` for clock skew).
+  The 3D Printer page (#825) draws cinder's K1 print face: `print.c`'s
+  look, ring and text per phase, `print_draw.c`'s CORE One hero (the head
+  at the top, the bed sinking as the part grows, the chamber window lit by
+  the state), `print_view.c`'s layout and `np_edge_render`'s ring with its
+  bright head and glow. `KnobPrintBlock` turns `/v1/print/state` (tracked
+  while a visible preview shows the print page: its own pane, or the Apps
+  overview's tile) into the knob's `print` block
+  the way `newKnobPrint` does: none while the printer is off or not set up
+  (the dim "Printer off" face), temperatures only while heating, the
+  printer's name cut to 32 runes and the material to 16. `KnobPrintFace`
+  is the pure mapping (tested against the features.md table, its words
+  pinned to `print.c`'s literals by `printWordsMatchCindersPrintC`),
+  including `print_text_link`: "Connecting" while the feed first loads,
+  "offline" as the sub-line (no file line) while it fails, over the last
+  state or the dim "Printer off" face if none came; time left
+  counts from the Mac's clock and the ready time is in the Mac's zone
+  (the knob uses Ember's clock and the day or weather block's offset).
+  The face (and its text fit, `print_view.c`'s "..." rule keeping the
+  last " • " part, measured with CoreText) is worked out once a second;
+  the head sweeps while printing and the "!" pulses in attention and error
+  at 15 fps on top of it, only while the pane is on screen and Reduce
+  Motion is off; otherwise the face redraws when its text changes (the
+  Apps overview draws a static frame). The Done face dims 10 min after
+  the earlier of the finish event and the preview first showing Done for
+  that job, kept like `done_dim` (`KnobPrintDoneClock`: the earliest time
+  seen, across the page and the overview and after Ember drops the event
+  30 min on; the job is `started_at`, else the finish time, and a key
+  that falls to 0 is the same job; leaving Done forgets it). No input
+  lifts it. Not drawn: K2 (the
+  job picture) and the Done glint. `/v1/print/state`'s
+  ETag ignores temperatures and the anchored times, so a heating preview's
+  degrees and a re-anchored `ends_at` can lag until the phase or percent
+  moves (#827).
   The weather preview draws the face the knob shows (#611):
   `KnobShownFeed` polls `GET /v1/devices` every 2 s while a preview with
   the weather page is visible (the page's own pane, or the Pages overview
@@ -4454,7 +4487,8 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   share with the firmware: geometry, palette, label layout and LVGL font
   metrics, eye geometry, the Temperature face's scale, ring, thermometer
   and label layout, and the other weather faces' colours, thresholds and
-  layout (`weather.rain` … `weather.air`); their words stay in code and
+  layout (`weather.rain` … `weather.air`), and the print face's colours,
+  ring, dots, hero placement and label layout (`print`); their words stay in code and
   are pinned by the same test. Shape formulas, the weather heroes' shape
   tables and the hop squash curve stay in code on both sides. `KnobThemeTests` pins
   every key; with a cinder checkout next to this repo (or `CINDER_DIR`) it

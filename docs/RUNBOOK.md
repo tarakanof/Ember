@@ -438,7 +438,10 @@ order of `wx_temp_from_shown`'s chain, the `wx_cast_soon`,
 `wx_wind_strong` and `wx_air_poor` conditions (thresholds in
 `weather.cast.soon_s`/`keep_s` and `weather.wind.auto_kmh`/`keep_kmh`),
 the face ids of `wx_faces.h` and demo's face words, and the strict
-`age_s > WX_MAX_AGE_S` freshness.
+`age_s > WX_MAX_AGE_S` freshness. The `print` keys mirror `print.h`,
+`print.c`, `print_view.c` (K1) and `np_cover.h` (the ring and its head);
+`heroMatchesCindersPrintDraw` pins `print_draw.c`'s hero shape constants,
+colours, head sweep and pulse. They need cinder v0.9.114 or later.
 
 The app bundle now builds + signs the three producer helpers (`ember-claude-producer`,
 `ember-codex-producer`, `ember-t3-producer`) and their LaunchAgent plists

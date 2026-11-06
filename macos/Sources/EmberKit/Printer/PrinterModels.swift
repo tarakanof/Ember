@@ -131,10 +131,22 @@ public struct PrinterState: Codable, Sendable, Equatable {
     public var updatedAt: Int64?
     public var progress: Int?
     public var event: PrinterEvent?
+    public var endsAt: Int64?
+    public var startedAt: Int64?
+    public var changeAt: Int64?
+    public var nozzle: Int?
+    public var nozzleTarget: Int?
+    public var bed: Int?
+    public var bedTarget: Int?
+    public var name: String
+    public var material: String
 
     public init(enabled: Bool = false, phase: String = "off", lastError: String = "",
                 printer: PrinterInfo = PrinterInfo(), updatedAt: Int64? = 1,
-                progress: Int? = nil, event: PrinterEvent? = nil) {
+                progress: Int? = nil, event: PrinterEvent? = nil,
+                endsAt: Int64? = nil, startedAt: Int64? = nil, changeAt: Int64? = nil,
+                nozzle: Int? = nil, nozzleTarget: Int? = nil, bed: Int? = nil, bedTarget: Int? = nil,
+                name: String = "", material: String = "") {
         self.enabled = enabled
         self.phase = phase
         self.lastError = lastError
@@ -142,12 +154,26 @@ public struct PrinterState: Codable, Sendable, Equatable {
         self.updatedAt = updatedAt
         self.progress = progress
         self.event = event
+        self.endsAt = endsAt
+        self.startedAt = startedAt
+        self.changeAt = changeAt
+        self.nozzle = nozzle
+        self.nozzleTarget = nozzleTarget
+        self.bed = bed
+        self.bedTarget = bedTarget
+        self.name = name
+        self.material = material
     }
 
     enum CodingKeys: String, CodingKey {
-        case enabled, phase, printer, progress, event
+        case enabled, phase, printer, progress, event, nozzle, bed, name, material
         case lastError = "last_error"
         case updatedAt = "updated_at"
+        case endsAt = "ends_at"
+        case startedAt = "started_at"
+        case changeAt = "change_at"
+        case nozzleTarget = "nozzle_target"
+        case bedTarget = "bed_target"
     }
 
     public init(from decoder: Decoder) throws {
@@ -159,6 +185,15 @@ public struct PrinterState: Codable, Sendable, Equatable {
         updatedAt = try c.decodeIfPresent(Int64.self, forKey: .updatedAt)
         progress = try c.decodeIfPresent(Int.self, forKey: .progress)
         event = try? c.decodeIfPresent(PrinterEvent.self, forKey: .event)
+        endsAt = try? c.decodeIfPresent(Int64.self, forKey: .endsAt)
+        startedAt = try? c.decodeIfPresent(Int64.self, forKey: .startedAt)
+        changeAt = try? c.decodeIfPresent(Int64.self, forKey: .changeAt)
+        nozzle = try? c.decodeIfPresent(Int.self, forKey: .nozzle)
+        nozzleTarget = try? c.decodeIfPresent(Int.self, forKey: .nozzleTarget)
+        bed = try? c.decodeIfPresent(Int.self, forKey: .bed)
+        bedTarget = try? c.decodeIfPresent(Int.self, forKey: .bedTarget)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        material = (try? c.decodeIfPresent(String.self, forKey: .material)) ?? ""
     }
 }
 

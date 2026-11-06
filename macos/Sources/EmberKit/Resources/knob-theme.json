@@ -290,5 +290,44 @@
     "sub": { "font_px": 18, "dy_px": 126, "width_px": 260 },
     "meta": { "font_px": 14, "dy_px": 150, "width_px": 220 },
     "idle": { "font_px": 24, "dy_px": 0, "width_px": 300 }
+  },
+  "print": {
+    "colors": {
+      "text": "#F4F4F2",
+      "sub": "#9A9A96",
+      "small": "#8A8A86",
+      "dim_word": "#5A5A5A",
+      "accent": "#FF8A3D",
+      "heat": "#FF5A3A",
+      "wait": "#FFC14D",
+      "done": "#4FA9FF",
+      "err": "#FF3A3A",
+      "grey": "#9AA3AD",
+      "fil": "#FF6A2A",
+      "track": "#1D1D1D",
+      "dot_on": "#F4F4F2",
+      "dot_off": "#4A4A4A"
+    },
+    "ring": {
+      "radius_px": 222,
+      "half_width_px": 6,
+      "inner_px": 209,
+      "head_radius_px": 8,
+      "head_stroke_px": 2,
+      "head_color": "#F4F4F2",
+      "glow_radius_px": 13,
+      "glow_sigma_px": 4,
+      "glow_opacity": 0.55
+    },
+    "dots": { "radius_px": 200, "pitch_px": 16, "dot_radius_px": 5, "faces": 2 },
+    "hero": { "cx_px": 233, "cy_px": 122, "scale": 0.95 },
+    "value": { "font_px": 96, "unit_font_px": 30, "base_px": 300, "unit_gap_px": 8 },
+    "word": { "font_px": 48, "base_px": 292, "width_px": 400 },
+    "sub": { "font_px": 30, "base_px": 340, "alone_base_px": 344, "width_px": 340 },
+    "small": { "font_px": 24, "base_px": 380, "width_px": 290 },
+    "warm_c": 40,
+    "change_soon_s": 600,
+    "done_dim_s": 600,
+    "dim_opacity": 109
   }
 }

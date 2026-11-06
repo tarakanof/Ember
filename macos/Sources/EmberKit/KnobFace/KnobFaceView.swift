@@ -13,10 +13,11 @@ public enum KnobFace: Sendable, Equatable {
     case days(KnobDaysFace)
     case sun(KnobSunFace)
     case air(KnobAirFace)
+    case print(KnobPrintFace)
 
     public var weatherFace: KnobWeatherFaceID? {
         switch self {
-        case .bot, .pomodoro, .nowPlaying: nil
+        case .bot, .pomodoro, .nowPlaying, .print: nil
         case .weather: .temp
         case .rain: .rain
         case .cast: .cast
@@ -60,6 +61,7 @@ public struct KnobFaceView: View, Equatable {
             case .days(let f): KnobFaceRender.days(f, theme, t: t, in: &ctx)
             case .sun(let f): KnobFaceRender.sun(f, theme, t: t, in: &ctx)
             case .air(let f): KnobFaceRender.air(f, theme, t: t, in: &ctx)
+            case .print(let f): KnobFaceRender.printFace(f, theme, t: t, in: &ctx)
             }
             let dim = (1 - min(max(brightness, 0), 1)) * 0.6
             if dim > 0 { ctx.fill(disc, with: .color(.black.opacity(dim))) }
