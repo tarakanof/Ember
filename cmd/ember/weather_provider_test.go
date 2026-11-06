@@ -35,6 +35,9 @@ func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 	t.Helper()
 	st := &providerStubs{omReq: make(chan struct{}, 1), metReq: make(chan struct{}, 1)}
 	om := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		st.omHits.Add(1)
 		if st.onOM != nil {
 			st.onOM()
@@ -44,6 +47,9 @@ func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 	}))
 	t.Cleanup(om.Close)
 	met := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		st.metHits.Add(1)
 		if st.metFail.Load() {
 			code := http.StatusServiceUnavailable
@@ -59,6 +65,9 @@ func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 	}))
 	t.Cleanup(met.Close)
 	air := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		t.Errorf("unexpected air-quality request %s", r.URL)
 		http.Error(w, "unexpected", http.StatusTeapot)
 	}))

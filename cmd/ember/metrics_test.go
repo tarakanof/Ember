@@ -246,7 +246,7 @@ func TestObserveRequests_CountsByPattern(t *testing.T) {
 	mux.HandleFunc("GET /a", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("POST /b", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) })
 
-	srv := httptest.NewServer(observeRequests(app, mux))
+	srv := httptest.NewServer(dropRootProbe(observeRequests(app, mux)))
 	defer srv.Close()
 
 	for i := 0; i < 3; i++ {
@@ -281,7 +281,7 @@ func TestObserveRequests_DefaultsTo200WhenHandlerSkipsWriteHeader(t *testing.T) 
 	mux.HandleFunc("GET /implicit", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("hi"))
 	})
-	srv := httptest.NewServer(observeRequests(app, mux))
+	srv := httptest.NewServer(dropRootProbe(observeRequests(app, mux)))
 	defer srv.Close()
 
 	resp, _ := srv.Client().Get(srv.URL + "/implicit")
@@ -305,7 +305,7 @@ func TestObserveRequests_SkipsMetricsScrape(t *testing.T) {
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	srv := httptest.NewServer(observeRequests(app, mux))
+	srv := httptest.NewServer(dropRootProbe(observeRequests(app, mux)))
 	defer srv.Close()
 
 	for i := 0; i < 5; i++ {
@@ -517,4 +517,13 @@ func TestObservabilityChainKeepsResponseController(t *testing.T) {
 	if got != 1 {
 		t.Fatalf("counted GET /rc 418 = %d, want 1", got)
 	}
+}
+
+func dropRootProbe(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }

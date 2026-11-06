@@ -47,6 +47,9 @@ func newTomorrowStub(t *testing.T, body []byte) *tomorrowStub {
 	st := &tomorrowStub{}
 	st.body.Store(&body)
 	st.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		st.hits.Add(1)
 		if r.URL.Path != "/v4/weather/forecast" {
 			t.Errorf("path = %s, want /v4/weather/forecast", r.URL.Path)
@@ -624,6 +627,9 @@ func TestTomorrow429DuringALocationChangeStillBacksOff(t *testing.T) {
 	var app *App
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		if hits.Add(1) == 1 {
 			app.updateConfig(func(c *Config) { c.Weather.Latitude += 0.01 })
 		}

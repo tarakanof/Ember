@@ -15,7 +15,7 @@ import (
 
 func newPublisherAgainst(t *testing.T, h http.HandlerFunc) Publisher {
 	t.Helper()
-	srv := httptest.NewServer(h)
+	srv := httptest.NewServer(dropRootProbe(h))
 	t.Cleanup(srv.Close)
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = srv.URL

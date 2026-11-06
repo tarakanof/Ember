@@ -12,11 +12,17 @@ import (
 func TestClockPublisher_BaseURLReloadable(t *testing.T) {
 	hits1, hits2 := 0, 0
 	srv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		hits1++
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv1.Close()
 	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		hits2++
 		w.WriteHeader(http.StatusOK)
 	}))

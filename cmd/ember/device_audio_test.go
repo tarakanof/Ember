@@ -21,6 +21,9 @@ func fakeAudioClock(t *testing.T, status int, reply string) (*App, func() []fake
 	var mu sync.Mutex
 	var calls []fakeClockCall
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		calls = append(calls, fakeClockCall{r.Method, r.URL.Path, string(b)})

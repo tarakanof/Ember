@@ -86,6 +86,9 @@ func TestDeviceDisplayProxy(t *testing.T) {
 func TestDeviceAppsProxy(t *testing.T) {
 	var gotPath, gotBody, putMethod, putPath string
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		gotPath = r.URL.Path
 		switch r.URL.Path {
 		case "/api/v1/apps":

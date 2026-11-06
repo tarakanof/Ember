@@ -527,6 +527,9 @@ func TestCheckAWTRIXReachable(t *testing.T) {
 	var gotMethod, gotPath string
 	status := http.StatusOK
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		gotMethod, gotPath = r.Method, r.URL.Path
 		w.WriteHeader(status)
 	}))

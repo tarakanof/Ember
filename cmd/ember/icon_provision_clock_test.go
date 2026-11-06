@@ -33,6 +33,9 @@ func (s *iconClockStub) server(t *testing.T) *httptest.Server {
 	t.Helper()
 	scriptPath := "/api/v1/apps/script/" + berry.BootPingName
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		s.mu.Lock()
 		s.seen = append(s.seen, r.Method+" "+r.URL.RequestURI())
 		s.mu.Unlock()

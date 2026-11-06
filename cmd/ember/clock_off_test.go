@@ -162,6 +162,9 @@ func TestClockOnReachesClock(t *testing.T) {
 	t.Setenv("EMBER_CLOCK", "")
 	var hits atomic.Int64
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		hits.Add(1)
 		_, _ = w.Write([]byte(`{}`))
 	}))
