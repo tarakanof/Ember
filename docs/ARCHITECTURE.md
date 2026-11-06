@@ -3852,8 +3852,9 @@ the exact sunrise and sunset on the LAN.
   or the knob id), each the same `decideBrightness` state the clock's was. The
   tick probes the clock, advances `clock` with that sample and every other
   tracker with none, after dropping trackers whose device is gone; a checkin
-  with `room.lux` advances its knob's tracker, dated `SeenAt` minus
-  `age_s.light` (stale checkins skip it), under the same mutex, and
+  with `room.lux` advances its knob's tracker at the checkin's `SeenAt`
+  (stale checkins, and a `lux` whose `age_s.light` is over 60, skip it; the
+  120 s floor below assumes `SeenAt` dating), under the same mutex, and
   either path notifies `topicBrightness` only when a tracker's `brightnessAt`
   moved. `BrightnessConfig.forSource` gives each tracker its config: a
   `sources` entry's `lux_dark`/`lux_bright` over the shared ones, and for a

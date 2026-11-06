@@ -372,15 +372,27 @@ func TestAStaleCheckinDoesNotFeedTheTracker(t *testing.T) {
 	}
 }
 
-func TestTheLuxSampleIsDatedByItsLightAge(t *testing.T) {
+func TestLuxOlderThanTheKnobsContractIsIgnored(t *testing.T) {
 	f := newLuxFixture(t, "aabbccdd0001")
 	k := f.knobs[0]
-	f.checkinLux(t, k, `5000,"age_s":{"light":50}`)
+	f.checkinLux(t, k, `0.5,"age_s":{"light":60}`)
+	for _, age := range []string{"61", "10000000000"} {
+		f.clk.advance(time.Second)
+		f.checkinLux(t, k, `5000,"age_s":{"light":`+age+`}`)
+		f.app.brightness.mu.Lock()
+		st := f.app.brightness.st[k.id]
+		f.app.brightness.mu.Unlock()
+		if st.Last.Lux != 0.5 {
+			t.Fatalf("light age %s fed the tracker: %+v", age, st)
+		}
+	}
+	f.clk.advance(time.Second)
+	f.checkinLux(t, k, "5000")
 	f.app.brightness.mu.Lock()
 	st := f.app.brightness.st[k.id]
 	f.app.brightness.mu.Unlock()
-	if want := f.clk.Now().UTC().Add(-50 * time.Second); !st.Last.At.Equal(want) {
-		t.Fatalf("sample at %v, want the checkin minus age_s.light %v", st.Last.At, want)
+	if st.Last.Lux != 5000 || !st.Last.At.Equal(f.clk.Now().UTC()) {
+		t.Fatalf("a fresh sample after them was lost or misdated: %+v", st)
 	}
 }
 
@@ -416,7 +428,8 @@ func TestTheTickPrunesTrackersOfDeletedDevices(t *testing.T) {
 	f.app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = closedURL(t) })
 	k := f.knobs[0]
 	f.checkinLux(t, k, "5000")
-	f.app.feedKnobLux("knob-0ff0ff", 5000, f.clk.Now(), f.clk.Now())
+	f.app.feedKnobLux("knob-0ff0ff", 5000, f.clk.Now())
+	seq, _ := f.app.changes.subscribe()
 	f.app.tickBrightness(t.Context(), f.clk.Now())
 	f.app.brightness.mu.Lock()
 	_, orphan := f.app.brightness.st["knob-0ff0ff"]
@@ -424,5 +437,8 @@ func TestTheTickPrunesTrackersOfDeletedDevices(t *testing.T) {
 	f.app.brightness.mu.Unlock()
 	if orphan || !kept {
 		t.Fatalf("after a tick: orphan kept %v, registered knob kept %v", orphan, kept)
+	}
+	if f.app.changes.since(seq)&topicBrightness == 0 {
+		t.Fatal("pruning a tracker did not notify topicBrightness")
 	}
 }

@@ -45,6 +45,7 @@ type BrightnessLimits struct {
 const (
 	brightnessSourcesMax = 32
 	knobMinStaleSeconds  = 120
+	knobLuxMaxAgeS       = 60
 )
 
 func (c BrightnessConfig) forSource(key string) BrightnessConfig {
@@ -334,11 +335,15 @@ func (a *App) goneBrightnessKeys() []string {
 	})
 }
 
-func (a *App) feedKnobLux(id string, lux float64, at, now time.Time) {
+func luxFresh(ages *devices.RoomAges) bool {
+	return ages == nil || ages.Light == nil || *ages.Light <= knobLuxMaxAgeS
+}
+
+func (a *App) feedKnobLux(id string, lux float64, at time.Time) {
 	c := a.cfg.Load().Brightness.resolved()
 	geo := a.brightnessGeo()
 	a.brightness.mu.Lock()
-	moved := a.brightness.advance(c, id, &luxSample{Lux: lux, At: at}, geo, now)
+	moved := a.brightness.advance(c, id, &luxSample{Lux: lux, At: at}, geo, at)
 	a.brightness.mu.Unlock()
 	if moved {
 		a.changes.notify(topicBrightness)
