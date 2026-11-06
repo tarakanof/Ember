@@ -28,12 +28,8 @@ struct GeneralPane: View {
                     Text("Monochrome").tag("mono")
                 }
                 .pickerStyle(.segmented)
-                Toggle("Show print progress on the bot", isOn: $env.prefs.botPrint)
-                    .disabled(!env.prefs.mayShowBotPrint)
             } header: {
                 Text("Menu Bar")
-            } footer: {
-                Text("While the server's printer is on, the bot fills in Prusa orange as a print runs, hops when it's done and shows “!” when the printer needs you. An agent that's waiting or in error hides it.")
             }
 
             if env.prefs.trayStyle == "glyphs" {

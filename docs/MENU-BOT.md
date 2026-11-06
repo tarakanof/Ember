@@ -44,8 +44,9 @@ shape and eyes.
 
 ## Print
 
-While the server's printer is enabled (#789) and Settings → App → "Show print
-progress on the bot" is on (default), the bot shows a print in Prusa orange
+While the server's printer is enabled (#789) and Settings → 3D Printer →
+Menu Bar → "Show print progress on the bot" is on (default; #828 moved it
+there from Settings → App → General), the bot shows a print in Prusa orange
 #FA6831, the colour the knob uses for printer moments. Design: Obsidian
 `Personal/Ember/Specs/2026-11-05-print-status-design.md`, M1.
 

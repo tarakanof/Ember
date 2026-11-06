@@ -959,6 +959,7 @@
       "extractionState" : "manual"
     },
     "Choose cinder.bin from a release build. If cinder.elf is next to it, Ember stores it too, for decoding crash dumps. Ember refuses builds that contain Wi-Fi or token secrets." : {},
+    "Choose the animated bot for the menu bar or the Dock in General to use this." : {},
     "Choosing the weather faces needs newer knob firmware." : {},
     "Claude" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2527,6 +2528,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The bot fills in Prusa orange as a print runs, hops when it's done and shows “!” when the printer needs you. An agent that's waiting or in error hides it." : {},
     "The bot page tells you when a print is done or the printer needs you." : {},
     "The bot shows the weather when it changes" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -3103,7 +3105,6 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "While the server's printer is on, the bot fills in Prusa orange as a print runs, hops when it's done and shows “!” when the printer needs you. An agent that's waiting or in error hides it." : {},
     "Whose light sensor sets this knob's brightness" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
