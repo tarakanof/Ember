@@ -30,7 +30,7 @@ extension SourceID {
         case .weather:  "Weather"
         case .calendar: "Calendar"
         case .music:    "Music"
-        case .printer:  "Printer"
+        case .printer:  "3D Printer"
         }
     }
 
@@ -42,7 +42,7 @@ extension SourceID {
         case .weather:  "cloud.sun"
         case .calendar: "calendar"
         case .music:    "music.note"
-        case .printer:  "printer"
+        case .printer:  EmberSymbol.printer3D
         }
     }
 }
@@ -86,6 +86,7 @@ extension AppID {
         case .calendar: "Calendar"
         case .nowplaying: "Now Playing"
         case .controls: "Controls"
+        case .print:    "3D Printer"
         }
     }
 
@@ -99,6 +100,7 @@ extension AppID {
         case .calendar: "calendar"
         case .nowplaying: "music.note"
         case .controls: "dial.medium"
+        case .print:    EmberSymbol.printer3D
         }
     }
 }

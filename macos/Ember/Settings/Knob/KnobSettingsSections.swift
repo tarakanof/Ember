@@ -259,7 +259,7 @@ func knobPageTitle(_ id: String) -> LocalizedStringKey {
     case "weather": "Weather"
     case "nowplaying": "Now Playing"
     case "controls": "Controls"
-    case "print": "Print"
+    case "print": "3D Printer"
     case "room": "Room"
     default: LocalizedStringKey(id.capitalized)
     }
@@ -341,7 +341,6 @@ struct KnobBotSection: View {
         let knob = env.knob
         let s = knob.settings.draft
         let moments = knob.knob?.supports(feature: KnobCaps.wxMoments) == true
-        let printMoments = knob.knob?.supports(feature: KnobCaps.printMoments) == true
         Section {
             StepperRow(title: "Bot gets sleepy after", value: Binding(
                 get: { s.bot.sleepyAfterS / 60 },
@@ -380,12 +379,6 @@ struct KnobBotSection: View {
                 }
                 .disabled(s.bot.weatherMoments == false)
             }
-            if printMoments {
-                InfoToggle("Print moments", isOn: Binding(
-                    get: { s.bot.printMoments ?? true },
-                    set: { v in knob.edit { $0.bot.printMoments = v } }),
-                    info: .knobPrintMoments, requirement: .loading)
-            }
         } header: {
             Text("Bot")
         } footer: {
@@ -408,6 +401,8 @@ struct KnobAppOptionsSection: View {
             weather(knob)
         case .nowplaying where knob.knob?.supports(feature: KnobCaps.npDim) == true:
             nowPlaying(knob)
+        case .print where knob.knob?.supports(feature: KnobCaps.printMoments) == true:
+            printMoments(knob)
         default:
             EmptyView()
         }
@@ -461,6 +456,20 @@ struct KnobAppOptionsSection: View {
             Text("Faces")
         } footer: {
             SectionFooter(text: "Turning the knob steps through the faces that are on, in this order. At least one stays on.",
+                          error: knob.settings.saveError)
+        }
+    }
+
+    private func printMoments(_ knob: KnobModel) -> some View {
+        Section {
+            InfoToggle("Print moments", isOn: Binding(
+                get: { knob.settings.draft.bot.printMoments ?? true },
+                set: { v in knob.edit { $0.bot.printMoments = v } }),
+                info: .knobPrintMoments, requirement: .loading)
+        } header: {
+            Text("Bot")
+        } footer: {
+            SectionFooter(text: "The bot page tells you when a print is done or the printer needs you.",
                           error: knob.settings.saveError)
         }
     }

@@ -150,6 +150,26 @@ public final class AppEnvironment {
         clockConfig.configure(client: connection.client, deviceID: id)
     }
 
+    private func feedKnobPrintPage() {
+        let reports = withObservationTracking {
+            knob.knob?.supports(page: KnobCaps.printPage) == true
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedKnobPrintPage() }
+        }
+        if reports { Task { await turnOnKnobPrintPage(printerKnownOn: false) } }
+    }
+
+    private func turnOnKnobPrintPage(printerKnownOn: Bool) async {
+        if !knob.isLoaded { await knob.load() }
+        guard let id = knob.knob?.id, !knob.pageMarks.isDecided(knob: id, page: KnobCaps.printPage) else { return }
+        if !printerKnownOn {
+            let printer = PrinterModelCache.shared.model(for: connection.client)
+            if !printer.config.isLoaded { await printer.config.load() }
+            guard printer.config.applied?.enabled == true else { return }
+        }
+        await knob.turnOnPrintPageIfUntouched()
+    }
+
     static func applyAppIcon(_ palette: String) {
         if palette == "bot" {
             BotAnimator.shared.showInDock(true)
@@ -200,7 +220,7 @@ public final class AppEnvironment {
         permissions = PermissionsModel(sources: AppPermissionSources(
             connection: connection, producers: producers, reminders: watcher, location: location, music: music))
         #if DEBUG
-        if HardwareSnapshotRenderer.isRequested || DashboardSnapshotRenderer.isRequested { return }
+        if HardwareSnapshotRenderer.isRequested || DashboardSnapshotRenderer.isRequested || SettingsSnapshotRenderer.isRequested { return }
         #endif
         live.configure(client: client)
         settings.connectionEnv.onSaved = { [weak self] _, _ in self?.reloadConnection() }
@@ -225,6 +245,11 @@ public final class AppEnvironment {
         feedBotPrint()
         feedMenuBarLabel()
         feedClockRecord()
+        knob.pageMarks = DefaultsKnobPageMarks()
+        PrinterModelCache.shared.onSwitchedOn = { [weak self] in
+            Task { await self?.turnOnKnobPrintPage(printerKnownOn: true) }
+        }
+        feedKnobPrintPage()
         reconcileProducers()
         watchKnobPorts()
     }

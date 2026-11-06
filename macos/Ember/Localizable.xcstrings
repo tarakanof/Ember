@@ -599,6 +599,31 @@
     },
     "24 Hours" : {},
     "24-hour time" : {},
+    "3D Print Done" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "3D Printer" : {},
+    "3D Printer Error" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "3D Printer Needs You" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "3D Printer · Percent" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "3D Printer · Ready At" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "3D Printer · Temperature" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "4 digits" : {},
     "4-way handshake timeout" : {
       "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
@@ -2039,33 +2064,7 @@
     "Preview unavailable: the server didn't answer." : {},
     "Previous App" : {},
     "Previous Track" : {},
-    "Print" : {},
-    "Print Done" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
-      "extractionState" : "manual"
-    },
     "Print moments" : {},
-    "Print · Percent" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
-      "extractionState" : "manual"
-    },
-    "Print · Ready At" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
-      "extractionState" : "manual"
-    },
-    "Print · Temperature" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
-      "extractionState" : "manual"
-    },
-    "Printer" : {},
-    "Printer Error" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
-      "extractionState" : "manual"
-    },
-    "Printer Needs You" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
-      "extractionState" : "manual"
-    },
     "Printer address" : {},
     "Printer off" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2495,6 +2494,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The bot page tells you when a print is done or the printer needs you." : {},
     "The bot shows the weather when it changes" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

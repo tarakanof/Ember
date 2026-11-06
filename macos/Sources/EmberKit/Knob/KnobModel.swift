@@ -33,6 +33,7 @@ public final class KnobModel {
     public let pairing: KnobPairingModel
     @ObservationIgnored public private(set) var service: KnobService
     @ObservationIgnored public let opener: any KnobLinkOpener
+    @ObservationIgnored public var pageMarks: any KnobPageMarks = MemoryKnobPageMarks()
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var probeTask: Task<Void, Never>?
@@ -157,9 +158,20 @@ public final class KnobModel {
     }
 
     public func edit(_ change: (inout KnobSettings) -> Void) {
-        var d = settings.draft
+        edit(byUser: true, change)
+    }
+
+    func edit(byUser: Bool, _ change: (inout KnobSettings) -> Void) {
+        let before = settings.draft
+        var d = before
         change(&d)
-        settings.draft = d.normalized()
+        let next = d.normalized()
+        if byUser, let id = knob?.id {
+            for page in next.pages where before.pages.first(where: { $0.id == page.id })?.on != page.on {
+                pageMarks.markDecided(knob: id, page: page.id)
+            }
+        }
+        settings.draft = next
     }
 
     @discardableResult

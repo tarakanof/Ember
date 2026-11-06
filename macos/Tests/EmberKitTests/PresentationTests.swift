@@ -31,9 +31,9 @@ private func session(_ json: String) throws -> Session {
     ("claude", "Claude"), ("codex", "Codex"), ("t3", "T3 Code"), ("ember-weather", "Weather"),
     ("pomodoro", "Pomodoro"), ("ember-pomodoro", "Pomodoro"), ("ember-air", "Air Quality"),
     ("ember-usage-claude", "Usage"), ("my_app", "My App"), ("Time", "Time"), ("", ""),
-    ("ember-print", "Print"), ("ember-print-eta", "Print · Ready At"), ("ember-print-pct", "Print · Percent"), ("ember-print-temp", "Print · Temperature"),
-    ("ember-print-done", "Print Done"), ("ember-print-attention", "Printer Needs You"),
-    ("ember-print-error", "Printer Error"),
+    ("ember-print", "3D Printer"), ("ember-print-eta", "3D Printer · Ready At"), ("ember-print-pct", "3D Printer · Percent"), ("ember-print-temp", "3D Printer · Temperature"),
+    ("ember-print-done", "3D Print Done"), ("ember-print-attention", "3D Printer Needs You"),
+    ("ember-print-error", "3D Printer Error"),
 ])
 func appDisplayNames(wire: String, name: String) {
     #expect(AppNames.display(wire).text == name)

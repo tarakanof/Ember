@@ -85,7 +85,7 @@ struct SettingsRootView: View {
     }
 
     private func row(_ route: SettingsRoute, in tree: SettingsTree) -> some View {
-        Label { Text(tree.title(for: route)) } icon: { Image(systemName: tree.systemImage(for: route)) }
+        Label { Text(tree.title(for: route)) } icon: { SymbolImage(tree.systemImage(for: route)) }
             .tag(route)
             .accessibilityLabel(accessibilityLabel(route, in: tree))
     }
@@ -237,6 +237,7 @@ private struct ClockDetail: View {
         case .app(.focus):         ClockFocusAppPane()
         case .app(.weather):       ClockWeatherAppPane()
         case .app(.calendar):      ClockCalendarAppPane()
+        case .app(.print):         ClockPrinterAppPane()
         case .app:                 ClockPage { RotationSection(); NativeAppsSection() }
         }
     }

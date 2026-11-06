@@ -10,7 +10,7 @@ struct SourceLinkSection: View {
             LabeledContent {
                 Button("Source Settings…") { showSettings(.source(source)) }
             } label: {
-                Label { Text(source.title) } icon: { Image(systemName: source.systemImage) }
+                Label { Text(source.title) } icon: { SymbolImage(source.systemImage) }
             }
         } header: {
             Text("Source")

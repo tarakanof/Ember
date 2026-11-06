@@ -17,13 +17,13 @@ public enum AppNames {
         "reminder": "Reminder",
         "notify": "Notification",
         "usage-alarm": "Usage Reset",
-        "print": "Print",
-        "print-eta": "Print · Ready At",
-        "print-pct": "Print · Percent",
-        "print-temp": "Print · Temperature",
-        "print-done": "Print Done",
-        "print-attention": "Printer Needs You",
-        "print-error": "Printer Error",
+        "print": "3D Printer",
+        "print-eta": "3D Printer · Ready At",
+        "print-pct": "3D Printer · Percent",
+        "print-temp": "3D Printer · Temperature",
+        "print-done": "3D Print Done",
+        "print-attention": "3D Printer Needs You",
+        "print-error": "3D Printer Error",
     ]
 
     private static func key(_ wireName: String) -> String {
