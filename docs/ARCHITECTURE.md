@@ -2759,7 +2759,8 @@ keeps it on the default transport: mDNS browsing is injected
 - **Coming online** (#809). While the phase is `offline` with
   `unreachable` or `not_found`, the poller keeps one long-lived mDNS
   listener on `_prusalink._tcp` (`discovery.WatchPrusaLink`, a
-  `dnssd.LookupType` that sends one query when it starts and then only
+  `dnssd.LookupType` that sends one query per multicast interface when it
+  starts and then only
   reads the multicast traffic, injected as `Options.Watch` like the
   browse). A printer announces itself when it boots; when the announced
   service is the chosen printer (auto: the same mDNS host once a printer
@@ -2781,9 +2782,10 @@ keeps it on the default transport: mDNS browsing is injected
   refresh the listener's cache) cannot hold the backoff short. The
   listener stops when the printer is reachable again, disabled, without a
   password, or latched on a wrong password, and restarts with a fresh cache
-  when the chosen printer or `printer.url` changes, and every 5 min
-  (`WatchRefresh`: one query, so a network change on the server can't
-  leave it deaf for a long off spell). It polls only through
+  when the chosen printer or `printer.url` changes, and at the first poll
+  step at least 5 min after it started (`WatchRefresh`; with the backoff
+  at 300 s that is every step: one query, so a network change on the
+  server can't leave it deaf for a long off spell). It polls only through
   that one wake: without multicast (no announcements, or the lookup fails) the
   backoff is all there is. Each offline spell's listener starts with an
   empty cache, so the first announcement it sees is the wake; a printer
@@ -2900,9 +2902,10 @@ keeps it on the default transport: mDNS browsing is injected
 - **Changes** notify `topicPrint` when a reader-visible value moves: phase,
   whole percent, an anchor, an event, the hold, the error, name, thumbnail,
   printer info; temperatures while heating, and while idle with
-  `show: "on"` the 5° steps of the bed and nozzle while either reads above
-  40 °C (`printer.WarmAbove`) and the moment both drop to it, which drive
-  the Ready card's temperature card; a cool idle printer adds nothing.
+  `show: "on"` the 5° step of the value the Ready temperature card shows
+  (`Snapshot.ReadyTemp`: the bed, or the nozzle while the bed is cool) and
+  the moment neither reads above 40 °C (`printer.WarmAbove`); a cool idle
+  printer adds nothing.
 - **`/v1/print/state`** is a state feed like `/state`: `serveStateFeed` with
   a weak `ETag` and the `?wait=` long-poll. The tag moves on `enabled`,
   phase, whole percent, `last_error`, the newest event id, job id and the

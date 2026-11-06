@@ -1526,7 +1526,7 @@ the smoke-run rules (scratch port, temp DB, `EMBER_MDNS_ADVERTISE=0`,
 
 **TC001 app and popups (#790).** `printer.clock_app` (default on) puts the
 print in the clock's rotation while a print runs (and 30 min after it
-finishes); `notify_done` and `notify_attention` gate the popups. On-device
+finishes; with `printer.show` `on` also while idle, see #809 below); `notify_done` and `notify_attention` gate the popups. On-device
 check, against a live printer (reads only; a scratch server never publishes
 to the real clock):
 
@@ -1548,7 +1548,7 @@ to the real clock):
    clock's loop shows the three cards one after the other (the ready-at and
    percent cards are pushed later than the first; if NG appends new apps
    to the end of its loop, report it).
-8. Idle check: with no print running, the clock's app loop holds no
+8. Idle check (with `printer.show` `printing`): with no print running, the clock's app loop holds no
    `ember-print*` entry and Ember pushed none (the app is not published when
    idle, so the link carries no extra traffic). The animated icons are
    `ember_print_h1..3_*.gif` in the clock's icon store; a clock reboot or move
@@ -1580,12 +1580,15 @@ any test server):
 13. Watch the clock while the printer heats: a second card joins, first
     `NOZ` and the nozzle's degrees (the nozzle warms first), then `BED`
     and the bed's degrees once the bed reads above 40 °C.
-14. On the printer's screen, choose Cooldown.
-15. Wait until the bed and nozzle read 40 °C or less: the `BED` card leaves.
-16. In the "Show" picker, choose "While printing": the app leaves the
+14. Note whether the temperature card comes right after `READY` in the
+    clock's loop or somewhere else (NG may append a new app at the end).
+15. On the printer's screen, choose Cooldown.
+16. Wait until the bed and nozzle read 40 °C or less: the temperature card
+    leaves.
+17. In the "Show" picker, choose "While printing": the app leaves the
     rotation within a few seconds.
-17. Send back: the stopwatch time from step 11, and a photo of each card
-    (steps 11 and 13).
+18. Send back: the stopwatch time from step 11, a photo of each card
+    (steps 11 and 13), and what you saw in step 14.
 
 ## AI usage card (threshold-gated, inside the main app)
 

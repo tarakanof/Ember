@@ -179,7 +179,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 		p.latched, p.loggedErr = "", ""
 		p.State.forget()
 		p.State.setOff(ErrCodeNone)
-		p.stopWatch()
+		p.stopWatchAndWait()
 		p.woke.Store(false)
 		p.retries = 0
 		return PollDisabled
@@ -306,7 +306,7 @@ func (p *Poller) syncWatch(ctx context.Context, cfg Config) {
 	match := watchMatcher(cfg, identity, named)
 	key := fmt.Sprint(cfg.URL, "\x00", cfg.Name, "\x00", identity, "\x00", named)
 	if spell := latchKey(cfg, p.credentials()); spell != p.spellKey {
-		p.stopWatch()
+		p.stopWatchAndWait()
 		p.spellKey = spell
 		p.woke.Store(false)
 		p.retries = 0
@@ -337,6 +337,14 @@ func (p *Poller) syncWatch(ctx context.Context, cfg Config) {
 			logger.Debug("printer mDNS watch ended", "err", err)
 		}
 	}()
+}
+
+func (p *Poller) stopWatchAndWait() {
+	done := p.watchDone
+	p.stopWatch()
+	if done != nil {
+		<-done
+	}
 }
 
 func (p *Poller) stopWatch() {
