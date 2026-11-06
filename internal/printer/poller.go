@@ -179,6 +179,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 		p.latched, p.loggedErr = "", ""
 		p.State.forget()
 		p.State.setOff(ErrCodeNone)
+		p.stopWatch()
 		p.woke.Store(false)
 		p.retries = 0
 		return PollDisabled
@@ -298,9 +299,14 @@ func (p *Poller) syncWatch(ctx context.Context, cfg Config) {
 		p.stopWatch()
 		return
 	}
-	match := watchMatcher(cfg, p.identity, p.matched)
-	key := fmt.Sprint(cfg.URL, "\x00", cfg.Name, "\x00", p.identity, "\x00", p.matched)
+	identity, named := p.identity, p.matched
+	if p.client == nil {
+		identity, named = "", false
+	}
+	match := watchMatcher(cfg, identity, named)
+	key := fmt.Sprint(cfg.URL, "\x00", cfg.Name, "\x00", identity, "\x00", named)
 	if spell := latchKey(cfg, p.credentials()); spell != p.spellKey {
+		p.stopWatch()
 		p.spellKey = spell
 		p.woke.Store(false)
 		p.retries = 0

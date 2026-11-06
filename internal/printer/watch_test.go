@@ -519,3 +519,55 @@ func TestTheListenerIsRefreshedEveryFiveMinutes(t *testing.T) {
 	h.step()
 	waitUntil(t, "a refreshed listener", func() bool { s, a := fw.counts(); return s == 2 && a == 1 })
 }
+
+func TestAfterARenameAnyPrinterCanWakeTheSearch(t *testing.T) {
+	s := newStubPrinter(t)
+	var found []Found
+	core := Found{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: s.srv.URL}
+	found = []Found{core}
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword,
+		func(context.Context) ([]Found, error) { return found, nil })
+	fw := h.withWatch()
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.down = true })
+	found = nil
+	h.mu.Lock()
+	h.cfg.Name = "MK4"
+	h.mu.Unlock()
+	h.advance(h.step())
+	if snap := h.snap(); snap.LastError != ErrCodeNotFound {
+		t.Fatalf("last_error %q, want not_found after the rename", snap.LastError)
+	}
+	fw.announce(t, Found{Name: "Prusa MK4", Host: "prusa-mk4.local.", URL: "http://127.0.0.1:1"})
+	if !h.p.appeared.Load() {
+		t.Fatal("the renamed target's announcement was matched against the dropped printer")
+	}
+}
+
+func TestBackToAutoFromAManualURLWakesForThePrinter(t *testing.T) {
+	s := newStubPrinter(t)
+	core := Found{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: s.srv.URL}
+	var found []Found
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword,
+		func(context.Context) ([]Found, error) { return found, nil })
+	fw := h.withWatch()
+	found = []Found{core}
+	h.advance(h.step())
+	h.mu.Lock()
+	h.cfg.URL = s.srv.URL
+	h.mu.Unlock()
+	h.advance(h.step())
+	s.set(func(s *stubPrinter) { s.down = true })
+	found = nil
+	h.mu.Lock()
+	h.cfg.URL = URLAuto
+	h.mu.Unlock()
+	h.advance(h.step())
+	if snap := h.snap(); snap.LastError != ErrCodeNotFound {
+		t.Fatalf("last_error %q, want not_found", snap.LastError)
+	}
+	fw.announce(t, core)
+	if !h.p.appeared.Load() {
+		t.Fatal("back in auto mode, the printer's announcement woke nothing")
+	}
+}

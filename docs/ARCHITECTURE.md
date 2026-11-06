@@ -2765,7 +2765,8 @@ keeps it on the default transport: mDNS browsing is injected
   service is the chosen printer (auto: the same mDNS host once a printer
   was picked by name, since the poller never moves to a neighbour; on a
   fallback printer also one that fits the name rule; any printer while
-  none was ever chosen; manual URL: a service
+  none is chosen, as after a rename or a switch back from a manual URL;
+  manual URL: a service
   whose IPv4 address is the URL's host, or whose mDNS host shares the URL
   host name's first label, so `prusa-core-one.lan` matches
   `prusa-core-one.local`), the poller is woken

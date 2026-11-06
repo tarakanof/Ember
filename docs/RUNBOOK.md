@@ -1577,8 +1577,9 @@ any test server):
     dim white nozzle that does not move, and `READY` in white. No popup
     plays.
 12. On the printer's screen, open Preheat and choose PLA.
-13. Wait until the printer shows the bed above 45 °C, then watch the clock:
-    a second card joins, `BED` and the bed's degrees.
+13. Watch the clock while the printer heats: a second card joins, first
+    `NOZ` and the nozzle's degrees (the nozzle warms first), then `BED`
+    and the bed's degrees once the bed reads above 40 °C.
 14. On the printer's screen, choose Cooldown.
 15. Wait until the bed and nozzle read 40 °C or less: the `BED` card leaves.
 16. In the "Show" picker, choose "While printing": the app leaves the
