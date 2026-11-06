@@ -18,18 +18,19 @@ const (
 	printDoneGrace        = 5 * time.Minute
 	printNoticeCallBudget = 10 * time.Second
 	printRetryAfter       = 30 * time.Second
-	printHeatStep         = 5
 
 	printDoneRTTTL      = "done:d=8,o=6,b=160:c,e,g,2c7"
 	printAttentionRTTTL = "attn:d=8,o=6,b=200:a,p,a"
 	printErrorRTTTL     = "err:d=4,o=5,b=140:c,p,c"
 )
 
-func printInRotation(s printer.Snapshot) bool {
+func printInRotation(s printer.Snapshot, cfg printer.Config) bool {
 	if !s.Enabled {
 		return false
 	}
 	switch s.Phase {
+	case printer.PhaseIdle:
+		return cfg.ShowWhenOn()
 	case printer.PhaseHeating, printer.PhasePreparing, printer.PhasePrinting, printer.PhaseFinishing,
 		printer.PhasePaused, printer.PhaseAttention:
 		return true
@@ -37,6 +38,10 @@ func printInRotation(s printer.Snapshot) bool {
 		return !s.HoldUntil.IsZero()
 	}
 	return false
+}
+
+func printReadyWarm(s printer.Snapshot) bool {
+	return s.Phase == printer.PhaseIdle && s.Warm()
 }
 
 func printCounting(s printer.Snapshot) bool {
@@ -63,9 +68,9 @@ func printViewOf(s printer.Snapshot, now time.Time) render.PrintView {
 	return v
 }
 
-func stepDegrees(v float64) int {
-	return int(math.Round(v/printHeatStep)) * printHeatStep
-}
+func stepDegrees(v float64) int { return printer.StepDegrees(v) }
+
+func printLive(in *tileInputs) bool { return printInRotation(in.print, in.printCfg) }
 
 func printTileOf(card int, needEstimate bool) func(in *tileInputs) (tileView, bool) {
 	return func(in *tileInputs) (tileView, bool) {
@@ -84,7 +89,7 @@ var printTile = tile{
 	app:    "ember-print",
 	card:   "print",
 	toggle: func(in *tileInputs) bool { return in.printCfg.ClockAppEnabled() },
-	live:   func(in *tileInputs) bool { return printInRotation(in.print) },
+	live:   printLive,
 	view:   printTileOf(render.PrintCardTime, false),
 }
 
@@ -92,7 +97,7 @@ var printReadyTile = tile{
 	app:    "ember-print-eta",
 	card:   "print-eta",
 	toggle: func(in *tileInputs) bool { return in.printCfg.ClockAppEnabled() },
-	live:   func(in *tileInputs) bool { return printInRotation(in.print) && printCounting(in.print) },
+	live:   func(in *tileInputs) bool { return printLive(in) && printCounting(in.print) },
 	view:   printTileOf(render.PrintCardReady, true),
 }
 
@@ -100,9 +105,19 @@ var printPctTile = tile{
 	app:    "ember-print-pct",
 	card:   "print-pct",
 	toggle: func(in *tileInputs) bool { return in.printCfg.ClockAppEnabled() },
-	live:   func(in *tileInputs) bool { return printInRotation(in.print) && printCounting(in.print) },
+	live:   func(in *tileInputs) bool { return printLive(in) && printCounting(in.print) },
 	view:   printTileOf(render.PrintCardPct, true),
 }
+
+var printTempTile = tile{
+	app:    "ember-print-temp",
+	card:   "print-temp",
+	toggle: func(in *tileInputs) bool { return in.printCfg.ClockAppEnabled() },
+	live:   func(in *tileInputs) bool { return printLive(in) && printReadyWarm(in.print) },
+	view:   printTileOf(render.PrintCardTemp, false),
+}
+
+var printTiles = []*tile{&printTile, &printReadyTile, &printPctTile, &printTempTile}
 
 func samplePrintSnapshot(now time.Time) printer.Snapshot {
 	return printer.Snapshot{

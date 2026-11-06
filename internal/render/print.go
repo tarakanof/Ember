@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	PrintPhaseIdle      = "idle"
 	PrintPhaseHeating   = "heating"
 	PrintPhasePreparing = "preparing"
 	PrintPhasePrinting  = "printing"
@@ -25,12 +26,14 @@ const (
 	PrintCardTime  = 0
 	PrintCardReady = 1
 	PrintCardPct   = 2
+	PrintCardTemp  = 3
 
 	PrintIconPrefix = "ember_print_"
 
 	printDwellSeconds = 3
 	printBedLevels    = 3
 	printBlinkMs      = 500
+	printWarmC        = 40
 )
 
 type PrintView struct {
@@ -63,6 +66,8 @@ var (
 	printDimHt = RGB{0x2a, 0x12, 0x10}
 	printOff   = RGB{0x33, 0x33, 0x33}
 	printStopB = RGB{0x55, 0x55, 0x55}
+	printDimWh = RGB{0x80, 0x80, 0x80}
+	printLabel = RGB{0x70, 0x70, 0x70}
 )
 
 var printHourglass = []string{"XXX", "X.X", ".X.", "X.X", "XXX"}
@@ -101,7 +106,7 @@ func printHeatK(v PrintView) float64 {
 
 func printBedRows(v PrintView) int {
 	switch v.Phase {
-	case PrintPhaseHeating, PrintPhasePreparing:
+	case PrintPhaseIdle, PrintPhaseHeating, PrintPhasePreparing:
 		return 0
 	case PrintPhaseFinished:
 		return printBedLevels
@@ -126,6 +131,8 @@ func printNozzleColor(phase string) RGB {
 		return colorDone
 	case PrintPhaseStopped:
 		return printGrey
+	case PrintPhaseIdle:
+		return printDimWh
 	}
 	return colorRunning
 }
@@ -371,6 +378,12 @@ func PrintTileFrame(v PrintView, card int) Frame {
 	var f Frame
 	paintPrintIconFor(&f, v)
 	switch v.Phase {
+	case PrintPhaseIdle:
+		if card == PrintCardTemp {
+			drawPrintTemp(&f, v)
+		} else {
+			drawPrintText(&f, "READY", contentX, textRow, colorWhite)
+		}
 	case PrintPhaseHeating:
 		drawPrintText(&f, fmt.Sprintf("%d°", v.Nozzle), contentX, textRow, mixRGB(colorWhite, printHeat, printHeatK(v)*0.7))
 		drawPrintBar(&f, int(printHeatK(v)*100+0.5), printHeat, printDimHt)
@@ -399,6 +412,18 @@ func PrintTileFrame(v PrintView, card int) Frame {
 		}
 	}
 	return f
+}
+
+func drawPrintTemp(f *Frame, v PrintView) {
+	label, deg := "BED", v.Bed
+	if v.Bed <= printWarmC && v.Nozzle > v.Bed {
+		label, deg = "NOZ", v.Nozzle
+	}
+	x := drawPrintText(f, label, contentX, textRow, printLabel)
+	x = drawPrintText(f, fmt.Sprint(deg), x, textRow, colorWhite)
+	if x+len(glyph('°')[0]) <= panelW {
+		drawPrintText(f, "°", x, textRow, colorWhite)
+	}
 }
 
 func drawPrintClock(f *Frame, text string, x, y int, c RGB) int {

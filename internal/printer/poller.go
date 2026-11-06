@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 )
@@ -37,9 +38,12 @@ type Found struct {
 
 type BrowseFunc func(ctx context.Context) ([]Found, error)
 
+type WatchFunc func(ctx context.Context, seen func(Found)) error
+
 type Options struct {
 	Config func() Config
 	Browse BrowseFunc
+	Watch  WatchFunc
 	HTTP   *http.Client
 	Logger *slog.Logger
 	Now    func() time.Time
@@ -51,6 +55,7 @@ type Poller struct {
 
 	cfg    func() Config
 	browse BrowseFunc
+	watch  WatchFunc
 	hc     *http.Client
 	logger *slog.Logger
 	now    func() time.Time
@@ -80,6 +85,11 @@ type Poller struct {
 	thumbFails   int
 	thumbFailRef string
 	changeKey    string
+
+	watchKey  string
+	watchStop context.CancelFunc
+	watchDone chan struct{}
+	appeared  atomic.Bool
 }
 
 func NewPoller(o Options) *Poller {
@@ -96,6 +106,7 @@ func NewPoller(o Options) *Poller {
 		State:  NewState(),
 		cfg:    o.Config,
 		browse: o.Browse,
+		watch:  o.Watch,
 		hc:     o.HTTP,
 		logger: o.Logger,
 		now:    o.Now,
@@ -128,6 +139,7 @@ func (p *Poller) Run(ctx context.Context) {
 	case <-p.wake:
 	default:
 	}
+	defer p.stopWatch()
 	for {
 		d := p.Step(ctx)
 		if ctx.Err() != nil {
@@ -150,6 +162,10 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	p.browsed = false
 	cfg := p.cfg()
 	cfg.ApplyDefaults()
+	defer p.syncWatch(ctx, cfg)
+	if p.appeared.Swap(false) {
+		p.backoff = 0
+	}
 	p.State.configure(cfg.Enabled, time.Duration(cfg.DoneHoldMin)*time.Minute, cfg.Name)
 	if !cfg.Enabled {
 		p.disconnect()
@@ -259,6 +275,69 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	}
 	p.State.setOffline(ErrCodeUnreachable)
 	return p.nextBackoff()
+}
+
+func (p *Poller) syncWatch(ctx context.Context, cfg Config) {
+	s := p.State.At(p.now())
+	want := p.watch != nil && ctx.Err() == nil && cfg.Enabled && s.Phase == PhaseOffline &&
+		(s.LastError == ErrCodeUnreachable || s.LastError == ErrCodeNotFound)
+	if !want {
+		p.stopWatch()
+		return
+	}
+	match := watchMatcher(cfg, p.identity)
+	key := cfg.URL + "\x00" + cfg.Name + "\x00" + p.identity
+	if p.watchStop != nil && p.watchKey == key {
+		select {
+		case <-p.watchDone:
+		default:
+			return
+		}
+	}
+	p.stopWatch()
+	wctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	p.watchKey, p.watchStop, p.watchDone = key, cancel, done
+	watch, logger := p.watch, p.logger
+	go func() {
+		defer close(done)
+		err := watch(wctx, func(f Found) {
+			if wctx.Err() == nil && match(f) {
+				p.appeared.Store(true)
+				p.Wake()
+			}
+		})
+		if err != nil && wctx.Err() == nil {
+			logger.Debug("printer mDNS watch ended", "err", err)
+		}
+	}()
+}
+
+func (p *Poller) stopWatch() {
+	if p.watchStop == nil {
+		return
+	}
+	p.watchStop()
+	p.watchKey, p.watchStop, p.watchDone = "", nil, nil
+}
+
+func watchMatcher(cfg Config, identity string) func(Found) bool {
+	if !cfg.Auto() {
+		want := strings.ToLower(hostLabel(hostnameOf(cfg.URL)))
+		return func(f Found) bool {
+			return want != "" && (strings.ToLower(hostLabel(f.Host)) == want || strings.ToLower(hostnameOf(f.URL)) == want)
+		}
+	}
+	name := cfg.Name
+	return func(f Found) bool {
+		if identity != "" && strings.TrimSuffix(f.Host, ".") == identity {
+			return true
+		}
+		if _, matched := Choose([]Found{f}, name); matched {
+			return true
+		}
+		return identity == ""
+	}
 }
 
 func latchKey(cfg Config, c Credentials) string {
@@ -393,6 +472,14 @@ func squash(s string) string {
 	return b.String()
 }
 
+func hostnameOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(u.Hostname(), ".")
+}
+
 func hostOf(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -494,6 +581,9 @@ func (p *Poller) notifyIfChanged() {
 		s.Name, s.Material, s.ThumbVersion, evID, s.HoldUntil.Unix(), s.LastError, s.JobID, s.Printer)
 	if s.Phase == PhaseHeating {
 		key += fmt.Sprint(int(s.Nozzle), int(s.NozzleTarget), int(s.Bed), int(s.BedTarget))
+	}
+	if s.Phase == PhaseIdle && p.cfg().ShowWhenOn() {
+		key += fmt.Sprint("|", s.Warm(), StepDegrees(s.Nozzle), StepDegrees(s.Bed))
 	}
 	if key == p.changeKey {
 		return

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/tarakanof/ember/internal/printer"
 	"github.com/tarakanof/ember/internal/render"
 )
 
@@ -12,12 +13,16 @@ func (a *App) handlePrintPreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) printPreview(now time.Time) render.Preview {
-	in := tileInputs{now: now, printCfg: a.cfg.Load().Printer, print: a.printer.State.At(now)}
-	if !printInRotation(in.print) {
+	return printPreviewOf(a.cfg.Load().Printer, a.printer.State.At(now), now)
+}
+
+func printPreviewOf(cfg printer.Config, snap printer.Snapshot, now time.Time) render.Preview {
+	in := tileInputs{now: now, printCfg: cfg, print: snap}
+	if !printInRotation(in.print, in.printCfg) {
 		in.print = samplePrintSnapshot(now)
 	}
 	var cards []string
-	for _, t := range []*tile{&printTile, &printReadyTile, &printPctTile} {
+	for _, t := range printTiles {
 		if t.live(&in) {
 			cards = append(cards, t.card)
 		}

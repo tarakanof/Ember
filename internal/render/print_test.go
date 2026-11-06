@@ -56,19 +56,25 @@ func printGoldenCases() map[string]Frame {
 	soon.ChangeSoon = true
 	noEst := printSample(PrintPhasePrinting)
 	noEst.HaveLeft, noEst.ReadyAt = false, ""
+	ready := PrintView{Phase: PrintPhaseIdle, Progress: 100, Nozzle: 25, Bed: 25}
+	warmBed := PrintView{Phase: PrintPhaseIdle, Nozzle: 45, Bed: 60}
+	warmNozzle := PrintView{Phase: PrintPhaseIdle, Nozzle: 215, Bed: 35}
 	return map[string]Frame{
-		"heating":        PrintTileFrame(heating, PrintCardTime),
-		"printing_time":  PrintTileFrame(printSample(PrintPhasePrinting), PrintCardTime),
-		"printing_ready": PrintTileFrame(printSample(PrintPhasePrinting), PrintCardReady),
-		"printing_pct":   PrintTileFrame(printSample(PrintPhasePrinting), PrintCardPct),
-		"no_estimate":    PrintTileFrame(noEst, PrintCardTime),
-		"colour_change":  PrintTileFrame(soon, PrintCardTime),
-		"preparing":      PrintTileFrame(printSample(PrintPhasePreparing), PrintCardTime),
-		"finishing":      PrintTileFrame(printSample(PrintPhaseFinishing), PrintCardTime),
-		"paused":         PrintTileFrame(printSample(PrintPhasePaused), PrintCardTime),
-		"attention":      PrintTileFrame(printSample(PrintPhaseAttention), PrintCardTime),
-		"finished":       PrintTileFrame(printSample(PrintPhaseFinished), PrintCardTime),
-		"stopped":        PrintTileFrame(printSample(PrintPhaseStopped), PrintCardTime),
+		"ready":             PrintTileFrame(ready, PrintCardTime),
+		"ready_warm_bed":    PrintTileFrame(warmBed, PrintCardTemp),
+		"ready_warm_nozzle": PrintTileFrame(warmNozzle, PrintCardTemp),
+		"heating":           PrintTileFrame(heating, PrintCardTime),
+		"printing_time":     PrintTileFrame(printSample(PrintPhasePrinting), PrintCardTime),
+		"printing_ready":    PrintTileFrame(printSample(PrintPhasePrinting), PrintCardReady),
+		"printing_pct":      PrintTileFrame(printSample(PrintPhasePrinting), PrintCardPct),
+		"no_estimate":       PrintTileFrame(noEst, PrintCardTime),
+		"colour_change":     PrintTileFrame(soon, PrintCardTime),
+		"preparing":         PrintTileFrame(printSample(PrintPhasePreparing), PrintCardTime),
+		"finishing":         PrintTileFrame(printSample(PrintPhaseFinishing), PrintCardTime),
+		"paused":            PrintTileFrame(printSample(PrintPhasePaused), PrintCardTime),
+		"attention":         PrintTileFrame(printSample(PrintPhaseAttention), PrintCardTime),
+		"finished":          PrintTileFrame(printSample(PrintPhaseFinished), PrintCardTime),
+		"stopped":           PrintTileFrame(printSample(PrintPhaseStopped), PrintCardTime),
 	}
 }
 
@@ -125,6 +131,58 @@ func TestPrintIconMovesLikeTheCoreOne(t *testing.T) {
 		}
 		if !f.Dirty[1][printRestHeadX] || f.Pixels[2][printRestHeadX] != colorRunning {
 			t.Errorf("progress %d: nozzle moved off rows 1-2", tc.progress)
+		}
+	}
+}
+
+func TestPrintReadyIconHasAnEmptyBedAtTheTopAndADimNozzle(t *testing.T) {
+	var f Frame
+	paintPrintIconFor(&f, PrintView{Phase: PrintPhaseIdle, Progress: 100})
+	for x := 1; x <= 6; x++ {
+		if f.Pixels[3][x] != printBed {
+			t.Errorf("col %d row 3 = %v, want the bed at the top position", x, f.Pixels[3][x])
+		}
+		for y := 4; y < 7; y++ {
+			if f.Dirty[y][x] {
+				t.Errorf("col %d row %d lit: the Ready bed holds no part", x, y)
+			}
+		}
+	}
+	if got := f.Pixels[2][printRestHeadX]; got != printDimWh {
+		t.Errorf("nozzle %v, want dim white %v", got, printDimWh)
+	}
+	if PrintSweeps(PrintPhaseIdle) {
+		t.Error("the Ready icon sweeps")
+	}
+}
+
+func TestPrintReadyTextStartsAtCol9AndFits(t *testing.T) {
+	cases := map[string]Frame{
+		"ready":       PrintTileFrame(PrintView{Phase: PrintPhaseIdle}, PrintCardTime),
+		"warm bed":    PrintTileFrame(PrintView{Phase: PrintPhaseIdle, Bed: 120, Nozzle: 45}, PrintCardTemp),
+		"warm nozzle": PrintTileFrame(PrintView{Phase: PrintPhaseIdle, Bed: 30, Nozzle: 290}, PrintCardTemp),
+	}
+	for name, f := range cases {
+		first := -1
+		for x := iconW; x < panelW && first < 0; x++ {
+			for y := 0; y < barRow; y++ {
+				if f.Dirty[y][x] && f.Pixels[y][x] != (RGB{}) {
+					first = x
+					break
+				}
+			}
+		}
+		if first != contentX {
+			t.Errorf("%s: text starts at col %d, want %d", name, first, contentX)
+		}
+		if f.Native != nil {
+			t.Errorf("%s: native text %q, want a drawn card", name, f.Native.Text)
+		}
+	}
+	f := cases["ready"]
+	for x := contentX; x < panelW; x++ {
+		if c := f.Pixels[textRow][x]; f.Dirty[textRow][x] && c != (RGB{}) && c != colorWhite {
+			t.Errorf("READY col %d is %v, want white", x, c)
 		}
 	}
 }

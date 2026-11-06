@@ -37,7 +37,7 @@ func pushedPrintApps(t *testing.T, in tileInputs) ([]string, []string) {
 	s.reconcile(in, w)
 	var apps []string
 	for _, a := range w.pushedApps {
-		if a == printTile.app || a == printReadyTile.app || a == printPctTile.app {
+		if isPrintApp(a) {
 			apps = append(apps, a)
 		}
 	}
@@ -47,30 +47,120 @@ func pushedPrintApps(t *testing.T, in tileInputs) ([]string, []string) {
 func TestPrintAppRotationMembership(t *testing.T) {
 	hold := func(s *printer.Snapshot) { s.HoldUntil = printT0.Add(20 * time.Minute) }
 	cases := []struct {
-		name string
-		snap printer.Snapshot
-		want bool
+		name     string
+		snap     printer.Snapshot
+		printing bool
+		on       bool
 	}{
-		{"off", printSnap(printer.PhaseOff, nil), false},
-		{"offline", printSnap(printer.PhaseOffline, nil), false},
-		{"idle", printSnap(printer.PhaseIdle, nil), false},
-		{"error", printSnap(printer.PhaseError, nil), false},
-		{"heating", printSnap(printer.PhaseHeating, nil), true},
-		{"preparing", printSnap(printer.PhasePreparing, nil), true},
-		{"printing", printSnap(printer.PhasePrinting, nil), true},
-		{"finishing", printSnap(printer.PhaseFinishing, nil), true},
-		{"paused", printSnap(printer.PhasePaused, nil), true},
-		{"attention", printSnap(printer.PhaseAttention, nil), true},
-		{"finished inside the hold", printSnap(printer.PhaseFinished, hold), true},
-		{"finished after the hold", printSnap(printer.PhaseFinished, nil), false},
-		{"stopped inside the hold", printSnap(printer.PhaseStopped, hold), true},
-		{"stopped after the hold", printSnap(printer.PhaseStopped, nil), false},
-		{"disabled mid-print", printSnap(printer.PhasePrinting, func(s *printer.Snapshot) { s.Enabled = false }), false},
+		{"off", printSnap(printer.PhaseOff, nil), false, false},
+		{"offline", printSnap(printer.PhaseOffline, nil), false, false},
+		{"idle", printSnap(printer.PhaseIdle, nil), false, true},
+		{"error", printSnap(printer.PhaseError, nil), false, false},
+		{"heating", printSnap(printer.PhaseHeating, nil), true, true},
+		{"preparing", printSnap(printer.PhasePreparing, nil), true, true},
+		{"printing", printSnap(printer.PhasePrinting, nil), true, true},
+		{"finishing", printSnap(printer.PhaseFinishing, nil), true, true},
+		{"paused", printSnap(printer.PhasePaused, nil), true, true},
+		{"attention", printSnap(printer.PhaseAttention, nil), true, true},
+		{"finished inside the hold", printSnap(printer.PhaseFinished, hold), true, true},
+		{"finished after the hold", printSnap(printer.PhaseFinished, nil), false, false},
+		{"stopped inside the hold", printSnap(printer.PhaseStopped, hold), true, true},
+		{"stopped after the hold", printSnap(printer.PhaseStopped, nil), false, false},
+		{"disabled mid-print", printSnap(printer.PhasePrinting, func(s *printer.Snapshot) { s.Enabled = false }), false, false},
+		{"disabled while idle", printSnap(printer.PhaseIdle, func(s *printer.Snapshot) { s.Enabled = false }), false, false},
 	}
-	for _, tc := range cases {
-		if got := printInRotation(tc.snap); got != tc.want {
-			t.Errorf("%s: in rotation = %t, want %t", tc.name, got, tc.want)
+	for _, mode := range []string{printer.ShowPrinting, printer.ShowOn, "", "always"} {
+		cfg := printer.Config{Enabled: true, Show: mode}
+		cfg.ApplyDefaults()
+		for _, tc := range cases {
+			want := tc.printing
+			if mode == printer.ShowOn {
+				want = tc.on
+			}
+			if got := printInRotation(tc.snap, cfg); got != want {
+				t.Errorf("show=%q %s: in rotation = %t, want %t", mode, tc.name, got, want)
+			}
 		}
+	}
+	covered := map[printer.Phase]bool{}
+	for _, tc := range cases {
+		covered[tc.snap.Phase] = true
+	}
+	for _, ph := range []printer.Phase{printer.PhaseOff, printer.PhaseOffline, printer.PhaseIdle, printer.PhaseHeating,
+		printer.PhasePreparing, printer.PhasePrinting, printer.PhaseFinishing, printer.PhasePaused, printer.PhaseAttention,
+		printer.PhaseFinished, printer.PhaseStopped, printer.PhaseError} {
+		if !covered[ph] {
+			t.Errorf("phase %s has no rotation case", ph)
+		}
+	}
+}
+
+func showOn(in tileInputs) tileInputs {
+	in.printCfg.Show = printer.ShowOn
+	return in
+}
+
+func TestPrintReadyCardWhileTheIdlePrinterIsOn(t *testing.T) {
+	cool := printSnap(printer.PhaseIdle, func(s *printer.Snapshot) { s.Nozzle, s.Bed = 24, 25 })
+	apps, _ := pushedPrintApps(t, showOn(printInputs(cool, true, true)))
+	if !slices.Equal(apps, []string{printTile.app}) {
+		t.Errorf("cool idle printer pushes %v, want the Ready card only", apps)
+	}
+	warm := printSnap(printer.PhaseIdle, func(s *printer.Snapshot) { s.Nozzle, s.Bed = 38, 61 })
+	apps, _ = pushedPrintApps(t, showOn(printInputs(warm, true, true)))
+	if !slices.Equal(apps, []string{printTile.app, printTempTile.app}) {
+		t.Errorf("warm idle printer pushes %v, want Ready and the temperature card", apps)
+	}
+	hotNozzle := printSnap(printer.PhaseIdle, func(s *printer.Snapshot) { s.Nozzle, s.Bed = 41, 30 })
+	apps, _ = pushedPrintApps(t, showOn(printInputs(hotNozzle, true, true)))
+	if !slices.Equal(apps, []string{printTile.app, printTempTile.app}) {
+		t.Errorf("warm nozzle pushes %v, want Ready and the temperature card", apps)
+	}
+	apps, _ = pushedPrintApps(t, showOn(printInputs(warm, false, true)))
+	if len(apps) != 0 {
+		t.Errorf("clock_app=false still pushes %v", apps)
+	}
+	in := showOn(printInputs(warm, true, true))
+	for _, tl := range []*tile{&printTile, &printTempTile} {
+		v, ok := tl.view(&in)
+		if !ok {
+			t.Fatalf("%s has no view", tl.app)
+		}
+		if _, icon := v.payload["icon"]; icon {
+			t.Errorf("%s names a sweep icon while idle", tl.app)
+		}
+		if errs := render.CheckNGPayload(v.payload, false); len(errs) > 0 {
+			t.Errorf("%s: %v", tl.app, errs)
+		}
+		want := v.frame()
+		if got := render.PrintTileFrame(printViewOf(warm, printT0), map[*tile]int{&printTile: render.PrintCardTime, &printTempTile: render.PrintCardTemp}[tl]); got != want {
+			t.Errorf("%s frame differs from the render card", tl.app)
+		}
+	}
+}
+
+func TestPrintReadyCardLeavesWhenThePrinterGoesOff(t *testing.T) {
+	var s tileSet
+	w := &fakeTileWriter{}
+	warm := printSnap(printer.PhaseIdle, func(s *printer.Snapshot) { s.Bed = 70 })
+	s.reconcile(showOn(printInputs(warm, true, false)), w)
+	s.reconcile(showOn(printInputs(printSnap(printer.PhaseOffline, nil), true, false)), w)
+	for _, a := range []string{printTile.app, printTempTile.app} {
+		if !slices.Contains(w.cleared, a) {
+			t.Errorf("%s still in the rotation offline: cleared %v", a, w.cleared)
+		}
+	}
+}
+
+func TestPrintPowerOnShowsNoPopup(t *testing.T) {
+	r := newPrintNoteRig(t, func(c *printer.Config) { c.Show = printer.ShowOn })
+	r.snap = printSnap(printer.PhaseOffline, nil)
+	r.tick(time.Second)
+	r.snap = printSnap(printer.PhaseIdle, func(s *printer.Snapshot) { s.Bed = 60 })
+	r.tick(time.Second)
+	r.tick(time.Minute)
+	if n := r.pub.NotifySnapshot(); len(n) != 0 {
+		t.Errorf("power-on sent %d popups, want none", len(n))
 	}
 }
 
@@ -107,7 +197,7 @@ func TestIdlePrinterTouchesNoClockApp(t *testing.T) {
 }
 
 func isPrintApp(a string) bool {
-	return a == printTile.app || a == printReadyTile.app || a == printPctTile.app
+	return slices.ContainsFunc(printTiles, func(tl *tile) bool { return tl.app == a })
 }
 
 func TestPrintAppLeavesWhenTheHoldEnds(t *testing.T) {
@@ -405,7 +495,7 @@ func TestPrintPreviewShowsOnlyTheCardsTheClockRotates(t *testing.T) {
 	app := NewApp(func() Config { c := defaultConfig(); c.applyDefaults(); return c }(), &recordingPublisher{}, testLogger())
 	in := tileInputs{now: printT0, printCfg: app.cfg.Load().Printer, print: printSnap(printer.PhasePaused, nil)}
 	var cards []string
-	for _, tl := range []*tile{&printTile, &printReadyTile, &printPctTile} {
+	for _, tl := range printTiles {
 		if tl.live(&in) {
 			cards = append(cards, tl.card)
 		}
@@ -419,7 +509,7 @@ func TestPrintTilePayloadsFitNGSchema(t *testing.T) {
 	for _, icons := range []bool{false, true} {
 		for _, phase := range []printer.Phase{printer.PhaseHeating, printer.PhasePrinting, printer.PhaseAttention, printer.PhaseFinished} {
 			in := printInputs(printSnap(phase, nil), true, icons)
-			for _, tl := range []*tile{&printTile, &printReadyTile, &printPctTile} {
+			for _, tl := range printTiles {
 				v, ok := tl.view(&in)
 				if !ok {
 					continue
@@ -517,5 +607,29 @@ func TestPrintBurstIconIsProvisionedWithTheSweeps(t *testing.T) {
 	want := render.PrintDoneIconName() + ".gif"
 	if !slices.Contains(pub.PutIconNamesSnapshot(), want) {
 		t.Errorf("uploaded %v, missing %s", pub.PutIconNamesSnapshot(), want)
+	}
+}
+
+func TestPrintPreviewShowsTheReadyCardsWhileTheIdlePrinterIsShown(t *testing.T) {
+	warm := printSnap(printer.PhaseIdle, func(s *printer.Snapshot) { s.Bed, s.Nozzle = 64, 30 })
+	in := showOn(printInputs(warm, true, false))
+	p := printPreviewOf(in.printCfg, warm, printT0)
+	var cards []string
+	for _, f := range p.Frames {
+		cards = append(cards, f.Card)
+	}
+	if !slices.Equal(cards, []string{printTile.card, printTempTile.card}) {
+		t.Fatalf("idle preview while on shows %v, want the Ready and temperature cards", cards)
+	}
+	v := printViewOf(warm, printT0)
+	for card, idx := range map[string]int{printTile.card: render.PrintCardTime, printTempTile.card: render.PrintCardTemp} {
+		f := render.PrintTileFrame(v, idx)
+		if got := previewCard(t, p, card); !slices.Equal(got, render.HexPixels(&f)) {
+			t.Errorf("card %s differs from the tile frame", card)
+		}
+	}
+	printing := printInputs(warm, true, false)
+	if p := printPreviewOf(printing.printCfg, warm, printT0); len(p.Frames) != 3 {
+		t.Errorf("idle preview in printing mode shows %d cards, want the printing sample's 3", len(p.Frames))
 	}
 }

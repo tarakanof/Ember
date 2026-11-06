@@ -43,7 +43,7 @@ type tile struct {
 	view   func(in *tileInputs) (tileView, bool)
 }
 
-var tiles = []tile{weatherTile, forecastTile, airTile, meetTile, printTile, printReadyTile, printPctTile}
+var tiles = []tile{weatherTile, forecastTile, airTile, meetTile, printTile, printReadyTile, printPctTile, printTempTile}
 
 const legacyUsagePrefix = "ember-usage-"
 

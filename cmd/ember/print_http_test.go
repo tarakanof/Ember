@@ -109,7 +109,7 @@ func TestPrintStateNeedsOwnerOrReadToken(t *testing.T) {
 func TestPrintConfigMergesValidatesAndPersists(t *testing.T) {
 	app, srv := newPrintApp(t, &lockedBuffer{})
 	resp, b := devReq(t, srv, "GET", "/v1/print/config", testToken, "")
-	want := `{"enabled":false,"url":"auto","name":"CORE One","clock_app":true,"notify_done":true,"notify_attention":true,"done_hold_min":30}`
+	want := `{"enabled":false,"url":"auto","name":"CORE One","clock_app":true,"notify_done":true,"notify_attention":true,"done_hold_min":30,"show":"printing"}`
 	if resp.StatusCode != http.StatusOK || strings.TrimSpace(string(b)) != want {
 		t.Fatalf("GET = %d %s", resp.StatusCode, b)
 	}
@@ -120,6 +120,20 @@ func TestPrintConfigMergesValidatesAndPersists(t *testing.T) {
 	got := app.cfg.Load().Printer
 	if !got.Enabled || got.URL != "http://192.168.0.50" || got.NotifyDoneEnabled() || !got.NotifyAttentionEnabled() || got.DoneHoldMin != 30 {
 		t.Fatalf("config = %+v", got)
+	}
+	for _, step := range []struct{ body, want string }{
+		{`{"show":"on"}`, printer.ShowOn},
+		{`{"enabled":true}`, printer.ShowOn},
+		{`{"show":"always"}`, printer.ShowPrinting},
+		{`{"show":"on"}`, printer.ShowOn},
+		{`{"show":""}`, printer.ShowPrinting},
+	} {
+		if resp, b := devReq(t, srv, "PUT", "/v1/print/config", testToken, step.body); resp.StatusCode != http.StatusOK {
+			t.Fatalf("PUT %s = %d %s", step.body, resp.StatusCode, b)
+		}
+		if got := app.cfg.Load().Printer.Show; got != step.want {
+			t.Errorf("after PUT %s show = %q, want %q", step.body, got, step.want)
+		}
 	}
 	for _, bad := range []string{`{"url":"http://maker:pw@printer"}`, `{"url":"printer"}`, `{"done_hold_min":-1}`, `{"done_hold_min":5000}`} {
 		if resp, b := devReq(t, srv, "PUT", "/v1/print/config", testToken, bad); resp.StatusCode != http.StatusBadRequest {
