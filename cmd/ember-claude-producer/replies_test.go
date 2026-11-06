@@ -28,6 +28,10 @@ func newReplySink(t *testing.T) *replySink {
 	t.Helper()
 	s := &replySink{}
 	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		s.mu.Lock()
 		defer s.mu.Unlock()

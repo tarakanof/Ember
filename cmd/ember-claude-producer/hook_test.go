@@ -33,6 +33,10 @@ func newHookHarness(t *testing.T) *hookHarness {
 	bodies := &[]string{}
 	var mu sync.Mutex
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		defer mu.Unlock()

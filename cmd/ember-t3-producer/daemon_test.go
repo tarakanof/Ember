@@ -24,6 +24,10 @@ func recordingServer(t *testing.T) (*httptest.Server, func() []recorded) {
 	var mu sync.Mutex
 	var got []recorded
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		mu.Lock()

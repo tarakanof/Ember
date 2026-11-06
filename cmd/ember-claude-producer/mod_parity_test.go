@@ -315,6 +315,10 @@ func TestModParityTransitions(t *testing.T) {
 			var mu sync.Mutex
 			var got []wireCall
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == "/" {
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
 				switch r.URL.Path {
 				case "/v1/status":
 				case "/v1/usage":
