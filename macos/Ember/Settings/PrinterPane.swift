@@ -13,12 +13,14 @@ struct PrinterSourcePane: View {
 
 private struct PrinterPaneBody: View {
     @State var model: PrinterSettingsModel
+    @Environment(AppEnvironment.self) private var env
     @FocusState private var addressFocused: Bool
     @Environment(\.appearsActive) private var appearsActive
 
     var body: some View {
         @Bindable var model = model
         @Bindable var config = model.config
+        @Bindable var env = env
         let c = config.draft
         Form {
             LoadStateSection(isLoaded: config.isLoaded, error: config.loadError,
@@ -68,6 +70,19 @@ private struct PrinterPaneBody: View {
                 Text("Auto looks for the printer on your network by its PrusaLink name. The password is read by the server from EMBER_PRUSALINK_PASSWORD; this app never asks for it.")
             }
             .disabled(!config.isLoaded || !c.enabled)
+
+            Section {
+                Toggle("Show print progress on the bot", isOn: $env.prefs.botPrint)
+                    .disabled(!config.isLoaded || !c.enabled || !env.prefs.mayShowBotPrint)
+            } header: {
+                Text("Menu Bar")
+            } footer: {
+                if env.prefs.mayShowBotPrint {
+                    Text("The bot fills in Prusa orange as a print runs, hops when it's done and shows “!” when the printer needs you. An agent that's waiting or in error hides it.")
+                } else {
+                    Text("Choose the animated bot for the menu bar or the Dock in General to use this.")
+                }
+            }
 
             ShownOnSection(source: .printer)
         }
