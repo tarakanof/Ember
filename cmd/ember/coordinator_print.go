@@ -57,6 +57,7 @@ func printViewOf(s printer.Snapshot, now time.Time) render.PrintView {
 		Bed:          printer.StepDegrees(s.Bed),
 		BedTarget:    int(math.Round(s.BedTarget)),
 	}
+	v.TempNozzle, _ = s.ReadyTemp()
 	if !s.EndsAt.IsZero() {
 		v.HaveLeft = true
 		v.LeftSec = max(0, int(s.EndsAt.Sub(now).Seconds()))

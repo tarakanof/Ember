@@ -58,7 +58,7 @@ func printGoldenCases() map[string]Frame {
 	noEst.HaveLeft, noEst.ReadyAt = false, ""
 	ready := PrintView{Phase: PrintPhaseIdle, Progress: 100, Nozzle: 25, Bed: 25}
 	warmBed := PrintView{Phase: PrintPhaseIdle, Nozzle: 45, Bed: 60}
-	warmNozzle := PrintView{Phase: PrintPhaseIdle, Nozzle: 215, Bed: 35}
+	warmNozzle := PrintView{Phase: PrintPhaseIdle, Nozzle: 215, Bed: 35, TempNozzle: true}
 	return map[string]Frame{
 		"ready":             PrintTileFrame(ready, PrintCardTime),
 		"ready_warm_bed":    PrintTileFrame(warmBed, PrintCardTemp),
@@ -160,7 +160,7 @@ func TestPrintReadyTextStartsAtCol9AndFits(t *testing.T) {
 	cases := map[string]Frame{
 		"ready":       PrintTileFrame(PrintView{Phase: PrintPhaseIdle}, PrintCardTime),
 		"warm bed":    PrintTileFrame(PrintView{Phase: PrintPhaseIdle, Bed: 120, Nozzle: 45}, PrintCardTemp),
-		"warm nozzle": PrintTileFrame(PrintView{Phase: PrintPhaseIdle, Bed: 30, Nozzle: 290}, PrintCardTemp),
+		"warm nozzle": PrintTileFrame(PrintView{Phase: PrintPhaseIdle, Bed: 30, Nozzle: 290, TempNozzle: true}, PrintCardTemp),
 	}
 	for name, f := range cases {
 		first := -1

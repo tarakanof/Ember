@@ -93,6 +93,7 @@ type Poller struct {
 	appeared  atomic.Bool
 	woke      atomic.Bool
 	retries   int
+	spellKey  string
 }
 
 func NewPoller(o Options) *Poller {
@@ -177,6 +178,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 		p.State.forget()
 		p.State.setOff(ErrCodeNone)
 		p.woke.Store(false)
+		p.retries = 0
 		return PollDisabled
 	}
 	creds := p.credentials()
@@ -273,6 +275,10 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	p.failures++
 	p.logOnce(ErrCodeUnreachable, err)
 	if p.failures < offlineAfter {
+		if p.retries > 0 {
+			p.retries--
+			return PollActive
+		}
 		if p.active {
 			return PollActive
 		}
@@ -292,6 +298,11 @@ func (p *Poller) syncWatch(ctx context.Context, cfg Config) {
 	}
 	match := watchMatcher(cfg, p.identity)
 	key := cfg.URL + "\x00" + cfg.Name + "\x00" + p.identity
+	if spell := latchKey(cfg, p.credentials()) + p.identity; spell != p.spellKey {
+		p.spellKey = spell
+		p.woke.Store(false)
+		p.retries = 0
+	}
 	if p.watchStop != nil && p.watchKey == key {
 		select {
 		case <-p.watchDone:
@@ -328,9 +339,16 @@ func (p *Poller) stopWatch() {
 
 func watchMatcher(cfg Config, identity string) func(Found) bool {
 	if !cfg.Auto() {
-		want := strings.ToLower(hostLabel(hostnameOf(cfg.URL)))
+		want := strings.ToLower(hostnameOf(cfg.URL))
+		named := strings.IndexFunc(want, unicode.IsLetter) >= 0 && !strings.Contains(want, ":")
 		return func(f Found) bool {
-			return want != "" && (strings.ToLower(hostLabel(f.Host)) == want || strings.ToLower(hostnameOf(f.URL)) == want)
+			if want == "" {
+				return false
+			}
+			if strings.ToLower(hostnameOf(f.URL)) == want {
+				return true
+			}
+			return named && firstLabel(strings.ToLower(f.Host)) == firstLabel(want)
 		}
 	}
 	name := cfg.Name
@@ -485,6 +503,11 @@ func squash(s string) string {
 	return b.String()
 }
 
+func firstLabel(h string) string {
+	label, _, _ := strings.Cut(h, ".")
+	return label
+}
+
 func hostnameOf(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -598,7 +621,8 @@ func (p *Poller) notifyIfChanged() {
 	if p.cfg().ShowWhenOn() {
 		key += "|on"
 		if s.Phase == PhaseIdle && s.Warm() {
-			key += fmt.Sprint("|warm", StepDegrees(s.Nozzle), StepDegrees(s.Bed))
+			nozzle, deg := s.ReadyTemp()
+			key += fmt.Sprint("|warm", nozzle, deg)
 		}
 	}
 	if key == p.changeKey {

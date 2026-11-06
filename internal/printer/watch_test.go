@@ -2,6 +2,7 @@ package printer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -244,6 +245,9 @@ func TestNotFoundWatchesAndAnyPrinterWakes(t *testing.T) {
 	}
 	found = []Found{{Name: "MK4", Host: "prusa-mk4.local.", URL: s.srv.URL}}
 	fw.announce(t, found[0])
+	if !h.p.appeared.Load() {
+		t.Fatal("an announcement while nothing was ever found did not wake the poller")
+	}
 	if d := h.step(); d != PollIdle || h.snap().Phase != PhaseIdle {
 		t.Fatalf("after the announcement: delay %v phase %s", d, h.snap().Phase)
 	}
@@ -275,6 +279,9 @@ func TestWatchMatchesTheChosenPrinterOnly(t *testing.T) {
 		{"manual IP, another printer", manualIP, "", mk4, false},
 		{"manual host name", manualName, "", moved, true},
 		{"manual host name, another printer", manualName, "", mk4, false},
+		{"manual non-.local name, same printer", Config{Enabled: true, URL: "http://prusa-core-one.lan"}, "", moved, true},
+		{"manual non-.local name, a longer neighbour", Config{Enabled: true, URL: "http://prusa-core-one-l.lan"}, "", moved, false},
+		{"manual IPv6", Config{Enabled: true, URL: "http://[fe80::1]"}, "", coreOne, false},
 	}
 	for _, tc := range cases {
 		tc.cfg.ApplyDefaults()
@@ -352,5 +359,124 @@ func TestSwitchingShowWhileIdleFiresOnChange(t *testing.T) {
 		if changes != before+1 {
 			t.Errorf("show=%s while idle fired %d changes, want 1", mode, changes-before)
 		}
+	}
+}
+
+func TestANewTargetGetsItsOwnWake(t *testing.T) {
+	a, b := newStubPrinter(t), newStubPrinter(t)
+	h := newHarness(t, manualConfig(a.srv.URL), testPassword, nil)
+	fw := h.withWatch()
+	h.advance(h.step())
+	goOffline(t, h, a)
+	fw.announce(t, Found{Host: "a.local.", URL: a.srv.URL})
+	for range 4 {
+		h.step()
+	}
+	b.set(func(s *stubPrinter) { s.down = true })
+	h.mu.Lock()
+	h.cfg.URL = b.srv.URL
+	h.mu.Unlock()
+	for range 2 {
+		h.advance(h.step())
+	}
+	waitUntil(t, "a watch for the new URL", func() bool { s, a := fw.counts(); return s == 2 && a == 1 })
+	fw.announce(t, Found{Host: "b.local.", URL: b.srv.URL})
+	if !h.p.appeared.Load() {
+		t.Fatal("the new printer's announcement was dropped by the old target's wake")
+	}
+	if d := h.step(); d != PollActive {
+		t.Fatalf("delay after the new target's wake = %v, want a quick retry", d)
+	}
+}
+
+func TestAWakeRetriesQuicklyAtANewDHCPAddress(t *testing.T) {
+	oldAddr, newAddr := newStubPrinter(t), newStubPrinter(t)
+	current := oldAddr.srv.URL
+	browse := func(context.Context) ([]Found, error) {
+		return []Found{{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: current}}, nil
+	}
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword, browse)
+	fw := h.withWatch()
+	h.advance(h.step())
+	goOffline(t, h, oldAddr)
+	newAddr.set(func(s *stubPrinter) { s.down = true })
+	current = newAddr.srv.URL
+	fw.announce(t, Found{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: current})
+	if d := h.step(); d != PollActive || h.snap().Printer.URL != newAddr.srv.URL {
+		t.Fatalf("delay %v at %s, want a quick retry at the new address", d, h.snap().Printer.URL)
+	}
+	newAddr.set(func(s *stubPrinter) { s.down = false })
+	if d := h.step(); d != PollIdle || h.snap().Phase != PhaseIdle {
+		t.Fatalf("delay %v phase %s, want the printer back", d, h.snap().Phase)
+	}
+}
+
+func TestAFailingWatchAddsNoPolls(t *testing.T) {
+	s := newStubPrinter(t)
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	var mu sync.Mutex
+	starts := 0
+	h.p.watch = func(context.Context, func(Found)) error {
+		mu.Lock()
+		starts++
+		mu.Unlock()
+		return errors.New("no multicast interface")
+	}
+	h.t.Cleanup(h.p.stopWatch)
+	h.advance(h.step())
+	goOffline(t, h, s)
+	before := s.hit(downStatus)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); h.p.Run(ctx) }()
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	<-done
+	if got := s.hit(downStatus) - before; got != 1 {
+		t.Fatalf("requests in 300 ms with a failing watch = %d, want Run's one step", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if starts > 2 {
+		t.Fatalf("a failing watch was restarted %d times in 300 ms, want at most once per step", starts)
+	}
+}
+
+func TestReadyTempKeysOnTheShownValueOnly(t *testing.T) {
+	cases := []struct {
+		bed, nozzle float64
+		noz         bool
+		deg         int
+	}{
+		{61, 215, false, 60},
+		{38, 215, true, 215},
+		{43, 30, false, 45},
+		{30, 30, false, 30},
+	}
+	for _, tc := range cases {
+		noz, deg := Snapshot{Bed: tc.bed, Nozzle: tc.nozzle}.ReadyTemp()
+		if noz != tc.noz || deg != tc.deg {
+			t.Errorf("bed %.0f nozzle %.0f: nozzle=%t %d°, want nozzle=%t %d°", tc.bed, tc.nozzle, noz, deg, tc.noz, tc.deg)
+		}
+	}
+
+	st := newStubPrinter(t)
+	cfg := manualConfig(st.srv.URL)
+	cfg.Show = ShowOn
+	h := newHarness(t, cfg, testPassword, nil)
+	changes := 0
+	h.p.OnChange = func() { changes++ }
+	idle := func(nozzle, bed float64) string {
+		return fmt.Sprintf(`{"printer":{"state":"IDLE","temp_bed":%.1f,"target_bed":0,"temp_nozzle":%.1f,"target_nozzle":0}}`, bed, nozzle)
+	}
+	st.set(func(s *stubPrinter) { s.status = idle(215, 61) })
+	h.advance(h.step())
+	first := changes
+	for _, noz := range []float64{180, 120, 70} {
+		st.set(func(s *stubPrinter) { s.status = idle(noz, 61) })
+		h.advance(h.step())
+	}
+	if changes != first {
+		t.Fatalf("a cooling nozzle behind a warm bed fired %d changes, want none", changes-first)
 	}
 }

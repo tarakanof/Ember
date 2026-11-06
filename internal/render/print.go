@@ -33,7 +33,6 @@ const (
 	printDwellSeconds = 3
 	printBedLevels    = 3
 	printBlinkMs      = 500
-	printWarmC        = 40
 )
 
 type PrintView struct {
@@ -47,6 +46,7 @@ type PrintView struct {
 	NozzleTarget int
 	Bed          int
 	BedTarget    int
+	TempNozzle   bool
 }
 
 var (
@@ -416,7 +416,7 @@ func PrintTileFrame(v PrintView, card int) Frame {
 
 func drawPrintTemp(f *Frame, v PrintView) {
 	label, deg := "BED", v.Bed
-	if v.Bed <= printWarmC && v.Nozzle > v.Bed {
+	if v.TempNozzle {
 		label, deg = "NOZ", v.Nozzle
 	}
 	x := drawPrintText(f, label, contentX, textRow, printLabel)

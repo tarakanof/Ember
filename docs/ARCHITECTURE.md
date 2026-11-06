@@ -2764,23 +2764,25 @@ keeps it on the default transport: mDNS browsing is injected
   browse). A printer announces itself when it boots; when the announced
   service is the chosen printer (auto: the same mDNS host, or the name rule
   above, or any printer while none was ever chosen; manual URL: a service
-  whose host name or IPv4 address is the URL's host), the poller is woken
+  whose IPv4 address is the URL's host, or whose mDNS host shares the URL
+  host name's first label, so `prusa-core-one.lan` matches
+  `prusa-core-one.local`), the poller is woken
   for an immediate step, then retried twice at 5 s (PrusaLink's HTTP can
   answer a moment after the announcement) before the backoff starts again
   at 30 s, so a printer switched on is polled within a second instead of
   up to 5 min later. One wake per offline spell: after it, announcements
-  are ignored until a poll succeeds or the printer is disabled, so a printer
+  are ignored until a poll succeeds, the printer is disabled, or the target
+  (`printer.url`, `printer.name`, the chosen mDNS host or the credentials)
+  changes, which gives the new target its own wake. So a printer
   whose mDNS answers while its HTTP doesn't (the poller's own browses
   refresh the listener's cache) cannot hold the backoff short. The
   listener stops when the printer is reachable again, disabled, without a
   password, or latched on a wrong password, and restarts with a fresh cache
   when the chosen printer or `printer.url` changes. It polls only through
   that one wake: without multicast (no announcements, or the lookup fails) the
-  backoff is all there is. dnssd reports a service once until its records
-  expire, so a printer switched off and on again before that (about 2 min
-  for its SRV record) can miss the wake and wait for the backoff; the
-  listener only starts after two failed polls, by which time a switched-off
-  printer is gone from its fresh cache.
+  backoff is all there is. Each offline spell's listener starts with an
+  empty cache, so the first announcement it sees is the wake; a printer
+  whose mDNS answers while its HTTP doesn't spends that wake at once.
 - **Identity.** A different printer (another mDNS host, another manual URL)
   or disabling the printer clears the state: job, anchors, events, holds
   and the edge baseline, so the next printer's first poll is a baseline
@@ -2916,7 +2918,7 @@ keeps it on the default transport: mDNS browsing is injected
   `printer` check (Warn for a missing or wrong password, not found,
   unreachable; never Fail, a switched-off printer is normal).
 - **TC001 app and popups** (#790; `internal/render/print.go`,
-  `cmd/ember/coordinator_print.go`). The app is up to four rotating tiles on the
+  `cmd/ember/coordinator_print.go`). The app is four tiles, at most three in the rotation at once, on the
   existing `tiles` ledger, so the clock's own rotation does the 3 s card
   change and nothing is pushed per card: `ember-print` (time left + hourglass,
   or the percent when there is no estimate; the status card in every other
