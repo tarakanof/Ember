@@ -285,13 +285,24 @@ func TestReplayRestartAtEveryRowReplaysNoEndedOrRunningEdge(t *testing.T) {
 						t.Fatalf("restart at row %d: started_at %v, want %v", i, got, want)
 					}
 				}
-				if name == remoteTrace {
-					next := replay(t, s, h, loadTrace(t, screenTrace))
-					var kinds []EventKind
-					for _, e := range edgesOf(next) {
-						kinds = append(kinds, e.Kind)
+				for k, sn := range snaps {
+					if sn.Phase == PhasePrinting && full[i+k].Phase == PhasePrinting && sn.StartedAt.Sub(full[i+k].StartedAt).Abs() > AnchorTolerance {
+						t.Fatalf("restart at row %d: started_at %v at row %d, the full replay has %v", i, sn.StartedAt, i+k, full[i+k].StartedAt)
 					}
-					if tail := kinds[max(0, len(kinds)-3):]; !slices.Equal(tail, []EventKind{EventAttention, EventStarted, EventStopped}) {
+				}
+				if name == remoteTrace {
+					var lastID uint64
+					if ev := snaps[len(snaps)-1].Events; len(ev) > 0 {
+						lastID = ev[len(ev)-1].ID
+					}
+					screen := loadTrace(t, screenTrace)
+					var kinds []EventKind
+					for _, e := range replay(t, s, h, screen)[len(screen)-1].Events {
+						if e.ID > lastID {
+							kinds = append(kinds, e.Kind)
+						}
+					}
+					if !slices.Equal(kinds, []EventKind{EventAttention, EventStarted, EventStopped}) {
 						t.Fatalf("restart at row %d: the next print fired %v", i, kinds)
 					}
 				}
