@@ -261,31 +261,34 @@ func TestWatchMatchesTheChosenPrinterOnly(t *testing.T) {
 	coreOne := Found{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: "http://192.168.0.50:80"}
 	moved := Found{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: "http://192.168.0.77:80"}
 	mk4 := Found{Name: "Prusa MK4", Host: "prusa-mk4.local.", URL: "http://192.168.0.51:80"}
+	coreOneL := Found{Name: "Prusa CORE One L", Host: "prusa-core-one-l.local.", URL: "http://192.168.0.52:80"}
 	cases := []struct {
 		name     string
 		cfg      Config
 		identity string
+		named    bool
 		f        Found
 		want     bool
 	}{
-		{"auto, named printer", auto, "prusa-core-one.local", coreOne, true},
-		{"auto, named printer at a new address", auto, "prusa-core-one.local", moved, true},
-		{"auto, another printer", auto, "prusa-core-one.local", mk4, false},
-		{"auto, the fallback printer by host", auto, "prusa-mk4.local", mk4, true},
-		{"auto, the named printer while on a fallback", auto, "prusa-mk4.local", coreOne, true},
-		{"auto, none chosen yet: any printer", auto, "", mk4, true},
-		{"manual IP, same address", manualIP, "", coreOne, true},
-		{"manual IP, another address", manualIP, "", moved, false},
-		{"manual IP, another printer", manualIP, "", mk4, false},
-		{"manual host name", manualName, "", moved, true},
-		{"manual host name, another printer", manualName, "", mk4, false},
-		{"manual non-.local name, same printer", Config{Enabled: true, URL: "http://prusa-core-one.lan"}, "", moved, true},
-		{"manual non-.local name, a longer neighbour", Config{Enabled: true, URL: "http://prusa-core-one-l.lan"}, "", moved, false},
-		{"manual IPv6", Config{Enabled: true, URL: "http://[fe80::1]"}, "", coreOne, false},
+		{"auto, named printer", auto, "prusa-core-one.local", true, coreOne, true},
+		{"auto, named printer at a new address", auto, "prusa-core-one.local", true, moved, true},
+		{"auto, another printer", auto, "prusa-core-one.local", true, mk4, false},
+		{"auto, a neighbour that also fits the name", auto, "prusa-core-one.local", true, coreOneL, false},
+		{"auto, the fallback printer by host", auto, "prusa-mk4.local", false, mk4, true},
+		{"auto, the named printer while on a fallback", auto, "prusa-mk4.local", false, coreOne, true},
+		{"auto, none chosen yet: any printer", auto, "", false, mk4, true},
+		{"manual IP, same address", manualIP, "", false, coreOne, true},
+		{"manual IP, another address", manualIP, "", false, moved, false},
+		{"manual IP, another printer", manualIP, "", false, mk4, false},
+		{"manual host name", manualName, "", false, moved, true},
+		{"manual host name, another printer", manualName, "", false, mk4, false},
+		{"manual non-.local name, same printer", Config{Enabled: true, URL: "http://prusa-core-one.lan"}, "", false, moved, true},
+		{"manual non-.local name, a longer neighbour", Config{Enabled: true, URL: "http://prusa-core-one-l.lan"}, "", false, moved, false},
+		{"manual IPv6", Config{Enabled: true, URL: "http://[fe80::1]"}, "", false, coreOne, false},
 	}
 	for _, tc := range cases {
 		tc.cfg.ApplyDefaults()
-		if got := watchMatcher(tc.cfg, tc.identity)(tc.f); got != tc.want {
+		if got := watchMatcher(tc.cfg, tc.identity, tc.named)(tc.f); got != tc.want {
 			t.Errorf("%s: match = %t, want %t", tc.name, got, tc.want)
 		}
 	}
@@ -479,4 +482,40 @@ func TestReadyTempKeysOnTheShownValueOnly(t *testing.T) {
 	if changes != first {
 		t.Fatalf("a cooling nozzle behind a warm bed fired %d changes, want none", changes-first)
 	}
+}
+
+func TestAWakeFromNotFoundKeepsBothRetries(t *testing.T) {
+	s := newStubPrinter(t)
+	var found []Found
+	h := newHarness(t, Config{Enabled: true, URL: URLAuto, Name: "CORE One"}, testPassword,
+		func(context.Context) ([]Found, error) { return found, nil })
+	fw := h.withWatch()
+	h.step()
+	s.set(func(s *stubPrinter) { s.down = true })
+	found = []Found{{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: s.srv.URL}}
+	fw.announce(t, found[0])
+	var got []time.Duration
+	for range 4 {
+		got = append(got, h.step())
+	}
+	want := []time.Duration{PollActive, PollActive, Backoff[0], Backoff[1]}
+	if !slices.Equal(got, want) {
+		t.Fatalf("delays after a wake from not_found = %v, want %v", got, want)
+	}
+}
+
+func TestTheListenerIsRefreshedEveryFiveMinutes(t *testing.T) {
+	s := newStubPrinter(t)
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	fw := h.withWatch()
+	h.advance(h.step())
+	goOffline(t, h, s)
+	h.advance(Backoff[0])
+	h.step()
+	if starts, _ := fw.counts(); starts != 1 {
+		t.Fatalf("listener restarted inside the refresh window: %d starts", starts)
+	}
+	h.advance(WatchRefresh)
+	h.step()
+	waitUntil(t, "a refreshed listener", func() bool { s, a := fw.counts(); return s == 2 && a == 1 })
 }

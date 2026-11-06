@@ -2762,8 +2762,10 @@ keeps it on the default transport: mDNS browsing is injected
   `dnssd.LookupType` that sends one query when it starts and then only
   reads the multicast traffic, injected as `Options.Watch` like the
   browse). A printer announces itself when it boots; when the announced
-  service is the chosen printer (auto: the same mDNS host, or the name rule
-  above, or any printer while none was ever chosen; manual URL: a service
+  service is the chosen printer (auto: the same mDNS host once a printer
+  was picked by name, since the poller never moves to a neighbour; on a
+  fallback printer also one that fits the name rule; any printer while
+  none was ever chosen; manual URL: a service
   whose IPv4 address is the URL's host, or whose mDNS host shares the URL
   host name's first label, so `prusa-core-one.lan` matches
   `prusa-core-one.local`), the poller is woken
@@ -2772,13 +2774,15 @@ keeps it on the default transport: mDNS browsing is injected
   at 30 s, so a printer switched on is polled within a second instead of
   up to 5 min later. One wake per offline spell: after it, announcements
   are ignored until a poll succeeds, the printer is disabled, or the target
-  (`printer.url`, `printer.name`, the chosen mDNS host or the credentials)
-  changes, which gives the new target its own wake. So a printer
+  (`printer.url`, `printer.name` or the credentials) changes, which gives
+  the new target its own wake. So a printer
   whose mDNS answers while its HTTP doesn't (the poller's own browses
   refresh the listener's cache) cannot hold the backoff short. The
   listener stops when the printer is reachable again, disabled, without a
   password, or latched on a wrong password, and restarts with a fresh cache
-  when the chosen printer or `printer.url` changes. It polls only through
+  when the chosen printer or `printer.url` changes, and every 5 min
+  (`WatchRefresh`: one query, so a network change on the server can't
+  leave it deaf for a long off spell). It polls only through
   that one wake: without multicast (no announcements, or the lookup fails) the
   backoff is all there is. Each offline spell's listener starts with an
   empty cache, so the first announcement it sees is the wake; a printer

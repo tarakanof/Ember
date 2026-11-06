@@ -26,6 +26,7 @@ const (
 	jobTries       = 3
 	versionTries   = 3
 	FallbackBrowse = 5 * time.Minute
+	WatchRefresh   = 5 * time.Minute
 	wakeRetries    = 2
 )
 
@@ -94,6 +95,7 @@ type Poller struct {
 	woke      atomic.Bool
 	retries   int
 	spellKey  string
+	watchAt   time.Time
 }
 
 func NewPoller(o Options) *Poller {
@@ -296,14 +298,15 @@ func (p *Poller) syncWatch(ctx context.Context, cfg Config) {
 		p.stopWatch()
 		return
 	}
-	match := watchMatcher(cfg, p.identity)
-	key := cfg.URL + "\x00" + cfg.Name + "\x00" + p.identity
-	if spell := latchKey(cfg, p.credentials()) + p.identity; spell != p.spellKey {
+	match := watchMatcher(cfg, p.identity, p.matched)
+	key := fmt.Sprint(cfg.URL, "\x00", cfg.Name, "\x00", p.identity, "\x00", p.matched)
+	if spell := latchKey(cfg, p.credentials()); spell != p.spellKey {
 		p.spellKey = spell
 		p.woke.Store(false)
 		p.retries = 0
 	}
-	if p.watchStop != nil && p.watchKey == key {
+	now := p.now()
+	if p.watchStop != nil && p.watchKey == key && now.Sub(p.watchAt) < WatchRefresh {
 		select {
 		case <-p.watchDone:
 		default:
@@ -311,6 +314,7 @@ func (p *Poller) syncWatch(ctx context.Context, cfg Config) {
 		}
 	}
 	p.stopWatch()
+	p.watchAt = now
 	wctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	p.watchKey, p.watchStop, p.watchDone = key, cancel, done
@@ -337,7 +341,7 @@ func (p *Poller) stopWatch() {
 	p.watchKey, p.watchStop, p.watchDone = "", nil, nil
 }
 
-func watchMatcher(cfg Config, identity string) func(Found) bool {
+func watchMatcher(cfg Config, identity string, named bool) func(Found) bool {
 	if !cfg.Auto() {
 		want := strings.ToLower(hostnameOf(cfg.URL))
 		named := strings.IndexFunc(want, unicode.IsLetter) >= 0 && !strings.Contains(want, ":")
@@ -355,6 +359,9 @@ func watchMatcher(cfg Config, identity string) func(Found) bool {
 	return func(f Found) bool {
 		if identity != "" && strings.TrimSuffix(f.Host, ".") == identity {
 			return true
+		}
+		if identity != "" && named {
+			return false
 		}
 		if _, matched := Choose([]Found{f}, name); matched {
 			return true
