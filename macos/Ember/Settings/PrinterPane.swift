@@ -28,7 +28,7 @@ private struct PrinterPaneBody: View {
             Section {
                 Toggle("Show the printer", isOn: $config.draft.enabled)
             } header: {
-                Text("Printer")
+                Text("3D Printer")
             } footer: {
                 SaveErrorFooter(error: config.saveError)
             }
@@ -69,46 +69,17 @@ private struct PrinterPaneBody: View {
             }
             .disabled(!config.isLoaded || !c.enabled)
 
-            Section {
-                Toggle("Show on the clock", isOn: $config.draft.clockApp)
-                Picker("Show", selection: $config.draft.show) {
-                    ForEach(PrinterShow.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .disabled(!c.clockApp)
-                Toggle("Notify when a print is done", isOn: $config.draft.notifyDone)
-                Toggle("Notify when the printer needs you", isOn: $config.draft.notifyAttention)
-                StepperRow(title: "Keep \"done\" on the clock for", value: $config.draft.doneHoldMin,
-                           range: (5...PrinterConfig.holdRange.upperBound).including(c.doneHoldMin), step: 5) { Text("\($0) min") }
-            } header: {
-                Text("Clock")
-            }
-            .disabled(!config.isLoaded || !c.enabled)
-
-            if let response = model.previewResponse {
-                Section {
-                    PreviewCanvas(frames: response.frames, maxPitch: PanelPreview.maxPitch)
-                        .ledBezel()
-                        .frame(maxWidth: .infinity)
-                        .settingsPreviewRow()
-                        .accessibilityHidden(true)
-                } header: {
-                    Text("On the Clock")
-                }
-            }
+            ShownOnSection(source: .printer)
         }
         .formStyle(.grouped)
         .autosaves(config)
-        .reloads {
-            await model.load()
-            model.refreshPreview()
-        }
+        .reloads { await model.load() }
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
                 if Task.isCancelled { break }
                 if model.config.loadError == .featureOff { continue }
                 await model.refreshState()
-                if !model.previewMissing { model.refreshPreview() }
             }
         }
         .onChange(of: appearsActive) { _, active in
@@ -138,5 +109,75 @@ private struct PrinterPaneBody: View {
             Label { Text(detail) } icon: { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
                 .font(.callout)
         }
+    }
+}
+
+struct ClockPrinterAppPane: View {
+    @Environment(AppEnvironment.self) private var env
+
+    var body: some View {
+        let client = env.connection.client
+        ClockPrinterAppBody(model: PrinterModelCache.shared.model(for: client))
+            .id(ObjectIdentifier(PrinterModelCache.shared.model(for: client)))
+    }
+}
+
+private struct ClockPrinterAppBody: View {
+    @State var model: PrinterSettingsModel
+
+    var body: some View {
+        @Bindable var config = model.config
+        let c = config.draft
+        Form {
+            SourceLinkSection(source: .printer, isOff: config.isLoaded && !c.enabled)
+
+            LoadStateSection(isLoaded: config.isLoaded, error: config.loadError,
+                             offMessage: "This server doesn't support the printer. Update the Ember server.",
+                             retry: { await model.load() })
+
+            Section {
+                Toggle("Show on the clock", isOn: $config.draft.clockApp)
+                Picker("Show", selection: $config.draft.show) {
+                    ForEach(PrinterShow.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .disabled(!c.clockApp)
+                Toggle("Notify when a print is done", isOn: $config.draft.notifyDone)
+                Toggle("Notify when the printer needs you", isOn: $config.draft.notifyAttention)
+                StepperRow(title: "Keep \"done\" on the clock for", value: $config.draft.doneHoldMin,
+                           range: (5...PrinterConfig.holdRange.upperBound).including(c.doneHoldMin), step: 5) { Text("\($0) min") }
+            } header: {
+                Text("Clock")
+            } footer: {
+                SaveErrorFooter(error: config.saveError)
+            }
+            .disabled(!config.isLoaded || !c.enabled)
+
+            if let response = model.previewResponse {
+                Section {
+                    PreviewCanvas(frames: response.frames, maxPitch: PanelPreview.maxPitch)
+                        .ledBezel()
+                        .frame(maxWidth: .infinity)
+                        .settingsPreviewRow()
+                        .accessibilityHidden(true)
+                } header: {
+                    Text("On the Clock")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .autosaves(config)
+        .reloads {
+            await model.load()
+            model.refreshPreview()
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                if Task.isCancelled { break }
+                if model.config.loadError == .featureOff { continue }
+                if !model.previewMissing { model.refreshPreview() }
+            }
+        }
+        .onDisappear { model.resetLive() }
     }
 }

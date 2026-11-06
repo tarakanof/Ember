@@ -16,6 +16,7 @@ public final class PrinterSettingsModel {
     @ObservationIgnored private let fetchPreview: @Sendable () async throws -> PreviewResponse
     @ObservationIgnored private var stateSeq = 0
     @ObservationIgnored private var failures = 0
+    @ObservationIgnored public var onSwitchedOn: (@MainActor () -> Void)?
 
     static let failuresBeforeUnavailable = 3
 
@@ -59,8 +60,9 @@ public final class PrinterSettingsModel {
     }
 
     private func wire() {
-        config.onSaved = { [weak self] _, _ in
+        config.onSaved = { [weak self] saved, previous in
             guard let self else { return }
+            if saved.enabled, previous?.enabled == false { self.onSwitchedOn?() }
             Task { await self.saved() }
         }
     }
@@ -168,6 +170,9 @@ public final class PrinterModelCache {
 
     private var key: ServerIdentity?
     private var model: PrinterSettingsModel?
+    public var onSwitchedOn: (@MainActor () -> Void)? {
+        didSet { model?.onSwitchedOn = onSwitchedOn }
+    }
 
     public init() {}
 
@@ -176,6 +181,7 @@ public final class PrinterModelCache {
         if let model, key == next { return model }
         model?.config.cancelPendingSave()
         let fresh = PrinterSettingsModel(client: client)
+        fresh.onSwitchedOn = onSwitchedOn
         key = next
         model = fresh
         return fresh

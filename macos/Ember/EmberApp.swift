@@ -91,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         HardwareSnapshotRenderer.runIfRequested()
         DashboardSnapshotRenderer.runIfRequested()
+        SettingsSnapshotRenderer.runIfRequested()
         #endif
         NSApp.setActivationPolicy(.accessory)
         BotAnimator.shared.activationPolicyDidChange(.accessory)

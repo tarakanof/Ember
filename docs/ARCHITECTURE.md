@@ -1519,6 +1519,30 @@ never registered alongside it; Move to Ember runs the helper's `uninstall`
 first. The master switch turns off every registered agent. The Claude row also says how its hooks are
 registered and whether the kill switch pauses them.
 
+**3D Printer in the app (#816).** The feature is "3D Printer" everywhere the
+user reads it; wire names (`print`, `ember-print`, `printer.*`) stay. The
+custom symbol `ember.3d.printer` lives in `macos/Ember/Assets.xcassets`
+(`SymbolImage` picks it for names in `EmberSymbol.custom`, SF Symbols
+otherwise). `AppID.print` adds Settings › Clock › 3D Printer (the clock's
+`printer.*` settings, one `PrinterSettingsModel` shared with the source pane)
+and Settings › Knob › 3D Printer (the `print` page toggle and "Print moments").
+Sources › 3D Printer keeps the connection settings.
+
+**Knob print page default.** The server stores the `print` page off in every
+knob config, so "never set by the user" cannot be read from the config. The
+app keeps a per-knob mark (`DefaultsKnobPageMarks`, UserDefaults
+`knob.pagesDecided`): any page flip made through `KnobModel.edit` marks that
+page decided. `KnobModel.turnOnPrintPageIfUntouched` turns the page on only
+when the knob lists it, it is off and undecided, then marks it, so the
+default applies once and a later "off" sticks. It runs when the printer is
+switched on in the app (`PrinterModelCache.onSwitchedOn`) and when the app
+loads a knob whose caps list `print` while the printer is on (the app loads
+the knob only while Settings is open, so a knob updated with Settings closed
+is picked up the next time Settings opens). Marks start with the build that
+adds them, and a change made on another Mac or through the API is not seen by
+them: a page the user switched on and off earlier, or elsewhere, is turned on
+once.
+
 ### Render core — `internal/render`
 
 **Single source of truth** for both the device output and the menu preview, so

@@ -31,10 +31,10 @@ public enum AppCatalog {
     public static func apps(_ kind: DeviceKind, supportedPages: [String]? = nil) -> [AppID] {
         switch kind {
         case .clock:
-            return [.agents, .focus, .weather, .calendar]
+            return [.agents, .focus, .weather, .calendar, .print]
         case .knob:
             let pages = Set(supportedPages ?? knobDefaultPages)
-            return [AppID.bot, .day, .focus, .weather, .nowplaying, .controls].filter { knobPage($0).map(pages.contains) ?? false }
+            return [AppID.bot, .day, .focus, .weather, .nowplaying, .controls, .print].filter { knobPage($0).map(pages.contains) ?? false }
         }
     }
 
@@ -47,6 +47,7 @@ public enum AppCatalog {
         case .nowplaying: .music
         case .controls: nil
         case .day: .dayClock
+        case .print: .printer
         }
     }
 
@@ -58,6 +59,7 @@ public enum AppCatalog {
         case .weather: "weather"
         case .nowplaying: "nowplaying"
         case .controls: "controls"
+        case .print: KnobCaps.printPage
         case .agents, .calendar: nil
         }
     }

@@ -24,6 +24,8 @@ private let unreachableKnob = SettingsDevice(id: "knob", kind: .knob, name: "Kno
     (.device("clock", .apps), "device/clock/apps"),
     (.device("clock", .app(.weather)), "device/clock/app/weather"),
     (.device("knob-61fc8c", .app(.day)), "device/knob-61fc8c/app/day"),
+    (.device("clock", .app(.print)), "device/clock/app/print"),
+    (.device("knob-61fc8c", .app(.print)), "device/knob-61fc8c/app/print"),
 ])
 func routeRoundTripsThroughItsPath(route: SettingsRoute, path: String) {
     #expect(route.stored == path)
@@ -70,7 +72,7 @@ func unknownStoredValueFallsBackToConnection(name: String) {
 }
 
 @Test func clockShowsEveryClockApp() {
-    #expect(AppCatalog.apps(.clock) == [.agents, .focus, .weather, .calendar])
+    #expect(AppCatalog.apps(.clock) == [.agents, .focus, .weather, .calendar, .print])
     #expect(AppCatalog.hardware(.clock) == [.status, .health, .display, .timeDate, .buttons, .sensors, .sounds])
 }
 
@@ -99,6 +101,20 @@ func unknownStoredValueFallsBackToConnection(name: String) {
     #expect(AppCatalog.knobPage(.controls) == "controls" && AppCatalog.source(of: .controls) == nil)
 }
 
+@Test func knobPrintAppAppearsOnlyWhenTheKnobReportsThePage() {
+    #expect(!AppCatalog.apps(.knob).contains(.print))
+    #expect(!AppCatalog.apps(.knob, supportedPages: ["bot", "weather"]).contains(.print))
+    #expect(AppCatalog.apps(.knob, supportedPages: ["bot", "print"]) == [.bot, .print])
+    #expect(AppCatalog.knobPage(.print) == "print" && AppCatalog.source(of: .print) == .printer)
+}
+
+@Test func thePrinterAppIsShownOnThePrinterSourceOfBothDevices() {
+    var k = knob
+    k.supportedPages = ["bot", "print"]
+    let shown = SettingsTree(devices: [clock, k]).apps(showing: .printer)
+    #expect(shown.map(\.route) == [.device(clock.id, .app(.print)), .device(k.id, .app(.print))])
+}
+
 @Test func everyAppHasASource() {
     for app in AppID.allCases where app != .controls { #expect(AppCatalog.source(of: app) != nil) }
 }
@@ -119,7 +135,7 @@ func unknownStoredValueFallsBackToConnection(name: String) {
     #expect(c.route == .device("clock", .hardware(.status)))
     #expect(c.hardware == [.health, .display, .timeDate, .buttons, .sensors, .sounds].map { .device("clock", .hardware($0)) })
     #expect(c.appsRoute == .device("clock", .apps))
-    #expect(c.apps == [.agents, .focus, .weather, .calendar].map { .device("clock", .app($0)) })
+    #expect(c.apps == [.agents, .focus, .weather, .calendar, .print].map { .device("clock", .app($0)) })
     let k = tree.devices[1]
     #expect(k.hardware == [.health, .display, .behavior].map { .device("knob-61fc8c", .hardware($0)) })
     #expect(k.apps == [.bot, .focus, .weather].map { .device("knob-61fc8c", .app($0)) })

@@ -150,6 +150,24 @@ public final class AppEnvironment {
         clockConfig.configure(client: connection.client, deviceID: id)
     }
 
+    private func feedKnobPrintPage() {
+        let reports = withObservationTracking {
+            knob.knob?.supports(page: KnobCaps.printPage) == true
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedKnobPrintPage() }
+        }
+        if reports { Task { await knobPrintDefault.knobReported() } }
+    }
+
+    private var knobPrintDefault: KnobPrintPageDefault {
+        let client = connection.client
+        return KnobPrintPageDefault(knob: knob, printerIsOn: {
+            let printer = PrinterModelCache.shared.model(for: client)
+            if !printer.config.isLoaded, printer.config.loadError == nil { await printer.config.load() }
+            return printer.config.applied?.enabled == true
+        })
+    }
+
     static func applyAppIcon(_ palette: String) {
         if palette == "bot" {
             BotAnimator.shared.showInDock(true)
@@ -200,7 +218,7 @@ public final class AppEnvironment {
         permissions = PermissionsModel(sources: AppPermissionSources(
             connection: connection, producers: producers, reminders: watcher, location: location, music: music))
         #if DEBUG
-        if HardwareSnapshotRenderer.isRequested || DashboardSnapshotRenderer.isRequested { return }
+        if HardwareSnapshotRenderer.isRequested || DashboardSnapshotRenderer.isRequested || SettingsSnapshotRenderer.isRequested { return }
         #endif
         live.configure(client: client)
         settings.connectionEnv.onSaved = { [weak self] _, _ in self?.reloadConnection() }
@@ -225,6 +243,11 @@ public final class AppEnvironment {
         feedBotPrint()
         feedMenuBarLabel()
         feedClockRecord()
+        knob.pageMarks = DefaultsKnobPageMarks()
+        PrinterModelCache.shared.onSwitchedOn = { [weak self] in
+            Task { await self?.knobPrintDefault.printerSwitchedOn() }
+        }
+        feedKnobPrintPage()
         reconcileProducers()
         watchKnobPorts()
     }

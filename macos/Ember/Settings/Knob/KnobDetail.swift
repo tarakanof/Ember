@@ -38,7 +38,8 @@ struct KnobDetail: View {
             async let b: Void = env.settings.weather.load()
             async let c: Void = env.settings.controls.load()
             async let d: Void = env.settings.day.load()
-            _ = await (a, b, c, d)
+            async let e: Void = printer.config.load()
+            _ = await (a, b, c, d, e)
         }
         .task {
             while !Task.isCancelled {
@@ -56,6 +57,8 @@ struct KnobDetail: View {
         }
     }
 
+    private var printer: PrinterSettingsModel { PrinterModelCache.shared.model(for: env.connection.client) }
+
     private func isOff(_ source: SourceID) -> Bool {
         let s = env.settings
         switch source {
@@ -63,7 +66,8 @@ struct KnobDetail: View {
         case .weather: return s.weather.isLoaded && !s.weather.draft.enabled
         case .calendar: return s.meetings.isLoaded && !s.meetings.draft.enabled
         case .dayClock: return s.day.isLoaded && !s.day.draft.enabled
-        case .agents, .music, .printer: return false
+        case .printer: return printer.config.isLoaded && !printer.config.draft.enabled
+        case .agents, .music: return false
         }
     }
 
@@ -85,7 +89,7 @@ struct KnobDetail: View {
             KnobControlsSection()
         case .app(let app):
             if let source = AppCatalog.source(of: app) { SourceLinkSection(source: source, isOff: isOff(source)) }
-            if let page = AppCatalog.knobPage(app), app != .day { KnobAppPreviewSection(page: page) }
+            if let page = AppCatalog.knobPage(app), app != .day, app != .print { KnobAppPreviewSection(page: page) }
             Group {
                 KnobPageSection(app: app)
                 if app == .bot { KnobBotSection() }
