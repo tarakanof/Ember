@@ -612,7 +612,8 @@ per knob and is the only thing that talks to Home Assistant. Design:
 
 A knob sends a key only when its chip is found and the reading is under
 60 s old, so every key is optional and `{}` is a valid block. The server
-doesn't enforce the 60 s.
+doesn't enforce the 60 s when storing the block; brightness ignores a `lux`
+whose `age_s.light` is over 60 ("Per-device brightness").
 
 | Key | Meaning | Valid |
 |---|---|---|

@@ -376,6 +376,12 @@ func TestLuxOlderThanTheKnobsContractIsIgnored(t *testing.T) {
 	f := newLuxFixture(t, "aabbccdd0001")
 	k := f.knobs[0]
 	f.checkinLux(t, k, `0.5,"age_s":{"light":60}`)
+	f.app.brightness.mu.Lock()
+	first := f.app.brightness.st[k.id]
+	f.app.brightness.mu.Unlock()
+	if !first.Last.At.Equal(f.clk.Now().UTC()) {
+		t.Fatalf("a sample with a light age is dated %v, want the checkin's %v", first.Last.At, f.clk.Now().UTC())
+	}
 	for _, age := range []string{"61", "10000000000"} {
 		f.clk.advance(time.Second)
 		f.checkinLux(t, k, `5000,"age_s":{"light":`+age+`}`)
