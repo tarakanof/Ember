@@ -71,6 +71,7 @@ type App struct {
 	clockSync     clockSyncGate
 	clockRotation atomic.Pointer[clockRotation]
 	rotationOp    clockRotationOp
+	arranger      clockArranger
 	clockMigrate  clockMigration
 	clients       *devices.ClientRegistry
 	claims        *devices.ClaimRegistry
@@ -225,6 +226,9 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.coord.snapshot = a.Snapshot
 	a.coord.quiet = a.quietAt
 	a.coord.onPublishResult = a.recordPublish
+	if _, toClock := publisher.(clockPublisher); toClock {
+		a.coord.onPushed = a.arrangeClockApp
+	}
 	a.hiddenApps = map[string]bool{}
 	a.coord.hiddenApps = a.hiddenAppsSet
 	a.coord.waitIcons = a.waitIcons.Load

@@ -3472,6 +3472,49 @@ route only ever means a server without it. Other refusals (400
 `invalidName`, 422) are relayed and not retried;
 see "One operation at a time" and "Rotation cache" under the clock config
 façade.
+
+**New Ember apps get a slot** (#815, `cmd/ember/clock_arrange.go`). awtrix-ng
+puts an app its stored order doesn't name after every arranged app and lists
+it with `slot: null` (`CoreEngine::rebuildAppList`: arranged apps in their
+saved order, then newcomers; `inLoop: true` still means it is drawn). An order
+stored before an Ember app existed therefore shows that app last, after the
+built-ins: on the live clock `ember-print` came after Time and Temperature,
+the app the loop reaches latest after each forced switch to `ember`. After
+each successful push of the base app or a tile (only with the real clock
+publisher), a `clockJobs` job under the app-order lock reads
+`GET /api/v1/apps`. When the clock has a stored order (some app has a slot)
+and the app is listed, switched on and without a slot, it writes the order
+with the app after the last Ember app ranked before it in Ember's own order
+(the base app, then `tiles` order), else before the first one ranked after
+it, else at the end; `disabled` is the clock's full off list and every other
+slot stays, duplicates and reserved names included.
+- A switched-off app is left off and unarranged. After every successful
+  order or enabled write through Ember (`/v1/device/apps`, its per-app
+  `enabled` route, a façade `rotation`) the read-back list is checked for
+  Ember apps that would now get a slot (one switched back on), and a pass
+  runs only then, when a pass is already owed, or when the read-back failed.
+  Ember.app's own writes name every present app, so they rarely start one.
+  A façade `rotation` lists no pushed apps, so writing one drops every Ember
+  slot; this check gives them back, after the arranged apps in Ember's order. A switch made in the clock's own web UI is seen
+  at the next server start or clock reboot.
+- A clock with no stored order is left alone: there every app is
+  `slot: null` and NG's default (built-ins, then pushed apps by arrival)
+  holds; writing an order would freeze it.
+- While scripting is stopped on the clock, NG lists every stored script as
+  switched off; copying those into `disabled` would keep them off once it
+  runs again (Ember's boot-ping script included). So when a script reads as
+  off, the job writes only if `GET /api/v1/device` says `scriptingRunning`,
+  and otherwise tries again 5 min later.
+- The job writes nothing if the clock URL changed after its read.
+- One pass settles every Ember app the read lists, not only the one pushed,
+  so a restart costs one read. Each app is then checked once per clock URL
+  until the clock reboots or moves. A failed read or write, or a pushed app
+  the read doesn't list yet, waits 30 s and is retried on the next push of
+  any Ember app; a pass that started before a reboot or move settles
+  nothing.
+- The job is not in the clock parity golden, which pins the coordinator's
+  own calls in tick order.
+
 The ambient weather overlay is a separate concern, `PATCH /api/v1/display`
 via `GET/PUT /v1/device/display` — not part of app ordering. Display power is
 its own route, `PUT /v1/device/display/power {"power":bool}`, which sends
@@ -4591,7 +4634,8 @@ migration) the same config is a façade over the overlay slices, as in #230.
 - **One operation at a time.** Every request that reads or writes the
   clock's app order or the cached list (façade GET and PUT, `GET` and
   `PUT /v1/device/apps`), the settings reapply at boot and
-  `/admin/reload`, and the clock config migration (#232), holds one lock (`App.rotationOp`) for the whole
+  `/admin/reload`, the clock config migration (#232), and the job that gives
+  new Ember apps a slot (#815), holds one lock (`App.rotationOp`) for the whole
   operation: the pre-read, the write, the read-back, the cache update, the
   settings commit, the record's version sync and the response snapshot. So
   a read can't land after a newer write, two writes can't interleave their
@@ -4602,6 +4646,10 @@ migration) the same config is a façade over the overlay slices, as in #230.
   - A request that doesn't get the lock in time, or gets it already
     expired, answers 503 and changes nothing. If the client went away
     while it waited, the server logs that and answers nothing.
+    The slot job holds the lock for at most one read, one device read and
+    one write with read-back (11 s budget): once per Ember app per server
+    start or clock reboot, and after a user write only when an Ember app
+    would get a slot. A reorder sent at that moment can see this 503.
   - One that gets it late has only the rest of its deadline for its clock
     calls, so a write may be cut short: 502, as for any lost write, and the
     cached list is cleared because the clock may have applied it.
@@ -6439,6 +6487,11 @@ rather than doubling some hours.
   same app is idempotent (blink phase and dwell survive a re-push unaffected),
   so the coordinator's dedupe is a network/CPU nicety, not a correctness
   requirement.
+- **`slot: null` is not "out of the rotation"** (verified on 1.2.3).
+  `GET /api/v1/apps` reports the app's place in the stored order, `null` when
+  the order doesn't name it; `inLoop` is whether it is drawn. An unarranged,
+  switched-on app plays after every arranged one (see "New Ember apps get a
+  slot"). Only `disabled` takes an app out of the loop.
 - **Pushed apps are RAM-only.** A device reboot drops every app Ember pushed
   and the `autoTransition`/`blockNavigation` settings pair, even though the
   coordinator's own bookkeeping doesn't know that happened until the next

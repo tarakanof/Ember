@@ -14,6 +14,12 @@ func (c *coordinator) pushApp(name string, body []byte) error {
 	})
 }
 
+func (c *coordinator) pushed(app string) {
+	if c.onPushed != nil {
+		c.onPushed(app)
+	}
+}
+
 func (c *coordinator) retryDevice(ctx context.Context, op func(context.Context) error) error {
 	budget := publishAttemptTimeout
 	if t := time.Duration(c.loadCfg().AWTRIX.TimeoutSeconds) * time.Second; t > 0 && t < budget {
@@ -119,6 +125,7 @@ func (c *coordinator) publish(snap Snapshot) {
 		c.publishCount.Add(1)
 		c.metrics.incPublishOK()
 		c.mainPushed = pushedApp{body: body, at: now}
+		c.pushed(cfg.AWTRIX.AppName)
 		c.applyDisplayHold(want, cfg.AWTRIX.AppName)
 	}
 	if c.onPublishResult != nil {

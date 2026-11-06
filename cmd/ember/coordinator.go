@@ -88,6 +88,7 @@ type coordinator struct {
 	kv             devices.KV
 
 	onPublishResult func(snap Snapshot, err error)
+	onPushed        func(app string)
 
 	ctx context.Context
 

@@ -318,6 +318,7 @@ func runClockParity(t *testing.T, pat []bool) string {
 	cfg.HTTP.Addr = ":3627"
 	cfg.applyDefaults()
 	app := NewApp(cfg, nil, testLogger())
+	app.coord.onPushed = nil
 	app.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return []discovery.Candidate{{BaseURL: srv.URL, UID: "abc"}}, nil
 	}
