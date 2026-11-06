@@ -226,6 +226,7 @@ components:
         notify_done: {type: boolean, default: true}
         notify_attention: {type: boolean, default: true}
         done_hold_min: {type: integer, default: 30, minimum: 0, maximum: 1440, description: Minutes the done card is held; 0 means the default 30.}
+        show: {type: string, default: printing, description: "printing shows the clock app only while a print runs; on also shows it while the printer is idle (Ready card). Any other value is stored as printing."}
     Error:
       type: object
       required: [error]
