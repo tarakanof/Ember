@@ -1554,6 +1554,30 @@ to the real clock):
    `ember_print_h1..3_*.gif` in the clock's icon store; a clock reboot or move
    provisions them again, and until they exist the icon is drawn static.
 
+**Show while the printer is on (#809).** `printer.show` `on` (Ember.app:
+Settings › Printer › Clock › Show › "Whenever the printer is on") also keeps
+the app in the rotation while the printer is idle. On-device check, against
+the live server and printer (the scratch-server rules above still apply to
+any test server):
+
+1. In Ember.app open Settings › Printer. Check "Show the printer" and
+   "Show on the clock" are on.
+2. Set "Show" to "Whenever the printer is on".
+3. Switch the CORE One off with its power switch. Wait 3 minutes.
+4. Settings › Printer › Status reads "Printer off".
+5. Switch the CORE One on and note the time.
+6. Within about 10 s of the printer's screen showing its home screen, the
+   Status line reads "Connected" and the clock's rotation gains the print
+   app: the printer icon with the bed line right under the head, a dim
+   white nozzle that does not move, and `READY` in white. No popup plays.
+7. Preheat from the printer's menu (for example PLA). Once the bed passes
+   40 °C a second card joins: `BED` and the bed's degrees. Cancel the
+   preheat; the card leaves once both are at or under 40 °C.
+8. Set "Show" back to "While printing": the app leaves the rotation within
+   a few seconds.
+9. Send back: the time from switching on (step 5) to the Ready card
+   (step 6), and a photo of the Ready and temperature cards.
+
 ## AI usage card (threshold-gated, inside the main app)
 
 Claude + Codex subscription usage renders as a **usage card** inside the main

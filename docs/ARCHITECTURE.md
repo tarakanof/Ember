@@ -2756,6 +2756,26 @@ keeps it on the default transport: mDNS browsing is injected
   rediscovered. Nothing found: `offline` with `not_found`, retried on the
   backoff below. Host networking is required for mDNS (production runs
   `--network host`).
+- **Coming online** (#809). While the phase is `offline` with
+  `unreachable` or `not_found`, the poller keeps one long-lived mDNS
+  listener on `_prusalink._tcp` (`discovery.WatchPrusaLink`, a
+  `dnssd.LookupType` that sends one query when it starts and then only
+  reads the multicast traffic, injected as `Options.Watch` like the
+  browse). A printer announces itself when it boots; when the announced
+  service is the chosen printer (auto: the same mDNS host, or the name rule
+  above, or any printer while none was ever chosen; manual URL: a service
+  whose host name or IPv4 address is the URL's host), the poller is woken
+  for an immediate step and its backoff starts again at 30 s, so a printer
+  switched on is polled within a second instead of up to 5 min later. The
+  listener stops when the printer is reachable again, disabled, without a
+  password, or latched on a wrong password, and restarts with a fresh cache
+  when the chosen printer or `printer.url` changes. It never polls by
+  itself: without multicast (no announcements, or the lookup fails) the
+  backoff is all there is. dnssd reports a service once until its records
+  expire, so a printer switched off and on again before that (about 2 min
+  for its SRV record) can miss the wake and wait for the backoff; the
+  listener only starts after two failed polls, by which time a switched-off
+  printer is gone from its fresh cache.
 - **Identity.** A different printer (another mDNS host, another manual URL)
   or disabling the printer clears the state: job, anchors, events, holds
   and the edge baseline, so the next printer's first poll is a baseline
@@ -2867,7 +2887,10 @@ keeps it on the default transport: mDNS browsing is injected
   the newest version (or its error) only. Contract: DEVICE-PROTOCOL "Print".
 - **Changes** notify `topicPrint` when a reader-visible value moves: phase,
   whole percent, an anchor, an event, the hold, the error, name, thumbnail,
-  printer info; temperatures only while heating.
+  printer info; temperatures while heating, and while idle with
+  `show: "on"` the 5° steps of the bed and nozzle and whether either is
+  above 40 °C (`printer.WarmAbove`), which drive the Ready card's
+  temperature card.
 - **`/v1/print/state`** is a state feed like `/state`: `serveStateFeed` with
   a weak `ETag` and the `?wait=` long-poll. The tag moves on `enabled`,
   phase, whole percent, `last_error`, the newest event id, job id and the
@@ -2880,10 +2903,11 @@ keeps it on the default transport: mDNS browsing is injected
   print and wakes about once per percent. A 304 can therefore carry stale
   values of those fields; the Printer settings pane reads without
   `If-None-Match`.
-- **Config** `printer.{enabled,url,name,clock_app,notify_done,notify_attention,done_hold_min}`
+- **Config** `printer.{enabled,url,name,clock_app,notify_done,notify_attention,done_hold_min,show}`
   in `config.json` and the overlay key `printer_json` (`PUT /v1/print/config`,
   owner); `/admin/reload` re-reads it and wakes the poller. `clock_app` and
-  the notify toggles drive the TC001 app and popups below. `/admin/doctor` has a
+  the notify toggles drive the TC001 app and popups below. `show` (#809) is
+  `printing` (default) or `on`; any other value, or none, is `printing`. `/admin/doctor` has a
   `printer` check (Warn for a missing or wrong password, not found,
   unreachable; never Fail, a switched-off printer is normal).
 - **TC001 app and popups** (#790; `internal/render/print.go`,
@@ -2897,7 +2921,8 @@ keeps it on the default transport: mDNS browsing is injected
   printing, finishing, paused or attention, and for `finished` / `stopped`
   while `Snapshot.HoldUntil` is set (so it leaves `done_hold_min` after the
   edge although the printer still says FINISHED, and a restart that saw no
-  edge never shows it); absent for idle, offline, off and error.
+  edge never shows it); absent for offline, off and error, and for idle
+  unless `printer.show` is `on`.
   `printer.clock_app` false removes it, a disabled printer and an idle one
   touch the clock not at all (`reconcile` only clears what it tracks).
   Heating shows the nozzle degrees and a heat bar, finishing `COOL`, paused
@@ -2937,6 +2962,17 @@ keeps it on the default transport: mDNS browsing is injected
   the popup shows without sound). `notify_done` gates `finished`,
   `notify_attention` gates `attention` and `error`; `started` and `stopped`
   never pop.
+  **Ready** (#809, `printer.show: "on"`, phase `idle`): `ember-print` shows
+  the CORE One icon with the bed at its top row and no part, the nozzle
+  pixel dim white and no sweep, and `READY` in white from col 9; no bottom
+  bar. `ember-print-temp` joins as a second card only while the bed or
+  the nozzle is above 40 °C: `BED` (grey) and the bed's degrees in 5°
+  steps, or `NOZ` and the nozzle's when the bed is cool, with `°` when it
+  fits in col 31. A printer coming online pops nothing; offline, off,
+  disabled and error stay out of the rotation in both modes, and
+  `printing` mode is unchanged. The Settings preview shows the Ready
+  cards while the idle printer is in the rotation, the printing sample
+  otherwise.
 
 ### Knob controls — `cmd/ember/controls*.go`, `macos/Sources/EmberKit/Controls`, `macos/Ember/Services/*Controls*` (#515)
 
@@ -6174,7 +6210,8 @@ with an 8px icon, so nothing jumps sideways as the device rotates between apps:
 
 `TestEveryBottomBarStartsAtBarX0` pins every app's row-7 bar to `barX0`.
 The print app (see "Print status") follows it: icon cols 0-7, cards from col 9,
-hourglass at cols 27-29, bar on row 7 from col 8.
+hourglass at cols 27-29, bar on row 7 from col 8; its Ready cards have no
+bar at all (the layout test checks row 7 stays dark past the icon).
 Hourly data (weather and AQI strips, forecast bars) share one rule, `hourSlot`:
 hour *i* of an N-hour window owns `24/N` whole columns from col 8. Windows that
 divide 24 fill the bar; others (22 h) leave an even dark tail on the right
