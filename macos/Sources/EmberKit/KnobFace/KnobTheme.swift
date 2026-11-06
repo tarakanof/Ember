@@ -232,6 +232,39 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public var air: Air
     }
 
+    public struct Print: Decodable, Sendable, Equatable {
+        public struct Colors: Decodable, Sendable, Equatable {
+            public var text, sub, small, dimWord, accent, heat, wait, done, err, grey, fil, track, dotOn, dotOff: RGB
+        }
+        public struct Ring: Decodable, Sendable, Equatable {
+            public var radiusPx, halfWidthPx, innerPx, headRadiusPx, headStrokePx, glowRadiusPx, glowSigmaPx, glowOpacity: Double
+            public var headColor: RGB
+        }
+        public struct Dots: Decodable, Sendable, Equatable {
+            public var radiusPx, pitchPx, dotRadiusPx: Double
+            public var faces: Int
+        }
+        public struct Hero: Decodable, Sendable, Equatable {
+            public var cxPx, cyPx, scale: Double
+        }
+        public struct Value: Decodable, Sendable, Equatable {
+            public var fontPx, unitFontPx, basePx, unitGapPx: Double
+        }
+        public struct Line: Decodable, Sendable, Equatable {
+            public var fontPx, basePx, widthPx: Double
+            public var aloneBasePx: Double?
+        }
+        public var colors: Colors
+        public var ring: Ring
+        public var dots: Dots
+        public var hero: Hero
+        public var value: Value
+        public var word, sub, small: Line
+        public var warmC: Int
+        public var changeSoonS, doneDimS: Double
+        public var dimOpacity: Double
+    }
+
     public var version: Int
     public var screen: Screen
     public var font: Font
@@ -240,6 +273,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
     public var pomodoro: Pomodoro
     public var weather: Weather
     public var nowplaying: NowPlaying
+    public var print: Print
 
     public static var fontURL: URL? {
         Bundle.module.url(forResource: standard.font.file, withExtension: nil)

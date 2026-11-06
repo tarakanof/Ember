@@ -18,7 +18,7 @@ enum KnobWeatherMotion: Equatable, Sendable {
         case .sun(let f):
             self = f.hero || !f.sub.isEmpty ? .arrival(until: max(f.hero ? KnobSunFace.restS : 0, KnobArrive.restS(sub: f.sub))) : .still
         case .days(let f): self = f.have ? .arrival(until: KnobArrive.restS) : .still
-        case .bot, .pomodoro, .nowPlaying: self = .still
+        case .bot, .pomodoro, .nowPlaying, .print: self = .still
         }
     }
 }

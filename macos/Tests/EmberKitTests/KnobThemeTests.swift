@@ -308,6 +308,54 @@ private let pinned: [String: String] = [
     "nowplaying.idle.font_px": "24",
     "nowplaying.idle.dy_px": "0",
     "nowplaying.idle.width_px": "300",
+    "print.colors.text": "#F4F4F2",
+    "print.colors.sub": "#9A9A96",
+    "print.colors.small": "#8A8A86",
+    "print.colors.dim_word": "#5A5A5A",
+    "print.colors.accent": "#FF8A3D",
+    "print.colors.heat": "#FF5A3A",
+    "print.colors.wait": "#FFC14D",
+    "print.colors.done": "#4FA9FF",
+    "print.colors.err": "#FF3A3A",
+    "print.colors.grey": "#9AA3AD",
+    "print.colors.fil": "#FF6A2A",
+    "print.colors.track": "#1D1D1D",
+    "print.colors.dot_on": "#F4F4F2",
+    "print.colors.dot_off": "#4A4A4A",
+    "print.ring.radius_px": "222",
+    "print.ring.half_width_px": "6",
+    "print.ring.inner_px": "209",
+    "print.ring.head_radius_px": "8",
+    "print.ring.head_stroke_px": "2",
+    "print.ring.head_color": "#F4F4F2",
+    "print.ring.glow_radius_px": "13",
+    "print.ring.glow_sigma_px": "4",
+    "print.ring.glow_opacity": "0.55",
+    "print.dots.radius_px": "200",
+    "print.dots.pitch_px": "16",
+    "print.dots.dot_radius_px": "5",
+    "print.dots.faces": "2",
+    "print.hero.cx_px": "233",
+    "print.hero.cy_px": "122",
+    "print.hero.scale": "0.95",
+    "print.value.font_px": "96",
+    "print.value.unit_font_px": "30",
+    "print.value.base_px": "300",
+    "print.value.unit_gap_px": "8",
+    "print.word.font_px": "48",
+    "print.word.base_px": "292",
+    "print.word.width_px": "400",
+    "print.sub.font_px": "30",
+    "print.sub.base_px": "340",
+    "print.sub.alone_base_px": "344",
+    "print.sub.width_px": "340",
+    "print.small.font_px": "24",
+    "print.small.base_px": "380",
+    "print.small.width_px": "290",
+    "print.warm_c": "40",
+    "print.change_soon_s": "600",
+    "print.done_dim_s": "600",
+    "print.dim_opacity": "109",
 ]
 
 private func themeJSON() throws -> [String: Any] {
@@ -368,7 +416,9 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
                  "firmware/components/weather/include/wx_sun.h", "firmware/components/weather/wx_air.c",
                  "firmware/components/weather/include/wx_air.h", "firmware/components/weather/wx_clock.c",
                  "firmware/components/weather/weather_face.c", "firmware/components/demo/demo.c",
-                 "firmware/components/weather/include/wx_rain.h"] {
+                 "firmware/components/weather/include/wx_rain.h", "firmware/components/print/include/print.h",
+                 "firmware/components/print/print.c", "firmware/components/print/print_draw.c", "firmware/main/print_view.c",
+                 "firmware/components/nowplaying/include/np_cover.h"] {
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path), "CINDER_DIR has no \(file)")
     }
 }
@@ -409,6 +459,8 @@ private let bv = "main/bot_view.c", bs = "components/bot/bot_shape.c", bb = "com
 private let bbh = "components/bot/include/bot_behavior.h", bsh = "components/bot/include/bot_shape.h"
 private let nv = "main/nowplaying_view.c", nc = "main/nowplaying_client.c", nh = "components/nowplaying/include/np.h"
 private let pv = "main/pomo_view.c", tf = "main/temp_face.c"
+private let ph = "components/print/include/print.h", pc = "components/print/print.c", pvw = "main/print_view.c"
+private let npc = "components/nowplaying/include/np_cover.h"
 private let wt = "components/weather/wx_temp.c", wth = "components/weather/include/wx_temp.h"
 private let wp = "components/weather/wx_paint.c", wph = "components/weather/include/wx_paint.h"
 private let wfh = "components/weather/include/wx_faces.h", wch = "components/weather/include/wx_cast.h"
@@ -686,6 +738,7 @@ private func allChecks() -> [Check] {
                        keys: [("pomodoro.\(key).font_px", g(1)), ("pomodoro.\(key).width_px", g(2)),
                               ("pomodoro.\(key).dy_px", g(3))]))
     }
+    c += printChecks()
     for (key, eye, angle) in [("dash", "DASH", #"(\d+) \* lean \* sg \* deg"#), ("angry", "ANGRY", #"(\d+) \* deg \* -side"#),
                               ("round", "ROUND", #"(\d+) \* lean \* sg \* deg"#)] {
         c.append(Check(file: bs, pattern: "case BOT_EYES_\(eye):[^;]*?capsule\\(s, ex, ey, " + num + #" \* \(1 \+ "# + num
@@ -833,6 +886,48 @@ private func weatherFaceChecks() -> [Check] {
                        ("count_max_s", "COUNT_MAX_S"), ("cx_px", "CX"), ("cy_px", "CY"), ("clip_y_px", "CLIP_Y"), ("horizon_y_px", "HZ_Y")] {
         c.append(one(wsh, "#define WX_SUN_\(def) (\\d+)", "weather.sun.\(key)"))
     }
+    return c
+}
+
+private func printChecks() -> [Check] {
+    var c: [Check] = []
+    for (key, def) in [("text", "TEXT"), ("sub", "SUB"), ("small", "SMALL"), ("dim_word", "DIMWORD"), ("accent", "ACCENT"),
+                       ("heat", "HEAT"), ("wait", "WAIT"), ("done", "DONE"), ("err", "ERR"), ("grey", "GREY"), ("fil", "FIL"),
+                       ("track", "TRACK"), ("dot_on", "DOT_ON"), ("dot_off", "DOT_OFF")] {
+        c.append(one(ph, "#define PRINT_COL_\(def) " + hex, "print.colors.\(key)"))
+    }
+    for (key, def) in [("radius_px", "EDGE_R"), ("half_width_px", "EDGE_HW"), ("inner_px", "EDGE_IN"), ("head_radius_px", "HEAD_R"),
+                       ("head_stroke_px", "HEAD_STROKE"), ("glow_radius_px", "GLOW_R"), ("glow_sigma_px", "GLOW_SIGMA"),
+                       ("glow_opacity", "GLOW_OPA")] {
+        c.append(one(npc, "#define NP_\(def) " + num + "\n", "print.ring.\(key)"))
+    }
+    c += [
+        one(npc, "#define NP_COL_HEAD " + hex, "print.ring.head_color"),
+        one(ph, "#define PRINT_DOT_R " + num, "print.dots.radius_px"),
+        one(ph, "#define PRINT_DOT_PITCH " + num, "print.dots.pitch_px"),
+        one(ph, "#define PRINT_DOT_SIZE " + num, "print.dots.dot_radius_px"),
+        Check(file: ph, pattern: #"typedef enum \{ PRINT_FACE_K1, PRINT_FACE_K2, (PRINT_FACES) \}"#, keys: [("print.dots.faces", { _ in "2" })]),
+        Check(file: pvw, pattern: #"HERO_K1 = \{\.cx = (\d+) \+ FX, \.cy = (\d+), \.sc = "# + num + #"\}"#,
+              keys: [("print.hero.cx_px", g(1)), ("print.hero.cy_px", g(2)), ("print.hero.scale", g(3))]),
+        one(pvw, #"s_val = label\(s_root, &font_digits_(\d+), 0\)"#, "print.value.font_px"),
+        one(pvw, #"s_unit = label\(s_root, &lv_font_montserrat_(\d+), 0\)"#, "print.value.unit_font_px"),
+        one(pvw, #"int vbase = k1 \? (\d+) :"#, "print.value.base_px"),
+        one(pvw, #"#define UNIT_GAP (\d+)"#, "print.value.unit_gap_px"),
+        one(pvw, #"s_word = label\(s_root, &lv_font_montserrat_(\d+), "#, "print.word.font_px"),
+        one(pvw, #"place\(s_word, k1 \? (\d+) :"#, "print.word.base_px"),
+        one(pvw, #"#define K1_WORD_W (\d+)"#, "print.word.width_px"),
+        one(pvw, #"const lv_font_t \*sf = k1 \? &lv_font_montserrat_(\d+) :"#, "print.sub.font_px"),
+        Check(file: pvw, pattern: #"place\(s_sub, k1 \? \(wd \? (\d+) : (\d+)\)"#,
+              keys: [("print.sub.base_px", g(1)), ("print.sub.alone_base_px", g(2))]),
+        one(pvw, #"#define TEXT_W (\d+)"#, "print.sub.width_px"),
+        one(pvw, #"s_small = label\(s_root, &lv_font_montserrat_(\d+), SMALL_W\)"#, "print.small.font_px"),
+        one(pvw, #"place\(s_small, (\d+), SMALL_W\)"#, "print.small.base_px"),
+        one(pvw, #"#define SMALL_W (\d+)"#, "print.small.width_px"),
+        one(ph, #"#define PRINT_WARM_C (\d+)"#, "print.warm_c"),
+        one(pc, #"#define CHANGE_SOON_S (\d+)"#, "print.change_soon_s"),
+        one(pvw, "#define DONE_DIM_S " + num, "print.done_dim_s"),
+        one(pvw, #"#define FACE_DIM_OPA (\d+)"#, "print.dim_opacity"),
+    ]
     return c
 }
 
