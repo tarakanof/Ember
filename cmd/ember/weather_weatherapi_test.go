@@ -43,6 +43,9 @@ func newWAStub(t *testing.T, body []byte) *waStub {
 	st := &waStub{}
 	st.body.Store(&body)
 	st.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		st.hits.Add(1)
 		q, p := r.URL.RawQuery, r.URL.Path
 		st.query.Store(&q)

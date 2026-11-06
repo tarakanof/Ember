@@ -55,6 +55,9 @@ type metStub struct {
 func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 	t.Helper()
 	met := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		st.hits.Add(1)
 		if st.onRequest != nil {
 			st.onRequest()
@@ -85,6 +88,9 @@ func newMetCacheApp(t *testing.T, st *metStub, airOn bool) *App {
 	}))
 	t.Cleanup(met.Close)
 	air := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		st.airHits.Add(1)
 		if st.airFail.Load() {
 			if st.airRetryAfter != "" {
