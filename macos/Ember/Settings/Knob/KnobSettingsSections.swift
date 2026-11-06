@@ -22,6 +22,20 @@ struct KnobDisplaySection: View {
         CollapsibleSection("Display", group: .knobDisplay, contentDisabled: !knob.settings.isLoaded) {
             InfoToggle("Follow Ember brightness", isOn: knob.binding(\.brightness.followEmber), info: .knobFollowBrightness,
                        requirement: .loading)
+            let sources = KnobSettings.brightnessSources(for: knob.knob, in: knob.devices,
+                                                         current: knob.settings.draft.brightness.source, now: Date())
+            if !sources.isEmpty {
+                InfoRow("Brightness source", info: .knobBrightnessSource, requirement: .loading) { label in
+                    Picker(selection: Binding(
+                        get: { KnobSettings.brightnessSourceTag(knob.settings.draft.brightness.source, in: knob.devices) },
+                        set: { v in knob.edit { $0.brightness.source = v } })) {
+                        ForEach(sources, id: \.self) { source in
+                            brightnessSourceLabel(source).tag(source.tag)
+                        }
+                    } label: { label }
+                }
+                .disabled(!follow)
+            }
             PercentSliderRow(title: "Brightness", percent: knob.percent(\.brightness.level))
                 .disabled(follow)
             PercentSliderRow(title: "Minimum brightness", percent: knob.percent(\.brightness.floor), range: 1...100,
@@ -43,7 +57,7 @@ struct KnobDisplaySection: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if follow {
-                    Text("The knob dims and brightens with the clock. It never goes below the minimum, except during quiet hours. Set the hours in Sounds & Alerts.")
+                    Text("The knob dims and brightens with the room light. It never goes below the minimum, except during quiet hours. Set the hours in Sounds & Alerts.")
                 } else {
                     Text("The knob stays at this brightness. It never goes below the minimum, except during quiet hours. Set the hours in Sounds & Alerts.")
                 }
@@ -53,6 +67,17 @@ struct KnobDisplaySection: View {
                 SaveErrorFooter(error: knob.settings.saveError)
             }
         }
+    }
+}
+
+private func brightnessSourceLabel(_ source: KnobBrightnessSource) -> Text {
+    switch source {
+    case .automatic: Text("Automatic")
+    case .clock: Text("Clock")
+    case .knob(_, let name): Text(verbatim: name)
+    case .unavailable(let id):
+        Text("\(id) (not available)",
+             comment: "Settings › Knob › Display › Brightness source: a saved source device Ember no longer lists (\"knob-a1b2c3 (not available)\").")
     }
 }
 

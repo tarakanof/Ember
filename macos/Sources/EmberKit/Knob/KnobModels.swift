@@ -15,9 +15,10 @@ public struct KnobCheckin: Codable, Equatable, Sendable {
     public var diag: KnobDiag?
     public var fwBuild: String?
     public var ota: KnobOTAReport?
+    public var room: KnobRoomReading?
 
     enum CodingKeys: String, CodingKey {
-        case fw, ip, rssi, wifi, diag, ota
+        case fw, ip, rssi, wifi, diag, ota, room
         case fwBuild = "fw_build"
         case linkMHz = "link_mhz"
         case linkFallback = "link_fallback"
@@ -34,6 +35,18 @@ public struct KnobCheckin: Codable, Equatable, Sendable {
         self.heapInternalFree = heapInternalFree; self.heapInternalLargest = heapInternalLargest
         self.uptimeS = uptimeS; self.appliedVersion = appliedVersion
     }
+}
+
+public struct KnobRoomReading: Codable, Equatable, Sendable {
+    public var lux: Double?
+    public var receivedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case lux
+        case receivedAt = "received_at"
+    }
+
+    public init(lux: Double? = nil, receivedAt: Date? = nil) { self.lux = lux; self.receivedAt = receivedAt }
 }
 
 public struct KnobWifi: Codable, Equatable, Sendable {
@@ -333,6 +346,13 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
 
     public var showsRoom: Bool { supports(feature: KnobCaps.room) }
 
+    public static let luxRecentWindow: TimeInterval = 600
+
+    public func hasRecentLux(now: Date) -> Bool {
+        guard let room = lastCheckin?.room, room.lux != nil, let at = room.receivedAt else { return false }
+        return now.timeIntervalSince(at) <= Self.luxRecentWindow
+    }
+
     public var supportsSwipePages: Bool { Self.firmware(lastCheckin?.fw, atLeast: KnobCaps.swipePagesFloor) }
 
     public var configApplied: Bool { (lastCheckin?.appliedVersion ?? 0) >= configVersion }
@@ -343,6 +363,21 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
 
     public static func clock(in devices: [KnobDevice]) -> KnobDevice? {
         devices.filter { $0.kind == clockKind }.min { $0.id < $1.id }
+    }
+}
+
+public enum KnobBrightnessSource: Hashable, Sendable {
+    case automatic
+    case clock
+    case knob(id: String, name: String)
+    case unavailable(id: String)
+
+    public var tag: String? {
+        switch self {
+        case .automatic: nil
+        case .clock: KnobSettings.brightnessSourceClock
+        case .knob(let id, _), .unavailable(let id): id
+        }
     }
 }
 
@@ -380,12 +415,14 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         public var level: Int
         public var floor: Int
         public var startup: Int
+        public var source: String?
         enum CodingKeys: String, CodingKey {
-            case level, floor, startup
+            case level, floor, startup, source
             case followEmber = "follow_ember"
         }
-        public init(followEmber: Bool, level: Int, floor: Int, startup: Int) {
+        public init(followEmber: Bool, level: Int, floor: Int, startup: Int, source: String? = nil) {
             self.followEmber = followEmber; self.level = level; self.floor = floor; self.startup = startup
+            self.source = source
         }
     }
 
@@ -605,12 +642,13 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     }
 
     static let v2Keys: Set<String> = ["idle", "apps", "room"]
+    static let clearedInside: Set<String> = v2Keys.union(["brightness"])
 
     static func diff(_ new: [String: JSONValue], _ old: [String: JSONValue], clearing: Bool = false) -> [String: JSONValue] {
         var out: [String: JSONValue] = [:]
         for (key, n) in new where n != old[key] {
             if case .object(let no) = n, case .object(let oo)? = old[key] {
-                out[key] = .object(diff(no, oo, clearing: clearing || v2Keys.contains(key)))
+                out[key] = .object(diff(no, oo, clearing: clearing || clearedInside.contains(key)))
             } else {
                 out[key] = n
             }
@@ -693,6 +731,36 @@ public struct KnobSettings: Codable, Equatable, Sendable {
             }
             apps = a
         }
+    }
+
+    public static let brightnessSourceClock = "clock"
+
+    public static func brightnessSources(for knob: KnobDevice?, in devices: [KnobDevice], current: String?,
+                                         now: Date) -> [KnobBrightnessSource] {
+        let clock = KnobDevice.clock(in: devices)
+        let others = devices
+            .filter { $0.kind == KnobDevice.knobKind && $0.id != knob?.id && $0.hasRecentLux(now: now) }
+            .sorted { ($0.name, $0.id) < ($1.name, $1.id) }
+        let ownLux = knob?.hasRecentLux(now: now) == true
+        let selected = brightnessSourceTag(current, in: devices)
+        guard !others.isEmpty || (clock != nil && ownLux) || selected != nil else { return [] }
+        var out: [KnobBrightnessSource] = [.automatic]
+        if clock != nil || selected == brightnessSourceClock { out.append(.clock) }
+        out += others.map { .knob(id: $0.id, name: $0.name) }
+        if let selected, !out.contains(where: { $0.tag == selected }) {
+            if let d = devices.first(where: { $0.id == selected && $0.kind == KnobDevice.knobKind }) {
+                out.append(.knob(id: d.id, name: d.name))
+            } else {
+                out.append(.unavailable(id: selected))
+            }
+        }
+        return out
+    }
+
+    public static func brightnessSourceTag(_ source: String?, in devices: [KnobDevice]) -> String? {
+        guard let source, !source.isEmpty else { return nil }
+        if source == KnobDevice.clock(in: devices)?.id { return brightnessSourceClock }
+        return source
     }
 
     public var weatherFacesListed: [String] { apps?.weather?.faces ?? Self.weatherFaceIDs }
