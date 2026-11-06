@@ -156,18 +156,16 @@ public final class AppEnvironment {
         } onChange: { [weak self] in
             Task { @MainActor in self?.feedKnobPrintPage() }
         }
-        if reports { Task { await turnOnKnobPrintPage(printerKnownOn: false) } }
+        if reports { Task { await knobPrintDefault.knobReported() } }
     }
 
-    private func turnOnKnobPrintPage(printerKnownOn: Bool) async {
-        if !knob.isLoaded { await knob.load() }
-        guard let id = knob.knob?.id, !knob.pageMarks.isDecided(knob: id, page: KnobCaps.printPage) else { return }
-        if !printerKnownOn {
-            let printer = PrinterModelCache.shared.model(for: connection.client)
-            if !printer.config.isLoaded { await printer.config.load() }
-            guard printer.config.applied?.enabled == true else { return }
-        }
-        await knob.turnOnPrintPageIfUntouched()
+    private var knobPrintDefault: KnobPrintPageDefault {
+        let client = connection.client
+        return KnobPrintPageDefault(knob: knob, printerIsOn: {
+            let printer = PrinterModelCache.shared.model(for: client)
+            if !printer.config.isLoaded, printer.config.loadError == nil { await printer.config.load() }
+            return printer.config.applied?.enabled == true
+        })
     }
 
     static func applyAppIcon(_ palette: String) {
@@ -247,7 +245,7 @@ public final class AppEnvironment {
         feedClockRecord()
         knob.pageMarks = DefaultsKnobPageMarks()
         PrinterModelCache.shared.onSwitchedOn = { [weak self] in
-            Task { await self?.turnOnKnobPrintPage(printerKnownOn: true) }
+            Task { await self?.knobPrintDefault.printerSwitchedOn() }
         }
         feedKnobPrintPage()
         reconcileProducers()

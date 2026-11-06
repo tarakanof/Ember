@@ -1535,9 +1535,13 @@ app keeps a per-knob mark (`DefaultsKnobPageMarks`, UserDefaults
 page decided. `KnobModel.turnOnPrintPageIfUntouched` turns the page on only
 when the knob lists it, it is off and undecided, then marks it, so the
 default applies once and a later "off" sticks. It runs when the printer is
-switched on in the app (`PrinterModelCache.onSwitchedOn`) and when a knob's
-caps first list `print` while the printer is on. A change made on another Mac
-or through the API is not seen by the mark.
+switched on in the app (`PrinterModelCache.onSwitchedOn`) and when the app
+loads a knob whose caps list `print` while the printer is on (the app loads
+the knob only while Settings is open, so a knob updated with Settings closed
+is picked up the next time Settings opens). Marks start with the build that
+adds them, and a change made on another Mac or through the API is not seen by
+them: a page the user switched on and off earlier, or elsewhere, is turned on
+once.
 
 ### Render core — `internal/render`
 

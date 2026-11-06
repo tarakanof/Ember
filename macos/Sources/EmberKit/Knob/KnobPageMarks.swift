@@ -53,3 +53,26 @@ extension KnobModel {
         return true
     }
 }
+
+@MainActor
+public struct KnobPrintPageDefault {
+    private let knob: KnobModel
+    private let printerIsOn: () async -> Bool
+
+    public init(knob: KnobModel, printerIsOn: @escaping () async -> Bool) {
+        self.knob = knob
+        self.printerIsOn = printerIsOn
+    }
+
+    public func printerSwitchedOn() async {
+        if !knob.isLoaded { await knob.load() }
+        await knob.turnOnPrintPageIfUntouched()
+    }
+
+    public func knobReported() async {
+        guard let id = knob.knob?.id, knob.knob?.supports(page: KnobCaps.printPage) == true,
+              !knob.pageMarks.isDecided(knob: id, page: KnobCaps.printPage) else { return }
+        guard await printerIsOn() else { return }
+        await knob.turnOnPrintPageIfUntouched()
+    }
+}

@@ -22,7 +22,11 @@ private final class PrintServer: @unchecked Sendable {
         case ("GET", "/v1/devices/knob-61fc8c/config"):
             return (okResponse(req.url!), Data(config.utf8))
         case ("PUT", "/v1/devices/knob-61fc8c/config"):
-            if body.contains(#""on":true"#) { lock.withLock { printPageOn = true } }
+            if let obj = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+               let pages = obj["pages"] as? [[String: Any]],
+               pages.first(where: { $0["id"] as? String == "print" })?["on"] as? Bool == true {
+                lock.withLock { printPageOn = true }
+            }
             return (okResponse(req.url!), Data(config.utf8))
         default:
             return (okResponse(req.url!, status: 404), Data(#"{"error":"not found"}"#.utf8))
@@ -95,7 +99,11 @@ private func knobModel(_ server: PrintServer, marks: MemoryKnobPageMarks = Memor
     #expect(knob.settings.applied?.pages.first { $0.id == "print" }?.on == true)
     #expect(marks.isDecided(knob: "knob-61fc8c", page: "print"))
     let put = try #require(server.puts.last)
-    #expect(put.0 == "/v1/devices/knob-61fc8c/config" && put.1.contains(#""print""#))
+    #expect(put.0 == "/v1/devices/knob-61fc8c/config")
+    let sent = try #require(try JSONSerialization.jsonObject(with: Data(put.1.utf8)) as? [String: Any])
+    let pages = try #require(sent["pages"] as? [[String: Any]])
+    #expect(pages.first { $0["id"] as? String == "print" }?["on"] as? Bool == true)
+    #expect(pages.first { $0["id"] as? String == "bot" }?["on"] as? Bool == true)
 }
 
 @MainActor
@@ -139,4 +147,42 @@ private func knobModel(_ server: PrintServer, marks: MemoryKnobPageMarks = Memor
     let again = DefaultsKnobPageMarks(defaults: suite)
     #expect(again.isDecided(knob: "knob-1", page: "print"))
     #expect(!again.isDecided(knob: "knob-2", page: "print"))
+}
+
+@MainActor
+@Test func aKnobReportingThePageWhileThePrinterIsOffChangesNothing() async {
+    let server = PrintServer()
+    let knob = await knobModel(server)
+    await KnobPrintPageDefault(knob: knob, printerIsOn: { false }).knobReported()
+    #expect(server.puts.isEmpty)
+    #expect(!knob.pageMarks.isDecided(knob: "knob-61fc8c", page: "print"))
+}
+
+@MainActor
+@Test func aKnobReportingThePageWhileThePrinterIsOnGetsItTurnedOn() async {
+    let server = PrintServer()
+    let knob = await knobModel(server)
+    await KnobPrintPageDefault(knob: knob, printerIsOn: { true }).knobReported()
+    #expect(knob.settings.applied?.pages.first { $0.id == "print" }?.on == true)
+}
+
+@MainActor
+@Test func aDecidedPageNeverAsksThePrinterAgain() async {
+    let server = PrintServer()
+    let marks = MemoryKnobPageMarks()
+    marks.markDecided(knob: "knob-61fc8c", page: "print")
+    let knob = await knobModel(server, marks: marks)
+    var asked = 0
+    await KnobPrintPageDefault(knob: knob, printerIsOn: { asked += 1; return true }).knobReported()
+    #expect(asked == 0 && server.puts.isEmpty)
+}
+
+@MainActor
+@Test func switchingThePrinterOnLoadsTheKnobAndTurnsTheUntouchedPageOn() async {
+    let server = PrintServer()
+    let m = KnobModel(service: KnobService(client: stubbedClient(token: "t") { server.handle($0) }),
+                      ports: KnobSerialPorts(scanner: { [] }), opener: FakeOpener(FakeKnob()),
+                      debounce: .zero, sleep: { _ in })
+    await KnobPrintPageDefault(knob: m, printerIsOn: { true }).printerSwitchedOn()
+    #expect(m.settings.applied?.pages.first { $0.id == "print" }?.on == true)
 }
