@@ -3464,10 +3464,12 @@ with the app after the last Ember app ranked before it in Ember's own order
 (the base app, then `tiles` order), else before the first one ranked after
 it, else at the end; `disabled` is the clock's full off list and every other
 slot stays, duplicates and reserved names included.
-- A switched-off app is left off and unarranged. Every successful order or
-  enabled write through Ember (`/v1/device/apps`, its per-app `enabled`
-  route, a façade `rotation`) checks the Ember apps again, so one switched
-  back on gets its slot then. A switch made in the clock's own web UI is seen
+- A switched-off app is left off and unarranged. After every successful
+  order or enabled write through Ember (`/v1/device/apps`, its per-app
+  `enabled` route, a façade `rotation`) the read-back list is checked for
+  Ember apps that would now get a slot (one switched back on), and only then
+  does a pass run. Ember.app's own writes name every present app, so they
+  rarely start one. A switch made in the clock's own web UI is seen
   at the next server start or clock reboot.
 - A clock with no stored order is left alone: there every app is
   `slot: null` and NG's default (built-ins, then pushed apps by arrival)
@@ -3477,6 +3479,7 @@ slot stays, duplicates and reserved names included.
   runs again (Ember's boot-ping script included). So when a script reads as
   off, the job writes only if `GET /api/v1/device` says `scriptingRunning`,
   and otherwise tries again 5 min later.
+- The job writes nothing if the clock URL changed after its read.
 - Each app is checked once per clock URL until the clock reboots or moves.
   A failed read or write waits 30 s and is retried on the next push of any
   Ember app; a pass that started before a reboot or move settles nothing.
@@ -4615,8 +4618,9 @@ migration) the same config is a façade over the overlay slices, as in #230.
     expired, answers 503 and changes nothing. If the client went away
     while it waited, the server logs that and answers nothing.
     The slot job holds the lock for at most one read, one device read and
-    one write with read-back (11 s budget), about once per Ember app per
-    server start, so a reorder sent at that moment can see this 503.
+    one write with read-back (11 s budget): once per Ember app per server
+    start or clock reboot, and after a user write only when an Ember app
+    would get a slot. A reorder sent at that moment can see this 503.
   - One that gets it late has only the rest of its deadline for its clock
     calls, so a write may be cut short: 502, as for any lost write, and the
     cached list is cleared because the clock may have applied it.

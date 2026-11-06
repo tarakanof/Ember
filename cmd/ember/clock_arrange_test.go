@@ -280,6 +280,20 @@ func TestArrangeWaitsForAnOrderChangeInFlight(t *testing.T) {
 	stub.mu.Unlock()
 	release := a.holdClockRotation()
 	a.coord.pushed("ember-print")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		a.arranger.mu.Lock()
+		taken := a.arranger.running && len(a.arranger.pending) == 0
+		a.arranger.mu.Unlock()
+		if taken {
+			break
+		}
+		if time.Now().After(deadline) {
+			release()
+			t.Fatal("the job never took ember-print")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	time.Sleep(100 * time.Millisecond)
 	stub.mu.Lock()
 	gets := stub.appsGets
@@ -399,5 +413,26 @@ func TestArrangeEmberApps(t *testing.T) {
 				t.Fatalf("placed %v settled %v, want %v %v", got.placed, got.settled, tc.placed, tc.settled)
 			}
 		})
+	}
+}
+
+func TestAnOrderWriteThatSlotsEveryAppStartsNoPass(t *testing.T) {
+	a, srv, stub := newArrangeClockServer(t, liveLikeRotation())
+	pushTile(t, a, "ember-print")
+	stub.mu.Lock()
+	stub.appsGets = 0
+	stub.mu.Unlock()
+	body := `{"order":["ember","ember-print","ember-weather","ember-air","Date","Time","Temperature","Humidity","Battery"],"disabled":["Date","Humidity","Battery"]}`
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps", testToken, body)
+	mustOK(t, "reorder", resp, b)
+	a.clockJobs.Wait()
+	stub.mu.Lock()
+	gets := stub.appsGets
+	stub.mu.Unlock()
+	if gets != 1 {
+		t.Fatalf("app list reads = %d, want only the handler's read-back", gets)
+	}
+	if slot, _ := stub.slotOf("ember-print"); slot != 1 {
+		t.Fatalf("ember-print slot = %v, want the user's 1", slot)
 	}
 }

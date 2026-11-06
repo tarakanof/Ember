@@ -18,7 +18,10 @@ const (
 	clockArrangeScriptsWait = 5 * time.Minute
 )
 
-var errClockScriptingStopped = errors.New("clock scripting is stopped: its scripts read as off")
+var (
+	errClockScriptingStopped    = errors.New("clock scripting is stopped: its scripts read as off")
+	errClockMovedWhileArranging = errors.New("the clock URL changed before the order write")
+)
 
 type clockArranger struct {
 	mu      sync.Mutex
@@ -80,6 +83,12 @@ func (g *clockArranger) recheck() bool {
 	return g.startLocked()
 }
 
+func (g *clockArranger) settledNames() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Sorted(maps.Keys(g.settled))
+}
+
 func (g *clockArranger) take() (gen uint64, names []string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -129,9 +138,19 @@ func (a *App) arrangeClockApp(app string) {
 	}
 }
 
-func (a *App) recheckClockApps() {
+func (a *App) recheckClockApps(rot *clockRotation) {
 	if clockDisabled() {
 		return
+	}
+	if rot != nil {
+		rows := make([]clockAppRow, len(rot.listed))
+		for i, l := range rot.listed {
+			rows[i] = clockAppRow{Name: l.Name, Enabled: boolPtr(l.Enabled), Origin: l.Origin, Slot: l.Slot}
+		}
+		names := a.arranger.settledNames()
+		if len(arrangeEmberApps(rows, names, emberAppRanks(a.cfg.Load().AWTRIX.AppName)).placed) == 0 {
+			return
+		}
 	}
 	if a.arranger.recheck() {
 		a.clockJobs.Go(a.runClockArrange)
@@ -169,6 +188,7 @@ func (a *App) arrangeClockApps(ctx context.Context, names []string) ([]string, e
 		return nil, ctx.Err()
 	}
 	defer func() { <-a.rotationOp.slot }()
+	base := a.cfg.Load().effectiveClockURL()
 	body, err := a.clock.fetch(ctx, (*awtrix.Client).RawApps)
 	if err != nil {
 		return nil, err
@@ -185,6 +205,9 @@ func (a *App) arrangeClockApps(ctx context.Context, names []string) ([]string, e
 		if err := a.clockScriptingRunning(ctx); err != nil {
 			return nil, err
 		}
+	}
+	if a.cfg.Load().effectiveClockURL() != base {
+		return nil, errClockMovedWhileArranging
 	}
 	payload, _ := json.Marshal(plan.order)
 	if _, err := a.clock.fetch(ctx, withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {

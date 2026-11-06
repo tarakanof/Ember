@@ -105,14 +105,16 @@ func (a *App) handleDeviceAppEnabledPut(w http.ResponseWriter, r *http.Request) 
 	var apiErr *awtrix.APIError
 	switch {
 	case err == nil:
-		a.setClockRotation(a.readBackClockRotation(ctx))
-		a.recheckClockApps()
+		rot := a.readBackClockRotation(ctx)
+		a.setClockRotation(rot)
+		a.recheckClockApps(rot)
 		w.WriteHeader(http.StatusOK)
 	case errors.Is(err, errAppIsModule):
 		writeError(w, http.StatusBadRequest, err)
 	case errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusInsufficientStorage:
-		a.setClockRotation(a.readBackClockRotation(ctx))
-		a.recheckClockApps()
+		rot := a.readBackClockRotation(ctx)
+		a.setClockRotation(rot)
+		a.recheckClockApps(rot)
 		writeDeviceAPIErrorStatus(w, apiErr, http.StatusInsufficientStorage)
 	case errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound:
 		writeDeviceAPIErrorStatus(w, apiErr, http.StatusBadGateway)
