@@ -130,14 +130,15 @@ func firstRunning(snaps []Snapshot) int {
 	return -1
 }
 
-func startedAtOf(row traceRow) time.Time {
+func startedAtOf(t *testing.T, row traceRow) time.Time {
+	t.Helper()
 	var d struct {
 		Job struct {
 			TimePrinting float64 `json:"time_printing"`
 		} `json:"job"`
 	}
 	if err := json.Unmarshal(row.Status, &d); err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 	at := time.Unix(0, int64(row.T*float64(time.Second))).UTC()
 	return at.Add(-time.Duration(d.Job.TimePrinting) * time.Second).Truncate(time.Second)
@@ -191,7 +192,7 @@ func TestReplayRemotePrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
 	if p := rowOf(snaps, PhasePaused); snaps[p].Event.Kind != EventStarted {
 		t.Fatalf("the pause fired %+v", snaps[p].Event)
 	}
-	if got, want := snaps[first].StartedAt, startedAtOf(rows[first]); !got.Equal(want) {
+	if got, want := snaps[first].StartedAt, startedAtOf(t, rows[first]); !got.Equal(want) {
 		t.Fatalf("a remote start's started_at = %v, want %v", got, want)
 	}
 }
@@ -222,7 +223,7 @@ func TestReplayScreenStartedPrintStopsWithOneEventPerEdge(t *testing.T) {
 	if first != edges[1].Row {
 		t.Fatalf("started at row %d, the print began at row %d", edges[1].Row, first)
 	}
-	if want := startedAtOf(rows[first]); !snaps[first].StartedAt.Equal(want) {
+	if want := startedAtOf(t, rows[first]); !snaps[first].StartedAt.Equal(want) {
 		t.Fatalf("started_at = %v, want %v", snaps[first].StartedAt, want)
 	}
 	stopped := snaps[edges[2].Row]
@@ -259,6 +260,7 @@ func TestReplayRestartAtEveryRowReplaysNoEndedOrRunningEdge(t *testing.T) {
 	for _, name := range []string{remoteTrace, screenTrace} {
 		t.Run(name, func(t *testing.T) {
 			s, _, rows, full := playTrace(t, name)
+			screen := loadTrace(t, screenTrace)
 			fullEdges := edgesOf(full)
 			for i := range rows {
 				h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
@@ -295,7 +297,6 @@ func TestReplayRestartAtEveryRowReplaysNoEndedOrRunningEdge(t *testing.T) {
 					if ev := snaps[len(snaps)-1].Events; len(ev) > 0 {
 						lastID = ev[len(ev)-1].ID
 					}
-					screen := loadTrace(t, screenTrace)
 					var kinds []EventKind
 					for _, e := range replay(t, s, h, screen)[len(screen)-1].Events {
 						if e.ID > lastID {

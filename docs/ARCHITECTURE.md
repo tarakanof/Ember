@@ -2845,8 +2845,7 @@ keeps it on the default transport: mDNS browsing is injected
   print's time, which the recording does not show (a remote start read 0).
   It is kept as defensive because the knob view golden
   (`view_print_heating.json`) pins `started_at` for such an answer, while
-  nothing pins the one-read hold of `startHeld`, which only delayed an
-  event. Its cost: a server start in the middle of a
+  nothing pins the one-read hold of `startHeld`. Its cost: a server start in the middle of a
   preheat (0 %, `time_printing` already past the watched time) leaves
   `started_at` empty until 1 %.
 - **Name.** `display_name` (else the 8.3 `name`) without the G-code
@@ -2896,13 +2895,15 @@ keeps it on the default transport: mDNS browsing is injected
   finish screen, with or without the job (`endedHeld`, `endedSet` with an
   empty kind); a prompt mid-print (ATTENTION with the job, as a colour
   change would send); the "fresh enough"
-  test on `time_printing` for `started_at` (`jobSeenAt`). Removed because the
-  recording contradicts it: holding a start's `started` one read for a
-  remote start that reads PRINTING with the previous print's
-  `time_printing` before `PrintInit` (`startHeld`).
-  The recording has no BUSY, so `startHeld` goes on the evidence of a start
-  straight out of IDLE only; the server-start-in-BUSY path stays untested by
-  any recording. Known and unchanged: heating and preparing flip during the
+  test on `time_printing` for `started_at` (`jobSeenAt`) and the "job seen
+  outside ATTENTION" condition (`jobRan`), which the recording does not
+  need on its own. Removed because the recording gives it no support:
+  holding a start's `started` one read for a remote start that reads
+  PRINTING with the previous print's `time_printing` before `PrintInit`
+  (`startHeld`); the recorded remote start read 0. The recording has no
+  BUSY and `startHeld` only applied after a server start in BUSY, so the cost
+  is a `started` lost when a BUSY start is followed by a remote start that
+  reads the previous print's time. Known and unchanged: heating and preparing flip during the
   staged preheat (nozzle target steps 170 → 150 → 230 °C, temperature
   wobbling about the 3° margin), tracked in #814; the name rule does not
   match the real file name (no nozzle part), #813.
