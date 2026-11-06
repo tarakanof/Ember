@@ -159,7 +159,7 @@ type App struct {
 func newServerApp(cfg Config, logger *slog.Logger) *App {
 	app := NewApp(cfg, nil, logger)
 	app.browseFn = discovery.BrowseAWTRIX
-	app.printer = app.newPrinter(browsePrusaLink, nil)
+	app.printer = app.newPrinter(browsePrusaLink, watchPrusaLink, nil)
 	return app
 }
 
@@ -181,7 +181,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.nowPlaying = nowplaying.NewService()
 	a.controls = newControlsService()
 	a.nowPlaying.Reg.OnChange = func() { a.changes.notify(topicNowPlaying) }
-	a.printer = a.newPrinter(nil, nil)
+	a.printer = a.newPrinter(nil, nil, nil)
 	a.iconFetch = fetchLaMetricIcon
 	a.clockJobs = newClockJobGroup()
 	a.cfg.Store(&cfg)

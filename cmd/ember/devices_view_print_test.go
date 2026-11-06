@@ -133,7 +133,7 @@ func newPrintFixture(t *testing.T) *printFixture {
 	t.Helper()
 	f := goldenViewFixture(t)
 	fp := newFakePrinter(t)
-	f.app.printer = f.app.newPrinter(nil, f.clk.Now)
+	f.app.printer = f.app.newPrinter(nil, nil, f.clk.Now)
 	f.app.updateConfig(func(c *Config) {
 		c.Printer.Enabled = true
 		c.Printer.URL = fp.srv.URL

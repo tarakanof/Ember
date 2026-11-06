@@ -14,10 +14,11 @@ const (
 	printerBrowseTimeout = 3 * time.Second
 )
 
-func (a *App) newPrinter(browse printer.BrowseFunc, now func() time.Time) *printer.Poller {
+func (a *App) newPrinter(browse printer.BrowseFunc, watch printer.WatchFunc, now func() time.Time) *printer.Poller {
 	p := printer.NewPoller(printer.Options{
 		Config: func() printer.Config { return a.cfg.Load().Printer },
 		Browse: browse,
+		Watch:  watch,
 		Logger: a.logger,
 		Now:    now,
 	})
@@ -40,6 +41,12 @@ func browsePrusaLink(ctx context.Context) ([]printer.Found, error) {
 		out = append(out, printer.Found{Name: f.Name, Host: f.Host, URL: f.URL})
 	}
 	return out, nil
+}
+
+func watchPrusaLink(ctx context.Context, seen func(printer.Found)) error {
+	return discovery.WatchPrusaLink(ctx, func(f discovery.PrusaLink) {
+		seen(printer.Found{Name: f.Name, Host: f.Host, URL: f.URL})
+	})
 }
 
 func (a *App) configurePrinter(creds printer.Credentials) {

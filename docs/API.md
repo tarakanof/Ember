@@ -207,7 +207,10 @@ ARCHITECTURE "Print status"; weak `ETag` + `?wait=` long-poll like
 `progress`, `last_error`, the newest `event` id, `job_id` and `printer`, so
 a 304 can hide every other field: read without `If-None-Match` for them), `GET/PUT /v1/print/config` (`enabled`, `url`
 `auto` or `http(s)://host[:port]`, `name`, `clock_app`, `notify_done`,
-`notify_attention`, `done_hold_min` 1-1440, 0 = 30; the password is env-only),
+`notify_attention`, `done_hold_min` 1-1440, 0 = 30, `show` `printing` (default:
+on the clock only while a print runs) or `on` (also while the printer is on
+and idle, as a Ready card); any other `show` value is stored as `printing`;
+the password is env-only),
 `GET/PUT /v1/quiet/config` (also drives the
 knob view's `quiet`), `GET/PUT /v1/brightness/config` (every `…/config`
 settings PUT above is merge semantics: the body is a JSON object whose omitted

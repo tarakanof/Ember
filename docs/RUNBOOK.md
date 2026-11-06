@@ -1526,7 +1526,7 @@ the smoke-run rules (scratch port, temp DB, `EMBER_MDNS_ADVERTISE=0`,
 
 **TC001 app and popups (#790).** `printer.clock_app` (default on) puts the
 print in the clock's rotation while a print runs (and 30 min after it
-finishes); `notify_done` and `notify_attention` gate the popups. On-device
+finishes; with `printer.show` `on` also while idle, see #809 below); `notify_done` and `notify_attention` gate the popups. On-device
 check, against a live printer (reads only; a scratch server never publishes
 to the real clock):
 
@@ -1548,11 +1548,47 @@ to the real clock):
    clock's loop shows the three cards one after the other (the ready-at and
    percent cards are pushed later than the first; if NG appends new apps
    to the end of its loop, report it).
-8. Idle check: with no print running, the clock's app loop holds no
+8. Idle check (with `printer.show` `printing`): with no print running, the clock's app loop holds no
    `ember-print*` entry and Ember pushed none (the app is not published when
    idle, so the link carries no extra traffic). The animated icons are
    `ember_print_h1..3_*.gif` in the clock's icon store; a clock reboot or move
    provisions them again, and until they exist the icon is drawn static.
+
+**Show while the printer is on (#809).** `printer.show` `on` (Ember.app:
+Settings › Printer › Clock › Show › "Whenever the printer is on") also keeps
+the app in the rotation while the printer is idle. On-device check, against
+the live server and printer (the scratch-server rules above still apply to
+any test server):
+
+1. Make sure the live server runs the Ember release that contains #809
+   (`curl -s $EMBER/version` shows it), and that Ember.app on this Mac is
+   that release (Ember menu › About Ember).
+2. In Ember.app, open Settings.
+3. Click Printer in the sidebar.
+4. Check that "Show the printer" is on.
+5. Check that "Show on the clock" is on.
+6. In the "Show" picker, choose "Whenever the printer is on".
+7. Switch the CORE One off with its power switch.
+8. Wait 3 minutes.
+9. Check that Status in Settings › Printer reads "Printer off".
+10. Switch the CORE One on and start a stopwatch.
+11. Watch the clock. Stop the stopwatch when the print app appears in its
+    rotation: the printer icon with the bed line right under the head, a
+    dim white nozzle that does not move, and `READY` in white. No popup
+    plays.
+12. On the printer's screen, open Preheat and choose PLA.
+13. Watch the clock while the printer heats: a second card joins, first
+    `NOZ` and the nozzle's degrees (the nozzle warms first), then `BED`
+    and the bed's degrees once the bed reads above 40 °C.
+14. Note whether the temperature card comes right after `READY` in the
+    clock's loop or somewhere else (NG may append a new app at the end).
+15. On the printer's screen, choose Cooldown.
+16. Wait until the bed and nozzle read 40 °C or less: the temperature card
+    leaves.
+17. In the "Show" picker, choose "While printing": the app leaves the
+    rotation within a few seconds.
+18. Send back: the stopwatch time from step 11, a photo of each card
+    (steps 11 and 13), and what you saw in step 14.
 
 ## AI usage card (threshold-gated, inside the main app)
 

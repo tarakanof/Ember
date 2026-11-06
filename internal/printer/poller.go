@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 )
@@ -25,6 +26,8 @@ const (
 	jobTries       = 3
 	versionTries   = 3
 	FallbackBrowse = 5 * time.Minute
+	WatchRefresh   = 5 * time.Minute
+	wakeRetries    = 2
 )
 
 var Backoff = []time.Duration{30 * time.Second, 60 * time.Second, 120 * time.Second, 300 * time.Second}
@@ -37,9 +40,12 @@ type Found struct {
 
 type BrowseFunc func(ctx context.Context) ([]Found, error)
 
+type WatchFunc func(ctx context.Context, seen func(Found)) error
+
 type Options struct {
 	Config func() Config
 	Browse BrowseFunc
+	Watch  WatchFunc
 	HTTP   *http.Client
 	Logger *slog.Logger
 	Now    func() time.Time
@@ -51,6 +57,7 @@ type Poller struct {
 
 	cfg    func() Config
 	browse BrowseFunc
+	watch  WatchFunc
 	hc     *http.Client
 	logger *slog.Logger
 	now    func() time.Time
@@ -80,6 +87,15 @@ type Poller struct {
 	thumbFails   int
 	thumbFailRef string
 	changeKey    string
+
+	watchKey  string
+	watchStop context.CancelFunc
+	watchDone chan struct{}
+	appeared  atomic.Bool
+	woke      atomic.Bool
+	retries   int
+	spellKey  string
+	watchAt   time.Time
 }
 
 func NewPoller(o Options) *Poller {
@@ -96,6 +112,7 @@ func NewPoller(o Options) *Poller {
 		State:  NewState(),
 		cfg:    o.Config,
 		browse: o.Browse,
+		watch:  o.Watch,
 		hc:     o.HTTP,
 		logger: o.Logger,
 		now:    o.Now,
@@ -128,6 +145,7 @@ func (p *Poller) Run(ctx context.Context) {
 	case <-p.wake:
 	default:
 	}
+	defer p.stopWatch()
 	for {
 		d := p.Step(ctx)
 		if ctx.Err() != nil {
@@ -150,6 +168,10 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	p.browsed = false
 	cfg := p.cfg()
 	cfg.ApplyDefaults()
+	defer p.syncWatch(ctx, cfg)
+	if p.appeared.Swap(false) {
+		p.backoff, p.retries = 0, wakeRetries
+	}
 	p.State.configure(cfg.Enabled, time.Duration(cfg.DoneHoldMin)*time.Minute, cfg.Name)
 	if !cfg.Enabled {
 		p.disconnect()
@@ -157,6 +179,9 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 		p.latched, p.loggedErr = "", ""
 		p.State.forget()
 		p.State.setOff(ErrCodeNone)
+		p.stopWatchAndWait()
+		p.woke.Store(false)
+		p.retries = 0
 		return PollDisabled
 	}
 	creds := p.credentials()
@@ -204,7 +229,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 				p.State.setTarget("", "", false)
 				p.State.setOffline(ErrCodeNotFound)
 				p.logOnce(ErrCodeNotFound, cmpErr(p.browseErr, errors.New("no _prusalink._tcp service on the network")))
-				return p.nextBackoff()
+				return p.offlineDelay()
 			}
 		}
 	}
@@ -213,7 +238,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	}
 	if p.client == nil {
 		p.State.setOffline(ErrCodeUnreachable)
-		return p.nextBackoff()
+		return p.offlineDelay()
 	}
 
 	err := p.poll(ctx)
@@ -232,7 +257,8 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 		if p.failures >= offlineAfter {
 			p.versionTried, p.versionFails = false, 0
 		}
-		p.failures, p.backoff = 0, 0
+		p.failures, p.backoff, p.retries = 0, 0, 0
+		p.woke.Store(false)
 		if p.loggedErr != "" {
 			p.logger.Info("printer reachable", "url", p.target)
 			p.loggedErr = ""
@@ -252,13 +278,110 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	p.failures++
 	p.logOnce(ErrCodeUnreachable, err)
 	if p.failures < offlineAfter {
+		if p.retries > 0 {
+			p.retries--
+			return PollActive
+		}
 		if p.active {
 			return PollActive
 		}
 		return PollIdle
 	}
 	p.State.setOffline(ErrCodeUnreachable)
-	return p.nextBackoff()
+	return p.offlineDelay()
+}
+
+func (p *Poller) syncWatch(ctx context.Context, cfg Config) {
+	s := p.State.At(p.now())
+	want := p.watch != nil && ctx.Err() == nil && cfg.Enabled && s.Phase == PhaseOffline &&
+		(s.LastError == ErrCodeUnreachable || s.LastError == ErrCodeNotFound)
+	if !want {
+		p.stopWatch()
+		return
+	}
+	identity, named := p.identity, p.matched
+	if p.client == nil {
+		identity, named = "", false
+	}
+	match := watchMatcher(cfg, identity, named)
+	key := fmt.Sprint(cfg.URL, "\x00", cfg.Name, "\x00", identity, "\x00", named)
+	if spell := latchKey(cfg, p.credentials()); spell != p.spellKey {
+		p.stopWatchAndWait()
+		p.spellKey = spell
+		p.woke.Store(false)
+		p.retries = 0
+	}
+	now := p.now()
+	if p.watchStop != nil && p.watchKey == key && now.Sub(p.watchAt) < WatchRefresh {
+		select {
+		case <-p.watchDone:
+		default:
+			return
+		}
+	}
+	p.stopWatch()
+	p.watchAt = now
+	wctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	p.watchKey, p.watchStop, p.watchDone = key, cancel, done
+	watch, logger := p.watch, p.logger
+	go func() {
+		defer close(done)
+		err := watch(wctx, func(f Found) {
+			if wctx.Err() == nil && match(f) && p.woke.CompareAndSwap(false, true) {
+				p.appeared.Store(true)
+				p.Wake()
+			}
+		})
+		if err != nil && wctx.Err() == nil {
+			logger.Debug("printer mDNS watch ended", "err", err)
+		}
+	}()
+}
+
+func (p *Poller) stopWatchAndWait() {
+	done := p.watchDone
+	p.stopWatch()
+	if done != nil {
+		<-done
+	}
+}
+
+func (p *Poller) stopWatch() {
+	if p.watchStop == nil {
+		return
+	}
+	p.watchStop()
+	p.watchKey, p.watchStop, p.watchDone = "", nil, nil
+}
+
+func watchMatcher(cfg Config, identity string, named bool) func(Found) bool {
+	if !cfg.Auto() {
+		want := strings.ToLower(hostnameOf(cfg.URL))
+		named := strings.IndexFunc(want, unicode.IsLetter) >= 0 && !strings.Contains(want, ":")
+		return func(f Found) bool {
+			if want == "" {
+				return false
+			}
+			if strings.ToLower(hostnameOf(f.URL)) == want {
+				return true
+			}
+			return named && firstLabel(strings.ToLower(f.Host)) == firstLabel(want)
+		}
+	}
+	name := cfg.Name
+	return func(f Found) bool {
+		if identity != "" && strings.TrimSuffix(f.Host, ".") == identity {
+			return true
+		}
+		if identity != "" && named {
+			return false
+		}
+		if _, matched := Choose([]Found{f}, name); matched {
+			return true
+		}
+		return identity == ""
+	}
 }
 
 func latchKey(cfg Config, c Credentials) string {
@@ -272,6 +395,14 @@ func latchKey(cfg Config, c Credentials) string {
 
 func (p *Poller) fallbackDue() bool {
 	return !p.now().Before(p.fallbackAt)
+}
+
+func (p *Poller) offlineDelay() time.Duration {
+	if p.retries > 0 {
+		p.retries--
+		return PollActive
+	}
+	return p.nextBackoff()
 }
 
 func (p *Poller) nextBackoff() time.Duration {
@@ -393,6 +524,19 @@ func squash(s string) string {
 	return b.String()
 }
 
+func firstLabel(h string) string {
+	label, _, _ := strings.Cut(h, ".")
+	return label
+}
+
+func hostnameOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(u.Hostname(), ".")
+}
+
 func hostOf(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -494,6 +638,13 @@ func (p *Poller) notifyIfChanged() {
 		s.Name, s.Material, s.ThumbVersion, evID, s.HoldUntil.Unix(), s.LastError, s.JobID, s.Printer)
 	if s.Phase == PhaseHeating {
 		key += fmt.Sprint(int(s.Nozzle), int(s.NozzleTarget), int(s.Bed), int(s.BedTarget))
+	}
+	if p.cfg().ShowWhenOn() {
+		key += "|on"
+		if s.Phase == PhaseIdle && s.Warm() {
+			nozzle, deg := s.ReadyTemp()
+			key += fmt.Sprint("|warm", nozzle, deg)
+		}
 	}
 	if key == p.changeKey {
 		return

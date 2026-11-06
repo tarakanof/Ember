@@ -15,6 +15,9 @@ const (
 	DefaultDoneHoldMin = 30
 	DefaultUser        = "maker"
 
+	ShowPrinting = "printing"
+	ShowOn       = "on"
+
 	PasswordEnv = "EMBER_PRUSALINK_PASSWORD"
 	UserEnv     = "EMBER_PRUSALINK_USER"
 
@@ -30,9 +33,12 @@ type Config struct {
 	NotifyDone      *bool  `json:"notify_done"`
 	NotifyAttention *bool  `json:"notify_attention"`
 	DoneHoldMin     int    `json:"done_hold_min"`
+	Show            string `json:"show"`
 }
 
 func (c Config) Auto() bool { return c.URL == "" || c.URL == URLAuto }
+
+func (c Config) ShowWhenOn() bool { return c.Show == ShowOn }
 
 func (c Config) ClockAppEnabled() bool        { return c.ClockApp == nil || *c.ClockApp }
 func (c Config) NotifyDoneEnabled() bool      { return c.NotifyDone == nil || *c.NotifyDone }
@@ -59,6 +65,9 @@ func (c *Config) FillAbsent() {
 
 func (c *Config) Normalize() {
 	c.URL = strings.TrimRight(strings.TrimSpace(c.URL), "/")
+	if c.Show != ShowOn {
+		c.Show = ShowPrinting
+	}
 	c.FillAbsent()
 }
 

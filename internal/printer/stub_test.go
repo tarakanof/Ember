@@ -40,6 +40,7 @@ type stubPrinter struct {
 	unauth     int
 	staleSent  int
 	authorized []string
+	down       bool
 }
 
 func newStubPrinter(t *testing.T) *stubPrinter {
@@ -96,6 +97,17 @@ func authParams(h string) map[string]string {
 func (s *stubPrinter) serve(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.down {
+		s.hits["down:"+r.URL.Path]++
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				_ = conn.Close()
+				return
+			}
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
 	p := authParams(r.Header.Get("Authorization"))
 	if len(p) == 0 {
 		s.challengeLocked(w, false)

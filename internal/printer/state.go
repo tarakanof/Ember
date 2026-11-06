@@ -55,7 +55,25 @@ const (
 	heatingMargin   = 3.0
 	maxEvents       = 32
 	MaxNameRunes    = 32
+	WarmAbove       = 40.0
+	DegreeStep      = 5
 )
+
+func StepDegrees(v float64) int {
+	return int(math.Round(v/DegreeStep)) * DegreeStep
+}
+
+func (s Snapshot) Warm() bool {
+	return StepDegrees(s.Bed) > WarmAbove || StepDegrees(s.Nozzle) > WarmAbove
+}
+
+func (s Snapshot) ReadyTemp() (nozzle bool, deg int) {
+	bed, noz := StepDegrees(s.Bed), StepDegrees(s.Nozzle)
+	if bed <= WarmAbove && noz > bed {
+		return true, noz
+	}
+	return false, bed
+}
 
 type Event struct {
 	ID    uint64    `json:"id"`

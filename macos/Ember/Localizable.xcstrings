@@ -2053,6 +2053,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Print · Temperature" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Printer" : {},
     "Printer Error" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2301,6 +2305,7 @@
     },
     "Short break" : {},
     "Shortcut name" : {},
+    "Show" : {},
     "Show %@" : {
       "comment" : "Button that opens a Settings pane, e.g. Show Weather"
     },
@@ -3031,6 +3036,10 @@
     "When the knob's inactivity timer last restarted: a touch, a turn or press, or the knob waking for a mood, demo or update screen." : {},
     "When usage cards join the rotation is set in Sources › Agents. Server-wide." : {},
     "When you focus" : {},
+    "Whenever the printer is on" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Where the server gets conditions and the forecast" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -3049,6 +3058,10 @@
       "extractionState" : "manual"
     },
     "While it's raining, snowing or storming, the clock animates it over the conditions tile and weather popups. The previews here don't show it. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "While printing" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },

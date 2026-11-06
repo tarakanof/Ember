@@ -76,10 +76,34 @@ private func state(_ json: String) throws -> PrinterState {
     let json = #"{"enabled":true,"url":"http://10.0.0.5","name":"Mk4","clock_app":false,"notify_done":true,"notify_attention":false,"done_hold_min":45}"#
     let c = try JSONDecoder().decode(PrinterConfig.self, from: Data(json.utf8))
     #expect(c == PrinterConfig(enabled: true, url: "http://10.0.0.5", name: "Mk4", clockApp: false,
-                               notifyDone: true, notifyAttention: false, doneHoldMin: 45))
+                               notifyDone: true, notifyAttention: false, doneHoldMin: 45, show: .printing))
     let out = try JSONSerialization.jsonObject(with: JSONEncoder().encode(c)) as? [String: Any]
     #expect(out?["clock_app"] as? Bool == false && out?["done_hold_min"] as? Int == 45)
     #expect(out?["password"] == nil)
+}
+
+@Test func theShowPickerRoundTripsAndFallsBackToPrinting() throws {
+    let on = try JSONDecoder().decode(PrinterConfig.self, from: Data(#"{"enabled":true,"show":"on"}"#.utf8))
+    #expect(on.show == .on)
+    let out = try JSONSerialization.jsonObject(with: JSONEncoder().encode(on)) as? [String: Any]
+    #expect(out?["show"] as? String == "on")
+    for json in [#"{}"#, #"{"show":"always"}"#, #"{"show":""}"#, #"{"show":7}"#] {
+        let c = try JSONDecoder().decode(PrinterConfig.self, from: Data(json.utf8))
+        #expect(c.show == .printing, "\(json)")
+    }
+    #expect(PrinterShow.allCases.map(\.rawValue) == ["printing", "on"])
+    #expect(PrinterShow.printing.title.key == "While printing" && PrinterShow.on.title.key == "Whenever the printer is on")
+}
+
+@MainActor
+@Test func choosingWhenToShowSavesItToTheServer() async {
+    let saves = SaveLog()
+    let model = await loadedModel(PrinterConfig(enabled: true), saves: saves)
+    #expect(model.config.draft.show == .printing)
+    model.config.draft.show = .on
+    #expect(model.config.hasUnsavedChanges)
+    await model.config.saveNow()
+    #expect(await saves.saved.last?.show == .on)
 }
 
 @Test func emptyUrlMeansAuto() throws {

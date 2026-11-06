@@ -253,6 +253,18 @@ func BrowsePrusaLink(ctx context.Context, timeout time.Duration) ([]PrusaLink, e
 	return browsePrusaLink(ctx, timeout, dnssd.LookupType)
 }
 
+func prusaLinkOf(e dnssd.BrowseEntry) (PrusaLink, bool) {
+	port := e.Port
+	if port == 0 {
+		port = 80
+	}
+	u := baseURLFor(e.IPs, port)
+	if u == "" {
+		return PrusaLink{}, false
+	}
+	return PrusaLink{Name: e.Name, Host: e.Host, URL: u}, true
+}
+
 func browsePrusaLink(ctx context.Context, timeout time.Duration, lookupMDNS mdnsLookup) ([]PrusaLink, error) {
 	bctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -262,12 +274,8 @@ func browsePrusaLink(ctx context.Context, timeout time.Duration, lookupMDNS mdns
 		order []string
 	)
 	_ = lookupMDNS(bctx, prusaLinkServiceType, func(e dnssd.BrowseEntry) {
-		port := e.Port
-		if port == 0 {
-			port = 80
-		}
-		u := baseURLFor(e.IPs, port)
-		if u == "" {
+		pl, ok := prusaLinkOf(e)
+		if !ok {
 			return
 		}
 		mu.Lock()
@@ -275,7 +283,7 @@ func browsePrusaLink(ctx context.Context, timeout time.Duration, lookupMDNS mdns
 		if _, dup := seen[e.Host]; !dup {
 			order = append(order, e.Host)
 		}
-		seen[e.Host] = PrusaLink{Name: e.Name, Host: e.Host, URL: u}
+		seen[e.Host] = pl
 	}, func(dnssd.BrowseEntry) {})
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -285,4 +293,20 @@ func browsePrusaLink(ctx context.Context, timeout time.Duration, lookupMDNS mdns
 		out = append(out, seen[h])
 	}
 	return out, nil
+}
+
+func WatchPrusaLink(ctx context.Context, seen func(PrusaLink)) error {
+	return watchPrusaLink(ctx, dnssd.LookupType, seen)
+}
+
+func watchPrusaLink(ctx context.Context, lookupMDNS mdnsLookup, seen func(PrusaLink)) error {
+	err := lookupMDNS(ctx, prusaLinkServiceType, func(e dnssd.BrowseEntry) {
+		if pl, ok := prusaLinkOf(e); ok {
+			seen(pl)
+		}
+	}, func(dnssd.BrowseEntry) {})
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
 }

@@ -186,7 +186,7 @@ The aggregator and the only writer to the device.
     unreachable the snapshot stays in the store and the next start restores it.
 - **Rotating tiles — one module** (`cmd/ember/coordinator_tiles.go`, #145).
   The standalone apps Ember owns (`ember-weather`, `ember-forecast`,
-  `ember-air`, `ember-meet`, and the print app's `ember-print`, `ember-print-eta`, `ember-print-pct`) are one `tile` value each in `tiles`: app name,
+  `ember-air`, `ember-meet`, and the print app's `ember-print`, `ember-print-eta`, `ember-print-pct`, `ember-print-temp`) are one `tile` value each in `tiles`: app name,
   preview card, `toggle` (the tile's own switch), `live` (device-only gate:
   feature on, data fresh, meeting inside the lead window) and `view`, which
   resolves the content once into both the device payload and the preview
@@ -2756,6 +2756,40 @@ keeps it on the default transport: mDNS browsing is injected
   rediscovered. Nothing found: `offline` with `not_found`, retried on the
   backoff below. Host networking is required for mDNS (production runs
   `--network host`).
+- **Coming online** (#809). While the phase is `offline` with
+  `unreachable` or `not_found`, the poller keeps one long-lived mDNS
+  listener on `_prusalink._tcp` (`discovery.WatchPrusaLink`, a
+  `dnssd.LookupType` that sends one query per multicast interface when it
+  starts and then only
+  reads the multicast traffic, injected as `Options.Watch` like the
+  browse). A printer announces itself when it boots; when the announced
+  service is the chosen printer (auto: the same mDNS host once a printer
+  was picked by name, since the poller never moves to a neighbour; on a
+  fallback printer also one that fits the name rule; any printer while
+  none is chosen, as after a rename or a switch back from a manual URL;
+  manual URL: a service
+  whose IPv4 address is the URL's host, or whose mDNS host shares the URL
+  host name's first label, so `prusa-core-one.lan` matches
+  `prusa-core-one.local`), the poller is woken
+  for an immediate step, then retried twice at 5 s (PrusaLink's HTTP can
+  answer a moment after the announcement) before the backoff starts again
+  at 30 s, so a printer switched on is polled within a second instead of
+  up to 5 min later. One wake per offline spell: after it, announcements
+  are ignored until a poll succeeds, the printer is disabled, or the target
+  (`printer.url`, `printer.name` or the credentials) changes, which gives
+  the new target its own wake. So a printer
+  whose mDNS answers while its HTTP doesn't (the poller's own browses
+  refresh the listener's cache) cannot hold the backoff short. The
+  listener stops when the printer is reachable again, disabled, without a
+  password, or latched on a wrong password, and restarts with a fresh cache
+  when the chosen printer or `printer.url` changes, and at the first poll
+  step at least 5 min after it started (`WatchRefresh`; with the backoff
+  at 300 s that is every step: one query, so a network change on the
+  server can't leave it deaf for a long off spell). It polls only through
+  that one wake: without multicast (no announcements, or the lookup fails) the
+  backoff is all there is. Each offline spell's listener starts with an
+  empty cache, so the first announcement it sees is the wake; a printer
+  whose mDNS answers while its HTTP doesn't spends that wake at once.
 - **Identity.** A different printer (another mDNS host, another manual URL)
   or disabling the printer clears the state: job, anchors, events, holds
   and the edge baseline, so the next printer's first poll is a baseline
@@ -2867,7 +2901,11 @@ keeps it on the default transport: mDNS browsing is injected
   the newest version (or its error) only. Contract: DEVICE-PROTOCOL "Print".
 - **Changes** notify `topicPrint` when a reader-visible value moves: phase,
   whole percent, an anchor, an event, the hold, the error, name, thumbnail,
-  printer info; temperatures only while heating.
+  printer info; temperatures while heating, and while idle with
+  `show: "on"` the 5° step of the value the Ready temperature card shows
+  (`Snapshot.ReadyTemp`: the bed, or the nozzle while the bed is cool) and
+  the moment neither reads above 40 °C (`printer.WarmAbove`); a cool idle
+  printer adds nothing.
 - **`/v1/print/state`** is a state feed like `/state`: `serveStateFeed` with
   a weak `ETag` and the `?wait=` long-poll. The tag moves on `enabled`,
   phase, whole percent, `last_error`, the newest event id, job id and the
@@ -2880,26 +2918,29 @@ keeps it on the default transport: mDNS browsing is injected
   print and wakes about once per percent. A 304 can therefore carry stale
   values of those fields; the Printer settings pane reads without
   `If-None-Match`.
-- **Config** `printer.{enabled,url,name,clock_app,notify_done,notify_attention,done_hold_min}`
+- **Config** `printer.{enabled,url,name,clock_app,notify_done,notify_attention,done_hold_min,show}`
   in `config.json` and the overlay key `printer_json` (`PUT /v1/print/config`,
   owner); `/admin/reload` re-reads it and wakes the poller. `clock_app` and
-  the notify toggles drive the TC001 app and popups below. `/admin/doctor` has a
+  the notify toggles drive the TC001 app and popups below. `show` (#809) is
+  `printing` (default) or `on`; any other value, or none, is `printing`. `/admin/doctor` has a
   `printer` check (Warn for a missing or wrong password, not found,
   unreachable; never Fail, a switched-off printer is normal).
 - **TC001 app and popups** (#790; `internal/render/print.go`,
-  `cmd/ember/coordinator_print.go`). The app is three rotating tiles on the
+  `cmd/ember/coordinator_print.go`). The app is four tiles, at most three in the rotation at once, on the
   existing `tiles` ledger, so the clock's own rotation does the 3 s card
   change and nothing is pushed per card: `ember-print` (time left + hourglass,
   or the percent when there is no estimate; the status card in every other
   phase), `ember-print-eta` (ready-at clock) and `ember-print-pct`, the last
-  two only while printing or preparing with an estimate. Each lasts
+  two only while printing or preparing with an estimate, and
+  `ember-print-temp` only for the Ready card below. Each lasts
   `durationMs` 3 s. In the rotation while the phase is heating, preparing,
   printing, finishing, paused or attention, and for `finished` / `stopped`
   while `Snapshot.HoldUntil` is set (so it leaves `done_hold_min` after the
   edge although the printer still says FINISHED, and a restart that saw no
-  edge never shows it); absent for idle, offline, off and error.
-  `printer.clock_app` false removes it, a disabled printer and an idle one
-  touch the clock not at all (`reconcile` only clears what it tracks).
+  edge never shows it); absent for offline, off and error, and for idle
+  unless `printer.show` is `on`.
+  `printer.clock_app` false removes it, a disabled printer, and an idle one
+  in `printing` mode, touch the clock not at all (`reconcile` only clears what it tracks).
   Heating shows the nozzle degrees and a heat bar, finishing `COOL`, paused
   `PAUSE`, finished `DONE`, stopped `STOP`; attention a native `PRINT` label
   with `textBlinkMs` (the clock blinks it, no frames from Ember). Colour
@@ -2937,6 +2978,21 @@ keeps it on the default transport: mDNS browsing is injected
   the popup shows without sound). `notify_done` gates `finished`,
   `notify_attention` gates `attention` and `error`; `started` and `stopped`
   never pop.
+  **Ready** (#809, `printer.show: "on"`, phase `idle`): `ember-print` shows
+  the CORE One icon with the bed at its top row and no part, the nozzle
+  pixel dim white and no sweep, and `READY` in white from col 9; no bottom
+  bar. `ember-print-temp` joins as a second card only while the bed or
+  the nozzle reads above 40 °C in 5° steps (so the card never shows
+  `40°`): `BED` (grey) and the bed's degrees, or `NOZ` and the nozzle's
+  when the bed is cool, with `°` when it fits in col 31. One value per
+  card: both don't fit in 23 columns of the 3×5 font. After a print the
+  printer stays FINISHED (or STOPPED) until its screen is touched, so in
+  `on` mode the app still leaves when the done hold ends and the Ready card
+  comes back once the printer reads idle. A printer coming online pops nothing; offline, off,
+  disabled and error stay out of the rotation in both modes, and
+  `printing` mode is unchanged. The Settings preview shows the Ready
+  cards while the idle printer is in the rotation, the printing sample
+  otherwise.
 
 ### Knob controls — `cmd/ember/controls*.go`, `macos/Sources/EmberKit/Controls`, `macos/Ember/Services/*Controls*` (#515)
 
@@ -6174,7 +6230,8 @@ with an 8px icon, so nothing jumps sideways as the device rotates between apps:
 
 `TestEveryBottomBarStartsAtBarX0` pins every app's row-7 bar to `barX0`.
 The print app (see "Print status") follows it: icon cols 0-7, cards from col 9,
-hourglass at cols 27-29, bar on row 7 from col 8.
+hourglass at cols 27-29, bar on row 7 from col 8; its Ready cards have no
+bar at all (the layout test checks row 7 stays dark past the icon).
 Hourly data (weather and AQI strips, forecast bars) share one rule, `hourSlot`:
 hour *i* of an N-hour window owns `24/N` whole columns from col 8. Windows that
 divide 24 fill the bar; others (22 h) leave an even dark tail on the right

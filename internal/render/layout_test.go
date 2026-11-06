@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -92,6 +93,12 @@ func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 		"pomodoro preview":          row7FromFrame(RenderPomodoro(pomo)),
 	}
 	for name, f := range printGoldenCases() {
+		if strings.HasPrefix(name, "ready") {
+			if got := firstBarCol(row7FromFrame(&f)); got != -1 {
+				t.Errorf("print %s: row-7 bar from col %d, want no bar", name, got)
+			}
+			continue
+		}
 		cases["print "+name] = row7FromFrame(&f)
 	}
 	for _, phase := range []string{PrintPhasePrinting, PrintPhaseAttention, PrintPhaseFinished, PrintPhaseHeating} {

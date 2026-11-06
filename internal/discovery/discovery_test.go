@@ -271,3 +271,37 @@ func TestBrowsePrusaLinkReturnsCtxErr(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestWatchPrusaLinkReportsEachAppearanceUntilCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var asked string
+	var lookupCtx context.Context
+	lookup := func(ctx context.Context, svc string, add dnssd.AddFunc, _ dnssd.RmvFunc) error {
+		asked, lookupCtx = svc, ctx
+		add(dnssd.BrowseEntry{Name: "No address", Host: "ghost.local.", Port: 80})
+		add(dnssd.BrowseEntry{Name: "Prusa CORE One", Host: "prusa-core-one.local.", Port: 80, IPs: []net.IP{net.ParseIP("192.168.0.50")}})
+		cancel()
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	var seen []PrusaLink
+	err := watchPrusaLink(ctx, lookup, func(p PrusaLink) { seen = append(seen, p) })
+	if err != nil {
+		t.Fatalf("a cancelled watch returned %v, want nil", err)
+	}
+	if asked != "_prusalink._tcp.local." || lookupCtx != ctx {
+		t.Fatalf("watched %q with ctx %v", asked, lookupCtx)
+	}
+	want := PrusaLink{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: "http://192.168.0.50:80"}
+	if len(seen) != 1 || seen[0] != want {
+		t.Fatalf("seen = %+v, want [%+v]", seen, want)
+	}
+}
+
+func TestWatchPrusaLinkReportsALookupFailure(t *testing.T) {
+	boom := errors.New("no multicast interface")
+	lookup := func(context.Context, string, dnssd.AddFunc, dnssd.RmvFunc) error { return boom }
+	if err := watchPrusaLink(context.Background(), lookup, func(PrusaLink) {}); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want %v", err, boom)
+	}
+}
