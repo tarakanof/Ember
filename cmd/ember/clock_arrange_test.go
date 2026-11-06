@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
@@ -22,14 +23,20 @@ func liveLikeRotation() []map[string]any {
 
 func newArrangeClock(t *testing.T, apps []map[string]any) (*App, *clockStub) {
 	t.Helper()
-	a, _, stub := newClockApp(t)
+	a, _, stub := newArrangeClockServer(t, apps)
+	return a, stub
+}
+
+func newArrangeClockServer(t *testing.T, apps []map[string]any) (*App, *httptest.Server, *clockStub) {
+	t.Helper()
+	a, srv, stub := newClockApp(t)
 	stub.mu.Lock()
 	stub.apps = apps
 	stub.mu.Unlock()
 	a.coord.publisher = clockPublisher{a.clock}
 	a.coord.onPushed = a.arrangeClockApp
 	t.Cleanup(a.clockJobs.Wait)
-	return a, stub
+	return a, srv, stub
 }
 
 func pushTile(t *testing.T, a *App, app string) {
@@ -148,31 +155,142 @@ func TestArrangeRetriesAfterAFailedRead(t *testing.T) {
 
 func TestArrangeSkipsASettledAppUntilTheClockReboots(t *testing.T) {
 	var g clockArranger
+	pass := func(settle bool) {
+		t.Helper()
+		gen, names := g.take()
+		var settled []string
+		if settle {
+			settled = names
+		}
+		if more := g.done(gen, names, settled, 0); !more {
+			t.Fatal("a successful pass stopped the job loop")
+		}
+		if _, rest := g.take(); rest != nil {
+			t.Fatalf("pending after the pass: %v", rest)
+		}
+	}
 	if !g.want("http://clock", "ember-print") {
 		t.Fatal("first want did not start a job")
 	}
-	base, names := g.take()
-	if more := g.done(base, names, names, false); !more {
-		t.Fatal("a successful pass stopped the job loop")
-	}
-	if _, rest := g.take(); rest != nil {
-		t.Fatalf("pending after the pass: %v", rest)
-	}
+	pass(true)
 	if g.want("http://clock", "ember-print") {
 		t.Fatal("a settled app started another job")
 	}
 	if !g.want("http://other", "ember-print") {
 		t.Fatal("a new clock URL kept the old clock's settled apps")
 	}
-	base, names = g.take()
-	g.done(base, names, names, false)
-	_, _ = g.take()
-	if g.want("http://other", "ember-print") {
-		t.Fatal("a settled app started another job")
-	}
+	pass(true)
 	g.forget()
 	if !g.want("http://other", "ember-print") {
 		t.Fatal("forget kept the settled apps")
+	}
+	pass(true)
+	if !g.recheck() {
+		t.Fatal("recheck did not queue the settled apps")
+	}
+	if _, names := g.take(); !slices.Equal(names, []string{"ember-print"}) {
+		t.Fatalf("recheck queued %v, want [ember-print]", names)
+	}
+}
+
+func TestArrangeIgnoresAPassFromBeforeAReboot(t *testing.T) {
+	var g clockArranger
+	g.want("http://clock", "ember-print")
+	gen, names := g.take()
+	g.forget()
+	g.want("http://clock", "ember-air")
+	g.done(gen, names, names, 0)
+	if g.settled["ember-print"] {
+		t.Fatal("a pass from before the reboot settled ember-print")
+	}
+}
+
+func TestArrangeRetriesAPendingAppOnAnotherAppsPush(t *testing.T) {
+	a, stub := newArrangeClock(t, liveLikeRotation())
+	now := time.Now()
+	a.arranger.now = func() time.Time { return now }
+	stub.mu.Lock()
+	stub.orderFail = true
+	stub.mu.Unlock()
+	pushTile(t, a, "ember-print")
+	if n := len(stub.puts()); n != 1 {
+		t.Fatalf("order writes = %d, want the one that failed", n)
+	}
+	stub.mu.Lock()
+	stub.orderFail = false
+	stub.mu.Unlock()
+	now = now.Add(clockArrangeRetry)
+	notePush(a, "ember")
+	if slot, _ := stub.slotOf("ember-print"); slot != 3 {
+		t.Fatalf("ember-print slot = %v after the base app's push, want 3", slot)
+	}
+}
+
+func TestSwitchingAnOffAppOnGivesItASlot(t *testing.T) {
+	apps := append(liveLikeRotation(), map[string]any{"name": "ember-print", "enabled": false, "inLoop": false, "present": true, "origin": "pushed"})
+	a, srv, stub := newArrangeClockServer(t, apps)
+	stub.version = "1.2.3"
+	pushTile(t, a, "ember-print")
+	if puts := stub.puts(); len(puts) != 0 {
+		t.Fatalf("a switched-off app was arranged: %v", puts)
+	}
+	resp, b := devReq(t, srv, "PUT", "/v1/device/apps/ember-print/enabled", testToken, `{"enabled":true}`)
+	mustOK(t, "switch on", resp, b)
+	a.clockJobs.Wait()
+	if slot, _ := stub.slotOf("ember-print"); slot != 3 {
+		t.Fatalf("ember-print slot = %v after it was switched on, want 3", slot)
+	}
+}
+
+func TestArrangeKeepsScriptsWhileScriptingIsStopped(t *testing.T) {
+	apps := append(liveLikeRotation(), map[string]any{"name": "ember_boot", "enabled": false, "inLoop": false, "present": true, "origin": "script"})
+	a, stub := newArrangeClock(t, apps)
+	now := time.Now()
+	a.arranger.now = func() time.Time { return now }
+	pushTile(t, a, "ember-print")
+	if puts := stub.puts(); len(puts) != 0 {
+		t.Fatalf("wrote the order while scripting may be stopped: %v", puts)
+	}
+	stub.mu.Lock()
+	stub.scripting = boolPtr(false)
+	stub.mu.Unlock()
+	now = now.Add(clockArrangeScriptsWait)
+	notePush(a, "ember")
+	if puts := stub.puts(); len(puts) != 0 {
+		t.Fatalf("wrote the order while scripting is stopped: %v", puts)
+	}
+	stub.mu.Lock()
+	stub.scripting = boolPtr(true)
+	stub.mu.Unlock()
+	now = now.Add(clockArrangeScriptsWait)
+	notePush(a, "ember")
+	puts := stub.puts()
+	if len(puts) != 1 {
+		t.Fatalf("order writes = %v, want one once scripting runs", puts)
+	}
+	if got := decodeOrderPut(t, puts[0]); !slices.Contains(got.Disabled, "ember_boot") {
+		t.Fatalf("disabled = %v, want the switched-off script kept off", got.Disabled)
+	}
+}
+
+func TestArrangeWaitsForAnOrderChangeInFlight(t *testing.T) {
+	a, stub := newArrangeClock(t, liveLikeRotation())
+	stub.mu.Lock()
+	stub.pushedLocked("ember-print")
+	stub.mu.Unlock()
+	release := a.holdClockRotation()
+	a.coord.pushed("ember-print")
+	time.Sleep(100 * time.Millisecond)
+	stub.mu.Lock()
+	gets := stub.appsGets
+	stub.mu.Unlock()
+	release()
+	a.clockJobs.Wait()
+	if gets != 0 {
+		t.Fatalf("read the app list %d time(s) while another order change held the lock", gets)
+	}
+	if slot, _ := stub.slotOf("ember-print"); slot != 3 {
+		t.Fatalf("ember-print slot = %v after the lock was released, want 3", slot)
 	}
 }
 

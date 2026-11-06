@@ -47,6 +47,8 @@ type clockStub struct {
 	onPuts    []string
 	orderCode int
 	uptime    int64
+	scripting *bool
+	appsGets  int
 }
 
 func newClockStub(t *testing.T) *clockStub {
@@ -106,10 +108,14 @@ func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
 		if uptime == 0 {
 			uptime = 42
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		dev := map[string]any{
 			"uid": s.uid, "boardType": s.board, "version": version, "uptimeSeconds": uptime,
 			"wifiRssi": -61, "ipAddress": "192.0.2.66",
-		})
+		}
+		if s.scripting != nil {
+			dev["scriptingRunning"] = *s.scripting
+		}
+		_ = json.NewEncoder(w).Encode(dev)
 	case "GET /api/v1/apps":
 		if s.appsFail || s.appsFailN > 0 {
 			if s.appsFailN > 0 {
@@ -262,6 +268,7 @@ func (s *clockStub) serveApps(w http.ResponseWriter, r *http.Request) bool {
 	if len(s.appsSlow) > 0 {
 		delay, s.appsSlow = s.appsSlow[0], s.appsSlow[1:]
 	}
+	s.appsGets++
 	snapshot, _ := json.Marshal(s.apps)
 	s.mu.Unlock()
 	switch {

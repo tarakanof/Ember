@@ -455,6 +455,7 @@ func (a *App) putClockConfig(ctx context.Context, patch []byte) (clockPutResult,
 			}
 			res.rotationWritten = true
 			rotation = a.readBackClockRotation(ctx)
+			a.recheckClockApps()
 		}
 	}
 	a.pauseClockSync()

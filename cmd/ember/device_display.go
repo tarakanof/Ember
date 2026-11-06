@@ -124,5 +124,6 @@ func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setClockRotation(a.readBackClockRotation(ctx))
+	a.recheckClockApps()
 	w.WriteHeader(http.StatusOK)
 }

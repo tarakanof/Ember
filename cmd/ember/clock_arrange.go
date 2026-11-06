@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,12 +13,18 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
-const clockArrangeRetry = 30 * time.Second
+const (
+	clockArrangeRetry       = 30 * time.Second
+	clockArrangeScriptsWait = 5 * time.Minute
+)
+
+var errClockScriptingStopped = errors.New("clock scripting is stopped: its scripts read as off")
 
 type clockArranger struct {
 	mu      sync.Mutex
 	now     func() time.Time
 	base    string
+	gen     uint64
 	settled map[string]bool
 	pending map[string]bool
 	running bool
@@ -31,48 +38,70 @@ func (g *clockArranger) clock() time.Time {
 	return time.Now()
 }
 
-func (g *clockArranger) want(base, app string) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if base != g.base || g.settled == nil {
-		g.base = base
-		g.settled = map[string]bool{}
-		g.pending = map[string]bool{}
-		g.retryAt = time.Time{}
-	}
-	if g.settled[app] {
-		return false
-	}
-	g.pending[app] = true
-	if g.running || g.clock().Before(g.retryAt) {
+func (g *clockArranger) resetLocked(base string) {
+	g.base = base
+	g.gen++
+	g.settled = map[string]bool{}
+	g.pending = map[string]bool{}
+	g.retryAt = time.Time{}
+}
+
+func (g *clockArranger) startLocked() bool {
+	if len(g.pending) == 0 || g.running || g.clock().Before(g.retryAt) {
 		return false
 	}
 	g.running = true
 	return true
 }
 
-func (g *clockArranger) take() (base string, names []string) {
+func (g *clockArranger) want(base, app string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if base != g.base || g.settled == nil {
+		g.resetLocked(base)
+	}
+	if !g.settled[app] {
+		g.pending[app] = true
+	}
+	return g.startLocked()
+}
+
+func (g *clockArranger) recheck() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.settled == nil {
+		return false
+	}
+	for n := range g.settled {
+		g.pending[n] = true
+	}
+	clear(g.settled)
+	g.retryAt = time.Time{}
+	return g.startLocked()
+}
+
+func (g *clockArranger) take() (gen uint64, names []string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	names = slices.Sorted(maps.Keys(g.pending))
 	if len(names) == 0 {
 		g.running = false
-		return "", nil
+		return g.gen, nil
 	}
 	clear(g.pending)
-	return g.base, names
+	return g.gen, names
 }
 
-func (g *clockArranger) done(base string, names, settled []string, failed bool) (more bool) {
+func (g *clockArranger) done(gen uint64, names, settled []string, retry time.Duration) (more bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if base != g.base || g.settled == nil {
+	if gen != g.gen {
 		return true
 	}
 	for _, n := range settled {
 		g.settled[n] = true
 	}
-	if !failed {
+	if retry <= 0 {
 		return true
 	}
 	for _, n := range names {
@@ -80,7 +109,7 @@ func (g *clockArranger) done(base string, names, settled []string, failed bool) 
 			g.pending[n] = true
 		}
 	}
-	g.retryAt = g.clock().Add(clockArrangeRetry)
+	g.retryAt = g.clock().Add(retry)
 	g.running = false
 	return false
 }
@@ -88,9 +117,7 @@ func (g *clockArranger) done(base string, names, settled []string, failed bool) 
 func (g *clockArranger) forget() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.settled = nil
-	g.pending = nil
-	g.retryAt = time.Time{}
+	g.resetLocked(g.base)
 }
 
 func (a *App) arrangeClockApp(app string) {
@@ -102,17 +129,32 @@ func (a *App) arrangeClockApp(app string) {
 	}
 }
 
+func (a *App) recheckClockApps() {
+	if clockDisabled() {
+		return
+	}
+	if a.arranger.recheck() {
+		a.clockJobs.Go(a.runClockArrange)
+	}
+}
+
 func (a *App) runClockArrange(ctx context.Context) {
 	for {
-		base, names := a.arranger.take()
+		gen, names := a.arranger.take()
 		if len(names) == 0 {
 			return
 		}
 		settled, err := a.arrangeClockApps(ctx, names)
-		if err != nil {
+		var retry time.Duration
+		switch {
+		case errors.Is(err, errClockScriptingStopped):
+			a.logger.DebugContext(ctx, "clock app order not arranged", "apps", names, "err", err)
+			retry = clockArrangeScriptsWait
+		case err != nil:
 			a.clockJobFailed(ctx, "clock app order not arranged", "apps", names, "err", err)
+			retry = clockArrangeRetry
 		}
-		if !a.arranger.done(base, names, settled, err != nil) {
+		if !a.arranger.done(gen, names, settled, retry) {
 			return
 		}
 	}
@@ -139,6 +181,11 @@ func (a *App) arrangeClockApps(ctx context.Context, names []string) ([]string, e
 	if len(plan.placed) == 0 {
 		return plan.settled, nil
 	}
+	if plan.offScripts {
+		if err := a.clockScriptingRunning(ctx); err != nil {
+			return nil, err
+		}
+	}
 	payload, _ := json.Marshal(plan.order)
 	if _, err := a.clock.fetch(ctx, withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
 		a.forgetClockRotationAfter(err)
@@ -147,6 +194,23 @@ func (a *App) arrangeClockApps(ctx context.Context, names []string) ([]string, e
 	a.logger.InfoContext(ctx, "clock app order: Ember apps given a slot", "apps", plan.placed)
 	a.setClockRotation(a.readBackClockRotation(ctx))
 	return plan.settled, nil
+}
+
+func (a *App) clockScriptingRunning(ctx context.Context) error {
+	body, err := a.clock.fetch(ctx, (*awtrix.Client).RawDevice)
+	if err != nil {
+		return err
+	}
+	var dev struct {
+		ScriptingRunning *bool `json:"scriptingRunning"`
+	}
+	if err := json.Unmarshal(body, &dev); err != nil {
+		return fmt.Errorf("decode clock device: %w", err)
+	}
+	if dev.ScriptingRunning == nil || !*dev.ScriptingRunning {
+		return errClockScriptingStopped
+	}
+	return nil
 }
 
 func emberAppRanks(baseApp string) map[string]int {
@@ -161,9 +225,10 @@ func emberAppRanks(baseApp string) map[string]int {
 }
 
 type emberArrangement struct {
-	order   deviceAppsPutBody
-	placed  []string
-	settled []string
+	order      deviceAppsPutBody
+	placed     []string
+	settled    []string
+	offScripts bool
 }
 
 func arrangeEmberApps(rows []clockAppRow, names []string, ranks map[string]int) emberArrangement {
@@ -176,11 +241,13 @@ func arrangeEmberApps(rows []clockAppRow, names []string, ranks map[string]int) 
 	hasSlot := map[string]bool{}
 	on := map[string]bool{}
 	disabled := []string{}
+	offScripts := false
 	for _, r := range rows {
 		if r.Origin == "module" {
 			continue
 		}
 		enabled := r.Enabled == nil || *r.Enabled
+		offScripts = offScripts || (r.Origin == "script" && !enabled)
 		if !listed[r.Name] {
 			listed[r.Name] = true
 			on[r.Name] = enabled
@@ -215,6 +282,7 @@ func arrangeEmberApps(rows []clockAppRow, names []string, ranks map[string]int) 
 		out.placed = append(out.placed, name)
 	}
 	out.order = deviceAppsPutBody{Order: order, Disabled: disabled}
+	out.offScripts = offScripts
 	return out
 }
 

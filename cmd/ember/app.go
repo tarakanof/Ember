@@ -226,7 +226,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.coord.snapshot = a.Snapshot
 	a.coord.quiet = a.quietAt
 	a.coord.onPublishResult = a.recordPublish
-	if _, real := publisher.(clockPublisher); real {
+	if _, toClock := publisher.(clockPublisher); toClock {
 		a.coord.onPushed = a.arrangeClockApp
 	}
 	a.hiddenApps = map[string]bool{}
