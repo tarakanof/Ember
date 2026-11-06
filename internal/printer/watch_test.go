@@ -58,6 +58,7 @@ func waitUntil(t *testing.T, what string, ok func() bool) {
 func (h *harness) withWatch() *fakeWatch {
 	fw := &fakeWatch{}
 	h.p.watch = fw.watch
+	h.t.Cleanup(h.p.stopWatch)
 	return fw
 }
 
@@ -92,7 +93,7 @@ func TestOfflinePrinterIsPolledWithinASecondOfItsServiceAppearing(t *testing.T) 
 	done := make(chan struct{})
 	go func() { defer close(done); h.p.Run(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
-	waitUntil(t, "Run's first step", func() bool { return s.hit("down") >= offlineAfter+4 })
+	waitUntil(t, "Run's first step", func() bool { return s.hit(downStatus) >= offlineAfter+4 })
 	polls := s.hit("/api/v1/status")
 	s.set(func(s *stubPrinter) { s.down = false })
 	at := time.Now()
@@ -104,6 +105,8 @@ func TestOfflinePrinterIsPolledWithinASecondOfItsServiceAppearing(t *testing.T) 
 	waitUntil(t, "the printer online", func() bool { return h.snap().Phase == PhaseIdle })
 	waitUntil(t, "the watch to stop once online", func() bool { _, a := fw.counts(); return a == 0 })
 }
+
+const downStatus = "down:/api/v1/status"
 
 func TestAnnouncementResetsTheBackoff(t *testing.T) {
 	s := newStubPrinter(t)
@@ -120,11 +123,57 @@ func TestAnnouncementResetsTheBackoff(t *testing.T) {
 		t.Fatalf("delay before the announcement = %v, want %v", d, Backoff[3])
 	}
 	fw.announce(t, Found{Host: "prusa-core-one.local.", URL: s.srv.URL})
-	if d := h.step(); d != Backoff[0] {
-		t.Fatalf("delay after an announcement that still fails = %v, want the backoff reset to %v", d, Backoff[0])
+	var got []time.Duration
+	for range 5 {
+		got = append(got, h.step())
+	}
+	want := []time.Duration{PollActive, PollActive, Backoff[0], Backoff[1], Backoff[2]}
+	if !slices.Equal(got, want) {
+		t.Fatalf("delays after an announcement that still fails = %v, want two quick retries then the backoff from the start %v", got, want)
+	}
+}
+
+func TestOneWakePerOfflineSpell(t *testing.T) {
+	s := newStubPrinter(t)
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	fw := h.withWatch()
+	wakes := func() int {
+		select {
+		case <-h.p.wake:
+			return 1
+		default:
+			return 0
+		}
+	}
+	h.advance(h.step())
+	goOffline(t, h, s)
+	wakes()
+	same := Found{Host: "prusa-core-one.local.", URL: s.srv.URL}
+	fw.announce(t, same)
+	if wakes() != 1 {
+		t.Fatal("the first announcement did not wake the poller")
+	}
+	for range 3 {
+		h.step()
+	}
+	fw.announce(t, same)
+	if n := wakes(); n != 0 || h.p.appeared.Load() {
+		t.Fatalf("a second announcement in the same offline spell woke the poller (mDNS up, HTTP down would cycle the backoff)")
 	}
 	if d := h.step(); d != Backoff[1] {
-		t.Fatalf("next delay = %v, want %v", d, Backoff[1])
+		t.Fatalf("delay = %v, want the backoff to keep growing (%v)", d, Backoff[1])
+	}
+
+	s.set(func(s *stubPrinter) { s.down = false })
+	h.advance(h.step())
+	if h.snap().Phase != PhaseIdle {
+		t.Fatalf("phase %s, want idle", h.snap().Phase)
+	}
+	goOffline(t, h, s)
+	wakes()
+	fw.announce(t, same)
+	if wakes() != 1 {
+		t.Fatal("the next offline spell's announcement did not wake the poller")
 	}
 }
 
@@ -165,10 +214,18 @@ func TestNoWatchWhileOnlineDisabledOrLockedOut(t *testing.T) {
 		t.Fatalf("watch starts %d active %d with a wrong password, want none", starts, active)
 	}
 
+	s.set(func(s *stubPrinter) { s.down = true })
+	h.p.SetCredentials(Credentials{User: DefaultUser, Password: "other"})
+	for range 2 {
+		h.advance(h.step())
+	}
+	waitUntil(t, "a watch while offline again", func() bool { s, a := fw.counts(); return s == 2 && a == 1 })
 	h.p.SetCredentials(Credentials{User: DefaultUser, Password: ""})
 	h.step()
-	if starts, _ := fw.counts(); starts != 1 {
-		t.Fatalf("watch started without a password")
+	waitUntil(t, "the watch to stop without a password", func() bool { _, a := fw.counts(); return a == 0 })
+	h.step()
+	if starts, _ := fw.counts(); starts != 2 {
+		t.Fatalf("watch restarted without a password")
 	}
 }
 
@@ -233,7 +290,7 @@ func TestOfflineWithoutAnnouncementsPollsOnlyOnTheBackoff(t *testing.T) {
 	fw := h.withWatch()
 	h.advance(h.step())
 	goOffline(t, h, s)
-	before := s.total() + s.hit("down")
+	before := s.hit(downStatus)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -241,7 +298,7 @@ func TestOfflineWithoutAnnouncementsPollsOnlyOnTheBackoff(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	cancel()
 	<-done
-	if got := s.total() + s.hit("down") - before; got != 1 {
+	if got := s.hit(downStatus) - before; got != 1 {
 		t.Fatalf("requests in 300 ms offline with a silent watch = %d, want Run's one step", got)
 	}
 	if starts, _ := fw.counts(); starts != 1 {
@@ -270,7 +327,7 @@ func TestIdleTemperaturesFireOnChangeOnlyWhenShownWhileOn(t *testing.T) {
 			h.advance(h.step())
 			got = append(got, changes-first)
 		}
-		want := []int{0, 0, 1, 2, 3, 3}
+		want := []int{0, 0, 1, 2, 2, 2}
 		if mode == ShowPrinting {
 			want = []int{0, 0, 0, 0, 0, 0}
 		}

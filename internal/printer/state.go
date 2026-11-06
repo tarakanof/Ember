@@ -63,7 +63,9 @@ func StepDegrees(v float64) int {
 	return int(math.Round(v/DegreeStep)) * DegreeStep
 }
 
-func (s Snapshot) Warm() bool { return s.Bed > WarmAbove || s.Nozzle > WarmAbove }
+func (s Snapshot) Warm() bool {
+	return StepDegrees(s.Bed) > WarmAbove || StepDegrees(s.Nozzle) > WarmAbove
+}
 
 type Event struct {
 	ID    uint64    `json:"id"`

@@ -26,6 +26,7 @@ const (
 	jobTries       = 3
 	versionTries   = 3
 	FallbackBrowse = 5 * time.Minute
+	wakeRetries    = 2
 )
 
 var Backoff = []time.Duration{30 * time.Second, 60 * time.Second, 120 * time.Second, 300 * time.Second}
@@ -90,6 +91,8 @@ type Poller struct {
 	watchStop context.CancelFunc
 	watchDone chan struct{}
 	appeared  atomic.Bool
+	woke      atomic.Bool
+	retries   int
 }
 
 func NewPoller(o Options) *Poller {
@@ -164,7 +167,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	cfg.ApplyDefaults()
 	defer p.syncWatch(ctx, cfg)
 	if p.appeared.Swap(false) {
-		p.backoff = 0
+		p.backoff, p.retries = 0, wakeRetries
 	}
 	p.State.configure(cfg.Enabled, time.Duration(cfg.DoneHoldMin)*time.Minute, cfg.Name)
 	if !cfg.Enabled {
@@ -173,6 +176,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 		p.latched, p.loggedErr = "", ""
 		p.State.forget()
 		p.State.setOff(ErrCodeNone)
+		p.woke.Store(false)
 		return PollDisabled
 	}
 	creds := p.credentials()
@@ -220,7 +224,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 				p.State.setTarget("", "", false)
 				p.State.setOffline(ErrCodeNotFound)
 				p.logOnce(ErrCodeNotFound, cmpErr(p.browseErr, errors.New("no _prusalink._tcp service on the network")))
-				return p.nextBackoff()
+				return p.offlineDelay()
 			}
 		}
 	}
@@ -229,7 +233,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 	}
 	if p.client == nil {
 		p.State.setOffline(ErrCodeUnreachable)
-		return p.nextBackoff()
+		return p.offlineDelay()
 	}
 
 	err := p.poll(ctx)
@@ -248,7 +252,8 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 		if p.failures >= offlineAfter {
 			p.versionTried, p.versionFails = false, 0
 		}
-		p.failures, p.backoff = 0, 0
+		p.failures, p.backoff, p.retries = 0, 0, 0
+		p.woke.Store(false)
 		if p.loggedErr != "" {
 			p.logger.Info("printer reachable", "url", p.target)
 			p.loggedErr = ""
@@ -274,7 +279,7 @@ func (p *Poller) Step(ctx context.Context) time.Duration {
 		return PollIdle
 	}
 	p.State.setOffline(ErrCodeUnreachable)
-	return p.nextBackoff()
+	return p.offlineDelay()
 }
 
 func (p *Poller) syncWatch(ctx context.Context, cfg Config) {
@@ -302,7 +307,7 @@ func (p *Poller) syncWatch(ctx context.Context, cfg Config) {
 	go func() {
 		defer close(done)
 		err := watch(wctx, func(f Found) {
-			if wctx.Err() == nil && match(f) {
+			if wctx.Err() == nil && match(f) && p.woke.CompareAndSwap(false, true) {
 				p.appeared.Store(true)
 				p.Wake()
 			}
@@ -351,6 +356,14 @@ func latchKey(cfg Config, c Credentials) string {
 
 func (p *Poller) fallbackDue() bool {
 	return !p.now().Before(p.fallbackAt)
+}
+
+func (p *Poller) offlineDelay() time.Duration {
+	if p.retries > 0 {
+		p.retries--
+		return PollActive
+	}
+	return p.nextBackoff()
 }
 
 func (p *Poller) nextBackoff() time.Duration {
@@ -582,8 +595,11 @@ func (p *Poller) notifyIfChanged() {
 	if s.Phase == PhaseHeating {
 		key += fmt.Sprint(int(s.Nozzle), int(s.NozzleTarget), int(s.Bed), int(s.BedTarget))
 	}
-	if s.Phase == PhaseIdle && p.cfg().ShowWhenOn() {
-		key += fmt.Sprint("|", s.Warm(), StepDegrees(s.Nozzle), StepDegrees(s.Bed))
+	if p.cfg().ShowWhenOn() {
+		key += "|on"
+		if s.Phase == PhaseIdle && s.Warm() {
+			key += fmt.Sprint("|warm", StepDegrees(s.Nozzle), StepDegrees(s.Bed))
+		}
 	}
 	if key == p.changeKey {
 		return

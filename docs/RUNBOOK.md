@@ -1560,23 +1560,31 @@ the app in the rotation while the printer is idle. On-device check, against
 the live server and printer (the scratch-server rules above still apply to
 any test server):
 
-1. In Ember.app open Settings › Printer. Check "Show the printer" and
-   "Show on the clock" are on.
-2. Set "Show" to "Whenever the printer is on".
-3. Switch the CORE One off with its power switch. Wait 3 minutes.
-4. Settings › Printer › Status reads "Printer off".
-5. Switch the CORE One on and note the time.
-6. Within about 10 s of the printer's screen showing its home screen, the
-   Status line reads "Connected" and the clock's rotation gains the print
-   app: the printer icon with the bed line right under the head, a dim
-   white nozzle that does not move, and `READY` in white. No popup plays.
-7. Preheat from the printer's menu (for example PLA). Once the bed passes
-   40 °C a second card joins: `BED` and the bed's degrees. Cancel the
-   preheat; the card leaves once both are at or under 40 °C.
-8. Set "Show" back to "While printing": the app leaves the rotation within
-   a few seconds.
-9. Send back: the time from switching on (step 5) to the Ready card
-   (step 6), and a photo of the Ready and temperature cards.
+1. Make sure the live server runs the Ember release that contains #809
+   (`curl -s $EMBER/version` shows it), and that Ember.app on this Mac is
+   that release (Ember menu › About Ember).
+2. In Ember.app, open Settings.
+3. Click Printer in the sidebar.
+4. Check that "Show the printer" is on.
+5. Check that "Show on the clock" is on.
+6. In the "Show" picker, choose "Whenever the printer is on".
+7. Switch the CORE One off with its power switch.
+8. Wait 3 minutes.
+9. Check that Status in Settings › Printer reads "Printer off".
+10. Switch the CORE One on and start a stopwatch.
+11. Watch the clock. Stop the stopwatch when the print app appears in its
+    rotation: the printer icon with the bed line right under the head, a
+    dim white nozzle that does not move, and `READY` in white. No popup
+    plays.
+12. On the printer's screen, open Preheat and choose PLA.
+13. Wait until the printer shows the bed above 45 °C, then watch the clock:
+    a second card joins, `BED` and the bed's degrees.
+14. On the printer's screen, choose Cooldown.
+15. Wait until the bed and nozzle read 40 °C or less: the `BED` card leaves.
+16. In the "Show" picker, choose "While printing": the app leaves the
+    rotation within a few seconds.
+17. Send back: the stopwatch time from step 11, and a photo of each card
+    (steps 11 and 13).
 
 ## AI usage card (threshold-gated, inside the main app)
 

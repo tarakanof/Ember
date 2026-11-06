@@ -52,9 +52,9 @@ func printViewOf(s printer.Snapshot, now time.Time) render.PrintView {
 	v := render.PrintView{
 		Phase:        string(s.Phase),
 		Progress:     s.Progress,
-		Nozzle:       stepDegrees(s.Nozzle),
+		Nozzle:       printer.StepDegrees(s.Nozzle),
 		NozzleTarget: int(math.Round(s.NozzleTarget)),
-		Bed:          stepDegrees(s.Bed),
+		Bed:          printer.StepDegrees(s.Bed),
 		BedTarget:    int(math.Round(s.BedTarget)),
 	}
 	if !s.EndsAt.IsZero() {
@@ -67,8 +67,6 @@ func printViewOf(s printer.Snapshot, now time.Time) render.PrintView {
 	}
 	return v
 }
-
-func stepDegrees(v float64) int { return printer.StepDegrees(v) }
 
 func printLive(in *tileInputs) bool { return printInRotation(in.print, in.printCfg) }
 

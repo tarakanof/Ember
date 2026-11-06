@@ -111,10 +111,15 @@ func TestPrintReadyCardWhileTheIdlePrinterIsOn(t *testing.T) {
 	if !slices.Equal(apps, []string{printTile.app, printTempTile.app}) {
 		t.Errorf("warm idle printer pushes %v, want Ready and the temperature card", apps)
 	}
-	hotNozzle := printSnap(printer.PhaseIdle, func(s *printer.Snapshot) { s.Nozzle, s.Bed = 41, 30 })
+	hotNozzle := printSnap(printer.PhaseIdle, func(s *printer.Snapshot) { s.Nozzle, s.Bed = 43, 30 })
 	apps, _ = pushedPrintApps(t, showOn(printInputs(hotNozzle, true, true)))
 	if !slices.Equal(apps, []string{printTile.app, printTempTile.app}) {
 		t.Errorf("warm nozzle pushes %v, want Ready and the temperature card", apps)
+	}
+	edge := printSnap(printer.PhaseIdle, func(s *printer.Snapshot) { s.Nozzle, s.Bed = 30, 42 })
+	apps, _ = pushedPrintApps(t, showOn(printInputs(edge, true, true)))
+	if !slices.Equal(apps, []string{printTile.app}) {
+		t.Errorf("a bed that would read 40° pushes %v, want Ready only", apps)
 	}
 	apps, _ = pushedPrintApps(t, showOn(printInputs(warm, false, true)))
 	if len(apps) != 0 {

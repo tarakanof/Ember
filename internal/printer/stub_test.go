@@ -98,7 +98,7 @@ func (s *stubPrinter) serve(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.down {
-		s.hits["down"]++
+		s.hits["down:"+r.URL.Path]++
 		if hj, ok := w.(http.Hijacker); ok {
 			if conn, _, err := hj.Hijack(); err == nil {
 				_ = conn.Close()
