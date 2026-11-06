@@ -41,7 +41,7 @@ extension KnobModel {
         if !settings.isLoaded { await settings.load() }
         guard knob?.id == id, settings.isLoaded,
               let index = settings.draft.pages.firstIndex(where: { $0.id == KnobCaps.printPage }) else { return false }
-        if settings.draft.pages[index].on {
+        if settings.applied?.pages.first(where: { $0.id == KnobCaps.printPage })?.on == true {
             pageMarks.markDecided(knob: id, page: KnobCaps.printPage)
             return false
         }

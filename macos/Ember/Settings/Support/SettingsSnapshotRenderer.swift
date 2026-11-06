@@ -42,6 +42,9 @@ enum SettingsSnapshotRenderer {
                 }
                 .listStyle(.sidebar)
                 .frame(width: 240, height: 360)
+                Form { SourceLinkSection(source: .printer) }
+                    .formStyle(.grouped)
+                    .frame(width: 380, height: 160)
                 VStack(alignment: .leading, spacing: 18) {
                     ForEach([12.0, 16.0, 24.0, 48.0], id: \.self) { size in
                         HStack(spacing: 14) {
@@ -67,7 +70,7 @@ enum SettingsSnapshotRenderer {
             .environment(\.colorScheme, scheme)
             .environment(\.controlActiveState, .key)
         let host = NSHostingView(rootView: root)
-        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 520, height: 420),
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 900, height: 420),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
         window.contentView = host

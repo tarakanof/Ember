@@ -142,7 +142,9 @@ private func knobModel(_ server: PrintServer, marks: MemoryKnobPageMarks = Memor
 
 @MainActor
 @Test func theMarksSurviveARelaunch() {
-    let suite = UserDefaults(suiteName: "knob-marks-\(UUID().uuidString)")!
+    let name = "knob-marks-\(UUID().uuidString)"
+    let suite = UserDefaults(suiteName: name)!
+    defer { suite.removePersistentDomain(forName: name) }
     DefaultsKnobPageMarks(defaults: suite).markDecided(knob: "knob-1", page: "print")
     let again = DefaultsKnobPageMarks(defaults: suite)
     #expect(again.isDecided(knob: "knob-1", page: "print"))
