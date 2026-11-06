@@ -83,10 +83,10 @@ func (g *clockArranger) recheck() bool {
 	return g.startLocked()
 }
 
-func (g *clockArranger) settledNames() []string {
+func (g *clockArranger) known() (settled []string, pending bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return slices.Sorted(maps.Keys(g.settled))
+	return slices.Sorted(maps.Keys(g.settled)), len(g.pending) > 0
 }
 
 func (g *clockArranger) take() (gen uint64, names []string) {
@@ -110,8 +110,11 @@ func (g *clockArranger) done(gen uint64, names, settled []string, retry time.Dur
 	for _, n := range settled {
 		g.settled[n] = true
 	}
-	if retry <= 0 {
+	if retry <= 0 && !slices.ContainsFunc(names, func(n string) bool { return !g.settled[n] }) {
 		return true
+	}
+	if retry <= 0 {
+		retry = clockArrangeRetry
 	}
 	for _, n := range names {
 		if !g.settled[n] {
@@ -142,13 +145,12 @@ func (a *App) recheckClockApps(rot *clockRotation) {
 	if clockDisabled() {
 		return
 	}
-	if rot != nil {
+	if settled, pending := a.arranger.known(); rot != nil && !pending {
 		rows := make([]clockAppRow, len(rot.listed))
 		for i, l := range rot.listed {
 			rows[i] = clockAppRow{Name: l.Name, Enabled: boolPtr(l.Enabled), Origin: l.Origin, Slot: l.Slot}
 		}
-		names := a.arranger.settledNames()
-		if len(arrangeEmberApps(rows, names, emberAppRanks(a.cfg.Load().AWTRIX.AppName)).placed) == 0 {
+		if len(arrangeEmberApps(rows, settled, emberAppRanks(a.cfg.Load().AWTRIX.AppName)).placed) == 0 {
 			return
 		}
 	}
@@ -197,7 +199,8 @@ func (a *App) arrangeClockApps(ctx context.Context, names []string) ([]string, e
 	if err := json.Unmarshal(body, &rows); err != nil {
 		return nil, fmt.Errorf("decode clock apps: %w", err)
 	}
-	plan := arrangeEmberApps(rows, names, emberAppRanks(a.cfg.Load().AWTRIX.AppName))
+	ranks := emberAppRanks(a.cfg.Load().AWTRIX.AppName)
+	plan := arrangeEmberApps(rows, slices.Sorted(maps.Keys(withNames(ranks, names))), ranks)
 	if len(plan.placed) == 0 {
 		return plan.settled, nil
 	}
@@ -234,6 +237,16 @@ func (a *App) clockScriptingRunning(ctx context.Context) error {
 		return errClockScriptingStopped
 	}
 	return nil
+}
+
+func withNames(ranks map[string]int, names []string) map[string]int {
+	all := maps.Clone(ranks)
+	for _, n := range names {
+		if _, ok := all[n]; !ok {
+			all[n] = len(ranks)
+		}
+	}
+	return all
 }
 
 func emberAppRanks(baseApp string) map[string]int {

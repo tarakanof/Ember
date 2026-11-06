@@ -94,13 +94,24 @@ func TestBaseAppPushGetsASlotToo(t *testing.T) {
 		app["slot"] = i
 	}
 	a, stub := newArrangeClock(t, apps)
+	now := time.Now()
+	a.arranger.now = func() time.Time { return now }
 	notePush(a, "ember")
 	if len(stub.puts()) != 0 {
 		t.Fatalf("an app the clock doesn't list yet was arranged: %v", stub.puts())
 	}
 	stub.mu.Lock()
 	stub.pushedLocked("ember")
+	stub.appsGets = 0
 	stub.mu.Unlock()
+	notePush(a, "ember")
+	stub.mu.Lock()
+	gets := stub.appsGets
+	stub.mu.Unlock()
+	if gets != 0 {
+		t.Fatalf("an unlisted app was read again %d time(s) inside the backoff", gets)
+	}
+	now = now.Add(clockArrangeRetry)
 	notePush(a, "ember")
 	if slot, _ := stub.slotOf("ember"); slot != 0 {
 		t.Fatalf("ember slot = %v, want 0 (before ember-weather)", slot)
@@ -434,5 +445,27 @@ func TestAnOrderWriteThatSlotsEveryAppStartsNoPass(t *testing.T) {
 	}
 	if slot, _ := stub.slotOf("ember-print"); slot != 1 {
 		t.Fatalf("ember-print slot = %v, want the user's 1", slot)
+	}
+}
+
+func TestAFacadeRotationWriteGivesTheEmberAppsTheirSlotsBack(t *testing.T) {
+	a, srv, stub := newArrangeClockServer(t, liveLikeRotation())
+	d := registeredClock(t, a, srv)
+	pushTile(t, a, "ember-print")
+	getClockConfig(t, srv, d.ID)
+	resp, b := clockConfigReq(t, srv, "PUT", d.ID, `{"rotation":{"order":["Time","Date","Temperature","Humidity","Battery"],"disabled":["Date","Humidity","Battery"]}}`)
+	mustOK(t, "facade put", resp, b)
+	a.clockJobs.Wait()
+	var order []string
+	stub.mu.Lock()
+	for _, app := range stub.apps {
+		if app["slot"] != nil {
+			order = append(order, app["name"].(string))
+		}
+	}
+	stub.mu.Unlock()
+	want := []string{"Time", "Date", "Temperature", "Humidity", "Battery", "ember", "ember-weather", "ember-air", "ember-print"}
+	if !slices.Equal(order, want) {
+		t.Fatalf("clock order = %v, want the Ember apps back at the end in Ember's order %v", order, want)
 	}
 }

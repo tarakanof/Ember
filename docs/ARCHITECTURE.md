@@ -3467,9 +3467,11 @@ slot stays, duplicates and reserved names included.
 - A switched-off app is left off and unarranged. After every successful
   order or enabled write through Ember (`/v1/device/apps`, its per-app
   `enabled` route, a façade `rotation`) the read-back list is checked for
-  Ember apps that would now get a slot (one switched back on), and only then
-  does a pass run. Ember.app's own writes name every present app, so they
-  rarely start one. A switch made in the clock's own web UI is seen
+  Ember apps that would now get a slot (one switched back on), and a pass
+  runs only then, when a pass is already owed, or when the read-back failed.
+  Ember.app's own writes name every present app, so they rarely start one.
+  A façade `rotation` lists no pushed apps, so writing one drops every Ember
+  slot; this check gives them back, after the arranged apps in Ember's order. A switch made in the clock's own web UI is seen
   at the next server start or clock reboot.
 - A clock with no stored order is left alone: there every app is
   `slot: null` and NG's default (built-ins, then pushed apps by arrival)
@@ -3480,9 +3482,12 @@ slot stays, duplicates and reserved names included.
   off, the job writes only if `GET /api/v1/device` says `scriptingRunning`,
   and otherwise tries again 5 min later.
 - The job writes nothing if the clock URL changed after its read.
-- Each app is checked once per clock URL until the clock reboots or moves.
-  A failed read or write waits 30 s and is retried on the next push of any
-  Ember app; a pass that started before a reboot or move settles nothing.
+- One pass settles every Ember app the read lists, not only the one pushed,
+  so a restart costs one read. Each app is then checked once per clock URL
+  until the clock reboots or moves. A failed read or write, or a pushed app
+  the read doesn't list yet, waits 30 s and is retried on the next push of
+  any Ember app; a pass that started before a reboot or move settles
+  nothing.
 - The job is not in the clock parity golden, which pins the coordinator's
   own calls in tick order.
 
