@@ -133,6 +133,9 @@ func TestDeviceSettingsProxyForwardsAndFilters(t *testing.T) {
 func TestDeviceActionsProxy(t *testing.T) {
 	var hits []string
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		hits = append(hits, r.URL.Path)
 		w.WriteHeader(200)
 	}))

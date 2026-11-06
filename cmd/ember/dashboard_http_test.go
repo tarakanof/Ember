@@ -610,7 +610,7 @@ func TestClockHealthNeverWaitsOnTheReleaseLookup(t *testing.T) {
 	app := newPomodoroApp(t)
 	dead := closedURL(t)
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = dead })
-	app.firmware.url = slow.URL
+	app.firmware.url = slow.URL + "/releases/latest"
 
 	if out := app.buildClockHealth(t.Context(), goldenNow); out.LatestFirmware != nil {
 		t.Errorf("latest_firmware = %v before the lookup finished, want null", *out.LatestFirmware)

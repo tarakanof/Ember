@@ -396,6 +396,9 @@ func TestClockProbeReleasesLockDuringRequest(t *testing.T) {
 	arrived, release := make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		close(arrived)
 		<-release
 		_, _ = w.Write([]byte(`{"version":"1.1.1","lightLevel":40}`))
