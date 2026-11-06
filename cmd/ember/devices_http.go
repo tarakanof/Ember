@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/tarakanof/ember/internal/devices"
@@ -446,8 +447,12 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	}
 	demoGen := a.demos.generation(id)
 	var lux *float64
-	if report.Room != nil && report.Room.Lux != nil {
-		lux = refOf(*report.Room.Lux)
+	var luxAge time.Duration
+	if room := report.Room; room != nil && room.Lux != nil {
+		lux = refOf(*room.Lux)
+		if room.AgeS != nil && room.AgeS.Light != nil {
+			luxAge = time.Duration(*room.AgeS.Light) * time.Second
+		}
 	}
 	res, err := a.devices.Checkin(id, report, caps, capsErr)
 	if errors.Is(err, devices.ErrCheckinNotStored) {
@@ -466,7 +471,7 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		a.noteKnobReboot(r, id, demoGen, res.BootedAt)
 	}
 	if lux != nil && !res.Stale {
-		a.feedKnobLux(id, *lux, res.SeenAt)
+		a.feedKnobLux(id, *lux, res.SeenAt.Add(-luxAge), res.SeenAt)
 	}
 	now := a.knobStats.now()
 	if diag, _, err := a.devices.Diagnostics(id); err == nil {

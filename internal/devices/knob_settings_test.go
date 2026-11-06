@@ -244,6 +244,7 @@ func TestKnobV2KeysValidate(t *testing.T) {
 		{"source knob", func(s *KnobSettings) { s.Brightness.Source = new("knob-aabbccddeeff") }, true},
 		{"source too long", func(s *KnobSettings) { s.Brightness.Source = new("knob-aabbccddeeff0") }, false},
 		{"source upper", func(s *KnobSettings) { s.Brightness.Source = new("Knob-aabbcc") }, false},
+		{"source clock uid with underscore", func(s *KnobSettings) { s.Brightness.Source = new("clock-ab_cd1") }, true},
 		{"source empty", func(s *KnobSettings) { s.Brightness.Source = new("") }, false},
 		{"dim never", func(s *KnobSettings) { s.Idle = &KnobIdle{DimAfterS: new(0)} }, true},
 		{"dim 30", func(s *KnobSettings) { s.Idle = &KnobIdle{DimAfterS: new(30)} }, true},
@@ -400,6 +401,12 @@ func maxLegacyStoreSettings() KnobSettings {
 	return s
 }
 
+func maxLegacyStoreWithSource() KnobSettings {
+	s := maxLegacyStoreSettings()
+	s.Brightness.Source = new("knob-aabbccddeeff")
+	return s
+}
+
 func maxV2Settings() KnobSettings {
 	s := maxLegacyStoreSettings()
 	s.Room = &KnobRoom{Enabled: boolPtr(false), PresenceOffS: new(86399), PresenceWake: boolPtr(false), Moments: boolPtr(false)}
@@ -444,6 +451,7 @@ func TestKnobV2LargestConfigFitsDepthAndSize(t *testing.T) {
 		limit int
 	}{
 		{"without the room-only keys", maxLegacyStoreSettings(), legacyCfgSettingsMax},
+		{"without them, with brightness.source", maxLegacyStoreWithSource(), legacyCfgSettingsMax},
 		{"with them", maxV2Settings(), knobCfgSettingsMax},
 	}
 	for _, c := range cases {

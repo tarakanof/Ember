@@ -297,7 +297,7 @@ type KnobBrightness struct {
 
 const BrightnessSourceClock = "clock"
 
-var BrightnessSourcePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,16}$`)
+var BrightnessSourcePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,16}$`)
 
 func (s KnobSettings) PrintMomentsOn() bool { return s.Bot.PrintMoments == nil || *s.Bot.PrintMoments }
 

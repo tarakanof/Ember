@@ -245,12 +245,13 @@ func TestAStaleKnobSampleFallsToTheClockThenTheSun(t *testing.T) {
 
 func TestAKnobLuxChangeWakesItsLongPoll(t *testing.T) {
 	f := newViewFixture(t)
+	f.app.viewRecheck = time.Hour
 	resp, _ := f.get(t, "")
 	etag := resp.Header.Get("ETag")
 	resp, body, after := waitThenAct(t, f, etag, func() {
 		devReq(t, f.srv, "POST", "/v1/devices/self/checkin", f.m.Token, `{"fw":"0.10.0","room":{"lux":0.5}}`)
 	})
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"brightness":{"level":10,`) || after > 5*time.Second {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"brightness":{"level":10,`) || after > time.Second {
 		t.Fatalf("status %d after %v: %s", resp.StatusCode, after, body)
 	}
 }
@@ -349,5 +350,79 @@ func TestKnobStatsBrightnessLevelIsTheDevicesOwn(t *testing.T) {
 	}
 	if got := num(t, f.stats(t, "15m").Latest, "brightness_level"); got != 10 {
 		t.Fatalf("brightness_level = %v, want the knob's own 10", got)
+	}
+}
+
+func TestAStaleCheckinDoesNotFeedTheTracker(t *testing.T) {
+	f := newLuxFixture(t, "aabbccdd0001")
+	k := f.knobs[0]
+	resp, b := devReq(t, f.srv, "POST", "/v1/devices/self/checkin", k.tok, `{"fw":"0.10.0","uptime_s":1000,"room":{"lux":0.5}}`)
+	mustOK(t, "checkin", resp, b)
+	f.clk.advance(10 * time.Second)
+	resp, b = devReq(t, f.srv, "POST", "/v1/devices/self/checkin", k.tok, `{"fw":"0.10.0","uptime_s":500,"room":{"lux":5000}}`)
+	mustOK(t, "stale checkin", resp, b)
+	f.app.brightness.mu.Lock()
+	st := f.app.brightness.st[k.id]
+	f.app.brightness.mu.Unlock()
+	if st.Last.Lux != 0.5 {
+		t.Fatalf("a stale checkin fed the tracker: %+v", st)
+	}
+	if got := f.viewLevel(t, k); got != 10 {
+		t.Fatalf("level = %d after a stale checkin, want 10", got)
+	}
+}
+
+func TestTheLuxSampleIsDatedByItsLightAge(t *testing.T) {
+	f := newLuxFixture(t, "aabbccdd0001")
+	k := f.knobs[0]
+	f.checkinLux(t, k, `5000,"age_s":{"light":50}`)
+	f.app.brightness.mu.Lock()
+	st := f.app.brightness.st[k.id]
+	f.app.brightness.mu.Unlock()
+	if want := f.clk.Now().UTC().Add(-50 * time.Second); !st.Last.At.Equal(want) {
+		t.Fatalf("sample at %v, want the checkin minus age_s.light %v", st.Last.At, want)
+	}
+}
+
+func TestTheTickAgesKnobTrackersAndNotifies(t *testing.T) {
+	f := newLuxFixture(t, "aabbccdd0001")
+	f.app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = closedURL(t) })
+	k := f.knobs[0]
+	f.checkinLux(t, k, "5000")
+	seq, _ := f.app.changes.subscribe()
+	f.app.tickBrightness(t.Context(), f.clk.Now().Add(time.Minute))
+	f.app.brightness.mu.Lock()
+	st := f.app.brightness.st[k.id]
+	f.app.brightness.mu.Unlock()
+	if !st.HasLevel || f.app.changes.since(seq)&topicBrightness != 0 {
+		t.Fatalf("a fresh sample was reset or notified: %+v", st)
+	}
+	f.app.tickBrightness(t.Context(), f.clk.Now().Add(2*time.Minute))
+	seq, _ = f.app.changes.subscribe()
+	f.app.tickBrightness(t.Context(), f.clk.Now().Add(3*time.Minute))
+	f.app.brightness.mu.Lock()
+	st = f.app.brightness.st[k.id]
+	f.app.brightness.mu.Unlock()
+	if st.HasLevel || st.HasEMA {
+		t.Fatalf("the tick did not age the knob tracker: %+v", st)
+	}
+	if f.app.changes.since(seq)&topicBrightness == 0 {
+		t.Fatal("ageing a knob tracker out did not notify topicBrightness")
+	}
+}
+
+func TestTheTickPrunesTrackersOfDeletedDevices(t *testing.T) {
+	f := newLuxFixture(t, "aabbccdd0001")
+	f.app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = closedURL(t) })
+	k := f.knobs[0]
+	f.checkinLux(t, k, "5000")
+	f.app.feedKnobLux("knob-0ff0ff", 5000, f.clk.Now(), f.clk.Now())
+	f.app.tickBrightness(t.Context(), f.clk.Now())
+	f.app.brightness.mu.Lock()
+	_, orphan := f.app.brightness.st["knob-0ff0ff"]
+	_, kept := f.app.brightness.st[k.id]
+	f.app.brightness.mu.Unlock()
+	if orphan || !kept {
+		t.Fatalf("after a tick: orphan kept %v, registered knob kept %v", orphan, kept)
 	}
 }

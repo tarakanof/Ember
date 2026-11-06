@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -297,8 +299,15 @@ func (a *App) tickBrightness(ctx context.Context, now time.Time) {
 	}
 	c := a.cfg.Load().Brightness.resolved()
 	geo := a.brightnessGeo()
+	gone := a.goneBrightnessKeys()
 	a.brightness.mu.Lock()
-	moved := a.brightness.advance(c, devices.BrightnessSourceClock, sample, geo, now)
+	for _, key := range gone {
+		delete(a.brightness.st, key)
+	}
+	moved := len(gone) > 0
+	if a.brightness.advance(c, devices.BrightnessSourceClock, sample, geo, now) {
+		moved = true
+	}
 	for key := range a.brightness.st {
 		if key != devices.BrightnessSourceClock && a.brightness.advance(c, key, nil, geo, now) {
 			moved = true
@@ -310,11 +319,26 @@ func (a *App) tickBrightness(ctx context.Context, now time.Time) {
 	}
 }
 
-func (a *App) feedKnobLux(id string, lux float64, at time.Time) {
+func (a *App) goneBrightnessKeys() []string {
+	a.brightness.mu.Lock()
+	keys := make([]string, 0, len(a.brightness.st))
+	for key := range a.brightness.st {
+		if key != devices.BrightnessSourceClock {
+			keys = append(keys, key)
+		}
+	}
+	a.brightness.mu.Unlock()
+	return slices.DeleteFunc(keys, func(key string) bool {
+		_, err := a.devices.KindOf(key)
+		return !errors.Is(err, devices.ErrNotFound)
+	})
+}
+
+func (a *App) feedKnobLux(id string, lux float64, at, now time.Time) {
 	c := a.cfg.Load().Brightness.resolved()
 	geo := a.brightnessGeo()
 	a.brightness.mu.Lock()
-	moved := a.brightness.advance(c, id, &luxSample{Lux: lux, At: at}, geo, at)
+	moved := a.brightness.advance(c, id, &luxSample{Lux: lux, At: at}, geo, now)
 	a.brightness.mu.Unlock()
 	if moved {
 		a.changes.notify(topicBrightness)
