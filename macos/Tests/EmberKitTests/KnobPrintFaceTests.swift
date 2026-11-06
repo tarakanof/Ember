@@ -201,9 +201,26 @@ private struct Row {
     #expect(face(block(.finished, startedAt: start)).sub == "take it out")
     #expect(KnobPrintLive.doneJob(block(.finished, startedAt: start)) == start)
     #expect(KnobPrintLive.doneJob(block(.finished)) == 0 && KnobPrintLive.doneJob(block(.printing)) == nil)
+    #expect(KnobPrintLive.doneJob(block(.finished, event: .init(kind: "finished", at: 42))) == 42)
+    #expect(KnobPrintLive.doneJob(block(.finished, startedAt: 7, event: .init(kind: "finished", at: 42))) == 7)
     #expect(!face(block(.printing, endsAt: t0 + 60)).dimmed)
     #expect(KnobPrintFace.duration(14 * 60) == "14 min" && KnobPrintFace.duration(59 * 60 + 29) == "59 min")
     #expect(KnobPrintFace.duration(59 * 60 + 30) == "1 h 00 m")
+}
+
+@MainActor @Test func theFirstShowOfDoneIsKeptPerJobAcrossViews() {
+    let clock = KnobPrintDoneClock()
+    let t1 = Date(timeIntervalSince1970: 100), t2 = Date(timeIntervalSince1970: 500)
+    #expect(clock.since(7, now: t1) == t1)
+    #expect(clock.since(7, now: t2) == t1, "a new view of the same job keeps the first show")
+    #expect(clock.since(nil, now: t2) == nil)
+    #expect(clock.since(7, now: t2) == t1, "leaving Done does not forget the job")
+    #expect(clock.since(8, now: t2) == t2, "the next job starts fresh")
+}
+
+@Test func offlineWithoutAnyStateShowsPrinterOff() {
+    let f = face(nil, link: .offline)
+    #expect(f.look == .none && f.word == "Printer off" && f.sub == "offline")
 }
 
 @Test func linkStatesFollowPrintTextLink() {

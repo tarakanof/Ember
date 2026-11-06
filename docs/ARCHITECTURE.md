@@ -4423,8 +4423,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   printer's name cut to 32 runes and the material to 16. `KnobPrintFace`
   is the pure mapping (tested against the features.md table, its words
   pinned to `print.c`'s literals by `printWordsMatchCindersPrintC`),
-  including `print_text_link`: "Connecting" before the first good read,
-  "offline" as the sub-line (no file line) while the feed fails; time left
+  including `print_text_link`: "Connecting" while the feed first loads,
+  "offline" as the sub-line (no file line) while it fails, over the last
+  state or the dim "Printer off" face if none came; time left
   counts from the Mac's clock and the ready time is in the Mac's zone
   (the knob uses Ember's clock and the day or weather block's offset).
   The face (and its text fit, `print_view.c`'s "..." rule keeping the
@@ -4434,7 +4435,9 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
   Motion is off; otherwise the face redraws when its text changes (the
   Apps overview draws a static frame). The Done face dims 10 min after
   the earlier of the finish event and the preview first showing Done for
-  that job, as `done_dim` does (no input lifts it). Not drawn: K2 (the
+  that job (`started_at`, else the finish time; `KnobPrintDoneClock`
+  keeps it across the page and the overview), as `done_dim` does (no
+  input lifts it). Not drawn: K2 (the
   job picture) and the Done glint. `/v1/print/state`'s
   ETag ignores temperatures and the anchored times, so a heating preview's
   degrees and a re-anchored `ends_at` can lag until the phase or percent

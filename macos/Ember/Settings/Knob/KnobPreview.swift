@@ -62,7 +62,7 @@ struct KnobPreviewData {
         switch env.live.printer {
         case .loaded: .fed
         case .loading: .connecting
-        case .failed(_, let last, _): last == nil ? .connecting : .offline
+        case .failed: .offline
         }
     }
 
@@ -167,6 +167,7 @@ struct KnobPreviewData {
     private var printCaption: Text {
         let link = printLink
         if link == .connecting { return Text("No printer data from Ember yet.") }
+        if link == .offline && printer == nil { return Text("No printer data from Ember.") }
         let block = KnobPrintBlock(state: printer)
         let f = KnobPrintFace(block: block, now: .now, link: link, theme: theme)
         let p = block?.progress ?? 0

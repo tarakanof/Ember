@@ -1,7 +1,7 @@
 import SwiftUI
 
 public struct KnobPrintLive: View {
-    public static let fps = 15.0
+    nonisolated public static let fps = 15.0
 
     let state: PrinterState?
     let link: KnobPrintFace.Link
@@ -19,14 +19,15 @@ public struct KnobPrintLive: View {
         self.brightness = brightness
     }
 
-    public static func ticks(animated: Bool, onScreen: Bool, windowVisible: Bool) -> Bool {
+    nonisolated public static func ticks(animated: Bool, onScreen: Bool, windowVisible: Bool) -> Bool {
         animated && onScreen && windowVisible
     }
 
-    public static func moves(_ face: KnobPrintFace, reduceMotion: Bool) -> Bool { face.moves && !reduceMotion }
+    nonisolated public static func moves(_ face: KnobPrintFace, reduceMotion: Bool) -> Bool { face.moves && !reduceMotion }
 
-    public static func doneJob(_ block: KnobPrintBlock?) -> Int64? {
-        block?.phase == .finished ? block?.startedAt ?? 0 : nil
+    nonisolated public static func doneJob(_ block: KnobPrintBlock?) -> Int64? {
+        guard let b = block, b.phase == .finished else { return nil }
+        return b.startedAt ?? b.event.flatMap { $0.kind == "finished" ? $0.at : nil } ?? 0
     }
 
     public var body: some View {
@@ -49,7 +50,7 @@ public struct KnobPrintLive: View {
         }
         .onAppear { visible = true }
         .onDisappear { visible = false }
-        .onChange(of: Self.doneJob(block), initial: true) { _, job in doneSince = job == nil ? nil : .now }
+        .onChange(of: Self.doneJob(block), initial: true) { _, job in doneSince = KnobPrintDoneClock.shared.since(job, now: .now) }
     }
 
     private func face(_ block: KnobPrintBlock?, at now: Date) -> KnobPrintFace {
@@ -58,5 +59,20 @@ public struct KnobPrintLive: View {
 
     private func view(_ f: KnobPrintFace, t: Double?) -> some View {
         KnobFaceView(.print(f), theme: theme, brightness: brightness, t: t).equatable()
+    }
+}
+
+@MainActor
+public final class KnobPrintDoneClock {
+    public static let shared = KnobPrintDoneClock()
+    private var seen: (job: Int64, at: Date)?
+
+    public init() {}
+
+    public func since(_ job: Int64?, now: Date) -> Date? {
+        guard let job else { return nil }
+        if let s = seen, s.job == job { return s.at }
+        seen = (job, now)
+        return now
     }
 }
