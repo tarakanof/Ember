@@ -212,7 +212,7 @@ on the clock only while a print runs) or `on` (also while the printer is on
 and idle, as a Ready card); any other `show` value is stored as `printing`;
 the password is env-only),
 `GET/PUT /v1/quiet/config` (also drives the
-knob view's `quiet`), `GET/PUT /v1/brightness/config` (every `…/config`
+knob view's `quiet`), `GET/PUT /v1/brightness/config` (optional `sources`: per-sensor `lux_dark`/`lux_bright` keyed `clock` or a knob id, DEVICE-PROTOCOL "Per-device brightness"; every `…/config`
 settings PUT above is merge semantics: the body is a JSON object whose omitted
 keys keep their current value; an invalid merged result is a 400 and changes
 nothing — see `settings_overlay.go`; the clock presentation keys of the
@@ -276,7 +276,7 @@ effect/transition/overlay/palette lists; live proxy when the cache is cold),
 send it, `project`, #485; weak `ETag`/304 and long-poll `?wait=≤25`, advertised
 by `X-Ember-View-Wait`; a 304 keeps `X-Ember-Devices-Epoch`; the tag ignores
 `now` and session order, and moves with `updated_at` at most once a minute,
-#770), `GET /healthz`, `GET /v1/display/brightness` (clock lux, else sun schedule), `GET /v1/preview`,
+#770), `GET /healthz`, `GET /v1/display/brightness` (clock lux, else sun schedule; the global answer, a knob's own level is in its view), `GET /v1/preview`,
 `GET /v1/{weather,pomodoro,reminders,print}/preview` (print: the TC001 app's three cards, the sample print while none runs), `GET /v1/meetings/{preview,state}`,
 `GET /v1/pomodoro/{state,stats,heatmap,workhours}` (`state` has the same
 `ETag`, 304 and `?wait=` as `/state`; the tag ignores the countdown while the

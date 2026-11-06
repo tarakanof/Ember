@@ -120,6 +120,9 @@ func (a *KnobApps) clone() *KnobApps {
 }
 
 func (s *KnobSettings) pruneEmptyV2() {
+	if p := s.Brightness.Source; p != nil && *p == "" {
+		s.Brightness.Source = nil
+	}
 	if i := s.Idle; i != nil && i.DimAfterS == nil && i.DimLevel == nil && i.OffAfterS == nil {
 		s.Idle = nil
 	}
@@ -285,11 +288,16 @@ const (
 )
 
 type KnobBrightness struct {
-	FollowEmber bool `json:"follow_ember"`
-	Level       int  `json:"level"`
-	Floor       int  `json:"floor"`
-	Startup     int  `json:"startup"`
+	FollowEmber bool    `json:"follow_ember"`
+	Level       int     `json:"level"`
+	Floor       int     `json:"floor"`
+	Startup     int     `json:"startup"`
+	Source      *string `json:"source,omitempty"`
 }
+
+const BrightnessSourceClock = "clock"
+
+var BrightnessSourcePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,16}$`)
 
 func (s KnobSettings) PrintMomentsOn() bool { return s.Bot.PrintMoments == nil || *s.Bot.PrintMoments }
 
@@ -353,6 +361,7 @@ func (s KnobSettings) clone() KnobSettings {
 	s.Idle = s.Idle.clone()
 	s.Apps = s.Apps.clone()
 	s.Room = s.Room.clone()
+	s.Brightness.Source = clonePtr(s.Brightness.Source)
 	if s.SwipePages != nil {
 		v := *s.SwipePages
 		s.SwipePages = &v
@@ -453,6 +462,9 @@ func (s KnobSettings) Validate() error {
 	}
 	if err := inRange("brightness.startup", b.Startup, 0, 255); err != nil {
 		return err
+	}
+	if b.Source != nil && !BrightnessSourcePattern.MatchString(*b.Source) {
+		return fmt.Errorf("brightness.source %q must be %q or a device id", *b.Source, BrightnessSourceClock)
 	}
 	if err := s.validatePages(); err != nil {
 		return err

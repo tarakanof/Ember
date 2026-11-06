@@ -59,7 +59,7 @@ type App struct {
 	activityLast    map[string]activityMark
 	activitySweptAt time.Time
 
-	brightness brightnessTracker
+	brightness brightnessTrackers
 
 	statsCache statsCache
 	statsClock func() time.Time

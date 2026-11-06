@@ -335,6 +335,7 @@ func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.knobStats.forget(id)
+	a.forgetBrightness(id)
 	a.wifiDrops.forget(id)
 	a.diagDrops.forget(id)
 	a.idleDrops.forget(id)
@@ -444,6 +445,10 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		a.logger.WarnContext(r.Context(), "device caps dropped", "device_id", id, "err", capsErr)
 	}
 	demoGen := a.demos.generation(id)
+	var lux *float64
+	if report.Room != nil && report.Room.Lux != nil {
+		lux = refOf(*report.Room.Lux)
+	}
 	res, err := a.devices.Checkin(id, report, caps, capsErr)
 	if errors.Is(err, devices.ErrCheckinNotStored) {
 		a.logger.WarnContext(r.Context(), "device checkin not persisted", "device_id", id, "err", err)
@@ -460,11 +465,14 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	if !res.BootedAt.IsZero() {
 		a.noteKnobReboot(r, id, demoGen, res.BootedAt)
 	}
+	if lux != nil && !res.Stale {
+		a.feedKnobLux(id, *lux, res.SeenAt)
+	}
 	now := a.knobStats.now()
 	if diag, _, err := a.devices.Diagnostics(id); err == nil {
 		if stats = stats.forLevel(diag); stats != nil && !res.Stale {
 			sample := knobSampleFromReport(report, stats)
-			sample.BrightnessLevel = refOf(a.currentBrightness(now).Level)
+			sample.BrightnessLevel = refOf(a.knobBrightness(id, now).Level)
 			a.knobStats.record(id, now, sample)
 		}
 		res.DiagLiveUntil = a.knobLiveUnix(id, diag, now)

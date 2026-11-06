@@ -3846,6 +3846,28 @@ the exact sunrise and sunset on the LAN.
   editable via `GET/PUT /v1/brightness/config` (merge semantics, 400 on an
   invalid merge, e.g. `night_level` below `floor`; 0 is not a valid value for
   any knob).
+- **Per-device brightness** (#759, DEVICE-PROTOCOL "Per-device brightness").
+  `App.brightness` holds one tracker per light sensor
+  (`brightnessTrackers`, keyed `clock` for the TC001 whatever its registry id,
+  or the knob id), each the same `decideBrightness` state the clock's was. The
+  tick probes the clock, advances `clock` with that sample and every other
+  tracker with none; a checkin with `room.lux` advances its knob's tracker at
+  the checkin's `SeenAt` (stale checkins skip it), under the same mutex, and
+  either path notifies `topicBrightness` only when a tracker's `brightnessAt`
+  moved. `BrightnessConfig.forSource` gives each tracker its config: a
+  `sources` entry's `lux_dark`/`lux_bright` over the shared ones, and for a
+  knob a stale limit of at least 120 s (`stale_seconds` may be 60, the checkin
+  cadence, and an ageing tick would then reset it between checkins).
+  `brightnessAt`'s grace of one tick plus one probe timeout holds for knob
+  trackers too: the same tick ages them, so a read never flips to the
+  fallback before the tick that notifies. A knob's view and its stats
+  `brightness_level` use `deviceBrightness`: `brightness.source` (`clock`, the
+  clock's registry id, or a knob id), then its own tracker, then `clock`, each
+  only while its `brightnessAt` source is `lux`, then the sun schedule or
+  `day_level`. An unknown or deleted source is just a missing tracker.
+  `GET /v1/display/brightness` stays `clock`, then the fallback. Deleting a
+  knob drops its tracker; trackers live in memory only, so a restart reseeds
+  them from the next checkin.
 
 Wire conventions (for Swift's `JSONDecoder` `.iso8601` and Swift Charts):
 RFC 3339 timestamps with **whole seconds** (`.iso8601` rejects fractions),

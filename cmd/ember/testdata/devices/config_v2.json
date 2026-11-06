@@ -5,7 +5,8 @@
       "follow_ember": false,
       "level": 255,
       "floor": 255,
-      "startup": 255
+      "startup": 255,
+      "source": "knob-aabbccddeeff"
     },
     "pages": [
       {

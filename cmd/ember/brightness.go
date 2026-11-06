@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +31,33 @@ type BrightnessConfig struct {
 	Hysteresis      int     `json:"hysteresis"`
 	StaleSeconds    int     `json:"stale_seconds"`
 	TwilightMinutes int     `json:"twilight_minutes"`
+
+	Sources map[string]BrightnessLimits `json:"sources,omitempty"`
+}
+
+type BrightnessLimits struct {
+	LuxDark   float64 `json:"lux_dark,omitempty"`
+	LuxBright float64 `json:"lux_bright,omitempty"`
+}
+
+const (
+	brightnessSourcesMax = 32
+	knobMinStaleSeconds  = 120
+)
+
+func (c BrightnessConfig) forSource(key string) BrightnessConfig {
+	if l, ok := c.Sources[key]; ok {
+		if l.LuxDark != 0 {
+			c.LuxDark = l.LuxDark
+		}
+		if l.LuxBright != 0 {
+			c.LuxBright = l.LuxBright
+		}
+	}
+	if key != devices.BrightnessSourceClock {
+		c.StaleSeconds = max(c.StaleSeconds, knobMinStaleSeconds)
+	}
+	return c
 }
 
 func (c BrightnessConfig) resolved() BrightnessConfig {
@@ -86,6 +114,17 @@ func (c BrightnessConfig) validate() error {
 		return fmt.Errorf("stale_seconds %d out of range [%d, 3600]", c.StaleSeconds, minStaleSeconds)
 	case c.TwilightMinutes < 1 || c.TwilightMinutes > 180:
 		return fmt.Errorf("twilight_minutes %d out of range [1, 180]", c.TwilightMinutes)
+	case len(c.Sources) > brightnessSourcesMax:
+		return fmt.Errorf("sources lists %d entries, at most %d", len(c.Sources), brightnessSourcesMax)
+	}
+	for key, l := range c.Sources {
+		if !devices.BrightnessSourcePattern.MatchString(key) || strings.HasPrefix(key, devices.ClockIDPrefix) {
+			return fmt.Errorf("sources key %q must be %q or a knob id", key, devices.BrightnessSourceClock)
+		}
+		s := c.forSource(key)
+		if l.LuxDark < 0 || l.LuxBright < 0 || s.LuxBright <= s.LuxDark {
+			return fmt.Errorf("sources.%s: lux_dark %v and lux_bright %v must satisfy 0 < dark < bright", key, s.LuxDark, s.LuxBright)
+		}
 	}
 	return nil
 }
@@ -220,9 +259,30 @@ func brightnessAt(c BrightnessConfig, st brightnessState, geo brightnessGeo, now
 
 const brightnessTickInterval = time.Minute
 
-type brightnessTracker struct {
+type brightnessTrackers struct {
 	mu sync.Mutex
-	st brightnessState
+	st map[string]brightnessState
+}
+
+func (t *brightnessTrackers) advance(c BrightnessConfig, key string, s *luxSample, geo brightnessGeo, now time.Time) bool {
+	sc := c.forSource(key)
+	prev := t.st[key]
+	before := brightnessAt(sc, prev, geo, now)
+	_, next := decideBrightness(sc, prev, s, geo, now)
+	if t.st == nil {
+		t.st = map[string]brightnessState{}
+	}
+	t.st[key] = next
+	return brightnessAt(sc, next, geo, now) != before
+}
+
+func (t *brightnessTrackers) lux(c BrightnessConfig, key string, geo brightnessGeo, now time.Time) (brightnessOut, bool) {
+	st, ok := t.st[key]
+	if !ok {
+		return brightnessOut{}, false
+	}
+	out := brightnessAt(c.forSource(key), st, geo, now)
+	return out, out.Source == "lux"
 }
 
 func (a *App) brightnessGeo() brightnessGeo {
@@ -238,12 +298,35 @@ func (a *App) tickBrightness(ctx context.Context, now time.Time) {
 	c := a.cfg.Load().Brightness.resolved()
 	geo := a.brightnessGeo()
 	a.brightness.mu.Lock()
-	before := brightnessAt(c, a.brightness.st, geo, now)
-	_, a.brightness.st = decideBrightness(c, a.brightness.st, sample, geo, now)
-	after := brightnessAt(c, a.brightness.st, geo, now)
+	moved := a.brightness.advance(c, devices.BrightnessSourceClock, sample, geo, now)
+	for key := range a.brightness.st {
+		if key != devices.BrightnessSourceClock && a.brightness.advance(c, key, nil, geo, now) {
+			moved = true
+		}
+	}
 	a.brightness.mu.Unlock()
-	moved := after != before
 	if moved {
+		a.changes.notify(topicBrightness)
+	}
+}
+
+func (a *App) feedKnobLux(id string, lux float64, at time.Time) {
+	c := a.cfg.Load().Brightness.resolved()
+	geo := a.brightnessGeo()
+	a.brightness.mu.Lock()
+	moved := a.brightness.advance(c, id, &luxSample{Lux: lux, At: at}, geo, at)
+	a.brightness.mu.Unlock()
+	if moved {
+		a.changes.notify(topicBrightness)
+	}
+}
+
+func (a *App) forgetBrightness(id string) {
+	a.brightness.mu.Lock()
+	_, had := a.brightness.st[id]
+	delete(a.brightness.st, id)
+	a.brightness.mu.Unlock()
+	if had {
 		a.changes.notify(topicBrightness)
 	}
 }
@@ -263,12 +346,46 @@ func (a *App) StartBrightness(ctx context.Context) {
 }
 
 func (a *App) currentBrightness(now time.Time) brightnessOut {
+	return a.resolveBrightness(nil, now)
+}
+
+func (a *App) deviceBrightness(id string, source *string, now time.Time) brightnessOut {
+	var keys []string
+	if source != nil && *source != "" {
+		keys = append(keys, a.brightnessSourceKey(*source))
+	}
+	return a.resolveBrightness(append(keys, id), now)
+}
+
+func (a *App) knobBrightness(id string, now time.Time) brightnessOut {
+	cfg, _, err := a.devices.Config(id)
+	if err != nil {
+		return a.currentBrightness(now)
+	}
+	return a.deviceBrightness(id, cfg.Brightness.Source, now)
+}
+
+func (a *App) brightnessSourceKey(source string) string {
+	if source == devices.BrightnessSourceClock {
+		return source
+	}
+	if kind, err := a.devices.KindOf(source); err == nil && kind == devices.KindClock {
+		return devices.BrightnessSourceClock
+	}
+	return source
+}
+
+func (a *App) resolveBrightness(keys []string, now time.Time) brightnessOut {
 	c := a.cfg.Load().Brightness.resolved()
 	geo := a.brightnessGeo()
 	a.brightness.mu.Lock()
-	st := a.brightness.st
-	a.brightness.mu.Unlock()
-	return brightnessAt(c, st, geo, now)
+	defer a.brightness.mu.Unlock()
+	for _, key := range append(keys, devices.BrightnessSourceClock) {
+		if out, ok := a.brightness.lux(c, key, geo, now); ok {
+			return out
+		}
+	}
+	return brightnessAt(c, brightnessState{}, geo, now)
 }
 
 func (a *App) handleDisplayBrightness(w http.ResponseWriter, r *http.Request) {

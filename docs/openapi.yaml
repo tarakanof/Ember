@@ -1867,7 +1867,7 @@ paths:
       tags: [read]
       operationId: getDisplayBrightness
       summary: Brightness for sensorless displays
-      description: The clock's lux reading, else the sun schedule.
+      description: The clock's lux reading, else the sun schedule. The global answer; a knob reads its own level from its view.
       security: []
       responses:
         "200":
@@ -2081,6 +2081,7 @@ paths:
       tags: [settings]
       operationId: putBrightnessConfig
       summary: Merge brightness schedule settings
+      description: Optional `sources` entries keyed `clock` or a knob id carry `lux_dark` and `lux_bright` for that sensor only.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:

@@ -135,7 +135,7 @@ func (a *App) buildKnobView(id string, now time.Time) ([]byte, string, string, e
 	}
 	mood := a.moodState()
 	m := newKnobMood(mood.Render, mood.Lead)
-	b := a.currentBrightness(now)
+	b := a.deviceBrightness(id, st.Cfg.Brightness.Source, now)
 	detail := st.Caps.HasFeature(featureWxFaces) && st.Caps.HasPage("weather") && st.Cfg.PageOn("weather")
 	v := knobView{
 		V:             1,

@@ -240,6 +240,11 @@ func TestKnobV2KeysValidate(t *testing.T) {
 		mutate func(*KnobSettings)
 		ok     bool
 	}{
+		{"source clock", func(s *KnobSettings) { s.Brightness.Source = new("clock") }, true},
+		{"source knob", func(s *KnobSettings) { s.Brightness.Source = new("knob-aabbccddeeff") }, true},
+		{"source too long", func(s *KnobSettings) { s.Brightness.Source = new("knob-aabbccddeeff0") }, false},
+		{"source upper", func(s *KnobSettings) { s.Brightness.Source = new("Knob-aabbcc") }, false},
+		{"source empty", func(s *KnobSettings) { s.Brightness.Source = new("") }, false},
 		{"dim never", func(s *KnobSettings) { s.Idle = &KnobIdle{DimAfterS: new(0)} }, true},
 		{"dim 30", func(s *KnobSettings) { s.Idle = &KnobIdle{DimAfterS: new(30)} }, true},
 		{"dim 29", func(s *KnobSettings) { s.Idle = &KnobIdle{DimAfterS: new(29)} }, false},
@@ -399,6 +404,7 @@ func maxV2Settings() KnobSettings {
 	s := maxLegacyStoreSettings()
 	s.Room = &KnobRoom{Enabled: boolPtr(false), PresenceOffS: new(86399), PresenceWake: boolPtr(false), Moments: boolPtr(false)}
 	s.Bot.PrintMoments = boolPtr(false)
+	s.Brightness.Source = new("knob-aabbccddeeff")
 	return s
 }
 
@@ -457,6 +463,28 @@ func TestKnobV2LargestConfigFitsDepthAndSize(t *testing.T) {
 			}
 			t.Logf("largest valid v2 config: %d B of %d", len(b), c.limit)
 		})
+	}
+}
+
+func TestKnobBrightnessSourceMergesAndClears(t *testing.T) {
+	cur := DefaultKnobSettings()
+	got, err := mergeKnobSettings(cur.clone(), []byte(`{"brightness":{"source":"clock"}}`))
+	if err != nil || got.Brightness.Source == nil || *got.Brightness.Source != "clock" || !got.Brightness.FollowEmber || got.Brightness.Level != 153 {
+		t.Fatalf("set source: %v %+v", err, got.Brightness)
+	}
+	prev := got.clone()
+	got, err = mergeKnobSettings(got.clone(), []byte(`{"brightness":{"source":"knob-aabbcc"}}`))
+	if err != nil || *got.Brightness.Source != "knob-aabbcc" || *prev.Brightness.Source != "clock" {
+		t.Fatalf("merging into a clone wrote through: %v %+v %+v", err, got.Brightness, prev.Brightness)
+	}
+	for _, clear := range []string{`{"brightness":{"source":null}}`, `{"brightness":{"source":""}}`} {
+		c, err := mergeKnobSettings(got.clone(), []byte(clear))
+		if err != nil || c.Brightness.Source != nil {
+			t.Fatalf("%s must clear the source: %v %+v", clear, err, c.Brightness)
+		}
+		if b, _ := json.Marshal(c.Brightness); string(b) != `{"follow_ember":true,"level":153,"floor":10,"startup":153}` {
+			t.Fatalf("%s left %s", clear, b)
+		}
 	}
 }
 
