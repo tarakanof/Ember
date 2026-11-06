@@ -1460,3 +1460,19 @@ func TestAttentionMidPrintFiresOnceAndResumeFiresNoStarted(t *testing.T) {
 		t.Fatalf("events = %v", kinds)
 	}
 }
+
+func TestPreviewHeldLongerThanTheLastPrintsTimeDoesNotAnchor(t *testing.T) {
+	s := newStubPrinter(t)
+	h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
+	h.advance(h.step())
+	for range 3 {
+		s.set(func(s *stubPrinter) {
+			s.status = statusJSON("ATTENTION", &jobFields{id: 6, progress: 0, printing: num(300)})
+		})
+		h.advance(h.step())
+		h.advance(10 * time.Minute)
+	}
+	if got := h.snap().StartedAt; !got.IsZero() {
+		t.Fatalf("an open print preview anchored started_at: %v", got)
+	}
+}

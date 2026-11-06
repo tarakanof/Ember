@@ -2838,12 +2838,13 @@ keeps it on the default transport: mDNS browsing is injected
   `started_at` is anchored only once the job has been seen outside
   ATTENTION, and only from a `time_printing` no longer than the job has
   been seen (plus 30 s); and a server start in that ATTENTION counts the
-  job as started only past 1 %. The recording needs only the first
-  condition (seen outside ATTENTION). The time check guards a remote start
-  that would read PRINTING with the previous print's time, which the
-  recording does not show (a remote start read 0): kept as defensive, and
-  because removing it would change `started_at` for such an answer
-  (acceptance 5 of #795). Its cost: a server start in the middle of a
+  job as started only past 1 %. The recording needs the first condition
+  (seen outside ATTENTION: a preview left open longer than the previous
+  print's time would otherwise anchor to it). The time check guards a
+  remote start that would read PRINTING with the previous print's time,
+  which the recording does not show (a remote start read 0): kept as
+  defensive, because removing it would change `State.At`'s `started_at` for
+  such an answer and #795 keeps `State.At` as it is. Its cost: a server start in the middle of a
   preheat (0 %, `time_printing` already past the watched time) leaves
   `started_at` empty until 1 %.
 - **Name.** `display_name` (else the 8.3 `name`) without the G-code
@@ -2894,21 +2895,22 @@ keeps it on the default transport: mDNS browsing is injected
   empty kind); a prompt mid-print (ATTENTION with the job, as a colour
   change would send); the "fresh enough"
   test on `time_printing` for `started_at` (`jobSeenAt`). Removed because the
-  recording disproves them: holding a start's `started` one read for a
+  recording contradicts it: holding a start's `started` one read for a
   remote start that reads PRINTING with the previous print's
-  `time_printing` before `PrintInit` (`startHeld`). Heating
-  versus preparing flips during the staged preheat (the target steps, e.g.
-  170 → 150 → 230 °C on the nozzle, and the temperature wobbles about the
-  3° margin); the snapshot contract is unchanged. The recording has no BUSY,
-  so `startHeld` goes on the evidence of a start straight out of IDLE only;
-  the server-start-in-BUSY path stays untested by any recording.
+  `time_printing` before `PrintInit` (`startHeld`).
+  The recording has no BUSY, so `startHeld` goes on the evidence of a start
+  straight out of IDLE only; the server-start-in-BUSY path stays untested by
+  any recording. Known and unchanged: heating and preparing flip during the
+  staged preheat (nozzle target steps 170 → 150 → 230 °C, temperature
+  wobbling about the 3° margin), tracked in #814; the name rule does not
+  match the real file name (no nozzle part), #813.
 - **Events** `started` (a new `job.id` reaching heating, preparing,
   printing or finishing), `attention`, `finished`, `stopped`, `error`: one
   per edge between two successful polls of this process, ids increasing
   (Unix ms, bumped past the last), kept 30 min, at most 32. The first poll
   after a start is a baseline and emits nothing, so a restart mid-FINISHED
   or mid-print replays nothing (a job first seen in a print-preview
-  ATTENTION, at 0 % and no printing time, still gets its `started`); a printer that went `offline` and comes back
+  ATTENTION, at 0 %, still gets its `started`); a printer that went `offline` and comes back
   is compared with its last online phase. Notifications and bot moments act
   on events, never on a level.
 - **Holds.** `Snapshot.HoldUntil` is the `finished` edge + `done_hold_min`

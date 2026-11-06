@@ -3,6 +3,7 @@ package printer
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -120,6 +121,28 @@ func playTrace(t *testing.T, name string) (*stubPrinter, *harness, []traceRow, [
 	return s, h, rows, replay(t, s, h, rows)
 }
 
+func firstRunning(snaps []Snapshot) int {
+	for i, sn := range snaps {
+		if isRunning(sn.Phase) {
+			return i
+		}
+	}
+	return -1
+}
+
+func startedAtOf(row traceRow) time.Time {
+	var d struct {
+		Job struct {
+			TimePrinting float64 `json:"time_printing"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(row.Status, &d); err != nil {
+		panic(err)
+	}
+	at := time.Unix(0, int64(row.T*float64(time.Second))).UTC()
+	return at.Add(-time.Duration(d.Job.TimePrinting) * time.Second).Truncate(time.Second)
+}
+
 func rowOf(snaps []Snapshot, phase Phase) int {
 	for i, sn := range snaps {
 		if sn.Phase == phase {
@@ -130,7 +153,7 @@ func rowOf(snaps []Snapshot, phase Phase) int {
 }
 
 func TestReplayRemotePrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
-	_, h, _, snaps := playTrace(t, remoteTrace)
+	_, h, rows, snaps := playTrace(t, remoteTrace)
 	want := []Phase{PhaseIdle, PhasePreparing, PhasePrinting, PhasePaused, PhasePrinting, PhaseFinishing, PhaseFinished, PhaseIdle}
 	if got := coarsePhases(snaps); !slices.Equal(got, want) {
 		t.Fatalf("phases = %v\nwant     %v", got, want)
@@ -139,7 +162,8 @@ func TestReplayRemotePrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
 	if len(edges) != 2 || edges[0].Kind != EventStarted || edges[0].Job != 694 || edges[1].Kind != EventFinished || edges[1].Job != 694 {
 		t.Fatalf("events = %+v, want started and finished of job 694", edges)
 	}
-	if first := min(rowOf(snaps, PhaseHeating), rowOf(snaps, PhasePreparing)); first != edges[0].Row {
+	first := firstRunning(snaps)
+	if first != edges[0].Row {
 		t.Fatalf("started at row %d, the print began at row %d", edges[0].Row, first)
 	}
 	last := h.snap()
@@ -167,8 +191,8 @@ func TestReplayRemotePrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
 	if p := rowOf(snaps, PhasePaused); snaps[p].Event.Kind != EventStarted {
 		t.Fatalf("the pause fired %+v", snaps[p].Event)
 	}
-	if got := snaps[rowOf(snaps, PhasePrinting)].StartedAt; got.IsZero() {
-		t.Fatal("a remote start left started_at unset")
+	if got, want := snaps[first].StartedAt, startedAtOf(rows[first]); !got.Equal(want) {
+		t.Fatalf("a remote start's started_at = %v, want %v", got, want)
 	}
 }
 
@@ -194,20 +218,11 @@ func TestReplayScreenStartedPrintStopsWithOneEventPerEdge(t *testing.T) {
 			t.Fatalf("row %d: the print preview anchored started_at to the last print's time: %v", i, sn.StartedAt)
 		}
 	}
-	first := min(rowOf(snaps, PhaseHeating), rowOf(snaps, PhasePreparing))
+	first := firstRunning(snaps)
 	if first != edges[1].Row {
 		t.Fatalf("started at row %d, the print began at row %d", edges[1].Row, first)
 	}
-	var tp struct {
-		Job struct {
-			TimePrinting float64 `json:"time_printing"`
-		} `json:"job"`
-	}
-	if err := json.Unmarshal(rows[first].Status, &tp); err != nil {
-		t.Fatal(err)
-	}
-	at := time.Unix(0, int64(rows[first].T*float64(time.Second))).UTC()
-	if want := at.Add(-time.Duration(tp.Job.TimePrinting) * time.Second).Truncate(time.Second); !snaps[first].StartedAt.Equal(want) {
+	if want := startedAtOf(rows[first]); !snaps[first].StartedAt.Equal(want) {
 		t.Fatalf("started_at = %v, want %v", snaps[first].StartedAt, want)
 	}
 	stopped := snaps[edges[2].Row]
@@ -265,6 +280,21 @@ func TestReplayRestartAtEveryRowReplaysNoEndedOrRunningEdge(t *testing.T) {
 						t.Fatalf("restart at row %d: hold at row %d before any edge", i, i+k)
 					}
 				}
+				if first := firstRunning(full); i < first {
+					if got, want := snaps[first-i].StartedAt, full[first].StartedAt; !got.Equal(want) {
+						t.Fatalf("restart at row %d: started_at %v, want %v", i, got, want)
+					}
+				}
+				if name == remoteTrace {
+					next := replay(t, s, h, loadTrace(t, screenTrace))
+					var kinds []EventKind
+					for _, e := range edgesOf(next) {
+						kinds = append(kinds, e.Kind)
+					}
+					if tail := kinds[max(0, len(kinds)-3):]; !slices.Equal(tail, []EventKind{EventAttention, EventStarted, EventStopped}) {
+						t.Fatalf("restart at row %d: the next print fired %v", i, kinds)
+					}
+				}
 				if end := snaps[len(snaps)-1]; end.Phase != full[len(full)-1].Phase || end.JobID != full[len(full)-1].JobID {
 					t.Fatalf("restart at row %d ends in %s job %d", i, end.Phase, end.JobID)
 				}
@@ -281,7 +311,7 @@ func TestReplayEveryThirdRowYieldsTheSameEvents(t *testing.T) {
 			want = append(want, e.Kind)
 		}
 		for offset := range 3 {
-			t.Run(name, func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/%d", name, offset), func(t *testing.T) {
 				s := newStubPrinter(t)
 				s.set(func(s *stubPrinter) { s.thumb = testPNG(t, 1) })
 				h := newHarness(t, manualConfig(s.srv.URL), testPassword, nil)
