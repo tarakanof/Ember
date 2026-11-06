@@ -1,0 +1,65 @@
+import Testing
+import Foundation
+@testable import EmberKit
+
+private func emberKitStrings() -> [LocalizedStringResource] {
+    var out: [LocalizedStringResource] = []
+    let states: [Session.State] = [.running, .waiting, .done, .error, .idle, .unknown(""), .unknown("x")]
+    out += states.map(\.displayName)
+    let phases: [PomoPhase] = [.idle, .focus, .shortBreak, .longBreak, .unknown("x")]
+    out += phases.map(\.displayName)
+    let timers = ["idle", "focus", "short_break"].flatMap { phase in
+        [(false, false), (true, false), (true, true)].map {
+            PomoState(phase: phase, running: $0.0, paused: $0.1, remainingSec: 0, plannedSec: 0, round: 0)
+        }
+    }
+    out += timers.flatMap { PomodoroControls.items(for: $0).map(\.title) }
+    out += ["claude", "codex", "t3", "weather", "ember-weather-popup", "ember-forecast", "ember-air", "ember-air-popup",
+            "ember-sun-popup", "pomodoro", "ember-meet", "ember-meeting", "ember-reminder", "ember-notify",
+            "ember-usage-alarm", "ember-usage-claude", "mystery",
+            "ember-print", "ember-print-eta", "ember-print-pct", "ember-print-temp", "ember-print-done", "ember-print-attention",
+            "ember-print-error"].map(AppNames.display)
+    let session = try! JSONDecoder().decode(Session.self, from: Data(#"{"tool":"claude","state":"running","context_pct":5}"#.utf8))
+    var sourced = session
+    sourced.source = "m4"
+    out += [SessionPresentation(session).title, SessionPresentation(sourced).title,
+            SessionPresentation(session).contextText()!]
+    let health: [ConnectionHealth] = [.unconfigured, .connecting, .online(since: .now),
+                                      .degraded(failures: 1), .offline(since: .now)]
+    out += health.flatMap { h in
+        [nil, "1.0"].flatMap { v in [h.subtitle(serverHost: nil, serverVersion: v), h.subtitle(serverHost: "h", serverVersion: v)] }
+    }
+    let errors: [FeedError] = [.offline, .unauthorized, .rateLimited, .featureOff, .server("x")]
+    out += errors.flatMap { [$0.message, $0.saveMessage] }
+    out += [AggregateSaveStatus.saving, .saved, .failed].compactMap(\.subtitle)
+    out += SettingsInfo.allCases.flatMap { [$0.summary, $0.detail] }
+    out += SettingsInfoRequirement.allCases.map(\.text)
+    out += PrinterShow.allCases.map(\.title)
+    return out
+}
+
+@Test func emberKitStringsAreInTheAppCatalog() throws {
+    let url = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Ember/Localizable.xcstrings")
+    let catalog = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    let keys = Set((catalog["strings"] as? [String: Any] ?? [:]).keys)
+    let missing = Set(emberKitStrings().map(\.key)).subtracting(keys).sorted()
+    #expect(missing.isEmpty, "add to Localizable.xcstrings: \(missing)")
+}
+
+@Test func everyServerPrintAppIdHasAName() throws {
+    let cmd = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("cmd/ember")
+    let pattern = try NSRegularExpression(pattern: #""(ember-print[a-z-]*)""#)
+    var ids = Set<String>()
+    for file in ["notify_names.go", "coordinator_print.go"] {
+        let text = try String(contentsOf: cmd.appendingPathComponent(file), encoding: .utf8)
+        for m in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            ids.insert(String(text[Range(m.range(at: 1), in: text)!]))
+        }
+    }
+    #expect(ids.count >= 6)
+    for id in ids { #expect(AppNames.isKnown(id), "no name for \(id)") }
+}

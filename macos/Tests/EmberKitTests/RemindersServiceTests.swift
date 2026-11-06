@@ -1,0 +1,79 @@
+import Testing
+import Foundation
+@testable import EmberKit
+
+@Test func fireSendsJSONToFireEndpoint() async throws {
+    let client = stubbedClient(token: "t") { req in
+        #expect(req.httpMethod == "POST")
+        #expect(req.url?.path == "/v1/reminders/fire")
+        let body = req.httpBodyStreamData() ?? req.httpBody ?? Data()
+        let obj = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        #expect(obj?["text"] as? String == "Walk")
+        #expect(obj?["sound"] as? Bool == true)
+        #expect(obj?["duration"] as? Int == 8)
+        #expect(obj?["native_icon_id"] as? String == "1234")
+        #expect(obj?["hold"] as? Bool == true)
+        #expect(obj?["repeat_sound"] as? Bool == false)
+        #expect(req.value(forHTTPHeaderField: "Idempotency-Key") == "abc|1000")
+        return (okResponse(req.url!, status: 204), Data())
+    }
+    try await RemindersService(client: client).fire(text: "Walk", sound: true, duration: 8, nativeIconId: "1234", hold: true, key: "abc|1000")
+}
+
+@Test func fireSendsRepeatSoundWhenOptedIn() async throws {
+    let client = stubbedClient(token: "t") { req in
+        let body = req.httpBodyStreamData() ?? req.httpBody ?? Data()
+        let obj = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        #expect(obj?["repeat_sound"] as? Bool == true)
+        return (okResponse(req.url!, status: 204), Data())
+    }
+    try await RemindersService(client: client).fire(text: "Walk", sound: true, duration: 8, nativeIconId: "",
+                                                    hold: true, repeatSound: true, key: "k")
+}
+
+@Test func reminderPrefsRepeatSoundDefaultsOff() throws {
+    #expect(ReminderPrefs().repeatSound == false)
+    let old = try JSONDecoder().decode(ReminderPrefs.self, from: Data(#"{"enabled":true,"hold":true}"#.utf8))
+    #expect(old.repeatSound == false)
+}
+
+@Test func fireReportsRefusedConnectionAsNotSent() async throws {
+    let client = stubbedClient { _ in throw URLError(.cannotConnectToHost) }
+    await #expect(throws: RequestNotSent.self) {
+        try await RemindersService(client: client).fire(text: "Walk", sound: false, duration: 8,
+                                                        nativeIconId: "", hold: false, key: "k")
+    }
+}
+
+@Test func fireReportsTimeoutAsPlainTransportError() async throws {
+    let client = stubbedClient { _ in throw URLError(.timedOut) }
+    do {
+        try await RemindersService(client: client).fire(text: "Walk", sound: false, duration: 8,
+                                                        nativeIconId: "", hold: false, key: "k")
+        Issue.record("expected an error")
+    } catch {
+        #expect(ReminderFireOutcome(error: error) == .maybeDelivered)
+    }
+}
+
+
+@Test func conditionalConfigSaveSendsIfDefaultAndTreats409AsRefused() async throws {
+    let refused = stubbedClient { req in
+        #expect(req.httpMethod == "PUT")
+        #expect(req.url?.path == "/v1/reminders/config")
+        #expect(req.url?.query == "if_default=1")
+        return (okResponse(req.url!, status: 409), Data(#"{"enabled":true,"lead_minutes":10}"#.utf8))
+    }
+    #expect(try await RemindersService(client: refused).saveConfigIfDefault(ReminderPrefs(enabled: true)) == nil)
+
+    let saved = ReminderPrefs(enabled: true, leadMinutes: 5)
+    let accepted = stubbedClient { req in
+        (okResponse(req.url!), try JSONEncoder().encode(saved))
+    }
+    #expect(try await RemindersService(client: accepted).saveConfigIfDefault(saved) == saved)
+
+    let broken = stubbedClient { req in (okResponse(req.url!, status: 502), Data()) }
+    await #expect(throws: APIError.self) {
+        _ = try await RemindersService(client: broken).saveConfigIfDefault(saved)
+    }
+}

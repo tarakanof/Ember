@@ -1,0 +1,371 @@
+tick 00 state=running pomo=false hold=0
+  dev#000 GET /api/v1/apps body=e3b0c442 ok
+  dev#001 PUT /api/v1/indicators/1 body=b721723d ok
+  dev#002 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+  dev#003 DELETE /api/v1/apps/ember-weather body=e3b0c442 ok
+tick 01 state=running pomo=false hold=0
+  dev#004 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 02 state=running pomo=false hold=0
+  dev#005 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 03 state=running pomo=false hold=0
+  dev#006 POST /api/v1/audio/play body=feb83a4a ok
+  dev#007 DELETE /api/v1/indicators/1 body=e3b0c442 ok
+  dev#008 PUT /api/v1/indicators/2 body=6952b9e0 ok
+  dev#009 PUT /api/v1/apps/pushed/ember body=f361e984 ok
+  dev#010 PUT /api/v1/apps/active body=fedfc91c ok
+tick 04 state=waiting pomo=false hold=1
+  dev#011 DELETE /api/v1/indicators/2 body=e3b0c442 ok
+  dev#012 PUT /api/v1/apps/pushed/ember body=cde3ecef ok
+tick 05 state=waiting pomo=false hold=0
+  dev#013 PUT /api/v1/apps/pushed/ember body=cde3ecef slow1800
+tick 06 state=waiting pomo=false hold=0
+  dev#014 PUT /api/v1/apps/pushed/ember body=cde3ecef ok
+tick 07 state=waiting pomo=false hold=0
+  dev#015 PUT /api/v1/apps/pushed/ember body=cde3ecef ok
+tick 08 state=waiting pomo=false hold=0
+  dev#016 PUT /api/v1/indicators/1 body=b721723d ok
+  dev#017 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 09 state=running pomo=false hold=0
+  dev#018 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 10 state=running pomo=false hold=0
+  dev#019 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 11 state=running pomo=false hold=0
+  dev#020 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 12 state=running pomo=false hold=0
+  dev#021 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+  dev#022 GET /api/v1/settings body=e3b0c442 ok
+  dev#023 PATCH /api/v1/settings body=c6128a44 ok
+  dev#024 PUT /api/v1/apps/active body=f435d972 ok
+tick 13 state=running pomo=true hold=2
+  dev#025 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 14 state=running pomo=true hold=2
+  dev#026 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 15 state=running pomo=true hold=2
+  dev#027 PUT /api/v1/apps/pushed/ember body=caed5804 slow3500
+  dev#028 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 16 state=running pomo=true hold=2
+  dev#029 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 17 state=running pomo=true hold=2
+  dev#030 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 18 state=running pomo=true hold=2
+  dev#031 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 19 state=running pomo=true hold=2
+  dev#032 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 20 state=running pomo=true hold=2
+  dev#033 PUT /api/v1/indicators/1 body=b721723d ok
+  dev#034 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+  dev#035 PATCH /api/v1/settings body=c6128a44 ok
+  dev#036 PUT /api/v1/apps/active body=f435d972 ok
+tick 21 state=running pomo=true hold=2
+  dev#037 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 22 state=running pomo=true hold=2
+  dev#038 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 23 state=running pomo=true hold=2
+  dev#039 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 24 state=running pomo=true hold=2
+  dev#040 PUT /api/v1/apps/pushed/ember body=caed5804 503
+  dev#041 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 25 state=running pomo=true hold=2
+  dev#042 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 26 state=running pomo=true hold=2
+  dev#043 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 27 state=running pomo=true hold=2
+  dev#044 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+  dev#045 PATCH /api/v1/settings body=1a19f1f2 ok
+tick 28 state=running pomo=false hold=0
+  dev#046 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 29 state=running pomo=false hold=0
+  dev#047 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 30 state=running pomo=false hold=0
+  dev#048 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 31 state=running pomo=false hold=0
+  dev#049 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 32 state=running pomo=false hold=0
+  dev#050 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 33 state=running pomo=false hold=0
+  dev#051 POST /api/v1/audio/play body=feb83a4a ok
+  dev#052 DELETE /api/v1/indicators/1 body=e3b0c442 ok
+  dev#053 PUT /api/v1/indicators/2 body=c96eaa96 ok
+  dev#054 PUT /api/v1/apps/pushed/ember body=1fa7a0a7 ok
+  dev#055 PUT /api/v1/apps/active body=fedfc91c ok
+tick 34 state=error pomo=false hold=1
+  dev#056 DELETE /api/v1/indicators/2 body=e3b0c442 ok
+  dev#057 PUT /api/v1/apps/pushed/ember body=6b84814a ok
+tick 35 state=error pomo=false hold=0
+  dev#058 PUT /api/v1/apps/pushed/ember body=6b84814a ok
+tick 36 state=error pomo=false hold=0
+  dev#059 PUT /api/v1/apps/pushed/ember body=6b84814a ok
+tick 37 state=error pomo=false hold=0
+  dev#060 PUT /api/v1/apps/pushed/ember body=6b84814a ok
+tick 38 state=error pomo=false hold=0
+  dev#061 PUT /api/v1/apps/pushed/ember body=6b84814a ok
+tick 39 state=error pomo=false hold=0
+  dev#062 PUT /api/v1/apps/pushed/ember body=6b84814a ok
+  dev#063 POST /api/v1/notifications body=481a706c ok
+quiet=false notify #0 err=<nil>
+  dev#064 POST /api/v1/audio/play body=b599ab2e ok
+quiet=false rtttl #0 err=<nil>
+  dev#065 POST /api/v1/notifications body=481a706c ok
+quiet=false notify #1 err=<nil>
+  dev#066 POST /api/v1/audio/play body=b599ab2e ok
+quiet=false rtttl #1 err=<nil>
+  dev#067 POST /api/v1/notifications body=481a706c ok
+quiet=false notify #2 err=<nil>
+  dev#068 POST /api/v1/audio/play body=b599ab2e ok
+quiet=false rtttl #2 err=<nil>
+  dev#069 POST /api/v1/notifications body=d26d7059 ok
+quiet=true notify #0 err=<nil>
+quiet=true rtttl #0 err=<nil>
+  dev#070 POST /api/v1/notifications body=d26d7059 ok
+quiet=true notify #1 err=<nil>
+quiet=true rtttl #1 err=<nil>
+  dev#071 POST /api/v1/notifications body=d26d7059 ok
+quiet=true notify #2 err=<nil>
+quiet=true rtttl #2 err=<nil>
+  dev#072 GET /api/v1/settings body=e3b0c442 ok
+menu settings.get r0 → 200 {"autoTransition":true,"blockNavigation":false,"brightness":90,"textColor":"#FFFFFF"}
+  dev#073 PATCH /api/v1/settings body=aec2473c ok
+menu settings.put r0 → 200 
+  dev#074 PATCH /api/v1/settings body=791d161a ok
+menu settings.put.takeover_key r0 → 200 
+  dev#075 PATCH /api/v1/settings body=502108c2 ok
+menu settings.put.refused r0 → 422 {"code":"validationFailed","error":"clock returned 422: not on this build (field uppercase)","field":"uppercase"}
+  dev#076 GET /api/v1/device body=e3b0c442 ok
+menu stats r0 → 200 {"boardType":"awtrixng","currentApp":"Time","uid":"abc","uptimeSeconds":1030,"version":"1.1.2"}
+  dev#077 GET /api/v1/display/screen body=e3b0c442 ok
+menu screen r0 → 200 {"width":32,"height":8,"pixels":[0]}
+  dev#078 GET /api/v1/display body=e3b0c442 ok
+menu display.get r0 → 200 {"power":true,"overlay":null}
+  dev#079 PATCH /api/v1/display body=e868752a ok
+menu display.put r0 → 404 {"code":"notFound","error":"clock returned 404: no route"}
+  dev#080 GET /api/v1/apps body=e3b0c442 ok
+menu apps.get r0 → 200 [{"enabled":true,"inLoop":true,"name":"Time","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"Date","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"ember","origin":"pushed"}]
+  dev#081 PUT /api/v1/apps/order body=e7b1600f ok
+  dev#082 GET /api/v1/apps body=e3b0c442 ok
+menu apps.put r0 → 200 
+  dev#083 POST /api/v1/apps/next body=e3b0c442 ok
+menu next r0 → 200 
+  dev#084 POST /api/v1/apps/previous body=e3b0c442 ok
+menu prev r0 → 200 
+  dev#085 DELETE /api/v1/notifications/active body=e3b0c442 ok
+menu dismiss r0 → 200 
+  dev#086 POST /api/v1/device/reboot body=e3b0c442 ok
+menu reboot r0 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
+  dev#087 PATCH /api/v1/display body=867fdf54 ok
+menu power r0 → 404 {"code":"notFound","error":"clock returned 404: no route"}
+  dev#088 POST /api/v1/audio/play body=b77b9736 ok
+menu audio.test r0 → 200 {"ok":true}
+  dev#089 POST /api/v1/audio/stop body=e3b0c442 ok
+menu audio.stop r0 → 200 {"ok":true}
+  dev#090 GET /api/v1/audio/melodies body=e3b0c442 ok
+menu audio.melodies r0 → 200 {"melodies":[],"usedBytes":0,"totalBytes":4096}
+  dev#091 GET /api/v1/capabilities body=e3b0c442 ok
+menu capabilities r0 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
+  dev#092 GET /api/v1/system body=e3b0c442 ok
+menu sensors.get r0 → 200 {"temp_offset":-9,"hum_offset":0}
+  dev#093 GET /api/v1/system body=e3b0c442 ok
+  dev#094 PUT /api/v1/system body=90640fd6 ok
+  dev#095 GET /api/v1/system body=e3b0c442 ok
+menu sensors.put r0 → 200 {"temp_offset":-4,"hum_offset":0}
+  dev#096 GET /api/v1/system body=e3b0c442 ok
+  dev#097 PUT /api/v1/system body=7a703937 ok
+menu sensors.put.refused r0 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
+  dev#098 GET /api/v1/system body=e3b0c442 ok
+menu buttons.get r0 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"","configured":false,"last_press_unix":N,"seconds_since":null}
+  dev#099 GET /api/v1/system body=e3b0c442 ok
+  dev#100 PUT /api/v1/system body=b56b59ae ok
+  dev#101 GET /api/v1/system body=e3b0c442 ok
+menu buttons.put r0 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":0,"seconds_since":null}
+  dev#102 GET /api/v1/settings body=e3b0c442 ok
+menu settings.get r1 → 200 {"autoTransition":true,"blockNavigation":false,"brightness":50,"textColor":"#FFFFFF"}
+  dev#103 PATCH /api/v1/settings body=aec2473c ok
+menu settings.put r1 → 200 
+  dev#104 PATCH /api/v1/settings body=791d161a ok
+menu settings.put.takeover_key r1 → 200 
+  dev#105 PATCH /api/v1/settings body=502108c2 ok
+menu settings.put.refused r1 → 422 {"code":"validationFailed","error":"clock returned 422: not on this build (field uppercase)","field":"uppercase"}
+  dev#106 GET /api/v1/device body=e3b0c442 ok
+menu stats r1 → 200 {"boardType":"awtrixng","currentApp":"Time","uid":"abc","uptimeSeconds":1060,"version":"1.1.2"}
+  dev#107 GET /api/v1/display/screen body=e3b0c442 ok
+menu screen r1 → 200 {"width":32,"height":8,"pixels":[0]}
+  dev#108 GET /api/v1/display body=e3b0c442 ok
+menu display.get r1 → 200 {"power":true,"overlay":null}
+  dev#109 PATCH /api/v1/display body=e868752a ok
+menu display.put r1 → 404 {"code":"notFound","error":"clock returned 404: no route"}
+  dev#110 GET /api/v1/apps body=e3b0c442 ok
+menu apps.get r1 → 200 [{"enabled":true,"inLoop":true,"name":"Time","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"Date","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"ember","origin":"pushed"}]
+  dev#111 PUT /api/v1/apps/order body=e7b1600f ok
+  dev#112 GET /api/v1/apps body=e3b0c442 ok
+menu apps.put r1 → 200 
+  dev#113 POST /api/v1/apps/next body=e3b0c442 ok
+menu next r1 → 200 
+  dev#114 POST /api/v1/apps/previous body=e3b0c442 ok
+menu prev r1 → 200 
+  dev#115 DELETE /api/v1/notifications/active body=e3b0c442 ok
+menu dismiss r1 → 200 
+  dev#116 POST /api/v1/device/reboot body=e3b0c442 ok
+menu reboot r1 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
+  dev#117 PATCH /api/v1/display body=867fdf54 ok
+menu power r1 → 404 {"code":"notFound","error":"clock returned 404: no route"}
+  dev#118 POST /api/v1/audio/play body=b77b9736 ok
+menu audio.test r1 → 200 {"ok":true}
+  dev#119 POST /api/v1/audio/stop body=e3b0c442 ok
+menu audio.stop r1 → 200 {"ok":true}
+  dev#120 GET /api/v1/audio/melodies body=e3b0c442 ok
+menu audio.melodies r1 → 200 {"melodies":[],"usedBytes":0,"totalBytes":4096}
+  dev#121 GET /api/v1/capabilities body=e3b0c442 ok
+menu capabilities r1 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
+  dev#122 GET /api/v1/system body=e3b0c442 ok
+menu sensors.get r1 → 200 {"temp_offset":-4,"hum_offset":0}
+  dev#123 GET /api/v1/system body=e3b0c442 ok
+  dev#124 PUT /api/v1/system body=b56b59ae ok
+  dev#125 GET /api/v1/system body=e3b0c442 ok
+menu sensors.put r1 → 200 {"temp_offset":-4,"hum_offset":0}
+  dev#126 GET /api/v1/system body=e3b0c442 ok
+  dev#127 PUT /api/v1/system body=ef9ba6c2 ok
+menu sensors.put.refused r1 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
+  dev#128 GET /api/v1/system body=e3b0c442 ok
+menu buttons.get r1 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":N,"seconds_since":null}
+  dev#129 GET /api/v1/system body=e3b0c442 ok
+  dev#130 PUT /api/v1/system body=b56b59ae ok
+  dev#131 GET /api/v1/system body=e3b0c442 ok
+menu buttons.put r1 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":0,"seconds_since":null}
+  dev#132 GET /api/v1/settings body=e3b0c442 ok
+menu settings.get r2 → 200 {"autoTransition":true,"blockNavigation":false,"brightness":50,"textColor":"#FFFFFF"}
+  dev#133 PATCH /api/v1/settings body=aec2473c ok
+menu settings.put r2 → 200 
+  dev#134 PATCH /api/v1/settings body=791d161a ok
+menu settings.put.takeover_key r2 → 200 
+  dev#135 PATCH /api/v1/settings body=502108c2 ok
+menu settings.put.refused r2 → 422 {"code":"validationFailed","error":"clock returned 422: not on this build (field uppercase)","field":"uppercase"}
+  dev#136 GET /api/v1/device body=e3b0c442 ok
+menu stats r2 → 200 {"boardType":"awtrixng","currentApp":"Time","uid":"abc","uptimeSeconds":1090,"version":"1.1.2"}
+  dev#137 GET /api/v1/display/screen body=e3b0c442 ok
+menu screen r2 → 200 {"width":32,"height":8,"pixels":[0]}
+  dev#138 GET /api/v1/display body=e3b0c442 ok
+menu display.get r2 → 200 {"power":true,"overlay":null}
+  dev#139 PATCH /api/v1/display body=e868752a ok
+menu display.put r2 → 404 {"code":"notFound","error":"clock returned 404: no route"}
+  dev#140 GET /api/v1/apps body=e3b0c442 ok
+menu apps.get r2 → 200 [{"enabled":true,"inLoop":true,"name":"Time","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"Date","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"ember","origin":"pushed"}]
+  dev#141 PUT /api/v1/apps/order body=e7b1600f ok
+  dev#142 GET /api/v1/apps body=e3b0c442 ok
+menu apps.put r2 → 200 
+  dev#143 POST /api/v1/apps/next body=e3b0c442 ok
+menu next r2 → 200 
+  dev#144 POST /api/v1/apps/previous body=e3b0c442 ok
+menu prev r2 → 200 
+  dev#145 DELETE /api/v1/notifications/active body=e3b0c442 ok
+menu dismiss r2 → 200 
+  dev#146 POST /api/v1/device/reboot body=e3b0c442 ok
+menu reboot r2 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
+  dev#147 PATCH /api/v1/display body=867fdf54 ok
+menu power r2 → 404 {"code":"notFound","error":"clock returned 404: no route"}
+  dev#148 POST /api/v1/audio/play body=b77b9736 ok
+menu audio.test r2 → 200 {"ok":true}
+  dev#149 POST /api/v1/audio/stop body=e3b0c442 ok
+menu audio.stop r2 → 200 {"ok":true}
+  dev#150 GET /api/v1/audio/melodies body=e3b0c442 ok
+menu audio.melodies r2 → 200 {"melodies":[],"usedBytes":0,"totalBytes":4096}
+  dev#151 GET /api/v1/capabilities body=e3b0c442 ok
+menu capabilities r2 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
+  dev#152 GET /api/v1/system body=e3b0c442 ok
+menu sensors.get r2 → 200 {"temp_offset":-4,"hum_offset":0}
+  dev#153 GET /api/v1/system body=e3b0c442 ok
+  dev#154 PUT /api/v1/system body=b56b59ae ok
+  dev#155 GET /api/v1/system body=e3b0c442 ok
+menu sensors.put r2 → 200 {"temp_offset":-4,"hum_offset":0}
+  dev#156 GET /api/v1/system body=e3b0c442 ok
+  dev#157 PUT /api/v1/system body=ef9ba6c2 ok
+menu sensors.put.refused r2 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
+  dev#158 GET /api/v1/system body=e3b0c442 ok
+menu buttons.get r2 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":N,"seconds_since":null}
+  dev#159 GET /api/v1/system body=e3b0c442 ok
+  dev#160 PUT /api/v1/system body=b56b59ae ok
+  dev#161 GET /api/v1/system body=e3b0c442 ok
+menu buttons.put r2 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":0,"seconds_since":null}
+  dev#162 POST /api/v1/notifications body=be2768bf slow
+slow publish err=<nil>
+  dev#163 GET /api/v1/device body=e3b0c442 slow
+slow menu stats → 200
+  dev#164 GET /api/v1/device body=e3b0c442 slow
+slow probe reachable=false
+  dev#165 GET /api/v1/device body=e3b0c442 slow
+  dev#166 GET /api/v1/capabilities body=e3b0c442 ok
+slow capabilities cached=true
+  dev#167 GET /api/v1/device body=e3b0c442 slow
+slow doctor.awtrix ok
+  dev#168 GET /api/v1/device body=e3b0c442 slow
+slow doctor.clock reachable=false
+  dev#169 GET /api/v1/device body=e3b0c442 slow
+  dev#170 GET /api/v1/device body=e3b0c442 ok
+slow rediscover swapped=false
+  dev#171 GET /api/v1/device body=e3b0c442 ok
+probe #0 reachable=true uptime=1210
+  dev#172 GET /api/v1/device body=e3b0c442 ok
+probe #1 reachable=true uptime=1240
+  dev#173 GET /api/v1/device body=e3b0c442 ok
+probe #2 reachable=true uptime=1270
+  dev#174 GET /api/v1/device body=e3b0c442 ok
+probe #3 reachable=true uptime=1300
+  dev#175 GET /api/v1/device body=e3b0c442 ok
+rediscover #0 swapped=false result=reachable
+  dev#176 GET /api/v1/device body=e3b0c442 ok
+rediscover #1 swapped=false result=reachable
+  dev#177 GET /api/v1/device body=e3b0c442 ok
+rediscover #2 swapped=false result=reachable
+  dev#178 GET /api/v1/device body=e3b0c442 ok
+  dev#179 GET /api/v1/capabilities body=e3b0c442 ok
+capabilities #0 cached=true
+  dev#180 GET /api/v1/device body=e3b0c442 ok
+  dev#181 GET /api/v1/capabilities body=e3b0c442 ok
+capabilities #1 cached=true
+  dev#182 GET /api/v1/device body=e3b0c442 ok
+  dev#183 GET /api/v1/capabilities body=e3b0c442 ok
+capabilities #2 cached=true
+  dev#184 GET /api/v1/device body=e3b0c442 ok
+doctor.awtrix #0 ok GET CLOCK/api/v1/device → 200 (T)
+  dev#185 GET /api/v1/device body=e3b0c442 ok
+doctor.clock #0 ok reachable=true
+  dev#186 GET /api/v1/device body=e3b0c442 ok
+doctor.awtrix #1 ok GET CLOCK/api/v1/device → 200 (T)
+  dev#187 GET /api/v1/device body=e3b0c442 ok
+doctor.clock #1 ok reachable=true
+  dev#188 GET /api/v1/device body=e3b0c442 ok
+doctor.awtrix #2 ok GET CLOCK/api/v1/device → 200 (T)
+  dev#189 GET /api/v1/device body=e3b0c442 ok
+doctor.clock #2 ok reachable=true
+unconfigured notify err=clock not configured
+unconfigured stats → 502 {"error":"clock not configured"}
+unconfigured sensors.put → 502 {"error":"clock not configured"}
+requests=190
+bodies:
+  1a19f1f2 {"autoTransition":true,"blockNavigation":false}
+  1fa7a0a7 {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16726586,13421772,13421772,16726586,13421772,0,0,13421772,13421772,16726586,13421772,13421772,16726586,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",8,7,24,1,[16726586,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":30000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"ERR MBP","textBlinkMs":500,"textCenter":false,"textColor":"#FF3A3A","textOffsetX":9}
+  481a706c {"name":"ember-notify","sound":"chime","soundRtttl":"x:d=4:c","stack":false,"text":"hi"}
+  502108c2 {"uppercase":true}
+  6952b9e0 {"blinkMs":500,"color":"#FFA000"}
+  6b84814a {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16726586,13421772,13421772,16726586,13421772,0,0,13421772,13421772,16726586,13421772,13421772,16726586,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,16726586]],["bitmap",25,0,7,8,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",9,7,16,1,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":6000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"MBP","textCenter":false,"textColor":"#FFFFFF","textOffsetX":9}
+  791d161a {"autoTransition":true}
+  7a703937 {"buttonCallback":"","humOffset":0,"tempOffset":7,"wifiPassword":"REDACTED"}
+  867fdf54 {"power":true}
+  90640fd6 {"buttonCallback":"","humOffset":0,"tempOffset":-4,"wifiPassword":"REDACTED"}
+  aec2473c {"brightness":50}
+  b56b59ae {"buttonCallback":"http://HOST/hooks/awtrix/button","humOffset":0,"tempOffset":-4,"wifiPassword":"REDACTED"}
+  b599ab2e {"rtttl":"x:d=4:c"}
+  b721723d {"blinkMs":0,"color":"#004000"}
+  b77b9736 {"rtttl":"test:d=16,o=6,b=180:c,e,g,8c7"}
+  bd95971f {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,3074142,13421772,13421772,3074142,13421772,0,0,13421772,13421772,3074142,13421772,13421772,3074142,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,3074142]],["bitmap",25,0,7,8,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",9,7,16,1,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":6000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"MBP","textCenter":false,"textColor":"#FFFFFF","textOffsetX":9}
+  be2768bf {"text":"slow"}
+  c6128a44 {"autoTransition":false,"blockNavigation":true}
+  c96eaa96 {"blinkMs":500,"color":"#FF0000"}
+  caed5804 {"durationMs":30000,"icon":"29802","lifetimeMs":30000,"progress":100,"progressColor":"#FF0000","progressTrackColor":"#222222","scroll":{"mode":"static"},"text":"25:00","textColor":"#FF0000"}
+  cde3ecef {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16761165,13421772,13421772,16761165,13421772,0,0,13421772,13421772,16761165,13421772,13421772,16761165,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,16761165]],["bitmap",25,0,7,8,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",9,7,16,1,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":6000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"MBP","textCenter":false,"textColor":"#FFFFFF","textOffsetX":9}
+  d26d7059 {"name":"ember-notify","stack":false,"text":"hi"}
+  e7b1600f {"order":["Time"],"disabled":[]}
+  e868752a {"overlay":"rain"}
+  ef9ba6c2 {"buttonCallback":"http://HOST/hooks/awtrix/button","humOffset":0,"tempOffset":7,"wifiPassword":"REDACTED"}
+  f361e984 {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16761165,13421772,13421772,16761165,13421772,0,0,13421772,13421772,16761165,13421772,13421772,16761165,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",8,7,24,1,[16761165,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":30000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"WAIT MBP","textBlinkMs":500,"textCenter":false,"textColor":"#FFC14D","textOffsetX":9}
+  f435d972 {"name":"ember"}
+  feb83a4a {"rtttl":"attn:d=16,o=6,b=200:c,e,g"}
+  fedfc91c {"fast":true,"name":"ember"}

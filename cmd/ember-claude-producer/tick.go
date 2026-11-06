@@ -1,0 +1,374 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"log/slog"
+	"maps"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"slices"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
+)
+
+const (
+	heartbeatInterval = 10 * time.Second
+	waitBackstop      = 30 * time.Minute
+)
+
+var tickFailLog = producer.NewFailureLogger(time.Minute)
+
+func runTick() {
+	producer.RotateLogs(producerLogs...)
+	cfg, err := loadConfig()
+	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
+		os.Exit(0)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	dispatchTick(ctx, cfg)
+	os.Exit(0)
+}
+
+func runDaemon() {
+	producer.StartDaemonLog("ember-tick", "ember-claude-producer")
+	if path, err := producer.LinkStatusPath("claude-producer"); err == nil {
+		daemonLink = producer.NewLinkStatus(path)
+	}
+	cfg, err := loadConfig()
+	if err != nil || cfg.Source == "" || (cfg.ServerURL == "" && !cfg.ServerAuto) {
+		os.Exit(0)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	home, _ := os.UserHomeDir()
+	auto, ok := producer.DaemonServer(ctx, home, cfg.ServerURL, cfg.ServerAuto, cfg.ServerInstance)
+	if !ok {
+		return
+	}
+	daemonServer = auto
+	go usagePollLoop(ctx)
+	go agentsWatchLoop(ctx)
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		heartbeatPass(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func loadDaemonConfig() (Config, error) {
+	cfg, err := loadConfig()
+	if err == nil && cfg.ServerAuto && daemonServer != nil {
+		if u := daemonServer.URL(); u != "" {
+			cfg.ServerURL = u
+		}
+	}
+	return cfg, err
+}
+
+func heartbeatPass(parent context.Context) {
+	cfg, err := loadDaemonConfig()
+	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	dispatchTick(ctx, cfg)
+}
+
+type statuslineUsageSnapshot struct {
+	fiveHourPct        *int
+	fiveHourResetAt    int64
+	fiveHourResetLabel string
+	sevenDayPct        *int
+	sevenDayResetAt    int64
+	sevenDayResetLabel string
+	updatedAt          time.Time
+	mtime              time.Time
+	account            claudeAccount
+	configPath         string
+	legacy             bool
+}
+
+const statuslineUsageMaxAge = 10 * time.Minute
+
+func dropLegacyKeyless(snaps map[string]*statuslineUsageSnapshot, configPath string) {
+	if s := snaps[""]; s == nil || !s.legacy {
+		return
+	}
+	for key, s := range snaps {
+		if key != "" && s.configPath == configPath {
+			delete(snaps, "")
+			return
+		}
+	}
+}
+
+func dispatchTick(ctx context.Context, cfg Config) {
+	dir, err := stateDir()
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	client := NewDaemonClient(cfg)
+	staleThreshold := time.Now().Add(-time.Duration(cfg.HeartbeatTTLHours) * time.Hour)
+	best := map[string]*statuslineUsageSnapshot{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		sessionID := strings.TrimSuffix(e.Name(), ".json")
+		markerP := filepath.Join(dir, e.Name())
+		lockP := filepath.Join(dir, sessionID+".lock")
+		if snap := processOneMarker(ctx, cfg, client, markerP, lockP, staleThreshold); snap != nil {
+			cur := best[snap.account.key]
+			if cur == nil || snap.updatedAt.After(cur.updatedAt) ||
+				(snap.updatedAt.Equal(cur.updatedAt) && snap.mtime.After(cur.mtime)) {
+				best[snap.account.key] = snap
+			}
+		}
+	}
+	dropLegacyKeyless(best, claudeGlobalConfigPath())
+	for _, key := range slices.Sorted(maps.Keys(best)) {
+		postStatuslineUsage(ctx, client, *best[key])
+	}
+}
+
+func markerTool(markerP string) (tool string, ok bool) {
+	body, err := os.ReadFile(markerP)
+	if err != nil {
+		return "", false
+	}
+	var m struct {
+		Tool string `json:"tool"`
+	}
+	if err := json.Unmarshal(body, &m); err != nil {
+		return "", false
+	}
+	return m.Tool, true
+}
+
+func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, lockP string, staleThreshold time.Time) *statuslineUsageSnapshot {
+	if tool, ok := markerTool(markerP); ok && tool != "" && tool != "claude" {
+		return nil
+	}
+	info, err := os.Stat(markerP)
+	if err != nil {
+		return nil
+	}
+	if pid, start, ok := markerOwner(markerP); ok && !ownerAlive(pid, start) {
+		reapMarker(ctx, client, markerP, lockP)
+		return nil
+	}
+	if info.ModTime().Before(staleThreshold) {
+		var gone *StatusRequest
+		_ = withLockEx(lockP, func() error {
+			info2, err := os.Stat(markerP)
+			if err != nil {
+				return nil
+			}
+			if !info2.ModTime().Before(staleThreshold) {
+				return nil
+			}
+			gone = removeMarker(markerP)
+			return nil
+		})
+		deleteSession(ctx, client, gone)
+		return nil
+	}
+	body, ok := snapshotMarker(markerP, lockP, -1)
+	if !ok {
+		return nil
+	}
+	var m marker
+	if err := json.Unmarshal(body, &m); err != nil {
+		return nil
+	}
+	if waitOutlived(m, hookNow()) {
+		expireWait(ctx, cfg, client, markerP, lockP)
+		return nil
+	}
+	req := m.StatusRequest
+	var snap *statuslineUsageSnapshot
+	seenAt := info.ModTime()
+	if m.StatuslineAt != 0 {
+		seenAt = time.Unix(m.StatuslineAt, 0)
+	}
+	if (req.RateWindowPct != nil || req.RateWeekPct != nil) && time.Since(seenAt) <= statuslineUsageMaxAge && !m.markerAccount.pending() {
+		snap = &statuslineUsageSnapshot{
+			fiveHourPct:        req.RateWindowPct,
+			fiveHourResetAt:    req.RateResetAt,
+			fiveHourResetLabel: req.RateResetLabel,
+			sevenDayPct:        req.RateWeekPct,
+			sevenDayResetAt:    req.RateWeekResetAt,
+			sevenDayResetLabel: req.RateWeekResetLabel,
+			updatedAt:          m.usageSeenAt(info.ModTime()),
+			mtime:              info.ModTime(),
+			account:            m.markerAccount.account(),
+			configPath:         m.markerAccount.configPath(),
+			legacy:             m.markerAccount == (markerAccount{}),
+		}
+	}
+	if !heartbeatDue(cfg, m, info.ModTime(), time.Now()) {
+		return snap
+	}
+	if err := postReconciled(ctx, cfg, client, markerP, lockP, body, -1); err != nil {
+		tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
+	}
+	return snap
+}
+
+func heartbeatDue(cfg Config, m marker, mtime, now time.Time) bool {
+	if m.WaitExpired {
+		return false
+	}
+	if m.State != "done" && m.State != "error" {
+		return true
+	}
+	changed := mtime
+	if m.StateChangedAt != 0 {
+		changed = time.Unix(m.StateChangedAt, 0)
+	}
+	return now.Sub(changed) < time.Duration(cfg.DoneTTLSeconds)*time.Second
+}
+
+func postReconciled(ctx context.Context, cfg Config, client *Client, markerP, lockP string, body []byte, lockWait time.Duration) error {
+	var req StatusRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return err
+	}
+	postErr := client.Post(ctx, wireRequest(cfg, req))
+	now, ok := snapshotMarker(markerP, lockP, lockWait)
+	switch {
+	case !ok:
+		if _, err := os.Stat(markerP); os.IsNotExist(err) {
+			deleteSession(ctx, client, &req)
+		}
+	case !bytes.Equal(now, body):
+		var cur marker
+		if json.Unmarshal(now, &cur) != nil {
+			break
+		}
+		if cur.WaitExpired {
+			deleteSession(ctx, client, &cur.StatusRequest)
+			break
+		}
+		if heartbeatDue(cfg, cur, time.Now(), time.Now()) {
+			if err := client.Post(ctx, wireRequest(cfg, cur.StatusRequest)); err != nil && postErr == nil {
+				postErr = err
+			}
+		}
+	}
+	return postErr
+}
+
+func waitOutlived(m marker, now time.Time) bool {
+	if m.State != "waiting" || m.WaitExpired || (correctableWait(m) && !m.AgentInputWait) {
+		return false
+	}
+	last := max(m.HookAt, m.StateChangedAt, m.WaitConfirmedAt)
+	return last > 0 && now.Sub(time.Unix(last, 0)) >= waitBackstop
+}
+
+func expireWait(ctx context.Context, cfg Config, client *Client, markerP, lockP string) {
+	var gone *StatusRequest
+	var parked []byte
+	_ = withLockEx(lockP, func() error {
+		body, err := readMarker(markerP)
+		if err != nil {
+			return nil
+		}
+		var m marker
+		if json.Unmarshal(body, &m) != nil || !waitOutlived(m, hookNow()) {
+			return nil
+		}
+		m.State, m.Message = "idle", ""
+		m.StateChangedAt = hookNow().Unix()
+		m.WaitExpired = true
+		m.AgentsWait, m.AgentInputWait = false, false
+		m.PendingPermission, m.PendingToolUseID = "", ""
+		b, err := json.Marshal(m)
+		if err != nil || writeMarker(markerP, b) != nil {
+			return nil
+		}
+		gone, parked = &m.StatusRequest, b
+		return nil
+	})
+	if gone == nil {
+		return
+	}
+	slog.Info("claude wait expired without a fresh signal; session removed until the next hook", "session", gone.Session)
+	deleteSession(ctx, client, gone)
+	now, ok := snapshotMarker(markerP, lockP, -1)
+	if !ok || bytes.Equal(now, parked) {
+		return
+	}
+	var cur marker
+	if json.Unmarshal(now, &cur) == nil && heartbeatDue(cfg, cur, time.Now(), time.Now()) {
+		if err := client.Post(ctx, wireRequest(cfg, cur.StatusRequest)); err != nil {
+			tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
+		}
+	}
+}
+
+func snapshotMarker(markerP, lockP string, wait time.Duration) (body []byte, ok bool) {
+	_ = withLockShWait(lockP, wait, func() error {
+		b, err := os.ReadFile(markerP)
+		if err == nil {
+			body, ok = b, true
+		}
+		return nil
+	})
+	return body, ok
+}
+
+func reapMarker(ctx context.Context, client *Client, markerP, lockP string) {
+	var gone *StatusRequest
+	_ = withLockEx(lockP, func() error {
+		pid, start, ok := markerOwner(markerP)
+		if ok && ownerAlive(pid, start) {
+			return nil
+		}
+		gone = removeMarker(markerP)
+		return nil
+	})
+	deleteSession(ctx, client, gone)
+}
+
+func removeMarker(markerP string) *StatusRequest {
+	body, err := os.ReadFile(markerP)
+	_ = os.Remove(markerP)
+	if err != nil {
+		return nil
+	}
+	var req StatusRequest
+	if json.Unmarshal(body, &req) != nil {
+		return nil
+	}
+	return &req
+}
+
+func deleteSession(ctx context.Context, client *Client, req *StatusRequest) {
+	if req == nil {
+		return
+	}
+	if err := client.Delete(ctx, DeleteRequest{
+		Source: req.Source, Tool: req.Tool, Session: req.Session,
+	}); err != nil {
+		tickFailLog.Warn(slog.Default(), "claude_delete", "status DELETE failed", "err", err)
+	}
+}

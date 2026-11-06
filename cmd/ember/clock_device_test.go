@@ -1,0 +1,724 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/discovery"
+)
+
+const testClockUID = "e868e705ffb8"
+
+type clockStub struct {
+	*httptest.Server
+	t         *testing.T
+	mu        sync.Mutex
+	uid       string
+	board     string
+	apps      []map[string]any
+	orderPuts []string
+	orderFail bool
+	appsFail  bool
+	onDevice  func()
+	orderHold chan struct{}
+	orderIn   chan struct{}
+	appsHold  chan struct{}
+	appsIn    chan struct{}
+	appsLate  int
+	appsFailN int
+	holdAfter bool
+	appsBody  string
+	appsDelay time.Duration
+	appsSlow  []time.Duration
+	version   string
+	onStatus  int
+	onCut     bool
+	onPuts    []string
+	orderCode int
+	uptime    int64
+}
+
+func newClockStub(t *testing.T) *clockStub {
+	t.Helper()
+	s := &clockStub{t: t, uid: testClockUID, board: "awtrixng", apps: []map[string]any{
+		{"name": "time", "slot": 0, "enabled": true, "inLoop": true, "origin": "builtin"},
+		{"name": "date", "slot": 1, "enabled": true, "inLoop": true, "origin": "builtin"},
+		{"name": "hum", "slot": 2, "enabled": false, "inLoop": false, "origin": "builtin"},
+		{"name": "ember", "slot": 3, "enabled": true, "inLoop": true, "origin": "pushed"},
+	}}
+	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
+	t.Cleanup(s.Close)
+	return s
+}
+
+func (s *clockStub) serve(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut && r.URL.Path == "/api/v1/apps/order" {
+		s.mu.Lock()
+		hold, in, after := s.orderHold, s.orderIn, s.holdAfter
+		s.orderHold = nil
+		s.mu.Unlock()
+		if hold != nil && after {
+			b, _ := io.ReadAll(r.Body)
+			s.mu.Lock()
+			s.orderPuts = append(s.orderPuts, string(b))
+			ok := s.applyOrderLocked(b)
+			s.mu.Unlock()
+			in <- struct{}{}
+			<-hold
+			if !ok {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		if hold != nil {
+			in <- struct{}{}
+			<-hold
+		}
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps" && s.serveApps(w, r) {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method + " " + r.URL.Path {
+	case "GET /api/v1/device":
+		if s.onDevice != nil {
+			s.onDevice()
+		}
+		version, uptime := s.version, s.uptime
+		if version == "" {
+			version = "1.0.13"
+		}
+		if uptime == 0 {
+			uptime = 42
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"uid": s.uid, "boardType": s.board, "version": version, "uptimeSeconds": uptime,
+			"wifiRssi": -61, "ipAddress": "192.0.2.66",
+		})
+	case "GET /api/v1/apps":
+		if s.appsFail || s.appsFailN > 0 {
+			if s.appsFailN > 0 {
+				s.appsFailN--
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if s.appsBody != "" {
+			_, _ = w.Write([]byte(s.appsBody))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(s.apps)
+	case "PUT /api/v1/apps/order":
+		b, _ := io.ReadAll(r.Body)
+		s.orderPuts = append(s.orderPuts, string(b))
+		if s.orderFail {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"boom"}`))
+			return
+		}
+		if s.orderCode != 0 {
+			w.WriteHeader(s.orderCode)
+			_, _ = w.Write([]byte(`{"error":"stubbed"}`))
+			return
+		}
+		if !s.applyOrderLocked(b) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalidJson"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	default:
+		if name, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/apps/"), "/enabled"); ok && r.Method == http.MethodPut {
+			s.serveAppEnabledLocked(w, r, name)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func (s *clockStub) serveAppEnabledLocked(w http.ResponseWriter, r *http.Request, name string) {
+	b, _ := io.ReadAll(r.Body)
+	s.onPuts = append(s.onPuts, name+"="+string(b))
+	if newer, ok := versionNewer("1.2.0", s.version); !ok || newer {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if s.onStatus != 0 && s.onCut {
+		cutReply(s.t, w, s.onStatus, `{"error":`)
+		return
+	}
+	if s.onStatus != 0 && s.onStatus != http.StatusInsufficientStorage {
+		w.WriteHeader(s.onStatus)
+		_, _ = w.Write([]byte(`{"error":"stubbed"}`))
+		return
+	}
+	var on bool
+	if err := json.Unmarshal(b, &on); err != nil {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error":"validationFailed","message":"must be true or false"}`))
+		return
+	}
+	for _, a := range s.apps {
+		if a["name"] == name {
+			a["enabled"] = on
+		}
+	}
+	if s.onStatus == http.StatusInsufficientStorage {
+		w.WriteHeader(s.onStatus)
+		_, _ = w.Write([]byte(`{"error":"insufficientStorage","message":"applied, not saved yet"}`))
+		return
+	}
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+func cutReply(t *testing.T, w http.ResponseWriter, status int, partial string) {
+	conn, buf, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer conn.Close()
+	_, _ = fmt.Fprintf(buf, "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n%s", status, http.StatusText(status), partial)
+	_ = buf.Flush()
+}
+
+func (s *clockStub) appEnabledPuts() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.onPuts...)
+}
+
+func (s *clockStub) enabledByName() map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]any{}
+	for _, a := range s.apps {
+		out[a["name"].(string)] = a["enabled"]
+	}
+	return out
+}
+
+func (s *clockStub) applyOrderLocked(b []byte) bool {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(b, &keys); err != nil || keys["disabled"] == nil || string(keys["disabled"]) == "null" {
+		return false
+	}
+	var body struct {
+		Order    []string `json:"order"`
+		Disabled []string `json:"disabled"`
+	}
+	_ = json.Unmarshal(b, &body)
+	byName := map[string]map[string]any{}
+	for _, a := range s.apps {
+		byName[a["name"].(string)] = a
+	}
+	var next []map[string]any
+	for _, n := range body.Order {
+		if a, ok := byName[n]; ok {
+			a["slot"] = len(next)
+			next = append(next, a)
+			delete(byName, n)
+		}
+	}
+	for _, a := range s.apps {
+		if _, ok := byName[a["name"].(string)]; ok {
+			delete(a, "slot")
+			next = append(next, a)
+		}
+	}
+	for _, a := range next {
+		if a["origin"] != "module" {
+			a["enabled"] = !slices.Contains(body.Disabled, a["name"].(string))
+		}
+	}
+	s.apps = next
+	return true
+}
+
+func (s *clockStub) serveApps(w http.ResponseWriter, r *http.Request) bool {
+	s.mu.Lock()
+	hold, in, late, delay := s.appsHold, s.appsIn, s.appsLate, s.appsDelay
+	s.appsHold = nil
+	if len(s.appsSlow) > 0 {
+		delay, s.appsSlow = s.appsSlow[0], s.appsSlow[1:]
+	}
+	snapshot, _ := json.Marshal(s.apps)
+	s.mu.Unlock()
+	switch {
+	case hold != nil:
+		in <- struct{}{}
+		<-hold
+		if late != http.StatusOK {
+			w.WriteHeader(late)
+			return true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(snapshot)
+		return true
+	case delay > 0:
+		select {
+		case <-time.After(delay):
+		case <-r.Context().Done():
+			return true
+		}
+	}
+	return false
+}
+
+func (s *clockStub) holdApps(t *testing.T, late int) (in <-chan struct{}, release func()) {
+	t.Helper()
+	hold, ch := make(chan struct{}), make(chan struct{}, 1)
+	s.mu.Lock()
+	s.appsHold, s.appsIn, s.appsLate = hold, ch, late
+	s.mu.Unlock()
+	release = sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+	return ch, release
+}
+
+func (s *clockStub) puts() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.orderPuts...)
+}
+
+func pointAtClock(a *App, url string) {
+	off := false
+	a.updateConfig(func(c *Config) {
+		c.AWTRIX.HTTPBaseURL = url
+		c.AWTRIX.AutoRediscover = &off
+	})
+}
+
+func newClockApp(t *testing.T) (*App, *httptest.Server, *clockStub) {
+	t.Helper()
+	t.Setenv("EMBER_CLOCK", "")
+	app, srv := newDevicesApp(t, "")
+	stub := newClockStub(t)
+	pointAtClock(app, stub.URL)
+	t.Cleanup(app.clockMigrate.jobs.Wait)
+	return app, srv, stub
+}
+
+func probeClock(t *testing.T, a *App) {
+	t.Helper()
+	if dev := a.probeClockHealthWithin(context.Background(), time.Now(), 0); dev == nil || !dev.Reachable {
+		t.Fatalf("probe failed: %+v", dev)
+	}
+	a.clockMigrate.jobs.Wait()
+}
+
+func listDevices(t *testing.T, srv *httptest.Server) []devices.View {
+	t.Helper()
+	resp, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
+	mustOK(t, "list", resp, b)
+	var out struct {
+		Devices []devices.View `json:"devices"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out.Devices
+}
+
+func registeredClock(t *testing.T, a *App, srv *httptest.Server) devices.View {
+	t.Helper()
+	probeClock(t, a)
+	for _, d := range listDevices(t, srv) {
+		if d.Kind == devices.KindClock {
+			return d
+		}
+	}
+	t.Fatal("no clock record")
+	return devices.View{}
+}
+
+func TestClockRecordCreatedOnFirstGoodProbe(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	epoch := a.devices.Epoch()
+	d := registeredClock(t, a, srv)
+	if d.ID != "clock-05ffb8" || d.HwID != testClockUID || d.Name != "Clock 05FFB8" {
+		t.Fatalf("record = %+v", d)
+	}
+	if d.LastCheckin != nil || d.RotationPending {
+		t.Fatalf("clock record has knob state: %+v", d)
+	}
+	s := d.LastSeen
+	if s == nil || s.FW != "1.0.13" || s.IP != "192.0.2.66" || s.RSSI == nil || *s.RSSI != -61 || s.UptimeS == nil || *s.UptimeS != 42 {
+		t.Fatalf("last_seen = %+v", s)
+	}
+	if d.ConfigVersion != a.clockConfigVersion() {
+		t.Fatalf("config_version = %d, want %d", d.ConfigVersion, a.clockConfigVersion())
+	}
+	if got := a.devices.Epoch(); got != epoch+1 {
+		t.Fatalf("epoch = %d, want %d", got, epoch+1)
+	}
+	probeClock(t, a)
+	if n := len(listDevices(t, srv)); n != 1 {
+		t.Fatalf("second probe made %d records", n)
+	}
+	if got := a.devices.Epoch(); got != epoch+1 {
+		t.Fatalf("second probe moved the epoch to %d", got)
+	}
+}
+
+func TestClockRecordPersistsWithoutConfig(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	registeredClock(t, a, srv)
+	blob, _, err := a.store.GetSetting(devices.StateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st struct {
+		Devices []map[string]json.RawMessage `json:"devices"`
+	}
+	if err := json.Unmarshal([]byte(blob), &st); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.Devices[0]["config"]; ok {
+		t.Fatalf("clock record stored a knob config: %s", blob)
+	}
+	if _, ok := st.Devices[0]["last_seen"]; !ok {
+		t.Fatalf("clock record stored no last_seen: %s", blob)
+	}
+	reg := devices.New(a.devices.KV)
+	if err := reg.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if v := reg.List(); len(v) != 1 || v[0].Kind != devices.KindClock || v[0].LastSeen == nil {
+		t.Fatalf("reloaded = %+v", v)
+	}
+}
+
+func TestClockRecordNotCreatedForOtherBoards(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	stub.board = "awtrix3"
+	probeClock(t, a)
+	if n := len(listDevices(t, srv)); n != 0 {
+		t.Fatalf("records = %d, want 0", n)
+	}
+}
+
+func TestClockRecordCreatedOnDiscoverySwap(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+		return []discovery.Candidate{{BaseURL: stub.URL, UID: testClockUID}}, nil
+	}
+	if !a.rediscoverClock(context.Background()) {
+		t.Fatal("no swap")
+	}
+	devs := listDevices(t, srv)
+	if len(devs) != 1 || devs[0].ID != "clock-05ffb8" || devs[0].LastSeen != nil {
+		t.Fatalf("records = %+v", devs)
+	}
+}
+
+func setStubUID(stub *clockStub, uid string) {
+	stub.mu.Lock()
+	stub.uid = uid
+	stub.mu.Unlock()
+}
+
+func TestFlappingClockUIDNeitherFlipsNorBumps(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	epoch := a.devices.Epoch()
+	for i := range 50 {
+		setStubUID(stub, "spoof"+strconv.Itoa(i))
+		probeClock(t, a)
+	}
+	for range 10 {
+		setStubUID(stub, "aabbcc112233")
+		probeClock(t, a)
+		setStubUID(stub, testClockUID)
+		probeClock(t, a)
+	}
+	devs := listDevices(t, srv)
+	if len(devs) != 1 || devs[0].ID != d.ID || devs[0].HwID != testClockUID {
+		t.Fatalf("records = %+v", devs)
+	}
+	if got := a.devices.Epoch(); got != epoch {
+		t.Fatalf("epoch moved %d times", got-epoch)
+	}
+}
+
+func TestLastSeenUpdateLeavesEpochAlone(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	registeredClock(t, a, srv)
+	epoch := a.devices.Epoch()
+	for range 5 {
+		probeClock(t, a)
+	}
+	if got := a.devices.Epoch(); got != epoch {
+		t.Fatalf("last_seen updates moved the epoch to %d", got)
+	}
+}
+
+func TestClockUIDReplacedAfterTwoProbes(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	epoch := a.devices.Epoch()
+	setStubUID(stub, "aabbcc112233")
+	probeClock(t, a)
+	if devs := listDevices(t, srv); devs[0].ID != d.ID {
+		t.Fatalf("one sighting replaced the record: %+v", devs)
+	}
+	probeClock(t, a)
+	devs := listDevices(t, srv)
+	if len(devs) != 1 || devs[0].ID != "clock-112233" || devs[0].HwID != "aabbcc112233" || devs[0].Name != "Clock 112233" {
+		t.Fatalf("records = %+v", devs)
+	}
+	if !devs[0].CreatedAt.Equal(d.CreatedAt) {
+		t.Fatalf("created_at moved: %v -> %v", d.CreatedAt, devs[0].CreatedAt)
+	}
+	if got := a.devices.Epoch(); got != epoch+1 {
+		t.Fatalf("epoch = %d, want %d", got, epoch+1)
+	}
+}
+
+func TestClockUIDReplacementKeepsName(t *testing.T) {
+	a, srv, stub := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	resp, b := devReq(t, srv, "PATCH", "/v1/devices/"+d.ID, testToken, `{"name":"Desk clock"}`)
+	mustOK(t, "rename", resp, b)
+	setStubUID(stub, "aabbcc112233")
+	probeClock(t, a)
+	probeClock(t, a)
+	devs := listDevices(t, srv)
+	if len(devs) != 1 || devs[0].ID != "clock-112233" || devs[0].Name != "Desk clock" {
+		t.Fatalf("records = %+v", devs)
+	}
+}
+
+func TestStaleProbeAfterRediscoveryNotRegistered(t *testing.T) {
+	a, srv, stubA := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	stubB := newClockStub(t)
+	setStubUID(stubB, "bbbbbb000001")
+	setStubUID(stubA, "aaaaaa000002")
+	stubA.mu.Lock()
+	stubA.onDevice = func() { pointAtClock(a, stubB.URL) }
+	stubA.mu.Unlock()
+	for range 2 {
+		a.probeClockHealthWithin(context.Background(), time.Now(), 0)
+		pointAtClock(a, stubA.URL)
+	}
+	devs := listDevices(t, srv)
+	if len(devs) != 1 || devs[0].ID != d.ID || devs[0].HwID != testClockUID {
+		t.Fatalf("a stale probe changed the record: %+v", devs)
+	}
+}
+
+func TestClockUIDNormalised(t *testing.T) {
+	for raw, want := range map[string]string{"E8:68:E7:05:FF:B8": testClockUID, " awtrix_test ": "awtrix_test"} {
+		if got, ok := normalizeClockUID(raw); !ok || got != want {
+			t.Errorf("normalizeClockUID(%q) = %q, %v", raw, got, ok)
+		}
+	}
+	for _, raw := range []string{"", "a/b", strings.Repeat("a", 33)} {
+		if _, ok := normalizeClockUID(raw); ok {
+			t.Errorf("normalizeClockUID(%q) accepted", raw)
+		}
+	}
+}
+
+func TestClockRecordRenameWorks(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	resp, b := devReq(t, srv, "PATCH", "/v1/devices/"+d.ID, testToken, `{"name":"Desk clock"}`)
+	mustOK(t, "rename", resp, b)
+	probeClock(t, a)
+	if got := listDevices(t, srv)[0].Name; got != "Desk clock" {
+		t.Fatalf("name = %q", got)
+	}
+}
+
+func TestClockKindGatesOnKnobRoutes(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	cases := []struct {
+		method, path, body string
+		want               int
+	}{
+		{"POST", "/v1/devices/" + d.ID + "/rotate", "", http.StatusBadRequest},
+		{"GET", "/v1/devices/" + d.ID + "/stats", "", http.StatusNotFound},
+		{"GET", "/v1/devices/" + d.ID + "/ota", "", http.StatusNotFound},
+		{"PUT", "/v1/devices/" + d.ID + "/ota", `{"mode":"auto"}`, http.StatusNotFound},
+		{"GET", "/v1/devices/" + d.ID + "/coredumps", "", http.StatusNotFound},
+		{"POST", "/v1/devices", `{"kind":"awtrix-ng","hw_id":"` + testClockUID + `"}`, http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		resp, b := devReq(t, srv, c.method, c.path, testToken, c.body)
+		if resp.StatusCode != c.want {
+			t.Errorf("%s %s = %d, want %d: %s", c.method, c.path, resp.StatusCode, c.want, b)
+		}
+	}
+	if _, err := a.devices.Checkin(d.ID, devices.Checkin{}, nil, ""); err == nil || !strings.Contains(err.Error(), "checkin applies to kind") {
+		t.Fatalf("checkin err = %v", err)
+	}
+}
+
+func TestClockRecordNeverAuthenticates(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	token := devices.NewToken(devices.TokenPrefix)
+	a.devices.WithState(func(st *devices.State) {
+		rec := st.Find(d.ID)
+		rec.TokenSHA256 = devices.TokenHash(token)
+		rec.PendingTokenSHA256 = devices.TokenHash(token)
+	})
+	if _, ok, err := a.devices.Authenticate(token); ok || err != nil {
+		t.Fatalf("clock authenticated: ok=%v err=%v", ok, err)
+	}
+	for _, p := range []string{"/v1/devices/self/config", "/v1/devices/self/view"} {
+		if resp, b := devReq(t, srv, "GET", p, token, ""); resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("GET %s = %d: %s", p, resp.StatusCode, b)
+		}
+	}
+}
+
+func TestClockRecordDeleteRecreatedByNextProbe(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	resp, b := devReq(t, srv, "PATCH", "/v1/devices/"+d.ID, testToken, `{"name":"Old name"}`)
+	mustOK(t, "rename", resp, b)
+	resp, b = devReq(t, srv, "DELETE", "/v1/devices/"+d.ID, testToken, "")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete = %d: %s", resp.StatusCode, b)
+	}
+	if n := len(listDevices(t, srv)); n != 0 {
+		t.Fatalf("records after delete = %d", n)
+	}
+	again := registeredClock(t, a, srv)
+	if again.ID != d.ID || again.Name != "Clock 05FFB8" {
+		t.Fatalf("recreated = %+v", again)
+	}
+}
+
+func TestDoctorDevicesListsClockRecord(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	mintKnob(t, srv, http.StatusCreated)
+	d := registeredClock(t, a, srv)
+	res := checkDevices(a)
+	if !strings.Contains(res.Detail, "registered=2") || !strings.Contains(res.Detail, d.ID+" seen=") {
+		t.Fatalf("detail = %q", res.Detail)
+	}
+	if strings.Contains(res.Detail, d.ID+" never checked in") {
+		t.Fatalf("clock judged by checkin: %q", res.Detail)
+	}
+	now := time.Now()
+	a.devices.Now = func() time.Time { return now.Add(deviceStaleAfter + time.Minute) }
+	res = checkDevices(a)
+	if res.Status != StatusWarn || !strings.Contains(res.Detail, d.ID+" seen=") {
+		t.Fatalf("stale clock: %+v", res)
+	}
+}
+
+func TestDoctorDevicesClockDisabled(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	t.Setenv("EMBER_CLOCK", "off")
+	res := checkDevices(a)
+	if res.Status != StatusOK || !strings.Contains(res.Detail, d.ID+" clock disabled") {
+		t.Fatalf("res = %+v", res)
+	}
+}
+
+func TestClockConfigChangeBumpsEpoch(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	d := registeredClock(t, a, srv)
+	epoch := a.devices.Epoch()
+	resp, b := devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"moon_phase":false}`)
+	mustOK(t, "weather put", resp, b)
+	if got := a.devices.Epoch(); got != epoch+1 {
+		t.Fatalf("epoch after old-endpoint change = %d, want %d", got, epoch+1)
+	}
+	after := listDevices(t, srv)[0]
+	if after.ConfigVersion == d.ConfigVersion || after.ConfigVersion != a.clockConfigVersion() {
+		t.Fatalf("config_version %d -> %d (want %d)", d.ConfigVersion, after.ConfigVersion, a.clockConfigVersion())
+	}
+	resp, _ = devReq(t, srv, "GET", "/state", "", "")
+	if got := resp.Header.Get(devicesEpochHeader); got != strconv.FormatUint(epoch+1, 10) {
+		t.Fatalf("/state epoch header = %q", got)
+	}
+	resp, b = devReq(t, srv, "PUT", "/v1/apps", testToken, `{"app":"codex","enabled":false}`)
+	mustOK(t, "apps put", resp, b)
+	if got := a.devices.Epoch(); got != epoch+2 {
+		t.Fatalf("epoch after hidden app = %d, want %d", got, epoch+2)
+	}
+	resp, b = devReq(t, srv, "PUT", "/v1/weather/config", testToken, `{"refresh_minutes":30}`)
+	mustOK(t, "weather source put", resp, b)
+	if got := a.devices.Epoch(); got != epoch+2 {
+		t.Fatalf("a source-only change moved the epoch to %d", got)
+	}
+}
+
+func TestReapplySettingsBumpsEpochAtMostOnce(t *testing.T) {
+	a, srv, _ := newClockApp(t)
+	registeredClock(t, a, srv)
+	for path, body := range map[string]string{
+		"/v1/weather/config":  `{"moon_phase":false,"forecast_tile":false}`,
+		"/v1/meetings/config": `{"tile_lead_minutes":12}`,
+		"/v1/usage/config":    `{"usage_widget":false}`,
+	} {
+		resp, b := devReq(t, srv, "PUT", path, testToken, body)
+		mustOK(t, path, resp, b)
+	}
+	stored := a.clockConfigVersion()
+	a.pauseClockSync()
+	a.updateConfig(func(c *Config) {
+		c.Weather = defaultConfig().Weather
+		c.Weather.ApplyDefaults()
+	})
+	a.clockSync.mu.Lock()
+	a.clockSync.paused--
+	a.clockSync.mu.Unlock()
+	epoch := a.devices.Epoch()
+	a.reapplySettings()
+	if got := a.devices.Epoch(); got > epoch+1 {
+		t.Fatalf("reapply moved the epoch %d times", got-epoch)
+	}
+	if got := listDevices(t, srv)[0].ConfigVersion; got != stored {
+		t.Fatalf("config_version after reapply = %d, want %d", got, stored)
+	}
+}
+
+func TestClockStubFollowsNGAppOrder(t *testing.T) {
+	s := &clockStub{apps: []map[string]any{
+		{"name": "Time", "enabled": true, "origin": "builtin"},
+		{"name": "Date", "enabled": false, "origin": "builtin"},
+		{"name": "mathlib", "origin": "module"},
+	}}
+	if s.applyOrderLocked([]byte(`{"order":["Date","Time"]}`)) {
+		t.Fatal("a body without disabled was accepted; NG answers 400")
+	}
+	if s.applyOrderLocked([]byte(`{"order":["Date","Time"],"disabled":null}`)) {
+		t.Fatal("a null disabled was accepted; NG answers 400")
+	}
+	if !s.applyOrderLocked([]byte(`{"order":["Date","Time"],"disabled":["Time"]}`)) {
+		t.Fatal("a full body was refused")
+	}
+	got := map[string]any{}
+	for _, a := range s.apps {
+		got[a["name"].(string)] = a["enabled"]
+	}
+	if got["Date"] != true || got["Time"] != false || got["mathlib"] != nil {
+		t.Fatalf("enabled after the write = %v, want Date on, Time off, no enabled on the module", got)
+	}
+}

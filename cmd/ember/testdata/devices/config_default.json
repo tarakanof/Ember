@@ -1,0 +1,68 @@
+{
+  "config_version": 1,
+  "config": {
+    "brightness": {
+      "follow_ember": true,
+      "level": 153,
+      "floor": 10,
+      "startup": 153
+    },
+    "pages": [
+      {
+        "id": "bot",
+        "on": true
+      },
+      {
+        "id": "day",
+        "on": true
+      },
+      {
+        "id": "weather",
+        "on": true
+      },
+      {
+        "id": "room",
+        "on": false
+      },
+      {
+        "id": "nowplaying",
+        "on": false
+      },
+      {
+        "id": "controls",
+        "on": false
+      },
+      {
+        "id": "print",
+        "on": false
+      },
+      {
+        "id": "pomodoro",
+        "on": false
+      }
+    ],
+    "home": "bot",
+    "swipe_pages": true,
+    "poll_ms": 2000,
+    "bot": {
+      "sleepy_after_s": 300,
+      "demo_hold_s": 20,
+      "source_label": true,
+      "working_ring": true,
+      "weather_moments": true,
+      "weather_every_min": 30
+    },
+    "diagnostics": "off",
+    "stats_interval_s": 60,
+    "live_interval_s": 5,
+    "display": {
+      "fast_link": true,
+      "rotation": 0
+    },
+    "quiet": {
+      "calm": true,
+      "dim_level": 20
+    }
+  }
+}
+

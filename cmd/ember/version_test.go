@@ -1,0 +1,49 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestVersion_PrintsBinaryName(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := goRunCommand(ctx, "version")
+	cmd.Env = append(isolatedGoRunEnv(t), "CONFIG_PATH=/nonexistent/awtrix.json")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("`go run . version` failed: %v\nstderr: %s", err, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "ember") {
+		t.Errorf("version output missing binary name; got %q", out)
+	}
+	if !strings.Contains(out, "go1.") {
+		t.Errorf("version output missing go runtime tag; got %q", out)
+	}
+}
+
+func TestVersion_FlagSpellings(t *testing.T) {
+	for _, spelling := range []string{"-v", "--version"} {
+		t.Run(spelling, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			cmd := goRunCommand(ctx, spelling)
+			cmd.Env = isolatedGoRunEnv(t)
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("`go run . %s` failed: %v\nstderr: %s", spelling, err, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), "ember") {
+				t.Errorf("%s output missing binary name; got %q", spelling, stdout.String())
+			}
+		})
+	}
+}

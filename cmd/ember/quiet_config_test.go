@@ -1,0 +1,352 @@
+package main
+
+import (
+	"errors"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+	_ "time/tzdata"
+)
+
+func TestParseHHMM(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+		ok   bool
+	}{
+		{"22:00", 22 * 60, true},
+		{"08:00", 8 * 60, true},
+		{"00:00", 0, true},
+		{"23:59", 23*60 + 59, true},
+		{"24:00", 0, false},
+		{"12:60", 0, false},
+		{"aa:bb", 0, false},
+		{"", 0, false},
+		{"12.30", 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			got, ok := parseHHMM(c.in)
+			if ok != c.ok || (ok && got != c.want) {
+				t.Errorf("parseHHMM(%q) = %d,%v want %d,%v", c.in, got, ok, c.want, c.ok)
+			}
+		})
+	}
+}
+
+func TestQuietActive(t *testing.T) {
+	at := func(h, m int) time.Time {
+		return time.Date(2026, 6, 11, h, m, 0, 0, time.UTC)
+	}
+	cases := []struct {
+		name       string
+		start, end int
+		t          time.Time
+		want       bool
+	}{
+		{"overnight inside late", 22 * 60, 8 * 60, at(23, 0), true},
+		{"overnight inside early", 22 * 60, 8 * 60, at(3, 0), true},
+		{"overnight start boundary", 22 * 60, 8 * 60, at(22, 0), true},
+		{"overnight end boundary excluded", 22 * 60, 8 * 60, at(8, 0), false},
+		{"overnight outside", 22 * 60, 8 * 60, at(12, 0), false},
+		{"normal inside", 13 * 60, 14 * 60, at(13, 30), true},
+		{"normal start boundary", 13 * 60, 14 * 60, at(13, 0), true},
+		{"normal end boundary excluded", 13 * 60, 14 * 60, at(14, 0), false},
+		{"normal outside", 13 * 60, 14 * 60, at(9, 0), false},
+		{"degenerate equal never quiet", 9 * 60, 9 * 60, at(9, 0), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := quietActive(c.start, c.end, c.t); got != c.want {
+				t.Errorf("quietActive(%d,%d,%v) = %v want %v", c.start, c.end, c.t, got, c.want)
+			}
+		})
+	}
+}
+
+func TestQuietHoursWindowDefaults(t *testing.T) {
+	t.Run("zero config defaults to 22:00-08:00 disabled", func(t *testing.T) {
+		var c Config
+		enabled, start, end := c.quietHoursWindow()
+		if enabled || start != 22*60 || end != 8*60 {
+			t.Errorf("zero config = %v,%d,%d want false,1320,480", enabled, start, end)
+		}
+	})
+
+	t.Run("explicit config returned as-is", func(t *testing.T) {
+		c := Config{QuietHours: QuietHoursConfig{Enabled: true, Start: "23:30", End: "07:15"}}
+		enabled, start, end := c.quietHoursWindow()
+		if !enabled || start != 23*60+30 || end != 7*60+15 {
+			t.Errorf("explicit config = %v,%d,%d want true,1410,435", enabled, start, end)
+		}
+	})
+}
+
+func TestValidateQuietHours(t *testing.T) {
+	t.Run("empty fields valid (defaults apply)", func(t *testing.T) {
+		if err := validateQuietHours(QuietHoursConfig{}); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("valid explicit window accepted", func(t *testing.T) {
+		if err := validateQuietHours(QuietHoursConfig{Start: "22:00", End: "08:00"}); err != nil {
+			t.Errorf("valid window rejected: %v", err)
+		}
+	})
+
+	t.Run("bad start rejected with sentinel", func(t *testing.T) {
+		err := validateQuietHours(QuietHoursConfig{Start: "25:00"})
+		if err == nil {
+			t.Fatal("bad start accepted")
+		}
+		if !errors.Is(err, ErrConfigValidate) {
+			t.Errorf("error not wrapped with ErrConfigValidate: %v", err)
+		}
+	})
+
+	t.Run("bad end rejected with sentinel", func(t *testing.T) {
+		err := validateQuietHours(QuietHoursConfig{End: "nope"})
+		if err == nil {
+			t.Fatal("bad end accepted")
+		}
+		if !errors.Is(err, ErrConfigValidate) {
+			t.Errorf("error not wrapped with ErrConfigValidate: %v", err)
+		}
+	})
+}
+
+func TestQuietConfigDTOValidate(t *testing.T) {
+	t.Run("good DTO accepted", func(t *testing.T) {
+		good := quietConfigDTO{Enabled: true, Start: "22:00", End: "08:00"}
+		if err := good.validate(); err != nil {
+			t.Errorf("good DTO rejected: %v", err)
+		}
+	})
+
+	for _, bad := range []struct {
+		name string
+		dto  quietConfigDTO
+	}{
+		{"bad start", quietConfigDTO{Start: "24:00", End: "08:00"}},
+		{"empty end", quietConfigDTO{Start: "22:00", End: ""}},
+	} {
+		t.Run(bad.name, func(t *testing.T) {
+			if err := bad.dto.validate(); err == nil {
+				t.Errorf("bad DTO %+v accepted", bad.dto)
+			}
+		})
+	}
+}
+
+func TestQuietDTODefaultsAndApply(t *testing.T) {
+	a := newTestAppWithStore(t)
+
+	t.Run("default DTO shows disabled with 22:00-08:00 window", func(t *testing.T) {
+		d := a.settings.quiet.get()
+		if d.Enabled || d.Start != "22:00" || d.End != "08:00" {
+			t.Fatalf("default DTO = %+v, want disabled 22:00-08:00", d)
+		}
+	})
+
+	t.Run("put updates live config", func(t *testing.T) {
+		if _, err := a.settings.quiet.put([]byte(`{"enabled":true,"start":"23:00","end":"07:00"}`)); err != nil {
+			t.Fatal(err)
+		}
+		q := a.cfg.Load().QuietHours
+		if !q.Enabled || q.Start != "23:00" || q.End != "07:00" {
+			t.Fatalf("applied config = %+v", q)
+		}
+	})
+}
+
+func TestQuietConfigRoundTripAndValidation(t *testing.T) {
+	a := newTestAppWithStore(t)
+
+	gw := httptest.NewRecorder()
+	a.handleQuietConfigGet(gw, httptest.NewRequest("GET", "/v1/quiet/config", nil))
+	if gw.Code != 200 || !strings.Contains(gw.Body.String(), `"start":"22:00"`) {
+		t.Fatalf("GET default = %d body=%s", gw.Code, gw.Body)
+	}
+
+	pw := httptest.NewRecorder()
+	a.handleQuietConfigPut(pw, httptest.NewRequest("PUT", "/v1/quiet/config",
+		strings.NewReader(`{"enabled":true,"start":"23:00","end":"07:00"}`)))
+	if pw.Code != 200 {
+		t.Fatalf("PUT = %d body=%s", pw.Code, pw.Body)
+	}
+	if !strings.Contains(pw.Body.String(), `"start":"23:00"`) || !strings.Contains(pw.Body.String(), `"end":"07:00"`) {
+		t.Fatalf("PUT response missing new values: %s", pw.Body)
+	}
+	q := a.cfg.Load().QuietHours
+	if !q.Enabled || q.Start != "23:00" || q.End != "07:00" {
+		t.Fatalf("config not applied: %+v", q)
+	}
+
+	bw := httptest.NewRecorder()
+	a.handleQuietConfigPut(bw, httptest.NewRequest("PUT", "/v1/quiet/config",
+		strings.NewReader(`{"start":"25:00"}`)))
+	if bw.Code != 400 {
+		t.Fatalf("expected 400 for bad start, got %d body=%s", bw.Code, bw.Body)
+	}
+
+	ppw := httptest.NewRecorder()
+	a.handleQuietConfigPut(ppw, httptest.NewRequest("PUT", "/v1/quiet/config",
+		strings.NewReader(`{"enabled":false}`)))
+	if ppw.Code != 200 {
+		t.Fatalf("partial PUT = %d body=%s", ppw.Code, ppw.Body)
+	}
+	if !strings.Contains(ppw.Body.String(), `"start":"23:00"`) {
+		t.Fatalf("partial PUT should preserve start=23:00; got: %s", ppw.Body)
+	}
+	if a.cfg.Load().QuietHours.Enabled {
+		t.Fatalf("partial PUT should have set enabled=false")
+	}
+}
+
+func TestQuietConfigPersistence(t *testing.T) {
+	a := newTestAppWithStore(t)
+
+	pw := httptest.NewRecorder()
+	a.handleQuietConfigPut(pw, httptest.NewRequest("PUT", "/v1/quiet/config",
+		strings.NewReader(`{"enabled":true,"start":"23:00","end":"07:00"}`)))
+	if pw.Code != 200 {
+		t.Fatalf("PUT = %d body=%s", pw.Code, pw.Body)
+	}
+
+	if v, ok, _ := a.store.GetSetting(quietSettingsKey); !ok || !strings.Contains(v, `"start":"23:00"`) {
+		t.Fatalf("quiet settings not persisted: %q ok=%v", v, ok)
+	}
+
+	a2 := newTestAppWithStore(t)
+	if err := a2.store.PutSetting(quietSettingsKey, `{"enabled":true,"start":"23:00","end":"07:00"}`); err != nil {
+		t.Fatal(err)
+	}
+	a2.settings.reapply()
+	cfg2 := a2.cfg.Load()
+	if !cfg2.QuietHours.Enabled || cfg2.QuietHours.Start != "23:00" || cfg2.QuietHours.End != "07:00" {
+		t.Fatalf("persisted settings not applied on load: %+v", cfg2.QuietHours)
+	}
+
+	a3 := newTestAppWithStore(t)
+	if err := a3.store.PutSetting(quietSettingsKey, `{"enabled":true,"start":"23:00"}`); err != nil {
+		t.Fatal(err)
+	}
+	a3.settings.reapply()
+	cfg3 := a3.cfg.Load()
+	if cfg3.QuietHours.End != "08:00" {
+		t.Fatalf("legacy blob missing 'end' should keep default 08:00, got %q", cfg3.QuietHours.End)
+	}
+
+	a4 := newTestAppWithStore(t)
+	baseline := a4.cfg.Load().QuietHours.Start
+	if err := a4.store.PutSetting(quietSettingsKey, `{"enabled":true,"start":"25:00","end":"07:00"}`); err != nil {
+		t.Fatal(err)
+	}
+	a4.settings.reapply()
+	if a4.cfg.Load().QuietHours.Start != baseline {
+		t.Fatalf("invalid persisted settings should not change baseline; got %q want %q",
+			a4.cfg.Load().QuietHours.Start, baseline)
+	}
+}
+
+func TestNextQuietEdge(t *testing.T) {
+	at := func(d, h, m int) time.Time { return time.Date(2026, 6, d, h, m, 0, 0, time.UTC) }
+	on := func(start, end string) Config {
+		return Config{QuietHours: QuietHoursConfig{Enabled: true, Start: start, End: end}}
+	}
+	cases := []struct {
+		name string
+		cfg  Config
+		now  time.Time
+		want time.Time
+		ok   bool
+	}{
+		{"disabled", Config{QuietHours: QuietHoursConfig{Start: "22:00", End: "08:00"}}, at(11, 21, 0), time.Time{}, false},
+		{"start equals end", on("09:00", "09:00"), at(11, 8, 0), time.Time{}, false},
+		{"before start", on("22:00", "08:00"), at(11, 21, 59), at(11, 22, 0), true},
+		{"on the start edge", on("22:00", "08:00"), at(11, 22, 0), at(12, 8, 0), true},
+		{"overnight before end", on("22:00", "08:00"), at(12, 3, 0), at(12, 8, 0), true},
+		{"after end", on("22:00", "08:00"), at(12, 9, 0), at(12, 22, 0), true},
+		{"daytime window after both", on("13:00", "14:00"), at(11, 15, 0), at(12, 13, 0), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := c.cfg.nextQuietEdge(c.now)
+			if ok != c.ok || !got.Equal(c.want) {
+				t.Fatalf("nextQuietEdge(%v) = %v,%v want %v,%v", c.now, got, ok, c.want, c.ok)
+			}
+			if ok && c.cfg.quietAt(got) == c.cfg.quietAt(got.Add(-time.Second)) {
+				t.Fatalf("quiet does not change at %v", got)
+			}
+		})
+	}
+}
+
+func TestNextQuietEdgeAcrossDST(t *testing.T) {
+	load := func(name string) *time.Location {
+		loc, err := time.LoadLocation(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return loc
+	}
+	ny, bg := load("America/New_York"), load("Europe/Belgrade")
+	utc := func(mo time.Month, d, h, m int) time.Time { return time.Date(2026, mo, d, h, m, 0, 0, time.UTC) }
+	on := func(start, end string) Config {
+		return Config{QuietHours: QuietHoursConfig{Enabled: true, Start: start, End: end}}
+	}
+	cases := []struct {
+		name string
+		cfg  Config
+		now  time.Time
+		want time.Time
+	}{
+		{"spring forward start in the gap", on("02:30", "07:00"), utc(time.March, 8, 6, 59).In(ny), utc(time.March, 8, 7, 0)},
+		{"fall back reenters the window", on("22:00", "01:30"), utc(time.November, 1, 5, 45).In(ny), utc(time.November, 1, 6, 0)},
+		{"fall back second end", on("22:00", "01:30"), utc(time.November, 1, 6, 10).In(ny), utc(time.November, 1, 6, 30)},
+		{"fall back leaves the window", on("02:30", "04:00"), utc(time.October, 25, 0, 45).In(bg), utc(time.October, 25, 1, 0)},
+		{"fall back second start", on("02:30", "04:00"), utc(time.October, 25, 1, 10).In(bg), utc(time.October, 25, 1, 30)},
+		{"spring forward start in the gap east", on("02:30", "04:00"), utc(time.March, 29, 0, 50).In(bg), utc(time.March, 29, 1, 0)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := c.cfg.nextQuietEdge(c.now)
+			if !ok || !got.Equal(c.want) {
+				t.Fatalf("nextQuietEdge(%v) = %v,%v want %v", c.now, got.UTC(), ok, c.want)
+			}
+			if c.cfg.quietAt(got) == c.cfg.quietAt(c.now) {
+				t.Fatalf("quiet does not change at %v", got)
+			}
+			if c.cfg.quietAt(got.Add(-time.Second)) != c.cfg.quietAt(c.now) {
+				t.Fatalf("quiet changed before %v", got)
+			}
+		})
+	}
+}
+
+func TestNextQuietEdgeMatchesAMinuteScan(t *testing.T) {
+	windows := [][2]string{{"22:00", "08:00"}, {"02:30", "04:00"}, {"01:00", "02:30"}, {"22:00", "01:30"}, {"02:15", "02:45"}}
+	for _, zone := range []string{"America/New_York", "Europe/Belgrade", "UTC"} {
+		loc, err := time.LoadLocation(zone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, day := range []time.Time{time.Date(2026, 3, 7, 12, 0, 0, 0, loc), time.Date(2026, 3, 28, 12, 0, 0, 0, loc),
+			time.Date(2026, 10, 24, 12, 0, 0, 0, loc), time.Date(2026, 10, 31, 12, 0, 0, 0, loc)} {
+			for _, w := range windows {
+				cfg := Config{QuietHours: QuietHoursConfig{Enabled: true, Start: w[0], End: w[1]}}
+				for now := day; now.Before(day.Add(36 * time.Hour)); now = now.Add(11 * time.Minute) {
+					want := now.Add(time.Minute).Truncate(time.Minute)
+					for cfg.quietAt(want) == cfg.quietAt(now) {
+						want = want.Add(time.Minute)
+					}
+					if got, ok := cfg.nextQuietEdge(now); !ok || !got.Equal(want) {
+						t.Fatalf("%s %v at %v: got %v,%v want %v", zone, w, now, got, ok, want)
+					}
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,1997 @@
+# Runbook
+
+How to build, deploy, install, and verify `ember`. For the system
+design see [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+## Build & test
+
+Local Homebrew Go toolchain; do **not** set `GOROOT` manually (let `go env
+GOROOT` resolve to Homebrew's `libexec`).
+
+```sh
+go test ./... -race
+```
+
+T3 Code probes new loopback listeners with `GET /`, so a test stub must not count it.
+
+```sh
+gofmt -w <files>
+go vet ./...
+go run ./cmd/ember -config config.example.json
+```
+
+**Network isolation in `cmd/ember` tests.** What is covered:
+
+- HTTP through `http.DefaultTransport` (every client with a nil `Transport`,
+  the awtrix client included, and clones of it such as the healthcheck's TLS
+  transport). `TestMain` refuses any request or dial to a host that is not a
+  loopback IP; `localhost` is resolved first, refused unless every answer is
+  loopback, and dialled by each validated address in turn. Each refusal fails
+  the package, listing the URL and the test that made it. A refusal from a
+  background goroutine names its code path; rerun with
+  `GODEBUG=tracebackancestors=10` to name the test. Tests built from the
+  shared helpers (`newTestApp`, `newTestAppWithStore`, `ngAudioApp`,
+  `stubClockConfig`, ...) or calling `watchLAN(t)` also fail themselves.
+  `watchLAN` refuses `t.Parallel` tests (it uses `t.Setenv`), and charges a
+  refusal it can't attribute (a background goroutine, or the dial layer) to
+  every watched test running at the time, so a goroutine leaked from an
+  earlier test can fail a later one; the message says "background goroutine".
+  Only `TestMain` assigns `http.DefaultTransport`
+  (`TestOnlyTestMainWritesTheDefaultTransport`): a later swap would race those
+  leaked goroutines (#594).
+- The button/boot callback route lookup (`App.localIPFor`, a UDP connect that
+  sends no packet): the shared helpers swap in a version that refuses a
+  hostname, which would need a DNS lookup.
+- Statically, `TestNetworkAccessOnlyThroughTheGuardedTransport` fails if
+  non-test code names the type `http.Transport`, `net.Dialer`, `net.Resolver`,
+  `net.ListenConfig` or `tls.Dialer` (a literal, variable, field, parameter or
+  assertion), calls a method on the last four, or calls
+  `net.Dial*`/`Listen{Packet,UDP,MulticastUDP,IP}`/`Lookup*`/`Resolve*`,
+  `tls.Dial*` or `discovery.Browse*`/`Advertise`. `networkAllowlist` admits
+  each use by file, enclosing function and count: `net.Dial` once in
+  `outboundIP` (injected as above), `discovery.BrowseAWTRIX` once in
+  `newServerApp` (only `main` calls it; NewApp defaults to `browseNotWired`),
+  `discovery.Advertise` once in `main`, and the `*http.Transport` parameter of
+  `healthcheckOnce` and the `http.DefaultTransport` assertion in
+  `runHealthcheck` (the probe clones the default transport, so tests pass the
+  guarded one).
+
+Not covered: an `App` built with `NewApp` directly keeps the real
+`outboundIP`, so a hostname clock URL there would do a DNS lookup; and the
+subprocesses (`go run .` in the TLS, healthcheck, doctor, print-config and
+version tests, and the ldflags test's `go build` and binary) run unguarded.
+None reaches past loopback: the TLS check runs before the App is built,
+`healthcheck` and online `doctor` only probe the loopback stub they are given,
+offline `doctor` skips the clock under `EMBER_CLOCK=off`, and
+`--print-config` and `version` do no I/O. All of them run under
+`isolatedGoRunEnv`, which strips `EMBER_*`/`CONFIG_PATH` and sets
+`EMBER_CLOCK=off`, `EMBER_MDNS_ADVERTISE=0`, a `127.0.0.1:0` config,
+`GOPROXY=off` and `GOTOOLCHAIN=local`. `goRunCommand` starts `go run` in its
+own process group and kills the group at the deadline, so a subcommand that
+falls through to the server can't outlive its test. Point the clock URL
+(`defaultConfig()` falls back to `http://192.168.0.14`) and provider bases at
+an `httptest` stub.
+
+If a sandboxed shell can't write the default build cache, use a repo-local one:
+`GOCACHE="$PWD/.gocache" go test ./...`. In a shell with a stale
+`GOROOT=~/.go`, prefix with `unset GOROOT &&`.
+
+## Local server deployment (dev Mac, OrbStack)
+
+Docker is available via OrbStack; `docker buildx`, `scripts/image-smoke.sh`, and
+ad-hoc `docker run` all work locally (no remote Docker host needed). The live
+deployment is an ad-hoc `docker run` (no compose file) — its exact flags are
+captured in `docker inspect ember`.
+
+```sh
+# build (from a normal checkout, NOT a worktree — see ARCHITECTURE gotchas)
+docker buildx build -t ember:local .
+
+# run: token via env, config bind-mounted, Pomodoro DB on a named volume
+docker run -d --name ember --restart unless-stopped -p 3627:3627 \
+  -e EMBER_TOKEN="$(cat ~/.config/ember/token)" \
+  -v ~/.config/ember/config.json:/etc/ember/config.json \
+  -v ember-pomodoro:/var/lib/ember \
+  ember:local
+```
+
+- `config.json` carries device URL, `app_name` (`ember`), publish timeout.
+  - **The server pushes its main status display to the device under
+    `awtrix.app_name`.** If the clock's rotation shows an unexpected app name
+    (e.g. a pre-rebrand `ai_status`), that's almost certainly a stale `app_name`
+    in `config.json` — not a stray external publisher. Fix the name and restart;
+    don't go hunting MQTT/other hosts. (`config.json` is a single-file bind
+    mount — edit then `docker restart ember` to apply.)
+- Token: `openssl rand -hex 32 > ~/.config/ember/token`. **`EMBER_TOKEN` is
+  mandatory:** auth fails closed, so with it unset every `/v1` write (and every
+  `/admin` call) returns 401 — read endpoints (`/state`, `/healthz`, previews)
+  stay open. If writes suddenly 401 after a deploy, check the env var first.
+- **mDNS discovery needs host networking.** The `-p 3627:3627` form above is fine
+  for everything except clock/server discovery (multicast doesn't cross the
+  bridge). For the discovery features, run with `--network host` and drop `-p`
+  (the production/Unraid path; see "Discovery & mDNS" and "Docker Hub release").
+  Also in `-p` bridge mode every client arrives from the Docker gateway IP, so
+  the clock's `/hooks/awtrix/*` calls share one rate-limit bucket with the Macs'
+  `/v1` traffic (60 burst, 5/s), and the knob LAN re-pair's per-source cap of
+  2 pending claims becomes the server's whole cap (ARCHITECTURE "Device
+  registry").
+- **TLS (optional).** `EMBER_TLS_CERT_FILE` and `EMBER_TLS_KEY_FILE` must both
+  be set (HTTPS) or neither (HTTP); exactly one is a startup error. The pair is
+  parsed eagerly, so a malformed PEM, unreadable file or key/cert mismatch fails
+  startup with a clear error. Expiry, SAN coverage and the trust chain are not
+  validated; that is the operator's responsibility. The container healthcheck
+  switches to https when the cert is set (`EMBER_HEALTHCHECK_CA_FILE` adds a
+  trust bundle, `EMBER_HEALTHCHECK_INSECURE=1` skips verification).
+- **When recreating the container, `docker inspect` it first** to replicate
+  exact mount destinations / env names rather than reconstructing from memory.
+- **After any render-side change, rebuild + redeploy from current `main`** —
+  producer↔server version skew shows nothing rather than erroring (see
+  ARCHITECTURE).
+- Verify in-container: `docker exec ember /ember doctor`
+  (expect all `[OK]`).
+
+## Producer install / uninstall
+
+**Claude** (per-Mac, hooks merged into the GLOBAL `~/.claude/settings.json` +
+the heartbeat/statusline LaunchAgents):
+
+```sh
+go install ./cmd/ember-claude-producer   # rebuild the binary in ~/go/bin
+ember-claude-producer install            # registers hooks + LaunchAgent
+ember-claude-producer uninstall
+```
+
+**Claude hooks via the plugin** (alternative to the settings.json hooks):
+`claude plugin marketplace add tarakanof/Ember`, `claude plugin install ember@ember`,
+then `ember-claude-producer configure` (or `install`). With `ember@ember`
+enabled in `~/.claude/settings.json`, configure/install write only the
+statusLine (plugins can't set one) and strip any producer hooks already there;
+`doctor`'s `claude hooks:` line warns `registered TWICE` if both are present.
+Update: `claude plugin marketplace update ember && claude plugin update
+ember@ember`. Uninstalling or disabling the plugin leaves no hooks (`doctor`:
+`NONE`); run `configure` to put the settings.json hooks back. `deconfigure`/
+`uninstall` write the kill switch `~/.config/ember/claude-hooks.disabled`, so
+plugin hooks go silent (`doctor`: `DISABLED`). `configure` removes it. Hook
+timeouts: blocking hooks 5 s (settings.json SessionEnd 2 s); SessionEnd shares
+Claude Code's 1.5 s budget and caps its DELETE at 800 ms whatever
+`EMBER_HOOK_TIMEOUT_MS` (default 500) says. `EMBER_DONE_TTL_SECONDS` (default
+30, match the server's `done_ttl_seconds`) is how long the heartbeat keeps
+re-posting a finished (`done`/`error`) session.
+`configure`/`deconfigure` back up `~/.claude/settings.json` to
+`settings.json.ember-bak` (one file, overwritten) before changing it, and skip
+the write when nothing changes; a symlinked settings.json is written through
+(a link into a read-only store is an error naming it, a dangling link is
+replaced). Older producers wrote `settings.json.bak.<pid>` on every
+run; they are never deleted automatically (`doctor` prints how many there
+are), remove them by hand. `EMBER_STATUSLINE_TIMEOUT_MS` (default 10000, env
+var or `producer.env`) bounds a wrapped status line command; on timeout the
+last good output is shown.
+`EMBER_CLAUDE_AGENTS_POLL` (default on; `0`/`off` disables, the env var
+overrides `producer.env`) lets the `run` daemon cross-check running/waiting
+sessions with `claude agents --json`: it ends a wait the hooks can't see end
+(approved dialog, Esc on a dialog), marks an Esc-interrupted turn `done`
+("interrupted"), and shows a session whose hooks went quiet (started before
+the plugin was installed, or lost its settings.json hooks to `configure`) as
+running "working" while `claude agents` says busy; `doctor` warns about such
+sessions: restart them, or run `/reload-plugins` in them. It needs Claude Code ≥ 2.1.288 at `~/.local/bin/claude`
+(native installer), on the daemon's PATH, or in `/opt/homebrew/bin` /
+`/usr/local/bin`; nvm/npm-global installs aren't found and the check stays
+off. `doctor` prints `claude agents cross-check: on (claude X at PATH)` or why
+it is inactive. The daemon log (`ember-tick.log`) records each correction.
+Settings › Agents shows the same thing under the Claude Code row ("Hooks: the
+ember@ember plugin", "~/.claude/settings.json", both, or none, plus "Paused"
+when the kill switch exists, plus an "ember-mod@ember mod, side by side" line
+naming its source, `EMBER_MOD_SOURCE` or `<EMBER_SOURCE>-mod`, or "with a
+host-name source" when EMBER_SOURCE is unset), reading the same files as
+`doctor`. The mod beside the plugin is not "registered twice" (it posts under
+its own source); only the plugin plus settings.json hooks are. With Claude
+reporting on, registered twice, none (a plugin enabled only for a project
+isn't checked, as in `doctor`), or paused gets an orange warning and
+**Fix Hooks**, which runs the bundled `ember-claude-producer configure`; a
+settings.json that isn't valid JSON gets a warning to fix it by hand and no
+button.
+Details: [`producers/claude-code/README.md`](../producers/claude-code/README.md).
+
+`producer.env` (`~/.config/ember/producer.env`) holds: `source`,
+`EMBER_SERVER_URL` (empty or `auto` = mDNS discovery, see "Headless / Linux
+producers"), token, `EMBER_SOURCE_COLOR`, and the `EMBER_*` toggles
+(below). The producer re-reads it each tick — no restart needed.
+
+> **Gotcha:** the auto-mode classifier blocks a chained `go install + install`
+> Bash call (it writes the global settings.json). Run them as **separate**
+> commands, or the build silently doesn't happen and `install` uses a stale
+> binary. `go install` alone is allowed; since the LaunchAgent/hook paths point
+> at `~/go/bin`, rebuilding in place is usually enough — no re-`install` needed.
+
+**Codex** daemon: installed as LaunchAgent `com.ember.codex`
+(`KeepAlive=true`). Restart with `launchctl kickstart -k gui/$UID/com.ember.codex`.
+
+**T3 Code** daemon (`cmd/ember-t3-producer`, tool `t3`): polls T3 Code's local
+SQLite state read-only and reports each thread (session = T3 thread id,
+activity = thread title). Verified against T3 Code **v0.0.45** (`state.sqlite`,
+migration 54), **v0.0.46-preview.20261002.2598** (`statev2.sqlite`,
+migration 56), **v0.1.0** (`statev2.sqlite`, migration 62) and **v0.1.1**
+(`statev2.sqlite`, migration 67). No pairing or
+token for T3 is needed: it reads files the T3 server writes under
+`~/.t3/userdata/`.
+
+```sh
+go install ./cmd/ember-t3-producer
+ember-t3-producer install     # LaunchAgent com.ember.t3 (KeepAlive)
+ember-t3-producer doctor      # T3 server running? schema/migration? thread count?
+ember-t3-producer uninstall
+```
+
+Ember.app bundles it like Codex: Settings › Agents lists **T3 Code** with its
+own switch (the master switch includes it once T3 is detected: `~/.t3` or
+producer.env's `EMBER_T3_HOME`, the same place the helper reads). The row shows
+even before T3 is installed, marked "Not found on this Mac", and can be turned
+on anyway; the first time it runs, macOS asks once for the helper's Local
+Network access. An agent turned off with its own switch stays off when the
+master switch is turned on (the choice is kept in `~/.config/ember/producers.json`, so it survives a defaults reset); on the
+first launch of this version, T3 starts turned off if reporting was already on.
+If `~/Library/LaunchAgents/<label>.plist` exists (installed with the CLI,
+same label as the app's copy) the row says **Installed from the CLI** and the
+app never registers its own; **Move to Ember** runs the bundled helper's
+`uninstall` (it boots out and removes only the CLI's agent), then turns the
+app's copy on. The CLI `install` stays for dev builds. Restart with `launchctl kickstart -k gui/$UID/com.ember.t3`; log at
+`~/Library/Logs/ember-t3-producer.log`. `producer.env` keys (all optional):
+`EMBER_T3_HOME` (default `~/.t3`, a leading `~/` is expanded; set it if you run T3 with `T3CODE_HOME` /
+`--base-dir`), `EMBER_T3_POLL_INTERVAL_MS` (default 2000, floor 250),
+`EMBER_T3_ACTIVITY_WINDOW_SECONDS` (default 300: how long a done/error thread
+stays). `EMBER_ACTIVITY_TRAIL_ENABLED=false` hides thread titles. A T3 dev
+server (`--dev-url`) keeps its state under `dev/`, not `userdata/`, and is not
+read.
+
+*No double sessions with Claude (#216).* T3's Claude provider runs the Agent
+SDK with the user's settings, so Ember's Claude hooks fire for T3 Claude
+threads too. The Claude hook skips an Agent SDK session (`CLAUDE_CODE_ENTRYPOINT=sdk-ts`
+or `CLAUDE_AGENT_SDK_VERSION` set) whose `claude` was launched by a T3
+server: the desktop app, the `t3` binary (npm `t3@0.1`, `~/.t3/runtime/versions/<v>/t3 serve`)
+or the 0.0.x npm `t3` script. Each T3 thread then shows once, as `t3`. A
+`claude` row left from before the upgrade is deleted at that thread's next
+hook. Other Agent SDK apps and interactive `claude` (also inside T3's
+terminal) are reported as before, except a terminal `claude` under a T3 that
+was itself started from a T3 Claude thread (it inherits
+`CLAUDE_AGENT_SDK_VERSION`), which is hidden. A dev or checkout T3 server
+(`node --watch src/bin.ts`, `node dist/bin.mjs`) is not recognised and
+still doubles; untick one tool in Show on Clock for that.
+Codex threads should not be doubled: T3 drives `codex app-server`, and the
+Codex producer only follows rollouts with `session_meta.source == "cli"`
+(confirm in the live check below).
+
+*Live check once T3 is installed* (not yet run on the dev Mac):
+1. Start T3, open a project, `ember-t3-producer doctor` → "T3 server:
+   running", schema v1 or v2, the thread count.
+2. `ember-t3-producer install`, start a Codex thread in T3 → `GET /state` shows
+   `tool: "t3"`, `state: "running"`, `activity` = the thread title.
+3. Ask for something that needs approval (or a Codex `request_user_input`) →
+   `waiting`; answer → `running`; finish → `done` (no WAIT flash while T3
+   captures the checkpoint), gone after 5 min. A subagent fan-out must not
+   add extra `t3` sessions.
+4. Archive the thread → DELETE at the next poll; quit T3 → every `t3` session
+   is deleted within one poll.
+5. With a Codex or Claude thread running in T3, `GET /state` must show no
+   extra `codex` or `claude` session for it.
+6. Check the log for `T3 Code schema is newer than the verified one` after T3
+   updates; bump `pinnedMigrations` once the mapping is re-verified.
+
+**Menu app** (native SwiftUI, `macos/` — replaces the retired Go menu): generate the Xcode project and run it.
+
+```sh
+brew install xcodegen                                   # one-time
+xcodegen generate --spec macos/project.yml --project macos
+open macos/Ember.xcodeproj                          # pick your Dev team, then ⌘R
+swift test --package-path macos                          # headless EmberKit tests
+```
+
+The generated `Ember.xcodeproj` is gitignored — regenerate it after pulling.
+
+**Quit vs close.** Closing the Settings or Dashboard window only hides it; the
+app drops back to a menu-bar agent and everything keeps running. Quit Ember
+(the menu's "Quit Ember", `MenuBarContentView.swift`) stops the app's own
+work, but not the producers or the server.
+
+| | Close the window | Quit Ember |
+|---|---|---|
+| Menu-bar icon and bot | keeps running | stops |
+| Music now-playing pusher, knob music commands (`MusicNowPlayingWatcher.swift`) | keeps running | stops |
+| Apple Reminders watcher (`ReminderWatcher.swift`) | keeps running | stops |
+| Producer LaunchAgents (`com.ember.heartbeat`, `com.ember.codex`, `com.ember.t3`) | keep running | keep running |
+| Ember server, clock, knob | keep running | keep running |
+
+**Local install without a Developer ID.** macOS Local Network privacy (and
+Little Snitch) key their grants to the app's designated requirement. An
+ad-hoc signed app's requirement is its cdhash, so every rebuild is a new
+program to macOS: Bonjour browsing fails with `NoAuth (-65555)` and LAN
+connections fail with "Network is down", even right after you turn Ember on
+in System Settings › Privacy & Security › Local Network. Sign local builds
+with one stable identity instead, and the requirement stays the same on
+every rebuild.
+
+*Recommended: your Apple Development certificate.* If Xcode has signed you in
+to an Apple account, the login keychain holds an "Apple Development: <name>
+(<id>)" identity. List them with `security find-identity -v -p codesigning`
+and pick yours by SHA-1: several identities can share a name (one per team),
+and a name matching more than one is refused. Save the SHA-1 once:
+
+```sh
+mkdir -p ~/.config/ember
+echo <SHA-1> > ~/.config/ember/signing-identity     # once; EMBER_SIGNING_IDENTITY overrides it
+scripts/local-signing-identity.sh --check           # shows which identity local builds sign with
+scripts/build-local.sh                              # Release build into /tmp/ember-local-build, signed with it
+osascript -e 'quit app "Ember"'
+ditto /tmp/ember-local-build/Build/Products/Release/Ember.app /Applications/Ember.app
+open /Applications/Ember.app                        # approve Local Network one last time
+```
+
+The requirement becomes `identifier "com.ember.Ember" and anchor apple generic
+and certificate leaf[subject.CN] = "Apple Development: <name> (<id>)" and
+certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */`: it names the
+certificate's subject, not its hash, so it also holds after the certificate is
+renewed under the same name, and `verify-bundle.sh` shows your team ID.
+
+*Fallback: a self-signed certificate.* Without an Apple account, run
+`scripts/local-signing-identity.sh` once to create "Ember Local Signing" in the
+login keychain, then build the same way. The requirement is
+`identifier "com.ember.Ember" and certificate leaf = H"<sha1>"`, stable until
+you recreate the certificate. It is untrusted on purpose: no admin password
+and no trust-settings change; `codesign` signs with it anyway and a locally
+built app never meets Gatekeeper. The script generates it with
+`/usr/bin/openssl` (LibreSSL) on purpose: its PKCS#12 defaults (3DES/SHA-1) are
+what `security import` reads on every macOS, while OpenSSL 3's AES defaults are
+not. The key is imported non-exportable (`-x`) with `-T codesign`, so `codesign`
+can use it without a keychain prompt.
+
+Which identity signs: `EMBER_SIGNING_IDENTITY` (a SHA-1 or an exact identity
+name), else the first non-blank, non-`#` line of
+`~/.config/ember/signing-identity` (`$XDG_CONFIG_HOME/ember/signing-identity`
+when `XDG_CONFIG_HOME` is set; an Xcode GUI build doesn't inherit your shell's
+XDG, so keep the file under `~/.config` or leave XDG unset), else
+"Ember Local Signing", else none and the app stays ad-hoc.
+`EMBER_SIGNING_IDENTITY=-` forces ad-hoc for one build even with the file set.
+The override must name exactly one valid identity (as listed by
+`security find-identity -v`): one that doesn't exist, is expired, revoked or
+untrusted, matches more than one, or a config file that can't be read, fails
+the build instead of falling back. The self-signed identity is untrusted, so
+it's used by leaving the override unset, not by naming it.
+`build-local.sh` builds ad-hoc (Xcode only accepts trusted identities with a
+matching profile) and then re-signs the bundle inside-out with the identity,
+keeping hardened runtime and the helpers' `com.ember.*` identifiers, dropping
+`get-task-allow` and using no secure timestamp, so it works offline.
+`scripts/verify-bundle.sh` prints which identity signed the app, its team and
+its designated requirement (ad-hoc means re-approval after each rebuild). An
+Xcode build whose configured Developer ID is missing signs the producer
+helpers with the same identity when there is one, ad-hoc otherwise.
+`--check` reports the identity, `--remove` deletes "Ember Local Signing";
+`EMBER_SIGNING_KEYCHAIN` points the script at another keychain (used to test
+it in a scratch keychain). The first signing with a new identity may show a
+keychain prompt for `codesign`: choose **Always Allow**. Switching an existing
+install to another identity (ad-hoc to either, self-signed to Apple
+Development, or a recreated self-signed one) needs one more Local Network
+approval for the app and each helper, and Little Snitch sees a new signer.
+
+**Local Network denied although the toggle is on.** macOS resolves
+`com.ember.Ember` through LaunchServices for both checks: nehelper caches the
+allowed executable UUIDs from that bundle, and mDNSResponder checks the browse
+type against its `NSBonjourServices`. Each scratch or DerivedData build
+registers another Ember.app, and a stale copy can shadow the installed one:
+connections log `unsatisfied (Local network prohibited)` and a browse fails
+with `NoAuth(-65555)` (mDNSResponder logs `App Info.plist(NSBonjourServices)
+does not allow …`). `build-local.sh` stamps a unique `CFBundleVersion` per
+build (`2.<timestamp>`, below the next release's number) (`EMBER_BUILD_NUMBER` overrides it) and unregisters its own output;
+`scripts/lsregister-clean.sh` (`--dry-run` to list) unregisters every other
+copy and re-registers /Applications/Ember.app. If a browse is still refused,
+`sudo killall mDNSResponder` drops its cached decision. Read the logs with
+`/usr/bin/log show --predicate 'process == "mDNSResponder" OR process == "nehelper"'`
+(in zsh, bare `log` is a builtin).
+
+**Strings**: every user-facing string lives in `macos/Ember/Localizable.xcstrings`.
+After adding or changing UI text, run `scripts/strings.sh sync` (it builds the
+app into a fresh temp DerivedData; if you pass one as the second argument, make
+it a clean build, since a reused one keeps `.stringsdata` from deleted files and
+sync would re-add their keys), then give
+any new format string (`%@`, `%lld`, `^[…](inflect: true)`) a translator comment
+in the catalog. EmberKit's strings aren't extracted by Xcode, so the script
+adds them as manual entries. `scripts/strings.sh check` is what CI runs; it also
+warns about keys no code uses any more (delete those by hand).
+
+**CI**: [`ci.yml`](../.github/workflows/ci.yml) runs the Go job on every push/PR,
+plus a `macos` job (path-filtered to `macos/**`, `scripts/**`, `cmd/ember/testdata/**`,
+`cmd/ember-claude-producer/testdata/**` and
+the workflow file itself) that installs `xcodegen`, runs `swift test
+--package-path macos`, regenerates the Xcode project, and does an unsigned
+`xcodebuild ... CODE_SIGNING_ALLOWED=NO build` — there's no Developer ID on the
+runner, so `build-producers.sh`'s sign phase skips itself under
+`GITHUB_ACTIONS` (see that script) — then `scripts/strings.sh check` on that
+build, which fails when a string is missing from the catalog.
+The `image-vcs` job builds the amd64 image on every push/PR and runs
+`scripts/check-image-vcs.sh`: it fails unless `ember version` in the image shows
+the checked-out commit without `+dirty`.
+Launch-at-login is in-app (App tab → `SMAppService`), not a LaunchAgent. The app
+reads `producer.env` for connection config and needs a server on a build that
+includes `GET /v1/preview` (added 2026-05; older servers 401 that route).
+The `macos` job also checks `knob-theme.json` against cinder's firmware
+constants (`themeMatchesCinderSource`, and `KnobNowPlayingFoldTests`): it
+checks out `tarakanof/cinder` at the release tag in `.github/cinder-ref`
+(sparse, `firmware/`; the repo is public, so no token) and points `CINDER_DIR`
+at it. A failed checkout fails the job. The pin keeps a cinder merge from
+failing unrelated Ember PRs (#468). To adopt a new firmware, bump the tag in
+its own commit, `test(theme): sync parity to cinder <tag>`, together with any
+theme or pattern change it needs, after that cinder release is out. Locally
+the tests read `../cinder` or `CINDER_DIR`, whatever it has checked out, so
+they can differ from CI when that checkout isn't at the pinned tag.
+The test checks only code the knob runs, and every theme key needs a check
+(the code-only keys and LVGL's built-in `font.metrics` sizes aside). The
+weather keys mirror the Temperature face (`temp_face.c`, `wx_temp.c`,
+`wx_paint.c`): the colour scale, gauge ring, marker, thermometer and
+mercury, value, end labels, sub-line (cloud bands, their hysteresis and
+the UV advice levels, colours and words) and face dots, and structure checks
+pin the conditions the preview copies (ring span and grey track, end-label
+colour, marker gate, the `deg / 2` value shift). The Rain, Rain forecast,
+Wind, Next days, Sun and Air keys (`weather.unit` … `weather.air`) mirror
+`wx_rain.c`, `wx_cast.c`, `wx_wind.c`, `wx_days.c`, `wx_sun.c`, `wx_air.c`
+and their headers, and the checks also match the faces' words (band names,
+compass points, weekdays, sub-lines) against the firmware's strings.
+`KnobWeatherPickTests` pins the preview's AUTO face pick the same way: the
+order of `wx_temp_from_shown`'s chain, the `wx_cast_soon`,
+`wx_wind_strong` and `wx_air_poor` conditions (thresholds in
+`weather.cast.soon_s`/`keep_s` and `weather.wind.auto_kmh`/`keep_kmh`),
+the face ids of `wx_faces.h` and demo's face words, and the strict
+`age_s > WX_MAX_AGE_S` freshness.
+
+The app bundle now builds + signs the three producer helpers (`ember-claude-producer`,
+`ember-codex-producer`, `ember-t3-producer`) and their LaunchAgent plists
+(`com.ember.heartbeat`, `com.ember.codex`, `com.ember.t3`) into `Contents/MacOS` and
+`Contents/Library/LaunchAgents` via a `postCompileScripts` phase
+(`scripts/build-producers.sh`) that runs before Xcode's own app-level codesign, so
+signing happens inside-out. `CODE_SIGN_IDENTITY` picks Developer ID for release
+builds vs ad-hoc (`-`) for local dev; notarizing the `.app` covers the nested
+helpers, no separate step needed. `scripts/verify-bundle.sh <Ember.app>` is the
+gate for this contract (universal binaries, valid plists, codesign) — run it
+after any build that touches the producers or the bundling phase.
+
+On launch the app re-registers the enabled producer agents when the bundle
+changed (version, build, or a digest of the bundled helpers and plists, stored
+as `producers.lastReconciledVersion`), and re-registers any enabled agent that
+`launchctl print gui/$UID/<label>` can't find, or shows stuck (`job state =
+spawn failed` plus `needs LWCR update` or `last exit code = 78`: a rebuilt
+ad-hoc helper, see ARCHITECTURE's gotchas); a stuck job is booted out first
+(a failed bootout is logged and reported as a Repair failure). After an
+update it checks again 30 s later; that recheck, Repair and the toggle run
+one at a time. Settings › Agents shows such an agent as **Not running** with
+a **Repair** button. By hand: `launchctl bootout gui/$UID/com.ember.heartbeat`
+(and `com.ember.codex`), then quit and reopen Ember. Each helper's LaunchAgent
+records whether it last reached the server in
+`~/.config/ember/{claude,codex,t3}-producer.link.json`; when that says
+`"no_route": true` (macOS denied it Local Network access, `connect: no route
+to host` in `~/Library/Logs/ember-tick.log`), Settings › Agents shows a hint
+with **Review Permissions…**.
+
+**Settings › Permissions** lists every OS permission Ember uses with its live
+status (text + symbol) and a fix button, re-checked when the pane appears and
+whenever Ember becomes active (one check at a time, at most every 5 s;
+**Check Again** skips the wait): Local Network (probed: a 3 s `_ember._tcp`
+browse, where DNS-SD `NoAuth`/`PolicyDenied` means off, plus `GET /healthz`
+on the server when it's a LAN host), the helpers' Local Network (the
+`no_route` files above), Background Items (the producer agents, with Repair),
+Reminders (required while reminder alarms are on) and Location (Weather's
+Detect only, never required). Settings › General shows a one-line warning
+when a required one is off. Wherever the app reports server reachability
+(Connection's status row, the menu header, the Dashboard subtitle and empty
+state, Discover Clocks' errors), a request macOS refused for Local Network
+reasons says so instead of "Server unreachable": URLSession reports it as
+`NSURLErrorNotConnectedToInternet` over `ENETDOWN` ("Network is down") with
+the path "unsatisfied (Local network prohibited)" (`LocalNetworkDenial`).
+Read those in the unified log with `/usr/bin/log show --predicate 'process ==
+"Ember"' --last 1h | grep -i "local network prohibited"` (plain `log` is a zsh
+builtin). The same places say "not responding" / "The server didn't answer
+in time" when a request timed out instead of failing to connect (5 s for
+plain server calls such as `/state`, 12 s or 35 s for calls that reach the
+clock; see `RequestBudget`). For the header, the Dashboard and Test
+Connection that means the host is down, the route black-holed or the
+process hung: a powered-off or off-subnet server usually times out rather
+than refusing, so a dead box now reads "not responding", not "unreachable".
+Only a clock-settings call that times out points at a slow clock.
+Connection's status row probes `GET /v1/apps`, a route that is always mounted
+behind the token (so it tests the token as well as reachability), then reads
+the version.
+
+**Release note for the first release with fixed helper identifiers**
+(`com.ember.claude-producer`, `com.ember.codex-producer`): existing installs
+get one Local Network prompt per helper after updating (allow it, or the
+helper can't reach the server), and possibly one launch-constraint failure
+per agent on the first launch, which the app heals by itself within ~30 s.
+The CLI `install`/`uninstall`
+subcommands only unload a job loaded from their own
+`~/Library/LaunchAgents/<label>.plist`, and `install` refuses (before touching
+any config) when the label is the app's or unidentifiable, or when launchd
+holds the app's "enabled" override (`launchctl print-disabled gui/$UID`) for a
+job it dropped. Booting out the app's job makes launchd drop it while
+Background Items still says it's enabled; `doctor` then suggests Repair.
+
+The menu dropdown also runs the Pomodoro (Start/Pause/Resume/Skip/Stop) and has
+per-app clock toggles (`PUT /v1/apps`). Settings → Pomodoro exposes the focus
+duration (to 8h), the auto-stop cap ("Auto-stop after: N h", `0` = off), and
+colours; Settings → App picks the Dock/app icon + the menu-bar icon: the
+**animated bot** (default — drawn in code, blinks and glances on human-like
+timing, morphs per session state, tinted by state colour; honours Reduce motion;
+see [`MENU-BOT.md`](MENU-BOT.md))
+or the per-tool tray glyphs.
+
+Settings is a **sidebar window** (Connection / **Device** / **Agent** /
+Pomodoro / Weather / Reminders / App), opened with ⌘, or the menu's "Settings…"
+item, and it **auto-applies** changes — the Connection tab's **Token** is the one
+field with a Save button, because a write-only field can't be auto-applied
+per keystroke (it also commits on Return, on focus loss, and when the view
+goes away). The **Agent** tab
+(formerly "Code agent"/"Display") groups by scope: per-Mac card/bar toggles write
+`producer.env` immediately (each with a pixel-art pictogram of what it adds to
+the 32×8 matrix, plus a three-way Bottom bar picker), while the behavior group
+(hide-when-idle, attention hold, attention chime) and the usage group
+(usage card, threshold, per-model, limit reset alarm) debounce server `PUT`s; Connection commits each
+text field on **Return or focus loss** (an invalid field shows a red caption and
+isn't written, leaving the others intact) and "Test Connection" lives in the
+toolbar; Pomodoro/Weather/Reminders each debounce a single `PUT` ~600 ms after
+the last edit; colours use the native macOS colour picker (bridged to `#RRGGBB`).
+The source-colour toggle/picker stay disabled until Source + Server URL are set
+(the tint write validates all fields together).
+
+The **Connection** tab also lists **Discovered servers** (Ember servers found via
+Bonjour/`_ember._tcp`); tapping one fills the Server URL. When the list is empty it
+offers a **Review Permissions…** button (macOS gates Bonjour browsing
+behind the Local Network privacy permission; Settings › Permissions has the
+fix) + **Rescan**. The **Device** tab
+speaks the awtrix-ng schema directly (General / Native Apps / Time & Date /
+Actions), proxied through the server (`/v1/device/*`) — brightness, sound (mute + buzzer volume, or the NG 1.2 volume mixer),
+app time, transitions (the picker is fed by `GET /v1/device/capabilities`
+instead of a static list), native-app toggles, calendar colours, sensor
+calibration (temp/hum offsets, written via a read-merge-PUT of
+`/api/v1/system`; **applies live, no reboot** — unlike the old AWTRIX3
+`dev.json` contract), Reboot / Dismiss, buttons (enabled with a one-click
+`PUT /v1/device/buttons`) — plus **Open clock web UI** (opens the firmware's own
+page at the clock's address, for everything Ember doesn't proxy: files, Berry
+scripts, OTA) and a **Discover clocks** picker (mDNS) to choose
+which awtrix-ng clock the server drives. Time and date are discrete typed
+fields (no format strings to fill in, unlike AWTRIX3's `TFORMAT`/`DFORMAT`),
+and sensor edits apply immediately. The **App** tab's *About* shows the app
+version + the connected server's `/version`.
+
+The **Weather** tab edits `weather` config (provider Open-Meteo/MET Norway/Tomorrow.io/WeatherAPI.com,
+the keyed ones greyed out with a hint until the server has their key,
+the Open-Meteo forecast model, `open_meteo_model`, with each source's limits
+under the pickers (table in ARCHITECTURE "Providers and models"), lat/lon, units, the rotating-tile + popup behaviour, severe-alert sound).
+Both persist server-side (`/v1/weather/config` → the SQLite
+store) and survive `/admin/reload`. Weather runs regardless of whether
+Pomodoro is enabled — but it still writes to the Pomodoro `db_path` store, so a
+deploy that wants it persisted needs that writable volume mounted.
+
+**Apple Reminders** (Sources › Calendar, Clock › Apps › Calendar and the
+Sounds pane) edit `GET/PUT /v1/reminders/config` on the server: `enabled`,
+`lead_minutes` (0–30), `popup_duration` (1–300 s), `hold`, `sound`,
+`repeat_sound`, `use_native_icon`, `native_icon_id`. Every Mac running Ember
+with Reminders access shares them and may fire; the server rings each
+reminder once, because every Mac sends the same `Idempotency-Key`
+(the reminder's iCloud `calendarItemExternalIdentifier` plus its due time).
+Ember.app loads the settings at launch and every 5 min (every 30 s until the
+first load succeeds); until it has loaded them it rings nothing, and while the
+server is unreachable it keeps the last values it loaded. On the first load
+after updating from a version that kept them per Mac, an app with local
+settings pushes them once with `PUT /v1/reminders/config?if_default=1`, which
+the server applies only while it still holds the defaults, so two Macs updating
+at once keep one Mac's values (UserDefaults marker
+`reminderPrefsMigratedToServer`). The server dedupe is in
+memory: a server restart inside a reminder's 10-minute window lets a second Mac
+ring it again.
+
+## Claude mod producer, side by side (experimental, #253)
+
+`producers/claude-code/mod/` is a Claude Code mod (`ember-mod@ember`): a
+hooks module that runs inside Claude Code and reports the same states as the
+Go hooks, with no hook binary and no heartbeat daemon. It reports the states,
+the heartbeat and (#668) the context % and 5-hour rate gauges; the account
+usage card still comes from the Go daemon. It is off unless installed,
+and it posts under its own source, so it never doubles the Go producer's
+rows. Needs Claude Code 2.1.288 or newer, gauges included: `session.measure`
+and `$.session.usage()` were live-probed on 2.1.288 (#253) and CI tests on
+2.1.304. A build that doesn't know an event the module hooks refuses the
+whole module when it loads it (no state either), and the API has no
+capability check, so the gauges can't be switched off per version; such a
+build keeps using the Go producer.
+
+- **Config.** It reads `~/.config/ember/producer.env` on `session.start`
+  and on every 10 s heartbeat: `EMBER_SERVER_URL` (empty or `auto` takes the
+  cached discovery result in `~/.local/state/ember/server.json`; the mod never
+  browses mDNS), `EMBER_TOKEN` (else the process env), the card and trail
+  toggles. Source: `EMBER_MOD_SOURCE`, else `<EMBER_SOURCE>-mod` (`mbp-mod`); an empty
+  or placeholder `EMBER_SOURCE` resolves the host id as Go does (`scutil --get
+  LocalHostName`, then `hostname`, same normalising), and only a host that
+  yields nothing keeps it silent.
+  No server URL or `~/.config/ember/claude-hooks.disabled` keeps it silent;
+  the kill switch is checked again before every event, as each Go hook does.
+  Like `ReadEnvFile`, it refuses a `producer.env` that is a symlink, not a
+  regular file, not mode 0600 or not owned by you (`$.fs` has no modes, so a
+  reload runs `stat`, and `id -u` runs once: `/usr/bin`, then `/bin`, then a
+  `PATH` lookup, for NixOS); a refused file keeps it silent. A reload swaps
+  the config in one step, and a check that could not run (`stat`/`id` missing,
+  timed out or silent) keeps the previous config, and events and heartbeats
+  carry on with it, so nothing is lost or paused during a reload.
+- **Older servers.** Like `optionalFields` in `internal/producer/client.go`, a
+  POST that gets `400 unknown field "project"` is sent again without it, and
+  the mod leaves `project` out for an hour. Other fields and other 400s are
+  not retried.
+- **Gauges.** `session.measure`, which Claude Code fires after each turn and
+  when a rate window moves a whole point, gives the mod what the statusline
+  gives Go: `context_pct` (context window fill), `rate_window_pct` and
+  `rate_reset_at` (the 5-hour window) and `rate_reset_label` (its reset as
+  local `HH:MM`). Same rounding and the same `EMBER_CONTEXT_PCT_ENABLED`
+  toggle. Like the statusline, a reading is only stored: the next hook POST
+  or heartbeat (at most 10 s) carries it, so the mod sends no extra request,
+  and the figures stick to the session until a newer reading. Nothing shows
+  before the session's first response (Claude Code has no figures yet). A
+  `five_hour` window with a reset but no percent is sent as 0 % with its
+  reset, as Go reads it. The first hook of every session the mod tracks with
+  no gauges (a new session, or one a non-`startup` SessionStart after
+  `/compact`, `/resume` or `--resume` forgot, as Go removes the marker)
+  reads `$.session.usage()` once in the background, so its row has gauges
+  within 10 s instead of after the turn (on a new session before its first
+  response it returns nothing);
+  a reading that answers after a newer `session.measure` is dropped. The
+  7-day window, spend limits and cost are read but not sent: `/v1/status`
+  has no field for them.
+- **Who owns the gauges when both run.** No overlap on `/v1/status`: each
+  producer's rows carry the gauges from its own source (Go's from the
+  statusline wrapper, the mod's from `session.measure`). `/v1/usage` (the
+  usage card: 5h, 7d, per model, per account) stays with the Go daemon: its
+  5-min OAuth poll, plus its statusline relay while the wrapper is
+  installed. The mod never posts `/v1/usage`. It can't compute the hashed
+  `account_key`, so it would add a second, keyless "Claude" account, and a
+  post replaces the account's whole report, so it would wipe the per-model
+  windows until the next poll. When no fresh report is in (daemon down,
+  OAuth 401), the usage card's 5h face falls back to the newest session
+  carrying `rate_window_pct`, from either producer.
+- **Dropping the statusline wrapper.** With the mod installed, the wrapper
+  is only needed for the Go producer's rows. To drop it, put your own
+  status line back:
+  ```sh
+  tmp=$(mktemp)
+  jq --slurpfile sl ~/.config/ember/wrapped-statusline.json '.statusLine = $sl[0]' \
+    ~/.claude/settings.json > "$tmp" &&
+    cat "$tmp" > ~/.claude/settings.json &&
+    rm ~/.config/ember/wrapped-statusline.json
+  rm -f "$tmp"
+  ```
+  The saved copy is removed only once `settings.json` holds it, so a missing
+  `jq` (macOS ships it from 15 on) or a `settings.json` that doesn't parse
+  changes nothing. With no `wrapped-statusline.json` (you had no status
+  line), delete `statusLine` instead: `jq 'del(.statusLine)'`. Don't use
+  `deconfigure`: it also writes the kill switch, which silences the mod.
+  Restart running Claude sessions afterwards: their markers keep the last
+  Go gauges until they end, and while no fresh `/v1/usage` report is in,
+  the 5h fallback could switch between those stale Go rows and the mod's
+  fresh ones on each heartbeat. What you lose:
+  - the Go rows' context glass and 5h gauge;
+  - the statusline relay to `/v1/usage` between OAuth polls, and the 7d
+    window while the OAuth poll fails;
+  - the Go daemon's uses of the statusline timestamps: `doctor`'s
+    stale-hooks warning (a session whose hooks went quiet while its status
+    line kept rendering) and the agents watcher's busy-after-dormant check
+    on Claude Code builds whose session file has no `statusUpdatedAt`.
+
+  `ember-claude-producer configure` writes the wrapper again, and so do
+  Ember.app's install and **Fix Hooks**, which run it; redo the step after
+  either.
+- **Hot reload.** `/reload-plugins` (or an edit under `--plugin-dir`) keeps
+  the tracker: it is mirrored to `$.state` (`ember-mod.snapshot`) after each
+  event and tick, and the reloaded module restores it on its first event or
+  tick, so a running or waiting session keeps its state, trail and pending
+  approval instead of vanishing until its next hook. Heartbeats resume within
+  10 s. A send in flight at the reload is lost with the old code (the next
+  heartbeat repeats it), and a timed-out POST's late-settle repair is lost too
+  (its 60 s heartbeat skip is kept). `$.state` lives as long as the Claude Code
+  process; restarting it starts empty.
+- **T3 sessions** (#216). Like the Go hooks, the mod skips Claude threads that
+  T3 Code spawns (T3 reports them as `t3`): an SDK session whose launcher is a T3
+  server posts nothing. Same gate and launcher rules as `t3.go`, run once per
+  process with a 250 ms budget. A failed lookup posts as usual and retries
+  every 30 s, and a later match DELETEs the earlier rows. Known gaps match the
+  Go ones (dev/checkout T3 servers and an inherited SDK env), plus: argv on
+  macOS comes from `ps`, so a space inside a later `node` argument breaks the
+  `node .../t3` match. To check a T3 thread, run T3 with the mod installed
+  and confirm `/state` shows only `t3/...` rows for it. Not yet checked on a
+  real T3 thread (owner): confirm that `sh -c 'echo $PPID'`, run by the mod's
+  `$.process.run`, prints the `claude` process's pid (compare with `ps -o
+  ppid= -p <that pid>` and the T3 server above it). If the engine spawns
+  `sh` from a helper instead, the walk sees `claude` as the launcher and
+  caches `no` for the life of the process, so the T3 thread is double-listed.
+- **Where it differs from the Go producer** (phase 1):
+  - `waiting` from a permission dialog ends when the approved tool
+    **finishes** (the awaited `tool.call` resolves), as the Go hook alone
+    does, but the mod also runs the Go daemon's agents cross-check for it
+    (#669). While a session shows a dialog wait (and for 15 s after a
+    resume), a 1 s timer stats `${CLAUDE_CONFIG_DIR:-~/.claude}/sessions/*.json`
+    (no spawn) and runs `claude agents --json` (5 s timeout) only when that
+    listing changed, when a confirmation is due, or as a 60 s fallback, the
+    same triggers as Go's `step`. Once the session's row has said `busy` on
+    two calls at least 1.5 s apart with no event in between, the row flips to
+    `running`; a `waiting` row seen the same way within 15 s of a flip puts
+    the wait back (Go's reverse correction). A long approved command leaves
+    `waiting` about 2 s after you click Allow. Spawn rate: a dialog open and
+    quiet costs one spawn a minute; an answer costs about two. A
+    `claude --version` runs once per candidate binary (verdicts are cached) to
+    gate on 2.1.288 so an older CLI never takes `agents` as a prompt. A failed
+    call drops the pending sightings, cancels the timer and re-arms it after
+    5 minutes. It never runs in a hook, and it does not start waits or turn
+    `idle` rows into `done`, which the Go daemon also does.
+  - A `permission_mode` change by Shift+Tab is seen at the next classic event.
+    Claude Code 2.1.304 gives a mod no event or noun for it (the API has no
+    mode-change event, `claude agents --json` carries no mode, and the
+    `SessionMode`/`PromptHint` render hooks only expose drawn text). The
+    effect of a stale mode is bounded by the cross-check above: after a
+    switch into `auto`, the first ask that the classifier answers shows
+    `waiting` for a few seconds, not until the tool ends.
+  - A killed Claude Code (`kill -9`) is reaped by the server's
+    `display.stale_seconds` (default 300 s), not a 10 s `ps` check.
+  - Network sends are serialised per session and coalesced (only the
+    newest pending send waits). Each send is bounded like Go's requests:
+    `EMBER_HOOK_TIMEOUT_MS` (500 ms) for hook sends, 5 s for heartbeat
+    sends, after which the session's queue moves on; SessionEnd waits at
+    most 800 ms in all. A timed-out fetch can't be cancelled, so a slow POST
+    can still land after the send that followed it. When it settles, the
+    mod sends the session's current state once more: the DELETE if it
+    ended or was parked, else the latest POST (so a late `running` can't
+    stick after `done`). Heartbeat POSTs for a session wait while such a
+    POST is younger than 60 s, then go out anyway.
+- **Tests.** `node --test producers/claude-code/mod/test/producer.test.mts`
+  covers the pure module; `claude plugin validate --strict
+  producers/claude-code/mod` and `claude plugin test producers/claude-code/mod`
+  cover `test/mod.test.ts` and the `register.ts` wiring. Neither needs an API
+  key or network. CI's "Claude mod producer" job runs all three with Claude
+  Code pinned by `npm i -g` (bump the version in `ci.yml` deliberately) and an
+  isolated `HOME`/`CLAUDE_CONFIG_DIR`; locally, run them under a scratch
+  `HOME` so they never touch `~/.claude`.
+- **One session only**, nothing installed:
+  `claude --plugin-dir ~/Github/Ember/producers/claude-code/mod`.
+- **Every session**: `claude plugin marketplace update ember`,
+  `claude plugin install ember-mod@ember`, then `/reload-plugins` in running
+  sessions (the mod also starts on its first event if `session.start` does
+  not fire for it). Remove with `claude plugin uninstall ember-mod@ember`.
+  Keep `ember@ember` installed: the comparison needs both.
+- **Token.** A client token bound to sources (`"sources":["mbp"]`, see
+  "Integrating a source") gets `403 token is not bound to source` for
+  `mbp-mod`, and the mod drops it silently, so it looks dead. Use the master
+  token, or mint one whose `sources` include both `<EMBER_SOURCE>` and
+  `<EMBER_SOURCE>-mod`.
+- **The devices show it twice.** While both run, every Claude session is two
+  live rows, so the TC001's source cards and session bar and the knob show
+  each session twice. The mod reads the same `EMBER_SOURCE_CARD` /
+  `EMBER_SESSION_BAR` as the Go producer, so there's no way to quiet only its
+  copy; uninstall the mod when the comparison is done.
+- **Compare the timelines.** Each Claude session shows twice in `/state`,
+  `<source>/claude/<id>` from the Go producer and `<source>-mod/claude/<id>`
+  from the mod, with the same session id. Poll both and diff the
+  `state`/`state_since`/`message` columns. The URL is `EMBER_SERVER_URL`
+  from `producer.env`, or the discovery cache when that is empty or `auto`:
+
+  ```sh
+  url=$(sed -n 's/^EMBER_SERVER_URL=//p' ~/.config/ember/producer.env | tr -d "\"'")
+  case "$url" in ""|auto) url=$(jq -r .url ~/.local/state/ember/server.json) ;; esac
+  while :; do
+    curl -s "$url/state" |
+      jq -r --arg t "$(date +%T)" '.sessions[] | select(.tool=="claude") |
+        "\($t) \(.source) \(.session[0:8]) \(.state) \(.state_since) \(.message // "")"'
+    sleep 2
+  done | tee ~/ember-mod-compare.log
+  ```
+
+  The real spawn is only faked in CI. Check it once in a live session with
+  the mod installed: open a permission dialog (`Bash` with a command not
+  allowed by rules), click Allow on a command that runs for 30 s, and expect
+  the mod's row back to `running` within about 2 s while the tool runs. The
+  spawned `claude agents --json` inherits the session's environment and
+  working directory (the Go daemon runs under launchd instead), so confirm it
+  returns rows and fires no hooks and starts no session: `/state` must show no
+  extra row, and the hook log (`~/.local/state/ember/`) no new events at that
+  moment. The mod has no poll toggle, so if it misbehaves, uninstall
+  `ember-mod@ember` and report it.
+
+  Things to check: `waiting` appears when the permission dialog opens (on
+  both rows) and ends within a few seconds of the answer (the Go row flips
+  within a tick, the mod's within about 2 s, see above), long tools and long waits stay
+  alive, `/clear` and exit DELETE both rows, and after a `kill -9` the mod's
+  row lingers up to `stale_seconds`. Gauges: after a response, both rows
+  show the same `context_pct`, `rate_window_pct` and `rate_reset_label`
+  in `/state` within 10 s (add them to the `jq` line above). `claude agents --json` (`status`,
+  `waitingFor`) is the ground truth for interactive waits.
+- **Tests.** What CI runs: `node --test
+  producers/claude-code/mod/test/producer.test.mts` (the pure module only:
+  the `Tracker`, the outbox and `Sender`, bounded sends, the HTTP send
+  against a local stub) and the Go tests. `test/mod.test.ts` is **not** part
+  of `node --test`: it imports `claude-code/testing` and runs only under
+  `claude plugin test`, so it needs Claude Code. Two fixtures are shared with Go: `test/parity.json`
+  (activity strings, error labels, trails, env parsing, session ids, the
+  unknown-field match behind the older-server resend, host names to sources,
+  and `gauges`: one reading as statusline JSON for Go and as `SessionUsage`
+  for the mod, with a time zone, to the wire fields) and
+  `test/transitions.json` (event sequences, ticks and `statusline` readings
+  included, to the exact `/v1/status` bodies). `mod_parity_test.go` runs the
+  real Go hooks (`dispatchHookFrom`, `dispatchTick`, `enrichFromStatusline`)
+  through it, and the node test runs the
+  mod's `Tracker` through it via a test-only event mapping (`drive()`), so CI
+  catches the Go hooks and the mod's `Tracker` drifting apart.
+  `register.ts`, the wiring from Claude Code's hooks to the `Tracker`
+  (which hook calls what, `trackLive`'s cwd, `tool.call` → `toolFinished`,
+  `session.measure`, the config reload, the send limits), is
+  `test/mod.test.ts`, which CI's mod job runs with
+  `claude plugin validate producers/claude-code/mod` and
+  `claude plugin test producers/claude-code/mod`. Locally, run both with `HOME` and
+  `CLAUDE_CONFIG_DIR` pointed at a scratch directory so they never read your
+  live `~/.claude`.
+
+## Headless / Linux producers
+
+The three Go producers run without Ember.app: on a Linux box running Claude
+Code, Codex or T3 Code (amd64/arm64), or on a Mac where the CLI should own the
+background services (#255).
+
+**Headless mode** means the CLI owns the service and the producer finds the
+server itself. It is automatic on Linux, and on macOS when no `Ember.app` is in
+`/Applications` or `~/Applications`; `install --headless` forces it on a Mac
+with the app (the Ember.app ownership check still refuses a label the app has
+registered). It changes only who manages the service and the hints printed;
+config, hooks, statusline and the wire protocol are the same everywhere.
+
+**Install** from a release (archives `ember-producers_{linux_amd64,linux_arm64,
+darwin_universal}.tar.gz` + `SHA256SUMS`, see "Docker Hub release"):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tarakanof/Ember/main/scripts/install-producers.sh \
+  | sh -s -- --producers "claude codex"     # --version vX.Y.Z, --bin-dir DIR, --no-install
+$EDITOR ~/.config/ember/producer.env        # EMBER_TOKEN=<server bearer token>
+ember-claude-producer doctor
+```
+
+The script detects OS/arch, verifies the archive against `SHA256SUMS`, copies
+the binaries to `~/.local/bin` (put it on `PATH`) and runs
+`<producer> install --headless` for each selected producer. It refuses to run
+as root (per-user services) and, on a Mac with Ember.app, unless `--force`.
+The script runs from `main()` on its last line, so a truncated download does
+nothing. `ember-*-producer discover` finds and caches the server on demand. From source instead:
+`go install ./cmd/ember-claude-producer` then `ember-claude-producer install
+--headless` (run them as separate commands, see the gotcha above).
+
+**Service.** On Linux `install` writes a systemd **user** unit
+`~/.config/systemd/user/ember-{claude,codex,t3}-producer.service`
+(`ExecStart=<binary> run`, `Restart=always`, `Nice=10`), then
+`systemctl --user daemon-reload`, `enable`, `restart` (so a rebuilt binary takes
+over). A binary replaced without `install` (a bare `go install`) leaves the old
+daemon running: restart it, since an old daemon drops marker fields a newer
+statusline writes (the Claude account's pending token). `uninstall` runs
+`disable --now`, removes the unit and reloads. `doctor` shows
+`is-active`/`is-enabled` and the linger state. User units stop when your
+last session ends: on a box you SSH into, run `sudo loginctl enable-linger
+$USER` once so they start at boot and keep running. No user bus (a container,
+`su` without a login session) makes `install` fail with that hint; run
+`<producer> run` under your own supervisor then. macOS keeps the LaunchAgents
+(`com.ember.heartbeat`, `com.ember.codex`, `com.ember.t3`).
+
+**Server discovery.** `EMBER_SERVER_URL` empty (the new template default) or
+`auto` browses `_ember._tcp` for ~3 s: an RFC 6762 legacy unicast query from
+an ephemeral port (answered straight to it, so it works for a plain CLI on
+macOS without multicast access; only replies with the QR bit and our query ID
+count) alongside the regular multicast browse. One server answers → it is
+used and cached in `$XDG_STATE_HOME/ember/server.json` (default
+`~/.local/state`), together with the `EMBER_SERVER_INSTANCE` it was picked
+under (a cache from another preference is ignored). Answers are kept per
+(instance name, URL), so a second host answering as `Ember`, or one server
+with two IPv4 addresses, shows up as several servers: set `EMBER_SERVER_URL`,
+or `EMBER_SERVER_INSTANCE` to one's instance name (`Ember`, `Ember (2)`), host
+name (`unraid`) or IP; `doctor`/`discover` list what was found and say which
+to set. Discovery runs only in `discover`, `doctor`, a headless `install`
+and the daemons; `configure` (what Ember.app runs) stays offline. Hooks and
+the statusline never browse: they use the cache (no cache yet → they stay
+silent until one of those fills it). Daemons wait for a first server with
+backoff (5 s → 5 min) and re-browse in the background after 3 transport
+failures in a row (at most once a minute), so a server that moved to a new IP
+is picked up. The server must advertise (`EMBER_MDNS_ADVERTISE` on) and its
+container must use host networking (see "Discovery & mDNS"); across VLANs or
+where multicast is filtered, set the URL.
+
+> **Trust:** `auto` trusts the LAN. Any host on it can answer `_ember._tcp`,
+> and the producers send `EMBER_TOKEN` to the picked server over plain HTTP.
+> A conflicting answer is reported as ambiguous rather than followed, but a
+> spoofer that is the only answer wins. On shared, guest or otherwise
+> untrusted networks set an explicit `EMBER_SERVER_URL` (ideally https behind
+> a reverse proxy).
+
+> **Reverse proxy and long-polls:** `GET /v1/devices/self/view?wait=` holds a
+> request up to 25 s (the knob reads for up to 35 s), and so do `GET /state`
+> and `GET /v1/pomodoro/state` from Ember.app. A proxy in front of Ember needs
+> a read/response timeout of at least 35 s (nginx `proxy_read_timeout` defaults
+> to 60 s: fine) and must not buffer or retry the request. All clients behind
+> a proxy share one IP, so past 2 waiting apps the rest fall back to polling.
+
+Ember.app accepts `auto` in Settings › Connection (it keeps the value and,
+having no URL to call, shows the server as not configured); on a Mac with the
+app, prefer a real URL there.
+
+**Source**: empty `EMBER_SOURCE` defaults to the short host name from
+`os.Hostname` on Linux (`build-1.example.com` → `build-1`,
+`ip-10-0-1-5.ec2.internal` → `ip-10-0-1-5`), max 24 chars.
+
+**Claude Code on Linux**: hooks come from the `ember@ember` plugin
+(`claude plugin marketplace add tarakanof/Ember`, `claude plugin install
+ember@ember`, then `ember-claude-producer configure`) or from `settings.json`
+as `install` writes them; the statusline is the same. The plugin shim finds
+the binary on `PATH`, `~/go/bin` or `~/.local/bin`. Usage polling reads the
+OAuth token from `~/.claude/.credentials.json` (no Keychain on Linux).
+
+**Paths**: config `~/.config/ember/producer.env` (0600); session markers
+`~/.local/state/ember/sessions/` (fixed: shared with Ember.app); the server
+cache and Linux logs follow an absolute `$XDG_STATE_HOME`
+(`$XDG_STATE_HOME/ember/server.json`, the Codex producer's hashed account
+history `…/ember/codex-accounts.json`, `…/ember/logs/<producer>.log`, default
+`~/.local/state`; macOS logs stay in `~/Library/Logs`). `install` copies
+`XDG_STATE_HOME` into the systemd unit so the daemon and the hooks agree.
+`uninstall` leaves `producer.env`, the cache, `codex-accounts.json` and the logs in place.
+
+**Liveness on Linux** reads `/proc/<pid>/stat` instead of `ps` (BusyBox `ps`
+on Alpine has no `-p`/`lstart`): the Claude session owner walk and its start
+check, and T3's server start time.
+
+## Device button → Pomodoro control
+
+The clock's three physical buttons drive the timer via NG's `buttonCallback`
+(an HTTP POST per press; no MQTT broker needed). The easiest path is the menu
+app's Settings › Devices › Clock › Buttons (one-click `PUT /v1/device/buttons`, `{"enabled":true}`),
+which computes the server's own reachable URL automatically. To set it by
+hand instead:
+
+```sh
+curl -X PUT http://<hostname>.local/api/v1/system \
+  -H "Content-Type: application/json" \
+  -d '{"buttonCallback": "http://<mac-lan-ip>:3627/hooks/awtrix/button"}'
+```
+
+- Use the **Mac's LAN IP** (where the container publishes `:3627`) — *not*
+  `localhost`; it's DHCP, so a reservation keeps it stable. Always
+  read-merge — a naive partial PUT to `/api/v1/system` risks dropping the
+  device's Wi-Fi credentials (this is exactly what `handleDeviceButtonsPut`
+  does under the hood).
+- `/api/v1/system` writes apply **live, no reboot** (unlike AWTRIX3's
+  `dev.json`, which only took effect at boot).
+- Ember's `pomodoro.button_callback` config bool must be `true` (default).
+- The Pomodoro view uses **on-device NG animated icons** (`/ICONS/29802.gif`
+  tomato = focus, `/ICONS/6396.gif` coffee = break). Ember provisions them
+  itself (`ensureNativeIcons`) if missing — no manual upload needed.
+- Mapping (press-down only): **middle/select** = pause / resume /
+  start-from-idle, **right** = skip, **left** = stop. The AWTRIX3-era
+  left+right chord is removed (#81). While a timer runs Ember sets
+  `blockNavigation:true` + `autoTransition:false` (`PATCH /api/v1/settings`)
+  so the buttons drive the timer instead of switching apps, restoring both on
+  stop. NG documents — and Ember has verified on firmware 1.0.13 — that a
+  configured `buttonCallback` does **not** consume the press (the buttons keep
+  their normal firmware job), and that select/middle self-dismisses a showing
+  notification even under `blockNavigation:true` — the AWTRIX3-era "won't
+  self-dismiss while a callback is configured" gotcha does not hold on NG.
+- **Reboot recovery:** a running timer takes over the display
+  (`blockNavigation:true`/`autoTransition:false` + a forced
+  `PUT /api/v1/apps/active`). Pushed apps and both settings are RAM-only on
+  NG, so a reboot silently drops them; recovery now rides the shared
+  device-watch loop (30s probe, detects the reboot via falling
+  `uptimeSeconds`, triggers a full republish) rather than a Pomodoro-specific
+  re-assert timer. The Berry boot-ping hook
+  (`POST /hooks/awtrix/boot`, config toggle `awtrix.boot_ping`, default off)
+  makes this near-instant — ~12s from reboot to republish, measured — with
+  the 30s watch as fallback.
+- Smoke-test the server half without the device:
+  `curl -X POST -H 'Content-Type: application/json' -d '{"button":"middle","state":true}' http://localhost:3627/hooks/awtrix/button`
+  (should start a focus).
+
+## Day clock (#729)
+
+Clock the workday in and out on the knob's `day` page (cinder#283), or by
+hand. Design: ARCHITECTURE "Day clock"; knob contract: DEVICE-PROTOCOL "Day
+clock".
+
+- **Config** (`config.json` `day`, or `GET/PUT /v1/day/config`, store key
+  `day_json`, live without a restart): `enabled` (true), `default_stop`
+  (`"00:00"`), `break_hint_minutes` (90, 0 = off), `auto_stop_minutes` (30),
+  `grace_minutes` (15). Days split at `pomodoro.day_start_hour` (4).
+- **Quiet when off.** After the first clock-in the server records, Ember is
+  quiet whenever the day is off: notices without sound, no chime, the clock's
+  quiet LED, `"quiet": true` for the knob. Sessions are untouched. A server
+  that never saw a clock-in (just upgraded, knob page not flashed yet) keeps
+  its sounds. `PUT /v1/day/config {"enabled":false}` turns the whole feature
+  off, including the quiet.
+- **By hand** (token from `producer.env`, never echoed):
+
+  ```sh
+  set -a; . ~/.config/ember/producer.env; set +a
+  auth="Authorization: Bearer $EMBER_TOKEN"
+  curl -s -H "$auth" -X POST "$EMBER_SERVER_URL/v1/day/start" -d '{"stop_at":"23:00"}'
+  curl -s -H "$auth" -X POST "$EMBER_SERVER_URL/v1/day/break"
+  curl -s -H "$auth" -X POST "$EMBER_SERVER_URL/v1/day/resume"
+  curl -s -H "$auth" -X POST "$EMBER_SERVER_URL/v1/day/stop"
+  curl -s -H "$auth" "$EMBER_SERVER_URL/v1/day/history?days=7"
+  ```
+
+- **Replies** are the user's own prompts where a producer can see them
+  (#730): the Claude hook (Claude Code CLI and desktop), the T3 producer and
+  the Codex producer (`codex-tui` only) post them to `POST /v1/day/replies`
+  without their text. Elsewhere (an older producer, a computer without the
+  new producers) they are estimated from session state: `done`/`waiting` →
+  `running` on a session the server already knew (or reaped or deleted
+  within the last 24 h); a new session never counts, and expect a few false
+  positives (a T3 thread resumed by a delegated child or a schedule; a
+  background task waking a done Claude session). Once a source and tool
+  post exact replies, the server stops estimating for that pair.
+- **After updating the producers:** `claude plugin marketplace update ember`
+  and `claude plugin update ember@ember`, then `/reload-plugins` (or restart)
+  in running Claude sessions; restart the T3 and Codex producers (Ember.app
+  does it on update). The T3 producer backfills its last 60 days on its
+  first run by itself. For Claude Code's transcripts (about 30 days kept):
+
+  ```sh
+  ember-claude-producer backfill --dry-run   # count only
+  ember-claude-producer backfill --days 30   # post; a rerun adds nothing
+  ```
+
+  It reads `~/.claude/projects/*/*.jsonl` (`$CLAUDE_CONFIG_DIR/projects`)
+  and prints only counts. A 404 means the server is older or the day clock
+  is off.
+- **Smoke run:** a scratch store and port as usual; the day tables live in
+  the same sqlite file (`pomodoro.db_path`).
+
+## Knob device registry (`/v1/devices`)
+
+The cinder knob authenticates with its own **device token** (`ekd_…`), never
+`EMBER_TOKEN`. Ember.app's knob setup mints it; to do it by hand (the token
+is printed once; only its SHA-256 is stored):
+
+```sh
+H="Authorization: Bearer $EMBER_TOKEN"
+curl -s -XPOST localhost:3627/v1/devices -H "$H" \
+  -d '{"kind":"cinder-knob","hw_id":"3cdc7561fc8c","name":"Desk knob"}'
+curl -s localhost:3627/v1/devices -H "$H"                 # status, no secrets
+curl -s -XPUT localhost:3627/v1/devices/knob-61fc8c/config -H "$H" -d '{"poll_ms":3000}'
+curl -s -XPOST localhost:3627/v1/devices/knob-61fc8c/rotate -H "$H"
+curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c -H "$H"   # revoke
+```
+
+- **Lost token / reflashed knob:** POST the same `hw_id` again. It answers
+  200 with a new token, revokes the old one and keeps the knob's config.
+- **Rotation:** the next checkin carries `new_token` (repeated unchanged until
+  used); the old token keeps working until the knob first uses the new one, or
+  24 h after the rotate. A knob offline for longer than that needs
+  re-provisioning over USB.
+- **Suspected token leak: don't rotate.** Rotation is routine hygiene only:
+  anyone holding the old token can collect the new one. `DELETE` the knob or
+  re-POST its `hw_id` (USB setup) instead; both revoke immediately.
+- **`/admin/doctor` `devices` fails with "registry load failed":** the stored
+  `devices_json` row didn't decode, or a `client` record in it couldn't be
+  moved to `clients_json` (then `client_tokens` fails too). Device writes and
+  knob auth answer 500 until restart so the row isn't overwritten; fix or
+  delete the row in `pomodoro.db`, then restart.
+- **`/admin/doctor` `client_tokens` fails, `devices` ok:** `clients_json`
+  didn't decode. Knobs keep working; every `ekc_` token and client route
+  (`GET /v1/clients`, mint, rename, rotate, delete) answers 500 "client token
+  store unavailable" until the row is fixed and the server restarted.
+- **Knob gets 401:** it was deleted, re-provisioned elsewhere, or missed a
+  rotation; `/admin/doctor` → `devices` lists each knob's last checkin
+  (warns when one never checked in or is silent > 5 min) and the clock
+  record's last good probe (`clock-… seen=…`; warns past 5 min, says
+  `clock disabled` under `EMBER_CLOCK=off`).
+- The registry lives in the SQLite store (key `devices_json`, next to
+  `pomodoro.db`), so the same writable volume is needed; without it, minted
+  tokens are lost on restart.
+
+### Decoding a knob core dump
+
+A knob with a crash dump in flash (cinder with `crash.id`) uploads it after a
+checkin answers `coredump_wanted`, and erases it once a checkin answers
+`coredump_ack`. Ember keeps the newest 3 per knob in
+`<data dir>/coredumps/<device>/<dump>.bin` (data dir = the directory of
+`pomodoro.db`, `/var/lib/ember` in Docker) with a `<dump>.json` sidecar;
+deleting the knob deletes them. Ember.app: Settings › Knob › Status, "Download
+Crash Dump…". By hand:
+
+```sh
+H="Authorization: Bearer $EMBER_TOKEN"
+curl -s localhost:3627/v1/devices/knob-61fc8c/coredumps -H "$H"   # newest first
+curl -s -OJ localhost:3627/v1/devices/knob-61fc8c/coredumps/1a2b3c4d -H "$H"
+curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c/coredumps/1a2b3c4d -H "$H"
+```
+
+Decode it against the ELF of the **same** firmware (`fw` in the list and the
+file name; a different build gives wrong symbols), with ESP-IDF's
+`esp-coredump` (part of an ESP-IDF install, or `pip install esp-coredump`):
+
+```sh
+cd ~/Github/cinder
+git checkout v<fw> && (cd firmware && idf.py build)   # skip if the build is current
+esp-coredump --chip esp32s3 info_corefile -c ~/Downloads/knob-61fc8c-0.9.14-1a2b3c4d.bin \
+  firmware/build/cinder.elf
+```
+
+When Ember holds the ELF of the build that crashed (checkin `diag.crash.elf`,
+dump list `elf`), take it from Ember instead of rebuilding:
+`curl -s -OJ localhost:3627/v1/firmware/by-build/<elf>/elf -H "$H"`
+(Ember.app: "Download ELF…" next to the dump).
+
+It prints the crashed task's backtrace, registers and every task's stack.
+`dbg_corefile` with the same arguments opens GDB on the dump. The dump id is
+IDF's own checksum (the image's last 4 bytes, little-endian), so
+`python3 -c 'import sys,zlib;b=open(sys.argv[1],"rb").read();print("%08x"%zlib.crc32(b[:-4]),b[-4:][::-1].hex())' <file>`
+prints the id twice for an intact file.
+
+### Knob firmware updates (OTA, #225)
+
+Ember stores knob images and offers one to the knob in its checkin; the
+knob downloads it, installs it when no Pomodoro runs, and confirms it or
+rolls back by itself (ARCHITECTURE "Knob firmware updates"). Ember never
+contacts GitHub: images arrive only through the owner routes.
+
+- **Storage:** `<data dir>/firmware/cinder-knob/<version>/cinder.bin`,
+  `cinder.elf` (optional, ~17 MB) and `meta.json` (written last; a version
+  directory without it is removed at boot, as are `.*.tmp-*` leftovers).
+  The newest 5 versions are kept, plus every version that is a knob's
+  target, being offered, or running on a knob. No data dir (no Pomodoro DB
+  path): the routes answer 503 and doctor's `firmware` check says so.
+- **Upload** a release build (no dev seed: Ember answers 400
+  `dev_seed_build` when the image or ELF contains its own `EMBER_TOKEN` or
+  `CINDER-DEV-SEED-BUILD`). cinder's `firmware/tools/publish.sh` does this;
+  by hand:
+
+  ```sh
+  H="Authorization: Bearer $EMBER_TOKEN"
+  curl -s --data-binary @build-release/cinder.bin -H "$H" \
+    -H 'Content-Type: application/octet-stream' "localhost:3627/v1/firmware?channel=release"
+  curl -s -XPUT --data-binary @build-release/cinder.elf -H "$H" \
+    -H 'Content-Type: application/octet-stream' localhost:3627/v1/firmware/0.9.14/elf
+  curl -s localhost:3627/v1/firmware -H "$H"
+  ```
+
+  201 = stored, 200 = the same bytes were already there, 409 = this
+  version is stored with other bytes (`?replace=1` replaces it unless a
+  knob targets it). `channel` defaults to `test`; promote with
+  `PATCH /v1/firmware/0.9.14 {"channel":"release"}`. Automatic mode only
+  installs `release` builds.
+- **Update a knob:** Ember.app Settings › Knob › Status › Firmware &
+  updates: "Update to X" (the newest stored version above the running one
+  that the knob has not blocked after a failure or rollback), or Install
+  on any image in the list below it (this also unblocks it), or
+  `curl -s -XPUT localhost:3627/v1/devices/knob-61fc8c/ota -H "$H" -d '{"target":"0.9.14"}'`
+  (409 `no_rollback_bootloader` until the knob reports `ota.rollback`:
+  the one-time USB flash of the rollback bootloader is in cinder
+  `docs/workflow.md`). Watch `GET /v1/devices/knob-61fc8c/ota`: `phase`,
+  `progress_pct` (bytes Ember has sent), `waiting_for` (`pomodoro`,
+  `coredump`, `idle_input`). After `failed` or `rolled_back`, `error` holds
+  the knob's reason (`refused`: the knob declined it, usually because the
+  same image failed there before; `not_started`: the knob was offered the
+  image for 30 min, or 24 h in automatic mode, and never started;
+  `reset_waiting`: the knob restarted while a verified image waited to
+  install; `health_display|render|heap|stack`: the new image failed
+  that health check and rolled back); `{"retry":true}` (or the same target again)
+  offers the version again once. While the knob is `installing`,
+  `restarting` or `verifying`, another target, `null` or a retry is 409
+  `ota_in_progress`: wait for `done`, `failed` or `rolled_back`.
+  `{"mode":"auto"}` makes the knob take newer release builds after 10 min
+  without input; `{"mode":"manual"}` (the default, "Ask first") stops that.
+- **Delete** a test build once no knob targets it:
+  `curl -s -XDELETE localhost:3627/v1/firmware/0.9.15 -H "$H"` (409 while
+  targeted or offered).
+- **Doctor:** `firmware` shows the image count and bytes on disk; `devices`
+  warns when a knob reports `ota.image:"new"` (it booted an OTA image
+  through a bootloader without rollback: do the USB step).
+
+## Integrating a source
+
+Anything that can run `curl` can show up on the clock and the knob: another
+agent CLI's hooks, a CI job, a Home Assistant automation. The contract is
+[`docs/openapi.yaml`](openapi.yaml) (OpenAPI 3.1; operations marked
+`x-internal` are Ember.app plumbing and may change).
+
+**Give it a scoped client token, not `EMBER_TOKEN`.** The master token can also
+rewrite settings, reboot the clock and mint tokens. A client token (`ekc_…`)
+carries only the scopes it was minted with:
+
+| Scope | Routes |
+|---|---|
+| `ingest` | `POST`/`DELETE /v1/status`, `POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire` |
+| `control` | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` |
+| `read` | the non-secret settings reads: `GET /v1/{apps,pomodoro/config,usage/config,display/config,brightness/config,quiet/config,reminders/config,clock/stats}` (weather and meetings config hold a location or a calendar URL: `admin` only) |
+| `admin` | every route `EMBER_TOKEN` passes under `/v1/`, except these master-only ones (403 for every client token): minting any token and renaming, rotating or deleting client tokens (so a leaked client can't outlive its revocation), and Ember.app's command queues `GET /v1/nowplaying/commands`, `GET /v1/controls/commands` and `PUT /v1/controls/config` (so a client can't drain a Mac's commands or pose as a listening Mac) |
+
+Public reads (`/state`, `/v1/*/state`, previews, dashboard reads) need no
+token. A missing or unknown token is 401; a client token without the scope is
+403. Client tokens never pass the knob's `/v1/devices/self/*` routes, now-playing
+control or `/admin/*`, which stay master- or device-only.
+
+```sh
+H="Authorization: Bearer $EMBER_TOKEN"
+curl -s -XPOST localhost:3627/v1/devices -H "$H" \
+  -d '{"kind":"client","name":"CI runner","scopes":["ingest"]}'   # token printed once
+curl -s localhost:3627/v1/clients -H "$H"                          # lists it with its scopes
+curl -s -XPOST localhost:3627/v1/devices/client-1a2b3c4d/rotate -H "$H"  # new token now, old one dead
+curl -s -XDELETE localhost:3627/v1/devices/client-1a2b3c4d -H "$H"       # revoke
+```
+
+**Bind it to its source.** Add `"sources":["ci"]` at mint and the token can only
+`POST`/`DELETE /v1/status` and `POST /v1/usage` with one of those `source`
+values: any other (and a usage post with no `source`) is 403, so a leaked CI
+or Home Assistant token can't overwrite or delete the Mac's Claude/Codex
+sessions. Only `ingest` tokens can be bound: `sources` with `admin` is a 400,
+since an admin token could still `POST /v1/clear` every session. Usage stays one entry per tool (the dashboard is unchanged), so a
+bound token's usage post is also 403 when that tool's stored entry came from
+another source; a tool with no entry yet is accepted, and the Mac's unbound
+producer overwrites it on its next post. Sessions are keyed
+`source/tool/session`, so a bound token may not use `/` in `tool` or `session`
+and a source may not contain `/` (400): otherwise `ci` + `lab` + `claude/1`
+would reach source `ci/lab`'s sessions. Without `sources` the token may name
+any source. The list (1-16
+names, each at most 64 characters, trimmed and deduplicated) needs the
+`ingest` scope (not `admin`), shows in `GET /v1/clients`, survives rotation and
+can't be changed: mint a new token instead. `notify` and `reminders/fire`
+carry no source and stay unbound.
+
+```sh
+curl -s -XPOST localhost:3627/v1/devices -H "$H" \
+  -d '{"kind":"client","name":"CI runner","scopes":["ingest"],"sources":["ci"]}'
+```
+
+Only `EMBER_TOKEN` mints tokens (client or knob) and manages client tokens
+(rename, rotate, delete; any client token gets 403), and
+there are at most 64 (400 past that). Only the token's SHA-256 is stored, in
+their own store (`clients_json`, next to the device registry's `devices_json`).
+`GET /v1/clients` lists them; `GET /v1/devices` and the doctor `devices` check
+show devices only. Rotating
+a client answers 200 with the new token and revokes the old one at once (a knob
+rotation is 202 and waits for its checkin). Clients are not knobs: they have no
+config or stats (404) and `/admin/doctor` counts them in `client_tokens`
+(`count=N`). There is no Ember.app UI for client tokens yet; mint them
+with curl.
+
+**Upgrading past #340** moves every `client` record out of `devices_json` into
+`clients_json` at boot (same ids, scopes, sources and hashes; the server logs
+`client tokens moved out of the device registry`). If that move fails, device
+and client auth answer 500 until a restart succeeds, and `/admin/doctor`
+`client_tokens` fails with the error. **Rolling back below #340** leaves the
+clients in `clients_json`, which an older server doesn't read: every `ekc_`
+token is 401 there until you upgrade again. A client minted on the older
+server in between lands in `devices_json` and moves over on the next upgrade.
+Deletes don't travel back: if a #340 server crashed mid-move and you rolled
+back, a client you delete on the older server reappears after the upgrade, so
+delete it again there (`DELETE /v1/devices/client-…`).
+
+**Rolling back below #269: delete every client token first**
+(`DELETE /v1/devices/client-…`). Older servers don't know the `client` kind and
+accept any registry token as a knob's, so an ingest-only `ekc_` token would pass
+`/v1/devices/self/*`, now-playing control and the Pomodoro actions there. A
+server from before source binding drops a client's `sources` on load, so its
+bound tokens may then name any source.
+
+**Report a session.** One `POST /v1/status` per state change, plus a heartbeat
+every ~10 s while `running` or `waiting`: a session not refreshed for
+`stale_seconds` (25 s) is dropped, and `done`/`error` linger for
+`done_ttl_seconds` (30 s). `source`/`tool`/`session` key the session.
+
+```sh
+EKC=ekc_…   # the ingest token
+curl -s -XPOST http://ember.local:3627/v1/status -H "Authorization: Bearer $EKC" \
+  -H 'Content-Type: application/json' \
+  -d '{"source":"ci","tool":"gha","session":"deploy-42","state":"running","activity":"deploy api"}'
+curl -s -XPOST http://ember.local:3627/v1/status -H "Authorization: Bearer $EKC" \
+  -d '{"source":"ci","tool":"gha","session":"deploy-42","state":"done","message":"api v1.4 live"}'
+curl -s -XPOST http://ember.local:3627/v1/notify -H "Authorization: Bearer $EKC" \
+  -d '{"text":"washer done","color":"#00FF88"}'
+```
+
+- `state`: `idle`, `running`, `waiting` (needs you: wins the display),
+  `done`, `error`.
+- `tool`: lower-cased, any value is accepted. `claude`, `codex` and `t3` have
+  their own label and icon; anything else shows capitalised (`gemini` →
+  "Gemini") with the Claude icon for now, and appears in Settings › Apps (`/v1/apps`) once it
+  has posted. `POST /v1/usage` takes the same id, `^[a-z0-9_-]{1,32}$`.
+- `activity` (≤ 80 chars) is the running detail, `message` the text shown with
+  `done`/`waiting`/`error`. The display toggles (`source_card`, `session_bar`,
+  `rate_bottom_bar`…) are optional; leave them out.
+- Unknown fields are ignored on `/v1/status`, so a source written against a
+  newer server still works on an older one.
+
+**Producers with a client token (headless hosts only).** The bundled
+producers only call `/v1/status` and `/v1/usage`, so an `ingest` token is
+enough on a host without Ember.app (a Linux box, "Headless / Linux
+producers"). **Not on a Mac with Ember.app:** the app reads `EMBER_TOKEN` from
+the same `producer.env` for settings, the knob registry and the clock proxy,
+which need the master token.
+
+Usage merges per account: when a box and a Mac (or two boxes) are logged
+into the same Claude or Codex account, whoever posted it in the last 10 min
+owns it and the other's usage posts are 403 ("… posted it in the last 10
+min") until it goes stale; the master token is never refused. Deleting a
+box's token and minting a new one lets the new token take its accounts over
+at once.
+
+```sh
+# ~/.config/ember/producer.env (0600)
+EMBER_SOURCE=build-box
+EMBER_SERVER_URL=auto
+EMBER_TOKEN=ekc_…      # an ingest-scoped client token
+```
+
+## `EMBER_*` toggle reference (the "spine" flags)
+
+Each is a render-opt-in boolean (default off unless noted). They gate the wire
+field the producer sets, not the data capture. See ARCHITECTURE → "spine".
+
+| Env var | Effect |
+|---|---|
+| `EMBER_CONTEXT_PCT_ENABLED` (default true) | context glass fill (Go producer and the `ember-mod` mod) |
+| `EMBER_CONTEXT_NUMBER_ENABLED` | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
+| `EMBER_RATE_PCT_ENABLED` (default true) | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
+| `EMBER_RATE_BOTTOM_BAR` | 5h rate as the row-7 bottom bar |
+| `EMBER_RATE_RESET` | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
+| `EMBER_ACTIVITY_DETAIL_ENABLED` | scrolling `Tool: detail` + `cardTool` |
+| `EMBER_ACTIVITY_TRAIL_ENABLED` | last-N actions ticker (extends detail) |
+| `EMBER_SOURCE` | machine label; empty or the old `set-me-to-this-laptop-id` placeholder defaults to a short id from the macOS `LocalHostName` (`Dmitrys-MacBook-Pro` -> `mbp`, `-Air` -> `mba`, `Mac-mini` -> `mini`; the clock card fits ~4 glyphs); install/configure/doctor write it into producer.env once and print it |
+| `EMBER_SOURCE_COLOR` | hex body colour for the 8×8 icon + source-name card digits |
+| `EMBER_SOURCE_CARD` (default true) | source-name card (uppercased, 4 glyphs) in the number slot; set false to hide |
+| `EMBER_SESSION_BAR` (default true) | session-pixel bar on row 7 (1 px per non-idle session); set false to hide |
+| `EMBER_SEND_PROJECT` (default true) | send the session's `project` (Claude/Codex: the cwd basename, none in `$HOME`; T3: the thread title, only with `EMBER_ACTIVITY_TRAIL_ENABLED`; ≤32 chars) so the clock, knob and app name the waiting session; set false to send none (#485) |
+| `EMBER_CODEX_SOURCES` (default `cli,vscode`) | Codex producer only: comma-separated `session_meta.source` kinds shown; add `exec` / `mcp` for headless or agent-driven Codex runs |
+| `EMBER_CODEX_INCLUDE_CLAUDE` | Codex producer only: also show sessions Claude Code's Codex plugin starts (originator `Claude Code`), messages prefixed `via Claude`; off because the parent Claude session already shows that work |
+| `EMBER_CODEX_APPSERVER` (default true) | Codex producer only: observe TUI sessions through the Codex app-server daemon socket (`$CODEX_HOME/app-server-control/app-server-control.sock`) when it exists; a no-op without the daemon. Ember never starts the daemon. `doctor` shows the socket, a probe connection (daemon user agent, loaded threads) and the daemon's updater setting |
+| `CODEX_HOME` | Codex producer only: Codex's home when it is not `~/.codex`; set it in `producer.env` (a LaunchAgent does not see shell exports). Moves the sessions dir (unless `EMBER_CODEX_SESSIONS_DIR`) and the app-server socket |
+
+## Meetings calendar widget
+
+`EMBER_MEETINGS_ICS_URLS` — comma-separated ICS feed URLs (the meetings widget is
+inert without this var). `webcal://` and `webcals://` are accepted and rewritten
+to `https://`. These are **credentials** (possession = calendar read access):
+they are never stored in the JSON config, the SQLite store, any log, or any API
+response. The feed count (never the URLs) is visible at `/admin/doctor` and the
+`GET /v1/meetings/config` response (`ics_urls_configured`).
+
+**On-device verification.** Set `EMBER_MEETINGS_ICS_URLS`, restart the container,
+enable the widget in Settings → Meetings. Within `tile_lead_minutes` of the next
+meeting the `ember-meet` tile appears in the rotation. A stale feed (last
+successful fetch ≥ 60 min ago) shows as a `[WARN]` in `/admin/doctor` — non-fatal,
+does not affect other checks.
+
+## Tomorrow.io weather provider — #432
+
+`EMBER_TOMORROW_API_KEY` — the Tomorrow.io API key. Without it the provider
+can't be chosen (the app greys it out with a hint; `PUT /v1/weather/config
+{"provider":"tomorrow-io"}` is a 400). It is a **secret**: sent only as the
+`apikey` query parameter of the forecast call; errors are fixed text
+(ARCHITECTURE "Keyed providers"), and it is never stored in the JSON
+config, the SQLite store, or any API response. `GET /v1/weather/config` shows only whether it is set
+(`providers_available` lists `tomorrow-io`).
+
+**Getting a key.** Create a free account at tomorrow.io, open the API keys
+page of the developer dashboard (app.tomorrow.io → Development) and copy the
+key. Put it in the container's environment (Unraid template variable), restart,
+then pick Tomorrow.io in Settings › Weather. The startup log says
+`weather provider available provider=tomorrow-io` (without the key).
+
+**Limits.** The free plan allows 500 calls a day (reset 00:00 UTC) and 25 an
+hour. Ember makes one forecast call per refresh and never refreshes or retries
+faster than every 5 minutes under Tomorrow.io (≤ 288 a day; the 1-min poll
+tick may bring a call up to 30 s early, and flipping providers back and
+forth without pause can reach 14 in an hour and 320 a day, still inside the plan), whatever
+`refresh_minutes` says, also across location edits, provider switches and
+restarts (the last attempt and any 429 deadline are kept in the SQLite
+store, without the key). A 429, 401 or 403 backs off to its `Retry-After`,
+or to the next top of the hour when the reply has none (the free plan sends
+no rate-limit headers). Only the 429 deadline survives a restart: after
+fixing a rejected key, restart and Ember tries it within 5 minutes (the
+saved last attempt still holds the minimum interval). The last forecast is kept in
+the store too (`weather_snapshot`), so a restart shows it at once while it
+is still fresh instead of waiting out the 5-minute floor. Air quality still comes from Open-Meteo and costs no Tomorrow.io
+calls. Other apps using the same key share its quota.
+
+**Key removed.** Tomorrow.io stays the chosen provider (stored or in
+`config.json`; nothing is rewritten). Ember makes no Tomorrow.io call,
+the startup log warns `weather unavailable`, `/v1/weather/state` answers
+`"error":"tomorrow-io needs EMBER_TOMORROW_API_KEY on the server"`, and the
+app shows the reason under the provider picker. Set the key and restart to
+resume, or pick another provider.
+
+**Accepted risk: transport log.** Go's HTTP client logs (stdlib `log`,
+outside Ember's logger) any bytes a server sends on an idle keep-alive
+connection after a finished reply. Only Tomorrow.io (or WeatherAPI.com)
+could put its key there, and it already holds the key, so this is
+accepted; Ember's own log lines carry no reply text.
+
+## WeatherAPI.com weather provider — #437
+
+`EMBER_WEATHERAPI_KEY` — the WeatherAPI.com API key, with the same rules as
+Tomorrow.io's: choosable only while it is set (`providers_available`, a PUT
+without it is a 400), sent only as the `key` query parameter, never stored
+or answered, and errors are fixed text.
+
+**Getting a key.** Create a free account at weatherapi.com (no card), copy
+the key from the dashboard, put it in the container's environment, restart,
+then pick WeatherAPI.com in Settings › Weather. The startup log says
+`weather provider available provider=weatherapi`.
+
+**Limits.** The free plan allows 100,000 calls a month and a 3-day forecast,
+so the knob's `days` shows 2 days ahead. Ember fetches at most every 5
+minutes (≤ 8,640 a month) with the same quota rules as Tomorrow.io, in its
+own settings row (`weather_quota_weatherapi`). A 401 (bad key), 403 (key
+disabled, monthly quota used up) or 429 waits for the next top of the hour;
+only the 429 wait survives a restart.
+There is no minute-by-minute rain: each hour's `precip_mm` is spread evenly
+over its four quarter hours, so a spell starts and ends on the hour.
+
+**Key removed.** As for Tomorrow.io: the choice stays, no call is made,
+`/v1/weather/state` answers
+`"error":"weatherapi needs EMBER_WEATHERAPI_KEY on the server"`, and the app
+shows it under the picker.
+
+## Now playing (Plex, Apple Music) — #226
+
+What the knob's now-playing page (cinder #14) shows. Sources: the Plex poller
+on the server and Ember.app's Apple Music pusher (Settings › Sources › Music,
+per Mac, off by default). Reads: `GET /v1/nowplaying/state`,
+`GET /v1/nowplaying/art?kind=album|artist|backdrop|cover&size=` (fixed sizes: album 240/120, artist 64/120, backdrop 466, cover 466; ARCHITECTURE
+"Now playing").
+
+| Env | Meaning |
+|---|---|
+| `EMBER_PLEX_URL` | Plex Media Server base URL, `http(s)://host:32400`. With the token, enables the poller |
+| `EMBER_PLEX_TOKEN` | **Secret.** Sent only as the `X-Plex-Token` header; never logged, stored or answered |
+| `EMBER_PLEX_USER` / `EMBER_PLEX_PLAYER` | Optional filters: Plex user title; player title or machine id |
+| `EMBER_PLEX_WEBHOOK_KEY` | Optional. Enables `POST /hooks/plex?key=<this>` (Plex Pass webhook → poll now). Unset = 404 |
+| `EMBER_ARTIST_LOOKUP` | **Off by default.** `1` turns on artist-picture lookups on Deezer: every artist **name** played (Plex and Apple Music) leaves your network, tied to your public IP; pictures stay in RAM only. Logged once at startup when on |
+
+**Verify without a knob.** `curl -s $EMBER/v1/nowplaying/state` while
+Plexamp plays (or after the app posts), then
+`curl -s "$EMBER/v1/nowplaying/art?kind=backdrop" -o /tmp/b.jpg` — a 466 px
+square, dimmed baseline JPEG. A knob gets the compact block in
+`/v1/devices/self/view` only after `nowplaying` is added to its pages
+(`PUT /v1/devices/{id}/config {"pages":[…,{"id":"nowplaying","on":true}]}`).
+
+**Privacy.** `GET /v1/nowplaying/state` needs no token: anyone on the LAN
+can read the track, artist and album (not the Mac's name).
+
+**Apple Music permission (manual test).** On a Mac, reset the grant with
+`tccutil reset AppleEvents com.ember.Ember` (only on a test build's bundle
+id, never the installed app's), start Music, turn on Settings › Sources ›
+Music: macOS should show "Ember wants access to control Music". Or in
+Settings › Permissions, with the row at "Not asked yet", click Allow
+Access…: it calls `AEDeterminePermissionToAutomateTarget` with
+`core`/`getd` (wildcard event codes are reported not to prompt). Deny →
+the row turns Off with "Open Automation Settings…".
+
+**Playback control (#280).** The knob's now-playing page sends
+`POST /v1/nowplaying/control` (turn = volume, push = play/pause, double
+push = next, long push = previous; the knob sends `play`/`pause` plus the
+`source` and `track_id` it shows). A device token may control only while
+its pages have `nowplaying` on. Verify the server without a knob or a
+player, on a scratch server (scratch port, temp DB,
+`EMBER_MDNS_ADVERTISE=0 EMBER_CLOCK=off`):
+
+```sh
+# a fake Music entry, then a fake Mac listening for its commands
+curl -s -H "Authorization: Bearer $T" -d '{"source":"music","player":"Test Mac","state":"playing","title":"x","track_id":"1","volume":40}' $EMBER/v1/nowplaying
+curl -s -H "Authorization: Bearer $T" "$EMBER/v1/nowplaying/commands?player=Test%20Mac&wait=25" &
+curl -s -H "Authorization: Bearer $T" -H 'Idempotency-Key: k1' -d '{"action":"next"}' $EMBER/v1/nowplaying/control   # 202 queued; the poll prints it
+curl -s -H "Authorization: Bearer $T" -H 'Idempotency-Key: k1' -d '{"action":"next"}' $EMBER/v1/nowplaying/control   # 200 duplicate
+```
+
+Manual, with real players (not covered by tests):
+- **Apple Music:** Ember.app with Settings › Sources › Music on, Music
+  playing, the knob on the now-playing page. Push: Music pauses; double
+  push: next track; long push: previous; turn: Music's own volume slider
+  moves (the Mac's volume does not). Quit Music, then push: nothing
+  happens and Music stays closed. The first command may show macOS's
+  Automation prompt for Music.
+- **Plex / Plexamp:** with `EMBER_PLEX_*` set and Plexamp playing (the
+  player must accept remote control from the server), the same inputs; watch the server log for
+  `now-playing control … source=plex`. A 502 means the PMS or player
+  refused the relay (Plexamp's support for the relayed player API is
+  unverified); a volume 502 means the player's timeline gave no level.
+
+## Print status (Prusa CORE One, PrusaLink) — #789
+
+The server polls the printer's PrusaLink API and keeps one print state
+(ARCHITECTURE "Print status"). Off until `printer.enabled` is true
+(`PUT /v1/print/config {"enabled":true}` or `config.json`).
+
+| Env | Meaning |
+|---|---|
+| `EMBER_PRUSALINK_PASSWORD` | **Secret.** The printer's PrusaLink password. Used only for Digest auth; never logged, stored, answered or put in JSON. Unset = phase `off`, `last_error: no_password` |
+| `EMBER_PRUSALINK_USER` | Optional, default `maker` |
+
+**Read the password on the printer:** Settings → Network → PrusaLink (shows
+User and Password; "Generate Password" makes a new one, after which the
+container's env must be updated and the container restarted). The Unraid
+template has both variables (the password masked).
+
+**Address.** `printer.url` `auto` browses mDNS `_prusalink._tcp` (needs
+`--network host`, as production runs) and follows a new DHCP address when the
+printer goes offline. Several printers: set `printer.name` to the one you
+want (matched against the mDNS host and instance name). A printer on another
+VLAN or a Wi-Fi network that drops multicast: set `printer.url` to
+`http://<printer IP>`.
+
+**Check it.** `curl -s -H "Authorization: Bearer $EMBER_TOKEN" $EMBER/v1/print/state`
+— `phase`, `progress`, `ends_at`, `name`, `printer.firmware`,
+`printer.hostname`; `last_error` explains an `offline`. `/admin/doctor`'s
+`printer` check says the same in words. A scratch server for this follows
+the smoke-run rules (scratch port, temp DB, `EMBER_MDNS_ADVERTISE=0`,
+`EMBER_CLOCK=off`); a manual `printer.url` avoids depending on mDNS.
+
+**TC001 app and popups (#790).** `printer.clock_app` (default on) puts the
+print in the clock's rotation while a print runs (and 30 min after it
+finishes; with `printer.show` `on` also while idle, see #809 below); `notify_done` and `notify_attention` gate the popups. On-device
+check, against a live printer (reads only; a scratch server never publishes
+to the real clock):
+
+1. Start a print on the CORE One (or use a test file with a short colour
+   change).
+2. Within about 10 s the clock shows a new app: the printer icon with its
+   head at the top and a green nozzle that sweeps side to side, `NN%` /
+   time left / ready-at cards every 3 s, and an orange bar on the bottom row.
+   While heating it shows the nozzle degrees and a red bar instead.
+3. As the print grows, the line under the nozzle (the bed) sinks one row at
+   about a third and two thirds of the print.
+4. Pause on the printer's screen: the clock shows `PAUSE` in amber. Resume.
+5. When the print finishes, the clock plays a popup `DONE h:mm` once, with a
+   chime unless quiet hours / the day clock are off, and the app stays for
+   `done_hold_min` minutes, then leaves.
+6. Open a filament prompt on the printer: an amber `CHECK PRINTER` popup,
+   repeated every 10 min while the prompt stays.
+7. Card order: after heating → printing and after a pause → resume, the
+   clock's loop shows the three cards one after the other (the ready-at and
+   percent cards are pushed later than the first; if NG appends new apps
+   to the end of its loop, report it).
+8. Idle check (with `printer.show` `printing`): with no print running, the clock's app loop holds no
+   `ember-print*` entry and Ember pushed none (the app is not published when
+   idle, so the link carries no extra traffic). The animated icons are
+   `ember_print_h1..3_*.gif` in the clock's icon store; a clock reboot or move
+   provisions them again, and until they exist the icon is drawn static.
+
+**Show while the printer is on (#809).** `printer.show` `on` (Ember.app:
+Settings › Printer › Clock › Show › "Whenever the printer is on") also keeps
+the app in the rotation while the printer is idle. On-device check, against
+the live server and printer (the scratch-server rules above still apply to
+any test server):
+
+1. Make sure the live server runs the Ember release that contains #809
+   (`curl -s $EMBER/version` shows it), and that Ember.app on this Mac is
+   that release (Ember menu › About Ember).
+2. In Ember.app, open Settings.
+3. Click Printer in the sidebar.
+4. Check that "Show the printer" is on.
+5. Check that "Show on the clock" is on.
+6. In the "Show" picker, choose "Whenever the printer is on".
+7. Switch the CORE One off with its power switch.
+8. Wait 3 minutes.
+9. Check that Status in Settings › Printer reads "Printer off".
+10. Switch the CORE One on and start a stopwatch.
+11. Watch the clock. Stop the stopwatch when the print app appears in its
+    rotation: the printer icon with the bed line right under the head, a
+    dim white nozzle that does not move, and `READY` in white. No popup
+    plays.
+12. On the printer's screen, open Preheat and choose PLA.
+13. Watch the clock while the printer heats: a second card joins, first
+    `NOZ` and the nozzle's degrees (the nozzle warms first), then `BED`
+    and the bed's degrees once the bed reads above 40 °C.
+14. Note whether the temperature card comes right after `READY` in the
+    clock's loop or somewhere else (NG may append a new app at the end).
+15. On the printer's screen, choose Cooldown.
+16. Wait until the bed and nozzle read 40 °C or less: the temperature card
+    leaves.
+17. In the "Show" picker, choose "While printing": the app leaves the
+    rotation within a few seconds.
+18. Send back: the stopwatch time from step 11, a photo of each card
+    (steps 11 and 13), and what you saw in step 14.
+
+## AI usage card (threshold-gated, inside the main app)
+
+Claude + Codex subscription usage renders as a **usage card** inside the main
+`ember` app — no standalone `ember-usage-*` apps. The card appears in the
+number-slot rotation **only when the tool's 5h window ≥ `usage_threshold_pct`**
+(default 60; 0 = always show). Startup clears any legacy `ember-usage-*` apps
+left on the device.
+
+Unlike the spine flags above, its toggles are **server config (JSON), not
+`EMBER_*` env vars** — both default **on**:
+
+| Config field (`/v1/usage/config`) | Effect |
+|---|---|
+| `usage_widget` (default true) | master enable for the usage card |
+| `usage_per_model` (default true) | Claude Opus/Sonnet weekly faces (`OP`/`SO`) |
+| `usage_threshold_pct` (default 60) | 5h % floor to show the usage card; `0` = always |
+| `limit_alarm` (default true) | auto-dismiss popup + chime when a 5h window resets (see below) |
+
+Runtime overrides for all fields: `GET/PUT /v1/usage/config` (bearer auth,
+store key `usage_json`). Partial PUT bodies are safe — missing fields keep their
+current values (like every settings PUT). `usage_threshold_pct` outside 0–100
+is a 400.
+
+Per-tool show/hide reuses the existing per-app visibility (`PUT /v1/apps`) — hide
+`claude` or `codex` to drop its usage card faces too.
+
+**Accounts (knob usage screens).** Settings › Sources › Agents › Accounts in
+Ember.app lists every Claude and Codex account the server saw in the last 7
+days (`GET /v1/usage/accounts`): its mark, plan, name, a switch to show it on
+the knob and when it last reported ("Stale" after 10 min without one). Edit
+the name and press Return or leave the field; clear it to get the default
+back ("Max", "Max 2"); names are capped at 24 code points. Drag a row by its
+handle, or Control-click › Move Up/Down, to set the knob's screen order.
+Changes save at once through `PUT /v1/usage/accounts`, which needs the master
+token: on an `admin` client token the list loads, but an edit snaps back to
+the server's list with the 403 under the section. Hiding only
+affects the knob; the clock keeps one usage card per tool.
+
+**5h limit-reset alarm.** When a tool's 5h window reaches ≥99.5% with a known
+future reset time, the coordinator arms an alarm. Once the reset (+60 s grace)
+passes it fires one auto-dismiss popup ("CLAUDE 5H RESET" / "CODEX 5H RESET",
+drawn tool icon, 10 s) and an RTTTL chime. If fresh data shows the reset
+estimate drifted to a later time, the alarm re-arms rather than fires; if the
+device is unreachable it retries next tick. State is in-memory: a restart
+mid-window simply re-arms from the next snapshot. Deduped per (tool, resetAt).
+Toggle with `limit_alarm` above.
+
+## Clock keep-alive toggle (`awtrix.keep_alive`, #769)
+
+`awtrix.keep_alive` in `config.json` (default `true`, shown by `-print-config`)
+selects the HTTP behaviour for every call to the clock. On, the server reuses one
+pooled TCP connection to the ESP32 (today's behaviour). Off, idle pooled
+connections are evicted and each request is marked `Connection: close`, so
+nothing stays pooled and each push dials fresh. It is read on every call, so
+`POST /admin/reload` applies it without a restart. Off also evicts every idle
+connection in the process-wide HTTP pool before each clock request (the guard that
+keeps tests off the real network forbids a dedicated clock transport), so other
+integrations on the default pool, such as the Plex poll, pay one LAN TCP handshake
+per clock call while the experiment runs. Leave it on outside the A/B.
+
+To measure it on the live server, compare an hour before and an hour after
+flipping it: `ember_publish_total{result="fail"}` against `result="ok"`, and
+`ember_publish_retries_total`. If the fail share drops, the pooled connection was
+being silently dropped by the clock. See ARCHITECTURE, "Publishing over a lossy
+link".
+
+## Display behavior config
+
+Runtime display knobs: `GET/PUT /v1/display/config` (bearer auth, store key
+`display_json`). `config.json` is the baseline; a PUT overrides and persists to
+the SQLite store, surviving restarts and `POST /admin/reload`. A partial body
+changes only the fields it names.
+
+| Field | Range | Default (config.json) | Notes |
+|---|---|---|---|
+| `idle_hide_minutes` | 0–60 | 2 (was 20 in older configs) | minutes until the dimmed-idle frame stops publishing; **0 = hide immediately** (no dim phase) |
+| `attention_hold_seconds` | 5–300 | 30 | how long the coordinator holds the attention lock before auto-releasing; read live, so a PUT applies to the current lock |
+| `attention_chime` | bool | false | plays a short RTTTL note on every fresh waiting/error lock acquisition |
+
+`config.json` validation enforces `idle_restore_seconds` in [60, 3600] (whole
+seconds, no zero-hide); the runtime DTO exposes the same knob as whole minutes
+(0–60) with 0 meaning immediate hide. Existing explicit `config.json` values are
+unaffected by the default change — only bare/default installs change.
+
+## Discovery & mDNS
+
+The server finds the awtrix-ng clock on the LAN by mDNS (browse the
+awtrix-ng-specific `_awtrixng._tcp` service, not a generic `_http._tcp` sweep)
+with a `FIND_AWTRIXNG` UDP broadcast fallback (broadcast `:4210`, replies
+collected on a fixed `:4211`) for networks where multicast doesn't make it
+through; a resolved host is fingerprinted via `GET /api/v1/device`, requiring
+both a non-empty `uid` and `boardType == "awtrixng"` (the AWTRIX3 `/api/stats`
+fingerprint doesn't exist on NG). The server advertises itself as
+`_ember._tcp` so the macOS app can auto-fill the server URL (Connection tab →
+"Discovered servers"). Settings › Devices › Clock proxies the clock's own NG API through
+`/v1/device/*`.
+
+- **Host networking is required** for either direction — multicast doesn't cross
+  the default Docker bridge. Run the container with `--network host` (or macvlan).
+  When the server can't see the clock anyway, Settings › Devices › Clock › Status › Discover Clocks
+  (or **Find Clock from This Mac…**, shown when the server reports the clock
+  unreachable) also browses from the Mac and pins the pick on the server. The
+  app needs Local Network access for that.
+- Effective clock URL: the writable-store override (Settings › Devices › Clock › Status › Discover Clocks),
+  else `awtrix.http_base_url` from `config.json`. If that fails its probes, an
+  in-memory mDNS swap replaces it (the override included) until a PUT naming
+  `base_url` or a reload that changes the file URL; the swap is never written
+  back to the config or the store.
+- **Self-healing:** the server reachability-tests the effective URL (store
+  override included) at boot and every 30s via a background probe
+  (`awtrix.auto_rediscover`, default on); an unreachable URL falls through to a
+  fresh mDNS auto-pick without touching `config.json` or the store, so a
+  clock's IP changing (DHCP renumbering) recovers on its own within ~30s; the
+  new address also gets the native icons and the boot-ping script. The
+  same tick reads the clock's `uptimeSeconds` to detect a reboot and triggers a
+  full republish of every pushed app — pushed apps are RAM-only on NG, so a
+  reboot silently drops them all. The Berry boot-ping hook (#73)
+  (`POST /hooks/awtrix/boot`, unauthenticated device-side hook, config toggle
+  `awtrix.boot_ping`) republishes instantly on boot instead of waiting on the
+  next 30s tick — the 30s watch remains the fallback path. A missed probe
+  alone is never a reboot (only falling or lagging `uptimeSeconds` is), and
+  republishes less than 10s apart coalesce, so a `clock reboot detected` log
+  line on a lossy link now means a real reboot.
+  `/admin/doctor`'s `clock` check reports `base_url`/`source`/`reachable` plus
+  `last_rediscover_at`/`last_rediscover_result`. The result is empty until
+  the first rediscovery, then one of `reachable` (the configured clock
+  answered a probe, or the probes failed but the browse found the clock at
+  the configured URL), `no-device` (browse found nothing or failed; the
+  `clock discovery found no device` log carries the error), `swapped`
+  (moved to a discovered clock), `superseded` (the clock URL changed during
+  the browse, so the discovered clock was not swapped in; logged as `clock
+  discovery result dropped`), `cancelled` (ctx ended mid-rediscovery,
+  normally shutdown) or `disabled` (`EMBER_CLOCK=off`).
+- `EMBER_CLOCK=off` (also `0`/`false`/`no`/`disabled`; unset = clock on) runs the
+  server with **no clock I/O at all**: no AWTRIX HTTP (publishes, probes, the
+  `/v1/device/*` proxy), no mDNS browse or UDP find, no auto-rediscover or sampler,
+  no boot-ping install, no icon provisioning, no firmware lookup. Publishes are dropped
+  (not counted in publish health), the
+  `/v1/device/*` proxy answers 502 `clock disabled`, `GET /v1/device/discover` 503
+  `clock_disabled`. `GET /v1/clock/health` carries `"disabled": true` with
+  `device: null`; `/admin/doctor`'s `clock`, `awtrix_reachable` and
+  `capabilities` checks are `ok` with a "disabled" detail (doctor stays OK). Use it for tests and scratch servers: safe by construction.
+- `EMBER_MDNS_ADVERTISE` (default on; `0`/`false`/`no`/`off` disables) gates only the
+  advertising side; clock discovery and Settings › Devices › Clock still work with a
+  configured URL.
+- The advertisement publishes its own host record, `ember-<hostname>.local`, as the
+  SRV target, never the machine's name: a second responder claiming `<hostname>.local`
+  makes Avahi rename the whole host (`Tosaka-2`, SMB and SSH included). `<hostname>.local`
+  is left to the host's own responder, so a URL using it needs Avahi (or equivalent)
+  running there. Clients connect by the resolved IP and `EMBER_SERVER_INSTANCE` still
+  accepts the plain machine name. A host already renamed by an older server stays
+  renamed until its Avahi restarts (Unraid: `/etc/rc.d/rc.avahidaemon restart`).
+- `EMBER_FIRMWARE_CHECK` (default on; `0`/`false`/`no`/`off` disables) gates the
+  server's only call to the internet for the dashboard: a background lookup of the latest
+  awtrix-ng release on GitHub (at most every 6h, 30 min after a failure, logged
+  at Warn) behind `latest_firmware`/`update_available` in `GET /v1/clock/health`.
+  Disabled, those fields are `null` and no request leaves the server.
+- **Troubleshooting — clock dark after its IP changed:** the server self-heals
+  within ~30s (mDNS). To apply the new IP now, restart the container (re-runs boot discovery) or
+  `PUT /v1/device/config {"base_url": …}` (republishes, sends the native
+  icons to the new address and installs or removes the boot-ping script there,
+  following `awtrix.boot_ping`); `/admin/doctor` shows the clock's
+  reachability + last re-discovery. A DHCP reservation avoids the whole
+  problem.
+
+**Data sources & dependencies:**
+- **Claude (always-on):** the claude producer daemon polls
+  `api.anthropic.com/api/oauth/usage` every ~5 min using the OAuth token in the
+  **macOS login Keychain** (item `Claude Code-credentials`). Requires the user to
+  be logged into Claude Code on that Mac; the token is **read-only, never
+  refreshed**. On 401 (or any other non-200/transient error) the poller just
+  skips that tick and keeps polling every ~5 min — it never stops the loop —
+  until the user re-auths in Claude Code.
+- **Codex (session-only):** posted from the rollout stream while a Codex session
+  is active; usage card faces clear ~10 min after the last session.
+- **Claude 5h fallback:** when the endpoint usage is stale/absent (daemon idle or
+  401) but a Claude session is live, the 5h face is synthesised from the
+  statusline `rate_window_pct` + host-local `rate_reset_label` (the statusline
+  posts the label so the UTC server renders it verbatim). 7d + per-model have no
+  fallback — they appear only with fresh endpoint data.
+- Entries are in-memory; stale tools (no post within ~10 min) are cleared from
+  the usage card automatically.
+
+**Verify it's flowing:** `GET /v1/usage` (no token) returns every tool's latest
+snapshot with `updated_at` and `stale`; `GET /state` carries only the 5h
+percent. Posting a crafted usage payload:
+`curl -s -XPOST localhost:3627/v1/usage -H "Authorization: Bearer $EMBER_TOKEN" \
+  -d '{"tool":"claude","source":"endpoint","five_hour":{"used_percent":75,"reset_label":"14:25"}}'`
+then watching the clock's `ember` app show the usage card face in rotation confirms
+the push path (threshold default is 60 — post ≥60% to trigger it). Toggle a tool
+off via `PUT /v1/apps` and confirm its usage faces disappear.
+
+## On-device verification (no waiting for real data)
+
+1. **Read the live matrix:** `GET http://<hostname>.local/api/v1/display/screen`
+   returns `{"width":32,"height":8,"pixels":[256 ints]}` (awtrix-ng wraps the
+   framebuffer; AWTRIX3 returned the bare 256-int array). Ember proxies this
+   raw at `GET /v1/device/screen` and the macOS app unwraps it to mirror the
+   display. Render the pixels as ANSI 24-bit colour blocks in the terminal to
+   confirm pixels paint.
+2. **Drive a widget to a chosen value:** `POST /v1/status` (token from
+   `producer.env`) a crafted session (e.g. rate 75% → amber ⅔ bar, ctx 88% →
+   near-full glass). Keep it alive with a re-POST loop faster than the
+   running-staleness reap (`stale_seconds`, default 300); `DELETE` when done.
+3. **Hook-free observation:** a background shell loop polling `/state` doesn't
+   fire Claude hooks, so it's a clean observer of session age. Age sawtoothing
+   ~5–10 s = heartbeat healthy; monotonic climb to the stale window (default
+   300 s) then ABSENT = nothing refreshing it.
+4. Before assuming a rebuild is needed, check `GET /version` (server revision)
+   and the installed producer binary mtime — sometimes flipping `producer.env`
+   toggles is the only step.
+5. **Display hold / re-push behavior (firmware 1.0.13, measured):** a forced
+   `PUT /api/v1/apps/active` plus `durationMs == lifetimeMs` sustains a hold;
+   `apps/active` 404s if the named app hasn't been pushed yet, so the switch
+   must strictly follow a successful push. Re-pushing the same app is
+   idempotent — blink phase and dwell are both unaffected — so the
+   coordinator's dedupe is a network/device-load nicety, not something
+   correctness depends on. At `lifetimeMs` the app is deleted outright
+   (`lifetimeExpiry` default `"remove"`), which is what returns the display to
+   native rotation crash-safely. The device's own app rotation needs at least
+   two enabled apps to actually rotate.
+
+## awtrix-ng flashing, backup, and first-boot
+
+Covers moving the TC001 from stock AWTRIX3 to [awtrix-ng](https://github.com/Blueforcer/awtrix-ng).
+
+1. **Backup the flash BEFORE any firmware change.** This is the only way back to
+   AWTRIX3 besides re-flashing via its own web flasher
+   (<https://blueforcer.github.io/awtrix3/>) — take it.
+
+   ```sh
+   esptool.py --port /dev/cu.usbserial-* read_flash 0x0 0x400000 tc001-backup-$(date +%Y%m%d).bin
+   ```
+
+   Store the `.bin` off-device (not just on the flashing Mac). Restore with:
+
+   ```sh
+   esptool.py --port /dev/cu.usbserial-* write_flash 0x0 tc001-backup-YYYYMMDD.bin
+   ```
+
+2. **Flash awtrix-ng.** USB web flasher at
+   <https://blueforcer.github.io/awtrix-ng/> (Chrome or Edge — WebSerial only).
+   For the first install, choose **full-erase**: AWTRIX3 settings are **not**
+   preserved across the switch.
+
+3. **First boot / Wi-Fi join.** The device opens an **open** (unsecured) access
+   point named `awtrixng-<mac6>`. Join it, then either let the captive portal
+   pop up or browse to `http://192.168.4.1`. System tab → **Scan**, pick the
+   target SSID, set the password and a **deliberate hostname** (used for
+   `.local` discovery below). Save, then reboot via the blue banner. The
+   assigned IP scrolls across the matrix on boot; once joined the device is
+   reachable at `http://<hostname>.local`.
+
+4. **Baseline config after joining the network.** All via
+   `PUT /api/v1/system`, `Content-Type: application/json`:
+
+   ```sh
+   curl -X PUT http://<hostname>.local/api/v1/system \
+     -H "Content-Type: application/json" \
+     -d '{"tzName": "Europe/Belgrade"}'
+   ```
+
+   Set at minimum:
+   - `tzName` — factory default is already `Europe/Berlin`; only change if the
+     clock lives elsewhere.
+   - `buttonCallback` → `http://<ember-server>:3627/hooks/awtrix/button`.
+
+   > **Warning:** `tempOffset` factory default is already **−9.0** for the
+   > TC001. Do not re-apply a manual offset on top of it — that double-corrects
+   > and the on-device temp reads low.
+
+   System writes via `/api/v1/system` apply **live** — no reboot needed
+   (unlike AWTRIX3's `dev.json`, which only applies at boot).
+
+5. **Later firmware updates.** NG has dual-slot OTA — settings, icons, and
+   scripts survive it. Via Web UI: System → Maintenance. Via curl:
+
+   ```sh
+   curl -F "firmware=@firmware-awtrix-ng.bin" http://<hostname>.local/update
+   ```
+
+   Use the **plain** (non-`s3`) binary for the TC001.
+
+6. **Quick verify:**
+
+   ```sh
+   curl http://<hostname>.local/api/v1/device
+   ```
+
+   Expect `"boardType": "awtrixng"` and your chosen hostname in the response.
+
+## Docker Hub release
+
+Releases are published on strict-semver `vX.Y.Z` tags (latest: `v0.2.0`),
+public + multi-arch. **A redeploy is release-driven: there is no `latest`-from-`main`
+auto-build** — you cut a Release, the workflow builds + pushes the image, then you
+repoint the container. The release workflow
+(`.github/workflows/docker-publish.yml`) fires when a strict-semver `vX.Y.Z`
+GitHub Release is published (or a `workflow_dispatch` on a `vX.Y.Z` tag ref) →
+multi-arch Docker Hub push (SBOM + provenance). Before the push it builds an
+amd64 image and runs `scripts/check-image-vcs.sh`, which refuses to publish a
+binary stamped `+dirty` or with a revision other than the tagged commit. The same release event runs
+`.github/workflows/release-producers.yml`: `scripts/package-producers.sh` on a
+macOS runner builds the producers for linux/amd64, linux/arm64 and darwin
+(universal, ad-hoc signed, not notarized) and uploads one `tar.gz` per OS/arch
+plus `SHA256SUMS` to the release (`workflow_dispatch` with `tag` re-attaches
+them; pre-releases are skipped). Archives are reproducible (entries stamped
+with `SOURCE_DATE_EPOCH` or the commit time, sorted, root-owned, `gzip -n`).
+Try it locally with `scripts/package-producers.sh 0.0.0 /tmp/out` (the out dir
+must be empty or hold only earlier archives).
+Requires repo var `DOCKERHUB_USERNAME` + secret `DOCKERHUB_TOKEN` — **set the
+token newline-safe** (`printf '%s' val | gh secret set DOCKERHUB_TOKEN`); a
+trailing newline causes a `malformed HTTP Authorization header` login failure.
+
+To cut a release + repoint the live container:
+
+```sh
+gh release create vX.Y.Z --target main --title vX.Y.Z --notes "…"   # triggers the workflow
+gh run watch <run-id> --exit-status                                  # multi-arch build ~2 min
+docker pull dtarakanov/ember:X.Y.Z
+# recreate with HOST networking (required for mDNS discovery — see "Discovery
+# & mDNS"); drop any -p 3627:3627 mapping and make sure :3627 is free on the host.
+docker rm -f ember && docker run -d --name ember --restart unless-stopped \
+  --network host \
+  -e EMBER_TOKEN="$(cat ~/.config/ember/token)" \
+  -v ~/.config/ember/config.json:/etc/ember/config.json \
+  -v ember-pomodoro:/var/lib/ember \
+  dtarakanov/ember:X.Y.Z   # else replicate exact flags from `docker inspect ember`
+```
+
+> On **Unraid** the bundled template (`deploy/unraid/ember.xml`) already sets
+> `Network: host`; after the new release, just bump the container's tag (or
+> "Force update" on `:latest`) and apply. Switching an existing bridge container
+> to host networking requires removing + re-adding it (network mode can't change
+> in place).
+
+Verify: `GET /version` reports `dirty:false`; `docker exec ember /ember doctor`
+all `[OK]`. For Unraid, see `README.md` → "Unraid install" + the
+`deploy/unraid/ember.xml` template. Spec/plan history lives in the Obsidian vault
+(`Personal/Ember/Specs/`).
+
+## Upgrade notes
+
+**Day clock (#729).** New tables `day_events` and `day_replies` in the
+store, created on start. Nothing goes quiet until the first clock-in. A new
+knob's default pages put `day` where `pomodoro` was (Pomodoro stays, off);
+an existing knob's stored config gains `day` as an off page, with no config
+push. Turn the page on in Ember.app once the firmware has it.
+
+**Exact day replies (#730).** `day_replies` gains `repo` and `exact` and a
+unique index on `(source, tool, session_key, at)`, migrated on start
+(duplicate rows, if any, keep the first). Existing rows stay estimated.
+
+**Clock presentation moves to the clock config (#232).** The TC001's
+presentation settings (weather tiles and popups, icon ids, meeting tile and
+popup leads, usage cards, Pomodoro colours) move from `weather_json`,
+`meetings_json`, `usage_json` and `settings_json` into their own row,
+`clock_config_json`. The move runs once: at boot when a clock record exists,
+else when the first good probe registers the clock. The log says `clock config
+migrated apps=[…]`, and `/admin/doctor` `devices` says `clock config migrated
+(from <version>)`. Nothing changes on the clock, and Ember.app needs no update:
+`/v1/weather/config` and the other three still take and return every key (the
+presentation ones are aliases now). A presentation key in `config.json` is
+still the baseline for an app with no stored value, and `/admin/reload` still
+applies it. Under
+`EMBER_CLOCK=off`, or until the clock is found, the settings stay in the old
+rows. The clock's `config_version` is now a counter (it was a hash); it never
+drops below the old hash value, and deleting the clock record doesn't reset it
+(a re-created record continues above the highest version handed out). A
+rollback loses that high-water mark, so a delete and re-create done while an
+older server runs can restart the count.
+
+- **`/admin/doctor` `devices` warns `clock config not migrated: …`:** the
+  move's SQLite transaction failed (nothing was written; the old rows still
+  hold the settings and everything works as before). It retries at the next
+  good clock probe (about a minute) or restart. With `clock_config_json is stored but did not load`, the row exists
+  but is invalid: the server won't overwrite it; fix or delete that row in
+  `pomodoro.db` and restart (deleting it re-runs the move from the old rows,
+  which no longer hold the presentation, so the clock falls back to
+  `config.json` and the defaults).
+- **Rolling back below #232 after the move** is safe to run but resets the
+  clock's look: an older server doesn't read `clock_config_json`, and the old
+  rows now hold only source settings, so the tiles, popups, leads, usage cards
+  and Pomodoro colours fall back to `config.json` and the defaults. Sources
+  (location, units, Pomodoro durations, calendar on/off), hidden tools, the app
+  order and the knob are unaffected. Before rolling back, save the four GETs
+  (`/v1/weather/config`, `/v1/meetings/config`, `/v1/usage/config`,
+  `/v1/pomodoro/config`; they return the merged values) and PUT them back on
+  the older server. Rolling forward again keeps what `clock_config_json`
+  held: presentation edits made on the older server are dropped (its rows'
+  presentation keys are ignored), source edits are kept. The clock's
+  `config_version` on a #230 server is a hash again, so a client may see it go
+  down once; none reads it yet.
+
+**`display.idle_restore_seconds` default changed 1200 → 120 (2 min).** Only
+bare/default installs are affected — any deployment with an explicit
+`idle_restore_seconds` in `config.json` keeps its value unchanged. If an
+existing deployment has a runtime store override (set via `PUT
+/v1/display/config`), that persisted value also wins over the new default.
+
+## Home Assistant / Node-RED
+
+Node-RED is intentionally **disabled** (add-on stopped, manual boot, watchdog
+off) — its old Pomodoro/Weather flows were brittle. Do not rebuild around
+Node-RED unless the user explicitly reverses that decision.

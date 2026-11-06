@@ -1,0 +1,216 @@
+import Testing
+import CoreGraphics
+@testable import EmberKit
+
+private func run(_ b: inout BotBehavior, from: Double = 0, seconds: Double) -> [(t: Double, pose: BotPose, animating: Bool)] {
+    stride(from: from, to: from + seconds, by: 1.0 / 60).map { t in
+        let p = b.pose(at: t)
+        return (t, p, b.isAnimating)
+    }
+}
+
+private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)]) -> Int {
+    var n = 0, shut = false
+    for f in frames {
+        let closed = max(f.pose.lidLeft, f.pose.lidRight) >= 0.9
+        if closed && !shut { n += 1 }
+        shut = closed
+    }
+    return n
+}
+
+@Test func moodFollowsSessionState() {
+    #expect(BotMood(state: "running") == .working)
+    #expect(BotMood(state: "waiting") == .waiting)
+    #expect(BotMood(state: "error") == .error)
+    #expect(BotMood(state: "done") == .done)
+    #expect(BotMood(state: "idle") == .idle)
+    #expect(BotMood(state: "") == .idle)
+}
+
+@Test func idleBlinkRateIsHumanLike() {
+    var b = BotBehavior(seed: 1, now: 0)
+    let blinks = blinkCount(run(&b, seconds: 240))
+    #expect((40...100).contains(blinks), "blinks in 4 min: \(blinks)")
+}
+
+@Test func workingBlinksLessThanIdle() {
+    var idle = BotBehavior(seed: 2, now: 0)
+    var work = BotBehavior(seed: 2, now: 0)
+    work.setMood(.working, at: 0)
+    #expect(blinkCount(run(&work, seconds: 240)) < blinkCount(run(&idle, seconds: 240)))
+}
+
+@Test func mostlyStillSoTheFrameLoopCanSleep() {
+    var b = BotBehavior(seed: 3, now: 0)
+    let frames = run(&b, seconds: 120)
+    let busy = Double(frames.filter(\.animating).count) / Double(frames.count)
+    #expect(busy < 0.3, "animating \(busy * 100)% of the time")
+}
+
+@Test func nextEventIsInTheFutureWhenStill() {
+    var b = BotBehavior(seed: 4, now: 0)
+    for f in run(&b, seconds: 30) where !f.animating {
+        #expect(b.nextEventAt >= f.t || f.t == 30 - 1.0 / 60)
+    }
+}
+
+@Test func eyesChangeOnlyBehindClosedLids() {
+    var b = BotBehavior(seed: 5, now: 0)
+    _ = run(&b, seconds: 2)
+    b.setMood(.waiting, at: 2)
+    let frames = run(&b, from: 2, seconds: 2)
+    guard let first = frames.firstIndex(where: { $0.pose.eyes == .round }) else {
+        Issue.record("eyes never swapped"); return
+    }
+    #expect(max(frames[first].pose.lidLeft, frames[first].pose.lidRight) >= 0.9)
+    #expect(frames[first].t - 2 < 0.5)
+}
+
+@Test func errorMorphsBodyToTriangleAndBack() {
+    var b = BotBehavior(seed: 6, now: 0)
+    b.setMood(.error, at: 0)
+    #expect(run(&b, seconds: 1).last!.pose.triangle == 1)
+    b.setMood(.idle, at: 1)
+    #expect(run(&b, from: 1, seconds: 1).last!.pose.triangle == 0)
+}
+
+@Test func longIdleGetsSleepyAndWakesWithADoubleBlink() {
+    var b = BotBehavior(seed: 7, now: 0)
+    _ = b.pose(at: BotBehavior.sleepAfter + 1)
+    #expect(b.mood == .sleepy)
+    let drowsy = run(&b, from: BotBehavior.sleepAfter + 1, seconds: 3).last!.pose
+    #expect(drowsy.lidLeft > 0.4)
+
+    let t = BotBehavior.sleepAfter + 4
+    b.setMood(.working, at: t)
+    #expect(blinkCount(run(&b, from: t, seconds: 1.0)) >= 2)
+}
+
+@Test func idleRequestDoesNotWakeASleepyBot() {
+    var b = BotBehavior(seed: 8, now: 0)
+    _ = b.pose(at: BotBehavior.sleepAfter + 1)
+    b.setMood(.idle, at: BotBehavior.sleepAfter + 2)
+    #expect(b.mood == .sleepy)
+}
+
+@Test func reduceMotionKeepsGazeStill() {
+    var b = BotBehavior(seed: 9, now: 0)
+    b.reduceMotion = true
+    let frames = run(&b, seconds: 20)
+    #expect(Set(frames.map { $0.pose.gazeX }).count == 1)
+    #expect(blinkCount(frames) > 0)
+}
+
+@Test func sameSeedSameAnimation() {
+    var a = BotBehavior(seed: 10, now: 0), b = BotBehavior(seed: 10, now: 0)
+    #expect(run(&a, seconds: 10).map(\.pose) == run(&b, seconds: 10).map(\.pose))
+}
+
+@Test func blinkClosesFasterThanItOpens() {
+    let close = 0.075, openEnd = 0.26
+    #expect(BotBehavior.lid(close, speed: 1) >= 0.99)
+    #expect(BotBehavior.lid(openEnd - 0.05, speed: 1) > 0)
+    #expect(BotBehavior.lid(openEnd + 0.01, speed: 1) == 0)
+}
+
+@Test func rendererDrawsBodyAndCutsOutEyes() {
+    let size = 64
+    let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
+                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    BotRenderer.draw(BotPose(), in: ctx, rect: CGRect(x: 0, y: 0, width: size, height: size),
+                     style: .menuBar(tint: CGColor(gray: 0, alpha: 1)))
+    let px = ctx.data!.assumingMemoryBound(to: UInt8.self)
+    func alpha(_ x: Int, _ y: Int) -> UInt8 { px[((size - 1 - y) * size + x) * 4 + 3] }
+    #expect(alpha(size / 2, size / 3) == 255)
+    #expect(alpha(1, 1) == 0)
+    let holes = (size / 2..<size * 7 / 8).flatMap { x in (size / 2..<size * 7 / 8).map { alpha(x, $0) } }
+    #expect(holes.contains(0) && holes.contains(255))
+}
+
+@Test func turningOnReduceMotionStopsWaitingHops() {
+    var b = BotBehavior(seed: 11, now: 0)
+    b.setMood(.waiting, at: 0)
+    _ = run(&b, seconds: 2)
+    b.reduceMotion = true
+    let frames = run(&b, from: 2, seconds: 30)
+    #expect(frames.allSatisfy { $0.pose.offsetY < 0.1 })
+}
+
+@Test func waitingHopsOnceSoonThenOnlyNowAndThen() {
+    for seed in UInt64(0)..<20 {
+        var b = BotBehavior(seed: seed, now: 0)
+        b.setMood(.waiting, at: 0)
+        var hops: [Double] = [], up = false
+        for f in run(&b, seconds: 180) {
+            let airborne = f.pose.offsetY > 0.1
+            if airborne && !up { hops.append(f.t) }
+            up = airborne
+        }
+        #expect(hops.first.map { $0 < 1.5 } == true, "seed \(seed)")
+        let gaps = zip(hops, hops.dropFirst()).map { $1 - $0 }
+        #expect(hops.count >= 5, "seed \(seed): \(hops)")
+        #expect(gaps.allSatisfy { (7.9...40.1).contains($0) }, "seed \(seed): \(gaps)")
+        #expect(hops.last.map { 180 - $0 <= 40.1 } == true, "seed \(seed): \(hops)")
+    }
+}
+
+@Test func eyesSwapEvenWhenFramesSkipTheShutLids() {
+    for seed in UInt64(0)..<50 {
+        var b = BotBehavior(seed: seed, now: 0)
+        b.setMood(.waiting, at: 0)
+        let swapped = stride(from: 0.0, to: 0.8, by: 0.08).contains { b.pose(at: $0).eyes == .round }
+        #expect(swapped, "seed \(seed)")
+    }
+}
+
+@Test func moodChangeGlidesInsteadOfDarting() {
+    var b = BotBehavior(seed: 12, now: 0)
+    _ = run(&b, seconds: 2)
+    b.setMood(.waiting, at: 2)
+    let frames = run(&b, from: 2, seconds: 0.5)
+    let steps = zip(frames, frames.dropFirst()).map {
+        hypot($1.pose.gazeX - $0.pose.gazeX, $1.pose.gazeY - $0.pose.gazeY)
+    }
+    #expect(steps.max()! < 0.15, "largest per-frame gaze jump \(steps.max()!)")
+    #expect(frames.first!.animating && b.isTransitioning)
+}
+
+@Test func sleepyBodyStaysRound() {
+    let size = 64
+    func bounds(_ pose: BotPose) -> (w: Int, h: Int) {
+        let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        var style = BotStyle.menuBar(tint: CGColor(gray: 0, alpha: 1))
+        style.eyes = CGColor(gray: 0, alpha: 1)
+        BotRenderer.draw(pose, in: ctx, rect: CGRect(x: 0, y: 0, width: size, height: size), style: style)
+        let px = ctx.data!.assumingMemoryBound(to: UInt8.self)
+        var xs: [Int] = [], ys: [Int] = []
+        for y in 0..<size { for x in 0..<size where px[(y * size + x) * 4 + 3] > 128 { xs.append(x); ys.append(y) } }
+        return (xs.max()! - xs.min()! + 1, ys.max()! - ys.min()! + 1)
+    }
+    var sleepy = BotPose()
+    sleepy.slump = 1
+    let b = bounds(sleepy)
+    #expect(abs(b.w - b.h) <= 1, "sleepy body \(b.w)x\(b.h)")
+}
+
+@Test func eyeShapeNeverSwapsWithOpenEyes() {
+    for seed in UInt64(0)..<40 {
+        var b = BotBehavior(seed: seed, now: 0)
+        var prev: BotPose?
+        for (i, m) in [BotMood.working, .waiting, .done, .error, .idle].enumerated() {
+            let t0 = 2.0 + Double(i) * 1.37
+            for t in stride(from: t0 - 1.37, to: t0, by: 1.0 / 60) {
+                let p = b.pose(at: t)
+                if let q = prev, q.eyes != p.eyes {
+                    #expect(max(p.lidLeft, p.lidRight, q.lidLeft, q.lidRight) >= 0.9, "seed \(seed) t \(t)")
+                }
+                prev = p
+            }
+            b.setMood(m, at: t0)
+        }
+    }
+}

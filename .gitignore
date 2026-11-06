@@ -1,0 +1,35 @@
+.DS_Store
+/ember
+/ember-claude-producer
+/ember-codex-producer
+/ember-t3-producer
+# `go build` run inside a cmd/ directory drops the binary next to the source.
+/cmd/*/ember
+/cmd/*/ember-claude-producer
+/cmd/*/ember-codex-producer
+/cmd/*/ember-t3-producer
+/config.json
+/dist/
+
+# Local-only agent context (deployment-specific hosts, vault path). Ships as
+# AGENTS.local.md.example; the filled-in copy stays local.
+/AGENTS.local.md
+/CLAUDE.local.md
+/.gocache/
+*.log
+
+# Xcode build products from local `xcodebuild` runs (the SwiftPM .build/ dir is
+# under macos/ too; both are local-only).
+/macos/build/
+/macos/.build/
+
+# Superpowers-skill artifacts (specs, plans, brainstorms) are local-only
+# scaffolding and not part of the shipped repo. STYLE.md (under docs/, not
+# docs/superpowers/) does ship.
+/docs/superpowers/
+/.superpowers/
+/.claire/
+
+# Claude Code agent worktrees
+.claude/worktrees/
+.claude/settings.local.json

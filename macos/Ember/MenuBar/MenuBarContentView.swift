@@ -1,0 +1,156 @@
+import SwiftUI
+import EmberKit
+
+struct MenuBarContentView: View {
+	@Environment(AppEnvironment.self) private var env
+	@Environment(\.openWindow) private var openWindow
+
+	var body: some View {
+		Group { items }
+			.onAppear {
+				Task { await env.live.refreshMenuFeeds() }
+			}
+	}
+
+	@ViewBuilder
+	private var items: some View {
+		let live = env.live
+		let now = Date()
+
+		if live.connection == .unconfigured {
+			Button("Set Up Ember…") { openSettings(.app(.connection), using: openWindow) }
+			Divider()
+		}
+
+		glanceRows(live, now: now)
+		Divider()
+		pomodoroRows(live)
+		Divider()
+		clockMenu(live)
+		Divider()
+
+		Button("Open Dashboard") { presentWindow(id: WindowID.dashboard, using: openWindow) }
+			.keyboardShortcut("0", modifiers: .command)
+		Button("Settings…") { openSettings(using: openWindow) }
+			.keyboardShortcut(",", modifiers: .command)
+		Button("About Ember") {
+			activateForUser { NSApp.orderFrontStandardAboutPanel(nil) }
+		}
+
+		Divider()
+
+		Button("Quit Ember") { NSApplication.shared.terminate(nil) }
+			.keyboardShortcut("q", modifiers: .command)
+	}
+
+	@ViewBuilder
+	private func glanceRows(_ live: LiveModel, now: Date) -> some View {
+		let header = MenuRows.header(connection: live.connection, hasEverLoaded: live.snapshot.value != nil,
+		                             winning: live.winningSession, offlineReason: live.snapshot.error)
+		Text(header.title)
+		if let detail = header.detail { Text(verbatim: "   \(detail)") }
+
+		let sessions = MenuRows.liveSessions(live.snapshot)
+		let others = MenuRows.otherSessions(sessions, winning: live.winningSession)
+		if !others.rows.isEmpty {
+			Menu("Other Sessions") {
+				ForEach(others.rows) { Text($0.text) }
+				if let overflow = others.overflow { Text(overflow) }
+			}
+		}
+
+		ForEach(MenuRows.usage(live.usage, sessions: sessions, now: now)) { Text($0.text) }
+
+		if let next = MenuRows.nextEvent(meetings: live.meetings.value, reminders: reminders, now: now) {
+			Text(next)
+		}
+	}
+
+	private var reminders: [MenuRows.Reminder] {
+		let watcher = env.reminderWatcher
+		guard watcher.prefs?.enabled == true else { return [] }
+		return watcher.upcoming.map { MenuRows.Reminder(title: $0.title, due: $0.due) }
+	}
+
+	@ViewBuilder
+	private func pomodoroRows(_ live: LiveModel) -> some View {
+		if let group = MenuRows.pomodoroControls(live.pomodoro, connection: live.connection) {
+			if let status = MenuRows.pomodoroStatus(live.pomodoro.value) { Text(status) }
+			Group {
+				ForEach(group.items) { item in
+					Button {
+						Task { await env.actions.run(.pomodoro(item.action)) }
+					} label: {
+						Label { Text(item.title) } icon: { Image(systemName: item.systemImage) }
+					}
+					.modifier(PrimaryShortcut(key: item.shortcutKey))
+					.disabled(env.actions.running.contains(.pomodoro(item.action)))
+				}
+			}
+			.labelStyle(.titleAndIcon)
+			.disabled(!group.isEnabled)
+		}
+		if let today = MenuRows.today(live.stats.value) { Text(today) }
+		if let failure = env.actions.lastError {
+			Text(MenuRows.failure(failure.action, failure.error))
+		}
+	}
+
+	@ViewBuilder
+	private func clockMenu(_ live: LiveModel) -> some View {
+		let matrixPower = live.isTracked(.clockHealth) ? live.displayPower : nil
+		let clock = MenuRows.clockMenu(clockDisabled: live.isClockDisabled, usage: live.usage,
+		                               clockHealth: live.clockHealth, apps: live.apps, matrixPower: matrixPower)
+
+		Menu("Clock") {
+			if let notice = clock.disabledNotice {
+				Text(notice)
+			}
+			if clock.showsActions {
+				Button("Next App") { run(.clock(.next)) }
+				Button("Previous App") { run(.clock(.previous)) }
+				Button("Dismiss Notification") { run(.clock(.dismiss)) }
+			}
+			if !clock.power.isEmpty {
+				Divider()
+				ForEach(clock.power) { item in
+					Button { run(.clock(.power(item.on))) } label: { Text(item.title) }
+				}
+			}
+			if !clock.apps.isEmpty {
+				Divider()
+				Menu("Show on Clock") {
+					ForEach(clock.apps) { app in
+						Toggle(isOn: Binding(
+							get: { app.enabled },
+							set: { on in run(.setApp(app.name, enabled: on)) }
+						)) {
+							Text(app.title)
+						}
+					}
+					Divider()
+					Button("Clock Agent Settings…") {
+						openSettings(.device(clockDeviceID, .app(.agents)), using: openWindow)
+					}
+				}
+			}
+		}
+		.disabled(!live.connection.isOnline)
+	}
+
+	private func run(_ action: EmberAction) {
+		Task { await env.actions.run(action) }
+	}
+}
+
+private struct PrimaryShortcut: ViewModifier {
+	let key: Character?
+
+	func body(content: Content) -> some View {
+		if let key {
+			content.keyboardShortcut(KeyEquivalent(key), modifiers: [.command, .shift])
+		} else {
+			content
+		}
+	}
+}

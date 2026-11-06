@@ -1,0 +1,165 @@
+import SwiftUI
+import EmberKit
+
+enum DashboardCardID: Hashable, Sendable, CaseIterable {
+    case clock, focus, usage, upcoming, agents, lastSeven, twelveWeeks, heatmap
+    case agentTime, weather
+    case dayToday, dayWeek, dayStrip, stopTrend, dayWeeks
+
+    var clockTick: TimeInterval? {
+        switch self {
+        case .usage, .upcoming, .agents, .weather, .dayToday: 60
+        case .twelveWeeks, .heatmap, .dayWeek, .dayWeeks: 600
+        case .clock, .focus, .lastSeven, .agentTime, .dayStrip, .stopTrend: nil
+        }
+    }
+}
+
+struct DashboardContent<Source: DashboardSource>: View {
+    let source: Source
+    var onRetry: () -> Void = {}
+
+    @State private var columns = 2
+    @Environment(\.openWindow) private var openWindow
+
+    private var cards: [(id: DashboardCardID, size: CardSize)] {
+        var out: [(id: DashboardCardID, size: CardSize)] = [(.clock, .wide), (.focus, .standard)]
+        if source.showsUsage { out.append((.usage, .standard)) }
+        if source.showsUpcoming { out.append((.upcoming, .standard)) }
+        if source.showsDay {
+            out.append((.dayToday, .standard))
+            if source.showsDayHistory {
+                out += [(.dayWeek, .standard), (.dayStrip, .wide), (.stopTrend, .wide), (.dayWeeks, .wide)]
+            }
+        }
+        out += [(.agents, .wide), (.lastSeven, .standard), (.twelveWeeks, .standard),
+                (.heatmap, .wide), (.agentTime, .standard)]
+        if source.showsWeather { out.append((.weather, .standard)) }
+        return out
+    }
+
+    var body: some View {
+        if source.isOfflineWithNothingLoaded, source.snapshot.error == .localNetworkDenied {
+            ContentUnavailableView {
+                Label("Local Network access is off", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text("macOS is blocking Ember from the server on your local network. Allow Ember under Local Network in System Settings.")
+            } actions: {
+                Button("Try Again", action: onRetry)
+                Button("Review Permissions…") { openSettings(.app(.permissions), using: openWindow) }
+            }
+            .frame(maxWidth: .infinity, minHeight: 480)
+        } else if source.isOfflineWithNothingLoaded, source.snapshot.error == .timedOut {
+            ContentUnavailableView {
+                Label { Text("Server not responding", comment: "Title shown in place of content: the server didn't answer in time.") }
+                    icon: { Image(systemName: "clock.badge.exclamationmark") }
+            } description: {
+                Text("The server didn't answer in time. It may be down or overloaded.",
+                     comment: "Explains a server that didn't answer in time.")
+            } actions: {
+                Button("Try Again", action: onRetry)
+                Button("Open Connection Settings") { openSettings(.app(.connection), using: openWindow) }
+            }
+            .frame(maxWidth: .infinity, minHeight: 480)
+        } else if source.isOfflineWithNothingLoaded {
+            ContentUnavailableView {
+                Label("Server unreachable", systemImage: "network.slash")
+            } description: {
+                Text("Ember can't reach the server. Check that it's running, or change its address in Connection settings.")
+            } actions: {
+                Button("Try Again", action: onRetry)
+                Button("Open Connection Settings") { openSettings(.app(.connection), using: openWindow) }
+            }
+            .frame(maxWidth: .infinity, minHeight: 480)
+        } else {
+            grid
+        }
+    }
+
+    private var grid: some View {
+        VStack(spacing: Self.spacing) {
+            ForEach(Array(DashboardLayout.runs(cards, columns: columns).enumerated()), id: \.offset) { _, run in
+                switch run {
+                case .wide(let id):
+                    DashboardCardSlot(id: id, source: source)
+                case .grid(let ids):
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.spacing, alignment: .top),
+                                             count: columns),
+                              spacing: Self.spacing) {
+                        ForEach(ids, id: \.self) { DashboardCardSlot(id: $0, source: source) }
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .onGeometryChange(for: Int.self) { DashboardLayout.columns(forWidth: $0.size.width) } action: { columns = $0 }
+    }
+
+    static var spacing: CGFloat { 16 }
+}
+
+struct DashboardCardSlot<Source: DashboardSource>: View {
+    let id: DashboardCardID
+    let source: Source
+
+    var body: some View {
+        #if DEBUG
+        let _ = DashboardRenderCounter.shared.count(id)
+        #endif
+        if let fixed = source.fixedNow {
+            card(now: fixed)
+        } else if let tick = id.clockTick {
+            TimelineView(.periodic(from: .now, by: tick)) { ctx in card(now: ctx.date) }
+        } else {
+            card(now: Date())
+        }
+    }
+
+    @ViewBuilder
+    private func card(now: Date) -> some View {
+        let s = source
+        switch id {
+        case .clock:
+            ClockCard(screen: s.screen, actions: s.actions,
+                      disabledNotice: ClockHealthReadout.disabledNotice(s.clockHealth))
+        case .focus:
+            FocusCard(stats: s.stats, pomodoro: s.pomodoro, config: s.pomoConfig, now: now)
+        case .usage:
+            UsageCard(usage: s.usage, rows: s.usageRows, now: now)
+        case .upcoming:
+            UpcomingCard(meetings: s.meetings, reminders: s.reminders, meetingsEnabled: s.meetingsEnabled, now: now)
+        case .agents:
+            AgentsCard(snapshot: s.snapshot, now: now)
+        case .lastSeven:
+            LastSevenDaysCard(stats: s.stats, focusMinutes: s.focusMinutes, calendar: s.calendar)
+        case .twelveWeeks:
+            TwelveWeeksCard(stats: s.stats, now: now, calendar: s.calendar)
+        case .dayToday:
+            DayTodayCard(state: s.dayState, now: now, calendar: s.calendar)
+        case .dayWeek:
+            DayWeekCard(weeks: s.dayWeeks, now: now, calendar: s.calendar)
+        case .dayStrip:
+            DayStripCard(history: s.dayHistory, now: now, calendar: s.calendar)
+        case .stopTrend:
+            StopTrendCard(history: s.dayHistory, now: now, calendar: s.calendar)
+        case .dayWeeks:
+            DayWeeksCard(weeks: s.dayWeeks, now: now, calendar: s.calendar)
+        case .heatmap:
+            WhenYouFocusCard(heatmap: s.heatmap, todayKey: s.stats.value?.today.date, now: now, calendar: s.calendar)
+        case .agentTime:
+            AgentTimeCard(activity: s.activity, calendar: s.calendar)
+        case .weather:
+            WeatherCard(weather: s.weather, now: now)
+        }
+    }
+}
+
+#if DEBUG
+@MainActor
+final class DashboardRenderCounter {
+    static let shared = DashboardRenderCounter()
+    private(set) var counts: [DashboardCardID: Int] = [:]
+    func count(_ id: DashboardCardID) { counts[id, default: 0] += 1 }
+    func reset() { counts = [:] }
+}
+#endif

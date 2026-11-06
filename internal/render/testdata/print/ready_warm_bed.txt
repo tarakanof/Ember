@@ -1,0 +1,16 @@
+aaaaaaaa........................
+b...cccb.dd..ddd.dd..eee.eee.eee
+b....f.b.d.d.d...d.d.e...e.e.e.e
+bggggggb.dd..ddd.d.d.eee.e.e.eee
+b......b.d.d.d...d.d.e.e.e.e....
+b......b.dd..ddd.dd..eee.eee....
+b......b........................
+hhhhhhhh........................
+a=#FF8A3D
+b=#8A8A8A
+c=#BBBBBB
+d=#707070
+e=#FFFFFF
+f=#808080
+g=#555555
+h=#5A5A5A

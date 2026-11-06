@@ -1,0 +1,158 @@
+import Foundation
+
+public struct NowPlayingReport: Codable, Equatable, Sendable {
+    public enum State: String, Codable, Sendable { case playing, paused, stopped }
+
+    public var source: String
+    public var player: String
+    public var state: State
+    public var title: String
+    public var artist: String
+    public var album: String
+    public var trackID: String
+    public var durationMs: Int64
+    public var positionMs: Int64
+    public var volume: Int?
+
+    public init(source: String, player: String, state: State, title: String = "", artist: String = "",
+                album: String = "", trackID: String = "", durationMs: Int64 = 0, positionMs: Int64 = 0,
+                volume: Int? = nil) {
+        self.source = source; self.player = player; self.state = state
+        self.title = title; self.artist = artist; self.album = album; self.trackID = trackID
+        self.durationMs = durationMs; self.positionMs = positionMs; self.volume = volume
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case source, player, state, title, artist, album, volume
+        case trackID = "track_id", durationMs = "duration_ms", positionMs = "position_ms"
+    }
+}
+
+public struct NowPlayingAck: Decodable, Equatable, Sendable {
+    public let hasAlbumArt: Bool
+    public let hasArtistArt: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case hasAlbumArt = "has_album_art", hasArtistArt = "has_artist_art"
+    }
+}
+
+public struct NowPlayingState: Decodable, Equatable, Sendable {
+    public let state: String
+    public let source: String?
+    public let title: String?
+    public let artist: String?
+    public let album: String?
+    public let durationMs: Int64?
+    public let positionMs: Int64?
+    public let positionAt: Int64?
+    public let updatedAt: Date?
+    public let artVersion: String?
+    public let hasAlbumArt: Bool
+    public let hasArtistArt: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case state, source, title, artist, album
+        case durationMs = "duration_ms", positionMs = "position_ms", positionAt = "position_at"
+        case updatedAt = "updated_at", artVersion = "art_version"
+        case hasAlbumArt = "has_album_art", hasArtistArt = "has_artist_art"
+    }
+
+    public var isActive: Bool { state != "none" }
+}
+
+public struct MusicPlayerInfo: Equatable, Sendable {
+    public var state: NowPlayingReport.State
+    public var name: String
+    public var artist: String
+    public var album: String
+    public var durationMs: Int64
+    public var persistentID: String
+    public var position: Double?
+    public var volume: Int?
+
+    public init(state: NowPlayingReport.State, name: String = "", artist: String = "", album: String = "",
+                durationMs: Int64 = 0, persistentID: String = "", position: Double? = nil, volume: Int? = nil) {
+        self.state = state; self.name = name; self.artist = artist; self.album = album
+        self.durationMs = durationMs; self.persistentID = persistentID; self.position = position
+        self.volume = volume
+    }
+
+    public init?(userInfo: [AnyHashable: Any]) {
+        guard let raw = userInfo["Player State"] as? String else { return nil }
+        switch raw.lowercased() {
+        case "playing": state = .playing
+        case "paused": state = .paused
+        default: state = .stopped
+        }
+        name = userInfo["Name"] as? String ?? ""
+        artist = userInfo["Artist"] as? String ?? ""
+        album = userInfo["Album"] as? String ?? ""
+        durationMs = (userInfo["Total Time"] as? NSNumber)?.int64Value ?? 0
+        persistentID = (userInfo["PersistentID"] as? NSNumber).map { Self.hexID($0.int64Value) } ?? ""
+        position = nil
+        volume = nil
+    }
+
+    public static let playerNameLimit = 64
+
+    public static func hexID(_ id: Int64) -> String {
+        String(format: "%016llX", UInt64(bitPattern: id))
+    }
+
+    public func report(source: String, player: String) -> NowPlayingReport {
+        let player = Self.clip(player, Self.playerNameLimit)
+        guard state != .stopped, !(name.isEmpty && persistentID.isEmpty) else { return NowPlayingReport(source: source, player: player, state: .stopped) }
+        return NowPlayingReport(
+            source: source, player: player, state: state,
+            title: Self.clip(name, 200), artist: Self.clip(artist, 200), album: Self.clip(album, 200),
+            trackID: persistentID, durationMs: max(durationMs, 0),
+            positionMs: position.map { Int64(max($0, 0) * 1000) } ?? 0,
+            volume: volume.map { min(max($0, 0), 100) })
+    }
+
+    static func clip(_ s: String, _ n: Int) -> String {
+        s.unicodeScalars.count <= n ? s : String(String.UnicodeScalarView(s.unicodeScalars.prefix(n)))
+    }
+}
+
+public struct NowPlayingCommand: Decodable, Equatable, Sendable {
+    public enum Action: String, Sendable { case play, pause, playPause = "play_pause", next, previous, volume }
+
+    public let id: String
+    public let action: Action?
+    public let delta: Int
+    public let ageMs: Int
+
+    public init(id: String, action: Action?, delta: Int = 0, ageMs: Int = 0) {
+        self.id = id; self.action = action; self.delta = delta; self.ageMs = ageMs
+    }
+
+    enum CodingKeys: String, CodingKey { case id, action, delta, ageMs = "age_ms" }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+        action = try c.decodeIfPresent(String.self, forKey: .action).flatMap(Action.init(rawValue:))
+        delta = try c.decodeIfPresent(Int.self, forKey: .delta) ?? 0
+        ageMs = max(0, try c.decodeIfPresent(Int.self, forKey: .ageMs) ?? 0)
+    }
+}
+
+public struct NowPlayingCommands: Decodable, Equatable, Sendable {
+    public let commands: [NowPlayingCommand]
+    public let watched: Bool?
+
+    public init(commands: [NowPlayingCommand], watched: Bool? = nil) {
+        self.commands = commands
+        self.watched = watched
+    }
+
+    enum CodingKeys: String, CodingKey { case commands, watched }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commands = try c.decodeIfPresent([NowPlayingCommand].self, forKey: .commands) ?? []
+        watched = try c.decodeIfPresent(Bool.self, forKey: .watched)
+    }
+}

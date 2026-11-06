@@ -1,0 +1,217 @@
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/sessions"
+)
+
+func leadView(ss ...render.Session) sessions.View {
+	t0 := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	for i := range ss {
+		ss[i].UpdatedAt = t0.Add(-time.Duration(i) * time.Second)
+	}
+	return sessions.View{Now: t0, Sessions: ss}
+}
+
+func TestLeadOf(t *testing.T) {
+	purple, bad := "#b48cff", "purple"
+	cases := []struct {
+		name string
+		v    sessions.View
+		want moodLead
+	}{
+		{"none", leadView(), moodLead{}},
+		{"idle only", leadView(render.Session{Source: "M4", State: "idle"}), moodLead{}},
+		{"one host", leadView(render.Session{Source: "M4", Tool: "claude", State: "running", SourceColor: &purple}),
+			moodLead{Lead: "M4", Hosts: 1, Color: "#B48CFF", Tool: "claude"}},
+		{"most sessions wins over newest", leadView(
+			render.Session{Source: "MINI", Tool: "codex", Session: "a", State: "running"},
+			render.Session{Source: "M4", Tool: "claude", Session: "b", State: "running"},
+			render.Session{Source: "M4", Tool: "claude", Session: "c", State: "running"}),
+			moodLead{Lead: "M4", Hosts: 2, Tool: "claude"}},
+		{"tie goes to the smaller name", leadView(
+			render.Session{Source: "MINI", Tool: "codex", State: "running"},
+			render.Session{Source: "M4", Tool: "claude", State: "running"}),
+			moodLead{Lead: "M4", Hosts: 2, Tool: "claude"}},
+		{"only the winning state counts", leadView(
+			render.Session{Source: "MINI", State: "running"},
+			render.Session{Source: "MINI", State: "running"},
+			render.Session{Source: "M4", Tool: "codex", State: "waiting"}),
+			moodLead{Lead: "M4", Hosts: 1, Tool: "codex"}},
+		{"tools disagree", leadView(
+			render.Session{Source: "M4", Tool: "claude", Session: "a", State: "running"},
+			render.Session{Source: "M4", Tool: "codex", Session: "b", State: "running"}),
+			moodLead{Lead: "M4", Hosts: 1}},
+		{"invalid colour skipped", leadView(
+			render.Session{Source: "M4", Session: "a", State: "error", SourceColor: &bad},
+			render.Session{Source: "M4", Session: "b", State: "error", SourceColor: &purple}),
+			moodLead{Lead: "M4", Hosts: 1, Color: "#B48CFF"}},
+		{"no source", leadView(render.Session{Tool: "claude", State: "running"}), moodLead{}},
+		{"case-insensitive hosts", leadView(
+			render.Session{Source: "m4", Tool: "claude", Session: "a", State: "running"},
+			render.Session{Source: "M4", Tool: "claude", Session: "b", State: "running"}),
+			moodLead{Lead: "M4", Hosts: 1, Tool: "claude"}},
+	}
+	for _, c := range cases {
+		if got := leadOf(c.v); got != c.want {
+			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestLeadOfWaitingIsTheNewestWaiter(t *testing.T) {
+	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	purple := "#b48cff"
+	v := sessions.View{Now: t0, Sessions: []render.Session{
+		{Source: "m4", Tool: "claude", Session: "a", State: "waiting", Project: "ember", StateSince: t0.Add(-time.Minute), UpdatedAt: t0},
+		{Source: "m4", Tool: "claude", Session: "b", State: "waiting", Project: "cinder", StateSince: t0.Add(-2 * time.Minute), UpdatedAt: t0},
+		{Source: "m5", Tool: "codex", Session: "c", State: "waiting", Project: "learn-language", StateSince: t0.Add(-10 * time.Second), UpdatedAt: t0.Add(-5 * time.Second), SourceColor: &purple},
+	}}
+	want := moodLead{Lead: "M5", Hosts: 2, Color: "#B48CFF", Tool: "codex", Project: "learn-language"}
+	if got := leadOf(v); got != want {
+		t.Fatalf("lead = %+v, want %+v", got, want)
+	}
+}
+
+func TestLeadOfDoneIsTheNewestDoneSession(t *testing.T) {
+	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	purple := "#b48cff"
+	v := sessions.View{Now: t0, Sessions: []render.Session{
+		{Source: "m4", Tool: "claude", Session: "a", State: "done", Project: "ember", StateSince: t0.Add(-time.Minute), UpdatedAt: t0},
+		{Source: "m4", Tool: "claude", Session: "b", State: "done", Project: "cinder", StateSince: t0.Add(-2 * time.Minute), UpdatedAt: t0},
+		{Source: "m5", Tool: "codex", Session: "c", State: "done", Project: "learn-language", StateSince: t0.Add(-10 * time.Second), UpdatedAt: t0.Add(-5 * time.Second), SourceColor: &purple},
+	}}
+	want := moodLead{Lead: "M5", Hosts: 2, Color: "#B48CFF", Tool: "codex", Project: "learn-language"}
+	if got := leadOf(v); got != want {
+		t.Fatalf("lead = %+v, want %+v", got, want)
+	}
+}
+
+func TestLeadOfWaitingBeatsANewerDone(t *testing.T) {
+	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	v := sessions.View{Now: t0, Sessions: []render.Session{
+		{Source: "m4", Tool: "claude", Session: "a", State: "waiting", Project: "ember", StateSince: t0.Add(-time.Minute), UpdatedAt: t0},
+		{Source: "m5", Tool: "codex", Session: "b", State: "done", Project: "cinder", StateSince: t0, UpdatedAt: t0},
+	}}
+	want := moodLead{Lead: "M4", Hosts: 1, Tool: "claude", Project: "ember"}
+	if got := leadOf(v); got != want {
+		t.Fatalf("lead = %+v, want %+v", got, want)
+	}
+}
+
+func TestLeadOfDoneWithoutAProject(t *testing.T) {
+	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	v := sessions.View{Now: t0, Sessions: []render.Session{
+		{Source: "m4", Tool: "claude", Session: "a", State: "done", StateSince: t0.Add(-2 * time.Minute), UpdatedAt: t0},
+		{Source: "m4", Tool: "claude", Session: "b", State: "done", StateSince: t0.Add(-time.Minute), UpdatedAt: t0},
+		{Source: "m5", Tool: "codex", Session: "c", State: "done", StateSince: t0, UpdatedAt: t0},
+	}}
+	want := moodLead{Lead: "M5", Hosts: 2, Tool: "codex"}
+	if got := leadOf(v); got != want {
+		t.Fatalf("lead = %+v, want %+v", got, want)
+	}
+}
+
+func TestKnobViewMoodCarriesTheLeadProject(t *testing.T) {
+	f := newViewFixture(t)
+	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "waiting", Project: "learn-language"})
+	_, body := f.get(t, "")
+	var v struct {
+		Mood knobMood `json:"mood"`
+	}
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Mood.LeadProject != "learn-language" {
+		t.Fatalf("lead_project = %q", v.Mood.LeadProject)
+	}
+}
+
+func TestKnobViewMoodLeavesOutTheProjectOfAnOldProducer(t *testing.T) {
+	f := newViewFixture(t)
+	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "waiting"})
+	_, body := f.get(t, "")
+	if strings.Contains(string(body), "lead_project") {
+		t.Fatalf("view = %s", body)
+	}
+}
+
+func TestKnobViewMoodNamesTheLeadOfSeveralHosts(t *testing.T) {
+	f := newViewFixture(t)
+	purple := "#B48CFF"
+	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "running", SourceColor: &purple})
+	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s2", State: "running"})
+	f.app.Upsert(StatusRequest{Source: "MINI", Tool: "codex", Session: "s3", State: "running"})
+	resp, body := f.get(t, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	var v struct {
+		Mood json.RawMessage `json:"mood"`
+	}
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"waiting":0,"errors":0,"running":3,"done":0,"source":"","lead":"M4","hosts":2,"lead_color":"#B48CFF","tool":"claude"}`
+	if string(v.Mood) != want {
+		t.Fatalf("mood = %s\nwant   %s", v.Mood, want)
+	}
+}
+
+func TestUpsertNotifiesWhenOnlyTheLeadMoves(t *testing.T) {
+	f := newViewFixture(t)
+	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "running"})
+	seq, _ := f.app.changes.subscribe()
+	purple := "#B48CFF"
+	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "running", SourceColor: &purple})
+	if got := f.app.changes.since(seq); got&topicSessions == 0 {
+		t.Fatal("a lead colour change did not notify")
+	}
+}
+
+func TestUpsertStaysQuietOnAnUnchangedHeartbeat(t *testing.T) {
+	f := newViewFixture(t)
+	purple := "#B48CFF"
+	req := StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "waiting", Message: "approve", SourceColor: &purple}
+	f.app.Upsert(req)
+	seq, _ := f.app.changes.subscribe()
+	f.app.Upsert(req)
+	if got := f.app.changes.since(seq); got&topicSessions != 0 {
+		t.Fatal("an unchanged heartbeat notified")
+	}
+}
+
+func TestNewKnobMoodLeavesOutALeadThatOnlyDiffersInCase(t *testing.T) {
+	m := newKnobMood(Render{Running: 1, Source: "m4"}, moodLead{Lead: "M4", Hosts: 1, Tool: "codex"})
+	if m.Lead != "" || m.Hosts != 0 || m.Tool != "codex" {
+		t.Fatalf("mood = %+v", m)
+	}
+}
+
+func TestMoodStateProjectsOneView(t *testing.T) {
+	idle := newMoodState(leadView(), "zzz")
+	if idle.Render.Text != "zzz" || idle.Render.Color != "#707070" || idle.Lead != (moodLead{}) || len(idle.Sessions) != 0 {
+		t.Fatalf("idle = %+v", idle)
+	}
+	v := leadView(
+		render.Session{Source: "M4", Tool: "claude", Session: "a", State: "error", Message: "boom"},
+		render.Session{Source: "MINI", Tool: "codex", Session: "b", State: "running"},
+	)
+	s := newMoodState(v, "zzz")
+	if s.Render.Text != "ERR Claude boom" || s.Render.Errors != 1 || s.Render.Running != 1 || s.Render.Source != "M4" {
+		t.Errorf("render = %+v", s.Render)
+	}
+	if s.Lead != (moodLead{Lead: "M4", Hosts: 1, Tool: "claude"}) {
+		t.Errorf("lead = %+v", s.Lead)
+	}
+	snap := s.snapshot()
+	if !snap.Now.Equal(v.Now) || len(snap.Sessions) != 2 || snap.Render != s.Render {
+		t.Errorf("snapshot = %+v", snap)
+	}
+}

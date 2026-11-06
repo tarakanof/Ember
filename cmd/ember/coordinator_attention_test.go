@@ -1,0 +1,136 @@
+package main
+
+import (
+	"context"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestAttentionChimeOncePerLock(t *testing.T) {
+	t.Run("chime_on_fresh_lock_only", func(t *testing.T) {
+		cfg := defaultConfig()
+		cfg.applyDefaults()
+		cfg.Display.AttentionChime = true
+		publisher := &recordingPublisher{}
+		clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+
+		c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+		c.snapshot = func() Snapshot {
+			return Snapshot{Sessions: []Session{
+				{Source: "a", Tool: "b", Session: "s", State: "waiting", UpdatedAt: clk.Now()},
+			}}
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		go c.Run(ctx)
+
+		c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "running", newState: "waiting"})
+		time.Sleep(50 * time.Millisecond)
+
+		if got := len(publisher.RTTTLsSnapshot()); got != 1 {
+			t.Errorf("after fresh lock: PlayRTTTL calls = %d, want 1", got)
+		}
+
+		c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "waiting", newState: "error"})
+		time.Sleep(50 * time.Millisecond)
+
+		if got := len(publisher.RTTTLsSnapshot()); got != 1 {
+			t.Errorf("after waiting→error re-arm: PlayRTTTL calls = %d, want 1 (no extra chime)", got)
+		}
+
+		c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "error", newState: "running"})
+		time.Sleep(50 * time.Millisecond)
+
+		c.stateMu.RLock()
+		stillLocked := c.locked
+		c.stateMu.RUnlock()
+		if stillLocked {
+			t.Fatal("expected lock released after drain to running")
+		}
+
+		c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "running", newState: "waiting"})
+		time.Sleep(50 * time.Millisecond)
+
+		if got := len(publisher.RTTTLsSnapshot()); got != 2 {
+			t.Errorf("after second fresh lock: PlayRTTTL calls = %d, want 2", got)
+		}
+	})
+
+	t.Run("no_chime_when_disabled", func(t *testing.T) {
+		cfg := defaultConfig()
+		cfg.applyDefaults()
+		cfg.Display.AttentionChime = false
+		publisher := &recordingPublisher{}
+		clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+
+		c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+		c.snapshot = func() Snapshot {
+			return Snapshot{Sessions: []Session{
+				{Source: "a", Tool: "b", Session: "s", State: "waiting", UpdatedAt: clk.Now()},
+			}}
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		go c.Run(ctx)
+
+		c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "running", newState: "waiting"})
+		time.Sleep(50 * time.Millisecond)
+
+		if got := len(publisher.RTTTLsSnapshot()); got != 0 {
+			t.Errorf("with AttentionChime=false: PlayRTTTL calls = %d, want 0", got)
+		}
+	})
+}
+
+func TestAckTimeoutReadLive(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	cfg.Display.AckTimeoutSeconds = 30
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+
+	var cfgPtr atomic.Pointer[Config]
+	stored := cfg
+	cfgPtr.Store(&stored)
+	loadCfg := func() *Config { return cfgPtr.Load() }
+
+	c := newCoordinator(cfg, loadCfg, publisher, clk, nil, nil)
+	c.snapshot = func() Snapshot {
+		return Snapshot{Sessions: []Session{
+			{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: clk.Now()},
+		}}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/w", priorState: "running", newState: "waiting"})
+	time.Sleep(50 * time.Millisecond)
+
+	c.stateMu.RLock()
+	if !c.locked {
+		c.stateMu.RUnlock()
+		t.Fatal("expected lock acquired")
+	}
+	c.stateMu.RUnlock()
+
+	newCfg := *cfgPtr.Load()
+	newCfg.Display.AckTimeoutSeconds = 5
+	cfgPtr.Store(&newCfg)
+
+	clk.Advance(6 * time.Second)
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	c.stateMu.RLock()
+	gotLocked := c.locked
+	c.stateMu.RUnlock()
+
+	if gotLocked {
+		t.Errorf("locked = true after 6s with live AckTimeoutSeconds=5; expected live config read to have released the lock")
+	}
+}

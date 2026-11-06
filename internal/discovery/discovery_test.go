@@ -1,0 +1,307 @@
+package discovery
+
+import (
+	"context"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/brutella/dnssd"
+)
+
+func ngDeviceServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/device" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestProbeAcceptsNGDeviceRejectsOthers(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"awtrix-ng", `{"version":"1.0.13","uid":"e868e705ffb8","boardType":"awtrixng","hostname":"Awtrix","uptimeSeconds":3874}`, true},
+		{"wrong board type", `{"version":"1.0.13","uid":"e868e705ffb8","boardType":"esphome"}`, false},
+		{"missing uid", `{"version":"1.0.13","boardType":"awtrixng"}`, false},
+		{"not json", `<html>not awtrix</html>`, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := ngDeviceServer(t, c.body)
+			info, ok := probe(context.Background(), time.Second, srv.URL)
+			if ok != c.want {
+				t.Fatalf("probe ok=%v want %v (info=%+v)", ok, c.want, info)
+			}
+			if ok && (info.UID != "e868e705ffb8" || info.Version != "1.0.13") {
+				t.Fatalf("probe info = %+v", info)
+			}
+		})
+	}
+}
+
+func TestProbeRejectsNonAwtrixHTTPServer(t *testing.T) {
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html>hello</html>`))
+	}))
+	defer other.Close()
+	if _, ok := probe(context.Background(), time.Second, other.URL); ok {
+		t.Fatal("plain HTTP server should be rejected")
+	}
+}
+
+func TestProbeRejectsLegacyStatsOnlyDevice(t *testing.T) {
+	legacy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/stats" {
+			_, _ = w.Write([]byte(`{"uid":"awtrix_116ae8","version":"0.98"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer legacy.Close()
+	if _, ok := probe(context.Background(), time.Second, legacy.URL); ok {
+		t.Fatal("legacy AWTRIX3 /api/stats-only device must not fingerprint as awtrix-ng")
+	}
+}
+
+func TestFilterCandidatesBuildsCandidate(t *testing.T) {
+	srv := ngDeviceServer(t, `{"version":"1.0.13","uid":"u1","boardType":"awtrixng"}`)
+	got := filterCandidates(context.Background(), time.Second,
+		[]service{{host: "awtrixng-e705ffb8.local.", baseURL: srv.URL}})
+	if len(got) != 1 || got[0].UID != "u1" || got[0].Version != "1.0.13" ||
+		got[0].BaseURL != srv.URL || got[0].Host != "awtrixng-e705ffb8.local." {
+		t.Fatalf("filterCandidates = %+v", got)
+	}
+}
+
+func TestBaseURLForPrefersIPv4(t *testing.T) {
+	ips := []net.IP{net.ParseIP("fe80::1"), net.ParseIP("192.168.0.16")}
+	if got := baseURLFor(ips, 80); got != "http://192.168.0.16:80" {
+		t.Fatalf("baseURLFor = %q", got)
+	}
+	if got := baseURLFor(nil, 80); got != "" {
+		t.Fatalf("baseURLFor(nil) = %q want empty", got)
+	}
+}
+
+func TestParseUDPReply(t *testing.T) {
+	cases := []struct {
+		name     string
+		body     string
+		wantHost string
+		wantPort int
+	}{
+		{"hostname only implies port 80", "Awtrix", "Awtrix", 80},
+		{"hostname with port", "awtrixng-e705ffb8:8080", "awtrixng-e705ffb8", 8080},
+		{"trailing whitespace trimmed", "Awtrix\n", "Awtrix", 80},
+		{"empty body rejected", "", "", 0},
+		{"non-numeric port rejected", "Awtrix:abc", "", 0},
+		{"out-of-range port rejected", "Awtrix:99999", "", 0},
+		{"empty hostname rejected", ":8080", "", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			host, port := parseUDPReply(c.body)
+			if host != c.wantHost || port != c.wantPort {
+				t.Fatalf("parseUDPReply(%q) = (%q, %d), want (%q, %d)", c.body, host, port, c.wantHost, c.wantPort)
+			}
+		})
+	}
+}
+
+func TestCollectUDPRepliesUsesSourceIP(t *testing.T) {
+	collector, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer collector.Close()
+
+	device, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer device.Close()
+	if _, err := device.WriteToUDP([]byte("Awtrix"), collector.LocalAddr().(*net.UDPAddr)); err != nil {
+		t.Fatal(err)
+	}
+
+	got := collectUDPReplies(context.Background(), collector, time.Now().Add(500*time.Millisecond))
+	wantBase := "http://" + net.JoinHostPort("127.0.0.1", "80")
+	if len(got) != 1 || got[0].host != "Awtrix" || got[0].baseURL != wantBase {
+		t.Fatalf("collectUDPReplies = %+v, want one {host:Awtrix baseURL:%s}", got, wantBase)
+	}
+}
+
+func TestCollectUDPRepliesHonoursReplyPort(t *testing.T) {
+	collector, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer collector.Close()
+	device, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer device.Close()
+	if _, err := device.WriteToUDP([]byte("Awtrix:8080"), collector.LocalAddr().(*net.UDPAddr)); err != nil {
+		t.Fatal(err)
+	}
+	got := collectUDPReplies(context.Background(), collector, time.Now().Add(500*time.Millisecond))
+	if len(got) != 1 || got[0].baseURL != "http://127.0.0.1:8080" {
+		t.Fatalf("collectUDPReplies = %+v, want baseURL http://127.0.0.1:8080", got)
+	}
+}
+
+func TestCollectUDPRepliesStopsWhenContextCancelled(t *testing.T) {
+	collector, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer collector.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan []service, 1)
+	go func() { done <- collectUDPReplies(ctx, collector, time.Now().Add(3*time.Second)) }()
+	cancel()
+	select {
+	case got := <-done:
+		if len(got) != 0 {
+			t.Fatalf("collectUDPReplies after cancel = %+v, want none", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("collectUDPReplies kept reading after ctx cancel")
+	}
+}
+
+func TestBrowseAWTRIXSkipsUDPWhenCancelledDuringLookup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	lookup := func(ctx context.Context, _ string, _ dnssd.AddFunc, _ dnssd.RmvFunc) error {
+		cancel()
+		return ctx.Err()
+	}
+	udp := false
+	browseUDP := func(context.Context, time.Duration) []service { udp = true; return nil }
+	got, err := browseAWTRIX(ctx, 3*time.Second, lookup, browseUDP)
+	if udp || !errors.Is(err, context.Canceled) || len(got) != 0 {
+		t.Fatalf("browseAWTRIX after cancel = (%+v, %v), udp=%v; want (none, context.Canceled), no udp", got, err, udp)
+	}
+}
+
+func noMDNS(context.Context, string, dnssd.AddFunc, dnssd.RmvFunc) error { return nil }
+
+func TestBrowseAWTRIXReturnsCtxErrWhenCancelledDuringUDP(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var probed atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probed.Store(true)
+		_, _ = w.Write([]byte(`{"version":"1.0.13","uid":"u1","boardType":"awtrixng"}`))
+	}))
+	t.Cleanup(srv.Close)
+	browseUDP := func(context.Context, time.Duration) []service {
+		cancel()
+		return []service{{host: "Awtrix", baseURL: srv.URL}}
+	}
+	got, err := browseAWTRIX(ctx, 3*time.Second, noMDNS, browseUDP)
+	if !errors.Is(err, context.Canceled) || len(got) != 0 || probed.Load() {
+		t.Fatalf("browseAWTRIX cancelled during UDP = (%+v, %v), probed=%v; want (none, context.Canceled), no probe", got, err, probed.Load())
+	}
+}
+
+func TestBrowseAWTRIXReturnsCtxErrWhenCancelledDuringProbe(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancel()
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	browseUDP := func(context.Context, time.Duration) []service {
+		return []service{{host: "Awtrix", baseURL: srv.URL}}
+	}
+	got, err := browseAWTRIX(ctx, 3*time.Second, noMDNS, browseUDP)
+	if !errors.Is(err, context.Canceled) || len(got) != 0 {
+		t.Fatalf("browseAWTRIX cancelled during the probe = (%+v, %v), want (none, context.Canceled)", got, err)
+	}
+}
+
+func TestBrowsePrusaLinkListsServicesWithIPv4URLs(t *testing.T) {
+	var asked string
+	lookup := func(ctx context.Context, svc string, add dnssd.AddFunc, _ dnssd.RmvFunc) error {
+		asked = svc
+		add(dnssd.BrowseEntry{Name: "Prusa CORE One", Host: "prusa-core-one.local.", Port: 80,
+			IPs: []net.IP{net.ParseIP("fe80::1"), net.ParseIP("192.168.0.50")}})
+		add(dnssd.BrowseEntry{Name: "Prusa MK4", Host: "prusa-mk4.local.", IPs: []net.IP{net.ParseIP("192.168.0.51")}})
+		add(dnssd.BrowseEntry{Name: "No address", Host: "ghost.local.", Port: 80})
+		add(dnssd.BrowseEntry{Name: "Prusa CORE One", Host: "prusa-core-one.local.", Port: 8080, IPs: []net.IP{net.ParseIP("192.168.0.52")}})
+		return nil
+	}
+	got, err := browsePrusaLink(context.Background(), time.Second, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asked != "_prusalink._tcp.local." {
+		t.Fatalf("browsed %q", asked)
+	}
+	want := []PrusaLink{
+		{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: "http://192.168.0.52:8080"},
+		{Name: "Prusa MK4", Host: "prusa-mk4.local.", URL: "http://192.168.0.51:80"},
+	}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("browsePrusaLink = %+v, want %+v", got, want)
+	}
+}
+
+func TestBrowsePrusaLinkReturnsCtxErr(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := browsePrusaLink(ctx, time.Second, noMDNS); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWatchPrusaLinkReportsEachAppearanceUntilCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var asked string
+	var lookupCtx context.Context
+	lookup := func(ctx context.Context, svc string, add dnssd.AddFunc, _ dnssd.RmvFunc) error {
+		asked, lookupCtx = svc, ctx
+		add(dnssd.BrowseEntry{Name: "No address", Host: "ghost.local.", Port: 80})
+		add(dnssd.BrowseEntry{Name: "Prusa CORE One", Host: "prusa-core-one.local.", Port: 80, IPs: []net.IP{net.ParseIP("192.168.0.50")}})
+		cancel()
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	var seen []PrusaLink
+	err := watchPrusaLink(ctx, lookup, func(p PrusaLink) { seen = append(seen, p) })
+	if err != nil {
+		t.Fatalf("a cancelled watch returned %v, want nil", err)
+	}
+	if asked != "_prusalink._tcp.local." || lookupCtx != ctx {
+		t.Fatalf("watched %q with ctx %v", asked, lookupCtx)
+	}
+	want := PrusaLink{Name: "Prusa CORE One", Host: "prusa-core-one.local.", URL: "http://192.168.0.50:80"}
+	if len(seen) != 1 || seen[0] != want {
+		t.Fatalf("seen = %+v, want [%+v]", seen, want)
+	}
+}
+
+func TestWatchPrusaLinkReportsALookupFailure(t *testing.T) {
+	boom := errors.New("no multicast interface")
+	lookup := func(context.Context, string, dnssd.AddFunc, dnssd.RmvFunc) error { return boom }
+	if err := watchPrusaLink(context.Background(), lookup, func(PrusaLink) {}); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want %v", err, boom)
+	}
+}

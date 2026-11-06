@@ -1,0 +1,594 @@
+package awtrix
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"mime"
+	"mime/multipart"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+type recorded struct {
+	method      string
+	path        string
+	rawQuery    string
+	contentType string
+	body        []byte
+}
+
+func serve(t *testing.T, status int, respBody string) (*Client, *recorded) {
+	t.Helper()
+	return serveWithTimeout(t, status, respBody, 2*time.Second)
+}
+
+func serveWithTimeout(t *testing.T, status int, respBody string, timeout time.Duration) (*Client, *recorded) {
+	t.Helper()
+	rec := &recorded{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.method = r.Method
+		rec.path = r.URL.Path
+		rec.rawQuery = r.URL.RawQuery
+		rec.contentType = r.Header.Get("Content-Type")
+		rec.body, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		io.WriteString(w, respBody)
+	}))
+	t.Cleanup(srv.Close)
+	return NewClient(srv.URL, timeout), rec
+}
+
+func decodeBody(t *testing.T, rec *recorded) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal(rec.body, &m); err != nil {
+		t.Fatalf("request body is not JSON: %v (%q)", err, rec.body)
+	}
+	return m
+}
+
+func TestPushApp(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	err := c.PushApp(context.Background(), "ember weather", []byte(`{"text":"hi"}`))
+	if err != nil {
+		t.Fatalf("PushApp: %v", err)
+	}
+	if rec.method != http.MethodPut || rec.path != "/api/v1/apps/pushed/ember weather" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if rec.contentType != "application/json" {
+		t.Fatalf("Content-Type = %q", rec.contentType)
+	}
+	if m := decodeBody(t, rec); m["text"] != "hi" {
+		t.Fatalf("body = %v", m)
+	}
+}
+
+func TestDeleteApp(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.DeleteApp(context.Background(), "ember-weather"); err != nil {
+		t.Fatalf("DeleteApp: %v", err)
+	}
+	if rec.method != http.MethodDelete || rec.path != "/api/v1/apps/ember-weather" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if len(rec.body) != 0 {
+		t.Fatalf("DELETE must send no body, got %q", rec.body)
+	}
+}
+
+func TestListApps(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `[
+		{"name":"Time","enabled":true,"inLoop":true,"slot":null,"present":true,"origin":"builtin"},
+		{"name":"ember","enabled":true,"inLoop":true,"slot":null,"present":true,"origin":"pushed"}
+	]`)
+	apps, err := c.ListApps(context.Background())
+	if err != nil {
+		t.Fatalf("ListApps: %v", err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/api/v1/apps" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if len(apps) != 2 || apps[0].Name != "Time" || apps[0].Origin != "builtin" ||
+		apps[1].Name != "ember" || apps[1].Origin != "pushed" {
+		t.Fatalf("apps = %+v", apps)
+	}
+}
+
+func TestNotify(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.Notify(context.Background(), map[string]any{"text": "yo"}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/notifications" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+}
+
+func TestDismissNotify(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.DismissNotify(context.Background()); err != nil {
+		t.Fatalf("DismissNotify: %v", err)
+	}
+	if rec.method != http.MethodDelete || rec.path != "/api/v1/notifications/active" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+}
+
+func TestPlayRTTTL(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.PlayRTTTL(context.Background(), "beep:d=16,o=6,b=140:c"); err != nil {
+		t.Fatalf("PlayRTTTL: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if m := decodeBody(t, rec); m["rtttl"] != "beep:d=16,o=6,b=140:c" || len(m) != 1 {
+		t.Fatalf("body = %v (audio/play takes exactly one key)", m)
+	}
+}
+
+func TestPlaySound(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.PlaySound(context.Background(), "alarm"); err != nil {
+		t.Fatalf("PlaySound: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if m := decodeBody(t, rec); m["sound"] != "alarm" || len(m) != 1 {
+		t.Fatalf("body = %v", m)
+	}
+}
+
+func TestSetIndicator(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.SetIndicator(context.Background(), 2, map[string]any{"color": "#FF0000"}); err != nil {
+		t.Fatalf("SetIndicator: %v", err)
+	}
+	if rec.method != http.MethodPut || rec.path != "/api/v1/indicators/2" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+}
+
+func TestClearIndicator(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.ClearIndicator(context.Background(), 3); err != nil {
+		t.Fatalf("ClearIndicator: %v", err)
+	}
+	if rec.method != http.MethodDelete || rec.path != "/api/v1/indicators/3" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+}
+
+func TestIndicatorIndexValidated(t *testing.T) {
+	c, _ := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.SetIndicator(context.Background(), 0, map[string]any{"color": "#FF0000"}); err == nil {
+		t.Fatal("index 0 must be rejected client-side")
+	}
+	if err := c.ClearIndicator(context.Background(), 4); err == nil {
+		t.Fatal("index 4 must be rejected client-side")
+	}
+}
+
+func TestPatchSettings(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"brightness":120}`)
+	if err := c.PatchSettings(context.Background(), map[string]any{"brightness": 120}); err != nil {
+		t.Fatalf("PatchSettings: %v", err)
+	}
+	if rec.method != http.MethodPatch || rec.path != "/api/v1/settings" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if rec.contentType != "application/json" {
+		t.Fatalf("Content-Type = %q", rec.contentType)
+	}
+}
+
+func TestGetSettings(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"autoTransition":false,"blockNavigation":true,"brightness":120}`)
+	got, err := c.GetSettings(context.Background())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/api/v1/settings" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if got["autoTransition"] != false || got["blockNavigation"] != true {
+		t.Fatalf("settings = %v", got)
+	}
+}
+
+func TestSwitchApp(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.SwitchApp(context.Background(), "ember", SwitchAnimated); err != nil {
+		t.Fatalf("SwitchApp: %v", err)
+	}
+	if rec.method != http.MethodPut || rec.path != "/api/v1/apps/active" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	m := decodeBody(t, rec)
+	if m["name"] != "ember" {
+		t.Fatalf("body = %v", m)
+	}
+	if _, has := m["fast"]; has {
+		t.Fatalf("an animated switch must leave fast out (NG default false), body = %v", m)
+	}
+}
+
+func TestSwitchAppInstantSendsFast(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.SwitchApp(context.Background(), "ember", SwitchInstant); err != nil {
+		t.Fatalf("SwitchApp: %v", err)
+	}
+	if m := decodeBody(t, rec); m["name"] != "ember" || m["fast"] != true {
+		t.Fatalf("body = %v, want name ember + fast true", m)
+	}
+}
+
+func TestListIcons(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"files":[{"name":"29802.gif","size":1234},{"name":"6396.gif","size":99}],"usedBytes":1,"totalBytes":2}`)
+	names, err := c.ListIcons(context.Background())
+	if err != nil {
+		t.Fatalf("ListIcons: %v", err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/api/v1/files" || rec.rawQuery != "dir=%2FICONS" {
+		t.Fatalf("got %s %s?%s", rec.method, rec.path, rec.rawQuery)
+	}
+	if len(names) != 2 || names[0] != "29802.gif" || names[1] != "6396.gif" {
+		t.Fatalf("names = %v", names)
+	}
+}
+
+func TestPutIcon(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.PutIcon(context.Background(), "29802.gif", []byte("GIF89a...")); err != nil {
+		t.Fatalf("PutIcon: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/files" || rec.rawQuery != "dir=%2FICONS" {
+		t.Fatalf("got %s %s?%s", rec.method, rec.path, rec.rawQuery)
+	}
+	mt, params, err := mime.ParseMediaType(rec.contentType)
+	if err != nil || mt != "multipart/form-data" {
+		t.Fatalf("Content-Type = %q (%v)", rec.contentType, err)
+	}
+	mr := multipart.NewReader(strings.NewReader(string(rec.body)), params["boundary"])
+	part, err := mr.NextPart()
+	if err != nil {
+		t.Fatalf("no multipart part: %v", err)
+	}
+	if part.FileName() != "29802.gif" {
+		t.Fatalf("part filename = %q", part.FileName())
+	}
+	data, _ := io.ReadAll(part)
+	if string(data) != "GIF89a..." {
+		t.Fatalf("part data = %q", data)
+	}
+}
+
+func TestDeleteIcon(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.DeleteIcon(context.Background(), "ember_wait_claude_0badf00d.gif"); err != nil {
+		t.Fatalf("DeleteIcon: %v", err)
+	}
+	if rec.method != http.MethodDelete || rec.path != "/api/v1/files" || rec.rawQuery != "path=%2FICONS%2Fember_wait_claude_0badf00d.gif" {
+		t.Fatalf("got %s %s?%s", rec.method, rec.path, rec.rawQuery)
+	}
+}
+
+func TestDeviceInfo(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"version":"1.0.13","uid":"e868e705ffb8","boardType":"awtrixng","uptimeSeconds":42}`)
+	info, err := c.DeviceInfo(context.Background())
+	if err != nil {
+		t.Fatalf("DeviceInfo: %v", err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/api/v1/device" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if info.UID != "e868e705ffb8" || info.BoardType != "awtrixng" || info.Version != "1.0.13" || info.UptimeSeconds != 42 {
+		t.Fatalf("info = %+v", info)
+	}
+}
+
+func TestReboot(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.Reboot(context.Background()); err != nil {
+		t.Fatalf("Reboot: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/device/reboot" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+}
+
+func TestErrorEnvelopeDecoding(t *testing.T) {
+	c, _ := serve(t, http.StatusUnprocessableEntity,
+		`{"error":{"code":"validationFailed","message":"unknown key \"noScroll\"","field":"noScroll"}}`)
+	err := c.PushApp(context.Background(), "x", []byte(`{"noScroll":true}`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != 422 || apiErr.Code != "validationFailed" || apiErr.Field != "noScroll" {
+		t.Fatalf("apiErr = %+v", apiErr)
+	}
+	for _, want := range []string{"422", "validationFailed", "noScroll"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error text %q missing %q", err.Error(), want)
+		}
+	}
+}
+
+func TestErrorWithoutEnvelope(t *testing.T) {
+	c, _ := serve(t, http.StatusInternalServerError, `boom`)
+	err := c.Notify(context.Background(), map[string]any{"text": "x"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.StatusCode != 500 || !strings.Contains(apiErr.Message, "boom") {
+		t.Fatalf("apiErr = %+v", apiErr)
+	}
+}
+
+func TestBaseURLRequired(t *testing.T) {
+	c := NewClient("", time.Second)
+	if err := c.Notify(context.Background(), map[string]any{}); err == nil {
+		t.Fatal("empty base URL must error")
+	}
+}
+
+func TestDismissNotifyByName(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.DismissNotifyByName(context.Background(), "ember reminder"); err != nil {
+		t.Fatalf("DismissNotifyByName: %v", err)
+	}
+	if rec.method != http.MethodDelete || rec.path != "/api/v1/notifications/ember reminder" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+}
+
+func TestDismissNotifyByNameRejectsEmptyName(t *testing.T) {
+	c, _ := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.DismissNotifyByName(context.Background(), ""); err == nil {
+		t.Fatal("empty name must be rejected client-side (it would hit the collection route)")
+	}
+}
+
+func TestCapabilities(t *testing.T) {
+	body := `{"effects":["Fade","Matrix"],"paletteEffects":["Fade"],
+	  "transitions":["Slide","Dim","Zoom"],"overlays":["rain"],
+	  "palettes":["Ocean","Lava"],
+	  "audio":{"buzzer":true,"track":false,"mp3":false,"radio":false},
+	  "scriptUpdates":true,"futureKey":{"x":1},"gpio":{"soc":"esp32","max":39}}`
+	c, rec := serve(t, http.StatusOK, body)
+	caps, err := c.Capabilities(context.Background())
+	if err != nil {
+		t.Fatalf("Capabilities: %v", err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/api/v1/capabilities" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if len(caps.Effects) != 2 || len(caps.PaletteEffects) != 1 || len(caps.Transitions) != 3 ||
+		len(caps.Overlays) != 1 || len(caps.Palettes) != 2 {
+		t.Fatalf("decoded = %+v", caps)
+	}
+	if !caps.Audio.Buzzer || caps.Audio.Track || caps.Audio.MP3 || caps.Audio.Radio || !caps.ScriptUpdates {
+		t.Fatalf("audio/scriptUpdates = %+v / %v", caps.Audio, caps.ScriptUpdates)
+	}
+	out, err := json.Marshal(caps)
+	if err != nil {
+		t.Fatalf("re-marshal: %v", err)
+	}
+	var got, want map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("re-marshal not JSON: %v", err)
+	}
+	_ = json.Unmarshal([]byte(body), &want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("re-marshal changed the document:\n got %s\nwant %s", out, body)
+	}
+}
+
+func TestCapabilitiesMarshalWithoutRawUsesTypedFields(t *testing.T) {
+	caps := Capabilities{Transitions: []string{"Slide"}, Audio: AudioCaps{Buzzer: true}}
+	out, err := json.Marshal(caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"transitions":["Slide"]`) || !strings.Contains(string(out), `"buzzer":true`) {
+		t.Fatalf("marshal = %s", out)
+	}
+}
+
+func TestCapabilitiesPropagatesAPIError(t *testing.T) {
+	c, _ := serve(t, http.StatusNotFound, `{"error":{"code":"notFound","message":"not found"}}`)
+	if _, err := c.Capabilities(context.Background()); err == nil {
+		t.Fatal("want error on 404")
+	}
+}
+
+func TestTrailingSlashTrimmed(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	c2 := NewClient(c.BaseURL()+"/", 2*time.Second)
+	if err := c2.Notify(context.Background(), map[string]any{"text": "x"}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if rec.path != "/api/v1/notifications" {
+		t.Fatalf("path = %q (double slash?)", rec.path)
+	}
+}
+
+func TestKeepAliveReusesConnection(t *testing.T) {
+	var conns atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"pad":"`+strings.Repeat("x", 8<<10)+`"}`)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+		if st == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL, 2*time.Second)
+	for i := 0; i < 3; i++ {
+		if err := c.PushApp(context.Background(), "ember", []byte(`{"text":"x"}`)); err != nil {
+			t.Fatalf("PushApp %d: %v", i, err)
+		}
+	}
+	if err := c.PutIcon(context.Background(), "a.gif", []byte("GIF89a")); err != nil {
+		t.Fatalf("PutIcon: %v", err)
+	}
+	if err := c.PushApp(context.Background(), "ember", []byte(`{"text":"x"}`)); err != nil {
+		t.Fatalf("PushApp after PutIcon: %v", err)
+	}
+	if got := conns.Load(); got != 1 {
+		t.Fatalf("opened %d connections for 5 sequential writes, want 1 (keep-alive)", got)
+	}
+}
+
+func TestParseAPIError(t *testing.T) {
+	e := ParseAPIError(422, []byte(`{"error":{"code":"validationFailed","message":"unknown field","field":"volume"}}`))
+	if e.StatusCode != 422 || e.Code != "validationFailed" || e.Field != "volume" || e.Message != "unknown field" {
+		t.Fatalf("parsed = %+v", e)
+	}
+	raw := ParseAPIError(500, []byte("  boom \n"))
+	if raw.Code != "" || raw.Message != "boom" {
+		t.Fatalf("raw = %+v", raw)
+	}
+}
+
+func TestSetDisplayPower(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+		if err := c.SetDisplayPower(context.Background(), on); err != nil {
+			t.Fatalf("SetDisplayPower(%v): %v", on, err)
+		}
+		if rec.method != http.MethodPatch || rec.path != "/api/v1/display" {
+			t.Fatalf("got %s %s", rec.method, rec.path)
+		}
+		if m := decodeBody(t, rec); m["power"] != on || len(m) != 1 {
+			t.Fatalf("body = %v", m)
+		}
+	}
+}
+
+func TestPlayMelody(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.PlayMelody(context.Background(), "doorbell"); err != nil {
+		t.Fatalf("PlayMelody: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if m := decodeBody(t, rec); m["melody"] != "doorbell" || len(m) != 1 {
+		t.Fatalf("body = %v", m)
+	}
+}
+
+func TestStopAudio(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.StopAudio(context.Background()); err != nil {
+		t.Fatalf("StopAudio: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/stop" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if len(rec.body) != 0 {
+		t.Fatalf("body = %q, want none (no body stops everything)", rec.body)
+	}
+}
+
+func TestMelodies(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"melodies":[
+		{"name":"doorbell","rtttl":"doorbell:d=4,o=5,b=100:e,c","bytes":26,"notes":2,"durationMs":2400,"valid":true},
+		{"name":"broken","rtttl":"broken:x","bytes":8,"notes":0,"durationMs":0,"valid":false,"error":"bad note","index":7}],
+		"usedBytes":41216,"totalBytes":1048576}`)
+	got, err := c.Melodies(context.Background())
+	if err != nil {
+		t.Fatalf("Melodies: %v", err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/api/v1/audio/melodies" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if len(got.Melodies) != 2 || got.UsedBytes != 41216 || got.TotalBytes != 1048576 {
+		t.Fatalf("list = %+v", got)
+	}
+	d := got.Melodies[0]
+	if d.Name != "doorbell" || d.RTTTL != "doorbell:d=4,o=5,b=100:e,c" || d.Bytes != 26 ||
+		d.Notes != 2 || d.DurationMs != 2400 || !d.Valid || d.Error != "" || d.Index != nil {
+		t.Fatalf("doorbell = %+v", d)
+	}
+	b := got.Melodies[1]
+	if b.Valid || b.Error != "bad note" || b.Index == nil || *b.Index != 7 {
+		t.Fatalf("broken = %+v", b)
+	}
+}
+
+func TestMelodiesEmptyListIsNotNull(t *testing.T) {
+	c, _ := serve(t, http.StatusOK, `{"melodies":[],"usedBytes":1,"totalBytes":2}`)
+	got, err := c.Melodies(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	if !strings.Contains(string(b), `"melodies":[]`) {
+		t.Fatalf("marshal = %s", b)
+	}
+}
+
+func TestPlayFileSendsFileKey(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.PlayFile(context.Background(), "doorbell"); err != nil {
+		t.Fatalf("PlayFile: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if m := decodeBody(t, rec); m["file"] != "doorbell" || len(m) != 1 {
+		t.Fatalf("body = %v", m)
+	}
+}
+
+func TestAudioCapsReadsNG11AndNG12Shapes(t *testing.T) {
+	cases := []struct {
+		name               string
+		body               string
+		soundObject, rtttl bool
+	}{
+		{"ng11 buzzer", `{"audio":{"buzzer":true,"track":false,"mp3":false,"radio":false}}`, false, true},
+		{"ng11 no buzzer", `{"audio":{"buzzer":false,"track":true,"mp3":false,"radio":false}}`, false, false},
+		{"ng12 rtttl", `{"audio":{"mp3":false,"rtttl":true,"song":false,"speech":false,"track":true,"radio":false,"url":false,"effect":false,"clip":false}}`, true, true},
+		{"ng12 no buzzer pin", `{"audio":{"mp3":true,"rtttl":false,"song":true,"track":false,"radio":true}}`, true, false},
+		{"no audio", `{}`, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var caps Capabilities
+			if err := json.Unmarshal([]byte(c.body), &caps); err != nil {
+				t.Fatal(err)
+			}
+			if got := caps.Audio.SoundObjectAPI(); got != c.soundObject {
+				t.Errorf("SoundObjectAPI = %v, want %v", got, c.soundObject)
+			}
+			if got := caps.Audio.PlaysRTTTL(); got != c.rtttl {
+				t.Errorf("PlaysRTTTL = %v, want %v", got, c.rtttl)
+			}
+		})
+	}
+}

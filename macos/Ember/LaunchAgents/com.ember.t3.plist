@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>              <string>com.ember.t3</string>
+  <key>BundleProgram</key>      <string>Contents/MacOS/ember-t3-producer</string>
+  <!-- With BundleProgram set, launchd uses ProgramArguments[0] as argv[0], so the
+       program name must lead and the subcommand follow (see com.ember.heartbeat.plist). -->
+  <key>ProgramArguments</key>   <array><string>ember-t3-producer</string><string>run</string></array>
+  <key>KeepAlive</key>          <true/>
+  <key>RunAtLoad</key>          <true/>
+  <key>ProcessType</key>        <string>Background</string>
+  <key>Nice</key>               <integer>10</integer>
+  <key>LowPriorityIO</key>      <true/>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+</dict>
+</plist>

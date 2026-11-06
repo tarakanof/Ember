@@ -1,0 +1,1 @@
+{"enabledPlugins":{"ember@ember":true,"other@x":false},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/usr/bin/say done"}]}]}}

@@ -1,0 +1,31 @@
+#!/bin/sh
+# Pre-push gate — mirrors the GitHub CI (gofmt, go vet, go test -race) locally so
+# a red build is caught before it leaves your machine. Install once with
+# scripts/install-hooks.sh (sets core.hooksPath to this dir).
+#
+# Bypass for a one-off push: `git push --no-verify`, or EMBER_SKIP_HOOKS=1.
+set -e
+
+[ "${EMBER_SKIP_HOOKS:-0}" = "1" ] && exit 0
+command -v go >/dev/null 2>&1 || { echo "pre-push: go not found — skipping Go checks"; exit 0; }
+
+# Run from the repo root regardless of where `git push` was invoked.
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+echo "pre-push: gofmt…"
+# Scope to tracked Go files so nested worktrees under .claude/ aren't scanned.
+unformatted="$(git ls-files '*.go' | xargs gofmt -l 2>/dev/null)"
+if [ -n "$unformatted" ]; then
+	echo "pre-push: not gofmt-clean — run 'gofmt -w' on:" >&2
+	echo "$unformatted" | sed 's/^/  /' >&2
+	exit 1
+fi
+
+echo "pre-push: go vet…"
+go vet ./...
+
+echo "pre-push: go test -race…"
+go test ./... -race
+
+echo "pre-push: all checks passed ✓"

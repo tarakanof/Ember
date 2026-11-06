@@ -1,0 +1,47 @@
+{
+  "generated_at": "2026-09-26T10:30:00+02:00",
+  "stale_after_sec": 600,
+  "tools": [
+    {
+      "tool": "claude",
+      "source": "m4",
+      "updated_at": "2026-09-26T10:28:00+02:00",
+      "stale": false,
+      "five_hour": {
+        "used_percent": 14,
+        "resets_at": "2026-09-26T12:30:00+02:00",
+        "reset_label": "12:30"
+      },
+      "seven_day": {
+        "used_percent": 37.5,
+        "resets_at": null,
+        "reset_label": null
+      },
+      "models": {
+        "opus": {
+          "used_percent": 5,
+          "resets_at": null,
+          "reset_label": null
+        },
+        "sonnet": {
+          "used_percent": 20.5,
+          "resets_at": null,
+          "reset_label": null
+        }
+      }
+    },
+    {
+      "tool": "codex",
+      "source": null,
+      "updated_at": "2026-09-26T10:10:00+02:00",
+      "stale": true,
+      "five_hour": {
+        "used_percent": 3,
+        "resets_at": null,
+        "reset_label": null
+      },
+      "seven_day": null,
+      "models": {}
+    }
+  ]
+}

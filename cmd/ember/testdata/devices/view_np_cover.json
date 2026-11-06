@@ -1,0 +1,32 @@
+{
+  "v": 1,
+  "epoch": 2,
+  "config_version": 2,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 0,
+    "done": 0,
+    "source": ""
+  },
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "nowplaying": {
+    "state": "playing",
+    "source": "plex",
+    "title": "Example Song",
+    "artist": "Example Artist",
+    "album": "Example Album",
+    "track_id": "4242",
+    "duration_ms": 330000,
+    "position_ms": 61000,
+    "position_at": 1782043198000,
+    "art_version": "fb43cf74b67a",
+    "album_art": true,
+    "volume": 40,
+    "accent": "#6C22E6",
+    "cover_version": "fb43cf74b67a-r1"
+  }
+}

@@ -1,0 +1,23 @@
+# Local-only context (template)
+
+Copy this file to `AGENTS.local.md` (gitignored) and fill in your own
+deployment-specific values. AGENTS.md points here for anything that should not
+live in the public repo.
+
+## Devices / hosts
+
+- AWTRIX (awtrix-ng) device hostname: `<hostname>.local`
+- AWTRIX HTTP URL: `http://<awtrix-ip>`
+- Home Assistant: `http://<home-assistant-host>:8123`
+
+## Unraid MCP
+
+- In the shell that runs the agent: `export UNRAID_MCP_URL=http://<unraid-host>:6750/mcp`
+  and `UNRAID_MCP_TOKEN=<the container's UNRAID_MCP_BEARER_TOKEN>` (see
+  `docs/WORKFLOW.md` step 6). Never commit the token.
+
+## Documentation / vault
+
+- Obsidian vault path: `<path-to-vault>` (project task note: `AI/Tasks/Ember.md`;
+  specs and plans under `Personal/Ember/Specs/`, firmware specs under
+  `Personal/cinder/Specs/`).

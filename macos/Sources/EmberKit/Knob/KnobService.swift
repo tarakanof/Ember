@@ -1,0 +1,131 @@
+import Foundation
+
+public struct KnobService: Sendable, Equatable {
+    let client: APIClient
+    public init(client: APIClient) { self.client = client }
+
+    public static func == (a: KnobService, b: KnobService) -> Bool {
+        a.client.baseURL == b.client.baseURL && a.client.token == b.client.token
+    }
+
+    public var baseURL: URL? { client.baseURL }
+
+    public func devices() async throws -> [KnobDevice] {
+        let list: KnobDeviceList = try await client.get("/v1/devices")
+        return list.devices
+    }
+
+    public func mint(hwID: String, name: String) async throws -> MintedKnob {
+        try await client.request("POST", "/v1/devices",
+                                 body: ["kind": KnobDevice.knobKind, "hw_id": hwID, "name": name])
+    }
+
+    public func claims() async throws -> [KnobClaim] {
+        let list: KnobClaimList = try await client.get("/v1/devices/claims")
+        return list.claims
+    }
+
+    public func approveClaim(id: String, code: String) async throws -> KnobDevice {
+        try await client.request("POST", "/v1/devices/claims/\(Self.escape(id))/approve", body: ["code": code])
+    }
+
+    public func declineClaim(id: String) async throws {
+        try await client.send("POST", "/v1/devices/claims/\(Self.escape(id))/decline")
+    }
+
+    public func config(id: String) async throws -> KnobSettings {
+        try await client.get("/v1/devices/\(Self.escape(id))/config")
+    }
+
+    public func updateConfig(id: String, patch: [String: JSONValue]) async throws {
+        try await client.put("/v1/devices/\(Self.escape(id))/config", body: JSONValue.object(patch))
+    }
+
+    public func rename(id: String, name: String) async throws -> KnobDevice {
+        try await client.request("PATCH", "/v1/devices/\(Self.escape(id))", body: ["name": name])
+    }
+
+    public func rotate(id: String) async throws {
+        try await client.send("POST", "/v1/devices/\(Self.escape(id))/rotate")
+    }
+
+    public func forget(id: String) async throws {
+        try await client.send("DELETE", "/v1/devices/\(Self.escape(id))")
+    }
+
+    public func coredumps(id: String) async throws -> [KnobCoredump] {
+        try await client.get("/v1/devices/\(Self.escape(id))/coredumps")
+    }
+
+    public func coredump(id: String, dump: String) async throws -> Data {
+        try await client.getData("/v1/devices/\(Self.escape(id))/coredumps/\(Self.escape(dump))")
+    }
+
+    public func deleteCoredump(id: String, dump: String) async throws {
+        try await client.send("DELETE", "/v1/devices/\(Self.escape(id))/coredumps/\(Self.escape(dump))")
+    }
+
+    public func ota(id: String) async throws -> KnobOTAStatus {
+        try await client.get("/v1/devices/\(Self.escape(id))/ota")
+    }
+
+    public func updateOTA(id: String, patch: [String: JSONValue]) async throws -> KnobOTAStatus {
+        try await client.request("PUT", "/v1/devices/\(Self.escape(id))/ota", body: JSONValue.object(patch))
+    }
+
+    public func firmware() async throws -> [KnobFirmwareImage] {
+        try await client.get("/v1/firmware")
+    }
+
+    public func uploadFirmware(_ data: Data, channel: String,
+                               progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> KnobFirmwareImage {
+        try await client.upload("POST", "/v1/firmware", query: [URLQueryItem(name: "channel", value: channel)],
+                                data: data, progress: progress)
+    }
+
+    public func uploadELF(version: String, _ data: Data,
+                          progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws {
+        try await client.upload("PUT", "/v1/firmware/\(Self.escape(version))/elf", data: data, progress: progress)
+    }
+
+    public func setFirmwareChannel(version: String, channel: String) async throws -> KnobFirmwareImage {
+        try await client.request("PATCH", "/v1/firmware/\(Self.escape(version))", body: ["channel": channel])
+    }
+
+    public func deleteFirmware(version: String, keepProtected: Bool = false) async throws {
+        try await client.send("DELETE", "/v1/firmware/\(Self.escape(version))",
+                              query: keepProtected ? [URLQueryItem(name: "keep", value: "protected")] : [])
+    }
+
+    public func demoScenes(id: String) async throws -> [KnobDemoScene] {
+        try await client.get("/v1/devices/\(Self.escape(id))/demo/scenes")
+    }
+
+    public func demoStatus(id: String) async throws -> KnobDemoStatus {
+        try await client.get("/v1/devices/\(Self.escape(id))/demo")
+    }
+
+    func startDemo(id: String, _ request: KnobDemoRequest) async throws -> KnobDemoStatus {
+        try await client.request("POST", "/v1/devices/\(Self.escape(id))/demo", body: request)
+    }
+
+    public func stopDemo(id: String) async throws {
+        try await client.send("DELETE", "/v1/devices/\(Self.escape(id))/demo")
+    }
+
+    public func serverVersion() async throws -> VersionInfo {
+        try await client.get("/version")
+    }
+
+    public func firmwareELF(version: String) async throws -> Data {
+        try await client.getData("/v1/firmware/\(Self.escape(version))/elf", budget: .transfer)
+    }
+
+    public func firmwareELF(build: String) async throws -> Data {
+        try await client.getData("/v1/firmware/by-build/\(Self.escape(build))/elf", budget: .transfer)
+    }
+
+    static func escape(_ id: String) -> String {
+        id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? id
+    }
+}

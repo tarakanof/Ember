@@ -1,0 +1,149 @@
+import SwiftUI
+import ServiceManagement
+import EmberKit
+
+struct GeneralPane: View {
+    @Environment(AppEnvironment.self) private var env
+    @State private var login = LoginItemService.status
+    @State private var loginError: String?
+    @AppStorage("dashboard.openAtLaunch") private var openDashboardAtLaunch = false
+    @AppStorage(DeveloperTools.storageKey) private var developerTools = false
+
+    var body: some View {
+        @Bindable var env = env
+        Form {
+            if !env.permissions.attention.isEmpty {
+                Section { PermissionsWarning(rows: env.permissions.attention) }
+            }
+
+            Section {
+                InfoRow("Menu bar icon", info: .menuBarIcon) { label in
+                    Picker(selection: $env.prefs.trayStyle) {
+                        Text("Animated bot").tag("bot")
+                        Text("Tool glyphs").tag("glyphs")
+                    } label: { label }
+                }
+                Picker("Menu bar color", selection: $env.prefs.trayTint) {
+                    Text("Colored").tag("color")
+                    Text("Monochrome").tag("mono")
+                }
+                .pickerStyle(.segmented)
+                Toggle("Show print progress on the bot", isOn: $env.prefs.botPrint)
+                    .disabled(!env.prefs.mayShowBotPrint)
+            } header: {
+                Text("Menu Bar")
+            } footer: {
+                Text("While the server's printer is on, the bot fills in Prusa orange as a print runs, hops when it's done and shows “!” when the printer needs you. An agent that's waiting or in error hides it.")
+            }
+
+            if env.prefs.trayStyle == "glyphs" {
+                Section {
+                    glyphPicker("Claude", $env.prefs.trayClaudeGlyph)
+                    glyphPicker("Codex", $env.prefs.trayCodexGlyph)
+                    glyphPicker("Idle or other", $env.prefs.trayIdleGlyph)
+                } header: {
+                    Text("Tool Glyphs")
+                } footer: {
+                    Text("The menu bar shows the glyph of the tool that's most active.")
+                }
+            }
+
+            Section("Dock") {
+                Picker("Dock icon", selection: $env.prefs.appIcon) {
+                    ForEach(appIconPalettes, id: \.self) { p in
+                        Label {
+                            Text(appIconTitle(p))
+                        } icon: {
+                            if let img = p == "bot" ? BotAnimator.staticIcon(size: 36) : NSImage(named: "appicon-\(p)") {
+                                Image(nsImage: img).resizable().frame(width: 16, height: 16)
+                            }
+                        }
+                        .tag(p)
+                    }
+                }
+            }
+
+            Section {
+                Toggle("Open Dashboard at launch", isOn: $openDashboardAtLaunch)
+                Toggle("Launch at login", isOn: Binding(
+                    get: { login == .enabled || login == .requiresApproval },
+                    set: { on in
+                        loginError = LoginItemService.setEnabled(on)
+                        login = LoginItemService.status
+                    }))
+            } header: {
+                Text("Startup")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    switch login {
+                    case .requiresApproval:
+                        Text("Ember needs your approval in System Settings › General › Login Items.")
+                        Button("Open Login Items Settings…") {
+                            SMAppService.openSystemSettingsLoginItems()
+                        }
+                    case .notFound:
+                        Text("Ember can open at login only when it runs from the Applications folder.")
+                    default:
+                        EmptyView()
+                    }
+                    if let loginError {
+                        Label(loginError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    }
+                }
+            }
+
+            Section {
+                Toggle("Show developer tools", isOn: $developerTools)
+            } header: {
+                Text("Developer")
+            } footer: {
+                Text("Adds Demo under Devices, to play the knob's pages and animations on demand. This Mac only.")
+            }
+        }
+        .formStyle(.grouped)
+        .reloads { login = LoginItemService.status }
+        .task { await env.permissions.refresh(ifOlderThan: Self.permissionsInterval) }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await env.permissions.refresh(ifOlderThan: Self.permissionsInterval) }
+        }
+    }
+
+    private static let permissionsInterval: TimeInterval = 30
+
+    private func glyphPicker(_ label: LocalizedStringKey, _ binding: Binding<String>) -> some View {
+        Picker(label, selection: binding) {
+            ForEach(trayGlyphs, id: \.self) { g in
+                Label {
+                    Text(glyphTitle(g))
+                } icon: {
+                    if let img = NSImage(named: "tray-\(g)") {
+                        Image(nsImage: img).resizable().renderingMode(.template).frame(width: 16, height: 16)
+                    }
+                }
+                .tag(g)
+            }
+        }
+    }
+
+    private func appIconTitle(_ id: String) -> LocalizedStringKey {
+        switch id {
+        case "bot": "Bot (animated)"
+        case "spark": "Spark"
+        case "pixel-e": "Pixel E"
+        default: LocalizedStringKey(id.capitalized)
+        }
+    }
+
+    private func glyphTitle(_ id: String) -> LocalizedStringKey {
+        switch id {
+        case "ember": "Ember flame"
+        case "ember-e": "Ember E"
+        case "ember-e-pixel": "Ember E (pixel)"
+        case "claude": "Claude"
+        case "codex": "Codex"
+        case "pomodoro": "Pomodoro"
+        case "coffee": "Coffee"
+        default: LocalizedStringKey(id.capitalized)
+        }
+    }
+}

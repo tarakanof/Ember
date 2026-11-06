@@ -1,0 +1,430 @@
+package main
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/tarakanof/ember/internal/awtrix"
+)
+
+type fakeClockCall struct {
+	method, path, body string
+}
+
+func fakeAudioClock(t *testing.T, status int, reply string) (*App, func() []fakeClockCall) {
+	t.Helper()
+	var mu sync.Mutex
+	var calls []fakeClockCall
+	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		calls = append(calls, fakeClockCall{r.Method, r.URL.Path, string(b)})
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, reply)
+	}))
+	t.Cleanup(dev.Close)
+	a := newTestAppWithStore(t)
+	if err := putClockOverride(a, dev.URL); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	calls = nil
+	mu.Unlock()
+	return a, func() []fakeClockCall {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]fakeClockCall(nil), calls...)
+	}
+}
+
+func withAudioCaps(a *App, audio awtrix.AudioCaps) {
+	storeCaps(a, &awtrix.Capabilities{Audio: audio})
+}
+
+func storeCaps(a *App, c *awtrix.Capabilities) {
+	a.caps.invalidate()
+	a.caps.put(a.caps.begin(), a.cfg.Load().effectiveClockURL(), c)
+}
+
+func TestDevicePowerPutForwardsPowerOnly(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+		body := `{"power":false}`
+		if on {
+			body = `{"power":true}`
+		}
+		w := httptest.NewRecorder()
+		a.handleDevicePowerPut(w, httptest.NewRequest("PUT", "/v1/device/display/power", strings.NewReader(body)))
+		if w.Code != http.StatusOK {
+			t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+		}
+		got := calls()
+		if len(got) != 1 || got[0].method != http.MethodPatch || got[0].path != "/api/v1/display" {
+			t.Fatalf("calls = %+v", got)
+		}
+		var sent map[string]any
+		if err := json.Unmarshal([]byte(got[0].body), &sent); err != nil || sent["power"] != on || len(sent) != 1 {
+			t.Fatalf("forwarded %q", got[0].body)
+		}
+	}
+}
+
+func TestDevicePowerPutRejectsBadBodyWithoutCallingClock(t *testing.T) {
+	for _, body := range []string{`{}`, `{"power":"off"}`, `{"power":null}`, `{"power":true,"overlay":"rain"}`, `not json`} {
+		a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+		w := httptest.NewRecorder()
+		a.handleDevicePowerPut(w, httptest.NewRequest("PUT", "/v1/device/display/power", strings.NewReader(body)))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("%s: code=%d want 400", body, w.Code)
+		}
+		if n := len(calls()); n != 0 {
+			t.Fatalf("%s: clock called %d times", body, n)
+		}
+	}
+}
+
+func TestDevicePowerPutRelaysClockError(t *testing.T) {
+	a, _ := fakeAudioClock(t, http.StatusUnprocessableEntity,
+		`{"error":{"code":"validationFailed","message":"must be a boolean","field":"power"}}`)
+	w := httptest.NewRecorder()
+	a.handleDevicePowerPut(w, httptest.NewRequest("PUT", "/v1/device/display/power", strings.NewReader(`{"power":true}`)))
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	m := decodeProxyError(t, w)
+	if m["field"] != "power" || m["code"] != "validationFailed" {
+		t.Fatalf("body = %v", m)
+	}
+}
+
+func TestDevicePowerPutUnreachableClockIs502(t *testing.T) {
+	a := newTestAppWithStore(t)
+	if err := putClockOverride(a, "http://127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	a.handleDevicePowerPut(w, httptest.NewRequest("PUT", "/v1/device/display/power", strings.NewReader(`{"power":true}`)))
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("code=%d want 502", w.Code)
+	}
+}
+
+func TestDeviceAudioTestPlaysBuiltInChime(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", nil))
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"ok":true}` {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	got := calls()
+	if len(got) != 1 || got[0].method != http.MethodPost || got[0].path != "/api/v1/audio/play" {
+		t.Fatalf("calls = %+v", got)
+	}
+	if !strings.Contains(got[0].body, `"rtttl":"`+testChimeRTTTL+`"`) {
+		t.Fatalf("forwarded %q", got[0].body)
+	}
+}
+
+func TestDeviceAudioTestPlaysNamedMelody(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", strings.NewReader(`{"melody":"door_bell-2"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	got := calls()
+	if len(got) != 1 || got[0].body != `{"melody":"door_bell-2"}` {
+		t.Fatalf("calls = %+v", got)
+	}
+}
+
+func TestDeviceAudioTestNameLimitFollowsTheFirmware(t *testing.T) {
+	cases := []struct {
+		name  string
+		audio *awtrix.AudioCaps
+		n     int
+		ok    bool
+	}{
+		{"ng11 24", &awtrix.AudioCaps{Buzzer: true}, 24, true},
+		{"ng11 25", &awtrix.AudioCaps{Buzzer: true}, 25, false},
+		{"ng12 32", ptr(ng12Audio(true)), 32, true},
+		{"ng12 33", ptr(ng12Audio(true)), 33, false},
+		{"cold 32", nil, 32, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+			if c.audio != nil {
+				withAudioCaps(a, *c.audio)
+			}
+			w := httptest.NewRecorder()
+			body := `{"melody":"` + strings.Repeat("a", c.n) + `"}`
+			a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", strings.NewReader(body)))
+			if c.ok && (w.Code != http.StatusOK || len(calls()) != 1) {
+				t.Fatalf("code=%d body=%s calls=%d, want the preview played", w.Code, w.Body, len(calls()))
+			}
+			if !c.ok && (w.Code != http.StatusBadRequest || len(calls()) != 0) {
+				t.Fatalf("code=%d calls=%d, want 400 and no clock call", w.Code, len(calls()))
+			}
+		})
+	}
+}
+
+func TestDeviceAudioTestRejectsBadMelodyName(t *testing.T) {
+	for _, body := range []string{`{"melody":""}`, `{"melody":"has space"}`, `{"melody":"` + strings.Repeat("a", 33) + `"}`, `{"melody":3}`, `{"sound":"x"}`} {
+		a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+		withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+		w := httptest.NewRecorder()
+		a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", strings.NewReader(body)))
+		if w.Code != http.StatusBadRequest || len(calls()) != 0 {
+			t.Fatalf("%s: code=%d calls=%d", body, w.Code, len(calls()))
+		}
+	}
+}
+
+func TestDeviceAudioRoutesGatedOnBuzzer(t *testing.T) {
+	cases := []struct {
+		name string
+		call func(a *App, w http.ResponseWriter)
+	}{
+		{"test", func(a *App, w http.ResponseWriter) {
+			a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", nil))
+		}},
+		{"melodies", func(a *App, w http.ResponseWriter) {
+			a.handleDeviceAudioMelodies(w, httptest.NewRequest("GET", "/v1/device/audio/melodies", nil))
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+			withAudioCaps(a, awtrix.AudioCaps{MP3: true, Radio: true})
+			w := httptest.NewRecorder()
+			c.call(a, w)
+			if w.Code != http.StatusServiceUnavailable {
+				t.Fatalf("code=%d want 503", w.Code)
+			}
+			if m := decodeProxyError(t, w); m["code"] != "unavailable" {
+				t.Fatalf("body = %v", m)
+			}
+			if n := len(calls()); n != 0 {
+				t.Fatalf("clock called %d times", n)
+			}
+		})
+	}
+}
+
+func TestDeviceAudioStopGatedOnAnyOutput(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	withAudioCaps(a, awtrix.AudioCaps{})
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioStop(w, httptest.NewRequest("POST", "/v1/device/audio/stop", nil))
+	if w.Code != http.StatusServiceUnavailable || len(calls()) != 0 {
+		t.Fatalf("no outputs: code=%d calls=%d", w.Code, len(calls()))
+	}
+
+	withAudioCaps(a, awtrix.AudioCaps{Radio: true})
+	w = httptest.NewRecorder()
+	a.handleDeviceAudioStop(w, httptest.NewRequest("POST", "/v1/device/audio/stop", nil))
+	got := calls()
+	if w.Code != http.StatusOK || len(got) != 1 || got[0].path != "/api/v1/audio/stop" || got[0].body != "" {
+		t.Fatalf("radio only: code=%d calls=%+v", w.Code, got)
+	}
+}
+
+func TestDeviceAudioColdCapsDefersToClock(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusServiceUnavailable,
+		`{"error":{"code":"unavailable","message":"no buzzer"}}`)
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", nil))
+	if w.Code != http.StatusServiceUnavailable || len(calls()) != 1 {
+		t.Fatalf("code=%d calls=%d", w.Code, len(calls()))
+	}
+	if m := decodeProxyError(t, w); m["code"] != "unavailable" {
+		t.Fatalf("body = %v", m)
+	}
+}
+
+func TestDeviceAudioStopColdCapsDefersToClock(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioStop(w, httptest.NewRequest("POST", "/v1/device/audio/stop", nil))
+	if w.Code != http.StatusOK || len(calls()) != 1 {
+		t.Fatalf("code=%d calls=%d", w.Code, len(calls()))
+	}
+}
+
+func TestDeviceAudioMelodiesColdCapsDefersToClock(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"melodies":[],"usedBytes":1,"totalBytes":2}`)
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioMelodies(w, httptest.NewRequest("GET", "/v1/device/audio/melodies", nil))
+	if w.Code != http.StatusOK || len(calls()) != 1 {
+		t.Fatalf("code=%d calls=%d", w.Code, len(calls()))
+	}
+	if !strings.Contains(w.Body.String(), `"melodies":[]`) {
+		t.Fatalf("body = %s", w.Body.String())
+	}
+}
+
+func TestDeviceConfigPutDropsStaleCapabilities(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	target := a.cfg.Load().effectiveClockURL()
+	withAudioCaps(a, awtrix.AudioCaps{})
+
+	w := httptest.NewRecorder()
+	a.handleDeviceConfigPut(w, httptest.NewRequest("PUT", "/v1/device/config",
+		strings.NewReader(`{"base_url":"`+target+`"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("config put code=%d body=%s", w.Code, w.Body.String())
+	}
+	if _, ok := a.capabilities(); ok {
+		t.Fatal("capabilities cache survived a clock switch")
+	}
+	tw := httptest.NewRecorder()
+	a.handleDeviceAudioTest(tw, httptest.NewRequest("POST", "/v1/device/audio/test", nil))
+	if tw.Code != http.StatusOK || len(calls()) != 1 {
+		t.Fatalf("after switch: code=%d calls=%d", tw.Code, len(calls()))
+	}
+}
+
+func TestRefreshCapabilitiesFailureDropsPreviousCache(t *testing.T) {
+	a, _ := fakeAudioClock(t, http.StatusInternalServerError, `boom`)
+	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+	a.refreshCapabilities(t.Context())
+	if _, ok := a.capabilities(); ok {
+		t.Fatal("failed refresh kept the previous clock's capabilities")
+	}
+}
+
+func TestDeviceAudioMelodiesListsClockMelodies(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"melodies":[
+		{"name":"doorbell","rtttl":"doorbell:d=4,o=5,b=100:e,c","bytes":26,"notes":2,"durationMs":2400,"valid":true}],
+		"usedBytes":41216,"totalBytes":1048576}`)
+	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioMelodies(w, httptest.NewRequest("GET", "/v1/device/audio/melodies", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	if got := calls(); len(got) != 1 || got[0].method != http.MethodGet || got[0].path != "/api/v1/audio/melodies" {
+		t.Fatalf("calls = %+v", got)
+	}
+	var out awtrix.MelodyList
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Melodies) != 1 || out.Melodies[0].Name != "doorbell" || out.Melodies[0].DurationMs != 2400 ||
+		out.UsedBytes != 41216 || out.TotalBytes != 1048576 {
+		t.Fatalf("out = %+v", out)
+	}
+}
+
+func TestDeviceAudioMelodiesRelaysClockError(t *testing.T) {
+	a, _ := fakeAudioClock(t, http.StatusNotFound, `{"error":{"code":"notFound","message":"no such route"}}`)
+	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioMelodies(w, httptest.NewRequest("GET", "/v1/device/audio/melodies", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code=%d want 404", w.Code)
+	}
+	if m := decodeProxyError(t, w); m["code"] != "notFound" {
+		t.Fatalf("body = %v", m)
+	}
+}
+
+func TestDevicePowerAudioRoutesRequireAuth(t *testing.T) {
+	a := newTestAppWithStore(t)
+	cur := *a.cfg.Load()
+	cur.Auth.StatusToken = "secret"
+	a.cfg.Store(&cur)
+	srv := httptest.NewServer(a.routes())
+	t.Cleanup(srv.Close)
+	routes := []struct{ method, path, body string }{
+		{"PUT", "/v1/device/display/power", `{"power":true}`},
+		{"POST", "/v1/device/audio/test", ""},
+		{"POST", "/v1/device/audio/stop", ""},
+		{"GET", "/v1/device/audio/melodies", ""},
+	}
+	for _, r := range routes {
+		req, _ := http.NewRequest(r.method, srv.URL+r.path, strings.NewReader(r.body))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s %s without token: %d, want 401", r.method, r.path, resp.StatusCode)
+		}
+	}
+}
+
+func ng12Audio(rtttl bool) awtrix.AudioCaps {
+	return awtrix.AudioCaps{RTTTL: &rtttl}
+}
+
+func TestDeviceAudioTestPlaysNamedMelodyAsFileOnNG12(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	withAudioCaps(a, ng12Audio(true))
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", strings.NewReader(`{"melody":"door_bell-2"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	if got := calls(); len(got) != 1 || got[0].path != "/api/v1/audio/play" || got[0].body != `{"file":"door_bell-2"}` {
+		t.Fatalf("calls = %+v", got)
+	}
+}
+
+func TestDeviceAudioTestPlaysBuiltInChimeAsRTTTLOnNG12(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	withAudioCaps(a, ng12Audio(true))
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", nil))
+	if got := calls(); w.Code != http.StatusOK || len(got) != 1 || got[0].body != `{"rtttl":"`+testChimeRTTTL+`"}` {
+		t.Fatalf("code=%d calls=%+v", w.Code, got)
+	}
+}
+
+func TestDeviceAudioRoutesTreatNG12RTTTLAsBuzzer(t *testing.T) {
+	cases := []struct {
+		name string
+		call func(a *App, w http.ResponseWriter)
+	}{
+		{"test", func(a *App, w http.ResponseWriter) {
+			a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", nil))
+		}},
+		{"melodies", func(a *App, w http.ResponseWriter) {
+			a.handleDeviceAudioMelodies(w, httptest.NewRequest("GET", "/v1/device/audio/melodies", nil))
+		}},
+		{"stop", func(a *App, w http.ResponseWriter) {
+			a.handleDeviceAudioStop(w, httptest.NewRequest("POST", "/v1/device/audio/stop", nil))
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true,"melodies":[]}`)
+			withAudioCaps(a, ng12Audio(true))
+			w := httptest.NewRecorder()
+			c.call(a, w)
+			if w.Code != http.StatusOK || len(calls()) != 1 {
+				t.Fatalf("rtttl=true: code=%d calls=%d body=%s", w.Code, len(calls()), w.Body.String())
+			}
+
+			a, calls = fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+			withAudioCaps(a, ng12Audio(false))
+			w = httptest.NewRecorder()
+			c.call(a, w)
+			if w.Code != http.StatusServiceUnavailable || len(calls()) != 0 {
+				t.Fatalf("rtttl=false: code=%d calls=%d", w.Code, len(calls()))
+			}
+		})
+	}
+}

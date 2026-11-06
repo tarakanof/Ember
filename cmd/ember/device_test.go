@@ -1,0 +1,160 @@
+package main
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/tarakanof/ember/internal/discovery"
+)
+
+func newTestAppWithStore(t *testing.T) *App {
+	t.Helper()
+	a := guardApp(t, NewApp(defaultConfig(), &recordingPublisher{}, testLogger()))
+	if err := a.ensureStore(t.TempDir() + "/s.db"); err != nil {
+		t.Fatal(err)
+	}
+	ownIconJobs(t, a)
+	stubRemoteClock(t, a)
+	return a
+}
+
+func TestDeviceConfigSourcePrecedence(t *testing.T) {
+	a := newTestAppWithStore(t)
+	cur := *a.cfg.Load()
+	cur.AWTRIX.HTTPBaseURL = "http://192.168.0.14"
+	a.cfg.Store(&cur)
+
+	if got := a.deviceSource(); got != "config" {
+		t.Fatalf("source=%q want config", got)
+	}
+	if err := putClockOverride(a, "http://10.0.0.5"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.deviceSource(); got != "store" {
+		t.Fatalf("source=%q want store", got)
+	}
+	if got := a.cfg.Load().effectiveClockURL(); got != "http://10.0.0.5" {
+		t.Fatalf("effective url=%q", got)
+	}
+}
+
+func TestDeviceSourceDiscoveredAndNone(t *testing.T) {
+	a := newTestAppWithStore(t)
+	cur := *a.cfg.Load()
+	cur.AWTRIX.HTTPBaseURL = ""
+	cur.AWTRIX.clockDiscovered = "http://10.0.0.9"
+	a.cfg.Store(&cur)
+	if got := a.deviceSource(); got != "discovered" {
+		t.Fatalf("source=%q want discovered", got)
+	}
+	cur.AWTRIX.clockDiscovered = ""
+	a.cfg.Store(&cur)
+	if got := a.deviceSource(); got != "none" {
+		t.Fatalf("source=%q want none", got)
+	}
+}
+
+func TestDeviceConfigPutValidatesURL(t *testing.T) {
+	a := newTestAppWithStore(t)
+	r := httptest.NewRequest("PUT", "/v1/device/config", strings.NewReader(`{"base_url":"not a url"}`))
+	w := httptest.NewRecorder()
+	a.handleDeviceConfigPut(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d want 400", w.Code)
+	}
+}
+
+func TestValidDeviceURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{"http valid", "http://192.168.0.14", false},
+		{"https valid", "https://clock.local", false},
+		{"file scheme rejected", "file:///etc/passwd", true},
+		{"gopher scheme rejected", "gopher://example.com", true},
+		{"bare path rejected", "/etc/passwd", true},
+		{"empty host rejected", "http://", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := validDeviceURL(c.url)
+			if (err != nil) != c.wantErr {
+				t.Errorf("validDeviceURL(%q) err=%v, wantErr=%v", c.url, err, c.wantErr)
+			}
+		})
+	}
+}
+
+func TestDeviceConfigPutRejectsNonHTTPScheme(t *testing.T) {
+	cases := []string{`{"base_url":"file:///etc/passwd"}`, `{"base_url":"gopher://example.com"}`, `{"base_url":"http://"}`}
+	for _, body := range cases {
+		a := newTestAppWithStore(t)
+		r := httptest.NewRequest("PUT", "/v1/device/config", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		a.handleDeviceConfigPut(w, r)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s status=%d want 400", body, w.Code)
+		}
+	}
+}
+
+func TestDeviceConfigPutPersists(t *testing.T) {
+	a := newTestAppWithStore(t)
+	r := httptest.NewRequest("PUT", "/v1/device/config", strings.NewReader(`{"base_url":"http://10.0.0.7"}`))
+	w := httptest.NewRecorder()
+	a.handleDeviceConfigPut(w, r)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "store") {
+		t.Fatalf("put: code=%d body=%s", w.Code, w.Body.String())
+	}
+	if v, ok, _ := a.store.GetSetting(deviceBaseURLKey); !ok || v != "http://10.0.0.7" {
+		t.Fatalf("persisted=%q ok=%v", v, ok)
+	}
+}
+
+func TestDeviceDiscoverUsesInjectedBrowse(t *testing.T) {
+	a := newTestAppWithStore(t)
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+		return []discovery.Candidate{{Host: "awtrix.local.", BaseURL: "http://10.0.0.9", UID: "u", Version: "0.98"}}, nil
+	}
+	r := httptest.NewRequest("GET", "/v1/device/discover", nil)
+	w := httptest.NewRecorder()
+	a.handleDeviceDiscover(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "10.0.0.9") {
+		t.Fatalf("discover: code=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeviceDiscoverWritesNothingWhenTheClientHangsUp(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		cands []discovery.Candidate
+		err   bool
+	}{
+		{"browse returns ctx err", nil, true},
+		{"browse returns candidates", []discovery.Candidate{{BaseURL: "http://10.0.0.9", UID: "u"}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newTestAppWithStore(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			a.browseFn = func(ctx context.Context, _ time.Duration) ([]discovery.Candidate, error) {
+				cancel()
+				if tc.err {
+					return nil, ctx.Err()
+				}
+				return tc.cands, nil
+			}
+			r := httptest.NewRequest("GET", "/v1/device/discover", nil).WithContext(ctx)
+			w := httptest.NewRecorder()
+			a.handleDeviceDiscover(w, r)
+			if w.Body.Len() != 0 || w.Code != http.StatusOK {
+				t.Fatalf("discover after hang-up: code=%d body=%s, want nothing written", w.Code, w.Body.String())
+			}
+		})
+	}
+}

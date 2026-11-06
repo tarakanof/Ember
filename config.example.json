@@ -1,0 +1,68 @@
+{
+  "http": {
+    "addr": ":3627"
+  },
+  "awtrix": {
+    "http_base_url": "http://192.168.0.14",
+    "app_name": "ember",
+    "timeout_seconds": 10
+  },
+  "auth": {
+    "status_token_env": "EMBER_TOKEN"
+  },
+  "rate_limit": {
+    "disabled": false,
+    "burst": 60,
+    "refill_per_sec": 5,
+    "idle_evict_seconds": 300
+  },
+  "display": {
+    "idle_text": "AI idle",
+    "stale_seconds": 25,
+    "done_ttl_seconds": 30,
+    "rotation_dwell_seconds": 3,
+    "ack_timeout_seconds": 30,
+    "frame_lifetime_seconds": 30,
+    "idle_restore_seconds": 120,
+    "indicators": false
+  },
+  "pomodoro": {
+    "enabled": false,
+    "focus_minutes": 25,
+    "short_break_minutes": 5,
+    "long_break_minutes": 15,
+    "rounds_before_long_break": 4,
+    "auto_start_next": false,
+    "sound": true,
+    "sound_melody": "",
+    "focus_color": "#FF3B30",
+    "break_color": "#2EE85E",
+    "db_path": "/var/lib/ember/pomodoro.db",
+    "button_callback": true,
+    "work_hours_gap_minutes": 15,
+    "day_start_hour": 4,
+    "streak_grace_days": 1,
+    "daily_goal_sessions": 8,
+    "weekly_goal_days": 5,
+    "work_hours_include_activity": true
+  },
+  "weather": {
+    "enabled": false,
+    "provider": "open-meteo",
+    "latitude": 52.3676,
+    "longitude": 4.9041,
+    "location_name": "Amsterdam",
+    "units": "metric",
+    "refresh_minutes": 10,
+    "rotate_in_apps": true,
+    "popup_interval_minutes": 120,
+    "popup_duration_seconds": 30,
+    "popup_on_change": true,
+    "severe_alert": true,
+    "severe_sound": "",
+    "use_native_icons": false
+  },
+  "quiet_hours": { "enabled": false, "start": "22:00", "end": "08:00" },
+  "day": { "enabled": true, "default_stop": "00:00", "break_hint_minutes": 90, "auto_stop_minutes": 30, "grace_minutes": 15 },
+  "brightness": { "floor": 10, "ceiling": 255, "night_level": 20, "day_level": 255, "lux_dark": 1, "lux_bright": 200, "ema_alpha": 0.3, "hysteresis": 8, "stale_seconds": 120, "twilight_minutes": 45 }
+}

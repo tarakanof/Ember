@@ -1,0 +1,317 @@
+# The menu-bar and Dock bot
+
+The macOS app's default icon is a small black ball with two eyes, drawn in code
+and animated. It blinks, glances around and changes expression with the winning
+session's state, both in the menu bar and in the Dock. It is modeled on the Grok
+Bot icon animation. This doc covers what it does, why the numbers are what they
+are, and the macOS quirks that shaped the code.
+
+Settings → App picks it. "Menu-bar icon" switches between the bot and the older
+per-tool glyphs, "Menu-bar colour" switches between Colored and Monochrome, and
+"Dock & app icon" has a "Bot (animated)" entry.
+
+## Code map
+
+| File | Role |
+|---|---|
+| `macos/Sources/EmberKit/Bot/BotBehavior.swift` | The animation state machine. Pure and deterministic for a seed, so it is unit-tested. Produces a `BotPose` per frame. |
+| `macos/Sources/EmberKit/Bot/BotRenderer.swift` | CoreGraphics drawing of a `BotPose`, with a `BotStyle` for the menu bar and one for the Dock. |
+| `macos/Sources/EmberKit/Bot/BotPrint.swift` | `BotPrint` (none, starting, printing, attention, done), `BotPrintTracker`, the pure rule that turns the printer's state, the winning agent and the setting into one `BotPrint` and plays `done` once per event id, and `BotPrintDoneStore`, which keeps the played id in `UserDefaults`. |
+| `macos/Ember/MenuBar/BotAnimator.swift` | The one frame loop. Owns the behavior, sets each frame on the `NSStatusBarButton` directly, drives the `NSDockTile` view, crossfades the menu-bar colour. Not `@Observable`: see Performance. |
+| `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the tool glyph, or the bot's current frame when its `MenuRows.LabelState` changes (the animator takes over from the next frame). Tells VoiceOver the state in words (label "Ember", value from `MenuRows.accessibilityValue`), since the icon only shows it through colour and eyes. |
+| `macos/Ember/MenuBar/StatusItemAccessibility.swift` | Puts that value on the `NSStatusBarButton` by hand: `MenuBarExtra` forwards the label (as AXTitle) but drops `accessibilityValue`. `StatusItemButton.find()` locates the button for this and for the animator. |
+| `macos/Ember/AppEnvironment.swift` | `feedBot()` pushes the winning session's state into the animator. `feedBotPrint()` runs the `BotPrintTracker` on `live.printer`, the winning state and the setting, stores the played done id (`bot.printDonePlayed`) and wakes itself when a done ends; `feedPrintHold()` holds the `.print` feed only while the setting is on and the bot shows in the menu bar, or in a Dock tile that is visible (the app is `.regular`; `BotAnimator.onDockVisibilityChange` reports it). `feedMenuBarLabel()` keeps `menuBarLabel` (a `MenuRows.LabelState`) current and sets it only when it changes, so the label skips polls that only move a timestamp or activity text. `applyAppIcon` switches the Dock tile. |
+| `macos/Tests/EmberKitTests/BotBehaviorTests.swift` | Behavior and renderer tests. |
+| `macos/Sources/EmberKit/KnobFace/` | The knob's bot (and its other pages) for Settings' previews: the same `BotBehavior` with `Tuning` from `knob-theme.json` (1 s hop at 75 % squash, every 2.8 s median: the knob's waiting phase A from cinder 0.9.73; its later phases, double hops, peeks and nudges are not drawn) and cinder 0.9.77's blink and error (a mood change's blink hides the eyes whole before the shape swaps, and reblinks if it opened first; error splits its gaze 45/25/30 between the viewer, down and the sides, shakes the eyes 0.3 s after the swap, then huffs every 25 s median), drawn in the knob's Head style: a plain 9 px outline whose squash variant is picked by sy/sx, so the pop pulses only the eyes; the lid is a clip line from the top (the eye droops and widens instead of shrinking), and tilt and rise mirror with the gaze side. The menu-bar and Dock bot share `BotBehavior` but not these: `Tuning.mac` leaves `blinkHide` and `errorFX` nil, and `BotRenderer` keeps its shrinking lids and one-way tilt. See ARCHITECTURE "Knob page previews". |
+
+## Moods
+
+`BotMood(state:)` maps the winning session's state. `sleepy` is never requested,
+the bot drifts into it after 5 minutes of `idle`.
+
+| State | Mood | Eyes | Body | Menu-bar colour | Dock badge |
+|---|---|---|---|---|---|
+| idle | idle | slanted capsules, resting up and right | circle | template (black or white) | none |
+| idle for 5 min | sleepy | heavy lids, gaze dropped, slow blinks | circle | template | none |
+| running | working | capsules scanning left to right, low, like reading | circle | green | none |
+| waiting | waiting | big round eyes on the viewer, a hop every few seconds | circle | amber | amber |
+| done | done | happy `^ ^` arcs | circle | blue | blue |
+| error | error | angry slits | rounded triangle | red | red |
+
+Colours come from `stateColorRGB`, the same palette the tool glyphs use. With
+"Monochrome" every mood renders as a template image, so mood only shows through
+shape and eyes.
+
+## Print
+
+While the server's printer is enabled (#789) and Settings → App → "Show print
+progress on the bot" is on (default), the bot shows a print in Prusa orange
+#FA6831, the colour the knob uses for printer moments. Design: Obsidian
+`Personal/Ember/Specs/2026-11-05-print-status-design.md`, M1.
+
+| Printer | Bot |
+|---|---|
+| heating, preparing | nothing yet (the level is 0); VoiceOver says "print starting" |
+| printing, finishing, paused | a flat orange level inside the ball, under the eyes, at the whole percent |
+| attention | the same level plus a static orange "!" badge top right |
+| event `finished` | the ball fills, happy eyes, one hop and a sparkle, for 60 s |
+| anything else | nothing |
+
+- The agents keep the eyes and the outline: the fill is inset by 12 % of the
+  radius, so the mood colour stays as a rim, and the level spans that inner
+  circle (0 % empty, 100 % full). An agent in `waiting` or
+  `error` hides the fill, the badge and a done (a done that arrives then is
+  played once the agent stops, inside the event's 30 min).
+- Done plays once per event id. The id is stored in `UserDefaults`
+  (`bot.printDonePlayed`), so a restart within the event's 30 min doesn't
+  replay it. A done wakes a sleepy bot and swaps its eyes behind a blink,
+  like a mood change; the mood itself doesn't change (no morph), and the
+  5-minute sleep timer counts from the done. Attention or a new print ends
+  a done early; a moment without printer state (a dropped connection, a
+  server switch) doesn't, the done runs out its 60 s.
+- Reduce motion: no hop and no sparkle; the fill, the badge and the happy
+  eyes still show.
+- Monochrome: the fill is a 35 % template shade (it replaces the body's
+  alpha), the badge a template disc with the "!" cut out.
+- Colored with an idle or sleepy agent (normally a template image) draws a
+  coloured image in the menu bar's foreground colour instead, since orange
+  can't be a template. The colour comes from the status button's own
+  `effectiveAppearance`, read again whenever the loop wakes (at least every
+  10 s), which re-pushes when it flips (dark mode, or a wallpaper that turns
+  the bar light or dark). Known limit: a second display's mirrored copy of
+  the item (see macOS gotchas) shows the primary bar's foreground, since a
+  non-template image isn't re-tinted per display.
+- The Dock bot shows the same pose at its own scale; the print badge takes
+  the place of a mood badge.
+- VoiceOver: the menu-bar value gets ", print starting", ", printing 42 %",
+  ", print done" or ", printer needs you".
+
+## How it moves
+
+The goal is an icon that looks alive without looking looped. Every interval is
+drawn from a lognormal distribution (a median, a spread and a clamp), because
+fixed or uniform timing reads as mechanical within a minute.
+
+### Blinks
+
+People blink about 15 to 20 times a minute and less when concentrating. A blink
+closes faster than it opens.
+
+- Interval medians: idle 4.0 s, working 6.0 s, waiting 3.0 s, sleepy 2.8 s,
+  error 2.2 s, done 3.2 s. Spread sigma 0.45, clamped to 1 to 12 s. That lands
+  around 13 to 20 blinks a minute, and the tests pin idle at 40 to 100 over
+  4 minutes and require working to blink less than idle.
+- Shape: 75 ms closing (accelerating), 35 ms shut, 150 ms opening
+  (decelerating). Sleepy blinks run 2.2 times slower.
+- The right eye lags the left by 0 to 20 ms, and 12% of blinks are doubles.
+- Large gaze shifts carry a blink 60% of the time, like a head turn does. That
+  blink replaces the scheduled one instead of adding to it. Stacking them pushed
+  the rate to 25 a minute.
+
+### Gaze
+
+- Saccades (eye darts) take `0.025 + 0.045 × distance` seconds, which gives 25
+  to about 130 ms, with a small overshoot (back-out easing).
+- Fixations between darts: idle 2.2 s median, working 0.9 s, waiting 2.5 s,
+  sleepy 8 s, error 0.9 s, done 2.5 s.
+- Where the eyes go depends on mood. Idle splits between the resting
+  up-and-right pose, the viewer and random spots. Working steps left to right at
+  a slightly low height, then sweeps back. Waiting looks at the viewer 75% of the
+  time.
+- Follow-through: the body leans a few percent toward the gaze, starting 30 ms
+  after the eyes and taking 200 ms.
+
+### Mood changes
+
+A state change should glide, not snap. Over about 0.7 s:
+
+- The eye shape swaps while the lids are shut. The change starts a slower,
+  softer blink (1.6 times normal length) and swaps at full closure. If a blink
+  is already past closure, a second one is queued, and the swap never happens
+  with open eyes.
+- The gaze glides to the new mood's target in 0.42 s with ease-in-out instead
+  of darting there.
+- The body morphs circle to triangle in 0.45 s, point by point on a 96-point
+  ring. The Dock badge scales in over 0.35 s with a small overshoot. The body
+  pops 10% and settles in 0.4 s.
+- In the menu bar the colour crossfades over 0.35 s. Fading to or from the
+  template look uses the status bar's actual appearance (white on a dark menu
+  bar, black on a light one) as the other end.
+- Waking from sleepy adds a double blink.
+
+### Waiting hop
+
+One hop 0.6 s after entering the mood, then every 15 s median (8 to 40 s), a
+0.62 s hop: crouch (wider and shorter), a stretched rise,
+a fall, then a landing squash. Squash pivots on the ground so the ball doesn't
+float. The menu bar uses half the Dock's hop height to stay inside its image.
+
+### Reduce motion
+
+With Accessibility → Reduce motion on, the bot keeps blinking but stops darting,
+hopping and popping, and morphs happen instantly. Toggling the setting takes
+effect immediately, even mid-mood.
+
+## Geometry
+
+Eye proportions come from measuring the reference animation. Body radius is 1:
+
+- Idle eyes are capsules 0.14 wide and 0.38 tall, 0.44 apart, resting up and
+  right of centre.
+- Eyes lean with the gaze. They stand upright and level when looking at the
+  viewer and lean up to 27° ("\") as the gaze turns either way. The right eye
+  rises slightly as they lean. A small dead zone keeps glances at the viewer
+  level.
+- Eyes near the rim of the sphere narrow and move closer together
+  (foreshortening), and they are clipped to the body so they never spill off
+  the triangle.
+- At 16 pt the proportional eyes are too thin, so the menu bar scales them 1.25
+  times and adds one Retina pixel of width and height. The Dock adds about two
+  to three pixels.
+
+## Sizes
+
+Checked against Apple's Human Interface Guidelines for macOS 26, and still
+current for macOS 27 Golden Gate:
+
+- **Menu bar.** The bar is 24 pt tall. A round menu bar extra matches the weight
+  of system icons at about 16 pt, and images shouldn't be taller than 22 pt. The
+  bot is a 16 pt ball in a 22 × 22 pt image, rendered at 44 × 44 px.
+- **Dock and app icon.** macOS 26 and 27 use a 1024 px canvas with an 824 px
+  plate that the system rounds. Free-form icons get shrunk or put on a grey
+  plate. The Dock bot draws its own light 824/1024 plate with about 22.5% corner
+  radius, and the ball fills 62% of the canvas, centred.
+
+## macOS gotchas
+
+These cost real debugging time.
+
+- **`MenuBarExtra` labels don't run `onChange` or `onAppear`.** State never
+  reached the bot that way. `AppEnvironment.feedBot()` observes
+  `live.winningSession` with `withObservationTracking` and re-arms itself on
+  every change. `winningSession` is nil once `/state` has failed 3 polls in a
+  row, so an outage sends the bot to idle rather than freezing it mid-mood,
+  while a single dropped poll changes nothing.
+- **A lazily drawn `NSImage` loses its colour in the menu bar.** An
+  `NSImage(size:flipped:drawingHandler:)` came out monochrome even with
+  `isTemplate = false`. The bot renders into a `CGContext` bitmap first, and
+  that keeps its colour.
+- **Setting `applicationIconImage` replaces the Dock tile's `contentView`.** Set
+  the image first (Cmd-Tab and Finder read it), then attach the live view, or
+  the Dock shows a still picture.
+- **The Dock tile is only visible while the app is `.regular`.** Ember is an
+  `LSUIElement` agent and only becomes `.regular` while Settings or the
+  Dashboard is open. The loop skips Dock drawing otherwise, and `AppDelegate`
+  re-applies the icon on each promotion.
+- **With two displays the menu bar you see may be a copy.** The status item
+  lives on one display's menu bar; AppKit mirrors it to the others as a
+  snapshot (`NSStatusItemReplicantView`), refreshed from a timer
+  (`_updateReplicants`). Each refresh briefly sets the button's `appearance`,
+  SwiftUI's `MenuBarExtraController` observes that and re-applies the label's
+  image, and the copy is drawn from what is on the button then. When the label
+  held a one-off snapshot, the copy froze on the frame of the last label
+  re-render and jumped every few seconds, while one display looked fine. The
+  label now shares the loop's live image (see Performance).
+- **Template eyes are cut out.** In the menu bar the eyes are cleared from the
+  body (`.clear` blend inside a transparency layer), so they show the menu bar
+  through them in both the template and coloured looks.
+
+## Performance
+
+The loop only runs while something moves. It renders at 24 fps during blinks,
+glances and hops, 60 fps only during the 0.7 s mood morph, and otherwise sleeps
+until the next scheduled event (at most 10 s). It stops completely when neither
+the menu bar nor a visible Dock tile shows the bot.
+
+A print adds no running animation. The level is flat and quantised to whole
+pixels of each target: `BotPose.quantized(toPixels:)` rounds `fill` to
+whole pixels of the inner circle's height (`2 × radius × 0.88`), and
+`BotRenderer` draws the level at exactly that rounding of its own pixel
+radius (from the context's device transform), so the menu bar gets one push
+per pixel, about every 3.5 % (29 over a whole print), and the Dock one per
+Dock pixel while it is visible. `BotAnimator.setPrint` restarts the loop
+only for a change that shows at menu-bar scale (`BotPrint.looksLike`); a
+percent inside the same pixel waits for the loop's next wake. The done
+moment's hop and sparkle run at 24 fps for about 1.2 s. The `.print` feed
+long-polls `/v1/print/state`, whose ETag ignores temperatures, so a running
+print wakes the app about once per percent; `MenuRows.LabelState` changes
+with the VoiceOver percent, which re-renders the label (one extra frame)
+at the same rate.
+
+Many consecutive poses differ by less than a pixel, so the loop compares
+`BotPose.quantized(toPixels:)` for each target (the 16 px menu-bar radius, the
+Dock tile's own) and skips a push when it matches the last one shown. Each
+menu-bar push costs a rasterisation, a button redraw and a scene update to the
+menu-bar agent, and those are nearly all of the app's idle CPU. The step
+is half a pixel per field, from how far `BotRenderer` moves an edge per unit
+of each field; scale moves edges about twice as far, so it gets half that.
+
+The loop also keeps its own copy of the activation policy instead of asking
+`NSApp.activationPolicy()` each frame, which is an XPC call too. Every
+`setActivationPolicy` call site reports the change through
+`BotAnimator.activationPolicyDidChange(_:)`.
+
+Frames bypass SwiftUI. The animator used to publish an observed `pose` that
+the `MenuBarExtra` label read, so every frame re-evaluated the label. That had
+two costs, both measured on a running app:
+
+- **Memory.** SwiftUI never released the Observation registrations made from
+  the label, one per frame. After 3.5 days the heap held about 740k
+  `Set<AnyKeyPath>` and 12.9k live `ObservationTracking` tables, and RSS was
+  around 600 MB and still growing.
+- **CPU.** 3 to 8% while idle, nearly all of it in AttributeGraph finding and
+  re-rendering the label, not in drawing the bot.
+
+Now the loop draws into the status button itself, and only when the pose
+changed or a colour fade is running. The label reads the animator without
+observing it, so it re-renders only when the winning session's state or tool
+glyph, the tray prefs, or the VoiceOver value change. It hands SwiftUI the
+animator's live image (`liveMenuBarImage(colored:)`), never a snapshot, so
+whenever SwiftUI puts the label's image back on the button it is the same
+object the loop animates. Prefs changes restart the loop, which always pushes
+its first frame. If the button doesn't exist yet at launch, the loop retries
+every 0.25 s.
+
+The button keeps one `NSImage` for the life of the app. A push draws the
+frame into a 44 px `CGContext` kept by the animator, swaps the image's only
+representation for one over a `makeImage()` snapshot of it (a copy, since the
+old rep still holds the previous one), and marks the button for display. Setting
+`button.image` per frame instead made AppKit re-measure the item
+(`-[NSStatusItem _adjustLength]`), which was about half the cost of a push
+although the size never changes. `button.image` is set only when the button
+holds another image or the template flag flipped (the cell re-reads it only on
+a fresh `setImage:`).
+
+Rewriting the pixels of one `NSBitmapImageRep` in place does not work, even
+after `recache()`: the menu bar kept showing the first frame. The button's
+layer seems to compare its drawing by `CGImage` identity, so each frame needs
+a new representation. The remaining per-push cost is the rasterisation, the
+`NSStatusBarButtonCell` redraw, and the `NSStatusItemScene updateSettings`
+that every redraw triggers from a CA commit handler. With the per-frame rep
+swap, a mono idle bot used 0.87 s of CPU over 120 s, down from 1.27 s. If the
+menu-bar bot ever freezes after a macOS update, go back to setting
+`button.image` per frame.
+
+## Changing it
+
+- Run `swift test --package-path macos`. The behavior is deterministic per seed,
+  so tests step it at a fixed frame rate and check properties such as blink
+  rate, eye swaps only behind shut lids, no large per-frame gaze jumps during
+  morphs, and the sleepy body staying round.
+- To look at frames, compile the two `Bot/*.swift` files with a small
+  `main.swift` that renders poses into a `CGContext` and writes PNGs. That needs
+  no app build and is the fastest way to judge a change.
+- Keep new animation in `BotBehavior` as data on `BotPose`, and keep
+  `BotRenderer` a pure function of pose and style. The animator should stay a
+  loop and nothing more.
+
+## Credits
+
+The look and state set follow the Grok Bot icon animation
+([Benji Taylor's post](https://x.com/benjitaylor/status/2087227155076046995)).
+Eye proportions and the ring-morph technique were measured from
+[sheng-yh/Reproduce-grok-bot-icon](https://github.com/sheng-yh/Reproduce-grok-bot-icon),
+which reproduces x.ai's component. That artwork is © xAI, and none of its point
+data is copied here. Timing draws on eye-movement research (blink rate 16 to 20
+per minute, 150 to 500 ms blinks, 20 to 200 ms saccades) and animation practice
+(blink on head turns, asymmetric blinks, eye darts).

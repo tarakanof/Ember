@@ -1,0 +1,24 @@
+[
+  {
+    "build": "8dcd6329",
+    "channel": "test",
+    "elf": false,
+    "idf_ver": "v5.5.5",
+    "project": "cinder",
+    "sha256": "39206446a78e9adcf82095a03e361c0f064d62b37a63982d65359f00eb56d539",
+    "size": 71680,
+    "uploaded_at": "2026-10-06T12:00:00Z",
+    "version": "0.9.15-rc1"
+  },
+  {
+    "build": "42f7f65e",
+    "channel": "release",
+    "elf": false,
+    "idf_ver": "v5.5.5",
+    "project": "cinder",
+    "sha256": "de7e409603f8e06e88ed25982476a271aeb0cc76b5f25a6d98f931e503a4d95c",
+    "size": 71680,
+    "uploaded_at": "2026-10-06T12:00:00Z",
+    "version": "0.9.14"
+  }
+]

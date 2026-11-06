@@ -1,0 +1,168 @@
+import SwiftUI
+import EmberKit
+
+struct KnobDetail: View {
+    @Environment(AppEnvironment.self) private var env
+    let page: DevicePage
+    @State private var setup: KnobSetupModel.Mode?
+
+    private var knob: KnobModel { env.knob }
+
+    var body: some View {
+        if page == .hardware(.health), knob.knob != nil {
+            KnobHardwarePane()
+        } else {
+            form
+        }
+    }
+
+    private var form: some View {
+        Form {
+            LoadStateSection(isLoaded: knob.isLoaded, error: knob.loadError,
+                             offMessage: "This server has no knob registry. Update the Ember server.",
+                             retry: { await knob.load() })
+            if knob.isLoaded {
+                if knob.knob == nil {
+                    KnobPairingSection()
+                    KnobEmptySection(setUp: { setup = .setup })
+                } else {
+                    content
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .autosaves(knob.settings)
+        .reloads {
+            await knob.load()
+            async let a: Void = env.settings.pomodoro.load()
+            async let b: Void = env.settings.weather.load()
+            async let c: Void = env.settings.controls.load()
+            async let d: Void = env.settings.day.load()
+            _ = await (a, b, c, d)
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(KnobModel.reloadEvery))
+                await knob.load(reuseFreshList: true)
+            }
+        }
+        .task(id: knob.isLoaded) {
+            if knob.isLoaded { await knob.pairing.poll() }
+        }
+        .onAppear { Task { await knob.probePorts(retryFailed: true) } }
+        .onChange(of: knob.ports.ports) { _, _ in Task { await knob.probePorts() } }
+        .sheet(item: $setup) { mode in
+            KnobSetupSheet(mode: mode)
+        }
+    }
+
+    private func isOff(_ source: SourceID) -> Bool {
+        let s = env.settings
+        switch source {
+        case .focus: return s.pomodoro.isLoaded && !s.pomodoro.draft.enabled
+        case .weather: return s.weather.isLoaded && !s.weather.draft.enabled
+        case .calendar: return s.meetings.isLoaded && !s.meetings.draft.enabled
+        case .dayClock: return s.day.isLoaded && !s.day.draft.enabled
+        case .agents, .music, .printer: return false
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch page {
+        case .hardware(.display):
+            KnobDisplaySection()
+            KnobQuietSection()
+            KnobIdleSection()
+            KnobRoomSection()
+        case .hardware(.behavior):
+            KnobPollSection()
+            KnobAdvancedSection(changeWiFi: { setup = .changeWiFi })
+        case .hardware:
+            KnobStatusSection(setUp: { setup = .setup })
+        case .apps:
+            KnobPagesPreviewSection()
+            KnobPagesSection().disabled(!knob.settings.isLoaded)
+            KnobControlsSection()
+        case .app(let app):
+            if let source = AppCatalog.source(of: app) { SourceLinkSection(source: source, isOff: isOff(source)) }
+            if let page = AppCatalog.knobPage(app), app != .day { KnobAppPreviewSection(page: page) }
+            Group {
+                KnobPageSection(app: app)
+                if app == .bot { KnobBotSection() }
+                KnobAppOptionsSection(app: app)
+            }
+            .disabled(!knob.settings.isLoaded)
+        }
+    }
+}
+
+extension KnobSetupModel.Mode: @retroactive Identifiable {
+    public var id: Self { self }
+}
+
+struct KnobEmptySection: View {
+    @Environment(AppEnvironment.self) private var env
+    let setUp: () -> Void
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("No knob set up", systemImage: "dial.medium")
+                    .font(.headline)
+                Text("Plug the knob into this Mac with a USB-C cable, then set it up. Ember gives it your Wi-Fi, this server's address and its own token.")
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+            KnobUSBRow()
+            HStack {
+                Spacer()
+                Button("Set Up Knob…", action: setUp)
+                    .keyboardShortcut(.defaultAction)
+            }
+        } header: {
+            Text("Status")
+        } footer: {
+            Text("The knob has to run cinder. Settings change here once it's set up; Wi-Fi changes need the cable again.")
+        }
+    }
+}
+
+struct KnobUSBRow: View {
+    @Environment(AppEnvironment.self) private var env
+
+    var body: some View {
+        let knob = env.knob
+        LabeledContent("USB") {
+            if let port = knob.connectedPort {
+                switch knob.portStatus[port.path] {
+                case .cinder(let id)?:
+                    Label {
+                        if id.isProvisioned {
+                            Text("\(id.info.name) connected",
+                                 comment: "Settings › Knob USB row: the knob's name (\"Knob 61FC8C\").")
+                        } else {
+                            Text("\(id.info.name) connected, not set up",
+                                 comment: "Settings › Knob USB row: the knob's name (\"Knob 61FC8C\"); it has no Wi-Fi or Ember settings yet.")
+                        }
+                    } icon: {
+                        Image(systemName: "cable.connector").foregroundStyle(.green)
+                    }
+                case .notCinder?:
+                    Label("An ESP32 board is connected but isn't running cinder", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                case .unavailable?:
+                    Label("A board is connected, but Ember couldn't open its port", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .help("Quit other apps using the port (such as idf.py monitor), then unplug and plug the knob back in.")
+                case .probing?, nil:
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Checking the board…").foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Text("No knob connected").foregroundStyle(.secondary)
+            }
+        }
+    }
+}

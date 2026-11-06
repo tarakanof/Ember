@@ -1,0 +1,127 @@
+package render
+
+import (
+	"testing"
+	"time"
+)
+
+func bptr(b bool) *bool { return &b }
+
+func TestSourceCardAvailability(t *testing.T) {
+	base := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running"}
+
+	cards := AvailableCards(base, nil)
+	if len(cards) == 0 || cards[0] != cardSource {
+		t.Fatalf("default cards = %v, want cardSource first", cards)
+	}
+
+	off := base
+	off.SourceCard = bptr(false)
+	for _, c := range AvailableCards(off, nil) {
+		if c == cardSource {
+			t.Fatal("cardSource present despite source_card=false")
+		}
+	}
+
+	noSrc := base
+	noSrc.Source = ""
+	for _, c := range AvailableCards(noSrc, nil) {
+		if c == cardSource {
+			t.Fatal("cardSource present despite empty source")
+		}
+	}
+}
+
+func TestAvailableCardsMayBeEmpty(t *testing.T) {
+	s := Session{Source: "", Tool: "claude", Session: "s1", State: "done"}
+	if got := AvailableCards(s, nil); len(got) != 0 {
+		t.Fatalf("cards = %v, want empty", got)
+	}
+}
+
+func TestRenderForCoordNoCardsDoesNotPanic(t *testing.T) {
+	s := Session{Source: "", Tool: "claude", Session: "s1", State: "done", UpdatedAt: time.Now()}
+	snap := Snapshot{Now: time.Now(), Sessions: []Session{s}}
+	p := RenderForCoord(snap, s.Key(), 0, false, 30, nil)
+	if p == nil {
+		t.Fatal("expected a payload for an active (done) session")
+	}
+}
+
+func TestSourceCardText(t *testing.T) {
+	for in, want := range map[string]string{
+		"mbp": "MBP", "studio-m4": "STUD", "": "",
+		"über-mac":    "ÜBE",
+		"mwmw-studio": "MW", "mbp1": "MBP", "m4": "M4",
+		"nwn":     "NWN",
+		"qqqq":    "QQQ",
+		"iiiiiii": "IIIIIII", "mini-pc": "MINI",
+		"ñandú": "ÑAN",
+	} {
+		if got := SourceCardText(in); got != want {
+			t.Fatalf("SourceCardText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNGGlyphWidthTableCoversPrintableASCII(t *testing.T) {
+	if got, want := len(ngASCIIInkW), 0x7E-0x20+1; got != want {
+		t.Fatalf("ngASCIIInkW has %d entries, want %d (0x20..0x7E)", got, want)
+	}
+	for r, want := range map[rune]int{'M': 5, 'W': 5, 'N': 4, 'Q': 4, 'I': 1, ' ': 1, 'A': 3, '4': 3, 'é': ngWideGlyphW} {
+		if got := ngGlyphW(r); got != want {
+			t.Errorf("ngGlyphW(%q) = %d, want %d", r, got, want)
+		}
+	}
+}
+
+func TestComposeFrameSourceCard(t *testing.T) {
+	col := "#3366FF"
+	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceColor: &col}
+	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
+	want := RGB{0x33, 0x66, 0xFF}
+	if f.Native == nil {
+		t.Fatal("source card: Native is nil, want the source name")
+	}
+	if f.Native.Text != "MBP" || f.Native.X != contentX || f.Native.Color != want {
+		t.Fatalf("source-card native text = %+v, want {MBP %d %v}", *f.Native, contentX, want)
+	}
+}
+
+func TestComposeFrameNoCardBlankNumberSlot(t *testing.T) {
+	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceCard: bptr(false)}
+	f := ComposeFrame(s, cardNone, nil, []Session{s}, time.Now())
+	for y := 1; y <= 5; y++ {
+		for x := contentX; x <= 23; x++ {
+			if f.Dirty[y][x] {
+				t.Fatalf("pixel (%d,%d) lit; number slot must be blank", x, y)
+			}
+		}
+	}
+}
+
+func TestComposeFrameBottomBarModes(t *testing.T) {
+	pct := 50
+	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", RateWindowPct: &pct}
+
+	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
+	if !f.Dirty[barRow][barX0] {
+		t.Fatal("expected session bar pixel at default settings")
+	}
+
+	off := s
+	off.SessionBar = bptr(false)
+	f = ComposeFrame(off, cardSource, nil, []Session{off}, time.Now())
+	for x := 0; x < 32; x++ {
+		if f.Dirty[barRow][x] {
+			t.Fatalf("row 7 pixel %d lit with bar mode off", x)
+		}
+	}
+
+	rate := off
+	rate.RateBottomBar = true
+	f = ComposeFrame(rate, cardSource, nil, []Session{rate}, time.Now())
+	if !f.Dirty[barRow][8] {
+		t.Fatal("expected rate bar at col 8")
+	}
+}

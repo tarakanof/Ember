@@ -1,0 +1,132 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+
+	"github.com/tarakanof/ember/internal/awtrix"
+)
+
+const testChimeRTTTL = "test:d=16,o=6,b=180:c,e,g,8c7"
+
+const legacyMelodyNameMax = 24
+
+func (a *App) callDevice(w http.ResponseWriter, r *http.Request, call func(context.Context, *awtrix.Client) error) {
+	if err := a.clock.do(r.Context(), callMenu, call); err != nil {
+		writeClockError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (a *App) audioUnavailable(w http.ResponseWriter, has func(awtrix.AudioCaps) bool, what string) bool {
+	caps, ok := a.capabilities()
+	if !ok || has(caps.Audio) {
+		return false
+	}
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+		"error": "clock has no " + what,
+		"code":  "unavailable",
+	})
+	return true
+}
+
+func hasBuzzer(c awtrix.AudioCaps) bool { return c.PlaysRTTTL() }
+
+func hasAnyAudio(c awtrix.AudioCaps) bool { return c.PlaysRTTTL() || c.Track || c.MP3 || c.Radio }
+
+func (a *App) handleDevicePowerPut(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Power *bool `json:"power"`
+	}
+	if !a.decodeOrReject(w, r, &body, true) {
+		return
+	}
+	if body.Power == nil {
+		writeError(w, http.StatusBadRequest, errors.New("power must be true or false"))
+		return
+	}
+	a.callDevice(w, r, func(ctx context.Context, cl *awtrix.Client) error {
+		return cl.SetDisplayPower(ctx, *body.Power)
+	})
+}
+
+func (a *App) handleDeviceAudioTest(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Melody *string `json:"melody"`
+	}
+	if !a.decodeOptionalOrReject(w, r, &body, true) {
+		return
+	}
+	if body.Melody != nil {
+		if err := a.validPreviewName(*body.Melody); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if a.audioUnavailable(w, hasBuzzer, "buzzer") {
+		return
+	}
+	play := func(soundObject bool) func(context.Context, *awtrix.Client) error {
+		return func(ctx context.Context, cl *awtrix.Client) error {
+			switch {
+			case body.Melody != nil && soundObject:
+				return cl.PlayFile(ctx, *body.Melody)
+			case body.Melody != nil:
+				return cl.PlayMelody(ctx, *body.Melody)
+			}
+			return cl.PlayRTTTL(ctx, testChimeRTTTL)
+		}
+	}
+	soundObject := a.soundObjectAPI()
+	err := a.clock.do(r.Context(), callMenu, play(soundObject))
+	if err != nil && body.Melody != nil && isUnprocessable(err) {
+		a.refreshCapabilities(r.Context())
+		if again := a.soundObjectAPI(); again != soundObject {
+			err = a.clock.do(r.Context(), callMenu, play(again))
+		}
+	}
+	if err != nil {
+		writeClockError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (a *App) validPreviewName(name string) error {
+	if !soundNamePattern.MatchString(name) {
+		return errors.New("melody must be 1-32 of A-Z a-z 0-9 _ -")
+	}
+	if caps, ok := a.capabilities(); ok && !caps.Audio.SoundObjectAPI() && len(name) > legacyMelodyNameMax {
+		return fmt.Errorf("melody must be 1-%d of A-Z a-z 0-9 _ - before awtrix-ng 1.2", legacyMelodyNameMax)
+	}
+	return nil
+}
+
+func (a *App) handleDeviceAudioStop(w http.ResponseWriter, r *http.Request) {
+	if a.audioUnavailable(w, hasAnyAudio, "audio output") {
+		return
+	}
+	a.callDevice(w, r, func(ctx context.Context, cl *awtrix.Client) error {
+		return cl.StopAudio(ctx)
+	})
+}
+
+func (a *App) handleDeviceAudioMelodies(w http.ResponseWriter, r *http.Request) {
+	if a.audioUnavailable(w, hasBuzzer, "buzzer") {
+		return
+	}
+	var list awtrix.MelodyList
+	err := a.clock.do(r.Context(), callMenu, func(ctx context.Context, cl *awtrix.Client) error {
+		var err error
+		list, err = cl.Melodies(ctx)
+		return err
+	})
+	if err != nil {
+		writeClockError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}

@@ -1,0 +1,397 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tarakanof/ember/internal/producer"
+)
+
+func writeEnv(t *testing.T, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CODEX_HOME", "")
+	envDir := filepath.Join(dir, ".config", "ember")
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(envDir, "producer.env"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestLoadConfig_Defaults(t *testing.T) {
+	home := writeEnv(t, "EMBER_SOURCE=mbp\n")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PollIntervalMs != 2000 {
+		t.Errorf("PollIntervalMs = %d, want 2000", cfg.PollIntervalMs)
+	}
+	if cfg.ActivityWindowSeconds != 300 {
+		t.Errorf("ActivityWindowSeconds = %d, want 300", cfg.ActivityWindowSeconds)
+	}
+	if !cfg.ContextPctEnabled {
+		t.Error("ContextPctEnabled should default true")
+	}
+	want := filepath.Join(home, ".codex", "sessions")
+	if cfg.SessionsDir != want {
+		t.Errorf("SessionsDir = %q, want %q", cfg.SessionsDir, want)
+	}
+	wantState := filepath.Join(home, ".local", "state", "ember", "sessions")
+	if cfg.StateDir != wantState {
+		t.Errorf("StateDir = %q, want %q", cfg.StateDir, wantState)
+	}
+}
+
+func TestLoadConfig_Overrides(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\nEMBER_CODEX_POLL_INTERVAL_MS=500\nEMBER_CODEX_ACTIVITY_WINDOW_SECONDS=30\nEMBER_CODEX_SESSIONS_DIR=/tmp/sess\nEMBER_SOURCE_COLOR=#aa66ff\nEMBER_CONTEXT_PCT_ENABLED=false\n")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PollIntervalMs != 500 || cfg.ActivityWindowSeconds != 30 || cfg.SessionsDir != "/tmp/sess" {
+		t.Errorf("overrides not applied: %+v", cfg)
+	}
+	if cfg.SourceColor != "#aa66ff" || cfg.ContextPctEnabled {
+		t.Errorf("color/ctx flags wrong: %+v", cfg)
+	}
+}
+
+func TestLoadConfig_PollIntervalFloor(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\nEMBER_CODEX_POLL_INTERVAL_MS=10\n")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PollIntervalMs != 250 {
+		t.Errorf("PollIntervalMs = %d, want clamped to 250", cfg.PollIntervalMs)
+	}
+}
+
+func TestLoadConfig_RatePctEnabled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.RatePctEnabled {
+		t.Errorf("default RatePctEnabled = false, want true")
+	}
+}
+
+func TestLoadConfig_CodexActivityTrailDefaultsTrue(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte("EMBER_SOURCE=mbp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ActivityTrailEnabled {
+		t.Error("ActivityTrailEnabled default = false, want true")
+	}
+}
+
+func TestLoadConfig_CodexActivityTrailDisabled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("EMBER_SOURCE=mbp\nEMBER_ACTIVITY_TRAIL_ENABLED=0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ActivityTrailEnabled {
+		t.Error("ActivityTrailEnabled = true with =0 set, want false")
+	}
+}
+
+func TestLoadConfig_CodexContextNumberDefaultsFalse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte("EMBER_SOURCE=mbp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if cfg.ContextNumberEnabled {
+		t.Error("default = true, want false")
+	}
+}
+
+func TestLoadConfig_CodexContextNumberOn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("EMBER_SOURCE=mbp\nEMBER_CONTEXT_NUMBER_ENABLED=on\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if !cfg.ContextNumberEnabled {
+		t.Error("=on should enable")
+	}
+}
+
+func TestLoadConfig_CodexContextNumberExplicitFalse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("EMBER_SOURCE=mbp\nEMBER_CONTEXT_NUMBER_ENABLED=false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if cfg.ContextNumberEnabled {
+		t.Error("=false should stay disabled")
+	}
+}
+
+func TestLoadConfig_CodexRateBottomBarDefaultsFalse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte("EMBER_SOURCE=mbp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if cfg.RateBottomBarEnabled {
+		t.Error("default = true, want false")
+	}
+}
+
+func TestLoadConfig_CodexRateBottomBarOn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("EMBER_SOURCE=mbp\nEMBER_RATE_BOTTOM_BAR=on\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if !cfg.RateBottomBarEnabled {
+		t.Error("=on should enable")
+	}
+}
+
+func TestLoadConfig_CodexRateResetDefaultsFalse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte("EMBER_SOURCE=mbp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if cfg.RateResetEnabled {
+		t.Error("default = true, want false")
+	}
+}
+
+func TestLoadConfig_CodexRateResetOn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("EMBER_SOURCE=mbp\nEMBER_RATE_RESET=on\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if !cfg.RateResetEnabled {
+		t.Error("=on should enable")
+	}
+}
+
+func TestLoadConfig_CodexRateBottomBarExplicitFalse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("EMBER_SOURCE=mbp\nEMBER_RATE_BOTTOM_BAR=false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if cfg.RateBottomBarEnabled {
+		t.Error("=false should stay disabled")
+	}
+}
+
+func TestLoadConfig_CodexSourceCardDefaultsTrue(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\n")
+	cfg, _ := loadConfig()
+	if !cfg.SourceCardEnabled {
+		t.Error("SourceCardEnabled default = false, want true")
+	}
+}
+
+func TestLoadConfig_CodexSourceCardDisabled(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\nEMBER_SOURCE_CARD=false\n")
+	cfg, _ := loadConfig()
+	if cfg.SourceCardEnabled {
+		t.Error("EMBER_SOURCE_CARD=false should disable SourceCardEnabled")
+	}
+}
+
+func TestLoadConfig_CodexSessionBarDefaultsTrue(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\n")
+	cfg, _ := loadConfig()
+	if !cfg.SessionBarEnabled {
+		t.Error("SessionBarEnabled default = false, want true")
+	}
+}
+
+func TestLoadConfig_CodexSessionBarDisabled(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\nEMBER_SESSION_BAR=false\n")
+	cfg, _ := loadConfig()
+	if cfg.SessionBarEnabled {
+		t.Error("EMBER_SESSION_BAR=false should disable SessionBarEnabled")
+	}
+}
+
+func TestLoadConfig_SourceDefaultsFromHostOnPlaceholder(t *testing.T) {
+	defer producer.SetHostNameForTest("Dmitrys-MacBook-Pro")()
+	writeEnv(t, "EMBER_SOURCE=set-me-to-this-laptop-id\n")
+	cfg, _ := loadConfig()
+	if want := "mbp"; cfg.Source != want {
+		t.Errorf("Source = %q, want %q", cfg.Source, want)
+	}
+	writeEnv(t, "EMBER_SOURCE=m5\n")
+	cfg, _ = loadConfig()
+	if cfg.Source != "m5" {
+		t.Errorf("Source = %q, want m5", cfg.Source)
+	}
+}
+
+func TestLoadConfig_CodexSourcesAndClaude(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Sources != nil || cfg.IncludeClaude || sourceList(cfg.Sources) != "cli,vscode" {
+		t.Errorf("defaults: sources %v include_claude %v", cfg.Sources, cfg.IncludeClaude)
+	}
+	env := "EMBER_SOURCE=mbp\nEMBER_CODEX_SOURCES=cli,vscode,exec\nEMBER_CODEX_INCLUDE_CLAUDE=1\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sourceList(cfg.Sources) != "cli,exec,vscode" || !cfg.IncludeClaude {
+		t.Errorf("got sources %q include_claude %v", sourceList(cfg.Sources), cfg.IncludeClaude)
+	}
+}
+
+func TestLoadConfig_AppServerDefaultsOnAtCodexHomeSocket(t *testing.T) {
+	t.Setenv("CODEX_HOME", "")
+	home := writeEnv(t, "EMBER_SOURCE=mbp\n")
+	cfg, _ := loadConfig()
+	if !cfg.AppServerEnabled {
+		t.Error("AppServerEnabled should default true (a no-op without the socket)")
+	}
+	if want := filepath.Join(home, ".codex", "app-server-control", "app-server-control.sock"); cfg.AppServerSocket != want {
+		t.Errorf("AppServerSocket = %q, want %q", cfg.AppServerSocket, want)
+	}
+	t.Setenv("CODEX_HOME", "/opt/ch")
+	cfg, _ = loadConfig()
+	if cfg.AppServerSocket != "/opt/ch/app-server-control/app-server-control.sock" {
+		t.Errorf("CODEX_HOME ignored: %q", cfg.AppServerSocket)
+	}
+}
+
+func TestLoadConfig_AppServerDisabled(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\nEMBER_CODEX_APPSERVER=0\n")
+	cfg, _ := loadConfig()
+	if cfg.AppServerEnabled {
+		t.Error("EMBER_CODEX_APPSERVER=0 should disable the app-server source")
+	}
+}
+
+func TestLoadConfig_CodexHomeFromProducerEnvMovesSessionsAndSocket(t *testing.T) {
+	t.Setenv("CODEX_HOME", "/from/shell")
+	writeEnv(t, "EMBER_SOURCE=mbp\nCODEX_HOME=/from/env\n")
+	t.Setenv("CODEX_HOME", "/from/shell")
+	cfg, _ := loadConfig()
+	if cfg.SessionsDir != "/from/env/sessions" || cfg.AppServerSocket != "/from/env/app-server-control/app-server-control.sock" {
+		t.Errorf("producer.env CODEX_HOME: sessions=%q socket=%q", cfg.SessionsDir, cfg.AppServerSocket)
+	}
+	writeEnv(t, "EMBER_SOURCE=mbp\nCODEX_HOME=/from/env\nEMBER_CODEX_SESSIONS_DIR=/s\n")
+	cfg, _ = loadConfig()
+	if cfg.SessionsDir != "/s" {
+		t.Errorf("EMBER_CODEX_SESSIONS_DIR should win, got %q", cfg.SessionsDir)
+	}
+}
+
+func TestConfigLogValueRedactsTokenAndListsToggles(t *testing.T) {
+	cfg := Config{Common: producer.Common{Token: "super-secret"}}
+	s := cfg.LogValue().String()
+	if strings.Contains(s, "super-secret") || !strings.Contains(s, "token=set") {
+		t.Fatalf("LogValue = %s", s)
+	}
+	for _, k := range []string{"source_card_enabled", "context_pct_enabled", "rate_reset_enabled"} {
+		if !strings.Contains(s, k) {
+			t.Errorf("LogValue missing %s: %s", k, s)
+		}
+	}
+}
+
+func TestLoadConfig_AccountsFileFollowsXDGStateHome(t *testing.T) {
+	writeEnv(t, "")
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(state, "ember", accountHistoryFile); cfg.AccountsFile != want {
+		t.Fatalf("AccountsFile = %q, want %q", cfg.AccountsFile, want)
+	}
+}

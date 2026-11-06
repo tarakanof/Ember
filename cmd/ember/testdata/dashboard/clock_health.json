@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-09-26T10:30:00+02:00",
+  "publish": {
+    "counting_since": "2026-09-25T08:30:00+02:00",
+    "ok_24h": 3,
+    "fail_24h": 1,
+    "success_ratio_24h": 0.75,
+    "ok_total": 3,
+    "fail_total": 1,
+    "retries_total": 1,
+    "last_at": "2026-09-26T10:29:00+02:00",
+    "last_ok": true
+  },
+  "device": {
+    "reachable": true,
+    "checked_at": "2026-09-26T10:30:00+02:00",
+    "firmware": "1.1.1",
+    "current_app": "Time",
+    "uptime_sec": 268719,
+    "free_heap_bytes": 103032,
+    "min_free_heap_bytes": 76544,
+    "wifi_rssi_dbm": -71,
+    "wifi_connects": 3,
+    "reset_reason": "software",
+    "fps": 42,
+    "matrix_power": true,
+    "battery_percent": 97,
+    "low_battery": false,
+    "temperature_c": 33.4,
+    "humidity_percent": 21.4
+  },
+  "latest_firmware": "1.1.2",
+  "update_available": true
+}

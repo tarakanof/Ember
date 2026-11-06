@@ -1,0 +1,81 @@
+package main
+
+import (
+	"encoding/json"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestUpdateConfigConcurrentPUTsBothSurvive(t *testing.T) {
+	a := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+
+	const iterations = 20000
+	const defaultIdleRestoreSeconds = 120
+
+	displayTarget := displayConfigDTO{IdleHideMinutes: 5, AttentionHoldSeconds: 45, AttentionChime: true}
+	quietTarget := quietConfigDTO{Enabled: true, Start: "23:00", End: "07:00"}
+
+	displayBody, _ := json.Marshal(displayTarget)
+	quietBody, _ := json.Marshal(quietTarget)
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			_, _ = a.settings.display.put(displayBody)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			_, _ = a.settings.quiet.put(quietBody)
+		}
+	}()
+
+	var sawDisplayTarget, sawQuietTarget atomic.Bool
+	var displayReverted, quietReverted atomic.Bool
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			cfg := a.cfg.Load()
+			if cfg.Display.IdleRestoreSeconds == displayTarget.IdleHideMinutes*60 {
+				sawDisplayTarget.Store(true)
+			} else if cfg.Display.IdleRestoreSeconds == defaultIdleRestoreSeconds && sawDisplayTarget.Load() {
+				displayReverted.Store(true)
+			}
+			if cfg.QuietHours.Enabled && cfg.QuietHours.Start == quietTarget.Start {
+				sawQuietTarget.Store(true)
+			} else if !cfg.QuietHours.Enabled && cfg.QuietHours.Start == "" && sawQuietTarget.Load() {
+				quietReverted.Store(true)
+			}
+		}
+	}()
+
+	wg.Wait()
+	close(stop)
+	time.Sleep(time.Millisecond)
+
+	if displayReverted.Load() {
+		t.Error("display settings were reverted to the startup default by a concurrent quiet-hours write")
+	}
+	if quietReverted.Load() {
+		t.Error("quiet-hours settings were reverted to the startup default by a concurrent display write")
+	}
+
+	got := a.cfg.Load()
+	if got.Display.IdleRestoreSeconds != displayTarget.IdleHideMinutes*60 || got.Display.AckTimeoutSeconds != displayTarget.AttentionHoldSeconds || got.Display.AttentionChime != displayTarget.AttentionChime {
+		t.Fatalf("final display settings not applied: %+v", got.Display)
+	}
+	if !got.QuietHours.Enabled || got.QuietHours.Start != quietTarget.Start || got.QuietHours.End != quietTarget.End {
+		t.Fatalf("final quiet-hours settings not applied: %+v", got.QuietHours)
+	}
+}

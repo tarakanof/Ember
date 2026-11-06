@@ -1,0 +1,416 @@
+tick 00 state=running pomo=false hold=0
+  dev#000 GET /api/v1/apps body=e3b0c442 DROP
+  dev#001 PUT /api/v1/indicators/1 body=b721723d ok
+  dev#002 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+  dev#003 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+tick 01 state=running pomo=false hold=0
+  dev#004 GET /api/v1/apps body=e3b0c442 ok
+  dev#005 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+  dev#006 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+  dev#007 DELETE /api/v1/apps/ember-weather body=e3b0c442 DROP
+tick 02 state=running pomo=false hold=0
+  dev#008 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+  dev#009 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+  dev#010 DELETE /api/v1/apps/ember-weather body=e3b0c442 DROP
+tick 03 state=running pomo=false hold=0
+  dev#011 POST /api/v1/audio/play body=feb83a4a ok
+  dev#012 DELETE /api/v1/indicators/1 body=e3b0c442 DROP
+  dev#013 PUT /api/v1/indicators/2 body=6952b9e0 DROP
+  dev#014 PUT /api/v1/apps/pushed/ember body=f361e984 ok
+  dev#015 PUT /api/v1/apps/active body=fedfc91c DROP
+  dev#016 PUT /api/v1/apps/active body=fedfc91c ok
+  dev#017 DELETE /api/v1/indicators/1 body=e3b0c442 DROP
+  dev#018 PUT /api/v1/indicators/2 body=6952b9e0 DROP
+  dev#019 DELETE /api/v1/apps/ember-weather body=e3b0c442 ok
+tick 04 state=waiting pomo=false hold=1
+  dev#020 DELETE /api/v1/indicators/1 body=e3b0c442 DROP
+  dev#021 PUT /api/v1/apps/pushed/ember body=cde3ecef ok
+tick 05 state=waiting pomo=false hold=0
+  dev#022 DELETE /api/v1/indicators/1 body=e3b0c442 DROP
+  dev#023 PUT /api/v1/apps/pushed/ember body=cde3ecef slow1800
+tick 06 state=waiting pomo=false hold=0
+  dev#024 DELETE /api/v1/indicators/1 body=e3b0c442 ok
+  dev#025 PUT /api/v1/apps/pushed/ember body=cde3ecef DROP
+  dev#026 PUT /api/v1/apps/pushed/ember body=cde3ecef ok
+tick 07 state=waiting pomo=false hold=0
+  dev#027 PUT /api/v1/apps/pushed/ember body=cde3ecef DROP
+  dev#028 PUT /api/v1/apps/pushed/ember body=cde3ecef DROP
+tick 08 state=waiting pomo=false hold=0
+  dev#029 PUT /api/v1/indicators/1 body=b721723d ok
+  dev#030 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+  dev#031 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 09 state=running pomo=false hold=0
+  dev#032 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+  dev#033 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+tick 10 state=running pomo=false hold=0
+  dev#034 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 11 state=running pomo=false hold=0
+  dev#035 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+  dev#036 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 12 state=running pomo=false hold=0
+  dev#037 PUT /api/v1/apps/pushed/ember body=caed5804 DROP
+  dev#038 PUT /api/v1/apps/pushed/ember body=caed5804 DROP
+tick 13 state=running pomo=true hold=0
+  dev#039 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+  dev#040 GET /api/v1/settings body=e3b0c442 DROP
+  dev#041 GET /api/v1/settings body=e3b0c442 ok
+  dev#042 PATCH /api/v1/settings body=c6128a44 DROP
+  dev#043 PATCH /api/v1/settings body=c6128a44 DROP
+tick 14 state=running pomo=true hold=0
+  dev#044 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+  dev#045 PATCH /api/v1/settings body=c6128a44 DROP
+  dev#046 PATCH /api/v1/settings body=c6128a44 ok
+  dev#047 PUT /api/v1/apps/active body=f435d972 DROP
+  dev#048 PUT /api/v1/apps/active body=f435d972 DROP
+tick 15 state=running pomo=true hold=0
+  dev#049 PUT /api/v1/apps/pushed/ember body=caed5804 slow3500
+  dev#050 PUT /api/v1/apps/pushed/ember body=caed5804 DROP
+tick 16 state=running pomo=true hold=0
+  dev#051 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+  dev#052 PATCH /api/v1/settings body=c6128a44 DROP
+  dev#053 PATCH /api/v1/settings body=c6128a44 DROP
+tick 17 state=running pomo=true hold=0
+  dev#054 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+  dev#055 PATCH /api/v1/settings body=c6128a44 DROP
+  dev#056 PATCH /api/v1/settings body=c6128a44 ok
+  dev#057 PUT /api/v1/apps/active body=f435d972 DROP
+  dev#058 PUT /api/v1/apps/active body=f435d972 DROP
+tick 18 state=running pomo=true hold=0
+  dev#059 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+  dev#060 PATCH /api/v1/settings body=c6128a44 DROP
+  dev#061 PATCH /api/v1/settings body=c6128a44 ok
+  dev#062 PUT /api/v1/apps/active body=f435d972 DROP
+  dev#063 PUT /api/v1/apps/active body=f435d972 DROP
+tick 19 state=running pomo=true hold=0
+  dev#064 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+  dev#065 PATCH /api/v1/settings body=c6128a44 DROP
+  dev#066 PATCH /api/v1/settings body=c6128a44 ok
+  dev#067 PUT /api/v1/apps/active body=f435d972 DROP
+  dev#068 PUT /api/v1/apps/active body=f435d972 DROP
+tick 20 state=running pomo=true hold=0
+  dev#069 PUT /api/v1/indicators/1 body=b721723d ok
+  dev#070 PUT /api/v1/apps/pushed/ember body=caed5804 DROP
+  dev#071 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+  dev#072 PATCH /api/v1/settings body=c6128a44 DROP
+  dev#073 PATCH /api/v1/settings body=c6128a44 DROP
+  dev#074 PATCH /api/v1/settings body=c6128a44 ok
+  dev#075 PUT /api/v1/apps/active body=f435d972 DROP
+  dev#076 PUT /api/v1/apps/active body=f435d972 ok
+tick 21 state=running pomo=true hold=2
+  dev#077 PUT /api/v1/apps/pushed/ember body=caed5804 DROP
+  dev#078 PUT /api/v1/apps/pushed/ember body=caed5804 DROP
+tick 22 state=running pomo=true hold=2
+  dev#079 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 23 state=running pomo=true hold=2
+  dev#080 PUT /api/v1/apps/pushed/ember body=caed5804 DROP
+  dev#081 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 24 state=running pomo=true hold=2
+  dev#082 PUT /api/v1/apps/pushed/ember body=caed5804 503
+  dev#083 PUT /api/v1/apps/pushed/ember body=caed5804 DROP
+tick 25 state=running pomo=true hold=2
+  dev#084 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 26 state=running pomo=true hold=2
+  dev#085 PUT /api/v1/apps/pushed/ember body=caed5804 DROP
+  dev#086 PUT /api/v1/apps/pushed/ember body=caed5804 ok
+tick 27 state=running pomo=true hold=2
+  dev#087 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+  dev#088 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+tick 28 state=running pomo=false hold=2
+  dev#089 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+  dev#090 PATCH /api/v1/settings body=1a19f1f2 DROP
+  dev#091 PATCH /api/v1/settings body=1a19f1f2 ok
+tick 29 state=running pomo=false hold=0
+  dev#092 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+  dev#093 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+tick 30 state=running pomo=false hold=0
+  dev#094 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 31 state=running pomo=false hold=0
+  dev#095 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+  dev#096 PUT /api/v1/apps/pushed/ember body=bd95971f ok
+tick 32 state=running pomo=false hold=0
+  dev#097 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+  dev#098 PUT /api/v1/apps/pushed/ember body=bd95971f DROP
+tick 33 state=running pomo=false hold=0
+  dev#099 POST /api/v1/audio/play body=feb83a4a ok
+  dev#100 DELETE /api/v1/indicators/1 body=e3b0c442 DROP
+  dev#101 PUT /api/v1/indicators/2 body=c96eaa96 ok
+  dev#102 PUT /api/v1/apps/pushed/ember body=1fa7a0a7 DROP
+  dev#103 PUT /api/v1/apps/pushed/ember body=1fa7a0a7 DROP
+  dev#104 DELETE /api/v1/indicators/1 body=e3b0c442 ok
+  dev#105 PUT /api/v1/apps/pushed/ember body=1fa7a0a7 DROP
+  dev#106 PUT /api/v1/apps/pushed/ember body=1fa7a0a7 ok
+  dev#107 PUT /api/v1/apps/active body=fedfc91c DROP
+  dev#108 PUT /api/v1/apps/active body=fedfc91c DROP
+tick 34 state=error pomo=false hold=0
+  dev#109 DELETE /api/v1/indicators/2 body=e3b0c442 ok
+  dev#110 PUT /api/v1/apps/pushed/ember body=6b84814a DROP
+  dev#111 PUT /api/v1/apps/pushed/ember body=6b84814a ok
+tick 35 state=error pomo=false hold=0
+  dev#112 PUT /api/v1/apps/pushed/ember body=6b84814a DROP
+  dev#113 PUT /api/v1/apps/pushed/ember body=6b84814a DROP
+tick 36 state=error pomo=false hold=0
+  dev#114 PUT /api/v1/apps/pushed/ember body=6b84814a ok
+tick 37 state=error pomo=false hold=0
+  dev#115 PUT /api/v1/apps/pushed/ember body=6b84814a DROP
+  dev#116 PUT /api/v1/apps/pushed/ember body=6b84814a ok
+tick 38 state=error pomo=false hold=0
+  dev#117 PUT /api/v1/apps/pushed/ember body=6b84814a DROP
+  dev#118 PUT /api/v1/apps/pushed/ember body=6b84814a DROP
+tick 39 state=error pomo=false hold=0
+  dev#119 PUT /api/v1/apps/pushed/ember body=6b84814a ok
+  dev#120 POST /api/v1/notifications body=481a706c DROP
+quiet=false notify #0 err=Post "CLOCK/api/v1/notifications": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
+  dev#121 POST /api/v1/audio/play body=b599ab2e ok
+quiet=false rtttl #0 err=<nil>
+  dev#122 POST /api/v1/notifications body=481a706c DROP
+quiet=false notify #1 err=Post "CLOCK/api/v1/notifications": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
+  dev#123 POST /api/v1/audio/play body=b599ab2e DROP
+quiet=false rtttl #1 err=Post "CLOCK/api/v1/audio/play": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
+  dev#124 POST /api/v1/notifications body=481a706c ok
+quiet=false notify #2 err=<nil>
+  dev#125 POST /api/v1/audio/play body=b599ab2e DROP
+quiet=false rtttl #2 err=Post "CLOCK/api/v1/audio/play": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
+  dev#126 POST /api/v1/notifications body=d26d7059 ok
+quiet=true notify #0 err=<nil>
+quiet=true rtttl #0 err=<nil>
+  dev#127 POST /api/v1/notifications body=d26d7059 DROP
+quiet=true notify #1 err=Post "CLOCK/api/v1/notifications": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
+quiet=true rtttl #1 err=<nil>
+  dev#128 POST /api/v1/notifications body=d26d7059 DROP
+quiet=true notify #2 err=Post "CLOCK/api/v1/notifications": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
+quiet=true rtttl #2 err=<nil>
+  dev#129 GET /api/v1/settings body=e3b0c442 ok
+menu settings.get r0 → 200 {"autoTransition":true,"blockNavigation":false,"brightness":90,"textColor":"#FFFFFF"}
+  dev#130 PATCH /api/v1/settings body=aec2473c DROP
+menu settings.put r0 → 502 {"error":"Patch \"CLOCK/api/v1/settings\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#131 PATCH /api/v1/settings body=791d161a ok
+menu settings.put.takeover_key r0 → 200 
+  dev#132 PATCH /api/v1/settings body=502108c2 DROP
+menu settings.put.refused r0 → 502 {"error":"Patch \"CLOCK/api/v1/settings\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#133 GET /api/v1/device body=e3b0c442 DROP
+menu stats r0 → 502 {"error":"Get \"CLOCK/api/v1/device\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#134 GET /api/v1/display/screen body=e3b0c442 ok
+menu screen r0 → 200 {"width":32,"height":8,"pixels":[0]}
+  dev#135 GET /api/v1/display body=e3b0c442 DROP
+menu display.get r0 → 502 {"error":"Get \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#136 PATCH /api/v1/display body=e868752a ok
+menu display.put r0 → 404 {"code":"notFound","error":"clock returned 404: no route"}
+  dev#137 GET /api/v1/apps body=e3b0c442 DROP
+menu apps.get r0 → 502 {"error":"Get \"CLOCK/api/v1/apps\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#138 PUT /api/v1/apps/order body=e7b1600f DROP
+menu apps.put r0 → 502 {"error":"Put \"CLOCK/api/v1/apps/order\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#139 POST /api/v1/apps/next body=e3b0c442 ok
+menu next r0 → 200 
+  dev#140 POST /api/v1/apps/previous body=e3b0c442 DROP
+menu prev r0 → 502 {"error":"Post \"CLOCK/api/v1/apps/previous\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#141 DELETE /api/v1/notifications/active body=e3b0c442 ok
+menu dismiss r0 → 200 
+  dev#142 POST /api/v1/device/reboot body=e3b0c442 DROP
+menu reboot r0 → 502 {"error":"Post \"CLOCK/api/v1/device/reboot\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#143 PATCH /api/v1/display body=867fdf54 DROP
+menu power r0 → 502 {"error":"Patch \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#144 POST /api/v1/audio/play body=b77b9736 ok
+menu audio.test r0 → 200 {"ok":true}
+  dev#145 POST /api/v1/audio/stop body=e3b0c442 DROP
+menu audio.stop r0 → 502 {"error":"Post \"CLOCK/api/v1/audio/stop\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#146 GET /api/v1/audio/melodies body=e3b0c442 ok
+menu audio.melodies r0 → 200 {"melodies":[],"usedBytes":0,"totalBytes":4096}
+  dev#147 GET /api/v1/capabilities body=e3b0c442 DROP
+menu capabilities r0 → 502 {"error":"Get \"CLOCK/api/v1/capabilities\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#148 GET /api/v1/system body=e3b0c442 DROP
+menu sensors.get r0 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#149 GET /api/v1/system body=e3b0c442 ok
+  dev#150 PUT /api/v1/system body=90640fd6 DROP
+menu sensors.put r0 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#151 GET /api/v1/system body=e3b0c442 ok
+  dev#152 PUT /api/v1/system body=7a703937 DROP
+menu sensors.put.refused r0 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#153 GET /api/v1/system body=e3b0c442 DROP
+menu buttons.get r0 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"","configured":false,"last_press_unix":N,"seconds_since":null}
+  dev#154 GET /api/v1/system body=e3b0c442 ok
+  dev#155 PUT /api/v1/system body=343bffa4 DROP
+menu buttons.put r0 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#156 GET /api/v1/settings body=e3b0c442 ok
+menu settings.get r1 → 200 {"autoTransition":true,"blockNavigation":false,"brightness":90,"textColor":"#FFFFFF"}
+  dev#157 PATCH /api/v1/settings body=aec2473c DROP
+menu settings.put r1 → 502 {"error":"Patch \"CLOCK/api/v1/settings\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#158 PATCH /api/v1/settings body=791d161a DROP
+menu settings.put.takeover_key r1 → 502 {"error":"Patch \"CLOCK/api/v1/settings\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#159 PATCH /api/v1/settings body=502108c2 ok
+menu settings.put.refused r1 → 422 {"code":"validationFailed","error":"clock returned 422: not on this build (field uppercase)","field":"uppercase"}
+  dev#160 GET /api/v1/device body=e3b0c442 DROP
+menu stats r1 → 502 {"error":"Get \"CLOCK/api/v1/device\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#161 GET /api/v1/display/screen body=e3b0c442 ok
+menu screen r1 → 200 {"width":32,"height":8,"pixels":[0]}
+  dev#162 GET /api/v1/display body=e3b0c442 DROP
+menu display.get r1 → 502 {"error":"Get \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#163 PATCH /api/v1/display body=e868752a DROP
+menu display.put r1 → 502 {"error":"Patch \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#164 GET /api/v1/apps body=e3b0c442 ok
+menu apps.get r1 → 200 [{"enabled":true,"inLoop":true,"name":"Time","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"Date","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"ember","origin":"pushed"}]
+  dev#165 PUT /api/v1/apps/order body=e7b1600f DROP
+menu apps.put r1 → 502 {"error":"Put \"CLOCK/api/v1/apps/order\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#166 POST /api/v1/apps/next body=e3b0c442 ok
+menu next r1 → 200 
+  dev#167 POST /api/v1/apps/previous body=e3b0c442 DROP
+menu prev r1 → 502 {"error":"Post \"CLOCK/api/v1/apps/previous\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#168 DELETE /api/v1/notifications/active body=e3b0c442 DROP
+menu dismiss r1 → 502 {"error":"Delete \"CLOCK/api/v1/notifications/active\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#169 POST /api/v1/device/reboot body=e3b0c442 ok
+menu reboot r1 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
+  dev#170 PATCH /api/v1/display body=867fdf54 DROP
+menu power r1 → 502 {"error":"Patch \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#171 POST /api/v1/audio/play body=b77b9736 ok
+menu audio.test r1 → 200 {"ok":true}
+  dev#172 POST /api/v1/audio/stop body=e3b0c442 DROP
+menu audio.stop r1 → 502 {"error":"Post \"CLOCK/api/v1/audio/stop\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#173 GET /api/v1/audio/melodies body=e3b0c442 DROP
+menu audio.melodies r1 → 502 {"error":"Get \"CLOCK/api/v1/audio/melodies\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#174 GET /api/v1/capabilities body=e3b0c442 ok
+menu capabilities r1 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
+  dev#175 GET /api/v1/system body=e3b0c442 DROP
+menu sensors.get r1 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#176 GET /api/v1/system body=e3b0c442 ok
+  dev#177 PUT /api/v1/system body=90640fd6 DROP
+menu sensors.put r1 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#178 GET /api/v1/system body=e3b0c442 DROP
+menu sensors.put.refused r1 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#179 GET /api/v1/system body=e3b0c442 ok
+menu buttons.get r1 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"","configured":false,"last_press_unix":N,"seconds_since":null}
+  dev#180 GET /api/v1/system body=e3b0c442 DROP
+menu buttons.put r1 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#181 GET /api/v1/settings body=e3b0c442 ok
+menu settings.get r2 → 200 {"autoTransition":true,"blockNavigation":false,"brightness":90,"textColor":"#FFFFFF"}
+  dev#182 PATCH /api/v1/settings body=aec2473c DROP
+menu settings.put r2 → 502 {"error":"Patch \"CLOCK/api/v1/settings\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#183 PATCH /api/v1/settings body=791d161a DROP
+menu settings.put.takeover_key r2 → 502 {"error":"Patch \"CLOCK/api/v1/settings\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#184 PATCH /api/v1/settings body=502108c2 ok
+menu settings.put.refused r2 → 422 {"code":"validationFailed","error":"clock returned 422: not on this build (field uppercase)","field":"uppercase"}
+  dev#185 GET /api/v1/device body=e3b0c442 DROP
+menu stats r2 → 502 {"error":"Get \"CLOCK/api/v1/device\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#186 GET /api/v1/display/screen body=e3b0c442 ok
+menu screen r2 → 200 {"width":32,"height":8,"pixels":[0]}
+  dev#187 GET /api/v1/display body=e3b0c442 DROP
+menu display.get r2 → 502 {"error":"Get \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#188 PATCH /api/v1/display body=e868752a DROP
+menu display.put r2 → 502 {"error":"Patch \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#189 GET /api/v1/apps body=e3b0c442 ok
+menu apps.get r2 → 200 [{"enabled":true,"inLoop":true,"name":"Time","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"Date","origin":"builtin"},{"enabled":true,"inLoop":true,"name":"ember","origin":"pushed"}]
+  dev#190 PUT /api/v1/apps/order body=e7b1600f DROP
+menu apps.put r2 → 502 {"error":"Put \"CLOCK/api/v1/apps/order\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#191 POST /api/v1/apps/next body=e3b0c442 ok
+menu next r2 → 200 
+  dev#192 POST /api/v1/apps/previous body=e3b0c442 DROP
+menu prev r2 → 502 {"error":"Post \"CLOCK/api/v1/apps/previous\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#193 DELETE /api/v1/notifications/active body=e3b0c442 DROP
+menu dismiss r2 → 502 {"error":"Delete \"CLOCK/api/v1/notifications/active\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#194 POST /api/v1/device/reboot body=e3b0c442 ok
+menu reboot r2 → 503 {"code":"serviceBusy","error":"clock returned 503: busy"}
+  dev#195 PATCH /api/v1/display body=867fdf54 DROP
+menu power r2 → 502 {"error":"Patch \"CLOCK/api/v1/display\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#196 POST /api/v1/audio/play body=b77b9736 ok
+menu audio.test r2 → 200 {"ok":true}
+  dev#197 POST /api/v1/audio/stop body=e3b0c442 DROP
+menu audio.stop r2 → 502 {"error":"Post \"CLOCK/api/v1/audio/stop\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#198 GET /api/v1/audio/melodies body=e3b0c442 DROP
+menu audio.melodies r2 → 502 {"error":"Get \"CLOCK/api/v1/audio/melodies\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#199 GET /api/v1/capabilities body=e3b0c442 ok
+menu capabilities r2 → 200 {"effects":["Fade"],"paletteEffects":[],"transitions":["slide"],"overlays":["rain"],"palettes":["Rainbow"],"audio":{"buzzer":true}}
+  dev#200 GET /api/v1/system body=e3b0c442 DROP
+menu sensors.get r2 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#201 GET /api/v1/system body=e3b0c442 ok
+  dev#202 PUT /api/v1/system body=90640fd6 DROP
+menu sensors.put r2 → 502 {"error":"Put \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#203 GET /api/v1/system body=e3b0c442 DROP
+menu sensors.put.refused r2 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#204 GET /api/v1/system body=e3b0c442 ok
+menu buttons.get r2 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"","configured":false,"last_press_unix":N,"seconds_since":null}
+  dev#205 GET /api/v1/system body=e3b0c442 DROP
+menu buttons.put r2 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
+  dev#206 POST /api/v1/notifications body=be2768bf slow
+slow publish err=<nil>
+  dev#207 GET /api/v1/device body=e3b0c442 slow
+slow menu stats → 200
+  dev#208 GET /api/v1/device body=e3b0c442 slow
+slow probe reachable=false
+  dev#209 GET /api/v1/device body=e3b0c442 slow
+  dev#210 GET /api/v1/capabilities body=e3b0c442 DROP
+slow capabilities cached=false
+  dev#211 GET /api/v1/device body=e3b0c442 slow
+slow doctor.awtrix ok
+  dev#212 GET /api/v1/device body=e3b0c442 slow
+slow doctor.clock reachable=false
+  dev#213 GET /api/v1/device body=e3b0c442 slow
+  dev#214 GET /api/v1/device body=e3b0c442 ok
+slow rediscover swapped=false
+  dev#215 GET /api/v1/device body=e3b0c442 DROP
+probe #0 reachable=false uptime=0
+  dev#216 GET /api/v1/device body=e3b0c442 ok
+probe #1 reachable=true uptime=1120
+  dev#217 GET /api/v1/device body=e3b0c442 DROP
+probe #2 reachable=false uptime=0
+  dev#218 GET /api/v1/device body=e3b0c442 DROP
+probe #3 reachable=false uptime=0
+  dev#219 GET /api/v1/device body=e3b0c442 ok
+rediscover #0 swapped=false result=reachable
+  dev#220 GET /api/v1/device body=e3b0c442 DROP
+  dev#221 GET /api/v1/device body=e3b0c442 ok
+rediscover #1 swapped=false result=reachable
+  dev#222 GET /api/v1/device body=e3b0c442 DROP
+  dev#223 GET /api/v1/device body=e3b0c442 DROP
+rediscover #2 swapped=false result=reachable
+  dev#224 GET /api/v1/device body=e3b0c442 ok
+  dev#225 GET /api/v1/capabilities body=e3b0c442 DROP
+capabilities #0 cached=false
+  dev#226 GET /api/v1/device body=e3b0c442 ok
+  dev#227 GET /api/v1/capabilities body=e3b0c442 DROP
+capabilities #1 cached=false
+  dev#228 GET /api/v1/device body=e3b0c442 DROP
+  dev#229 GET /api/v1/capabilities body=e3b0c442 ok
+capabilities #2 cached=true
+  dev#230 GET /api/v1/device body=e3b0c442 DROP
+doctor.awtrix #0 fail GET CLOCK/api/v1/device: Get "CLOCK/api/v1/device": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
+  dev#231 GET /api/v1/device body=e3b0c442 ok
+doctor.clock #0 ok reachable=true
+  dev#232 GET /api/v1/device body=e3b0c442 DROP
+doctor.awtrix #1 fail GET CLOCK/api/v1/device: Get "CLOCK/api/v1/device": net/http: HTTP/1.x transport connection broken: malformed HTTP status code ""
+  dev#233 GET /api/v1/device body=e3b0c442 DROP
+doctor.clock #1 warn reachable=false
+  dev#234 GET /api/v1/device body=e3b0c442 ok
+doctor.awtrix #2 ok GET CLOCK/api/v1/device → 200 (T)
+  dev#235 GET /api/v1/device body=e3b0c442 DROP
+doctor.clock #2 warn reachable=false
+unconfigured notify err=clock not configured
+unconfigured stats → 502 {"error":"clock not configured"}
+unconfigured sensors.put → 502 {"error":"clock not configured"}
+requests=236
+bodies:
+  1a19f1f2 {"autoTransition":true,"blockNavigation":false}
+  1fa7a0a7 {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16726586,13421772,13421772,16726586,13421772,0,0,13421772,13421772,16726586,13421772,13421772,16726586,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",8,7,24,1,[16726586,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":30000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"ERR MBP","textBlinkMs":500,"textCenter":false,"textColor":"#FF3A3A","textOffsetX":9}
+  343bffa4 {"buttonCallback":"http://HOST/hooks/awtrix/button","humOffset":0,"tempOffset":-9,"wifiPassword":"REDACTED"}
+  481a706c {"name":"ember-notify","sound":"chime","soundRtttl":"x:d=4:c","stack":false,"text":"hi"}
+  502108c2 {"uppercase":true}
+  6952b9e0 {"blinkMs":500,"color":"#FFA000"}
+  6b84814a {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16726586,13421772,13421772,16726586,13421772,0,0,13421772,13421772,16726586,13421772,13421772,16726586,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,16726586]],["bitmap",25,0,7,8,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",9,7,16,1,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":6000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"MBP","textCenter":false,"textColor":"#FFFFFF","textOffsetX":9}
+  791d161a {"autoTransition":true}
+  7a703937 {"buttonCallback":"","humOffset":0,"tempOffset":7,"wifiPassword":"REDACTED"}
+  867fdf54 {"power":true}
+  90640fd6 {"buttonCallback":"","humOffset":0,"tempOffset":-4,"wifiPassword":"REDACTED"}
+  aec2473c {"brightness":50}
+  b599ab2e {"rtttl":"x:d=4:c"}
+  b721723d {"blinkMs":0,"color":"#004000"}
+  b77b9736 {"rtttl":"test:d=16,o=6,b=180:c,e,g,8c7"}
+  bd95971f {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,3074142,13421772,13421772,3074142,13421772,0,0,13421772,13421772,3074142,13421772,13421772,3074142,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,3074142]],["bitmap",25,0,7,8,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",9,7,16,1,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":6000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"MBP","textCenter":false,"textColor":"#FFFFFF","textOffsetX":9}
+  be2768bf {"text":"slow"}
+  c6128a44 {"autoTransition":false,"blockNavigation":true}
+  c96eaa96 {"blinkMs":500,"color":"#FF0000"}
+  caed5804 {"durationMs":30000,"icon":"29802","lifetimeMs":30000,"progress":100,"progressColor":"#FF0000","progressTrackColor":"#222222","scroll":{"mode":"static"},"text":"25:00","textColor":"#FF0000"}
+  cde3ecef {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16761165,13421772,13421772,16761165,13421772,0,0,13421772,13421772,16761165,13421772,13421772,16761165,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,16761165]],["bitmap",25,0,7,8,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",9,7,16,1,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":6000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"MBP","textCenter":false,"textColor":"#FFFFFF","textOffsetX":9}
+  d26d7059 {"name":"ember-notify","stack":false,"text":"hi"}
+  e7b1600f {"order":["Time"],"disabled":[]}
+  e868752a {"overlay":"rain"}
+  f361e984 {"draw":[["bitmap",0,0,9,8,[0,0,13421772,0,0,13421772,0,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,13421772,16761165,13421772,13421772,16761165,13421772,0,0,13421772,13421772,16761165,13421772,13421772,16761165,13421772,13421772,0,13421772,13421772,13421772,13421772,13421772,13421772,13421772,13421772,0,0,13421772,0,0,0,0,13421772,0,0,0,13421772,13421772,13421772,13421772,13421772,13421772,0,0,0,0,0,0,0,0,0,0,0]],["bitmap",8,7,24,1,[16761165,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]],"durationMs":30000,"lifetimeMs":30000,"scroll":{"whenFits":"static"},"text":"WAIT MBP","textBlinkMs":500,"textCenter":false,"textColor":"#FFC14D","textOffsetX":9}
+  f435d972 {"name":"ember"}
+  feb83a4a {"rtttl":"attn:d=16,o=6,b=200:c,e,g"}
+  fedfc91c {"fast":true,"name":"ember"}

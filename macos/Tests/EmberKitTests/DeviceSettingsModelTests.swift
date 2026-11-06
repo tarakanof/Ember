@@ -1,0 +1,953 @@
+import Testing
+import Foundation
+@testable import EmberKit
+
+@Test func patchSendsOnlyChangedKeys() {
+    var old = DeviceSettings()
+    old.brightness = 100
+    old.autoTransition = true
+    old.uppercase = true
+    var new = old
+    new.brightness = 180
+    let patch = new.patch(from: old)
+    #expect(patch == ["brightness": .int(180)])
+}
+
+@Test func patchNullsAnInheritedColor() {
+    var old = DeviceSettings()
+    old.timeColor = "#FF0000"
+    old.textColor = "#FFFFFF"
+    var new = old
+    new.timeColor = nil
+    #expect(new.patch(from: old) == ["timeColor": .null])
+}
+
+@Test func patchNeverNullsANonColorKey() {
+    var old = DeviceSettings()
+    old.brightness = 10
+    let new = DeviceSettings()
+    #expect(new.patch(from: old).isEmpty)
+}
+
+@Test func patchSendsAChangedNestedObjectWhole() {
+    var old = DeviceSettings()
+    old.scroll = ScrollSettings(mode: "wrap", speed: 100)
+    var new = old
+    new.scroll?.speed = 80
+    #expect(new.patch(from: old) == ["scroll": .object(["mode": .string("wrap"), "speed": .int(80)])])
+}
+
+@Test func patchEncodesExplicitNull() throws {
+    let data = try JSONEncoder().encode(JSONValue.object(["timeColor": .null, "uppercase": .bool(false)]))
+    let obj = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(obj["timeColor"] is NSNull)
+    #expect(obj["uppercase"] as? Bool == false)
+}
+
+@Test func ng11SupportFollowsTheSoundKeys() throws {
+    let old = try JSONDecoder().decode(DeviceSettings.self, from: Data(#"{"brightness":10,"uppercase":true}"#.utf8))
+    #expect(!old.serverSupportsNG11)
+    let new = try JSONDecoder().decode(DeviceSettings.self, from: Data(#"{"brightness":10,"soundEnabled":true}"#.utf8))
+    #expect(new.serverSupportsNG11)
+}
+
+@Test func volumeControlsFollowTheSoundKeysTheServerReports() throws {
+    func controls(_ json: String) throws -> DeviceSettings {
+        try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
+    }
+    let ng12 = try controls(#"{"brightness":10,"volume":60,"appVolume":100,"alertVolume":40}"#)
+    #expect(ng12.volumeControls == .mixer)
+    #expect(ng12.serverSupportsNG11)
+    let ng11 = try controls(#"{"brightness":10,"soundEnabled":true,"buzzerVolume":80}"#)
+    #expect(ng11.volumeControls == .soundToggle)
+    let stray = try controls(#"{"brightness":10,"volume":8}"#)
+    #expect(stray.volumeControls == .unavailable)
+    let strayLegacy = try controls(#"{"volume":8,"soundEnabled":true,"buzzerVolume":80}"#)
+    #expect(strayLegacy.volumeControls == .soundToggle)
+    let none = try controls(#"{"brightness":10}"#)
+    #expect(none.volumeControls == .unavailable)
+    #expect(!none.serverSupportsNG11)
+}
+
+@Test func brightnessPercentRoundTrips() {
+    #expect(DeviceUnits.brightnessPercent(raw: 0) == 0)
+    #expect(DeviceUnits.brightnessPercent(raw: 255) == 100)
+    #expect(DeviceUnits.brightnessPercent(raw: 120) == 47)
+    #expect(DeviceUnits.brightnessRaw(percent: 100) == 255)
+    #expect(DeviceUnits.brightnessRaw(percent: 47) == 120)
+    #expect(DeviceUnits.brightnessRaw(percent: 150) == 255)
+    for p in 0...100 {
+        #expect(DeviceUnits.brightnessPercent(raw: DeviceUnits.brightnessRaw(percent: p)) == p)
+    }
+}
+
+@Test func timeStylesCoverNGModes() {
+    #expect(ClockTimeStyle.allCases.map(\.rawValue) == Array(0...6))
+    #expect(ClockTimeStyle.centered.showsSecondsAndAmPm)
+    #expect(!ClockTimeStyle.calendarBarBelow.showsSecondsAndAmPm)
+    #expect(!ClockTimeStyle.binary.drawsWeekdayBar)
+    #expect(ClockTimeStyle.notchedBarAbove.drawsCalendarBox)
+}
+
+private let appsJSON = #"""
+[{"name":"Time","enabled":true,"inLoop":true,"present":true,"slot":0,"origin":"builtin"},
+ {"name":"ember","enabled":true,"inLoop":true,"present":true,"slot":1,"origin":"pushed"},
+ {"name":"Date","enabled":true,"inLoop":true,"present":true,"slot":2,"origin":"builtin"},
+ {"name":"ember-weather","enabled":true,"inLoop":true,"present":false,"slot":3,"origin":null},
+ {"name":"Battery","enabled":false,"inLoop":false,"present":true,"slot":null,"origin":"builtin"},
+ {"name":"clockface","enabled":true,"inLoop":true,"present":true,"slot":null,"origin":"script",
+  "skipped":false,"headless":false,"error":null,"meta":{"name":"","desc":"","author":"","version":"","icons":[]}},
+ {"name":"mathlib","origin":"module","import":"mathlib","error":null,
+  "meta":{"name":"","desc":"","author":"","version":"","icons":[]}}]
+"""#
+
+private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(appsJSON.utf8))
+
+@Test func nativeAppsListsBuiltinsOnly() {
+    #expect(NativeAppsPlan.listed(sampleApps).map(\.name) == ["Time", "Date", "Battery"])
+}
+
+@Test func toggleOffSendsEveryDisabledApp() {
+    let u = NativeAppsPlan.toggle("Date", enabled: false, in: sampleApps)
+    #expect(u.disabled == ["Date", "Battery"])
+    #expect(u.order == ["Time", "ember", "Date", "ember-weather", "Battery", "clockface"])
+}
+
+@Test func toggleOnOrdersItWithoutDisablingOthersAgain() {
+    let u = NativeAppsPlan.toggle("Battery", enabled: true, in: sampleApps)
+    #expect(u.disabled.isEmpty)
+    #expect(u.order == ["Time", "ember", "Date", "ember-weather", "Battery", "clockface"])
+}
+
+@Test func orderNeverNamesModules() {
+    #expect(sampleApps.last?.origin == "module")
+    for u in [NativeAppsPlan.toggle("Date", enabled: false, in: sampleApps),
+              NativeAppsPlan.toggle("Battery", enabled: true, in: sampleApps),
+              NativeAppsPlan.move(in: sampleApps, fromOffsets: [1], toOffset: 0).update] {
+        #expect(!u.order.contains("mathlib"))
+    }
+}
+
+@Test func anAwayEmberTileKeepsItsSlot() {
+    let u = NativeAppsPlan.toggle("Time", enabled: false, in: sampleApps)
+    #expect(u.order == ["Time", "ember", "Date", "ember-weather", "Battery", "clockface"])
+}
+
+@Test func moveKeepsPushedAppsInPlace() {
+    let (apps, u) = NativeAppsPlan.move(in: sampleApps, fromOffsets: IndexSet(integer: 1), toOffset: 0)
+    #expect(apps.map(\.name) == ["Date", "ember", "Time", "ember-weather", "Battery", "clockface", "mathlib"])
+    #expect(u.order == ["Date", "ember", "Time", "ember-weather", "Battery", "clockface"])
+    #expect(u.disabled == ["Battery"])
+}
+
+@Test func moveDownwards() {
+    let (apps, _) = NativeAppsPlan.move(in: sampleApps, fromOffsets: IndexSet(integer: 0), toOffset: 3)
+    #expect(NativeAppsPlan.listed(apps).map(\.name) == ["Date", "Battery", "Time"])
+}
+
+@Test func appInfoDecodesPresentAndSlot() throws {
+    let json = #"[{"name":"Time","enabled":true,"inLoop":true,"present":true,"slot":0,"origin":"builtin"},{"name":"mod","origin":"module"}]"#
+    let apps = try JSONDecoder().decode([AppInfo].self, from: Data(json.utf8))
+    #expect(apps[0].present == true && apps[0].slot == 0)
+    #expect(apps[1].enabled && apps[1].slot == nil)
+}
+
+private final class FakeClock: @unchecked Sendable {
+    private let lock = NSLock()
+    var responses: [String: (Int, String)] = [:]
+    var route: (@Sendable (_ key: String, _ body: [String: Any]) -> (Int, String)?)?
+    var gatedRoute: String? {
+        get { lock.withLock { _gatedRoute } }
+        set { lock.withLock { _gatedRoute = newValue; armedRoute = newValue; gatedArrived = false } }
+    }
+    let gate = DispatchSemaphore(value: 0)
+    private var _gatedRoute: String?
+    private var armedRoute: String?
+    private var _log: [(String, String, [String: Any])] = []
+    private var gatedArrived = false
+    private var arrivalWaiters: [UUID: CheckedContinuation<String?, Never>] = [:]
+    var log: [(method: String, path: String, body: [String: Any])] {
+        lock.withLock { _log.map { ($0.0, $0.1, $0.2) } }
+    }
+    var paths: [String] { log.map { "\($0.method) \($0.path)" } }
+
+    func gatedRequestArrived(whileRunning task: Task<Void, Never>,
+                             sourceLocation: SourceLocation = #_sourceLocation) async -> Bool {
+        let id = UUID()
+        let giveUp: @Sendable (String) -> Void = { [self] reason in
+            lock.withLock { arrivalWaiters.removeValue(forKey: id) }?.resume(returning: reason)
+        }
+        let watchdog = Task {
+            try await Task.sleep(for: .seconds(45))
+            giveUp("the task neither sent it nor finished within 45s")
+        }
+        defer { watchdog.cancel() }
+        let outcome = await withCheckedContinuation { (c: CheckedContinuation<String?, Never>) in
+            let now = lock.withLock { () -> Bool in
+                if gatedArrived { return true }
+                arrivalWaiters[id] = c
+                return false
+            }
+            if now { c.resume(returning: nil); return }
+            Task {
+                await task.value
+                giveUp("the task finished without sending it")
+            }
+        }
+        if let outcome {
+            let route = lock.withLock { armedRoute } ?? "(none)"
+            Issue.record("gated request \(route) never arrived; \(outcome)", sourceLocation: sourceLocation)
+            gate.signal()
+            return false
+        }
+        return true
+    }
+
+    func handle(_ req: URLRequest) -> (HTTPURLResponse, Data) {
+        let path = req.url!.path
+        let method = req.httpMethod ?? "GET"
+        let data = req.httpBodyStreamData() ?? req.httpBody ?? Data()
+        let body = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        let key = "\(method) \(path)"
+        let waiters = lock.withLock { () -> [CheckedContinuation<String?, Never>]? in
+            _log.append((method, path, body))
+            guard _gatedRoute == key else { return nil }
+            _gatedRoute = nil
+            gatedArrived = true
+            defer { arrivalWaiters = [:] }
+            return Array(arrivalWaiters.values)
+        }
+        if let waiters {
+            waiters.forEach { $0.resume(returning: nil) }
+            gate.wait()
+        }
+        if let routed = route?(key, body) { return (okResponse(req.url!, status: routed.0), Data(routed.1.utf8)) }
+        let (status, text) = lock.withLock { responses[key] ?? (method == "GET" ? (404, "") : (200, "")) }
+        return (okResponse(req.url!, status: status), Data(text.utf8))
+    }
+}
+
+@MainActor
+private func makeModel(_ fake: FakeClock) -> (DeviceSettingsModel, ManualClock) {
+    let clock = ManualClock()
+    let client = stubbedClient(token: "t") { fake.handle($0) }
+    let m = DeviceSettingsModel(service: DeviceService(client: client), debounce: .milliseconds(600),
+                                sleep: clock.sleepFn, now: { Date() })
+    return (m, clock)
+}
+
+private func ngServer() -> FakeClock {
+    let f = FakeClock()
+    f.responses = [
+        "GET /v1/device/settings": (200, ##"{"brightness":120,"soundEnabled":true,"buzzerVolume":80,"timeColor":"#FF0000","autoTransition":true}"##),
+        "GET /v1/device/display": (200, #"{"overlay":null,"power":true}"#),
+        "GET /v1/device/sensors": (200, #"{"temp_offset":-9,"hum_offset":null}"#),
+        "GET /v1/device/config": (200, #"{"base_url":"http://clock","source":"store"}"#),
+        "GET /v1/device/capabilities": (200, #"{"transitions":["Fade"],"overlays":["rain"],"audio":{"buzzer":true}}"#),
+        "GET /v1/device/apps": (200, #"[{"name":"Time","enabled":true,"inLoop":true,"origin":"builtin","present":true}]"#),
+        "GET /v1/device/buttons": (200, #"{"configured":true,"seconds_since":30}"#),
+        "GET /v1/device/stats": (200, #"{"version":"1.1.2","temperature":21.5}"#),
+        "GET /v1/device/audio/melodies": (200, #"{"melodies":[{"name":"bell","rtttl":"b:d=4:c","bytes":7,"notes":1,"durationMs":300,"valid":true},{"name":"bad","rtttl":"x","bytes":1,"notes":0,"durationMs":0,"valid":false}],"usedBytes":1,"totalBytes":2}"#),
+    ]
+    return f
+}
+
+@MainActor @Test func loadReadsEverythingSequentially() async {
+    let fake = ngServer()
+    let live = LiveModel()
+    live.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    let m = DeviceSettingsModel(service: DeviceService(client: stubbedClient(token: "t") { fake.handle($0) }),
+                                live: live, debounce: .milliseconds(600), sleep: ManualClock().sleepFn, now: { Date() })
+    await m.load()
+    #expect(m.isLoaded)
+    #expect(m.supportsNG11)
+    #expect(live.displayPower == true)
+    #expect(m.transitions == ["Fade"])
+    #expect(m.overlays == ["rain"])
+    #expect(m.config?.baseURL == "http://clock")
+    #expect(m.nativeApps.map(\.name) == ["Time"])
+    #expect(m.buttons?.configured == true)
+    #expect(m.melodies.map(\.name) == ["bell"])
+    #expect(m.audio == .available)
+    #expect(fake.paths.first == "GET /v1/device/settings")
+    #expect(fake.paths.count == 9)
+}
+
+@MainActor @Test func settingsSaveSendsThePatchOnly() async throws {
+    let fake = ngServer()
+    let (m, clock) = makeModel(fake)
+    await m.load()
+    m.settings.draft.brightness = 200
+    m.settings.draft.timeColor = nil
+    m.settings.scheduleSave()
+    await clock.advance(by: .milliseconds(600))
+    await eventually { m.settings.status == .saved }
+    let put = try #require(fake.log.last { $0.method == "PUT" })
+    #expect(put.path == "/v1/device/settings")
+    #expect(put.body.count == 2)
+    #expect(put.body["brightness"] as? Int == 200)
+    #expect(put.body["timeColor"] is NSNull)
+    m.settings.draft.brightness = 10
+    m.settings.scheduleSave()
+    await clock.advance(by: .milliseconds(600))
+    await eventually { m.settings.status == .saved && fake.log.filter { $0.method == "PUT" }.count == 2 }
+    let second = try #require(fake.log.last { $0.method == "PUT" })
+    #expect(second.body.count == 1)
+    #expect(second.body["brightness"] as? Int == 10)
+}
+
+@MainActor @Test func oldServerHidesNG11AndAudio() async {
+    let fake = FakeClock()
+    fake.responses = [
+        "GET /v1/device/settings": (200, #"{"brightness":120,"uppercase":true}"#),
+        "GET /v1/device/display": (200, #"{"overlay":null,"power":true}"#),
+    ]
+    let (m, _) = makeModel(fake)
+    await m.load()
+    #expect(m.isLoaded)
+    #expect(!m.supportsNG11)
+    #expect(m.audio == .unsupported)
+    #expect(!m.supportsControlRoutes)
+    #expect(!m.firmwareTooOld)
+    #expect(m.hasBuzzer)
+    #expect(m.transitions == DeviceKnownValues.fallbackTransitions)
+}
+
+@MainActor @Test func noBuzzerIsNotUnsupported() async {
+    let fake = ngServer()
+    fake.responses["GET /v1/device/audio/melodies"] = (503, #"{"error":"unavailable"}"#)
+    let (m, _) = makeModel(fake)
+    await m.load()
+    #expect(m.audio == .noOutput)
+    #expect(m.supportsControlRoutes)
+}
+
+@MainActor @Test func newServerWithOldFirmwareBlamesTheFirmware() async {
+    let fake = ngServer()
+    fake.responses["GET /v1/device/settings"] = (200, #"{"brightness":120}"#)
+    let (m, _) = makeModel(fake)
+    await m.load()
+    #expect(!m.supportsNG11)
+    #expect(m.firmwareTooOld)
+}
+
+@MainActor @Test func ng12ClockShowsTheMixer() async throws {
+    let fake = ngServer()
+    fake.responses["GET /v1/device/settings"] = (200, #"{"brightness":120,"volume":60,"appVolume":100,"alertVolume":40}"#)
+    fake.responses["GET /v1/device/capabilities"] = (200, #"{"transitions":["Fade"],"audio":{"rtttl":true,"mp3":false}}"#)
+    let (m, clock) = makeModel(fake)
+    await m.load()
+    #expect(m.volumeControls == .mixer)
+    #expect(m.supportsNG11)
+    #expect(!m.firmwareTooOld)
+    #expect(m.hasBuzzer)
+    m.settings.draft.alertVolume = 0
+    m.settings.scheduleSave()
+    await clock.advance(by: .milliseconds(600))
+    await eventually { m.settings.status == .saved }
+    let put = try #require(fake.log.last { $0.method == "PUT" })
+    #expect(put.body.count == 1)
+    #expect(put.body["alertVolume"] as? Int == 0)
+}
+
+@MainActor @Test func ng12FirstLoadWithColdCapsShowsTheMixer() async {
+    let fake = ngServer()
+    fake.responses["GET /v1/device/settings"] = (200, #"{"brightness":120,"volume":60,"appVolume":100,"alertVolume":40}"#)
+    fake.responses["GET /v1/device/capabilities"] = (502, #"{"error":"clock unreachable"}"#)
+    let (m, _) = makeModel(fake)
+    await m.load()
+    #expect(m.isLoaded)
+    #expect(m.volumeControls == .mixer)
+    #expect(m.supportsNG11)
+    #expect(!m.firmwareTooOld)
+}
+
+@MainActor @Test func ng11ClockKeepsTheSoundToggle() async {
+    let (m, _) = makeModel(ngServer())
+    await m.load()
+    #expect(m.volumeControls == .soundToggle)
+}
+
+@MainActor private func eventually(sourceLocation: SourceLocation = #_sourceLocation, _ done: () -> Bool) async {
+    for _ in 0..<2000 where !done() { try? await Task.sleep(for: .milliseconds(5)) }
+    if !done() { Issue.record("condition not met within 10s", sourceLocation: sourceLocation) }
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func editDuringAnInFlightLoadSendsOnlyTheEdit() async throws {
+    let fake = ngServer()
+    let (m, clock) = makeModel(fake)
+    await m.load()
+    fake.responses["GET /v1/device/settings"] = (200, ##"{"brightness":120,"soundEnabled":true,"buzzerVolume":80,"timeColor":"#FF0000","autoTransition":false,"blockNavigation":true}"##)
+    fake.gatedRoute = "GET /v1/device/settings"
+    let refocus = Task { await m.load() }
+    guard await fake.gatedRequestArrived(whileRunning: refocus) else { return }
+    m.settings.draft.brightness = 200
+    m.settings.scheduleSave()
+    fake.gate.signal()
+    await refocus.value
+    #expect(m.settings.applied?.autoTransition == true)
+    await clock.advance(by: .milliseconds(600))
+    await eventually { fake.log.contains { $0.method == "PUT" } }
+    let put = try #require(fake.log.last { $0.method == "PUT" })
+    #expect(put.body.keys.sorted() == ["brightness"])
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func cancelledLoadDoesNotHoldOffTheNext() async {
+    let fake = ngServer()
+    let (m, _) = makeModel(fake)
+    fake.gatedRoute = "GET /v1/device/apps"
+    let first = Task { await m.load() }
+    guard await fake.gatedRequestArrived(whileRunning: first) else { return }
+    first.cancel()
+    fake.gate.signal()
+    await first.value
+    let before = fake.paths.filter { $0 == "GET /v1/device/apps" }.count
+    await m.load()
+    #expect(fake.paths.filter { $0 == "GET /v1/device/apps" }.count == before + 1)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func forcedLoadQueuesBehindARunningOne() async {
+    let fake = ngServer()
+    let (m, _) = makeModel(fake)
+    await m.load()
+    let settingsGets = { fake.paths.filter { $0 == "GET /v1/device/settings" }.count }
+    fake.gatedRoute = "GET /v1/device/apps"
+    let running = Task { await m.load(force: true) }
+    guard await fake.gatedRequestArrived(whileRunning: running) else { return }
+    await m.load(force: true)
+    let during = settingsGets()
+    fake.gate.signal()
+    await running.value
+    await eventually { settingsGets() == during + 1 && !m.isLoading }
+    #expect(settingsGets() == during + 1)
+}
+
+@MainActor @Test func unreachableSettingsSkipTheRest() async {
+    let fake = FakeClock()
+    fake.responses["GET /v1/device/settings"] = (502, #"{"error":"clock unreachable"}"#)
+    let (m, _) = makeModel(fake)
+    await m.load()
+    #expect(!m.isLoaded)
+    #expect(m.loadError != nil)
+    #expect(fake.paths == ["GET /v1/device/settings", "GET /v1/device/config"])
+    #expect(m.config?.baseURL == nil)
+}
+
+@MainActor @Test func refocusSkipsSecondaryWhileFresh() async {
+    let fake = ngServer()
+    let (m, _) = makeModel(fake)
+    await m.load()
+    let first = fake.paths.count
+    await m.load()
+    #expect(fake.paths.count == first + 1)
+    await m.load(force: true)
+    #expect(fake.paths.count == first + 1 + 9)
+}
+
+@MainActor @Test func toggleAppPutsPlanAndRollsBackOnFailure() async throws {
+    let fake = ngServer()
+    let (m, _) = makeModel(fake)
+    await m.load()
+    await m.setApp("Time", enabled: false)
+    let put = try #require(fake.log.last { $0.method == "PUT" })
+    #expect(put.path == "/v1/device/apps")
+    #expect(put.body["disabled"] as? [String] == ["Time"])
+    #expect(m.nativeApps.first?.enabled == false)
+    #expect(m.writes.status == .saved)
+
+    fake.responses["PUT /v1/device/apps"] = (500, #"{"error":"boom"}"#)
+    fake.responses["GET /v1/device/apps"] = (200, #"[{"name":"Time","enabled":false,"inLoop":false,"origin":"builtin","present":true}]"#)
+    await m.setApp("Time", enabled: true)
+    #expect(m.nativeApps.first?.enabled == false)
+    #expect(m.actionErrors[.apps] != nil)
+    if case .error = m.writes.status {} else { Issue.record("expected an error status") }
+}
+
+@MainActor @Test func configureSameServerIsANoOp() async {
+    let fake = ngServer()
+    let (m, _) = makeModel(fake)
+    await m.load()
+    let before = m.settings
+    m.configure(service: m.service)
+    #expect(m.settings === before)
+}
+
+@Test func sliderValuesSnapToTheStepInsideTheRange() {
+    #expect(DeviceUnits.snap(42.4, in: 0...100, step: 1) == 42)
+    #expect(DeviceUnits.snap(42.6, in: 0...100, step: 5) == 45)
+    #expect(DeviceUnits.snap(0.2, in: 1...100, step: 1) == 1)
+    #expect(DeviceUnits.snap(140, in: 0...100, step: 5) == 100)
+    #expect(DeviceUnits.snap(7, in: 1...100, step: 5) == 6)
+}
+
+private let facadeConfig = ##"{"schema":1,"apps":{"agents":{"usage_cards":true,"usage_per_model":true,"hidden_tools":[]},"focus":{"focus_color":"#FF0000","break_color":"#00FF00"},"weather":{"on":true,"native_icon":false,"forecast":true,"forecast_hours":24,"air":true,"moon":true,"overlay":true,"popups":{"on_change":true,"sun":true,"severe":true,"native_icons":false,"interval_minutes":120,"duration_seconds":30},"icon_ids":{}},"calendar":{"on":true,"tile_lead_minutes":60,"popup_lead_minutes":2}},"rotation":{"order":["Time"],"disabled":[]}}"##
+
+@MainActor
+private func facadeModel(_ fake: FakeClock) async -> (DeviceSettingsModel, ClockConfigModel) {
+    fake.responses["GET /v1/devices/clock-a1b2c3/config"] = (200, facadeConfig)
+    fake.responses["PUT /v1/devices/clock-a1b2c3/config"] = (200, facadeConfig)
+    let client = stubbedClient(token: "t") { fake.handle($0) }
+    let m = DeviceSettingsModel(service: DeviceService(client: client), debounce: .milliseconds(600),
+                                sleep: ManualClock().sleepFn, now: { Date() })
+    let clock = ClockConfigModel(client: client, debounce: .milliseconds(600), sleep: ManualClock().sleepFn)
+    clock.configure(client: client, deviceID: "clock-a1b2c3")
+    await clock.load()
+    m.clockConfig = clock
+    await m.load()
+    return (m, clock)
+}
+
+@MainActor @Test func appToggleGoesThroughTheFacadeWhenTheClockRecordExists() async throws {
+    let fake = ngServer()
+    let (m, clock) = await facadeModel(fake)
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Time", enabled: false)
+    let put = try #require(fake.log.last { $0.method == "PUT" })
+    #expect(put.path == "/v1/devices/clock-a1b2c3/config")
+    #expect(Array(put.body.keys) == ["rotation"])
+    let rotation = try #require(put.body["rotation"] as? [String: Any])
+    #expect(rotation["order"] as? [String] == ["Time"])
+    #expect(rotation["disabled"] as? [String] == ["Time"])
+    #expect(!fake.paths.contains("PUT /v1/device/apps"))
+    #expect(m.writes.status == .saved)
+}
+
+@MainActor @Test func appToggleUsesTheOldRouteWithoutAClockRecord() async throws {
+    let fake = ngServer()
+    let (m, clock) = await facadeModel(fake)
+    defer { withExtendedLifetime(clock) {} }
+    clock.configure(client: m.service.client, deviceID: nil)
+    await m.setApp("Time", enabled: false)
+    #expect(fake.log.last { $0.method == "PUT" }?.path == "/v1/device/apps")
+}
+
+@MainActor @Test func cutShortFacadeWriteShowsWhyAndRereadsTheApps() async throws {
+    let fake = ngServer()
+    let (m, clock) = await facadeModel(fake)
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["PUT /v1/devices/clock-a1b2c3/config"] = (502, #"{"error":"clock write failed"}"#)
+    fake.responses["GET /v1/device/apps"] = (200, #"[{"name":"Time","enabled":false,"inLoop":true,"origin":"builtin","present":true}]"#)
+    let reads = fake.paths.filter { $0 == "GET /v1/device/apps" }.count
+    await m.setApp("Time", enabled: false)
+    let error = try #require(m.actionErrors[.apps])
+    guard case .rejected = error else { Issue.record("expected a facade message, got \(error)"); return }
+    #expect(fake.paths.filter { $0 == "GET /v1/device/apps" }.count == reads + 1)
+    #expect(m.nativeApps.first?.enabled == false)
+}
+
+@MainActor @Test func busyFacadeWriteRollsBackToTheClocksList() async throws {
+    let fake = ngServer()
+    let (m, clock) = await facadeModel(fake)
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["PUT /v1/devices/clock-a1b2c3/config"] = (503, #"{"error":"another clock app order change is still running"}"#)
+    await m.setApp("Time", enabled: false)
+    guard case .rejected? = m.actionErrors[.apps] else { Issue.record("expected a facade message"); return }
+    #expect(m.nativeApps.first?.enabled == true)
+}
+
+@MainActor @Test func appToggleRetriesTheOldRouteWhenTheRecordIsGone() async throws {
+    let fake = ngServer()
+    let (m, clock) = await facadeModel(fake)
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["PUT /v1/devices/clock-a1b2c3/config"] = (404, #"{"error":"not found"}"#)
+    await m.setApp("Time", enabled: false)
+    let puts = fake.log.filter { $0.method == "PUT" }.map(\.path)
+    #expect(puts == ["/v1/devices/clock-a1b2c3/config", "/v1/device/apps"])
+    #expect(fake.log.last { $0.method == "PUT" }?.body["disabled"] as? [String] == ["Time"])
+    #expect(m.actionErrors[.apps] == nil)
+    #expect(m.nativeApps.first?.enabled == false)
+    #expect(!clock.isActive)
+}
+
+private final class NGAppList: @unchecked Sendable {
+    private let lock = NSLock()
+    private let apps: [(name: String, origin: String)]
+    private var order: [String]
+    private var disabled: Set<String>
+    private var failures = 0
+
+    init(_ apps: [(String, String)], order: [String], disabled: Set<String>) {
+        self.apps = apps.map { (name: $0.0, origin: $0.1) }
+        self.order = order
+        self.disabled = disabled
+    }
+
+    func failNext() { lock.withLock { failures += 1 } }
+
+    func setOrder(_ rotation: [String: Any]) -> (Int, String) {
+        lock.withLock {
+            if failures > 0 {
+                failures -= 1
+                return (503, #"{"error":"another clock app order change is still running"}"#)
+            }
+            guard let off = rotation["disabled"] as? [String] else { return (400, #"{"error":"invalidJson"}"#) }
+            if let o = rotation["order"] as? [String] { order = o }
+            disabled = Set(off)
+            return (200, "")
+        }
+    }
+
+    var json: String {
+        lock.withLock {
+            let rest = apps.map(\.name).filter { !order.contains($0) }
+            let rows = (order + rest).enumerated().compactMap { i, name -> [String: Any]? in
+                guard let app = apps.first(where: { $0.name == name }) else { return nil }
+                let on = !disabled.contains(name)
+                return ["name": name, "enabled": on, "inLoop": on, "present": true, "origin": app.origin,
+                        "slot": i < order.count ? i as Any : NSNull()]
+            }
+            return String(decoding: try! JSONSerialization.data(withJSONObject: rows), as: UTF8.self)
+        }
+    }
+
+    func setEnabled(_ name: String, _ on: Bool) {
+        lock.withLock { if on { disabled.remove(name) } else { disabled.insert(name) } }
+    }
+
+    var enabled: [String: Bool] {
+        lock.withLock { Dictionary(uniqueKeysWithValues: apps.map { ($0.name, !disabled.contains($0.name)) }) }
+    }
+
+    var rotation: [String] { lock.withLock { order } }
+}
+
+@MainActor
+private func ngRoundTripModel(facade: Bool = true) async -> (DeviceSettingsModel, ClockConfigModel, NGAppList, FakeClock) {
+    let fake = ngServer()
+    let clockApps = NGAppList([("Time", "builtin"), ("ember", "pushed"), ("Date", "builtin"),
+                               ("Temperature", "builtin"), ("Humidity", "builtin"), ("Battery", "builtin")],
+                              order: ["Time", "ember", "Date", "Temperature"], disabled: ["Humidity", "Battery"])
+    fake.route = { key, body in
+        switch key {
+        case "GET /v1/device/apps":
+            return (200, clockApps.json)
+        case "PUT /v1/devices/clock-a1b2c3/config":
+            guard let rotation = body["rotation"] as? [String: Any] else { return nil }
+            let (status, text) = clockApps.setOrder(rotation)
+            return status == 200 ? nil : (status, text)
+        case "PUT /v1/device/apps":
+            return clockApps.setOrder(body)
+        default:
+            return nil
+        }
+    }
+    let (m, clock) = await facadeModel(fake)
+    if !facade { clock.configure(client: m.service.client, deviceID: nil) }
+    return (m, clock, clockApps, fake)
+}
+
+@MainActor
+private func names(_ m: DeviceSettingsModel) -> [String: Bool] {
+    Dictionary(uniqueKeysWithValues: m.nativeApps.map { ($0.name, $0.enabled) })
+}
+
+@MainActor @Test func facadeAppTogglesSurviveAReload() async throws {
+    let (m, clock, clockApps, _) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    #expect(m.nativeApps.map(\.enabled) == [true, true, true, false, false])
+
+    await m.setApp("Humidity", enabled: true)
+    await m.load(force: true)
+    #expect(clockApps.enabled["Battery"] == false)
+    #expect(m.nativeApps.first { $0.name == "Humidity" }?.enabled == true)
+    #expect(m.nativeApps.first { $0.name == "Battery" }?.enabled == false)
+
+    await m.setApp("Date", enabled: false)
+    await m.load(force: true)
+    #expect(names(m) == ["Time": true, "Date": false, "Temperature": true, "Humidity": true, "Battery": false])
+    #expect(clockApps.enabled["ember"] == true)
+}
+
+@MainActor @Test func fallbackAppTogglesSurviveAReload() async throws {
+    let (m, clock, _, fake) = await ngRoundTripModel(facade: false)
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Humidity", enabled: true)
+    await m.setApp("Date", enabled: false)
+    await m.moveApps(fromOffsets: [4], toOffset: 0)
+    await m.load(force: true)
+    #expect(fake.log.last { $0.method == "PUT" }?.path == "/v1/device/apps")
+    #expect(m.nativeApps.map(\.name) == ["Battery", "Time", "Date", "Temperature", "Humidity"])
+    #expect(names(m) == ["Time": true, "Date": false, "Temperature": true, "Humidity": true, "Battery": false])
+}
+
+@MainActor @Test func facadeAppReorderKeepsDisabledAppsOffAfterAReload() async throws {
+    let (m, clock, _, _) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.moveApps(fromOffsets: [1], toOffset: 0)
+    await m.load(force: true)
+    #expect(m.nativeApps.map(\.name) == ["Date", "Time", "Temperature", "Humidity", "Battery"])
+    #expect(m.nativeApps.map(\.enabled) == [true, true, true, false, false])
+}
+
+@MainActor @Test func aDisabledAppDraggedToTheTopStaysThereAfterAReload() async throws {
+    let (m, clock, _, _) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.moveApps(fromOffsets: [3], toOffset: 0)
+    await m.load(force: true)
+    #expect(m.nativeApps.map(\.name) == ["Humidity", "Time", "Date", "Temperature", "Battery"])
+    #expect(m.nativeApps.map(\.enabled) == [false, true, true, true, false])
+}
+
+@MainActor @Test func anAppDroppedOnAnotherTakesItsPlace() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.moveApp("Time", onto: "Humidity")
+    await m.load(force: true)
+    #expect(m.nativeApps.map(\.name) == ["Date", "Temperature", "Humidity", "Time", "Battery"])
+    #expect(clockApps.rotation.firstIndex(of: "ember") == 1)
+    await m.moveApp("Battery", onto: "Date")
+    await m.load(force: true)
+    #expect(m.nativeApps.map(\.name) == ["Battery", "Date", "Temperature", "Humidity", "Time"])
+    #expect(m.nativeApps.first { $0.name == "Battery" }?.enabled == false)
+    #expect(clockApps.rotation.firstIndex(of: "ember") == 1)
+    let writes = fake.paths.filter { $0.hasPrefix("PUT ") }.count
+    await m.moveApp("Date", onto: "Date")
+    await m.moveApp("Nope", onto: "Date")
+    #expect(m.nativeApps.map(\.name) == ["Battery", "Date", "Temperature", "Humidity", "Time"])
+    #expect(fake.paths.filter { $0.hasPrefix("PUT ") }.count == writes)
+}
+
+@MainActor @Test func anAppSwitchedOffKeepsItsSlotAfterAReload() async throws {
+    let (m, clock, _, _) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Date", enabled: false)
+    await m.load(force: true)
+    #expect(m.nativeApps.map(\.name) == ["Time", "Date", "Temperature", "Humidity", "Battery"])
+    #expect(m.nativeApps.map(\.enabled) == [true, false, true, false, false])
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func reopeningThePageDuringAPendingAppWriteKeepsTheToggle() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
+    let toggle = Task { await m.setApp("Date", enabled: false) }
+    guard await fake.gatedRequestArrived(whileRunning: toggle) else { return }
+    await m.load(force: true)
+    #expect(names(m)["Date"] == false)
+    fake.gate.signal()
+    await toggle.value
+    #expect(names(m)["Date"] == false)
+    #expect(clockApps.enabled["Date"] == false)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aFailedAppWriteDoesNotUndoALaterOne() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
+    let first = Task { await m.setApp("Date", enabled: false) }
+    guard await fake.gatedRequestArrived(whileRunning: first) else { return }
+    let second = Task { await m.setApp("Humidity", enabled: true) }
+    await eventually { names(m)["Humidity"] == true }
+    clockApps.failNext()
+    fake.gate.signal()
+    await first.value
+    await second.value
+    #expect(clockApps.enabled["Humidity"] == true)
+    #expect(clockApps.enabled["Date"] == true)
+    #expect(names(m) == ["Time": true, "Date": true, "Temperature": true, "Humidity": true, "Battery": false])
+    #expect(m.actionErrors[.apps] != nil)
+    await m.load(force: true)
+    #expect(names(m)["Humidity"] == true)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aFailedAppWriteDoesNotUndoALaterToggleOfTheSameApp() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
+    let first = Task { await m.setApp("Date", enabled: false) }
+    guard await fake.gatedRequestArrived(whileRunning: first) else { return }
+    let second = Task { await m.setApp("Date", enabled: true) }
+    await eventually { names(m)["Date"] == true }
+    let third = Task { await m.setApp("Date", enabled: false) }
+    await eventually { names(m)["Date"] == false }
+    clockApps.failNext()
+    fake.gate.signal()
+    await first.value
+    await second.value
+    await third.value
+    #expect(clockApps.enabled["Date"] == false)
+    #expect(names(m)["Date"] == false)
+    #expect(m.actionErrors[.apps] != nil)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aReloadThatAWriteFinishesDuringKeepsTheToggle() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    let base = fake.route
+    let getArrived = ArrivalFlag()
+    let getHold = DispatchSemaphore(value: 0)
+    fake.route = { key, body in
+        guard key == "GET /v1/device/apps" else { return base?(key, body) }
+        let stale = clockApps.json
+        getArrived.set()
+        getHold.wait()
+        return (200, stale)
+    }
+    fake.gatedRoute = "PUT /v1/devices/clock-a1b2c3/config"
+    let toggle = Task { await m.setApp("Date", enabled: false) }
+    guard await fake.gatedRequestArrived(whileRunning: toggle) else { return }
+    let reload = Task { await m.load(force: true) }
+    await eventually { getArrived.isSet }
+    fake.gate.signal()
+    await toggle.value
+    #expect(clockApps.enabled["Date"] == false)
+    getHold.signal()
+    await reload.value
+    #expect(names(m)["Date"] == false)
+}
+
+private final class ArrivalFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func set() { lock.withLock { value = true } }
+    var isSet: Bool { lock.withLock { value } }
+}
+
+private let appEnabledVersion = #"{"version":"v0.66.0","features":["firmware_delete_keep","device_app_enabled"]}"#
+
+@MainActor
+private func perAppModel(facade: Bool = true, missing: Bool = false) async -> (DeviceSettingsModel, ClockConfigModel, NGAppList, FakeClock) {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel(facade: facade)
+    fake.responses["GET /version"] = (200, appEnabledVersion)
+    let base = fake.route
+    fake.route = { key, body in
+        let prefix = "PUT /v1/device/apps/", suffix = "/enabled"
+        guard key.hasPrefix(prefix), key.hasSuffix(suffix) else { return base?(key, body) }
+        if missing { return (404, "404 page not found") }
+        guard let on = body["enabled"] as? Bool else { return (400, #"{"error":"enabled must be true or false"}"#) }
+        clockApps.setEnabled(String(key.dropFirst(prefix.count).dropLast(suffix.count)), on)
+        return (200, "")
+    }
+    return (m, clock, clockApps, fake)
+}
+
+@MainActor @Test func appToggleUsesThePerAppRouteWhenTheServerHasIt() async throws {
+    let (m, clock, clockApps, fake) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Date", enabled: false)
+    let puts = fake.log.filter { $0.method == "PUT" }
+    #expect(puts.map(\.path) == ["/v1/device/apps/Date/enabled"])
+    #expect(puts.first?.body as? [String: Bool] == ["enabled": false])
+    #expect(clockApps.enabled["Date"] == false)
+    #expect(m.actionErrors[.apps] == nil)
+    #expect(m.writes.status == .saved)
+    await m.load(force: true)
+    #expect(names(m)["Date"] == false)
+}
+
+@MainActor @Test func aPerAppToggleLeavesAppsChangedElsewhereAlone() async throws {
+    let (m, clock, clockApps, _) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    clockApps.setEnabled("Battery", true)
+    await m.setApp("Date", enabled: false)
+    #expect(clockApps.enabled["Battery"] == true)
+    #expect(clockApps.enabled["Date"] == false)
+    await m.load(force: true)
+    #expect(names(m) == ["Time": true, "Date": false, "Temperature": true, "Humidity": false, "Battery": true])
+}
+
+@MainActor @Test func aFullStateToggleOverwritesAppsChangedElsewhere() async throws {
+    let (m, clock, clockApps, _) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    clockApps.setEnabled("Battery", true)
+    await m.setApp("Date", enabled: false)
+    #expect(clockApps.enabled["Battery"] == false)
+}
+
+@MainActor @Test func appToggleWithoutTheServerFeatureKeepsTheFullWrite() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["GET /version"] = (200, #"{"version":"v0.65.3","features":["firmware_delete_keep"]}"#)
+    await m.setApp("Date", enabled: false)
+    #expect(fake.log.filter { $0.method == "PUT" }.map(\.path) == ["/v1/devices/clock-a1b2c3/config"])
+    #expect(clockApps.enabled["Date"] == false)
+}
+
+@MainActor @Test func appToggleFallsBackToTheFullWriteWhenTheServerLacksTheRoute() async throws {
+    let (m, clock, clockApps, fake) = await perAppModel(facade: false, missing: true)
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Date", enabled: false)
+    await m.setApp("Humidity", enabled: true)
+    let puts = fake.log.filter { $0.method == "PUT" }.map(\.path)
+    #expect(puts == ["/v1/device/apps/Date/enabled", "/v1/device/apps",
+                     "/v1/device/apps/Humidity/enabled", "/v1/device/apps"])
+    #expect(clockApps.enabled["Date"] == false)
+    #expect(clockApps.enabled["Humidity"] == true)
+    #expect(m.actionErrors[.apps] == nil)
+}
+
+@MainActor @Test func aFailedPerAppToggleIsUndoneAndShown() async throws {
+    let (m, clock, clockApps, fake) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["PUT /v1/device/apps/Date/enabled"] = (422, #"{"error":"clock returned 422"}"#)
+    let base = fake.route
+    fake.route = { key, body in key == "PUT /v1/device/apps/Date/enabled" ? nil : base?(key, body) }
+    await m.setApp("Date", enabled: false)
+    #expect(m.actionErrors[.apps] != nil)
+    #expect(names(m)["Date"] == true)
+    #expect(clockApps.enabled["Date"] == true)
+    #expect(!fake.paths.contains("PUT /v1/devices/clock-a1b2c3/config"))
+}
+
+@MainActor @Test func reorderStillWritesTheFullOrderWithThePerAppRoute() async throws {
+    let (m, clock, _, fake) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.moveApps(fromOffsets: [1], toOffset: 0)
+    #expect(fake.log.filter { $0.method == "PUT" }.map(\.path) == ["/v1/devices/clock-a1b2c3/config"])
+}
+
+@MainActor @Test func aServerWithoutTheFeatureIsAskedAgainAfterAnUpgrade() async throws {
+    let (m, clock, clockApps, fake) = await ngRoundTripModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["GET /version"] = (200, #"{"version":"v0.65.3","features":["firmware_delete_keep"]}"#)
+    await m.setApp("Date", enabled: false)
+    #expect(fake.log.filter { $0.method == "PUT" }.map(\.path) == ["/v1/devices/clock-a1b2c3/config"])
+    fake.responses["GET /version"] = (200, appEnabledVersion)
+    let base = fake.route
+    fake.route = { key, body in
+        guard key == "PUT /v1/device/apps/Humidity/enabled" else { return base?(key, body) }
+        clockApps.setEnabled("Humidity", body["enabled"] as? Bool ?? false)
+        return (200, "")
+    }
+    await m.setApp("Humidity", enabled: true)
+    #expect(fake.log.filter { $0.method == "PUT" }.last?.path == "/v1/device/apps/Humidity/enabled")
+    #expect(clockApps.enabled["Humidity"] == true)
+}
+
+@MainActor @Test func aFailedVersionReadIsAskedAgain() async throws {
+    let (m, clock, _, fake) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    fake.responses["GET /version"] = (500, #"{"error":"boom"}"#)
+    await m.setApp("Date", enabled: false)
+    #expect(fake.log.filter { $0.method == "PUT" }.map(\.path) == ["/v1/devices/clock-a1b2c3/config"])
+    fake.responses["GET /version"] = (200, appEnabledVersion)
+    await m.setApp("Humidity", enabled: true)
+    #expect(fake.log.filter { $0.method == "PUT" }.last?.path == "/v1/device/apps/Humidity/enabled")
+    #expect(fake.paths.filter { $0 == "GET /version" }.count == 2)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aLate404FromTheOldServerSendsNothingToTheNewOne() async throws {
+    let (m, clock, _, fake) = await perAppModel(facade: false, missing: true)
+    defer { withExtendedLifetime(clock) {} }
+    fake.gatedRoute = "PUT /v1/device/apps/Date/enabled"
+    let toggle = Task { await m.setApp("Date", enabled: false) }
+    guard await fake.gatedRequestArrived(whileRunning: toggle) else { return }
+    let next = ngServer()
+    next.responses["GET /version"] = (200, appEnabledVersion)
+    let nextService = DeviceService(client: stubbedClient(token: "t2") { next.handle($0) })
+    m.configure(service: nextService)
+    fake.gate.signal()
+    await toggle.value
+    #expect(!fake.paths.contains("PUT /v1/device/apps"))
+    #expect(!next.paths.contains { $0.hasPrefix("PUT ") })
+}
+
+@MainActor @Test func theServerFeatureIsReadOnce() async throws {
+    let (m, clock, _, fake) = await perAppModel()
+    defer { withExtendedLifetime(clock) {} }
+    await m.setApp("Date", enabled: false)
+    await m.setApp("Date", enabled: true)
+    await m.setApp("Humidity", enabled: true)
+    #expect(fake.paths.filter { $0 == "GET /version" }.count == 1)
+    #expect(fake.log.filter { $0.method == "PUT" }.count == 3)
+}

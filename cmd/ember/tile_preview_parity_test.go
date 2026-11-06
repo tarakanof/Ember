@@ -1,0 +1,297 @@
+package main
+
+import (
+	"fmt"
+	"math"
+	"net/url"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/tarakanof/ember/internal/meetings"
+	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/weather"
+)
+
+func pushedTiles(t *testing.T, app *App, pub *recordingPublisher, now time.Time) map[string]map[string]any {
+	t.Helper()
+	app.coord.reconcileTiles(now)
+	out := map[string]map[string]any{}
+	names, apps := pub.CustomNamesSnapshot(), pub.CustomAppsSnapshot()
+	for i, n := range names {
+		out[n] = apps[i]
+	}
+	return out
+}
+
+func payloadBitmap(t *testing.T, p map[string]any) (x, w int, px []string) {
+	t.Helper()
+	draw, _ := p["draw"].([]any)
+	for _, op := range draw {
+		o, ok := op.([]any)
+		if !ok || len(o) != 6 || o[0] != "bitmap" {
+			continue
+		}
+		data := o[5].([]any)
+		px = make([]string, len(data))
+		for i, v := range data {
+			px[i] = fmt.Sprintf("#%06x", v.(int))
+		}
+		return o[1].(int), o[3].(int), px
+	}
+	t.Fatalf("payload has no bitmap op: %v", p)
+	return 0, 0, nil
+}
+
+func assertFrameMatchesPayload(t *testing.T, card string, preview []string, payload map[string]any) {
+	t.Helper()
+	x0, w, px := payloadBitmap(t, payload)
+	if len(preview) != 256 {
+		t.Fatalf("%s: preview has %d pixels, want 256", card, len(preview))
+	}
+	for y := 0; y < 8; y++ {
+		for x := 0; x < w; x++ {
+			if got, want := preview[y*32+x0+x], px[y*w+x]; got != want {
+				t.Fatalf("%s: pixel (%d,%d) preview %s, device %s", card, x0+x, y, got, want)
+			}
+		}
+	}
+}
+
+func previewCard(t *testing.T, p render.Preview, card string) []string {
+	t.Helper()
+	for _, f := range p.Frames {
+		if f.Card == card {
+			return f.Pixels
+		}
+	}
+	t.Fatalf("preview has no %q frame: %+v", card, p.Frames)
+	return nil
+}
+
+func weatherParityApp(t *testing.T, mut func(*weather.Config), obs weather.Observation) (*App, *recordingPublisher) {
+	t.Helper()
+	cfg := defaultConfig()
+	cfg.Weather.ApplyDefaults()
+	cfg.Weather.Enabled = true
+	mut(&cfg.Weather)
+	pub := &recordingPublisher{}
+	app := NewApp(cfg, pub, testLogger())
+	app.weather.mu.Lock()
+	app.weather.obs = obs
+	app.weather.have = true
+	app.weather.source = app.cfg.Load().Weather.Source()
+	app.weather.air = weather.AirObservation{AQI: 57, HourlyAQI: []float64{57, 61, 70, 30}, FetchedAt: obs.FetchedAt}
+	app.weather.haveAir = true
+	app.weather.mu.Unlock()
+	return app, pub
+}
+
+func weatherQuery(c weather.Config) url.Values {
+	return url.Values{
+		"rotate_in_apps": {strconv.FormatBool(c.RotateInAppsEnabled())},
+		"forecast_tile":  {strconv.FormatBool(c.ForecastTileEnabled())},
+		"air_tile":       {strconv.FormatBool(c.AirTileEnabled())},
+		"forecast_hours": {strconv.Itoa(c.ForecastHours)},
+		"units":          {c.Units},
+		"moon_phase":     {strconv.FormatBool(c.MoonPhaseEnabled())},
+		"lat":            {strconv.FormatFloat(c.Latitude, 'f', -1, 64)},
+		"lon":            {strconv.FormatFloat(c.Longitude, 'f', -1, 64)},
+	}
+}
+
+func arc(n int) []float64 {
+	h := make([]float64, n)
+	for i := range h {
+		h[i] = 10 + 12*math.Sin(float64(i)/float64(n)*math.Pi)
+	}
+	return h
+}
+
+func TestWeatherPreviewMatchesDevicePayload(t *testing.T) {
+	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
+	if !weather.SunNight(51.5, -0.1, night) {
+		t.Fatal("fixture: expected night in London")
+	}
+	noon := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name   string
+		now    time.Time
+		cond   string
+		mut    func(*weather.Config)
+		native bool
+	}{
+		{"drawn day", noon, render.WeatherClouds, func(c *weather.Config) {}, false},
+		{"imperial", noon, render.WeatherRain, func(c *weather.Config) { c.Units = "imperial" }, false},
+		{"moon on a clear night", night, render.WeatherClear, func(c *weather.Config) {
+			c.Latitude, c.Longitude = 51.5, -0.1
+		}, false},
+		{"moon off on a clear night", night, render.WeatherClear, func(c *weather.Config) {
+			c.Latitude, c.Longitude = 51.5, -0.1
+			c.MoonPhase = boolPtr(false)
+		}, false},
+		{"native icon", noon, render.WeatherSnow, func(c *weather.Config) { c.TileNativeIcons = true }, true},
+		{"forecast hours 3", noon, render.WeatherClouds, func(c *weather.Config) { c.ForecastHours = 3 }, false},
+		{"forecast hours 0", noon, render.WeatherClouds, func(c *weather.Config) { c.ForecastHours = 0 }, false},
+		{"forecast hours 30", noon, render.WeatherClouds, func(c *weather.Config) { c.ForecastHours = 30 }, false},
+		{"forecast hours 12", noon, render.WeatherClouds, func(c *weather.Config) { c.ForecastHours = 12 }, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			obs := weather.Observation{Condition: tc.cond, TempC: 7, Hourly: arc(24),
+				Overlay: render.OverlayRain, FetchedAt: tc.now}
+			app, pub := weatherParityApp(t, tc.mut, obs)
+			pushed := pushedTiles(t, app, pub, tc.now)
+			preview := app.weatherPreview(weatherQuery(app.cfg.Load().Weather), tc.now)
+
+			for app, card := range map[string]string{"ember-weather": "weather", "ember-forecast": "forecast", "ember-air": "air"} {
+				p, ok := pushed[app]
+				if !ok {
+					t.Fatalf("%s not pushed (pushed: %v)", app, pushed)
+				}
+				assertFrameMatchesPayload(t, card, previewCard(t, preview, card), p)
+			}
+			if tc.native {
+				if pushed["ember-weather"]["icon"] == nil {
+					t.Error("native mode: device payload must carry the gallery icon")
+				}
+			}
+			if got := pushed["ember-weather"]["overlay"]; got != render.OverlayRain {
+				t.Errorf("device overlay = %v, want %q", got, render.OverlayRain)
+			}
+		})
+	}
+}
+
+func TestWeatherPreviewMoonFollowsDraft(t *testing.T) {
+	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
+	obs := weather.Observation{Condition: render.WeatherClear, TempC: 3, Hourly: arc(24), FetchedAt: night}
+	london := func(c *weather.Config) { c.Latitude, c.Longitude = 51.5, -0.1 }
+	noMoon := func(c *weather.Config) { london(c); c.MoonPhase = boolPtr(false) }
+	noLocation := func(c *weather.Config) {}
+
+	cases := []struct {
+		name         string
+		saved, draft func(*weather.Config)
+	}{
+		{"moon toggled on", noMoon, london},
+		{"moon toggled off", london, noMoon},
+		{"location typed", noLocation, london},
+		{"location cleared", london, noLocation},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			want, pub := weatherParityApp(t, tc.draft, obs)
+			payload := pushedTiles(t, want, pub, night)["ember-weather"]
+			stale, _ := weatherParityApp(t, tc.saved, obs)
+			preview := stale.weatherPreview(weatherQuery(want.cfg.Load().Weather), night)
+			assertFrameMatchesPayload(t, "weather", previewCard(t, preview, "weather"), payload)
+		})
+	}
+
+	saved, _ := weatherParityApp(t, london, obs)
+	base := saved.weatherPreview(weatherQuery(saved.cfg.Load().Weather), night)
+	for _, bad := range []url.Values{
+		{"lat": {"91"}, "lon": {"0"}},
+		{"lat": {"10"}, "lon": {"-181"}},
+		{"lat": {"NaN"}, "lon": {"0"}},
+		{"lat": {"abc"}, "lon": {"1"}},
+		{"lat": {"0"}},
+		{},
+	} {
+		q := weatherQuery(saved.cfg.Load().Weather)
+		q.Del("lat")
+		q.Del("lon")
+		for k, v := range bad {
+			q[k] = v
+		}
+		got := saved.weatherPreview(q, night)
+		if !slicesEqualStr(previewCard(t, got, "weather"), previewCard(t, base, "weather")) {
+			t.Errorf("lat/lon %v: preview must fall back to the saved location", bad)
+		}
+	}
+}
+
+func TestWeatherPreviewNoParamsMatchesSavedConfig(t *testing.T) {
+	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
+	noon := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		now  time.Time
+		mut  func(*weather.Config)
+	}{
+		{"defaults", noon, func(c *weather.Config) {}},
+		{"imperial, 3h forecast", noon, func(c *weather.Config) {
+			c.Units, c.ForecastHours = "imperial", 3
+		}},
+		{"air tile off", noon, func(c *weather.Config) { c.AirTile = boolPtr(false) }},
+		{"forecast and weather off", noon, func(c *weather.Config) {
+			c.RotateInApps, c.ForecastTile = boolPtr(false), boolPtr(false)
+		}},
+		{"moon off at night", night, func(c *weather.Config) {
+			c.Latitude, c.Longitude, c.MoonPhase = 51.5, -0.1, boolPtr(false)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			obs := weather.Observation{Condition: render.WeatherClear, TempC: 7, Hourly: arc(24), FetchedAt: tc.now}
+			app, pub := weatherParityApp(t, tc.mut, obs)
+			pushed := pushedTiles(t, app, pub, tc.now)
+			preview := app.weatherPreview(url.Values{}, tc.now)
+
+			cards := map[string]string{"ember-weather": "weather", "ember-forecast": "forecast", "ember-air": "air"}
+			var wantCards []string
+			for _, a := range []string{"ember-weather", "ember-forecast", "ember-air"} {
+				if _, ok := pushed[a]; ok {
+					wantCards = append(wantCards, cards[a])
+				}
+			}
+			var gotCards []string
+			for _, f := range preview.Frames {
+				gotCards = append(gotCards, f.Card)
+			}
+			if !slicesEqualStr(gotCards, wantCards) {
+				t.Fatalf("preview frames %v, pushed tiles %v", gotCards, wantCards)
+			}
+			for a, card := range cards {
+				if p, ok := pushed[a]; ok {
+					assertFrameMatchesPayload(t, card, previewCard(t, preview, card), p)
+				}
+			}
+		})
+	}
+}
+
+func TestMeetingsPreviewMatchesDevicePayload(t *testing.T) {
+	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
+	cfg := defaultConfig()
+	cfg.Meetings.applyDefaults()
+	cfg.Meetings.Enabled = boolPtr(true)
+	pub := &recordingPublisher{}
+	app := NewApp(cfg, pub, testLogger())
+	app.meetings.mu.Lock()
+	app.meetings.lastFetchOK = now
+	app.meetings.mu.Unlock()
+	seedMeeting(app.meetings, meetings.Occurrence{UID: "u", Title: "Design review", Start: now.Add(17*time.Minute + 20*time.Second)})
+
+	payload := pushedTiles(t, app, pub, now)["ember-meet"]
+	if payload == nil {
+		t.Fatal("ember-meet not pushed")
+	}
+	text, _ := payload["text"].(string)
+	mins, title, ok := strings.Cut(text, "M ")
+	if !ok {
+		t.Fatalf("payload text %q not <N>M <TITLE>", text)
+	}
+	n, err := strconv.Atoi(mins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := render.MeetingTileFrame(title, n)
+	got := previewCard(t, app.meetingsPreview(now), "meeting")
+	if !slicesEqualStr(got, render.HexPixels(&want)) {
+		t.Errorf("meeting preview differs from the pushed tile text %q", text)
+	}
+}

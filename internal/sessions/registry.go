@@ -1,0 +1,149 @@
+package sessions
+
+import (
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/tarakanof/ember/internal/render"
+)
+
+type Policy struct {
+	StaleAfter time.Duration
+	DoneTTL    time.Duration
+}
+
+func (p Policy) ttl(state string) time.Duration {
+	switch state {
+	case "done", "error":
+		return p.DoneTTL
+	default:
+		return p.StaleAfter
+	}
+}
+
+type Reaped struct {
+	Session render.Session
+	Age     time.Duration
+}
+
+type Registry struct {
+	now    func() time.Time
+	policy func() Policy
+	onReap func(Reaped)
+
+	mu       sync.Mutex
+	sessions map[string]render.Session
+}
+
+func New(now func() time.Time, policy func() Policy, onReap func(Reaped)) *Registry {
+	return &Registry{
+		now:      now,
+		policy:   policy,
+		onReap:   onReap,
+		sessions: make(map[string]render.Session),
+	}
+}
+
+type View struct {
+	Now      time.Time
+	Sessions []render.Session
+}
+
+func (v View) Winner() *render.Session {
+	win, _, _ := render.PickWinning(v.Sessions)
+	return win
+}
+
+func (v View) Count(state string) int {
+	n := 0
+	for _, s := range v.Sessions {
+		if s.State == state {
+			n++
+		}
+	}
+	return n
+}
+
+func (r *Registry) Upsert(s render.Session) (View, string) {
+	r.mu.Lock()
+	now, reaped := r.reapLocked()
+	v, prior := r.upsertLocked(s, now)
+	r.mu.Unlock()
+	r.notify(reaped)
+	return v, prior
+}
+
+func (r *Registry) upsertLocked(s render.Session, now time.Time) (View, string) {
+	old, had := r.sessions[s.Key()]
+	prior := old.State
+	s.UpdatedAt = now
+	s.StateSince = now
+	if had && old.State == s.State && !old.StateSince.IsZero() {
+		s.StateSince = old.StateSince
+	}
+	r.sessions[s.Key()] = s
+	return r.viewLocked(now), prior
+}
+
+func (r *Registry) Delete(key string) (View, render.Session, bool) {
+	r.mu.Lock()
+	old, had := r.sessions[key]
+	delete(r.sessions, key)
+	now, reaped := r.reapLocked()
+	v := r.viewLocked(now)
+	r.mu.Unlock()
+	r.notify(reaped)
+	return v, old, had
+}
+
+func (r *Registry) Clear() View {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	clear(r.sessions)
+	return r.viewLocked(r.now())
+}
+
+func (r *Registry) View() View {
+	r.mu.Lock()
+	now, reaped := r.reapLocked()
+	v := r.viewLocked(now)
+	r.mu.Unlock()
+	r.notify(reaped)
+	return v
+}
+
+func (r *Registry) notify(reaped []Reaped) {
+	if r.onReap == nil {
+		return
+	}
+	for _, e := range reaped {
+		r.onReap(e)
+	}
+}
+
+func (r *Registry) reapLocked() (time.Time, []Reaped) {
+	now := r.now()
+	var reaped []Reaped
+	p := r.policy()
+	for key, s := range r.sessions {
+		age := now.Sub(s.UpdatedAt)
+		if age <= p.ttl(s.State) {
+			continue
+		}
+		delete(r.sessions, key)
+		reaped = append(reaped, Reaped{Session: s, Age: age})
+	}
+	return now, reaped
+}
+
+func (r *Registry) viewLocked(now time.Time) View {
+	out := make([]render.Session, 0, len(r.sessions))
+	for _, s := range r.sessions {
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	return View{Now: now, Sessions: out}
+}

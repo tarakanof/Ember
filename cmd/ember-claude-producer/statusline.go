@@ -1,0 +1,425 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
+)
+
+type statuslineInput struct {
+	SessionID  string `json:"session_id"`
+	Cwd        string `json:"cwd"`
+	RateLimits *struct {
+		FiveHour *struct {
+			UsedPercentage float64 `json:"used_percentage"`
+			ResetsAt       int64   `json:"resets_at"`
+		} `json:"five_hour"`
+		SevenDay *struct {
+			UsedPercentage float64 `json:"used_percentage"`
+			ResetsAt       int64   `json:"resets_at"`
+		} `json:"seven_day"`
+	} `json:"rate_limits"`
+	ContextWindow *struct {
+		// UsedPercentage is null early in a session: unknown, not 0 %.
+		UsedPercentage *float64 `json:"used_percentage"`
+	} `json:"context_window"`
+}
+
+func parseStatusline(b []byte) (statuslineInput, bool) {
+	var in statuslineInput
+	if json.Unmarshal(b, &in) != nil {
+		return statuslineInput{}, false
+	}
+	return in, true
+}
+
+func extractRatePct(in statuslineInput) (*int, bool) {
+	if in.RateLimits == nil || in.RateLimits.FiveHour == nil {
+		return nil, false
+	}
+	pct := producer.Pct(in.RateLimits.FiveHour.UsedPercentage)
+	return &pct, true
+}
+
+func extractRateResetAt(in statuslineInput) (int64, bool) {
+	if in.RateLimits == nil || in.RateLimits.FiveHour == nil || in.RateLimits.FiveHour.ResetsAt <= 0 {
+		return 0, false
+	}
+	return in.RateLimits.FiveHour.ResetsAt, true
+}
+
+func extractRateResetLabel(in statuslineInput, loc *time.Location) (string, bool) {
+	at, ok := extractRateResetAt(in)
+	if !ok {
+		return "", false
+	}
+	return clockLabel(time.Unix(at, 0), loc), true
+}
+
+func extractWeekPct(in statuslineInput) (*int, bool) {
+	if in.RateLimits == nil || in.RateLimits.SevenDay == nil {
+		return nil, false
+	}
+	pct := producer.Pct(in.RateLimits.SevenDay.UsedPercentage)
+	return &pct, true
+}
+
+func extractWeekResetAt(in statuslineInput) (int64, bool) {
+	if in.RateLimits == nil || in.RateLimits.SevenDay == nil || in.RateLimits.SevenDay.ResetsAt <= 0 {
+		return 0, false
+	}
+	return in.RateLimits.SevenDay.ResetsAt, true
+}
+
+func extractWeekResetLabel(in statuslineInput, loc *time.Location) (string, bool) {
+	at, ok := extractWeekResetAt(in)
+	if !ok {
+		return "", false
+	}
+	return dayLabel(time.Unix(at, 0), loc), true
+}
+
+func extractContextPct(in statuslineInput) (*int, bool) {
+	if in.ContextWindow == nil || in.ContextWindow.UsedPercentage == nil {
+		return nil, false
+	}
+	pct := producer.Pct(*in.ContextWindow.UsedPercentage)
+	return &pct, true
+}
+
+func statuslineEnv() map[string]string {
+	path, err := envFilePath()
+	if err != nil {
+		return nil
+	}
+	data, err := producer.ReadEnvFile(path)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func contextPctEnabled(env map[string]string) bool {
+	return producer.Bool(env["EMBER_CONTEXT_PCT_ENABLED"], true)
+}
+
+const defaultWrappedTimeout = 10 * time.Second
+
+func wrappedTimeout(env map[string]string) time.Duration {
+	v, ok := os.LookupEnv("EMBER_STATUSLINE_TIMEOUT_MS")
+	if !ok {
+		v = env["EMBER_STATUSLINE_TIMEOUT_MS"]
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+		return time.Duration(n) * time.Millisecond
+	}
+	return defaultWrappedTimeout
+}
+
+func wrappedStatuslinePath(home string) string {
+	return filepath.Join(home, ".config", "ember", "wrapped-statusline.json")
+}
+
+func readWrappedCommand(path string) (string, bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return "", false
+	}
+	switch t := v.(type) {
+	case string:
+		return t, t != ""
+	case map[string]any:
+		if c, ok := t["command"].(string); ok && c != "" {
+			return c, true
+		}
+	}
+	return "", false
+}
+
+var errWrappedTimeout = errors.New("wrapped status line timed out")
+
+func runWrapped(command string, stdin []byte, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd.Stdin = bytes.NewReader(stdin)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 500 * time.Millisecond
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	wrappedGroup.Store(int64(cmd.Process.Pid))
+	err := cmd.Wait()
+	wrappedGroup.Store(0)
+	if err != nil && ctx.Err() == context.DeadlineExceeded {
+		return out.Bytes(), errWrappedTimeout
+	}
+	return out.Bytes(), err
+}
+
+var wrappedGroup atomic.Int64
+
+func killWrappedOnSignal() {
+	sigs := make(chan os.Signal, 1)
+	for _, sig := range []os.Signal{syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP} {
+		if !signal.Ignored(sig) {
+			signal.Notify(sigs, sig)
+		}
+	}
+	go func() {
+		sig := <-sigs
+		if pgid := wrappedGroup.Load(); pgid > 0 {
+			_ = syscall.Kill(-int(pgid), syscall.SIGKILL)
+		}
+		os.Exit(128 + int(sig.(syscall.Signal)))
+	}()
+}
+
+func wrappedOutput(command string, stdin []byte, timeout time.Duration, cachePath string) []byte {
+	out, err := runWrapped(command, stdin, timeout)
+	switch {
+	case err == nil || errors.Is(err, exec.ErrWaitDelay):
+		if cachePath != "" {
+			if prev, rerr := os.ReadFile(cachePath); rerr != nil || !bytes.Equal(prev, out) {
+				_ = os.MkdirAll(filepath.Dir(cachePath), 0o700)
+				_ = os.WriteFile(cachePath, out, 0o600)
+				pruneStatuslineCache(filepath.Dir(cachePath))
+			}
+		}
+		return out
+	case errors.Is(err, errWrappedTimeout) && cachePath != "":
+		cached, _ := os.ReadFile(cachePath)
+		return cached
+	}
+	return nil
+}
+
+const statuslineCacheTTL = 24 * time.Hour
+
+func statuslineCachePath(sessionID string) string {
+	dir, err := stateDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(dir), "statusline", sessionID+".out")
+}
+
+func pruneStatuslineCache(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-statuslineCacheTTL)
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+}
+
+func ourStatuslineCommand(binPath string) string {
+	return binPath + ` statusline 2>>` + producer.LogDirShell() + `/ember-claude-producer.log`
+}
+
+func statusLineIsOurs(v any) bool {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return false
+	}
+	s := string(raw)
+	return strings.Contains(s, producerName+" statusline") ||
+		strings.Contains(s, legacyProducerName+" statusline")
+}
+
+func runStatusline() {
+	killWrappedOnSignal()
+	buf, err := readStatuslineStdin(os.Stdin)
+	if err != nil {
+		slog.Warn("statusline stdin read failed", "err", err)
+	}
+	statuslineMain(buf, os.Stdout)
+	os.Exit(0)
+}
+
+func readStatuslineStdin(r io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(r, hookStdinMax))
+}
+
+func statuslineMain(buf []byte, stdout io.Writer) {
+	env := statuslineEnv()
+	in, parsed := parseStatusline(buf)
+	wrapped := make(chan []byte, 1)
+	if home, err := os.UserHomeDir(); err == nil {
+		if cmd, ok := readWrappedCommand(wrappedStatuslinePath(home)); ok {
+			cache := ""
+			if parsed {
+				cache = statuslineCachePath(sanitizeSessionID(in.SessionID, in.Cwd))
+			}
+			go func() { wrapped <- wrappedOutput(cmd, buf, wrappedTimeout(env), cache) }()
+		} else {
+			wrapped <- nil
+		}
+	} else {
+		wrapped <- nil
+	}
+	if parsed {
+		enrichFromStatusline(in, env, time.Local)
+	}
+	_, _ = stdout.Write(<-wrapped)
+}
+
+func enrichFromStatusline(in statuslineInput, env map[string]string, loc *time.Location) {
+	var ratePct, ctxPct, weekPct *int
+	var resetAt, weekResetAt *int64
+	var resetLabel, weekResetLabel string
+	if p, ok := extractRatePct(in); ok {
+		ratePct = p
+	}
+	if r, ok := extractRateResetAt(in); ok {
+		resetAt = &r
+	}
+	if l, ok := extractRateResetLabel(in, loc); ok {
+		resetLabel = l
+	}
+	if p, ok := extractWeekPct(in); ok {
+		weekPct = p
+	}
+	if r, ok := extractWeekResetAt(in); ok {
+		weekResetAt = &r
+	}
+	if l, ok := extractWeekResetLabel(in, loc); ok {
+		weekResetLabel = l
+	}
+	if contextPctEnabled(env) {
+		if p, ok := extractContextPct(in); ok {
+			ctxPct = p
+		}
+	}
+	if ratePct == nil && ctxPct == nil && resetAt == nil && resetLabel == "" &&
+		weekPct == nil && weekResetAt == nil && weekResetLabel == "" {
+		return
+	}
+	dir, err := stateDir()
+	if err != nil {
+		return
+	}
+	session := sanitizeSessionID(in.SessionID, in.Cwd)
+	var carried markerAccount
+	var token int64
+	_ = enrichMarker(dir, session, ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel,
+		pendIfConfigMoved(&carried, &token))
+	if token == 0 {
+		return
+	}
+	_ = settleMarker(dir, session, token, sessionClaudeAccount(carried))
+}
+
+func pendIfConfigMoved(carried *markerAccount, token *int64) func(markerAccount) markerAccount {
+	return func(a markerAccount) markerAccount {
+		*carried = a
+		if _, sig := claudeConfigSig(); sig != a.UsageAccountSig || a.pending() {
+			*token = max(time.Now().UnixNano(), a.UsageAccountPending+1)
+			a.UsageAccountPending, a.UsageAccountLegacyPending = *token, false
+		}
+		return a
+	}
+}
+
+func settleMarker(stateDir, sessionID string, token int64, next markerAccount) error {
+	mp := markerPath(stateDir, sessionID)
+	return withLockExWait(lockPath(stateDir, sessionID), statuslineLockWait, func() error {
+		body, err := readMarker(mp)
+		if err != nil {
+			return nil
+		}
+		var m marker
+		if json.Unmarshal(body, &m) != nil || m.UsageAccountPending != token {
+			return nil
+		}
+		m.markerAccount = next
+		out, err := json.Marshal(m)
+		if err != nil {
+			return nil
+		}
+		return writeMarker(mp, out)
+	})
+}
+
+const statuslineLockWait = 250 * time.Millisecond
+
+const statuslineRefresh = time.Minute
+
+func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string,
+	weekPct *int, weekResetAt *int64, weekResetLabel string, account func(markerAccount) markerAccount) error {
+	mp := markerPath(stateDir, sessionID)
+	lp := lockPath(stateDir, sessionID)
+	return withLockExWait(lp, statuslineLockWait, func() error {
+		body, err := readMarker(mp)
+		if err != nil {
+			return nil
+		}
+		var m marker
+		if json.Unmarshal(body, &m) != nil {
+			return nil
+		}
+		if ratePct != nil {
+			m.RateWindowPct = ratePct
+		}
+		if ctxPct != nil {
+			m.ContextPct = ctxPct
+		}
+		if resetAt != nil {
+			m.RateResetAt = *resetAt
+		}
+		if resetLabel != "" {
+			m.RateResetLabel = resetLabel
+		}
+		if weekPct != nil {
+			m.RateWeekPct = weekPct
+		}
+		if weekResetAt != nil {
+			m.RateWeekResetAt = *weekResetAt
+		}
+		if weekResetLabel != "" {
+			m.RateWeekResetLabel = weekResetLabel
+		}
+		now := hookNow()
+		old := m.markerAccount
+		next := account(old)
+		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) {
+			if now.Sub(time.Unix(m.StatuslineAt, 0)) < statuslineRefresh && next == old {
+				return nil
+			}
+		} else {
+			m.StatuslineChangedMs = now.UnixMilli()
+		}
+		m.markerAccount = next
+		m.StatuslineAt = now.Unix()
+		out, err := json.Marshal(m)
+		if err != nil {
+			return nil
+		}
+		return writeMarker(mp, out)
+	})
+}

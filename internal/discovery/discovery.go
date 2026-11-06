@@ -1,0 +1,312 @@
+package discovery
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/brutella/dnssd"
+
+	"github.com/tarakanof/ember/internal/awtrix"
+)
+
+type Candidate struct {
+	Host    string `json:"host"`
+	BaseURL string `json:"base_url"`
+	UID     string `json:"uid"`
+	Version string `json:"version"`
+}
+
+type service struct {
+	host    string
+	baseURL string
+}
+
+const (
+	awtrixServiceType = "_awtrixng._tcp.local."
+
+	NGBoardType = "awtrixng"
+
+	defaultProbeTimeout = 1500 * time.Millisecond
+)
+
+func probe(ctx context.Context, timeout time.Duration, baseURL string) (awtrix.DeviceInfo, bool) {
+	if timeout <= 0 {
+		timeout = defaultProbeTimeout
+	}
+	info, err := awtrix.NewClient(baseURL, timeout).DeviceInfo(ctx)
+	if err != nil || !IsNG(info) {
+		return awtrix.DeviceInfo{}, false
+	}
+	return info, true
+}
+
+func IsNG(info awtrix.DeviceInfo) bool {
+	return info.UID != "" && info.BoardType == NGBoardType
+}
+
+func filterCandidates(ctx context.Context, timeout time.Duration, svcs []service) []Candidate {
+	found := make([]*Candidate, len(svcs))
+	var wg sync.WaitGroup
+	for i, s := range svcs {
+		wg.Add(1)
+		go func(i int, s service) {
+			defer wg.Done()
+			if info, ok := probe(ctx, timeout, s.baseURL); ok {
+				found[i] = &Candidate{Host: s.host, BaseURL: s.baseURL, UID: info.UID, Version: info.Version}
+			}
+		}(i, s)
+	}
+	wg.Wait()
+	out := make([]Candidate, 0, len(svcs))
+	for _, c := range found {
+		if c != nil {
+			out = append(out, *c)
+		}
+	}
+	return out
+}
+
+func baseURLFor(ips []net.IP, port int) string {
+	host := ""
+	for _, ip := range ips {
+		if v4 := ip.To4(); v4 != nil {
+			host = v4.String()
+			break
+		}
+	}
+	if host == "" {
+		for _, ip := range ips {
+			if !ip.IsLinkLocalUnicast() {
+				host = ip.String()
+				break
+			}
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	return fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprint(port)))
+}
+
+const (
+	udpFindPayload = "FIND_AWTRIXNG"
+	udpFindPort    = 4210
+	udpReplyPort   = 4211
+)
+
+func udpBrowse(ctx context.Context, timeout time.Duration) []service {
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: udpReplyPort})
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	for _, dst := range broadcastAddrs() {
+		_, _ = conn.WriteToUDP([]byte(udpFindPayload), &net.UDPAddr{IP: dst, Port: udpFindPort})
+	}
+
+	deadline := time.Now().Add(timeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	return collectUDPReplies(ctx, conn, deadline)
+}
+
+func collectUDPReplies(ctx context.Context, conn *net.UDPConn, deadline time.Time) []service {
+	if err := conn.SetReadDeadline(deadline); err != nil {
+		return nil
+	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetReadDeadline(time.Now()) })
+	defer stop()
+	seen := map[string]service{}
+	buf := make([]byte, 512)
+	for {
+		n, addr, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			break
+		}
+		host, port := parseUDPReply(string(buf[:n]))
+		if host == "" {
+			continue
+		}
+		base := fmt.Sprintf("http://%s", net.JoinHostPort(addr.IP.String(), strconv.Itoa(port)))
+		seen[base] = service{host: host, baseURL: base}
+	}
+	out := make([]service, 0, len(seen))
+	for _, s := range seen {
+		out = append(out, s)
+	}
+	return out
+}
+
+func parseUDPReply(body string) (string, int) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", 0
+	}
+	host, portStr, hasPort := strings.Cut(body, ":")
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", 0
+	}
+	if !hasPort {
+		return host, 80
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(portStr))
+	if err != nil || port < 1 || port > 65535 {
+		return "", 0
+	}
+	return host, port
+}
+
+func broadcastAddrs() []net.IP {
+	out := []net.IP{net.IPv4bcast}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return out
+	}
+	for _, ifi := range ifaces {
+		if ifi.Flags&net.FlagUp == 0 || ifi.Flags&net.FlagBroadcast == 0 {
+			continue
+		}
+		addrs, err := ifi.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			n, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip4, mask := n.IP.To4(), net.IP(n.Mask).To4()
+			if ip4 == nil || mask == nil {
+				continue
+			}
+			b := make(net.IP, net.IPv4len)
+			for i := range b {
+				b[i] = ip4[i] | ^mask[i]
+			}
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+type (
+	mdnsLookup func(ctx context.Context, service string, add dnssd.AddFunc, rmv dnssd.RmvFunc) error
+	udpLookup  func(ctx context.Context, timeout time.Duration) []service
+)
+
+func BrowseAWTRIX(ctx context.Context, timeout time.Duration) ([]Candidate, error) {
+	return browseAWTRIX(ctx, timeout, dnssd.LookupType, udpBrowse)
+}
+
+func browseAWTRIX(ctx context.Context, timeout time.Duration, lookupMDNS mdnsLookup, browseUDP udpLookup) ([]Candidate, error) {
+	bctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	seen := map[string]service{}
+	add := func(e dnssd.BrowseEntry) {
+		port := e.Port
+		if port == 0 {
+			port = 80
+		}
+		if b := baseURLFor(e.IPs, port); b != "" {
+			seen[e.Host] = service{host: e.Host, baseURL: b}
+		}
+	}
+	_ = lookupMDNS(bctx, awtrixServiceType, func(e dnssd.BrowseEntry) { add(e) }, func(e dnssd.BrowseEntry) {})
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	svcs := make([]service, 0, len(seen))
+	for _, s := range seen {
+		svcs = append(svcs, s)
+	}
+	if len(svcs) == 0 {
+		svcs = browseUDP(ctx, timeout)
+	}
+	pctx, pcancel := context.WithTimeout(ctx, 2*time.Second)
+	defer pcancel()
+	cands := filterCandidates(pctx, defaultProbeTimeout, svcs)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return cands, nil
+}
+
+const prusaLinkServiceType = "_prusalink._tcp.local."
+
+type PrusaLink struct {
+	Name string
+	Host string
+	URL  string
+}
+
+func BrowsePrusaLink(ctx context.Context, timeout time.Duration) ([]PrusaLink, error) {
+	return browsePrusaLink(ctx, timeout, dnssd.LookupType)
+}
+
+func prusaLinkOf(e dnssd.BrowseEntry) (PrusaLink, bool) {
+	port := e.Port
+	if port == 0 {
+		port = 80
+	}
+	u := baseURLFor(e.IPs, port)
+	if u == "" {
+		return PrusaLink{}, false
+	}
+	return PrusaLink{Name: e.Name, Host: e.Host, URL: u}, true
+}
+
+func browsePrusaLink(ctx context.Context, timeout time.Duration, lookupMDNS mdnsLookup) ([]PrusaLink, error) {
+	bctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var (
+		mu    sync.Mutex
+		seen  = map[string]PrusaLink{}
+		order []string
+	)
+	_ = lookupMDNS(bctx, prusaLinkServiceType, func(e dnssd.BrowseEntry) {
+		pl, ok := prusaLinkOf(e)
+		if !ok {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if _, dup := seen[e.Host]; !dup {
+			order = append(order, e.Host)
+		}
+		seen[e.Host] = pl
+	}, func(dnssd.BrowseEntry) {})
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]PrusaLink, 0, len(order))
+	for _, h := range order {
+		out = append(out, seen[h])
+	}
+	return out, nil
+}
+
+func WatchPrusaLink(ctx context.Context, seen func(PrusaLink)) error {
+	return watchPrusaLink(ctx, dnssd.LookupType, seen)
+}
+
+func watchPrusaLink(ctx context.Context, lookupMDNS mdnsLookup, seen func(PrusaLink)) error {
+	err := lookupMDNS(ctx, prusaLinkServiceType, func(e dnssd.BrowseEntry) {
+		if pl, ok := prusaLinkOf(e); ok {
+			seen(pl)
+		}
+	}, func(dnssd.BrowseEntry) {})
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
+}

@@ -1,0 +1,24 @@
+import Foundation
+import Testing
+@testable import EmberKit
+
+@Test func serverVersionPrefersSemverWithCommit() throws {
+    let json = #"{"binary":"ember","version":"0.9.0","revision":"44143ca88be0b79212b2d043bab3b88f3104fdfc","dirty":false,"go_version":"go1.26.4"}"#
+    let info = try JSONDecoder().decode(VersionInfo.self, from: Data(json.utf8))
+    #expect(info.short == "0.9.0 · 44143ca")
+}
+
+@Test func serverVersionFallsBackToCommitForDevOrOldServer() throws {
+    let dev = #"{"binary":"ember","version":"dev","revision":"44143ca88be0b79212b2d043bab3b88f3104fdfc"}"#
+    #expect(try JSONDecoder().decode(VersionInfo.self, from: Data(dev.utf8)).short == "ember @ 44143ca")
+
+    let old = #"{"binary":"ember","revision":"6ad0339abc","dirty":true}"#
+    #expect(try JSONDecoder().decode(VersionInfo.self, from: Data(old.utf8)).short == "ember @ 6ad0339-dirty")
+}
+
+@Test func versionInfoCarriesClockDisabledAndDefaultsToOn() throws {
+    let off = #"{"binary":"ember","version":"0.66.0","clock_disabled":true}"#
+    #expect(try JSONDecoder().decode(VersionInfo.self, from: Data(off.utf8)).isClockDisabled)
+    let old = #"{"binary":"ember","version":"0.65.0"}"#
+    #expect(try !JSONDecoder().decode(VersionInfo.self, from: Data(old.utf8)).isClockDisabled)
+}

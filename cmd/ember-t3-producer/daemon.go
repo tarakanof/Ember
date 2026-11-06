@@ -1,0 +1,151 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
+)
+
+const (
+	httpTimeout = 5 * time.Second
+	maxBackoff  = time.Minute
+)
+
+var pinnedMigrations = map[int]int{1: 54, 2: 67}
+
+var daemonFailLog = producer.NewFailureLogger(time.Minute)
+
+type daemon struct {
+	cfg     Config
+	client  *producer.Client
+	watcher *watcher
+	now     func() time.Time
+	alive   func(home string) bool
+	warned  map[[2]int]bool
+	store   *storeReader
+	prompts *storeReader
+
+	nextReplies time.Time
+}
+
+func newDaemon(cfg Config, client *producer.Client) *daemon {
+	return &daemon{
+		cfg:     cfg,
+		client:  client,
+		watcher: newWatcher(cfg),
+		now:     time.Now,
+		alive:   func(home string) bool { return serverAlive(home, pidAlive) },
+		warned:  map[[2]int]bool{},
+		store:   &storeReader{},
+		prompts: &storeReader{},
+	}
+}
+
+func runDaemon() {
+	producer.StartDaemonLog("ember-t3-producer")
+	cfg, err := loadConfig()
+	if err != nil || cfg.Source == "" || (cfg.ServerURL == "" && !cfg.ServerAuto) {
+		fmt.Fprintln(os.Stderr, "t3 producer: EMBER_SOURCE/EMBER_SERVER_URL not set; nothing to do")
+		os.Exit(0)
+	}
+	slog.Info("t3 producer starting", "config", cfg)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	home, _ := os.UserHomeDir()
+	auto, ok := producer.DaemonServer(ctx, home, cfg.ServerURL, cfg.ServerAuto, cfg.ServerInstance)
+	if !ok {
+		return
+	}
+	client := producer.NewClient(cfg.ServerURL, cfg.Token, httpTimeout).WithAutoServer(auto)
+	if path, err := producer.LinkStatusPath("t3-producer"); err == nil {
+		client.WithLinkStatus(producer.NewLinkStatus(path))
+	}
+	sweepMarkers(cfg.StateDir)
+	d := newDaemon(cfg, client)
+	defer d.store.Close()
+	defer d.prompts.Close()
+
+	base := time.Duration(cfg.PollIntervalMs) * time.Millisecond
+	failures := 0
+	for {
+		if err := d.poll(ctx); err != nil {
+			failures++
+			daemonFailLog.Warn(slog.Default(), "t3_read", "reading T3 state failed; backing off", "err", err, "retry_in", backoff(base, failures))
+		} else {
+			failures = 0
+		}
+		select {
+		case <-ctx.Done():
+			shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			d.send(shutdown, nil, d.watcher.dropAll())
+			cancel()
+			return
+		case <-time.After(backoff(base, failures)):
+		}
+	}
+}
+
+func (d *daemon) poll(ctx context.Context) error {
+	if !d.alive(d.cfg.T3Home) {
+		// Hold no handle on T3's files while it is down, so its last close can remove -wal/-shm.
+		d.store.Close()
+		d.prompts.Close()
+		d.send(ctx, nil, d.watcher.dropAll())
+		return nil
+	}
+	snap, err := d.store.Read(ctx, d.cfg.T3Home)
+	if err != nil {
+		return err
+	}
+	if d.noteMigration(snap.Schema, snap.Migration) {
+		slog.Warn("T3 Code schema is newer than the verified one; reading it anyway",
+			"schema", snap.Schema, "migration", snap.Migration, "verified", pinnedMigrations[snap.Schema])
+	}
+	posts, deletes := d.watcher.tick(snap.Threads, d.now())
+	d.send(ctx, posts, deletes)
+	d.sendReplies(ctx)
+	return nil
+}
+
+func (d *daemon) noteMigration(schema, migration int) bool {
+	if migration <= pinnedMigrations[schema] || d.warned[[2]int{schema, migration}] {
+		return false
+	}
+	d.warned[[2]int{schema, migration}] = true
+	return true
+}
+
+func (d *daemon) send(ctx context.Context, posts []producer.StatusRequest, deletes []producer.DeleteRequest) {
+	for _, req := range posts {
+		if err := d.client.Post(ctx, req); err != nil {
+			daemonFailLog.Warn(slog.Default(), "t3_post", "status POST failed", "err", err)
+		}
+		if body, err := json.Marshal(req); err == nil {
+			_ = writeMarker(d.cfg.StateDir, req.Session, body)
+		}
+	}
+	for _, req := range deletes {
+		if err := d.client.Delete(ctx, req); err != nil {
+			daemonFailLog.Warn(slog.Default(), "t3_delete", "status DELETE failed", "err", err)
+		}
+		_ = removeMarker(d.cfg.StateDir, req.Session)
+	}
+}
+
+func backoff(base time.Duration, failures int) time.Duration {
+	d := base
+	for i := 0; i < failures && d < maxBackoff; i++ {
+		d *= 2
+	}
+	if d > maxBackoff {
+		return maxBackoff
+	}
+	return d
+}

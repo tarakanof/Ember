@@ -1,0 +1,246 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      macos: ${{ steps.filter.outputs.macos }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            macos:
+              - 'macos/**'
+              - 'scripts/**'
+              - 'cmd/ember/testdata/**'
+              - 'cmd/ember-claude-producer/testdata/**'
+              - '.github/workflows/ci.yml'
+              - '.github/cinder-ref'
+
+  go:
+    name: Go (fmt, vet, test -race)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test -race
+        run: go test ./... -race
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: govulncheck
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
+        with:
+          go-version-file: go.mod
+          go-package: ./...
+
+  openapi:
+    name: OpenAPI lint (docs/openapi.yaml)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: redocly lint
+        run: npx --yes @redocly/cli@2.58.2 lint --config docs/redocly.yaml --format github-actions docs/openapi.yaml
+
+  claude-mod:
+    name: Claude mod producer (node --test, plugin validate + test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: node --test (pure module)
+        run: node --test producers/claude-code/mod/test/producer.test.mts
+
+      - name: Install Claude Code (pinned, runner only)
+        run: npm i -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code@2.1.304
+
+      - name: Isolate HOME and CLAUDE_CONFIG_DIR
+        run: |
+          mkdir -p "$RUNNER_TEMP/claude-home/.claude"
+          echo "HOME=$RUNNER_TEMP/claude-home" >> "$GITHUB_ENV"
+          echo "CLAUDE_CONFIG_DIR=$RUNNER_TEMP/claude-home/.claude" >> "$GITHUB_ENV"
+
+      - name: claude plugin validate --strict
+        run: claude plugin validate --strict producers/claude-code/mod
+
+      - name: claude plugin test (test/mod.test.ts, register.ts wiring)
+        run: claude plugin test producers/claude-code/mod
+
+  image-vcs:
+    name: Docker image (clean VCS stamp)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build amd64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ember:vcs-check
+          provenance: false
+          sbom: false
+
+      - name: Refuse a dirty or unstamped binary
+        run: scripts/check-image-vcs.sh ember:vcs-check "$GITHUB_SHA"
+
+  producers-cross:
+    name: Producers (cross-compile, install script)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build + vet producers for every release target
+        run: |
+          pkgs="./internal/producer/... ./internal/discovery/... ./cmd/ember-claude-producer/... ./cmd/ember-codex-producer/... ./cmd/ember-t3-producer/..."
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0
+            echo "::group::$target"
+            for p in claude codex t3; do
+              go build -o /dev/null "./cmd/ember-$p-producer"
+            done
+            # shellcheck disable=SC2086 # word-split the package list
+            go vet $pkgs
+            echo "::endgroup::"
+          done
+
+      - name: install-producers.sh test
+        run: scripts/install-producers_test.sh
+
+  producers-arm64:
+    name: Producers (linux/arm64 test -race)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test -race (producers)
+        run: go test -race ./internal/producer/... ./internal/discovery/... ./cmd/ember-claude-producer/... ./cmd/ember-codex-producer/... ./cmd/ember-t3-producer/...
+
+  macos:
+    name: macOS (swift test, unsigned app build)
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Read the pinned cinder tag
+        id: cinder
+        run: |
+          ref=$(tr -d '[:space:]' < .github/cinder-ref)
+          [ -n "$ref" ] || { echo "::error::.github/cinder-ref is empty"; exit 1; }
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout cinder at the pinned tag (theme parity)
+        uses: actions/checkout@v6
+        with:
+          repository: tarakanof/cinder
+          ref: ${{ steps.cinder.outputs.ref }}
+          path: cinder
+          persist-credentials: false
+          sparse-checkout: firmware
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: swift test (EmberKit)
+        env:
+          CINDER_DIR: ${{ github.workspace }}/cinder
+        run: swift test --package-path macos
+
+      - name: xcodegen generate
+        run: xcodegen generate --spec macos/project.yml --project macos
+
+      - name: xcodebuild (unsigned Debug)
+        run: |
+          xcodebuild -project macos/Ember.xcodeproj -scheme Ember \
+            -configuration Debug -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: String catalog is complete
+        run: scripts/strings.sh check build/DerivedData

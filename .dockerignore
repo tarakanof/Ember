@@ -1,0 +1,9 @@
+.gocache
+.claude/worktrees
+.claude/settings.local.json
+*.log
+*.test
+*.out
+config.json
+config.local.json
+producer.env

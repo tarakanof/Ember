@@ -1,0 +1,1448 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
+)
+
+type fakeAppServer struct {
+	t    *testing.T
+	path string
+	ln   net.Listener
+
+	mu             sync.Mutex
+	threads        map[string]map[string]any
+	loaded         []string
+	resumeFailures int
+	received       []map[string]any
+	replied        map[string]int
+	conns          []*wsConn
+	beforeRead     func(id string)
+	hang           bool
+	hangOn         string
+	hangThread     string
+	hangProbes     bool
+	probeDelay     time.Duration
+	onDrop         func(method, thread string)
+	dropped        []map[string]any
+	pageDelay      time.Duration
+	endlessPages   bool
+	lateBy         time.Duration
+	lateGate       chan struct{}
+	unsubFailures  int
+	subs           map[string]bool
+}
+
+func shortSockDir(t *testing.T) string {
+	t.Helper()
+	// t.TempDir paths overflow sun_path (104 bytes on macOS).
+	dir, err := os.MkdirTemp("/tmp", "ecas")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func newFakeAppServer(t *testing.T, path string) *fakeAppServer {
+	t.Helper()
+	return newFakeAppServerWith(t, path, nil)
+}
+
+func newFakeAppServerWith(t *testing.T, path string, setup func(*fakeAppServer)) *fakeAppServer {
+	t.Helper()
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeAppServer{t: t, path: path, ln: ln, threads: map[string]map[string]any{}, replied: map[string]int{}, subs: map[string]bool{}}
+	t.Cleanup(f.close)
+	if setup != nil {
+		setup(f)
+	}
+	go f.accept()
+	return f
+}
+
+func (f *fakeAppServer) close() {
+	_ = f.ln.Close()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.conns {
+		_ = c.Close()
+	}
+}
+
+func (f *fakeAppServer) accept() {
+	for {
+		c, err := f.ln.Accept()
+		if err != nil {
+			return
+		}
+		go f.serve(c)
+	}
+}
+
+func (f *fakeAppServer) serve(c net.Conn) {
+	br := bufio.NewReader(c)
+	req, err := http.ReadRequest(br)
+	if err != nil || req.URL.Path != "/rpc" {
+		_ = c.Close()
+		return
+	}
+	key := req.Header.Get("Sec-WebSocket-Key")
+	_, _ = c.Write([]byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + wsAccept(key) + "\r\n\r\n"))
+	ws := &wsConn{c: c, br: br}
+	f.mu.Lock()
+	f.conns = append(f.conns, ws)
+	f.mu.Unlock()
+	for {
+		raw, err := ws.ReadMessage()
+		if err != nil {
+			return
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			f.t.Errorf("client sent non-JSON frame %q", raw)
+			continue
+		}
+		f.mu.Lock()
+		f.received = append(f.received, m)
+		f.mu.Unlock()
+		if id, ok := m["id"]; ok && m["method"] != nil {
+			f.answer(ws, id, m["method"].(string), m["params"])
+		}
+	}
+}
+
+func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
+	p, _ := params.(map[string]any)
+	f.mu.Lock()
+	hook := f.beforeRead
+	thread, _ := p["threadId"].(string)
+	if f.hang || f.hangOn == method && (f.hangThread == "" || f.hangThread == thread) || f.hangProbes && isProbe(map[string]any{"method": method, "params": params}) {
+		f.dropped = append(f.dropped, map[string]any{"method": method, "params": params, "at": time.Now()})
+		onDrop, late, gate := f.onDrop, f.lateBy, f.lateGate
+		f.mu.Unlock()
+		if onDrop != nil {
+			onDrop(method, thread)
+		}
+		if late > 0 || gate != nil {
+			go func() {
+				if gate != nil {
+					<-gate
+				}
+				time.Sleep(late)
+				f.reply(ws, id, method, p)
+			}()
+		}
+		return
+	}
+	delay, probeDelay := f.pageDelay, f.probeDelay
+	f.mu.Unlock()
+	if isProbe(map[string]any{"method": method, "params": params}) {
+		time.Sleep(probeDelay)
+	} else if method == "thread/loaded/list" && delay > 0 {
+		time.Sleep(delay)
+	}
+	if method == "thread/read" && hook != nil {
+		hook(p["threadId"].(string))
+	}
+	f.reply(ws, id, method, p)
+}
+
+func (f *fakeAppServer) reply(ws *wsConn, id any, method string, p map[string]any) {
+	params := any(p)
+	f.mu.Lock()
+	var result any
+	var rpcErr any
+	switch method {
+	case "initialize":
+		result = map[string]any{"userAgent": "codex_app_server_daemon/0.160.0 (Mac OS 27.0.0; arm64)", "codexHome": "/x", "platformFamily": "unix", "platformOs": "macos"}
+	case "thread/loaded/list":
+		var next any
+		if f.endlessPages {
+			next = "more"
+		}
+		result = map[string]any{"data": f.loaded, "nextCursor": next}
+	case "thread/read":
+		if th := f.threads[p["threadId"].(string)]; th != nil {
+			result = map[string]any{"thread": th}
+		} else {
+			rpcErr = map[string]any{"code": -32600, "message": "thread not found"}
+		}
+	case "thread/resume":
+		if f.resumeFailures > 0 {
+			f.resumeFailures--
+			rpcErr = map[string]any{"code": -32600, "message": "no rollout found for thread id " + p["threadId"].(string)}
+		} else {
+			result = map[string]any{"thread": f.threads[p["threadId"].(string)]}
+			f.subs[p["threadId"].(string)] = true
+		}
+	case "thread/unsubscribe":
+		if f.unsubFailures > 0 {
+			f.unsubFailures--
+			rpcErr = map[string]any{"code": -32603, "message": "internal error"}
+		} else {
+			result = map[string]any{"status": "unsubscribed"}
+			delete(f.subs, p["threadId"].(string))
+		}
+	default:
+		result = map[string]any{}
+	}
+	f.mu.Unlock()
+	msg := map[string]any{"id": id}
+	if rpcErr != nil {
+		msg["error"] = rpcErr
+	} else {
+		msg["result"] = result
+	}
+	if f.sendOn(ws, msg) != nil {
+		return
+	}
+	f.mu.Lock()
+	f.replied[method]++
+	if isProbe(map[string]any{"method": method, "params": params}) {
+		f.replied["probe"]++
+	}
+	f.mu.Unlock()
+}
+
+func (f *fakeAppServer) replies(method string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.replied[method]
+}
+
+func (f *fakeAppServer) sendOn(ws *wsConn, v any) error {
+	b, _ := json.Marshal(v)
+	return ws.WriteText(b)
+}
+
+func (f *fakeAppServer) send(v any) {
+	f.mu.Lock()
+	conns := append([]*wsConn(nil), f.conns...)
+	f.mu.Unlock()
+	for _, c := range conns {
+		_ = f.sendOn(c, v)
+	}
+}
+
+func (f *fakeAppServer) notify(method string, params any) {
+	f.send(map[string]any{"method": method, "params": params})
+}
+
+func (f *fakeAppServer) addThread(id, source string, status any, extra map[string]any) {
+	th := map[string]any{"id": id, "ephemeral": false, "source": source, "originator": "codex-tui",
+		"preview": "", "updatedAt": time.Now().Unix(), "status": status, "cwd": "/w", "cliVersion": "0.160.0",
+		"createdAt": time.Now().Unix(), "modelProvider": "openai", "projectId": nil, "sessionId": id, "turns": []any{}}
+	for k, v := range extra {
+		th[k] = v
+	}
+	f.mu.Lock()
+	f.threads[id] = th
+	f.mu.Unlock()
+}
+
+func (f *fakeAppServer) messages() []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]map[string]any(nil), f.received...)
+}
+
+func (f *fakeAppServer) calls(method string) []map[string]any {
+	var out []map[string]any
+	for _, m := range f.messages() {
+		if m["method"] == method {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func active(flags ...string) map[string]any {
+	if flags == nil {
+		flags = []string{}
+	}
+	return map[string]any{"type": "active", "activeFlags": flags}
+}
+
+var idle = map[string]any{"type": "idle"}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+func testAppServerConfig(sock string) Config {
+	return Config{Common: producer.Common{Source: "mbp", ActivityTrailEnabled: true}, Gauges: producer.Gauges{ContextPctEnabled: true}, ActivityWindowSeconds: 90, RatePctEnabled: true, AppServerEnabled: true, AppServerSocket: sock}
+}
+
+func startAppServer(t *testing.T, cfg Config) *appServer {
+	t.Helper()
+	as := newAppServer(cfg)
+	as.pollEvery, as.backoffMin, as.backoffMax, as.retryEvery = 10*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond, 20*time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { as.run(ctx); close(done) }()
+	t.Cleanup(func() { stopAppServer(t, cancel, done) })
+	return as
+}
+
+func stopAppServer(t *testing.T, cancel context.CancelFunc, done <-chan struct{}) {
+	t.Helper()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Errorf("app-server loop did not stop within 5s of cancel")
+	}
+}
+
+func bootstrapped(as *appServer, ids ...string) func() bool {
+	return func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		if len(as.unread) != 0 {
+			return false
+		}
+		for _, id := range ids {
+			if as.threads[id] == nil && as.ephemeral[id].IsZero() {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+func connected(as *appServer) func() bool {
+	return func() bool { ok, _ := as.status(); return ok }
+}
+
+func subscribed(as *appServer, id string) func() bool {
+	return func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		th := as.threads[id]
+		return th != nil && th.subscribed
+	}
+}
+
+func postFor(posts []producer.StatusRequest, id string) (producer.StatusRequest, bool) {
+	for i := len(posts) - 1; i >= 0; i-- {
+		if posts[i].Session == id {
+			return posts[i], true
+		}
+	}
+	return producer.StatusRequest{}, false
+}
+
+func waitState(t *testing.T, as *appServer, id, want string) producer.StatusRequest {
+	t.Helper()
+	var last producer.StatusRequest
+	waitFor(t, id+" "+want, func() bool {
+		as.mu.Lock()
+		if th := as.threads[id]; th != nil {
+			th.post.Reset()
+		}
+		as.mu.Unlock()
+		if p, ok := postFor(as.tick().posts, id); ok {
+			last = p
+			return p.State == want
+		}
+		return false
+	})
+	return last
+}
+
+func TestAppServer_InitializesAsNonOriginatingClient(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitFor(t, "connect", connected(as))
+	init := f.calls("initialize")
+	if len(init) != 1 {
+		t.Fatalf("want 1 initialize, got %d", len(init))
+	}
+	params := init[0]["params"].(map[string]any)
+	if name := params["clientInfo"].(map[string]any)["name"]; name != "codex_app_server_daemon" {
+		t.Errorf("clientInfo.name = %v", name)
+	}
+	optOut := params["capabilities"].(map[string]any)["optOutNotificationMethods"].([]any)
+	if len(optOut) == 0 {
+		t.Error("deltas not opted out")
+	}
+	waitFor(t, "initialized", func() bool { return len(f.calls("initialized")) == 1 })
+	if _, ua := as.status(); !strings.HasPrefix(ua, "codex_app_server_daemon/0.160.0") {
+		t.Errorf("user agent = %q", ua)
+	}
+}
+
+func TestAppServer_BootstrapsLoadedThreadsAndMapsStatus(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t-run", "vscode", active(), nil)
+	f.addThread("t-idle", "cli", idle, map[string]any{"preview": "hi"})
+	f.addThread("t-new", "cli", idle, nil)
+	f.addThread("t-eph", "cli", active(), map[string]any{"ephemeral": true})
+	f.loaded = []string{"t-run", "t-idle", "t-new", "t-eph"}
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitFor(t, "loaded threads read", bootstrapped(as, f.loaded...))
+	waitState(t, as, "t-run", "running")
+	waitState(t, as, "t-idle", "done")
+	eph, newState := func() (bool, string) {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		_, eph := as.threads["t-eph"]
+		return eph, as.threads["t-new"].d.state
+	}()
+	if eph {
+		t.Error("ephemeral helper thread tracked")
+	}
+	if newState != "" {
+		t.Errorf("thread without a turn has state %q, want none", newState)
+	}
+
+	cases := []struct {
+		status any
+		want   string
+	}{
+		{active("waitingOnApproval"), "waiting"},
+		{active("waitingOnUserInput"), "waiting"},
+		{active(), "running"},
+		{idle, "done"},
+		{map[string]any{"type": "systemError"}, "error"},
+		{idle, "error"},
+		{active(), "running"},
+	}
+	for _, c := range cases {
+		f.notify("thread/status/changed", map[string]any{"threadId": "t-run", "status": c.status})
+		waitState(t, as, "t-run", c.want)
+	}
+
+	f.notify("thread/closed", map[string]any{"threadId": "t-run"})
+	waitFor(t, "DELETE on thread/closed", func() bool {
+		for _, d := range as.tick().deletes {
+			if d.Session == "t-run" && d.Tool == "codex" && d.Source == "mbp" {
+				return true
+			}
+		}
+		return false
+	})
+	if !as.tick().owned["t-run"] {
+		t.Error("a closed thread must stay owned so the rollout watcher does not revive it")
+	}
+}
+
+func TestAppServer_SubscribesOnlyWhileBusyAndRetriesNoRollout(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", idle, nil)
+	f.loaded = []string{"t1"}
+	f.resumeFailures = 2
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitFor(t, "connect", connected(as))
+	waitFor(t, "bootstrap read", func() bool { return len(f.calls("thread/read")) == 1 })
+	time.Sleep(50 * time.Millisecond)
+	if n := len(f.calls("thread/resume")); n != 0 {
+		t.Fatalf("idle thread resumed %d times; a subscriber keeps it loaded forever", n)
+	}
+
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": active()})
+	waitFor(t, "resume retried past no rollout found", func() bool { return len(f.calls("thread/resume")) == 3 })
+	r := f.calls("thread/resume")[2]["params"].(map[string]any)
+	if r["threadId"] != "t1" || r["excludeTurns"] != true {
+		t.Errorf("resume params = %v", r)
+	}
+	waitFor(t, "subscribed", func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		th := as.threads["t1"]
+		if th == nil {
+			t.Fatal("t1 not tracked")
+		}
+		return th.subscribed
+	})
+
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "unsubscribe on idle", func() bool { return len(f.calls("thread/unsubscribe")) == 1 })
+	time.Sleep(50 * time.Millisecond)
+	if n := len(f.calls("thread/resume")); n != 3 {
+		t.Errorf("resume calls after idle = %d, want 3", n)
+	}
+}
+
+func TestAppServer_TurnDetailsFillStatusFields(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", active(), nil)
+	f.loaded = []string{"t1"}
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitState(t, as, "t1", "running")
+
+	f.notify("item/started", map[string]any{"threadId": "t1", "turnId": "u", "startedAtMs": 1,
+		"item": map[string]any{"type": "commandExecution", "id": "i1", "command": "/bin/zsh -lc 'go test ./...'", "status": "inProgress", "commandActions": []any{}, "cwd": "/w"}})
+	f.notify("item/started", map[string]any{"threadId": "t1", "turnId": "u", "startedAtMs": 2,
+		"item": map[string]any{"type": "mcpToolCall", "id": "i2", "server": "gh", "tool": "search", "status": "inProgress"}})
+	f.notify("item/completed", map[string]any{"threadId": "t1", "turnId": "u",
+		"item": map[string]any{"type": "agentMessage", "id": "i3", "text": "  Tests pass.  "}})
+	f.notify("thread/tokenUsage/updated", map[string]any{"threadId": "t1", "turnId": "u",
+		"tokenUsage": map[string]any{"last": map[string]any{"inputTokens": 50000}, "total": map[string]any{}, "modelContextWindow": 200000}})
+	f.notify("account/rateLimits/updated", map[string]any{"rateLimits": map[string]any{"limitId": "codex",
+		"primary": map[string]any{"usedPercent": 42, "resetsAt": time.Now().Add(time.Hour).Unix(), "windowDurationMins": 300}, "secondary": nil}})
+
+	var p producer.StatusRequest
+	waitFor(t, "details", func() bool {
+		p = waitState(t, as, "t1", "running")
+		return p.Message != "" && p.ContextPct != nil && p.RateWindowPct != nil && strings.Contains(p.Activity, "mcp")
+	})
+	if want := producer.PrependTrail("mcp: search", "exec: go test ./..."); p.Activity != want {
+		t.Errorf("activity = %q, want %q (newest tool first, shell wrapper dropped)", p.Activity, want)
+	}
+	if p.Message != "Tests pass." || *p.ContextPct != 25 || *p.RateWindowPct != 42 {
+		t.Errorf("post = %+v ctx=%d rate=%d", p, *p.ContextPct, *p.RateWindowPct)
+	}
+
+	f.notify("turn/completed", map[string]any{"threadId": "t1", "turn": map[string]any{"id": "u", "status": "failed", "items": []any{}}})
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitState(t, as, "t1", "error")
+
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": active()})
+	waitState(t, as, "t1", "running")
+	f.notify("turn/completed", map[string]any{"threadId": "t1", "turn": map[string]any{"id": "v", "status": "interrupted",
+		"items": []any{map[string]any{"type": "agentMessage", "id": "m", "text": "Stopped early"}}}})
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	if p := waitState(t, as, "t1", "done"); p.Message != "Stopped early" {
+		t.Errorf("interrupted turn message = %q", p.Message)
+	}
+}
+
+func TestAppServer_RespectsSourceAndClaudeFilters(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t-exec", "exec", active(), nil)
+	f.addThread("t-claude", "vscode", active(), map[string]any{"originator": "Claude Code"})
+	f.addThread("t-sub", "", active(), map[string]any{"source": map[string]any{"subAgent": "review"}})
+	f.addThread("t-tui", "vscode", active(), nil)
+	f.loaded = []string{"t-exec", "t-claude", "t-sub", "t-tui"}
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitFor(t, "loaded threads read", bootstrapped(as, f.loaded...))
+	waitState(t, as, "t-tui", "running")
+	waitFor(t, "t-tui subscribed", subscribed(as, "t-tui"))
+	tk := as.tick()
+	for _, id := range []string{"t-exec", "t-claude", "t-sub"} {
+		if _, ok := postFor(tk.posts, id); ok {
+			t.Errorf("%s posted by default", id)
+		}
+		if !tk.owned[id] {
+			t.Errorf("%s not owned: the rollout watcher would apply the same filter twice", id)
+		}
+	}
+	if n := len(f.calls("thread/resume")); n != 1 {
+		t.Errorf("resume calls = %d, want only the tracked thread", n)
+	}
+	as.mu.Lock()
+	for _, id := range []string{"t-exec", "t-claude", "t-sub"} {
+		if th := as.threads[id]; th == nil || th.tracked {
+			t.Errorf("%s tracked or missing: %+v", id, th)
+		}
+	}
+	as.mu.Unlock()
+
+	cfg := testAppServerConfig(sock)
+	cfg.Sources = parseSources("cli,vscode,exec")
+	cfg.IncludeClaude = true
+	as2 := startAppServer(t, cfg)
+	waitFor(t, "second instance's loaded threads read", bootstrapped(as2, f.loaded...))
+	waitState(t, as2, "t-exec", "running")
+	waitFor(t, "t-claude subscribed", subscribed(as2, "t-claude"))
+	f.notify("item/completed", map[string]any{"threadId": "t-claude", "turnId": "u", "item": map[string]any{"type": "agentMessage", "id": "m", "text": "Doing it"}})
+	waitFor(t, "via Claude", func() bool {
+		p := waitState(t, as2, "t-claude", "running")
+		return p.Message == "via Claude: Doing it"
+	})
+}
+
+func TestAppServer_NeverAnswersServerRequests(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", active("waitingOnApproval"), nil)
+	f.loaded = []string{"t1"}
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitFor(t, "subscribed", func() bool { return len(f.calls("thread/resume")) == 1 })
+
+	requests := []map[string]any{
+		{"id": 0, "method": "item/commandExecution/requestApproval", "params": map[string]any{"threadId": "t1", "turnId": "u", "itemId": "i", "command": "rm -rf build"}},
+		{"id": 1, "method": "item/fileChange/requestApproval", "params": map[string]any{"threadId": "t1", "turnId": "u", "itemId": "j"}},
+		{"id": "s-2", "method": "item/tool/requestUserInput", "params": map[string]any{"threadId": "t1"}},
+		{"id": 3, "method": "item/permissions/requestApproval", "params": map[string]any{"threadId": "t1"}},
+		{"id": 4, "method": "mcpServer/elicitation/request", "params": map[string]any{"threadId": "t1"}},
+		{"id": 5, "method": "execCommandApproval", "params": map[string]any{"conversationId": "t1"}},
+		{"id": 6, "method": "applyPatchApproval", "params": map[string]any{"conversationId": "t1"}},
+		{"id": 7, "method": "account/chatgptAuthTokens/refresh", "params": map[string]any{}},
+		{"id": 8, "method": "item/tool/call", "params": map[string]any{"threadId": "t1", "tool": "x"}},
+		{"id": 9, "method": "currentTime/read", "params": map[string]any{}},
+		{"id": 10, "method": "attestation/generate", "params": map[string]any{}},
+	}
+	for _, r := range requests {
+		f.send(r)
+	}
+	f.notify("serverRequest/resolved", map[string]any{"threadId": "t1", "requestId": 0})
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "unsubscribe", func() bool { return len(f.calls("thread/unsubscribe")) == 1 })
+	waitState(t, as, "t1", "done")
+
+	for _, m := range f.messages() {
+		if _, ok := m["result"]; ok {
+			t.Errorf("client sent a response: %v", m)
+		}
+		if _, ok := m["error"]; ok {
+			t.Errorf("client sent an error response: %v", m)
+		}
+		if m["method"] == nil {
+			t.Errorf("client sent a message without a method: %v", m)
+		}
+	}
+	for _, m := range f.messages() {
+		if id, ok := m["id"].(float64); ok && id < 1 {
+			t.Errorf("client request id %v; ids start at 1 and never echo the server's", id)
+		}
+	}
+}
+
+func TestOutbound_CannotExpressAResponse(t *testing.T) {
+	typ := reflect.TypeOf(outbound{})
+	var tags []string
+	for i := 0; i < typ.NumField(); i++ {
+		tags = append(tags, strings.Split(typ.Field(i).Tag.Get("json"), ",")[0])
+	}
+	if !reflect.DeepEqual(tags, []string{"id", "method", "params"}) {
+		t.Fatalf("outbound fields = %v; a result/error field would let the client answer approvals", tags)
+	}
+}
+
+func TestAppServer_AbsentSocketIsANoOp(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "missing.sock")
+	as := startAppServer(t, testAppServerConfig(sock))
+	time.Sleep(50 * time.Millisecond)
+	tk := as.tick()
+	if ok, _ := as.status(); ok || len(tk.posts) != 0 || len(tk.owned) != 0 || tk.rate != nil {
+		t.Fatalf("absent socket: connected=%v tick=%+v", ok, tk)
+	}
+	if _, err := os.Stat(sock); !os.IsNotExist(err) {
+		t.Error("the producer must never create the daemon socket")
+	}
+}
+
+func TestAppServer_ReconnectsAfterDaemonRestart(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", active(), nil)
+	f.loaded = []string{"t1"}
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitState(t, as, "t1", "running")
+
+	f.close()
+	waitFor(t, "disconnect", func() bool { return !connected(as)() })
+	tk := as.tick()
+	if len(tk.released) != 1 || tk.released[0] != "t1" || tk.owned["t1"] {
+		t.Fatalf("after disconnect: released=%v owned=%v", tk.released, tk.owned)
+	}
+	_ = os.Remove(sock)
+
+	f2 := newFakeAppServer(t, sock)
+	f2.addThread("t2", "cli", active(), nil)
+	f2.loaded = []string{"t2"}
+	var del, posted bool
+	waitFor(t, "t2 posted and t1 deleted", func() bool {
+		tk := as.tick()
+		for _, d := range tk.deletes {
+			del = del || d.Session == "t1"
+		}
+		_, ok := postFor(tk.posts, "t2")
+		posted = posted || ok
+		return del && posted && tk.owned["t1"]
+	})
+	if len(f2.calls("initialize")) != 1 {
+		t.Error("no initialize on reconnect")
+	}
+}
+
+func TestAppServer_StatusDuringInFlightReadWins(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", idle, map[string]any{"preview": "hi"})
+	f.loaded = []string{"t1"}
+	f.beforeRead = func(id string) {
+		f.notify("thread/status/changed", map[string]any{"threadId": id, "status": active()})
+	}
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitState(t, as, "t1", "running")
+	waitFor(t, "resume", func() bool { return len(f.calls("thread/resume")) == 1 })
+}
+
+func TestAppServer_MarksLoadedThreadsPendingUntilTheirRead(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", active(), nil)
+	f.loaded = []string{"t1"}
+	reading, release := make(chan struct{}), make(chan struct{})
+	f.beforeRead = func(string) {
+		close(reading)
+		<-release
+	}
+	as := startAppServer(t, testAppServerConfig(sock))
+	select {
+	case <-reading:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("timed out waiting for thread/read")
+	}
+	tk := as.tick()
+	close(release)
+	if !tk.pending["t1"] || tk.owned["t1"] {
+		t.Errorf("awaiting its read: pending=%v owned=%v, want pending and not owned", tk.pending["t1"], tk.owned["t1"])
+	}
+	waitState(t, as, "t1", "running")
+	if tk := as.tick(); tk.pending["t1"] || !tk.owned["t1"] {
+		t.Errorf("after its read: pending=%v owned=%v, want owned", tk.pending["t1"], tk.owned["t1"])
+	}
+}
+
+func TestAppServer_CloseDuringInFlightReadWins(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", active(), nil)
+	f.loaded = []string{"t1"}
+	f.beforeRead = func(id string) {
+		f.notify("thread/closed", map[string]any{"threadId": id})
+	}
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitFor(t, "read", func() bool { return len(f.calls("thread/read")) == 1 })
+	waitFor(t, "read applied", func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		return len(as.unread) == 0
+	})
+	tk := as.tick()
+	if len(tk.posts) != 0 || tk.owned["t1"] {
+		t.Fatalf("closed thread resurrected by its read: %+v", tk)
+	}
+}
+
+func startAppServerWith(t *testing.T, as *appServer) {
+	t.Helper()
+	as.pollEvery, as.backoffMin, as.backoffMax = 10*time.Millisecond, 10*time.Millisecond, 20*time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { as.run(ctx); close(done) }()
+	t.Cleanup(func() { stopAppServer(t, cancel, done) })
+}
+
+func isProbe(m map[string]any) bool {
+	p, ok := m["params"].(map[string]any)
+	return ok && m["method"] == "thread/loaded/list" && p["limit"] == float64(1)
+}
+
+func (f *fakeAppServer) droppedProbes() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, m := range f.dropped {
+		if isProbe(m) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestAppServer_ReconnectsWhenTheDaemonStopsAnswering(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	as := newAppServer(testAppServerConfig(sock))
+	as.liveEvery, as.liveTimeout = 30*time.Millisecond, 30*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "bootstrap answered", func() bool { return f.replies("thread/loaded/list") >= 1 })
+	f.mu.Lock()
+	f.hang = true
+	f.mu.Unlock()
+	waitFor(t, "reconnect attempt", func() bool { return len(f.calls("initialize")) >= 2 })
+	if f.droppedProbes() == 0 {
+		t.Error("reconnected without an unanswered liveness probe")
+	}
+}
+
+func TestAppServer_ReconnectsWhenTheDaemonHangsDuringBootstrap(t *testing.T) {
+	for _, method := range []string{"initialize", "thread/loaded/list"} {
+		t.Run(method, func(t *testing.T) {
+			sock := filepath.Join(shortSockDir(t), "s.sock")
+			f := newFakeAppServer(t, sock)
+			f.hangOn = method
+			as := newAppServer(testAppServerConfig(sock))
+			as.bootCall = 50 * time.Millisecond
+			startAppServerWith(t, as)
+			waitFor(t, "reconnect attempt", func() bool { return len(f.calls("initialize")) >= 2 })
+		})
+	}
+}
+
+func TestAppServer_ReconnectsWhenBootstrapOverrunsItsDeadline(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.pageDelay, f.endlessPages = 20*time.Millisecond, true
+	as := newAppServer(testAppServerConfig(sock))
+	as.bootTimeout = 100 * time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "reconnect attempt", func() bool { return len(f.calls("initialize")) >= 2 })
+	if n := f.replies("thread/loaded/list"); n >= 50 {
+		t.Errorf("bootstrap read %d pages before giving up, want it cut short by its deadline", n)
+	}
+}
+
+type stallConn struct {
+	net.Conn
+	writes atomic.Int32
+	after  int32
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (s *stallConn) Write(p []byte) (int, error) {
+	if s.writes.Add(1) > s.after {
+		<-s.closed
+		return 0, net.ErrClosed
+	}
+	return s.Conn.Write(p)
+}
+
+func (s *stallConn) Close() error {
+	s.once.Do(func() { close(s.closed) })
+	return s.Conn.Close()
+}
+
+func TestAppServer_BootstrapDeadlineBoundsABlockedWrite(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	as := newAppServer(testAppServerConfig(sock))
+	as.bootTimeout = 100 * time.Millisecond
+	as.dial = func(ctx context.Context, path string) (*wsConn, error) {
+		ws, err := dialWS(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		ws.c = &stallConn{Conn: ws.c, after: 1, closed: make(chan struct{})}
+		return ws, nil
+	}
+	startAppServerWith(t, as)
+	waitFor(t, "reconnect attempt", func() bool { return len(f.calls("initialize")) >= 2 })
+}
+
+func TestAppServer_ReconnectsWhenAThreadReadAndTheProbeHang(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", active(), nil)
+	f.loaded = []string{"t1"}
+	f.hangOn, f.hangProbes = "thread/read", true
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.liveTimeout = 50*time.Millisecond, 50*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "reconnect attempt", func() bool { return len(f.calls("initialize")) >= 2 })
+	if f.droppedProbes() == 0 {
+		t.Error("reconnected without an unanswered liveness probe")
+	}
+}
+
+func (f *fakeAppServer) droppedCalls(method, thread string) []time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []time.Time
+	for _, m := range f.dropped {
+		p, _ := m["params"].(map[string]any)
+		if m["method"] == method && p["threadId"] == thread {
+			out = append(out, m["at"].(time.Time))
+		}
+	}
+	return out
+}
+
+func TestAppServer_QuarantinesASlowThreadWhileOthersProgress(t *testing.T) {
+	for _, method := range []string{"thread/read", "thread/resume"} {
+		t.Run(method, func(t *testing.T) {
+			sock := filepath.Join(shortSockDir(t), "s.sock")
+			f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
+				f.addThread("t1", "cli", active(), nil)
+				f.loaded = []string{"t1"}
+				f.hangOn, f.hangThread = method, "t1"
+				f.probeDelay = 30 * time.Millisecond
+			})
+			as := newAppServer(testAppServerConfig(sock))
+			as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+			startAppServerWith(t, as)
+			waitFor(t, "the slow call and its probe", func() bool {
+				return len(f.droppedCalls(method, "t1")) == 1 && f.replies("probe") >= 1
+			})
+			for _, id := range []string{"t2", "t3", "t4"} {
+				f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": active()})
+				f.addThread(id, "cli", active(), nil)
+				f.mu.Lock()
+				th := f.threads[id]
+				f.mu.Unlock()
+				f.notify("thread/started", map[string]any{"thread": th})
+				waitFor(t, id+" subscribed", subscribed(as, id))
+			}
+			if n := len(f.droppedCalls(method, "t1")); n != 1 {
+				t.Errorf("slow t1 %s tried %d times while healthy threads waited, want 1", method, n)
+			}
+			if tk := as.tick(); tk.pending["t1"] {
+				t.Error("a quarantined thread is held back from the watcher")
+			}
+			if n := len(f.calls("initialize")); n != 1 {
+				t.Errorf("%d initialize calls, want 1: a slow call on a live daemon must not reconnect", n)
+			}
+		})
+	}
+}
+
+func TestAppServer_BacksOffRepeatedSlowResumes(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
+		f.addThread("t1", "cli", active(), nil)
+		f.loaded = []string{"t1"}
+		f.hangOn, f.hangThread = "thread/resume", "t1"
+		f.probeDelay = 30 * time.Millisecond
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+	as.slowMin, as.slowMax = 100*time.Millisecond, 200*time.Millisecond
+	startAppServerWith(t, as)
+	var at []time.Time
+	waitFor(t, "three slow resumes", func() bool {
+		at = f.droppedCalls("thread/resume", "t1")
+		return len(at) >= 3
+	})
+	for i, want := range []time.Duration{as.slowMin, as.slowMax} {
+		if gap := at[i+1].Sub(at[i]); gap < want {
+			t.Errorf("slow resume %d retried after %v, want at least %v", i+2, gap, want)
+		}
+	}
+	if n := len(f.calls("initialize")); n != 1 {
+		t.Errorf("%d initialize calls, want 1", n)
+	}
+}
+
+func TestAppServer_ClosingAThreadEndsItsQuarantine(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
+		f.addThread("t1", "cli", active(), nil)
+		f.loaded = []string{"t1"}
+		f.hangOn, f.hangThread = "thread/resume", "t1"
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout = 20 * time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "t1 quarantined", func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		return as.slow["t1"] != nil
+	})
+	f.notify("thread/closed", map[string]any{"threadId": "t1"})
+	waitFor(t, "t1 closed", func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		return as.threads["t1"] == nil
+	})
+	f.mu.Lock()
+	f.hangOn = ""
+	th := f.threads["t1"]
+	f.mu.Unlock()
+	f.notify("thread/started", map[string]any{"thread": th})
+	waitFor(t, "the reloaded t1 subscribed", subscribed(as, "t1"))
+}
+
+func TestAppServer_QuarantineBackoffDecaysAfterAQuietPeriod(t *testing.T) {
+	as := newAppServer(testAppServerConfig("/nonexistent"))
+	as.slowMin, as.slowMax = time.Minute, 4*time.Minute
+	for _, want := range []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 4 * time.Minute} {
+		if got, _, _ := as.quarantine("t1"); got != want {
+			t.Fatalf("backoff %v, want %v", got, want)
+		}
+	}
+	as.slow["t1"].until = time.Now().Add(-as.slowMax - time.Second)
+	if got, fresh, _ := as.quarantine("t1"); got != as.slowMin || !fresh {
+		t.Errorf("after a quiet period: backoff %v fresh %v, want %v and a fresh quarantine", got, fresh, as.slowMin)
+	}
+}
+
+func TestAppServer_RecoveryResetsTheBackoffButKeepsTheEpisode(t *testing.T) {
+	as := newAppServer(testAppServerConfig("/nonexistent"))
+	as.slowMin, as.slowMax = time.Minute, 4*time.Minute
+	as.quarantine("t1")
+	as.quarantine("t1")
+	as.mu.Lock()
+	as.recoveredLocked("t1")
+	as.mu.Unlock()
+	if got, fresh, _ := as.quarantine("t1"); got != as.slowMin || fresh {
+		t.Errorf("slow again after a success: backoff %v fresh %v, want %v and the same episode (no new warning)", got, fresh, as.slowMin)
+	}
+}
+
+func TestAppServer_AThreadClosedDuringItsSlowCallIsNotQuarantined(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.hangOn, fs.hangThread = "thread/resume", "t1"
+		fs.onDrop = func(method, thread string) {
+			go fs.notify("thread/closed", map[string]any{"threadId": thread})
+		}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout = 50 * time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "the slow resume and its probe", func() bool {
+		return len(f.droppedCalls("thread/resume", "t1")) == 1 && f.replies("probe") >= 1
+	})
+	f.addThread("t2", "cli", active(), nil)
+	f.mu.Lock()
+	f.hangOn = ""
+	t1, t2 := f.threads["t1"], f.threads["t2"]
+	f.mu.Unlock()
+	f.notify("thread/started", map[string]any{"thread": t2})
+	waitFor(t, "t2 subscribed", subscribed(as, "t2"))
+	as.mu.Lock()
+	leaked := as.slow["t1"] != nil
+	as.mu.Unlock()
+	if leaked {
+		t.Error("a thread closed during its slow call was quarantined")
+	}
+	f.notify("thread/started", map[string]any{"thread": t1})
+	waitFor(t, "the restarted t1 subscribed", subscribed(as, "t1"))
+}
+
+func (f *fakeAppServer) subscribedTo(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.subs[id]
+}
+
+func TestAppServer_UnsubscribesAResumeThatLandedAfterItsTimeout(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(f *fakeAppServer) {
+		f.addThread("t1", "cli", active(), nil)
+		f.loaded = []string{"t1"}
+		f.hangOn, f.hangThread, f.lateBy = "thread/resume", "t1", 60*time.Millisecond
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+	as.slowMin, as.slowMax = 100*time.Millisecond, 200*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "the timed-out resume landing late", func() bool {
+		return len(f.droppedCalls("thread/resume", "t1")) >= 1 && f.replies("thread/resume") >= 1
+	})
+	f.mu.Lock()
+	f.hangOn = ""
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "the daemon's stray t1 subscription dropped", func() bool { return !f.subscribedTo("t1") })
+	if n := len(f.calls("initialize")); n != 1 {
+		t.Errorf("%d initialize calls, want 1", n)
+	}
+}
+
+func unsure(as *appServer, id string) bool {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	th := as.threads[id]
+	return th != nil && th.unsure
+}
+
+func TestAppServer_RetriesAnUnsubscribeThatTimedOut(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.onDrop = func(method, thread string) {
+			fs.mu.Lock()
+			fs.hangOn = ""
+			fs.mu.Unlock()
+		}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+	as.slowMin, as.slowMax = 50*time.Millisecond, 100*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	f.mu.Lock()
+	f.hangOn, f.hangThread = "thread/unsubscribe", "t1"
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "the daemon's t1 subscription dropped", func() bool { return !f.subscribedTo("t1") })
+	if n := len(f.droppedCalls("thread/unsubscribe", "t1")); n != 1 {
+		t.Errorf("unsubscribe timed out %d times, want 1", n)
+	}
+}
+
+func TestAppServer_RetriesCleanupThatTheDaemonRejected(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.onDrop = func(method, thread string) {
+			fs.mu.Lock()
+			fs.hangOn, fs.unsubFailures = "", 1
+			fs.mu.Unlock()
+		}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+	as.slowMin, as.slowMax = 30*time.Millisecond, 60*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	f.mu.Lock()
+	f.hangOn, f.hangThread = "thread/unsubscribe", "t1"
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "a rejected cleanup retried until the daemon's t1 subscription dropped", func() bool {
+		return !f.subscribedTo("t1") && f.replies("thread/unsubscribe") >= 2
+	})
+	if n := len(f.droppedCalls("thread/unsubscribe", "t1")); n != 1 {
+		t.Errorf("unsubscribe timed out %d times, want 1", n)
+	}
+	waitFor(t, "t1 settled", func() bool { return !unsure(as, "t1") })
+}
+
+func TestAppServer_UnsubscribesAResumeThatLandsAfterCleanup(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	gate := make(chan struct{})
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.hangOn, fs.hangThread, fs.lateGate = "thread/resume", "t1", gate
+		fs.onDrop = func(method, thread string) {
+			fs.mu.Lock()
+			fs.hangOn = ""
+			fs.mu.Unlock()
+		}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout, as.retryEvery = 20*time.Millisecond, 5*time.Millisecond
+	as.slowMin, as.slowMax = 30*time.Millisecond, 60*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "the timed-out resume and its probe", func() bool {
+		return len(f.droppedCalls("thread/resume", "t1")) == 1 && f.replies("probe") >= 1
+	})
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "cleanup after the timed-out resume", func() bool {
+		return f.replies("thread/unsubscribe") >= 1 && !unsure(as, "t1") && !subscribed(as, "t1")()
+	})
+	close(gate)
+	waitFor(t, "the late resume landing", func() bool { return f.replies("thread/resume") >= 1 })
+	waitFor(t, "the daemon's late t1 subscription dropped", func() bool {
+		return !f.subscribedTo("t1") && f.replies("thread/unsubscribe") >= 2
+	})
+}
+
+type lockedBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+func captureLogs(t *testing.T) *lockedBuf {
+	t.Helper()
+	buf := &lockedBuf{}
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+	return buf
+}
+
+func TestAppServer_ResumesAThreadActiveAgainAfterARejectedUnsubscribe(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	f.mu.Lock()
+	f.unsubFailures = 1000
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "the rejected unsubscribe", func() bool { return f.replies("thread/unsubscribe") >= 1 })
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": active()})
+	waitFor(t, "t1 resumed again", func() bool { return f.replies("thread/resume") >= 2 && subscribed(as, "t1")() })
+}
+
+func TestAppServer_BacksOffAndLogsAPermanentlyRejectedUnsubscribe(t *testing.T) {
+	logs := captureLogs(t)
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.unsubFailures = 1000
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.slowMin, as.slowMax = 20*time.Millisecond, 40*time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	start := time.Now()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "four rejected unsubscribes", func() bool { return f.replies("thread/unsubscribe") >= 4 })
+	if got, want := time.Since(start), as.slowMin+2*as.slowMax; got < want {
+		t.Errorf("four rejected unsubscribes in %v, want at least %v of backoff", got, want)
+	}
+	if n := strings.Count(logs.String(), "rejected an unsubscribe"); n != 1 {
+		t.Errorf("%d rejection warnings, want 1:\n%s", n, logs.String())
+	}
+}
+
+func TestAppServer_UnsubscribesALateResumeForAReloadedThread(t *testing.T) {
+	for _, reloadFirst := range []bool{true, false} {
+		name := "reloaded before the reply"
+		if !reloadFirst {
+			name = "reloaded after the reply"
+		}
+		t.Run(name, func(t *testing.T) {
+			sock := filepath.Join(shortSockDir(t), "s.sock")
+			gate := make(chan struct{})
+			f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+				fs.addThread("t1", "cli", active(), nil)
+				fs.loaded = []string{"t1"}
+				fs.hangOn, fs.hangThread, fs.lateGate = "thread/resume", "t1", gate
+				fs.onDrop = func(method, thread string) {
+					fs.mu.Lock()
+					fs.hangOn = ""
+					fs.mu.Unlock()
+				}
+			})
+			as := newAppServer(testAppServerConfig(sock))
+			as.callTimeout = 20 * time.Millisecond
+			startAppServerWith(t, as)
+			waitFor(t, "the timed-out resume and its probe", func() bool {
+				return len(f.droppedCalls("thread/resume", "t1")) == 1 && f.replies("probe") >= 1
+			})
+			f.notify("thread/closed", map[string]any{"threadId": "t1"})
+			waitFor(t, "t1 closed", func() bool {
+				as.mu.Lock()
+				defer as.mu.Unlock()
+				return as.threads["t1"] == nil
+			})
+			f.addThread("t1", "cli", idle, nil)
+			f.mu.Lock()
+			th := f.threads["t1"]
+			f.mu.Unlock()
+			reload := func() {
+				f.notify("thread/started", map[string]any{"thread": th})
+				waitFor(t, "t1 reloaded", func() bool {
+					as.mu.Lock()
+					defer as.mu.Unlock()
+					return as.threads["t1"] != nil
+				})
+			}
+			if reloadFirst {
+				reload()
+			}
+			close(gate)
+			waitFor(t, "the late resume landing", func() bool { return f.replies("thread/resume") >= 1 })
+			if !reloadFirst {
+				reload()
+			}
+			waitFor(t, "the daemon's late t1 subscription dropped", func() bool {
+				return !f.subscribedTo("t1") && f.replies("thread/unsubscribe") >= 1
+			})
+		})
+	}
+}
+
+func TestAppServer_ALateUnsubscribeSettlesTheThread(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	gate := make(chan struct{})
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+		fs.lateGate = gate
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout = 20 * time.Millisecond
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	f.mu.Lock()
+	f.hangOn, f.hangThread = "thread/unsubscribe", "t1"
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "the timed-out unsubscribe and its probe", func() bool {
+		return len(f.droppedCalls("thread/unsubscribe", "t1")) == 1 && f.replies("probe") >= 1 && unsure(as, "t1")
+	})
+	close(gate)
+	waitFor(t, "the late unsubscribe settling t1", func() bool {
+		return f.replies("thread/unsubscribe") == 1 && !unsure(as, "t1")
+	})
+}
+
+func TestAppServer_ReconnectsWhenTheDaemonDiesMidUnsubscribe(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServerWith(t, sock, func(fs *fakeAppServer) {
+		fs.addThread("t1", "cli", active(), nil)
+		fs.loaded = []string{"t1"}
+	})
+	as := newAppServer(testAppServerConfig(sock))
+	as.callTimeout = 2 * time.Second
+	startAppServerWith(t, as)
+	waitFor(t, "t1 subscribed", subscribed(as, "t1"))
+	f.mu.Lock()
+	f.hangOn, f.hangThread = "thread/unsubscribe", "t1"
+	f.onDrop = func(method, thread string) { go f.close() }
+	f.mu.Unlock()
+	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
+	waitFor(t, "disconnect after the daemon dropped mid-unsubscribe", func() bool { return !connected(as)() })
+}
+
+func TestAppServer_PrunesLateSubscriptionsPastTheirTTL(t *testing.T) {
+	as := newAppServer(testAppServerConfig("/nonexistent"))
+	now := time.Now()
+	as.now = func() time.Time { return now }
+	as.lateSubs["old"] = now.Add(-lateReplyTTL - time.Second)
+	as.lateSubs["new"] = now
+	as.tick()
+	if _, old := as.lateSubs["old"]; old || len(as.lateSubs) != 1 {
+		t.Errorf("late subscriptions after a tick: %v, want only the fresh one", as.lateSubs)
+	}
+}
+
+func TestRPCConn_PrunesLateHooksPastTheirTTL(t *testing.T) {
+	c := newRPCConn(nil)
+	now := time.Now()
+	c.late[1] = lateHook{fn: func(error) {}, at: now.Add(-lateReplyTTL - time.Second)}
+	c.late[2] = lateHook{fn: func(error) {}, at: now}
+	c.pruneLateLocked(now)
+	if _, old := c.late[1]; old || len(c.late) != 1 {
+		t.Errorf("late hooks after prune: %v, want only the fresh one", c.late)
+	}
+}
+
+func TestRPCConn_IgnoresALateReplyPastTheTTL(t *testing.T) {
+	ws, srv := pipeClient(t)
+	c := newRPCConn(ws)
+	t0 := time.Now()
+	c.now = func() time.Time { return t0 }
+	fired := map[int64]bool{}
+	c.late[7] = lateHook{fn: func(error) { fired[7] = true }, at: t0.Add(-lateReplyTTL - time.Second)}
+	c.late[8] = lateHook{fn: func(error) { fired[8] = true }, at: t0.Add(-time.Minute)}
+	go func() {
+		_, _ = srv.Write(frame(true, opText, []byte(`{"id":7,"result":{}}`)))
+		_, _ = srv.Write(frame(true, opText, []byte(`{"id":8,"result":{}}`)))
+		_ = srv.Close()
+	}()
+	c.readLoop(func(string, json.RawMessage) {})
+	if fired[7] || !fired[8] {
+		t.Errorf("late hooks fired = %v, want only the one inside the TTL", fired)
+	}
+}
+
+func TestRPCConn_AnUnencodableRequestIsNotAConnectionLoss(t *testing.T) {
+	ws, _ := pipeClient(t)
+	c := newRPCConn(ws)
+	err := c.call(context.Background(), "thread/read", map[string]any{"bad": make(chan int)}, nil)
+	if err == nil || errors.Is(err, errConnLost) || !errors.Is(err, errEncode) {
+		t.Fatalf("err = %v, want an encode error that isn't errConnLost", err)
+	}
+}
+
+func TestAppServer_KeepsReleasedThreadsAcrossAFailedBootstrap(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", active(), nil)
+	f.loaded = []string{"t1"}
+	as := newAppServer(testAppServerConfig(sock))
+	as.bootCall, as.liveTimeout = 50*time.Millisecond, 50*time.Millisecond
+	startAppServerWith(t, as)
+	waitState(t, as, "t1", "running")
+
+	f.close()
+	waitFor(t, "disconnect", func() bool { return !connected(as)() })
+	if tk := as.tick(); len(tk.released) != 1 || tk.released[0] != "t1" {
+		t.Fatalf("after disconnect: released=%v", tk.released)
+	}
+	_ = os.Remove(sock)
+
+	f2 := newFakeAppServerWith(t, sock, func(f *fakeAppServer) { f.hangOn = "thread/loaded/list" })
+	waitFor(t, "a failed bootstrap", func() bool { return len(f2.calls("initialize")) >= 2 })
+	f2.mu.Lock()
+	f2.hangOn = ""
+	f2.mu.Unlock()
+	var del bool
+	waitFor(t, "t1 deleted", func() bool {
+		for _, d := range as.tick().deletes {
+			del = del || d.Session == "t1"
+		}
+		return del
+	})
+}
+
+func TestAppServerReport_ShowsSocketDaemonAndUpdater(t *testing.T) {
+	dir := shortSockDir(t)
+	cfg := testAppServerConfig(filepath.Join(dir, "s.sock"))
+	cfg.CodexHome = dir
+	ctx := context.Background()
+	got := strings.Join(appServerReport(ctx, cfg), "\n")
+	if !strings.Contains(got, "socket: absent") || !strings.Contains(got, "updater: n/a") {
+		t.Errorf("no daemon:\n%s", got)
+	}
+
+	f := newFakeAppServer(t, cfg.AppServerSocket)
+	f.loaded = []string{"a", "b"}
+	if err := os.MkdirAll(filepath.Join(dir, "app-server-daemon"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got = strings.Join(appServerReport(ctx, cfg), "\n")
+	for _, want := range []string{"socket: present", `connect: OK, daemon "codex_app_server_daemon/0.160.0`, "2 loaded threads", "updater: on (default"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("report lacks %q:\n%s", want, got)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(dir, "app-server-daemon", "settings.json"), []byte(`{"updater":{"autoUpdateEnabled":false}}`), 0o600)
+	if got := strings.Join(appServerReport(ctx, cfg), "\n"); !strings.Contains(got, "updater: off") {
+		t.Errorf("updater off not read:\n%s", got)
+	}
+	for _, m := range f.messages() {
+		if _, ok := m["result"]; ok {
+			t.Errorf("doctor sent a response: %v", m)
+		}
+	}
+}

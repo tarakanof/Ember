@@ -1,0 +1,248 @@
+import SwiftUI
+import EmberKit
+
+struct ClockSoundsPane: View {
+    @Environment(AppEnvironment.self) private var env
+    @Environment(DeviceSettingsModel.self) private var device
+
+    var body: some View {
+        let s = env.settings
+        @Bindable var pomodoro = s.pomodoro
+        @Bindable var display = s.display
+        @Bindable var usage = s.usage
+        @Bindable var meetings = s.meetings
+        @Bindable var weather = s.weather
+        @Bindable var reminders = s.reminders
+        let names = device.melodies.map(\.name)
+        Form {
+            clockSection
+
+            Section {
+                Group {
+                    Toggle("Focus phase ends", isOn: $pomodoro.draft.sound)
+                    MelodyRow(title: "Focus melody", value: $pomodoro.draft.soundMelody, names: names,
+                              requirement: pomodoro.isLoaded ? .focusSoundOn : .loading,
+                              allowsCustom: true, canPreview: device.audio == .available,
+                              preview: { await device.playTestChime(melody: $0) })
+                        .disabled(!pomodoro.draft.sound)
+                }
+                .disabled(!pomodoro.isLoaded)
+                InfoToggle("Agent needs attention", isOn: $display.draft.attentionChime, info: .attentionChime, requirement: .loading)
+                    .disabled(!display.isLoaded)
+                InfoToggle("5-hour limit resets", isOn: $usage.draft.limitAlarm, info: .limitAlarm, requirement: .loading)
+                    .disabled(!usage.isLoaded)
+                Toggle("Meeting popup", isOn: $meetings.draft.chime)
+                    .disabled(!meetings.isLoaded || meetings.draft.popupLeadMinutes == 0)
+                MelodyRow(title: "Severe weather", value: $weather.draft.severeSound, names: names,
+                          requirement: weather.isLoaded ? .severeAlertOn : .loading,
+                          allowsCustom: true, canPreview: device.audio == .available,
+                          preview: { await device.playTestChime(melody: $0) })
+                    .disabled(!weather.isLoaded || !weather.draft.severeAlert)
+            } header: {
+                Text("Chimes")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("A meeting chimes with its popup, so it needs a popup time in Clock › Apps › Calendar. The severe weather sound plays with its alert, set in Sources › Weather. Quiet hours mute all of these. Set the hours in Sounds & Alerts.")
+                    SaveErrorFooter(error: pomodoro.saveError ?? display.saveError ?? usage.saveError
+                                    ?? meetings.saveError ?? weather.saveError)
+                }
+            }
+
+            Section {
+                Toggle("Reminder due", isOn: $reminders.draft.sound)
+                Toggle("Repeat until dismissed", isOn: $reminders.draft.repeatSound)
+                    .disabled(!reminders.draft.sound || !reminders.draft.hold)
+            } header: {
+                Text("Apple Reminders")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start. Set the hours in Sounds & Alerts.")
+                    SaveErrorFooter(error: reminders.saveError)
+                }
+            }
+            .disabled(!reminders.isLoaded || !reminders.draft.enabled)
+        }
+        .formStyle(.grouped)
+        .autosaves(pomodoro)
+        .autosaves(display)
+        .autosaves(usage)
+        .autosaves(meetings)
+        .autosaves(weather)
+        .autosaves(reminders)
+        .autosaves(device.settings)
+        .reloads {
+            let s = env.settings
+            async let b: Void = s.pomodoro.load()
+            async let c: Void = s.display.load()
+            async let d: Void = s.usage.load()
+            async let e: Void = s.meetings.load()
+            async let f: Void = s.weather.load()
+            async let g: Void = s.reminders.load()
+            _ = await (b, c, d, e, f, g)
+            await device.load()
+        }
+    }
+
+    @ViewBuilder private var clockSection: some View {
+        let settings = device.settings
+        Section {
+            switch device.volumeControls {
+            case .mixer where device.audio != .noOutput:
+                PercentSliderRow(title: "Master volume", percent: settings.binding(\.volume, 60), step: 5)
+                PercentSliderRow(title: "Apps volume", percent: settings.binding(\.appVolume, 100), step: 5)
+                PercentSliderRow(title: "Alerts volume", percent: settings.binding(\.alertVolume, 100), step: 5)
+            case .soundToggle:
+                Toggle("Sound", isOn: settings.binding(\.soundEnabled, true))
+                if device.hasBuzzer {
+                    PercentSliderRow(title: "Buzzer volume", percent: settings.binding(\.buzzerVolume, 80), step: 5)
+                        .disabled(!(settings.draft.soundEnabled ?? true))
+                }
+            case .mixer, .unavailable:
+                EmptyView()
+            }
+            if device.audio == .available {
+                LabeledContent {
+                    HStack {
+                        Button("Play Test Chime") { Task { await device.playTestChime() } }
+                            .disabled(device.running.contains(.testChime))
+                        Button("Stop") { Task { await device.stopAudio() } }
+                    }
+                } label: {
+                    Text("Test")
+                }
+            }
+        } header: {
+            Text("Clock")
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                if !device.isLoaded {
+                    if let e = device.loadError {
+                        Label { Text(e.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                            .foregroundStyle(.orange)
+                    } else {
+                        Text("Loading…")
+                    }
+                } else if device.firmwareTooOld {
+                    Text("Update the clock's firmware to NG 1.1 or later to mute it or set its volume here.")
+                } else if !device.supportsNG11 {
+                    Text("Update the Ember server to mute the clock or set its volume here.")
+                } else if device.audio == .noOutput {
+                    Text("This clock has no speaker.")
+                } else if device.volumeControls == .mixer {
+                    Text("Apps and Alerts are shares of the master volume. Alerts covers Ember's chimes and popups. Set Master to 0 to silence the clock completely.")
+                    Text("Updating to NG 1.2 resets Master to 60, so a clock muted before the update makes sound again until you set it to 0.")
+                } else {
+                    Text("Turning Sound off silences the clock completely, chimes included.")
+                }
+                if let e = device.actionErrors[.testChime] ?? device.actionErrors[.stopAudio] {
+                    Label { Text(e.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                        .foregroundStyle(.red)
+                }
+                SaveErrorFooter(error: settings.saveError)
+            }
+        }
+        .disabled(!device.isLoaded)
+    }
+}
+
+struct QuietHoursPane: View {
+    @Environment(AppEnvironment.self) private var env
+
+    var body: some View {
+        @Bindable var quiet = env.settings.quiet
+        Form {
+            Section {
+                Toggle("Mute sounds at night", isOn: $quiet.draft.enabled)
+                Group {
+                    DatePicker("From", selection: hourMinuteBinding($quiet.draft.start), displayedComponents: .hourAndMinute)
+                    DatePicker("Until", selection: hourMinuteBinding($quiet.draft.end), displayedComponents: .hourAndMinute)
+                }
+                .disabled(!quiet.draft.enabled)
+            } header: {
+                Text("Quiet Hours")
+            } footer: {
+                SectionFooter(text: "Mutes every chime and alarm from the server during these hours, in the server's time zone. Popups still show.",
+                              error: quiet.saveError ?? (quiet.isLoaded ? nil : quiet.loadError))
+            }
+            .disabled(!quiet.isLoaded)
+
+            Section {
+                LabeledContent {
+                    Button("Clock Sounds…") { showSettings(.device(clockDeviceID, .hardware(.sounds))) }
+                } label: {
+                    Label { Text(DeviceKind.clock.title) } icon: { Image(systemName: DeviceKind.clock.systemImage) }
+                }
+            } header: {
+                Text("Devices")
+            } footer: {
+                Text("Each device with a speaker sets its own sounds. Quiet hours apply to all of them. The knob has no speaker: it dims and calms its bot instead, set in its Display settings.")
+            }
+        }
+        .formStyle(.grouped)
+        .autosaves(quiet)
+        .reloads { await env.settings.quiet.load() }
+    }
+}
+
+private struct MelodyRow: View {
+    let title: LocalizedStringKey
+    @Binding var value: String
+    let names: [String]
+    let requirement: SettingsInfoRequirement?
+    let allowsCustom: Bool
+    let canPreview: Bool
+    let preview: (String) async -> Void
+    @State private var customPicked = false
+
+    var body: some View {
+        let choice = customPicked ? .custom : MelodyChoice(value: value, available: names)
+        InfoRow(title, info: .melody, requirement: requirement) { label in
+            row(choice, label: label)
+        }
+        if choice == .custom {
+            TextField("Melody", text: $value, prompt: Text("Melody name or RTTTL"))
+        }
+    }
+
+    private func row(_ choice: MelodyChoice, label: InfoLabel) -> some View {
+        LabeledContent {
+            HStack(spacing: 6) {
+                Picker(selection: Binding(
+                    get: { choice },
+                    set: { new in
+                        customPicked = new == .custom
+                        value = new.value(replacing: value, available: names)
+                    })) {
+                    Text("Built-in").tag(MelodyChoice.builtIn)
+                    if !names.isEmpty { Divider() }
+                    ForEach(names, id: \.self) { Text(verbatim: $0).tag(MelodyChoice.stored($0)) }
+                    if allowsCustom || choice == .custom {
+                        Divider()
+                        Text("Custom").tag(MelodyChoice.custom)
+                    }
+                } label: {
+                    Text(title)
+                }
+                .labelsHidden()
+                .fixedSize()
+                if canPreview {
+                    Button {
+                        Task { if case .stored(let name) = choice { await preview(name) } }
+                    } label: {
+                        Label("Play", systemImage: "play.circle")
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .disabled(!choice.isStored)
+                    .help("Play this melody on the clock")
+                }
+            }
+        } label: {
+            label
+        }
+    }
+}
+
+private extension MelodyChoice {
+    var isStored: Bool { if case .stored = self { true } else { false } }
+}

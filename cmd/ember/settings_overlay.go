@@ -1,0 +1,318 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"github.com/tarakanof/ember/internal/devices"
+	"github.com/tarakanof/ember/internal/printer"
+	"github.com/tarakanof/ember/internal/weather"
+)
+
+type settingSpec[D any] struct {
+	key          string
+	view         func(Config) D
+	apply        func(*Config, D) error
+	after        func(Config)
+	encode       func(D) string
+	decode       func(string) []byte
+	check        func(cur, next D) error
+	presentation []string
+}
+
+type setting[D any] struct {
+	o    *settingsOverlay
+	spec settingSpec[D]
+}
+
+type settingsOverlay struct {
+	update   func(func(*Config) error) error
+	load     func() *Config
+	kv       func() devices.KV
+	putBatch func(map[string]string) error
+	logger   *slog.Logger
+	all      []interface{ reapply() }
+}
+
+type appSettings struct {
+	*settingsOverlay
+	clockApps     *setting[clockStoredConfig]
+	pomodoro      *setting[pomodoroSettingsDTO]
+	weather       *setting[weather.Config]
+	meetings      *setting[MeetingsConfig]
+	usage         *setting[usageConfigDTO]
+	usageAccounts *setting[usageAccountsDTO]
+	display       *setting[displayConfigDTO]
+	quiet         *setting[quietConfigDTO]
+	brightness    *setting[BrightnessConfig]
+	clock         *setting[clockConfigDTO]
+	controls      *setting[ControlsConfig]
+	reminders     *setting[RemindersConfig]
+	day           *setting[DayConfig]
+	printer       *setting[printer.Config]
+}
+
+func newAppSettings(a *App) appSettings {
+	o := &settingsOverlay{
+		update: a.tryUpdateConfig,
+		load:   a.cfg.Load,
+		kv: func() devices.KV {
+			if a.store == nil {
+				return nil
+			}
+			return a.store
+		},
+		putBatch: a.putSettingsBatch,
+		logger:   a.logger,
+	}
+	return appSettings{
+		settingsOverlay: o,
+		clockApps:       register(o, a.clockPresentationSettingSpec()),
+		pomodoro:        register(o, a.pomodoroSettingSpec()),
+		weather:         register(o, a.weatherSettingSpec()),
+		meetings:        register(o, a.meetingsSettingSpec()),
+		usage:           register(o, a.usageSettingSpec()),
+		usageAccounts:   register(o, a.usageAccountsSettingSpec()),
+		display:         register(o, displaySettingSpec()),
+		quiet:           register(o, quietSettingSpec()),
+		brightness:      register(o, brightnessSettingSpec()),
+		clock:           register(o, clockSettingSpec()),
+		controls:        register(o, controlsSettingSpec()),
+		reminders:       register(o, remindersSettingSpec()),
+		day:             register(o, a.daySettingSpec()),
+		printer:         register(o, a.printerSettingSpec()),
+	}
+}
+
+func register[D any](o *settingsOverlay, spec settingSpec[D]) *setting[D] {
+	s := &setting[D]{o: o, spec: spec}
+	o.all = append(o.all, s)
+	return s
+}
+
+func (s *setting[D]) get() D { return s.spec.view(*s.o.load()) }
+
+func (s *setting[D]) put(patch []byte) (D, error) { return s.putWith(patch, nil) }
+
+func (s *setting[D]) putWith(patch []byte, also func(before Config, cur *Config)) (D, error) {
+	return s.write(patch, also, false, nil)
+}
+
+func (s *setting[D]) putIf(patch []byte, pre func(cur D) error) (D, error) {
+	return s.write(patch, nil, false, pre)
+}
+
+func (s *setting[D]) write(patch []byte, also func(before Config, cur *Config), stored bool, pre func(cur D) error) (D, error) {
+	var next Config
+	err := s.o.update(func(cur *Config) error {
+		before := *cur
+		if pre != nil {
+			if err := pre(s.spec.view(*cur)); err != nil {
+				return err
+			}
+		}
+		moved := cur.clockPresentation != nil && len(s.spec.presentation) > 0
+		if moved && stored {
+			patch = dropKeys(patch, s.spec.presentation)
+		}
+		d, err := mergeSetting(s.spec.view(*cur), patch)
+		if err != nil {
+			return err
+		}
+		if s.spec.check != nil && !stored {
+			if err := s.spec.check(s.spec.view(*cur), d); err != nil {
+				return err
+			}
+		}
+		if err := s.spec.apply(cur, d); err != nil {
+			return err
+		}
+		if also != nil {
+			also(before, cur)
+		}
+		if moved && captureClockPresentation(before, cur) {
+			if err := s.persistWithClock(before, *cur); err != nil {
+				return err
+			}
+		} else {
+			s.persist(*cur)
+		}
+		next = *cur
+		return nil
+	})
+	if err != nil {
+		var zero D
+		return zero, err
+	}
+	if s.spec.after != nil {
+		s.spec.after(next)
+	}
+	return s.spec.view(next), nil
+}
+
+type stagedSetting struct {
+	key   string
+	blob  func(Config) (string, bool)
+	after func(Config)
+}
+
+func (s *setting[D]) stage(cur *Config, edit func(*D)) (*stagedSetting, error) {
+	d := s.spec.view(*cur)
+	before, err := json.Marshal(d)
+	if err != nil {
+		return nil, err
+	}
+	edit(&d)
+	after, err := json.Marshal(d)
+	if err != nil {
+		return nil, err
+	}
+	if bytes.Equal(before, after) {
+		return nil, nil
+	}
+	if err := s.spec.apply(cur, d); err != nil {
+		return nil, fmt.Errorf("%w: %w", devices.ErrSettingBody, err)
+	}
+	return &stagedSetting{key: s.spec.key, blob: s.blob, after: s.spec.after}, nil
+}
+
+func (s *setting[D]) blob(c Config) (string, bool) {
+	if s.spec.encode != nil {
+		blob := s.spec.encode(s.spec.view(c))
+		return blob, blob != ""
+	}
+	b, err := json.Marshal(s.spec.view(c))
+	if err != nil {
+		s.o.logger.Warn("settings marshal failed", "key", s.spec.key, "err", err)
+		return "", false
+	}
+	if c.clockPresentation != nil && len(s.spec.presentation) > 0 {
+		b = dropKeys(b, s.spec.presentation)
+	}
+	return string(b), true
+}
+
+func (s *setting[D]) persistWithClock(before, c Config) error {
+	batch := map[string]string{clockConfigKey: clockPresentationBlob(c.clockPresentation)}
+	if blob, ok := s.blob(c); ok {
+		if prev, _ := s.blob(before); blob != prev {
+			batch[s.spec.key] = blob
+		}
+	}
+	if err := s.o.putBatch(batch); err != nil {
+		s.o.logger.Warn("settings persist failed", "key", s.spec.key, "clock_key", clockConfigKey, "err", err)
+		return fmt.Errorf("%w: %w", errSettingsPersist, err)
+	}
+	return nil
+}
+
+func (s *setting[D]) persist(c Config) {
+	kv := s.o.kv()
+	if kv == nil {
+		return
+	}
+	blob, ok := s.blob(c)
+	if !ok {
+		return
+	}
+	if err := kv.PutSetting(s.spec.key, blob); err != nil {
+		s.o.logger.Warn("settings persist failed", "key", s.spec.key, "err", err)
+	}
+}
+
+func (s *setting[D]) reapply() {
+	kv := s.o.kv()
+	if kv == nil {
+		return
+	}
+	blob, ok, err := kv.GetSetting(s.spec.key)
+	if err != nil || !ok {
+		return
+	}
+	patch := []byte(blob)
+	if s.spec.decode != nil {
+		patch = s.spec.decode(blob)
+	}
+	if _, err := s.write(patch, nil, true, nil); err != nil {
+		s.o.logger.Warn("persisted settings ignored", "key", s.spec.key, "err", err)
+	}
+}
+
+func (o *settingsOverlay) reapply() {
+	for _, s := range o.all {
+		s.reapply()
+	}
+}
+
+func mergeSetting[D any](seed D, patch []byte) (D, error) {
+	var out D
+	var p map[string]json.RawMessage
+	if err := json.Unmarshal(patch, &p); err != nil || p == nil {
+		return out, devices.ErrSettingNotObject
+	}
+	base, err := json.Marshal(seed)
+	if err != nil {
+		return out, err
+	}
+	m := map[string]json.RawMessage{}
+	if err := json.Unmarshal(base, &m); err != nil {
+		return out, err
+	}
+	for k, v := range p {
+		for mk := range m {
+			if strings.EqualFold(mk, k) {
+				delete(m, mk)
+			}
+		}
+		m[k] = v
+	}
+	merged, err := json.Marshal(m)
+	if err != nil {
+		return out, err
+	}
+	if err := json.Unmarshal(merged, &out); err != nil {
+		return out, fmt.Errorf("%w: %w", devices.ErrSettingBody, err)
+	}
+	return out, nil
+}
+
+func serveSettingGet[D any](w http.ResponseWriter, s *setting[D]) {
+	writeJSON(w, http.StatusOK, s.get())
+}
+
+func serveSettingPut[D any](a *App, w http.ResponseWriter, r *http.Request, s *setting[D]) (D, bool) {
+	return serveSettingPutWith(a, w, r, s, nil)
+}
+
+func serveSettingPutWith[D any](a *App, w http.ResponseWriter, r *http.Request, s *setting[D], also func(patch []byte) func(before Config, cur *Config)) (D, bool) {
+	var patch json.RawMessage
+	if !a.decodeOrReject(w, r, &patch, false) {
+		var zero D
+		return zero, false
+	}
+	var fn func(Config, *Config)
+	if also != nil {
+		fn = also(patch)
+	}
+	d, err := s.putWith(patch, fn)
+	return d, a.answerSettingPut(w, r, err)
+}
+
+func (a *App) answerSettingPut(w http.ResponseWriter, r *http.Request, err error) bool {
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, devices.ErrSettingBody):
+		a.rejectBody(w, r, err)
+	case errors.Is(err, errSettingsPersist):
+		writeError(w, http.StatusInternalServerError, err)
+	default:
+		writeError(w, http.StatusBadRequest, err)
+	}
+	return false
+}

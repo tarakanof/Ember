@@ -1,0 +1,23 @@
+{
+  "mode": "manual",
+  "target": null,
+  "version": null,
+  "phase": "idle",
+  "progress_pct": null,
+  "bytes": null,
+  "size": null,
+  "from": null,
+  "error": null,
+  "started_at": null,
+  "finished_at": null,
+  "blocked": [],
+  "running": {
+    "fw": "0.9.13",
+    "build": "77aa01ff",
+    "slot": 0,
+    "image": "valid",
+    "rollback": true
+  },
+  "available": "0.9.15-rc1",
+  "waiting_for": null
+}

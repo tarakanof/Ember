@@ -1,0 +1,96 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestApp_PublishUpdatesLastPublishFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = srv.URL
+	cfg.applyDefaults()
+
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app.Upsert(StatusRequest{Source: "dt", Tool: "claude", Session: "s1", State: "running"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go app.coord.Run(ctx)
+	app.coord.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if app.lastPublishAt.IsZero() {
+		t.Error("lastPublishAt not updated")
+	}
+	if !app.lastPublishOK {
+		t.Errorf("lastPublishOK = false, want true (err=%q)", app.lastPublishErr)
+	}
+	if app.lastPublishErr != "" {
+		t.Errorf("lastPublishErr = %q, want empty", app.lastPublishErr)
+	}
+}
+
+func TestIndicatorsOffOnStartup(t *testing.T) {
+	cfg := defaultConfig()
+	publisher := &recordingPublisher{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app := NewApp(cfg, publisher, logger)
+
+	if err := app.ClearIndicators(context.Background()); err != nil {
+		t.Fatalf("ClearIndicators: %v", err)
+	}
+
+	if len(publisher.clearedIndicators) != 3 {
+		t.Fatalf("cleared indicators = %d, want 3 (all off)", len(publisher.clearedIndicators))
+	}
+	for i, idx := range publisher.clearedIndicators {
+		if idx != i+1 {
+			t.Errorf("cleared indicator %d = %d, want %d", i, idx, i+1)
+		}
+	}
+}
+
+type blockingIndicatorPublisher struct {
+	noopPublisher
+	calls atomic.Int32
+}
+
+func (p *blockingIndicatorPublisher) ClearIndicator(ctx context.Context, _ int) error {
+	p.calls.Add(1)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestClearIndicatorsHonoursContextBudget(t *testing.T) {
+	cfg := defaultConfig()
+	publisher := &blockingIndicatorPublisher{}
+	app := NewApp(cfg, publisher, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := app.ClearIndicators(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ClearIndicators err = %v, want deadline exceeded", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("ClearIndicators took %v with a 100ms budget", d)
+	}
+	if publisher.calls.Load() != 1 {
+		t.Fatalf("indicator calls = %d, want 1 (later calls skipped once the budget is spent)", publisher.calls.Load())
+	}
+}

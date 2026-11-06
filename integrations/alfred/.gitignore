@@ -1,0 +1,3 @@
+# Built workflow bundle (a zip of the sources here) — regenerate with build.sh.
+*.alfredworkflow
+icon.png

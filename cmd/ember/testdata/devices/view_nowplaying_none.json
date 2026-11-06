@@ -1,0 +1,28 @@
+{
+  "v": 1,
+  "epoch": 2,
+  "config_version": 2,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 0,
+    "done": 0,
+    "source": ""
+  },
+  "pomo": {
+    "phase": "idle",
+    "running": false,
+    "paused": false,
+    "remaining_sec": 0,
+    "planned_sec": 0,
+    "round": 0
+  },
+  "weather": null,
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "nowplaying": {
+    "state": "none"
+  }
+}

@@ -1,0 +1,327 @@
+import AppKit
+import Foundation
+import OSLog
+import SwiftUI
+import EmberKit
+
+@MainActor
+@Observable
+public final class AppEnvironment {
+    public let live = LiveModel()
+    public let actions: ActionRunner
+    public let settings: SettingsModels
+    public let connection: ServerConnection
+    public var serverURL: URL? { connection.serverURL }
+    public var preview: PreviewService { PreviewService(client: connection.client) }
+    public let deviceSettings: DeviceSettingsModel
+    public let clockConfig: ClockConfigModel
+    public let knob: KnobModel
+    public let knobStats: KnobStatsModel
+    public let clockStats: ClockStatsModel
+    public private(set) var knobDiagnosticsSaving = false
+    public private(set) var knobDiagnosticsError: String?
+    public private(set) var reminderWatcher: ReminderWatcher
+    let musicWatcher: MusicNowPlayingWatcher
+    let knobControls: KnobControlsService
+    public let location = LocationService()
+    public let serverDiscovery = ServerDiscovery()
+    public let clockDiscovery = ClockDiscovery()
+    public let producers: ProducerInstallService
+    public let permissions: PermissionsModel
+
+    public var prefs: MenuPrefs {
+        didSet {
+            AppEnvironment.savePrefs(prefs)
+            AppEnvironment.applyAppIcon(prefs.appIcon)
+            BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
+        }
+    }
+
+    public private(set) var menuBarLabel = MenuRows.label(connection: .connecting, winning: nil, prefs: .default)
+    public private(set) var botPrint: BotPrint = .none
+    @ObservationIgnored private let printDoneStore = BotPrintDoneStore(defaults: AppEnvironment.prefsDefaults)
+    @ObservationIgnored private var printTracker = BotPrintTracker(
+        playedDoneID: BotPrintDoneStore(defaults: AppEnvironment.prefsDefaults).load())
+    @ObservationIgnored private var printDoneTimer: Task<Void, Never>?
+    @ObservationIgnored private var printHold: Task<Void, Never>?
+    private var appIsRegular = false
+
+    private static let log = Logger(subsystem: "com.ember.Ember", category: "app")
+
+    static let prefsDefaults = UserDefaults.standard
+    static let lastReconciledVersionKey = "producers.lastReconciledVersion"
+
+    static func loadPrefs() -> MenuPrefs {
+        let d = prefsDefaults
+        return MenuPrefs(
+            appIcon: d.string(forKey: "appIcon") ?? MenuPrefs.default.appIcon,
+            trayClaudeGlyph: d.string(forKey: "trayClaudeGlyph") ?? MenuPrefs.default.trayClaudeGlyph,
+            trayCodexGlyph: d.string(forKey: "trayCodexGlyph") ?? MenuPrefs.default.trayCodexGlyph,
+            trayIdleGlyph: d.string(forKey: "trayIdleGlyph") ?? MenuPrefs.default.trayIdleGlyph,
+            trayStyle: d.string(forKey: "trayStyle") ?? MenuPrefs.default.trayStyle,
+            trayTint: d.string(forKey: "trayTint") ?? MenuPrefs.default.trayTint,
+            botPrint: d.object(forKey: "botPrint") as? Bool ?? MenuPrefs.default.botPrint
+        ).validated()
+    }
+
+    static func savePrefs(_ p: MenuPrefs) {
+        let d = prefsDefaults
+        d.set(p.appIcon, forKey: "appIcon")
+        d.set(p.trayClaudeGlyph, forKey: "trayClaudeGlyph")
+        d.set(p.trayCodexGlyph, forKey: "trayCodexGlyph")
+        d.set(p.trayIdleGlyph, forKey: "trayIdleGlyph")
+        d.set(p.trayStyle, forKey: "trayStyle")
+        d.set(p.trayTint, forKey: "trayTint")
+        d.set(p.botPrint, forKey: "botPrint")
+    }
+
+    private func feedBot() {
+        let state = withObservationTracking {
+            live.winningSession?.state ?? "idle"
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedBot() }
+        }
+        BotAnimator.shared.setState(state)
+    }
+
+    private func feedMenuBarLabel() {
+        let label = withObservationTracking {
+            MenuRows.label(connection: live.connection, winning: live.winningSession, prefs: prefs, print: botPrint)
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedMenuBarLabel() }
+        }
+        if label != menuBarLabel { menuBarLabel = label }
+    }
+
+    private func botPrintInputs() -> (state: PrinterState?, agent: String, on: Bool) {
+        (live.connection.isOnline ? live.printer.value : nil, live.winningSession?.state ?? "idle",
+         prefs.showsBotPrint(dockVisible: appIsRegular))
+    }
+
+    private func feedBotPrint() {
+        withObservationTracking {
+            _ = botPrintInputs()
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedBotPrint() }
+        }
+        updateBotPrint()
+    }
+
+    private func updateBotPrint() {
+        let inputs = botPrintInputs()
+        let played = printTracker.playedDoneID
+        let next = printTracker.update(state: inputs.state, agentState: inputs.agent, enabled: inputs.on, now: Date())
+        if let id = printTracker.playedDoneID, id != played {
+            printDoneStore.save(id)
+        }
+        if next != botPrint { botPrint = next }
+        BotAnimator.shared.setPrint(next)
+        printDoneTimer?.cancel()
+        printDoneTimer = nil
+        if let end = printTracker.doneEndsAt {
+            printDoneTimer = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(max(end.timeIntervalSinceNow, 0) + 0.05))
+                guard !Task.isCancelled else { return }
+                self?.updateBotPrint()
+            }
+        }
+    }
+
+    private func feedPrintHold() {
+        let wanted = withObservationTracking {
+            prefs.showsBotPrint(dockVisible: appIsRegular)
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedPrintHold() }
+        }
+        if wanted, printHold == nil {
+            printHold = Task { [live] in await live.track(.print) }
+        } else if !wanted, let hold = printHold {
+            hold.cancel()
+            printHold = nil
+        }
+    }
+
+    private func feedClockRecord() {
+        let id = withObservationTracking {
+            KnobDevice.clock(in: knob.devices)?.id
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedClockRecord() }
+        }
+        clockConfig.configure(client: connection.client, deviceID: id)
+    }
+
+    static func applyAppIcon(_ palette: String) {
+        if palette == "bot" {
+            BotAnimator.shared.showInDock(true)
+            return
+        }
+        BotAnimator.shared.showInDock(false)
+        if let img = NSImage(named: "appicon-\(palette)") {
+            NSApplication.shared.applicationIconImage = img
+        }
+    }
+
+    let producerEnvPath: URL
+
+    @ObservationIgnored var openWindowAction: OpenWindowAction?
+    public let envStore: EnvFileStore
+    @ObservationIgnored private var sleepObservers: [NSObjectProtocol] = []
+
+    public init(producerEnvPath: URL = AppEnvironment.defaultEnvPath) {
+        self.producerEnvPath = producerEnvPath
+        prefs = AppEnvironment.loadPrefs()
+        connection = ServerConnection(envPath: producerEnvPath)
+        let client = connection.client
+        actions = ActionRunner(live: live, connection: connection)
+        envStore = EnvFileStore(path: producerEnvPath)
+        settings = SettingsModels(client: client, envStore: envStore)
+        deviceSettings = DeviceSettingsModel(service: connection.device, live: live)
+        clockConfig = ClockConfigModel(client: client)
+        deviceSettings.clockConfig = clockConfig
+        knob = KnobModel(service: KnobService(client: client))
+        knobStats = KnobStatsModel(service: KnobService(client: client))
+        clockStats = ClockStatsModel(service: ClockStatsClient(client: client))
+        let watcher = ReminderWatcher(client: client, settings: settings)
+        reminderWatcher = watcher
+        let music = MusicNowPlayingWatcher(client: client, envStore: envStore)
+        musicWatcher = music
+        knobControls = KnobControlsService(client: client, envStore: envStore)
+        producers = ProducerInstallService(
+            sm: RealSMAppService(),
+            runner: ProcessCommandRunner(),
+            bundleMacOSDir: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS"),
+            home: FileManager.default.homeDirectoryForCurrentUser,
+            fileExists: { FileManager.default.fileExists(atPath: $0) },
+            prefs: FileProducerPrefs(
+                file: FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent(".config/ember/producers.json"),
+                migratingFrom: UserDefaultsProducerPrefs())
+        )
+        permissions = PermissionsModel(sources: AppPermissionSources(
+            connection: connection, producers: producers, reminders: watcher, location: location, music: music))
+        #if DEBUG
+        if HardwareSnapshotRenderer.isRequested || DashboardSnapshotRenderer.isRequested { return }
+        #endif
+        live.configure(client: client)
+        settings.connectionEnv.onSaved = { [weak self] _, _ in self?.reloadConnection() }
+        clockConfig.legacy = settings
+        settings.onDaySaved = { [live] in Task { await live.refreshNow(.dayState, .dayHistory, .dayWeeks) } }
+        settings.onClockSourceSaved = { [clockConfig] in Task { await clockConfig.load() } }
+        settings.producerTuning.onSaved = { [producers] saved, previous in
+            guard let previous, saved.changesCodex(from: previous) else { return }
+            Task { await producers.restart(.codex) }
+        }
+        live.start()
+        observeSleep()
+        reminderWatcher.start()
+        musicWatcher.start()
+        knobControls.start()
+        AppEnvironment.applyAppIcon(prefs.appIcon)
+        BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
+        feedBot()
+        appIsRegular = BotAnimator.shared.isDockVisible
+        BotAnimator.shared.onDockVisibilityChange = { [weak self] visible in self?.appIsRegular = visible }
+        feedPrintHold()
+        feedBotPrint()
+        feedMenuBarLabel()
+        feedClockRecord()
+        reconcileProducers()
+        watchKnobPorts()
+    }
+
+    private func watchKnobPorts() {
+        knob.ports.start()
+    }
+
+    private func reconcileProducers() {
+        let bundle = Bundle.main
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        let appURL = bundle.bundleURL
+        let producers = self.producers
+        let key = Self.lastReconciledVersionKey
+        let log = Self.log
+        Task.detached(priority: .utility) {
+            let defaults = UserDefaults.standard
+            await producers.seedOptOutForNewAgents()
+            let fingerprint = bundleFingerprint(appURL: appURL, version: version, build: build)
+            let changed = shouldReconcileAfterUpdate(currentVersion: fingerprint,
+                                                     lastReconciledVersion: defaults.string(forKey: key))
+            let outcomes = await producers.reconcile(bundleChanged: changed)
+            Self.logReconcile(outcomes, log: log)
+            if shouldRecordFingerprint(bundleChanged: changed, outcomes: outcomes) {
+                defaults.set(fingerprint, forKey: key)
+            }
+            if shouldRecheckAfterReconcile(bundleChanged: changed, outcomes: outcomes) {
+                try? await Task.sleep(for: producerRecheckDelay)
+                Self.logReconcile(await producers.reconcile(bundleChanged: false), log: log)
+            }
+        }
+    }
+
+    private nonisolated static func logReconcile(_ outcomes: [ReconcileOutcome], log: Logger) {
+        for outcome in outcomes {
+            if let error = outcome.error {
+                log.error("producer re-register failed: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            } else {
+                log.notice("producer re-registered: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public)")
+            }
+        }
+    }
+
+    public func reloadConnection() {
+        guard connection.reload() else { return }
+        let client = connection.client
+        reminderWatcher.reconfigure(client: client)
+        musicWatcher.reconfigure(client: client)
+        knobControls.reconfigure(client: client)
+        live.configure(client: client)
+        settings.configure(client: client)
+        deviceSettings.configure(service: connection.device)
+        knob.configure(service: KnobService(client: client))
+        clockConfig.configure(client: client, deviceID: KnobDevice.clock(in: knob.devices)?.id)
+        knobStats.configure(service: KnobService(client: client))
+        clockStats.configure(service: ClockStatsClient(client: client))
+    }
+
+    func setKnobDiagnostics(_ level: KnobDiagnostics) async {
+        guard !knobDiagnosticsSaving else { return }
+        knobDiagnosticsSaving = true
+        defer { knobDiagnosticsSaving = false }
+        if !knob.isLoaded { await knob.load() }
+        if await knob.setDiagnostics(level) {
+            knobDiagnosticsError = nil
+        } else {
+            knobDiagnosticsError = knob.settings.saveError.map { String(localized: $0.message) }
+                ?? String(localized: "Couldn't change the knob's diagnostics.")
+        }
+        if let id = knob.knob?.id { await knobStats.refresh(deviceID: id) }
+    }
+
+    private func observeSleep() {
+        let nc = NSWorkspace.shared.notificationCenter
+        sleepObservers = [
+            nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.live.pause()
+                    self?.clockDiscovery.stop()
+                }
+            },
+            nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.live.resume() }
+            },
+        ]
+    }
+
+    func openWindow(id: String) {
+        guard let openWindowAction else { return }
+        presentWindow(id: id, using: openWindowAction)
+    }
+
+    @ObservationIgnored var isSettingsOpen = false
+
+    public static var defaultEnvPath: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/ember/producer.env")
+    }
+}

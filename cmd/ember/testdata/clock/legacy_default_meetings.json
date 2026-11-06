@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "tile_lead_minutes": 60,
+  "popup_lead_minutes": 2,
+  "chime": true,
+  "ics_urls_configured": 0
+}
+

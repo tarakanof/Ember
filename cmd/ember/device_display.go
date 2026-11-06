@@ -1,0 +1,128 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+
+	"github.com/tarakanof/ember/internal/awtrix"
+)
+
+var overlayValues = enumOf("drizzle", "frost", "rain", "snow", "storm", "thunder")
+
+var overlaySettingsRules = map[string]settingRule{
+	"speed":   {kind: kNumber},
+	"palette": {kind: kStringOrNull, maxLen: 32},
+	"blend":   {kind: kBool},
+}
+
+func validateDeviceDisplay(m map[string]any) error {
+	for k, v := range m {
+		switch k {
+		case "overlay":
+			if v == nil {
+				continue
+			}
+			s, ok := v.(string)
+			if !ok || !overlayValues[s] {
+				return fmt.Errorf("overlay must be null or one of drizzle|frost|rain|snow|storm|thunder")
+			}
+		case "overlaySettings":
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return fmt.Errorf("overlaySettings must be an object")
+			}
+			if err := validateAgainstRules(obj, overlaySettingsRules); err != nil {
+				return fmt.Errorf("overlaySettings.%w", err)
+			}
+		default:
+			return fmt.Errorf("unknown setting %q", k)
+		}
+	}
+	return nil
+}
+
+func (a *App) handleDeviceDisplayGet(w http.ResponseWriter, r *http.Request) {
+	a.proxyRead(w, r, (*awtrix.Client).RawDisplay)
+}
+
+func (a *App) handleDeviceDisplayPut(w http.ResponseWriter, r *http.Request) {
+	var m map[string]any
+	if !a.decodeOrReject(w, r, &m, false) {
+		return
+	}
+	if err := validateDeviceDisplay(m); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	payload, _ := json.Marshal(m)
+	a.proxyAction(w, r, withBody((*awtrix.Client).RawPatchDisplay, payload))
+}
+
+type deviceAppsPutBody struct {
+	Order    []string `json:"order"`
+	Disabled []string `json:"disabled"`
+}
+
+var (
+	errAppsOrderMissing    = errors.New(`order is required: the apps in rotation order, [] for none`)
+	errAppsDisabledMissing = errors.New(`disabled is required: the full list of switched-off apps, [] for none`)
+)
+
+func (b *deviceAppsPutBody) validate() error {
+	switch {
+	case b.Order == nil:
+		return errAppsOrderMissing
+	case b.Disabled == nil:
+		return errAppsDisabledMissing
+	}
+	return nil
+}
+
+func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := a.startClockRotationOp(r)
+	defer cancel()
+	release, ok := a.acquireClockRotation(ctx, w, r)
+	if !ok {
+		return
+	}
+	defer release()
+	body, err := a.clock.fetch(ctx, (*awtrix.Client).RawApps)
+	if err != nil {
+		writeClockError(w, err)
+		return
+	}
+	if rot, err := rotationFromApps(body); err == nil {
+		a.setClockRotation(rot)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
+func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := a.startClockRotationOp(r)
+	defer cancel()
+	var body deviceAppsPutBody
+	if !a.decodeOrReject(w, r, &body, true) {
+		return
+	}
+	if err := body.validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	release, ok := a.acquireClockRotation(ctx, w, r)
+	if !ok {
+		return
+	}
+	defer release()
+	payload, _ := json.Marshal(body)
+	if _, err := a.clock.fetch(ctx, withBody((*awtrix.Client).RawPutAppOrder, payload)); err != nil {
+		a.forgetClockRotationAfter(err)
+		writeClockError(w, err)
+		return
+	}
+	a.setClockRotation(a.readBackClockRotation(ctx))
+	w.WriteHeader(http.StatusOK)
+}

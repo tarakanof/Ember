@@ -1,0 +1,1 @@
+{"op":"notify","payload":{"durationMs":7000,"hold":true,"name":"ember-notify","scroll":{"whenFits":"static"},"stack":false,"text":"PING","textCase":"asTyped","textColor":"#FF00AA","wakeup":true}}

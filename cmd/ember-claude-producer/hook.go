@@ -1,0 +1,424 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
+)
+
+type hookInput struct {
+	HookEventName        string          `json:"hook_event_name"`
+	SessionID            string          `json:"session_id"`
+	CWD                  string          `json:"cwd"`
+	Source               string          `json:"source,omitempty"`
+	Prompt               string          `json:"prompt,omitempty"`
+	ToolName             string          `json:"tool_name,omitempty"`
+	ToolInput            json.RawMessage `json:"tool_input"`
+	NotificationType     string          `json:"notification_type,omitempty"`
+	Message              string          `json:"message,omitempty"`
+	Error                string          `json:"error,omitempty"`
+	ErrorDetails         string          `json:"error_details,omitempty"`
+	LastAssistantMessage string          `json:"last_assistant_message,omitempty"`
+	BackgroundTasks      json.RawMessage `json:"background_tasks,omitempty"`
+	IsInterrupt          bool            `json:"is_interrupt,omitempty"`
+	ToolUseID            string          `json:"tool_use_id,omitempty"`
+	EndReason            string          `json:"reason,omitempty"`
+}
+
+func runHook(args []string) {
+	if len(args) < 1 {
+		os.Exit(0)
+	}
+	if home, err := os.UserHomeDir(); err != nil || !hooksEnabledAt(home) {
+		os.Exit(0)
+	}
+	producer.RotateLogs(producerLogs...)
+	event := args[0]
+	cfg, err := loadConfig()
+	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
+		os.Exit(0)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.HookTimeoutMs)*time.Millisecond+hookLockWait(cfg))
+	defer cancel()
+	dispatchHookFrom(ctx, event, io.LimitReader(os.Stdin, hookStdinMax), cfg)
+	os.Exit(0)
+}
+
+const hookStdinMax = 64 << 20
+
+func decodeHookInput(r io.Reader) (hookInput, error) {
+	var in hookInput
+	dec := json.NewDecoder(r)
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return in, fmt.Errorf("hook stdin is not a JSON object")
+	}
+	fields := map[string]json.RawMessage{}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return in, err
+		}
+		key, _ := t.(string)
+		if key == "tool_response" {
+			if err := skipJSONValue(dec); err != nil {
+				return in, err
+			}
+			continue
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return in, err
+		}
+		fields[key] = raw
+	}
+	body, err := json.Marshal(fields)
+	if err != nil {
+		return in, err
+	}
+	err = json.Unmarshal(body, &in)
+	return in, err
+}
+
+func skipJSONValue(dec *json.Decoder) error {
+	depth := 0
+	for {
+		t, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		switch t {
+		case json.Delim('{'), json.Delim('['):
+			depth++
+		case json.Delim('}'), json.Delim(']'):
+			depth--
+		}
+		if depth == 0 {
+			return nil
+		}
+	}
+}
+
+func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config) {
+	in, err := decodeHookInput(r)
+	if err != nil {
+		return
+	}
+	sessionID := sanitizeSessionID(in.SessionID, in.CWD)
+	if newT3Probe().spawnedByT3(ctx) {
+		reapT3Session(ctx, cfg, sessionID)
+		return
+	}
+	dir, err := stateDir()
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	markerP := markerPath(dir, sessionID)
+	lockP := lockPath(dir, sessionID)
+	client := NewClient(cfg)
+	switch event {
+	case "post-tool-use":
+		handleToolOutcome(ctx, cfg, client, in, "", markerP, lockP)
+	case "post-tool-use-failure":
+		handleToolOutcome(ctx, cfg, client, in, failureOutcome(in), markerP, lockP)
+	case "permission-denied":
+		handleToolOutcome(ctx, cfg, client, in, "denied", markerP, lockP)
+	case "session-start":
+		handleSessionStart(cfg, in, markerP, lockP)
+	case "user-prompt-submit":
+		replied := startPromptReply(ctx, cfg, client, sessionID, in)
+		handleUpsertWith(ctx, cfg, client, sessionID, "running", truncate(in.Prompt, 80), "", markerP, lockP, upsertExtra{newTurn: true, cwd: in.CWD})
+		<-replied
+	case "pre-tool-use":
+		act := ""
+		if cfg.ActivityDetailEnabled {
+			act = activityString(in.ToolName, in.ToolInput)
+		}
+		handleUpsertWith(ctx, cfg, client, sessionID, "running", in.ToolName, act, markerP, lockP, upsertExtra{
+			preToolUseID: in.ToolUseID, preFP: permissionFingerprint(in.ToolName, in.ToolInput), cwd: in.CWD,
+		})
+	case "permission-request":
+		act := ""
+		if cfg.ActivityDetailEnabled {
+			act = activityString(in.ToolName, in.ToolInput)
+		}
+		handleUpsertWith(ctx, cfg, client, sessionID, "waiting", "approve "+in.ToolName, act, markerP, lockP, upsertExtra{
+			pending: permissionFingerprint(in.ToolName, in.ToolInput), cwd: in.CWD,
+		})
+	case "notification":
+		handleNotification(ctx, cfg, client, sessionID, in, markerP, lockP)
+	case "stop":
+		if hasWakingBackgroundTasks(in.BackgroundTasks) {
+			markBackgroundWake(cfg, markerP, lockP)
+			return
+		}
+		handleUpsertWith(ctx, cfg, client, sessionID, "done", firstLine(in.LastAssistantMessage), "", markerP, lockP, upsertExtra{cwd: in.CWD})
+	case "stop-failure":
+		handleUpsertWith(ctx, cfg, client, sessionID, "error", stopFailureMessage(in), "", markerP, lockP, upsertExtra{cwd: in.CWD})
+	case "session-end":
+		switch in.EndReason {
+		case "logout", "prompt_input_exit", "other", "clear", "resume":
+			handleDelete(ctx, cfg, sessionID, markerP, lockP)
+		}
+	}
+}
+
+func handleSessionStart(cfg Config, in hookInput, markerP, lockP string) {
+	if in.Source == "startup" {
+		return
+	}
+	if err := withLockExWait(lockP, hookLockWait(cfg), func() error {
+		_ = os.Remove(markerP)
+		return nil
+	}); err != nil {
+		_ = os.Remove(markerP)
+	}
+}
+
+func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string) {
+	handleUpsertWith(ctx, cfg, client, sessionID, state, message, activity, markerP, lockP, upsertExtra{})
+}
+
+type upsertExtra struct {
+	newTurn             bool
+	pending             string
+	preToolUseID, preFP string
+	skip                func(prev marker) bool
+	cwd                 string
+	agentInput          bool
+}
+
+func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string, x upsertExtra) {
+	req := cfg.StatusRequest("claude", sessionID, state)
+	req.Message = truncate(message, 80)
+	req.Activity = truncate(activity, 80)
+	cfg.Gauges.Apply(&req)
+	req.Project = producer.ProjectFromCwd(x.cwd)
+	cwd := x.cwd
+	var body []byte
+	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
+		var ownerPID int
+		var ownerStart string
+		var statuslineChanged, statuslineAt int64
+		var track ToolTrack
+		var acct markerAccount
+		changedAt := hookNow().Unix()
+		if old, err := readMarker(markerP); err == nil {
+			var prev marker
+			if json.Unmarshal(old, &prev) == nil {
+				if x.skip != nil && x.skip(prev) {
+					return nil
+				}
+				track, acct = prev.ToolTrack, prev.markerAccount
+				req.RateWindowPct = prev.RateWindowPct
+				req.RateResetAt = prev.RateResetAt
+				req.RateResetLabel = prev.RateResetLabel
+				req.RateWeekPct = prev.RateWeekPct
+				req.RateWeekResetAt = prev.RateWeekResetAt
+				req.RateWeekResetLabel = prev.RateWeekResetLabel
+				if cfg.ContextPctEnabled {
+					req.ContextPct = prev.ContextPct
+				}
+				if cfg.ActivityTrailEnabled && activity != "" {
+					req.Activity = producer.PrependTrail(activity, prev.Activity)
+				}
+				if cwd == "" {
+					req.Project, cwd = prev.Project, prev.Cwd
+				}
+				ownerPID, ownerStart = prev.OwnerPID, prev.OwnerStart
+				statuslineChanged, statuslineAt = prev.StatuslineChangedMs, prev.StatuslineAt
+				if prev.State == state && prev.StateChangedAt != 0 {
+					changedAt = prev.StateChangedAt
+				}
+			}
+		}
+		if x.preFP != "" {
+			track.LastToolUseID, track.LastToolFP = x.preToolUseID, x.preFP
+		}
+		if x.pending != "" {
+			track.PendingPermission, track.PendingToolUseID = x.pending, ""
+			if track.LastToolFP == x.pending {
+				track.PendingToolUseID = track.LastToolUseID
+			}
+			track.ResumedTool, track.ResumedAt = "", 0
+		}
+		if state != "waiting" {
+			track.PendingPermission, track.PendingToolUseID = "", ""
+		}
+		track.AgentsWait, track.AgentsRun = false, false
+		track.AgentInputWait, track.WaitExpired = x.agentInput, false
+		if x.newTurn || state == "done" || state == "error" {
+			track.BackgroundWake = false
+		}
+		if ownerPID == 0 {
+			ownerPID, ownerStart = detectOwner()
+		}
+		m := marker{StatusRequest: req, Cwd: cwd, OwnerPID: ownerPID, OwnerStart: ownerStart, StateChangedAt: changedAt,
+			StatuslineChangedMs: statuslineChanged, StatuslineAt: statuslineAt, HookAt: hookNow().Unix(), ToolTrack: track, markerAccount: acct}
+		b, err := json.Marshal(m)
+		if err != nil || writeMarker(markerP, b) != nil {
+			return nil
+		}
+		body = b
+		return nil
+	})
+	if body != nil {
+		_ = postReconciled(ctx, cfg, client, markerP, lockP, body, hookLockWait(cfg))
+	}
+}
+
+func markBackgroundWake(cfg Config, markerP, lockP string) {
+	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
+		old, err := readMarker(markerP)
+		if err != nil {
+			return nil
+		}
+		var m marker
+		if json.Unmarshal(old, &m) != nil || (m.BackgroundWake && !m.AgentsRun) {
+			return nil
+		}
+		m.BackgroundWake, m.AgentsRun = true, false
+		m.HookAt = hookNow().Unix()
+		b, err := json.Marshal(m)
+		if err != nil {
+			return nil
+		}
+		return writeMarker(markerP, b)
+	})
+}
+
+const (
+	sessionEndLockWait   = 200 * time.Millisecond
+	sessionEndHTTPBudget = 800 * time.Millisecond
+)
+
+func handleDelete(ctx context.Context, cfg Config, sessionID, markerP, lockP string) {
+	if err := withLockExWait(lockP, sessionEndLockWait, func() error {
+		_ = os.Remove(markerP)
+		return nil
+	}); err != nil {
+		_ = os.Remove(markerP)
+	}
+	budget := min(time.Duration(cfg.HookTimeoutMs)*time.Millisecond, sessionEndHTTPBudget)
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	client := producer.NewClient(cfg.ServerURL, cfg.Token, budget)
+	_ = client.Delete(ctx, DeleteRequest{
+		Source:  cfg.Source,
+		Tool:    "claude",
+		Session: sessionID,
+	})
+}
+
+func hookLockWait(cfg Config) time.Duration {
+	return time.Duration(cfg.HookTimeoutMs)*time.Millisecond + 100*time.Millisecond
+}
+
+func handleNotification(ctx context.Context, cfg Config, client *Client, sessionID string, in hookInput, markerP, lockP string) {
+	msg := in.Message
+	upsert := func(state, message string, x upsertExtra) {
+		x.cwd = in.CWD
+		handleUpsertWith(ctx, cfg, client, sessionID, state, message, "", markerP, lockP, x)
+	}
+	switch in.NotificationType {
+	case "permission_prompt":
+		upsert("waiting", msg, upsertExtra{
+			skip: func(prev marker) bool { return lateResumedPrompt(prev, msg, hookNow()) },
+		})
+	case "agent_needs_input":
+		upsert("waiting", msg, upsertExtra{agentInput: true})
+	case "elicitation_dialog", "elicitation_url_dialog", "quota_auto_resume_stale":
+		upsert("waiting", msg, upsertExtra{})
+	case "elicitation_complete", "elicitation_response":
+		upsert("running", msg, upsertExtra{
+			skip: func(prev marker) bool { return prev.State != "waiting" || prev.PendingPermission != "" },
+		})
+	case "quota_auto_resume_fired":
+		upsert("running", pickFirstNonEmpty(msg, "resumed"), upsertExtra{})
+	case "quota_auto_resume_disabled":
+		upsert("error", pickFirstNonEmpty(msg, "usage limit"), upsertExtra{})
+	case "agent_completed":
+		upsert("done", msg, upsertExtra{})
+	case "idle_prompt":
+		upsert("done", msg, upsertExtra{
+			skip: func(prev marker) bool { return prev.State == "done" || prev.State == "error" },
+		})
+	}
+}
+
+var stopFailureLabels = map[string]string{
+	"rate_limit":             "rate limited",
+	"overloaded":             "API overloaded",
+	"authentication_failed":  "auth failed",
+	"billing_error":          "billing error",
+	"server_error":           "API error",
+	"max_output_tokens":      "output limit",
+	"invalid_request":        "bad request",
+	"oauth_org_not_allowed":  "org not allowed",
+	"account_on_hold":        "account on hold",
+	"model_not_found":        "model not found",
+	"cloud_credential_error": "cloud credentials",
+}
+
+func stopFailureMessage(in hookInput) string {
+	label := stopFailureLabels[in.Error]
+	if label == "" && in.Error != "" && in.Error != "unknown" {
+		label = strings.ReplaceAll(in.Error, "_", " ")
+	}
+	details := pickFirstNonEmpty(firstLine(in.ErrorDetails), firstLine(in.LastAssistantMessage))
+	switch {
+	case label != "" && details != "":
+		return label + ": " + details
+	case label != "":
+		return label
+	case details != "":
+		return details
+	}
+	return "error"
+}
+
+func hasWakingBackgroundTasks(raw json.RawMessage) bool {
+	var tasks []struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &tasks) != nil {
+		return false
+	}
+	for _, t := range tasks {
+		switch t.Type {
+		case "subagent", "workflow", "teammate", "cloud session":
+			return true
+		}
+	}
+	return false
+}
+
+func firstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+func truncate(s string, n int) string {
+	return producer.Truncate(s, n)
+}
+
+func pickFirstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}

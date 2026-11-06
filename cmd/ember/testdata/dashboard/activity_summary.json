@@ -1,0 +1,156 @@
+{
+  "generated_at": "2026-09-26T10:30:00+02:00",
+  "recording": true,
+  "days": 2,
+  "span_gap_sec": 300,
+  "today": {
+    "from": "2026-09-26T04:00:00+02:00",
+    "to": "2026-09-26T10:30:00+02:00",
+    "total": {
+      "active_sec": 840,
+      "sessions": 2,
+      "attention": 1
+    },
+    "by_tool": [
+      {
+        "key": "codex",
+        "active_sec": 600,
+        "sessions": 1,
+        "attention": 0
+      },
+      {
+        "key": "claude",
+        "active_sec": 240,
+        "sessions": 1,
+        "attention": 1
+      }
+    ],
+    "by_source": [
+      {
+        "key": "m5",
+        "active_sec": 600,
+        "sessions": 1,
+        "attention": 0,
+        "source_color": "#FF8800"
+      },
+      {
+        "key": "m4",
+        "active_sec": 240,
+        "sessions": 1,
+        "attention": 1,
+        "source_color": "#00C8C8"
+      }
+    ]
+  },
+  "period": {
+    "from": "2026-09-25T04:00:00+02:00",
+    "to": "2026-09-26T10:30:00+02:00",
+    "total": {
+      "active_sec": 2640,
+      "sessions": 3,
+      "attention": 1
+    },
+    "by_tool": [
+      {
+        "key": "claude",
+        "active_sec": 2040,
+        "sessions": 2,
+        "attention": 1
+      },
+      {
+        "key": "codex",
+        "active_sec": 600,
+        "sessions": 1,
+        "attention": 0
+      }
+    ],
+    "by_source": [
+      {
+        "key": "m5",
+        "active_sec": 2400,
+        "sessions": 2,
+        "attention": 0,
+        "source_color": "#FF8800"
+      },
+      {
+        "key": "m4",
+        "active_sec": 240,
+        "sessions": 1,
+        "attention": 1,
+        "source_color": "#00C8C8"
+      }
+    ]
+  },
+  "daily": [
+    {
+      "day": "2026-09-25",
+      "date": "2026-09-25T00:00:00+02:00",
+      "tool": "claude",
+      "active_sec": 1800,
+      "sessions": 1,
+      "attention": 0
+    },
+    {
+      "day": "2026-09-25",
+      "date": "2026-09-25T00:00:00+02:00",
+      "tool": "codex",
+      "active_sec": 0,
+      "sessions": 0,
+      "attention": 0
+    },
+    {
+      "day": "2026-09-26",
+      "date": "2026-09-26T00:00:00+02:00",
+      "tool": "claude",
+      "active_sec": 240,
+      "sessions": 1,
+      "attention": 1
+    },
+    {
+      "day": "2026-09-26",
+      "date": "2026-09-26T00:00:00+02:00",
+      "tool": "codex",
+      "active_sec": 600,
+      "sessions": 1,
+      "attention": 0
+    }
+  ],
+  "daily_by_source": [
+    {
+      "day": "2026-09-25",
+      "date": "2026-09-25T00:00:00+02:00",
+      "source": "m4",
+      "source_color": "#00C8C8",
+      "active_sec": 0,
+      "sessions": 0,
+      "attention": 0
+    },
+    {
+      "day": "2026-09-25",
+      "date": "2026-09-25T00:00:00+02:00",
+      "source": "m5",
+      "source_color": "#FF8800",
+      "active_sec": 1800,
+      "sessions": 1,
+      "attention": 0
+    },
+    {
+      "day": "2026-09-26",
+      "date": "2026-09-26T00:00:00+02:00",
+      "source": "m4",
+      "source_color": "#00C8C8",
+      "active_sec": 240,
+      "sessions": 1,
+      "attention": 1
+    },
+    {
+      "day": "2026-09-26",
+      "date": "2026-09-26T00:00:00+02:00",
+      "source": "m5",
+      "source_color": "#FF8800",
+      "active_sec": 600,
+      "sessions": 1,
+      "attention": 0
+    }
+  ]
+}

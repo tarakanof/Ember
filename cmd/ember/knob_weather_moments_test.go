@@ -1,0 +1,136 @@
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tarakanof/ember/internal/devices"
+)
+
+func TestKnobWeatherMomentsReachTheKnob(t *testing.T) {
+	f := newViewFixture(t)
+	_, version, err := f.app.devices.Versions(f.m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putKnobConfig(t, f.srv, f.m.ID, `{"bot":{"weather_moments":false,"weather_every_min":0}}`)
+	want := `"working_ring":true,"weather_moments":false,"weather_every_min":0}`
+	resp, b := devReq(t, f.srv, "GET", "/v1/devices/self/config", f.m.Token, "")
+	if mustOK(t, "self config", resp, b); !strings.Contains(string(b), want) {
+		t.Fatalf("self config = %s, want %s", b, want)
+	}
+	resp, b = devReq(t, f.srv, "POST", "/v1/devices/self/checkin", f.m.Token, capsCheckinBody(t, "0.10.0", version, nil))
+	if mustOK(t, "checkin", resp, b); !strings.Contains(string(b), want) {
+		t.Fatalf("checkin reply = %s, want config with %s", b, want)
+	}
+}
+
+func TestKnobWeatherMomentsRejectInvalidValues(t *testing.T) {
+	f := newViewFixture(t)
+	for _, body := range []string{`{"bot":{"weather_every_min":241}}`, `{"bot":{"weather_every_min":-1}}`,
+		`{"bot":{"weather_every_min":"30"}}`, `{"bot":{"weather_every_min":2.5}}`, `{"bot":{"weather_moments":"on"}}`} {
+		resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, body)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("PUT %s = %d %s, want 400", body, resp.StatusCode, b)
+		}
+	}
+	putKnobConfig(t, f.srv, f.m.ID, `{"bot":{"weather_every_min":240}}`)
+}
+
+func knobWeatherMomentsAfterReload(t *testing.T, db, id string) (bool, int, int) {
+	t.Helper()
+	app, srv := newDevicesApp(t, db)
+	defer srv.Close()
+	defer func() { _ = app.store.Close() }()
+	_, version, err := app.devices.Versions(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, b := devReq(t, srv, "GET", "/v1/devices/"+id+"/config", testToken, "")
+	mustOK(t, "config get", resp, b)
+	var cfg struct {
+		Bot struct {
+			WeatherMoments  *bool `json:"weather_moments"`
+			WeatherEveryMin *int  `json:"weather_every_min"`
+		} `json:"bot"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil || cfg.Bot.WeatherMoments == nil || cfg.Bot.WeatherEveryMin == nil {
+		t.Fatalf("config after reload = %s (%v)", b, err)
+	}
+	return *cfg.Bot.WeatherMoments, *cfg.Bot.WeatherEveryMin, version
+}
+
+func TestKnobWeatherMomentsSurviveARegistryReload(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app, srv := newDevicesApp(t, db)
+	knob := mintKnob(t, srv, http.StatusCreated)
+	putKnobConfig(t, srv, knob.ID, `{"bot":{"weather_moments":false,"weather_every_min":0}}`)
+	_, version, err := app.devices.Versions(knob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, _, err := app.store.GetSetting(devices.StateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Close()
+	_ = app.store.Close()
+
+	if on, every, v := knobWeatherMomentsAfterReload(t, db, knob.ID); on || every != 0 || v != version {
+		t.Fatalf("explicit off/0 after reload = %v/%d version %d, want false/0 version %d", on, every, v, version)
+	}
+
+	const stored = `,"weather_moments":false,"weather_every_min":0`
+	if !strings.Contains(blob, stored) {
+		t.Fatalf("stored record without %s: %s", stored, blob)
+	}
+	app, srv = newDevicesApp(t, db)
+	if err := app.store.PutSetting(devices.StateKey, strings.Replace(blob, stored, "", 1)); err != nil {
+		t.Fatal(err)
+	}
+	srv.Close()
+	_ = app.store.Close()
+
+	if on, every, v := knobWeatherMomentsAfterReload(t, db, knob.ID); !on || every != 30 || v != version {
+		t.Fatalf("a record stored without the keys reloads as %v/%d version %d, want true/30 version %d (no push)", on, every, v, version)
+	}
+}
+
+func TestKnobWeatherMomentsReachEveryCapsKnobWithOrWithoutWxMoments(t *testing.T) {
+	withToken := map[string]any{
+		"view": []int{1, 1}, "pages": []string{"bot", "weather"},
+		"features": []string{devices.FeatureViewWait, featureWxFaces, featureWxMoments},
+	}
+	without := map[string]any{
+		"view": []int{1, 1}, "pages": []string{"bot", "weather"},
+		"features": []string{devices.FeatureViewWait, featureWxFaces},
+	}
+	for _, tc := range []struct {
+		name string
+		caps map[string]any
+		want bool
+	}{{"with", withToken, true}, {"without", without, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newViewFixture(t)
+			if out := postCapsCheckin(t, f, "0.9.65", tc.caps); out["caps_ack"] != true {
+				t.Fatalf("caps not acked: %v", out)
+			}
+			features, _ := knobEffectiveCaps(t, f)["features"].([]any)
+			has := false
+			for _, x := range features {
+				has = has || x == featureWxMoments
+			}
+			if has != tc.want {
+				t.Fatalf("effective_caps.features = %v, want wx_moments %v", features, tc.want)
+			}
+			resp, b := devReq(t, f.srv, "GET", "/v1/devices/self/config", f.m.Token, "")
+			mustOK(t, "self config", resp, b)
+			if !strings.Contains(string(b), `"weather_moments":true,"weather_every_min":30}`) {
+				t.Fatalf("self config = %s, want the moment keys for every knob", b)
+			}
+		})
+	}
+}

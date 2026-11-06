@@ -1,0 +1,127 @@
+{
+  "v": 1,
+  "epoch": 2,
+  "config_version": 2,
+  "mood": {
+    "waiting": 0,
+    "errors": 0,
+    "running": 0,
+    "done": 0,
+    "source": ""
+  },
+  "pomo": {
+    "phase": "idle",
+    "running": false,
+    "paused": false,
+    "remaining_sec": 0,
+    "planned_sec": 0,
+    "round": 0
+  },
+  "weather": null,
+  "brightness": {
+    "level": 255,
+    "night": false
+  },
+  "nowplaying": {
+    "state": "none"
+  },
+  "demo": {
+    "id": "d0c0ffee",
+    "page": "weather:sun",
+    "view": {
+      "v": 1,
+      "epoch": 2,
+      "config_version": 2,
+      "mood": {
+        "waiting": 0,
+        "errors": 0,
+        "running": 0,
+        "done": 0,
+        "source": ""
+      },
+      "weather": {
+        "provider": "open-meteo",
+        "cond": "clear",
+        "code": "0",
+        "temp_c": 8.5,
+        "stale": false,
+        "severe": false,
+        "night": true,
+        "sunrise": 1782054000,
+        "sunset": 1782097200,
+        "observed_at": 1782042600,
+        "utc_offset": 3600,
+        "now": {
+          "cloud": 3,
+          "wind_kmh": 9,
+          "gust_kmh": 18,
+          "wind_dir": 270,
+          "rain": 0
+        },
+        "today": {
+          "min_c": 9,
+          "max_c": 23,
+          "uv_max": 1,
+          "gust_max_kmh": 24,
+          "pop": 5
+        },
+        "rain": {
+          "spells": []
+        },
+        "days": [
+          {
+            "t": 1782082800,
+            "end": 1782169200,
+            "cond": "clear",
+            "code": "0",
+            "min_c": 13,
+            "max_c": 25,
+            "pop": 5,
+            "precip_mm10": 0
+          },
+          {
+            "t": 1782169200,
+            "end": 1782255600,
+            "cond": "clouds",
+            "code": "3",
+            "min_c": 8,
+            "max_c": 15,
+            "pop": 30,
+            "precip_mm10": 0
+          },
+          {
+            "t": 1782255600,
+            "end": 1782342000,
+            "cond": "rain",
+            "code": "61",
+            "min_c": 10,
+            "max_c": 16,
+            "pop": 70,
+            "precip_mm10": 9
+          }
+        ],
+        "twilight": {
+          "dawn": 1782052200,
+          "blue_end": 1782052800,
+          "golden_end": 1782056400,
+          "golden_start": 1782094800,
+          "blue_start": 1782098400,
+          "dusk": 1782099000
+        },
+        "moon": {
+          "phase": 24,
+          "illum": 46,
+          "up": true,
+          "rise": 1782032400,
+          "set": 1782061200
+        },
+        "aqi": 24
+      },
+      "brightness": {
+        "level": 255,
+        "night": false
+      }
+    },
+    "hold": false
+  }
+}

@@ -1,0 +1,204 @@
+import SwiftUI
+import EmberKit
+
+struct AgentsSourcePane: View {
+    @Environment(AppEnvironment.self) private var env
+    @State private var producers: ProducerInstallModel?
+
+    private var usage: ServerConfigModel<UsageConfig> { env.settings.usage }
+    private var behavior: ServerConfigModel<DisplayConfig> { env.settings.display }
+
+    var body: some View {
+        @Bindable var usage = usage
+        @Bindable var behavior = behavior
+        Form {
+            if let producers {
+                ProducersToggleSection(model: producers, tuning: env.settings.producerTuning,
+                                       overrides: ProducerTuning.Overrides(environment: ProcessInfo.processInfo.environment))
+            }
+
+            Section {
+                StepperRow(title: "Show usage from", value: $usage.draft.usageThresholdPct,
+                           range: 0...100, step: 5) { pct in
+                    pct == 0 ? Text("Always") : Text(Percent.text(Double(pct)))
+                }
+            } header: {
+                Text("Usage")
+            } footer: {
+                SectionFooter(text: "Usage cards join the rotation once the 5-hour window reaches this level. Server-wide.",
+                              error: usage.saveError ?? (usage.isLoaded ? nil : usage.loadError))
+            }
+            .disabled(!usage.isLoaded)
+
+            UsageAccountsSection(model: env.settings.usageAccounts)
+
+            Section {
+                StepperRow(title: "Hide when idle", value: $behavior.draft.idleHideMinutes, range: 0...60) { m in
+                    m == 0 ? Text("At once") : Text("After \(m) min")
+                }
+                StepperRow(title: "Attention hold", value: $behavior.draft.attentionHoldSeconds,
+                           range: 5...300, step: 5) { Text("\($0) s") }
+            } header: {
+                Text("Behavior")
+            } footer: {
+                SectionFooter(text: "An idle session dims, then leaves the rotation until it's active again. A session that needs you holds the clock this long. Server-wide.",
+                              error: behavior.saveError ?? (behavior.isLoaded ? nil : behavior.loadError))
+            }
+            .disabled(!behavior.isLoaded)
+
+            ShownOnSection(source: .agents)
+        }
+        .formStyle(.grouped)
+        .autosaves(usage)
+        .autosaves(env.settings.usageAccounts)
+        .autosaves(behavior)
+        .autosaves(env.settings.producerTuning)
+        .onAppear { if producers == nil { producers = ProducerInstallModel(service: env.producers) } }
+        .reloads {
+            let s = env.settings
+            async let a: Void = s.producerTuning.load()
+            async let b: Void = s.usage.load()
+            async let c: Void = s.display.load()
+            async let d: Void = s.usageAccounts.load()
+            _ = await (a, b, c, d)
+        }
+    }
+}
+
+struct ClockAgentsAppPane: View {
+    @Environment(AppEnvironment.self) private var env
+    @State private var preview = PreviewModel()
+
+    private var cards: EnvConfigModel<DisplaySettings> { env.settings.agentsEnv }
+    private var usage: ClockAppLens<ClockConfig.Agents> { env.clockAgents }
+
+    private func meta(_ card: String) -> (title: LocalizedStringKey, caption: LocalizedStringKey) {
+        switch card {
+        case "source": ("Source card", "Tool icon and machine name in the source color.")
+        case "usage-5h": ("5-hour usage", "Green under 70%, amber, red from 90%.")
+        case "usage-reset": ("Reset clock", "Time until the 5-hour window resets.")
+        case "usage-7d": ("7-day usage", "Weekly window usage.")
+        case "usage-model-a": ("First model", "Per-model 5-hour usage, e.g. Opus.")
+        case "usage-model-b": ("Second model", "Per-model 5-hour usage, e.g. Sonnet.")
+        default: (LocalizedStringKey(card), LocalizedStringKey(String()))
+        }
+    }
+
+    private func cardEnabled(_ card: String) -> Bool {
+        switch card {
+        case "source": cards.draft.sourceCard
+        case "usage-model-a", "usage-model-b": usage.draft.usageWidget && usage.draft.usagePerModel
+        default: card.hasPrefix("usage-") ? usage.draft.usageWidget : true
+        }
+    }
+
+    var body: some View {
+        @Bindable var cards = cards
+        let usage = usage
+        let usageDraft = usage.binding
+        Form {
+            SourceLinkSection(source: .agents)
+
+            Section {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let response = preview.response {
+                        ForEach(response.frames, id: \.card) { frame in
+                            let m = meta(frame.card)
+                            PanelPreview(title: m.title, caption: m.caption,
+                                         enabled: cardEnabled(frame.card), frame: frame)
+                        }
+                    } else {
+                        PanelPreview(title: "Preview", caption: preview.isUnavailable
+                                     ? "Preview unavailable: the server didn't answer."
+                                     : "Loading…",
+                                     enabled: true, frame: nil)
+                    }
+                }
+                .settingsPreviewRow()
+            } footer: {
+                Text("The clock rotates these cards for each active session. The icon uses this Mac's source color; its eyes show the session state.")
+            }
+
+            Section {
+                Toggle("Source card", isOn: $cards.draft.sourceCard)
+                Toggle("Activity card", isOn: $cards.draft.activityDetail)
+            } header: {
+                Text("Cards")
+            } footer: {
+                SectionFooter(text: "The activity card scrolls the current tool call next to the icon. These apply to this Mac's sessions.",
+                              error: cards.saveError)
+            }
+            .disabled(!cards.isLoaded)
+
+            Section {
+                Toggle("Usage cards", isOn: usageDraft.usageWidget)
+                Toggle("Per-model usage", isOn: usageDraft.usagePerModel)
+                    .disabled(!usage.draft.usageWidget)
+            } header: {
+                Text("Usage")
+            } footer: {
+                SectionFooter(text: "When usage cards join the rotation is set in Sources › Agents. Server-wide.",
+                              error: usage.saveError ?? (usage.isLoaded ? nil : usage.loadError))
+            }
+            .disabled(!usage.isLoaded)
+
+            Section {
+                Toggle("Context glass", isOn: $cards.draft.contextPct)
+                InfoRow("Bottom bar", info: .bottomBar, requirement: .loading) { label in
+                    Picker(selection: $cards.draft.bottomBarMode) {
+                        Text("Session pixels").tag(BottomBarMode.session)
+                        Text("Rate bar").tag(BottomBarMode.rate)
+                        Text("Off").tag(BottomBarMode.off)
+                    } label: { label }
+                }
+                InfoToggle("Activity trail", isOn: $cards.draft.activityTrail, info: .activityTrail, requirement: .loading)
+            } header: {
+                Text("On Every Card")
+            } footer: {
+                Text("Context glass fills with the session's context use; turning it off also stops reporting it.")
+            }
+            .disabled(!cards.isLoaded)
+
+            ShowOnClockSection()
+        }
+        .formStyle(.grouped)
+        .autosaves(cards)
+        .autosaves(usage)
+        .previews(previewDraft, into: preview) { try await env.preview.fetchPreview($0) }
+        .reloads {
+            async let a: Void = env.settings.agentsEnv.load()
+            async let b: Void = env.clockAgents.load()
+            _ = await (a, b)
+        }
+    }
+
+    private var previewDraft: DraftDisplay {
+        var draft = cards.draft.draftDisplay(sourceColor: env.settings.connectionEnv.draft.sourceColor)
+        draft.sourceCard = true
+        draft.usageCard = true
+        return draft
+    }
+}
+
+private struct ShowOnClockSection: View {
+    @Environment(AppEnvironment.self) private var env
+
+    var body: some View {
+        let apps = MenuRows.showOnClock(env.live.apps)
+        if !apps.isEmpty {
+            Section {
+                ForEach(apps) { app in
+                    Toggle(isOn: Binding(
+                        get: { app.enabled },
+                        set: { on in Task { await env.actions.run(.setApp(app.name, enabled: on)) } })) {
+                        Text(app.title)
+                    }
+                }
+            } header: {
+                Text("Show on Clock")
+            } footer: {
+                Text("A hidden tool's sessions still report; the clock skips them. Changes apply at once.")
+            }
+        }
+    }
+}

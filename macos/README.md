@@ -1,0 +1,91 @@
+# Ember (native SwiftUI menu-bar app)
+
+The native macOS menu-bar companion for `ember`, replacing the retired Go +
+`fyne.io/systray` + DarwinKit menu app. The Go server and HTTP
+API are unchanged; this app is a pure client.
+
+## Structure (hybrid: SwiftPM core + thin Xcode app)
+
+- **`Package.swift` + `Sources/EmberKit/`** — all testable logic, no SwiftUI
+  scene code: Codable models (mirror the server wire shapes), `APIClient`,
+  `ServerConnection`, the Device/Preview/Reminders wrappers, `pickWinning`, `EnvFile` + validation
+  (`producer.env`), `ConnectionSettings`/`DisplaySettings`, `MenuPrefs`, and the
+  foundations the UI reads: `LiveModel` + `RefreshCoordinator` (every polled
+  feed), `ActionRunner`, `ConfigModel` (auto-saving settings) and the
+  presentation helpers. Tested headlessly with `swift test`.
+- **`Ember/`** — the thin SwiftUI app target (`LSUIElement` agent app):
+  `MenuBarExtra` (status + Pomodoro controls + dynamic tray glyph), a `Settings`
+  sidebar window (Connection / Device / Agent / Pomodoro / Weather /
+  Reminders / App), a **Dashboard** `Window` (⌘0), a Dock menu, and shared views
+  in `Ember/Shared/`. `AppEnvironment` owns the `ServerConnection`, `live`,
+  `actions`, `settings`, the clock's settings, prefs, and `ServerDiscovery`
+  (Bonjour `_ember._tcp` browse). The **Device** tab drives the AWTRIX clock's own
+  settings via the server's `/v1/device/*` proxy (incl. an mDNS clock picker);
+  Connection lists Bonjour-discovered servers (with a Local Network grant prompt).
+- **`project.yml`** — XcodeGen source for the app target (committed). The generated
+  `Ember.xcodeproj` is **gitignored** — regenerate it (below).
+
+## Build & run
+
+```sh
+brew install xcodegen                                  # one-time
+xcodegen generate --spec macos/project.yml --project macos
+open macos/Ember.xcodeproj                        # select your Dev team, then Run (⌘R)
+```
+
+Headless checks (CI-friendly, no signing):
+
+```sh
+swift test --package-path macos                        # the EmberKit unit tests
+xcodebuild -project macos/Ember.xcodeproj -scheme Ember \
+  -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
+```
+
+Local Release build for installing on a Mac without a Developer ID:
+
+```sh
+security find-identity -v -p codesigning                  # find your "Apple Development" SHA-1
+echo <SHA-1> > ~/.config/ember/signing-identity           # once (mkdir -p ~/.config/ember first)
+scripts/build-local.sh                                    # builds, signs with it, runs verify-bundle.sh
+```
+
+The file's first non-blank, non-`#` line is used (`$XDG_CONFIG_HOME/ember/`
+when `XDG_CONFIG_HOME` is set); `EMBER_SIGNING_IDENTITY` overrides it, and
+`EMBER_SIGNING_IDENTITY=-` builds ad-hoc once.
+Without an Apple Development certificate, run `scripts/local-signing-identity.sh`
+once instead: it creates a self-signed "Ember Local Signing" identity that
+`build-local.sh` uses when no identity is configured.
+
+Signing with one stable identity keeps the Local Network permission (and
+Little Snitch rules) across rebuilds; an ad-hoc build loses it each time. See
+the RUNBOOK's "Local install without a Developer ID".
+
+Closing the Settings window leaves Ember running; Quit stops its Music and
+Reminders watchers but not the producers. See the RUNBOOK's "Quit vs close".
+
+## Configuration
+
+Reads `~/.config/ember/producer.env` (`EMBER_SERVER_URL`,
+`EMBER_TOKEN`, `EMBER_SOURCE`, `EMBER_SOURCE_COLOR`, and the display toggles),
+shared with the Go producers. The Connection tab edits it and rebuilds the live
+client without relaunch. Menu-only prefs (icon palette, tray glyphs) live in
+`UserDefaults`.
+
+The live Display/dashboard previews call the server's open `GET /v1/preview`
+endpoint — your server must be on a build that includes it (added 2026-05; a
+pre-`/v1/preview` server returns 401 for that route).
+
+## Status (2026-06-10)
+
+All settings panes + dashboard are built; `swift test` is green; the installed
+SwiftUI app is the live menu (the Go menu is long retired). Latest additions:
+the Device tab (clock control + mDNS clock picker), Connection server discovery
+with a Local Network grant prompt, and an App→About version readout. App
+`MARKETING_VERSION` 0.4.0.
+
+## Third-party assets
+
+- **Montserrat Medium** (`Sources/EmberKit/Resources/Montserrat-Medium.ttf`),
+  © The Montserrat Project Authors, under the SIL Open Font License 1.1
+  (`Sources/EmberKit/Resources/Montserrat-OFL.txt`). The knob page previews use
+  it because the knob's LVGL fonts are built from it.

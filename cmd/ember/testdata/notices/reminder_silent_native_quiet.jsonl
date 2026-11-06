@@ -1,0 +1,1 @@
+{"op":"notify","payload":{"durationMs":12000,"hold":false,"icon":"1234","name":"ember-reminder","repeat":1,"scroll":{"whenFits":"static"},"stack":true,"text":"Water","textCase":"upper","textColor":"#FFCC33","wakeup":true}}
