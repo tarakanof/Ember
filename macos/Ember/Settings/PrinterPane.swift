@@ -71,6 +71,10 @@ private struct PrinterPaneBody: View {
 
             Section {
                 Toggle("Show on the clock", isOn: $config.draft.clockApp)
+                Picker("Show", selection: $config.draft.show) {
+                    ForEach(PrinterShow.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .disabled(!c.clockApp)
                 Toggle("Notify when a print is done", isOn: $config.draft.notifyDone)
                 Toggle("Notify when the printer needs you", isOn: $config.draft.notifyAttention)
                 StepperRow(title: "Keep \"done\" on the clock for", value: $config.draft.doneHoldMin,

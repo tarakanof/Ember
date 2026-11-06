@@ -17,7 +17,7 @@ private func emberKitStrings() -> [LocalizedStringResource] {
     out += ["claude", "codex", "t3", "weather", "ember-weather-popup", "ember-forecast", "ember-air", "ember-air-popup",
             "ember-sun-popup", "pomodoro", "ember-meet", "ember-meeting", "ember-reminder", "ember-notify",
             "ember-usage-alarm", "ember-usage-claude", "mystery",
-            "ember-print", "ember-print-eta", "ember-print-pct", "ember-print-done", "ember-print-attention",
+            "ember-print", "ember-print-eta", "ember-print-pct", "ember-print-temp", "ember-print-done", "ember-print-attention",
             "ember-print-error"].map(AppNames.display)
     let session = try! JSONDecoder().decode(Session.self, from: Data(#"{"tool":"claude","state":"running","context_pct":5}"#.utf8))
     var sourced = session
@@ -34,6 +34,7 @@ private func emberKitStrings() -> [LocalizedStringResource] {
     out += [AggregateSaveStatus.saving, .saved, .failed].compactMap(\.subtitle)
     out += SettingsInfo.allCases.flatMap { [$0.summary, $0.detail] }
     out += SettingsInfoRequirement.allCases.map(\.text)
+    out += PrinterShow.allCases.map(\.title)
     return out
 }
 

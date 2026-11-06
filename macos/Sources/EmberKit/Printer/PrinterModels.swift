@@ -1,5 +1,21 @@
 import Foundation
 
+public enum PrinterShow: String, Codable, Sendable, CaseIterable {
+    case printing
+    case on
+
+    public init(from decoder: Decoder) throws {
+        self = PrinterShow(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .printing
+    }
+
+    public var title: LocalizedStringResource {
+        switch self {
+        case .printing: "While printing"
+        case .on: "Whenever the printer is on"
+        }
+    }
+}
+
 public struct PrinterConfig: Codable, Sendable, Equatable {
     public static let auto = "auto"
     public static let holdRange = 1...1440
@@ -11,10 +27,11 @@ public struct PrinterConfig: Codable, Sendable, Equatable {
     public var notifyDone: Bool
     public var notifyAttention: Bool
     public var doneHoldMin: Int
+    public var show: PrinterShow
 
     public init(enabled: Bool = false, url: String = PrinterConfig.auto, name: String = "CORE One",
                 clockApp: Bool = true, notifyDone: Bool = true, notifyAttention: Bool = true,
-                doneHoldMin: Int = 30) {
+                doneHoldMin: Int = 30, show: PrinterShow = .printing) {
         self.enabled = enabled
         self.url = url
         self.name = name
@@ -22,10 +39,11 @@ public struct PrinterConfig: Codable, Sendable, Equatable {
         self.notifyDone = notifyDone
         self.notifyAttention = notifyAttention
         self.doneHoldMin = doneHoldMin
+        self.show = show
     }
 
     enum CodingKeys: String, CodingKey {
-        case enabled, url, name
+        case enabled, url, name, show
         case clockApp = "clock_app"
         case notifyDone = "notify_done"
         case notifyAttention = "notify_attention"
@@ -42,6 +60,7 @@ public struct PrinterConfig: Codable, Sendable, Equatable {
         notifyDone = try c.decodeIfPresent(Bool.self, forKey: .notifyDone) ?? true
         notifyAttention = try c.decodeIfPresent(Bool.self, forKey: .notifyAttention) ?? true
         doneHoldMin = try c.decodeIfPresent(Int.self, forKey: .doneHoldMin) ?? 30
+        show = (try? c.decodeIfPresent(PrinterShow.self, forKey: .show)) ?? .printing
     }
 
     public var isAuto: Bool { url == Self.auto }

@@ -20,6 +20,7 @@ public enum AppNames {
         "print": "Print",
         "print-eta": "Print · Ready At",
         "print-pct": "Print · Percent",
+        "print-temp": "Print · Temperature",
         "print-done": "Print Done",
         "print-attention": "Printer Needs You",
         "print-error": "Printer Error",
