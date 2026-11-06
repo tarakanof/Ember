@@ -9,8 +9,9 @@ private let now = Date(timeIntervalSince1970: 1_800_000_000)
 private let t0 = Int64(now.timeIntervalSince1970)
 private let utc = TimeZone(secondsFromGMT: 0)!
 
-private func face(_ b: KnobPrintBlock?, at: Date = now, zone: TimeZone? = utc) -> KnobPrintFace {
-    KnobPrintFace(block: b, now: at, zone: zone)
+private func face(_ b: KnobPrintBlock?, at: Date = now, zone: TimeZone? = utc, link: KnobPrintFace.Link = .fed,
+                  doneSince: Date? = nil) -> KnobPrintFace {
+    KnobPrintFace(block: b, now: at, zone: zone, link: link, doneSince: doneSince)
 }
 
 private func block(_ phase: KnobPrintBlock.Phase, progress: Int? = 46, endsAt: Int64? = nil, startedAt: Int64? = nil,
@@ -41,6 +42,9 @@ private func block(_ phase: KnobPrintBlock.Phase, progress: Int? = 46, endsAt: I
                                                       nozzleTarget: 215, bed: 60, bedTarget: 60))
     #expect(printing?.temps == nil && printing?.progress == nil && printing?.endsAt == nil)
     #expect(KnobPrintBlock(state: PrinterState(enabled: true, phase: "busy"))?.phase == .unknown)
+    let marks = String(repeating: "e\u{301}", count: 10)
+    let cut = KnobPrintBlock(state: PrinterState(enabled: true, phase: "printing", progress: 1, material: marks))?.material
+    #expect(cut?.unicodeScalars.count == 16 && cut == String(repeating: "e\u{301}", count: 8), "16 runes, as Go's firstRunes")
     #expect(KnobPrintBlock(state: PrinterState(enabled: true, phase: "heating", nozzle: 600, nozzleTarget: 240, bed: 72,
                                                bedTarget: 85))?.temps == nil)
 }
@@ -189,11 +193,35 @@ private struct Row {
     let fresh = face(block(.finished, startedAt: start, event: .init(kind: "finished", at: t0 - 599)))
     #expect(fresh.sub == "2 h 14 m \u{2022} take it out" && !fresh.dimmed)
     #expect(face(block(.finished, startedAt: start, event: .init(kind: "finished", at: t0 - 600))).dimmed)
-    #expect(face(block(.finished, startedAt: start)).dimmed)
+    #expect(!face(block(.finished, startedAt: start)).dimmed, "no finish event and never seen: bright")
+    #expect(!face(block(.finished, startedAt: start), doneSince: now.addingTimeInterval(-599)).dimmed)
+    #expect(face(block(.finished, startedAt: start), doneSince: now.addingTimeInterval(-600)).dimmed, "10 min after first shown")
+    #expect(face(block(.finished, startedAt: start, event: .init(kind: "finished", at: t0 - 700)),
+                 doneSince: now.addingTimeInterval(-60)).dimmed, "the earlier of the event and the first show")
     #expect(face(block(.finished, startedAt: start)).sub == "take it out")
+    #expect(KnobPrintLive.doneJob(block(.finished, startedAt: start)) == start)
+    #expect(KnobPrintLive.doneJob(block(.finished)) == 0 && KnobPrintLive.doneJob(block(.printing)) == nil)
     #expect(!face(block(.printing, endsAt: t0 + 60)).dimmed)
     #expect(KnobPrintFace.duration(14 * 60) == "14 min" && KnobPrintFace.duration(59 * 60 + 29) == "59 min")
     #expect(KnobPrintFace.duration(59 * 60 + 30) == "1 h 00 m")
+}
+
+@Test func linkStatesFollowPrintTextLink() {
+    let connecting = face(nil, link: .connecting)
+    #expect(connecting.word == "Connecting" && connecting.wordColor == c.dimWord && connecting.sub.isEmpty && connecting.small.isEmpty)
+    let offline = face(block(.printing, endsAt: t0 + 600), link: .offline)
+    #expect(offline.value == "10" && offline.sub == "offline" && offline.subColor == c.sub && offline.small.isEmpty)
+    #expect(face(block(.printing, endsAt: t0 + 600)).small == "Desk lamp \u{2022} PLA")
+}
+
+@Test func linesTooWideForTheirLabelLoseTheirEnd() {
+    var b = block(.printing, endsAt: t0 + 600)
+    b.name = "A very long name for a desk lamp shade"
+    b.material = "PLA/PETG"
+    let small = face(b).small
+    #expect(small.hasSuffix("... \u{2022} PLA/PETG") && small.count < b.name.count)
+    let th = KnobTheme.standard
+    #expect(KnobFaceRender.textWidth(small, th.print.small.fontPx, theme: th) <= th.print.small.widthPx)
 }
 
 @Test func namesFoldToASCIIForTheFace() {
@@ -272,6 +300,43 @@ func heroMatchesCindersPrintDraw() throws {
     #expect(try cinderMatch("main/print_view.c", #"st\.track = (PRINT_COL_TRACK);"#) == "PRINT_COL_TRACK")
 }
 
+@Test(.enabled(if: cinderDir != nil, "no cinder checkout next to this repo (set CINDER_DIR)"))
+func printWordsMatchCindersPrintC() throws {
+    let src = try String(contentsOf: try #require(cinderDir).appendingPathComponent("firmware/components/print/print.c"), encoding: .utf8)
+    let literals = [
+        #"#define SEP " \xE2\x80\xA2 ""#, #"word(t, "Printer off", PRINT_COL_DIMWORD)"#, #"word(t, "Idle", PRINT_COL_SUB)"#,
+        #"word(t, "Ready", PRINT_COL_TEXT)"#, #"word(t, "Heating", PRINT_COL_HEAT)"#,
+        #"b->phase == PRINT_PREPARING ? "Preparing" : "Printing", PRINT_COL_ACCENT"#, #"sub(t, PRINT_COL_SUB, "%d%% done", b->progress)"#,
+        #"sub(t, PRINT_COL_WAIT, "colour change: %d min", ch)"#, #"sub(t, PRINT_COL_ACCENT, "done %s", ready)"#,
+        #"sub(t, PRINT_COL_ACCENT, "done in %s", d)"#, #"sub(t, PRINT_COL_ACCENT, "finishing up")"#,
+        #"word(t, "Paused", PRINT_COL_WAIT)"#, #"sub(t, PRINT_COL_SUB, "at %d%%", p)"#, #"word(t, "Check printer", PRINT_COL_WAIT)"#,
+        #"k1 ? "paused" SEP "%d%% done""#, #"sub(t, PRINT_COL_SUB, "see the printer")"#, #"word(t, "Done", PRINT_COL_DONE)"#,
+        #"sub(t, PRINT_COL_SUB, "%s" SEP "take it out", d)"#, #"sub(t, PRINT_COL_SUB, "take it out")"#,
+        #"word(t, "Stopped", PRINT_COL_SUB)"#, #"word(t, "Printer error", PRINT_COL_ERR)"#,
+        #"sub(t, PRINT_COL_HEAT, "heating" SEP "bed %d\xC2\xB0", b->bed)"#, #"snprintf(t->unit, sizeof t->unit, "/ %d\xC2\xB0", b->nozzle_target)"#,
+        #"snprintf(t->val, sizeof t->val, "%d\xC2\xB0", b->nozzle)"#, #"sub(t, PRINT_COL_HEAT, "bed %d\xC2\xB0", b->bed)"#,
+        #"sub(t, PRINT_COL_HEAT, "nozzle %d\xC2\xB0", b->nozzle)"#, #"sub(t, PRINT_COL_SMALL, "%s", b->printer)"#,
+        #"sub(t, PRINT_COL_DIMWORD, "%s", b->printer)"#, #"snprintf(val, vcap, "%d:%02d", min / 60, min % 60);"#,
+        #"*unit = "h left";"#, #"*unit = "min left";"#, #"snprintf(buf, cap, "%lld h %02lld m", m / 60, m % 60);"#,
+        #"snprintf(buf, cap, "%lld min", m);"#, #"snprintf(out, cap, "%s" SEP "%s", b->name, b->material);"#,
+        #"snprintf(t->val, sizeof t->val, "100");"#, #"word(t, "Connecting", PRINT_COL_DIMWORD);"#, #"sub(t, PRINT_COL_SUB, "offline");"#,
+        #"return s < 0 ? -1 : (int)((s + 59) / 60);"#, #"long long m = s < 0 ? 0 : (s + 30) / 60;"#,
+        #"if (b->bed > PRINT_WARM_C)"#, #"else if (b->nozzle > PRINT_WARM_C)"#, #"if (in < 0 || in > CHANGE_SOON_S) return false;"#,
+        #"*min = (int)ceil(in / 60);"#,
+    ]
+    for l in literals { #expect(src.contains(l), "print.c no longer has \(l)") }
+    let heat = try cinderMatch("components/print/print.c",
+                               #"b->nozzle_target > (\d+) \? clamp01\(\(b->nozzle - (\d+)\.0f\) / \(b->nozzle_target - (\d+)\.0f\)\)"#)
+    #expect(Double(heat) == KnobPrintFace.nozzleHeatFrom)
+    let bed = try cinderMatch("components/print/print.c",
+                              #"b->bed_target > (\d+) \? clamp01\(\(b->bed - (\d+)\.0f\) / \(b->bed_target - (\d+)\.0f\)\)"#)
+    #expect(Double(bed) == KnobPrintFace.bedHeatFrom)
+    #expect(src.contains("b->nozzle_target > 25 ? clamp01((b->nozzle - 25.0f) / (b->nozzle_target - 25.0f))"))
+    #expect(src.contains("b->bed_target > 22 ? clamp01((b->bed - 22.0f) / (b->bed_target - 22.0f))"))
+    let mixK = try cinderMatch("components/print/print.c", #"t->val_col = print_mix\(PRINT_COL_TEXT, PRINT_COL_HEAT, ([\d.]+)f\);"#)
+    #expect(Double(mixK) == KnobPrintFace.heatValueMix)
+}
+
 @MainActor
 private func render(_ f: KnobPrintFace, t: Double? = nil) throws -> CGImage {
     let r = ImageRenderer(content: KnobFaceView(.print(f), t: t).frame(width: 466, height: 466))
@@ -339,7 +404,7 @@ private func save(_ img: CGImage, _ name: String) {
     let done = try render(face(block(.finished, startedAt: t0 - 8000, event: .init(kind: "finished", at: t0 - 60))))
     save(done, "done")
     #expect(near(pixel(done, right, 233), c.done, 20))
-    let dimmed = try render(face(block(.finished)))
+    let dimmed = try render(face(block(.finished), doneSince: now.addingTimeInterval(-601)))
     save(dimmed, "done-dimmed")
     #expect(Int(pixel(dimmed, right, 233).b) < Int(pixel(done, right, 233).b) - 60, "the Done face dims itself")
 

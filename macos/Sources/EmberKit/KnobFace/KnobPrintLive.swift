@@ -4,16 +4,18 @@ public struct KnobPrintLive: View {
     public static let fps = 15.0
 
     let state: PrinterState?
+    let link: KnobPrintFace.Link
     let animated: Bool
     let windowVisible: Bool
     let theme: KnobTheme
     let brightness: Double
     @State private var visible = false
+    @State private var doneSince: Date?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(state: PrinterState?, animated: Bool = true, windowVisible: Bool = true, theme: KnobTheme = .standard,
-                brightness: Double = 1) {
-        self.state = state; self.animated = animated; self.windowVisible = windowVisible; self.theme = theme
+    public init(state: PrinterState?, link: KnobPrintFace.Link = .fed, animated: Bool = true, windowVisible: Bool = true,
+                theme: KnobTheme = .standard, brightness: Double = 1) {
+        self.state = state; self.link = link; self.animated = animated; self.windowVisible = windowVisible; self.theme = theme
         self.brightness = brightness
     }
 
@@ -23,17 +25,23 @@ public struct KnobPrintLive: View {
 
     public static func moves(_ face: KnobPrintFace, reduceMotion: Bool) -> Bool { face.moves && !reduceMotion }
 
+    public static func doneJob(_ block: KnobPrintBlock?) -> Int64? {
+        block?.phase == .finished ? block?.startedAt ?? 0 : nil
+    }
+
     public var body: some View {
         let block = KnobPrintBlock(state: state)
         Group {
             if Self.ticks(animated: animated, onScreen: visible, windowVisible: windowVisible) {
-                if Self.moves(face(block, at: .now), reduceMotion: reduceMotion) {
-                    TimelineView(.animation(minimumInterval: 1 / Self.fps)) { tl in
-                        let t = (tl.date.timeIntervalSinceReferenceDate * Self.fps).rounded(.down) / Self.fps
-                        view(face(block, at: tl.date), t: t)
+                TimelineView(.periodic(from: .now, by: 1)) { tl in
+                    let f = face(block, at: tl.date)
+                    if Self.moves(f, reduceMotion: reduceMotion) {
+                        TimelineView(.animation(minimumInterval: 1 / Self.fps)) { frame in
+                            view(f, t: (frame.date.timeIntervalSinceReferenceDate * Self.fps).rounded(.down) / Self.fps)
+                        }
+                    } else {
+                        view(f, t: nil)
                     }
-                } else {
-                    TimelineView(.periodic(from: .now, by: 1)) { tl in view(face(block, at: tl.date), t: nil) }
                 }
             } else {
                 view(face(block, at: .now), t: nil)
@@ -41,10 +49,11 @@ public struct KnobPrintLive: View {
         }
         .onAppear { visible = true }
         .onDisappear { visible = false }
+        .onChange(of: Self.doneJob(block), initial: true) { _, job in doneSince = job == nil ? nil : .now }
     }
 
     private func face(_ block: KnobPrintBlock?, at now: Date) -> KnobPrintFace {
-        KnobPrintFace(block: block, now: now, theme: theme.print)
+        KnobPrintFace(block: block, now: now, link: link, doneSince: doneSince, theme: theme)
     }
 
     private func view(_ f: KnobPrintFace, t: Double?) -> some View {

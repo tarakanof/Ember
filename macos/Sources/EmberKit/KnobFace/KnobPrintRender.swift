@@ -180,8 +180,7 @@ extension KnobFaceRender {
             (f.small, p.small, f.smallColor, p.small.basePx),
         ]
         for (text, line, color, base) in lines where !text.isEmpty {
-            let shown = KnobPrintFace.fit(text, width: line.widthPx) { textWidth($0, line.fontPx, theme: theme) }
-            label(shown, line.fontPx, color, centerX: c, top: printTop(line.fontPx, base: base, theme: theme), clip: line.widthPx,
+            label(text, line.fontPx, color, centerX: c, top: printTop(line.fontPx, base: base, theme: theme), clip: line.widthPx,
                   theme: theme, in: &ctx)
         }
     }

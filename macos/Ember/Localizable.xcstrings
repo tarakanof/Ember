@@ -68,6 +68,9 @@
       "comment" : "Menu usage row: tool name, then when the used-up 5-hour window resets.",
       "extractionState" : "manual"
     },
+    "%@ Ember is offline, so this is the last state it sent." : {
+      "comment" : "Knob 3D printer preview while Ember can't be reached: the last printer state (\"Printer off.\", \"Printing, 42% done.\") and a note."
+    },
     "%@ at %@" : {
       "comment" : "Settings › Knob Crash row: the crash reason and the program counter (\"Panic at 0x4201a2b3\").",
       "localizations" : {
@@ -1821,7 +1824,7 @@
     "No meetings in the next 36 hours." : {},
     "No music data from Ember." : {},
     "No observation yet" : {},
-    "No printer data from Ember." : {},
+    "No printer data from Ember yet." : {},
     "No server URL" : {},
     "No server found?" : {},
     "No stops yet" : {},
@@ -2076,6 +2079,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Preparing the print." : {},
     "Press" : {},
     "Preview" : {},
     "Preview unavailable: the server didn't answer." : {},

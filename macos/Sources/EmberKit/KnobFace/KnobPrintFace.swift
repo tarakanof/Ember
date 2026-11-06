@@ -44,7 +44,7 @@ public struct KnobPrintBlock: Equatable, Sendable {
         guard let s = state, s.enabled, s.phase != "off" else { return nil }
         let phase = Phase(rawValue: s.phase) ?? .unknown
         let event = s.event.map { Event(kind: $0.kind, at: $0.at) }
-        let printer = String(s.printer.name.prefix(Self.printerRunes))
+        let printer = Self.runes(s.printer.name, Self.printerRunes)
         guard phase != .offline, phase != .idle else {
             self.init(phase: phase, printer: printer, event: event)
             return
@@ -57,14 +57,20 @@ public struct KnobPrintBlock: Equatable, Sendable {
         func time(_ t: Int64?) -> Int64? { t.flatMap { $0 > 0 ? $0 : nil } }
         self.init(phase: phase, progress: s.progress.flatMap { (0...100).contains($0) ? $0 : nil },
                   endsAt: time(s.endsAt), startedAt: time(s.startedAt), changeAt: time(s.changeAt), temps: temps,
-                  name: s.name, material: String(s.material.prefix(Self.materialRunes)), printer: printer, event: event)
+                  name: s.name, material: Self.runes(s.material, Self.materialRunes), printer: printer, event: event)
     }
+
+    static func runes(_ s: String, _ n: Int) -> String { String(String.UnicodeScalarView(s.unicodeScalars.prefix(n))) }
 }
 
 public struct KnobPrintFace: Equatable, Sendable {
     public enum Look: Sendable, Equatable {
         case none, offline, idle, heating, progress, finishing, paused, attention, done, stopped, error
     }
+
+    public enum Link: Sendable, Equatable { case fed, connecting, offline }
+
+    static let nozzleHeatFrom = 25.0, bedHeatFrom = 22.0, heatValueMix = 0.5
 
     public var look: Look
     public var sweeps: Bool
@@ -78,8 +84,9 @@ public struct KnobPrintFace: Equatable, Sendable {
     public var valueColor, unitColor, wordColor, subColor, smallColor: RGB
     public var dimmed: Bool
 
-    public init(block b: KnobPrintBlock?, now: Date, zone: TimeZone? = .current,
-                theme: KnobTheme.Print = KnobTheme.standard.print) {
+    public init(block b: KnobPrintBlock?, now: Date, zone: TimeZone? = .current, link: Link = .fed, doneSince: Date? = nil,
+                theme full: KnobTheme = .standard) {
+        let theme = full.print
         let c = theme.colors
         let look = Self.look(b)
         self.look = look
@@ -92,13 +99,33 @@ public struct KnobPrintFace: Equatable, Sendable {
         valueColor = c.text; unitColor = c.sub; wordColor = c.text; subColor = c.sub; smallColor = c.small
         dimmed = false
         text(b, look: look, now: now.timeIntervalSince1970, zone: zone, theme: theme)
+        switch link {
+        case .fed: break
+        case .connecting:
+            (value, unit, word, sub, small) = ("", "", "Connecting", "", "")
+            wordColor = c.dimWord
+        case .offline:
+            setSub("offline", c.sub)
+            small = ""
+        }
         if look == .done, let b {
-            if let e = b.event, e.kind == "finished" {
-                dimmed = now.timeIntervalSince1970 - Double(e.at) >= theme.doneDimS
-            } else {
-                dimmed = true
+            let finished = b.event.flatMap { $0.kind == "finished" ? Double($0.at) : nil }
+            let seen = doneSince?.timeIntervalSince1970
+            if let t0 = [finished, seen].compactMap({ $0 }).min() {
+                dimmed = now.timeIntervalSince1970 - t0 >= theme.doneDimS
             }
         }
+        fitLines(full)
+    }
+
+    private mutating func fitLines(_ theme: KnobTheme) {
+        let p = theme.print
+        func fitted(_ s: String, _ line: KnobTheme.Print.Line) -> String {
+            Self.fit(s, width: line.widthPx) { KnobFaceRender.textWidth($0, line.fontPx, theme: theme) }
+        }
+        word = fitted(word, p.word)
+        sub = fitted(sub, p.sub)
+        small = fitted(small, p.small)
     }
 
     static func look(_ b: KnobPrintBlock?) -> Look {
@@ -121,8 +148,9 @@ public struct KnobPrintFace: Equatable, Sendable {
 
     static func heat(_ t: KnobPrintBlock.Temps?) -> Double {
         guard let t else { return 0 }
-        let n = t.nozzleTarget > 25 ? clamp01((Double(t.nozzle) - 25) / (Double(t.nozzleTarget) - 25)) : 0
-        let d = t.bedTarget > 22 ? clamp01((Double(t.bed) - 22) / (Double(t.bedTarget) - 22)) : 0
+        let nf = nozzleHeatFrom, bf = bedHeatFrom
+        let n = Double(t.nozzleTarget) > nf ? clamp01((Double(t.nozzle) - nf) / (Double(t.nozzleTarget) - nf)) : 0
+        let d = Double(t.bedTarget) > bf ? clamp01((Double(t.bed) - bf) / (Double(t.bedTarget) - bf)) : 0
         return n * 0.6 + d * 0.4
     }
 
@@ -235,7 +263,7 @@ public struct KnobPrintFace: Equatable, Sendable {
             }
             value = "\(t.nozzle)\u{B0}"
             unit = "/ \(t.nozzleTarget)\u{B0}"
-            valueColor = Self.mix(c.text, c.heat, 0.5)
+            valueColor = Self.mix(c.text, c.heat, Self.heatValueMix)
             unitColor = c.sub
             setSub("heating" + Self.sep + "bed \(t.bed)\u{B0}", c.heat)
         case .progress:

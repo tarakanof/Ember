@@ -58,6 +58,13 @@ struct KnobPreviewData {
     var pomodoroFetchedAt: Date? { env.live.lastFetched(.pomodoroState) }
     var weather: WeatherState? { env.live.weather.value }
     var printer: PrinterState? { env.live.printer.value }
+    var printLink: KnobPrintFace.Link {
+        switch env.live.printer {
+        case .loaded: .fed
+        case .loading: .connecting
+        case .failed(_, let last, _): last == nil ? .connecting : .offline
+        }
+    }
 
     var pomodoroNote: String? {
         let p = env.settings.pomodoro
@@ -90,7 +97,7 @@ struct KnobPreviewData {
                                pictures: nowPlaying?.pictures ?? .init(),
                                animated: animated, brightness: brightness)
         case "print":
-            KnobPrintLive(state: printer, animated: animated, windowVisible: windowVisible, theme: theme, brightness: brightness)
+            KnobPrintLive(state: printer, link: printLink, animated: animated, windowVisible: windowVisible, theme: theme, brightness: brightness)
         default:
             Circle().fill(.black)
         }
@@ -158,25 +165,31 @@ struct KnobPreviewData {
     }
 
     private var printCaption: Text {
-        let f = KnobPrintFace(block: KnobPrintBlock(state: printer), now: .now, theme: theme.print)
-        let p = KnobPrintBlock(state: printer)?.progress ?? 0
-        switch f.look {
+        let link = printLink
+        if link == .connecting { return Text("No printer data from Ember yet.") }
+        let block = KnobPrintBlock(state: printer)
+        let f = KnobPrintFace(block: block, now: .now, link: link, theme: theme)
+        let p = block?.progress ?? 0
+        let state: Text = switch f.look {
         case .none:
-            guard let printer else { return Text("No printer data from Ember.") }
-            return printer.enabled ? Text("Printer off.") : Text("Printer off: the printer isn't set up in Ember.")
-        case .offline: return Text("Printer off.")
-        case .idle: return KnobPrintBlock(state: printer)?.phase == .idle ? Text("Ready: the printer is on and idle.") : Text("Idle.")
-        case .heating: return Text("Heating up for a print.")
-        case .progress where f.value.isEmpty: return Text("Printing.")
+            printer?.enabled == true ? Text("Printer off.") : Text("Printer off: the printer isn't set up in Ember.")
+        case .offline: Text("Printer off.")
+        case .idle: block?.phase == .idle ? Text("Ready: the printer is on and idle.") : Text("Idle.")
+        case .heating: Text("Heating up for a print.")
+        case .progress where block?.phase == .preparing: Text("Preparing the print.")
+        case .progress where block?.endsAt == nil: Text("Printing.")
         case .progress:
-            return Text("Printing, \(p)% done.", comment: "Knob 3D printer preview: the job's progress (\"Printing, 42% done.\").")
-        case .finishing: return Text("Finishing up.")
-        case .paused: return Text("Paused at \(p)%.", comment: "Knob 3D printer preview: the paused job's progress (\"Paused at 46%.\").")
-        case .attention: return Text("The printer needs you.")
-        case .done: return Text("Done: take the print out.")
-        case .stopped: return Text("Stopped at \(p)%.", comment: "Knob 3D printer preview: the stopped job's progress (\"Stopped at 46%.\").")
-        case .error: return Text("Printer error: see the printer.")
+            Text("Printing, \(p)% done.", comment: "Knob 3D printer preview: the job's progress (\"Printing, 42% done.\").")
+        case .finishing: Text("Finishing up.")
+        case .paused: Text("Paused at \(p)%.", comment: "Knob 3D printer preview: the paused job's progress (\"Paused at 46%.\").")
+        case .attention: Text("The printer needs you.")
+        case .done: Text("Done: take the print out.")
+        case .stopped: Text("Stopped at \(p)%.", comment: "Knob 3D printer preview: the stopped job's progress (\"Stopped at 46%.\").")
+        case .error: Text("Printer error: see the printer.")
         }
+        guard link == .offline else { return state }
+        return Text("\(state) Ember is offline, so this is the last state it sent.",
+                    comment: "Knob 3D printer preview while Ember can't be reached: the last printer state (\"Printer off.\", \"Printing, 42% done.\") and a note.")
     }
 
     private var weatherCaption: Text {
@@ -307,7 +320,7 @@ private struct KnobPreviewFeeds: ViewModifier {
     }
 
     private var showsPrint: Bool {
-        page == "print" || (page == nil && env.knob.settings.draft.pages.contains { $0.id == "print" && $0.on })
+        page == "print" || (page == nil && env.knob.settings.draft.pagesShown(on: env.knob.knob).contains { $0.id == "print" })
     }
 
     private var showsWeather: Bool {
@@ -317,7 +330,7 @@ private struct KnobPreviewFeeds: ViewModifier {
     func body(content: Content) -> some View {
         content
             .holdsLive(.weather, in: env.live, while: page == nil || page == "weather")
-            .holdsLive(.print, in: env.live, while: showsPrint)
+            .holdsLive(.print, in: env.live, while: showsPrint && visible)
             .task(id: "\(env.connection.serverURL?.absoluteString ?? "")|\(page ?? "")|\(overviewNeedsNowPlaying)") {
                 let overview = page == nil
                 guard page == "nowplaying" || (overview && overviewNeedsNowPlaying) else { return }
