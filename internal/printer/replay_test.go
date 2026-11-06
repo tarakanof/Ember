@@ -236,6 +236,20 @@ func TestReplayScreenStartedPrintStopsWithOneEventPerEdge(t *testing.T) {
 	if want := stopped.Events[2].At.Add(StoppedHold); !stopped.HoldUntil.Equal(want) {
 		t.Fatalf("hold until %v, want %v", stopped.HoldUntil, want)
 	}
+	until := stopped.HoldUntil
+	for k := edges[2].Row; k < len(snaps); k++ {
+		sn := snaps[k]
+		if sn.Phase != PhaseStopped {
+			continue
+		}
+		if sn.Name != stopped.Name || sn.JobID != 695 || sn.ThumbVersion != stopped.ThumbVersion {
+			t.Fatalf("the stopped screen lost the job at row %d: %+v", k, sn)
+		}
+		held := time.Unix(0, int64(rows[k].T*float64(time.Second))).Before(until)
+		if held != sn.HoldUntil.Equal(until) || (!held && !sn.HoldUntil.IsZero()) {
+			t.Fatalf("row %d: hold %v, the stopped hold ends %v", k, sn.HoldUntil, until)
+		}
+	}
 	idle := snaps[len(snaps)-1]
 	if idle.Phase != PhaseIdle || idle.JobID != 0 || idle.Name != "" || !idle.HoldUntil.IsZero() {
 		t.Fatalf("idle after the stopped screen = %+v", idle)

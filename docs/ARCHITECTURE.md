@@ -2845,7 +2845,7 @@ keeps it on the default transport: mDNS browsing is injected
   print's time, which the recording does not show (a remote start read 0).
   It is kept as defensive because the knob view golden
   (`view_print_heating.json`) pins an empty `started_at` for such an
-  answer, while nothing pins the one-read hold of `startHeld`. The time
+  answer, while nothing pinned the removed `startHeld` hold. The time
   check's cost: a server start in the middle of a preheat (0 %,
   `time_printing` already past the watched time) leaves `started_at` empty
   until 1 %.
