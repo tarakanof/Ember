@@ -155,6 +155,9 @@ func rowOf(snaps []Snapshot, phase Phase) int {
 
 func TestReplayRemotePrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
 	_, h, rows, snaps := playTrace(t, remoteTrace)
+	if rowOf(snaps, PhaseHeating) < 0 {
+		t.Fatal("the preheat never read heating")
+	}
 	want := []Phase{PhaseIdle, PhasePreparing, PhasePrinting, PhasePaused, PhasePrinting, PhaseFinishing, PhaseFinished, PhaseIdle}
 	if got := coarsePhases(snaps); !slices.Equal(got, want) {
 		t.Fatalf("phases = %v\nwant     %v", got, want)
@@ -297,14 +300,14 @@ func TestReplayRestartAtEveryRowReplaysNoEndedOrRunningEdge(t *testing.T) {
 					if ev := snaps[len(snaps)-1].Events; len(ev) > 0 {
 						lastID = ev[len(ev)-1].ID
 					}
-					var kinds []EventKind
+					var got []edge
 					for _, e := range replay(t, s, h, screen)[len(screen)-1].Events {
 						if e.ID > lastID {
-							kinds = append(kinds, e.Kind)
+							got = append(got, edge{e.Kind, e.JobID, 0})
 						}
 					}
-					if !slices.Equal(kinds, []EventKind{EventAttention, EventStarted, EventStopped}) {
-						t.Fatalf("restart at row %d: the next print fired %v", i, kinds)
+					if want := []edge{{EventAttention, 695, 0}, {EventStarted, 695, 0}, {EventStopped, 695, 0}}; !slices.Equal(got, want) {
+						t.Fatalf("restart at row %d: the next print fired %v", i, got)
 					}
 				}
 				if end := snaps[len(snaps)-1]; end.Phase != full[len(full)-1].Phase || end.JobID != full[len(full)-1].JobID {
