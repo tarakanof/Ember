@@ -125,6 +125,9 @@ func TestDeviceAutoPicked_ConcurrentAccess(t *testing.T) {
 func TestRediscoverClock_RetriesProbeBeforeBrowsing(t *testing.T) {
 	var hits atomic.Int64
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		if hits.Add(1) == 1 {
 			hj, _ := w.(http.Hijacker)
 			conn, _, _ := hj.Hijack()
@@ -176,6 +179,9 @@ func TestStartDeviceWatch_LostProbeIsNotAReboot(t *testing.T) {
 	var down atomic.Bool
 	var ok, failed atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		if down.Load() {
 			failed.Add(1)
 			http.Error(w, "lost", http.StatusServiceUnavailable)

@@ -271,6 +271,9 @@ func TestArtistLookupAttachesDeezerPicture(t *testing.T) {
 	var searches, fetched int
 	var fetchedPath string
 	deezer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		switch {
 		case r.URL.Path == "/search/artist":
 			searches++

@@ -160,6 +160,9 @@ func newAirTestApp(t *testing.T, pub *recordingPublisher, aqi *float64, hits *in
 	}))
 	t.Cleanup(weatherSrv.Close)
 	airSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		atomic.AddInt32(hits, 1)
 		fmt.Fprintf(w, `{"current":{"european_aqi":%g},"hourly":{"european_aqi":[%g]}}`, *aqi, *aqi)
 	}))
@@ -295,6 +298,9 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 	var hits int32
 	fail := true
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		atomic.AddInt32(&hits, 1)
 		if fail {
 			w.WriteHeader(http.StatusInternalServerError)

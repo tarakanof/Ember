@@ -221,6 +221,9 @@ func TestLoadCAPool_RejectsNonPEM(t *testing.T) {
 func TestHealthcheckOnce_HTTPSIgnoresTheBaseProxyAndHTTP2(t *testing.T) {
 	var proxied atomic.Bool
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		proxied.Store(true)
 		w.WriteHeader(http.StatusBadGateway)
 	}))

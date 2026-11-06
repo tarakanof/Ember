@@ -65,6 +65,9 @@ func newProviderSwitchApp(t *testing.T) (*App, *providerStubs) {
 	}))
 	t.Cleanup(met.Close)
 	air := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		t.Errorf("unexpected air-quality request %s", r.URL)
 		http.Error(w, "unexpected", http.StatusTeapot)
 	}))

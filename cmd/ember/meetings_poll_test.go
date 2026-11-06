@@ -53,7 +53,7 @@ func TestPollMeetingsFetchesAndStores(t *testing.T) {
 
 	pub := &recordingPublisher{}
 	app := newMeetingsTestApp(t, pub)
-	app.meetingsURLs = []string{srv.URL}
+	app.meetingsURLs = []string{srv.URL + "/cal.ics"}
 	app.meetingsFetcher = newICSFetcher()
 
 	app.pollMeetings(context.Background(), now)
@@ -74,6 +74,9 @@ func TestPollMeetingsFetchesAndStores(t *testing.T) {
 func TestPollMeetingsDueGate(t *testing.T) {
 	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		atomic.AddInt32(&hits, 1)
 		now := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
 		w.Write(singleEventICS("evt@test", "Test", now.Add(30*time.Minute)))
@@ -83,7 +86,7 @@ func TestPollMeetingsDueGate(t *testing.T) {
 	now := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
 	pub := &recordingPublisher{}
 	app := newMeetingsTestApp(t, pub)
-	app.meetingsURLs = []string{srv.URL}
+	app.meetingsURLs = []string{srv.URL + "/cal.ics"}
 	app.meetingsFetcher = newICSFetcher()
 
 	app.pollMeetings(context.Background(), now)
@@ -536,7 +539,7 @@ func TestPollMeetingsRefreshesBeforePopup(t *testing.T) {
 
 	pub := &recordingPublisher{}
 	app := newMeetingsTestApp(t, pub)
-	app.meetingsURLs = []string{srv.URL}
+	app.meetingsURLs = []string{srv.URL + "/cal.ics"}
 	app.meetingsFetcher = newICSFetcher()
 
 	m1Start := now.Add(2 * time.Minute)
@@ -580,7 +583,7 @@ func TestPollMeetingsPrunesFiredMap(t *testing.T) {
 
 	pub := &recordingPublisher{}
 	app := newMeetingsTestApp(t, pub)
-	app.meetingsURLs = []string{srv.URL}
+	app.meetingsURLs = []string{srv.URL + "/cal.ics"}
 	app.meetingsFetcher = newICSFetcher()
 
 	old := now.Add(-3 * time.Hour).UTC().Format(time.RFC3339)

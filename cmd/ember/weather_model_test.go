@@ -112,6 +112,9 @@ func newModelSwitchApp(t *testing.T) (*App, *modelStub) {
 	app, _ := newProviderSwitchApp(t)
 	st := &modelStub{req: make(chan struct{}, 1)}
 	om := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		m := r.URL.Query().Get("models")
 		st.mu.Lock()
 		st.models = append(st.models, m)

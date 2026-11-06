@@ -58,6 +58,9 @@ func TestDeviceSystemWritesAreSerialised(t *testing.T) {
 	gets := 0
 	secondGet := make(chan struct{})
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			mu.Lock()

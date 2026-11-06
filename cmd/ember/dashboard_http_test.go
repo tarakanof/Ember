@@ -73,6 +73,9 @@ func closedURL(t *testing.T) string {
 func ngReleases(t *testing.T, tag string, hits *atomic.Int32) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		hits.Add(1)
 		if r.Header.Get("User-Agent") == "" {
 			http.Error(w, "user agent required", http.StatusForbidden)
@@ -206,7 +209,7 @@ func TestDashboardGolden(t *testing.T) {
 	app := goldenApp(t)
 	clock := ngHealthClock(t, &clockHits)
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
-	app.firmware.url = ngReleases(t, "v1.1.2", &releaseHits).URL
+	app.firmware.url = ngReleases(t, "v1.1.2", &releaseHits).URL + "/releases/latest"
 	app.firmware.cached(goldenNow, nil)
 	app.firmware.wg.Wait()
 	for range 3 {
@@ -541,7 +544,7 @@ func TestClockHealthCachesTheDeviceProbe(t *testing.T) {
 	clock := ngHealthClock(t, &hits)
 	app := newPomodoroApp(t)
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
-	app.firmware.url = ngReleases(t, "v1.1.2", &releases).URL
+	app.firmware.url = ngReleases(t, "v1.1.2", &releases).URL + "/releases/latest"
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
@@ -573,6 +576,9 @@ func TestClockHealthProbeIgnoresCallerCancellation(t *testing.T) {
 func TestClockHealthFirmwareLookupFailsSoft(t *testing.T) {
 	var hits atomic.Int32
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		hits.Add(1)
 		http.Error(w, "rate limited", http.StatusForbidden)
 	}))
@@ -580,7 +586,7 @@ func TestClockHealthFirmwareLookupFailsSoft(t *testing.T) {
 	app := newPomodoroApp(t)
 	dead := closedURL(t)
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = dead })
-	app.firmware.url = down.URL
+	app.firmware.url = down.URL + "/releases/latest"
 
 	app.buildClockHealth(t.Context(), goldenNow)
 	app.firmware.wg.Wait()

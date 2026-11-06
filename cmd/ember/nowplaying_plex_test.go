@@ -29,6 +29,9 @@ func newFakePlex(t *testing.T, art []byte) (*fakePlex, *httptest.Server) {
 	t.Helper()
 	f := &fakePlex{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/" {
+			return
+		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		if r.Header.Get("X-Plex-Token") != fakePlexToken || r.URL.Query().Has("X-Plex-Token") {
