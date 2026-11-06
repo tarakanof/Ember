@@ -3448,6 +3448,28 @@ route only ever means a server without it. Other refusals (400
 `invalidName`, 422) are relayed and not retried;
 see "One operation at a time" and "Rotation cache" under the clock config
 façade.
+**New Ember apps get a slot** (#815, `cmd/ember/clock_arrange.go`). awtrix-ng
+puts an app its stored order doesn't name after every arranged app and lists
+it with `slot: null` (`CoreEngine::rebuildAppList`: arranged apps in their
+saved order, then newcomers; `inLoop: true` still means it is drawn). An order
+stored before an Ember app existed therefore shows that app last, after the
+built-ins: on the live clock `ember-print` came after Time and Temperature,
+the app the loop reaches latest after each forced switch to `ember`. After
+each successful push of the base app or a tile (only with the real clock
+publisher), a `clockJobs` job under the app-order lock reads
+`GET /api/v1/apps`. When the clock has a stored order (some app has a slot)
+and the app is listed, switched on and without a slot, it writes the order
+with the app after the last Ember app ranked before it in Ember's own order
+(the base app, then `tiles` order), else before the first one ranked after
+it, else at the end; `disabled` is the clock's full off list and every other
+slot stays, duplicates and reserved names included. A switched-off app is
+left off and unarranged, so a user who turns it off keeps it off. A clock
+with no stored order is left alone: there every app is `slot: null` and NG's
+default (built-ins, then pushed apps by arrival) holds; writing an order
+would freeze it. Each app is checked once per clock URL until the clock
+reboots or moves; a failed read or write waits 30 s and retries on the next
+push. The job is not in the clock parity golden, which pins the
+coordinator's own calls in tick order.
 The ambient weather overlay is a separate concern, `PATCH /api/v1/display`
 via `GET/PUT /v1/device/display` — not part of app ordering. Display power is
 its own route, `PUT /v1/device/display/power {"power":bool}`, which sends
@@ -6415,6 +6437,11 @@ rather than doubling some hours.
   same app is idempotent (blink phase and dwell survive a re-push unaffected),
   so the coordinator's dedupe is a network/CPU nicety, not a correctness
   requirement.
+- **`slot: null` is not "out of the rotation"** (verified on 1.2.3).
+  `GET /api/v1/apps` reports the app's place in the stored order, `null` when
+  the order doesn't name it; `inLoop` is whether it is drawn. An unarranged,
+  switched-on app plays after every arranged one (see "New Ember apps get a
+  slot"). Only `disabled` takes an app out of the loop.
 - **Pushed apps are RAM-only.** A device reboot drops every app Ember pushed
   and the `autoTransition`/`blockNavigation` settings pair, even though the
   coordinator's own bookkeeping doesn't know that happened until the next

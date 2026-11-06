@@ -203,7 +203,11 @@ func (c *coordinator) adoptDeviceManagedApps() bool {
 type coordTileWriter struct{ c *coordinator }
 
 func (w coordTileWriter) push(app string, body []byte) error {
-	return w.c.pushApp(app, body)
+	if err := w.c.pushApp(app, body); err != nil {
+		return err
+	}
+	w.c.pushed(app)
+	return nil
 }
 
 func (w coordTileWriter) clear(app string) error {
