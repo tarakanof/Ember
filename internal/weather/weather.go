@@ -158,10 +158,10 @@ type Observation struct {
 	PrecipStep      time.Duration
 	Precip          []PrecipStep
 	Days            []Day
-	Steps           []currentStep
+	Steps           []CurrentStep
 }
 
-type currentStep struct {
+type CurrentStep struct {
 	At        time.Time
 	Condition string
 	Code      string

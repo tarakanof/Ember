@@ -156,8 +156,8 @@ func (wf *Fetcher) fetchWeatherAPI(ctx context.Context, cfg Config, hint FetchHi
 
 func (h waHour) at() time.Time { return time.Unix(h.TimeEpoch, 0).UTC() }
 
-func waStep(at time.Time, temp *float64, c waCondition, now Now) currentStep {
-	s := currentStep{At: at, TempC: valueOr(temp, 0), Condition: render.WeatherClouds, Now: now}
+func waStep(at time.Time, temp *float64, c waCondition, now Now) CurrentStep {
+	s := CurrentStep{At: at, TempC: valueOr(temp, 0), Condition: render.WeatherClouds, Now: now}
 	if wmo, ok := weatherAPIWMO(valueOrInt(c.Code, -1)); ok {
 		s.Condition, s.Severe = wmoCondition(wmo)
 		s.Code = strconv.Itoa(wmo)
@@ -166,12 +166,12 @@ func waStep(at time.Time, temp *float64, c waCondition, now Now) currentStep {
 	return s
 }
 
-func (c waCurrent) step() currentStep {
+func (c waCurrent) step() CurrentStep {
 	return waStep(time.Unix(c.LastUpdatedEpoch, 0).UTC(), c.TempC, c.Condition,
 		Now{Cloud: c.Cloud, UV: c.UV, WindKmh: c.WindKph, GustKmh: c.GustKph, WindDir: c.WindDegree})
 }
 
-func (h waHour) step() currentStep {
+func (h waHour) step() CurrentStep {
 	return waStep(h.at(), h.TempC, h.Condition,
 		Now{Cloud: h.Cloud, UV: h.UV, WindKmh: h.WindKph, GustKmh: h.GustKph, WindDir: h.WindDegree})
 }

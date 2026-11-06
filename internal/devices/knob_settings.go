@@ -30,12 +30,12 @@ type KnobSettings struct {
 	Home           string         `json:"home"`
 	SwipePages     *bool          `json:"swipe_pages,omitempty"`
 	PollMS         int            `json:"poll_ms"`
-	Bot            knobBot        `json:"bot"`
+	Bot            KnobBot        `json:"bot"`
 	Diagnostics    string         `json:"diagnostics"`
 	StatsIntervalS int            `json:"stats_interval_s"`
 	LiveIntervalS  int            `json:"live_interval_s"`
-	Display        knobDisplay    `json:"display"`
-	Quiet          knobQuiet      `json:"quiet"`
+	Display        KnobDisplay    `json:"display"`
+	Quiet          KnobQuiet      `json:"quiet"`
 	Idle           *KnobIdle      `json:"idle,omitempty"`
 	Apps           *KnobApps      `json:"apps,omitempty"`
 	Room           *KnobRoom      `json:"room,omitempty"`
@@ -227,14 +227,14 @@ func (s KnobSettings) validateApps() error {
 	return nil
 }
 
-type knobQuiet struct {
+type KnobQuiet struct {
 	Calm     *bool `json:"calm,omitempty"`
 	DimLevel *int  `json:"dim_level,omitempty"`
 }
 
 const KnobQuietDimDefault = 20
 
-func (q knobQuiet) clone() knobQuiet {
+func (q KnobQuiet) clone() KnobQuiet {
 	if q.Calm != nil {
 		v := *q.Calm
 		q.Calm = &v
@@ -246,7 +246,7 @@ func (q knobQuiet) clone() knobQuiet {
 	return q
 }
 
-func (q *knobQuiet) fillDefaults() {
+func (q *KnobQuiet) fillDefaults() {
 	if q.Calm == nil {
 		q.Calm = boolPtr(true)
 	}
@@ -256,13 +256,13 @@ func (q *knobQuiet) fillDefaults() {
 	}
 }
 
-type knobDisplay struct {
+type KnobDisplay struct {
 	// Pointer: a record stored without it reads as on.
 	FastLink *bool `json:"fast_link,omitempty"`
 	Rotation int   `json:"rotation"`
 }
 
-func (d knobDisplay) clone() knobDisplay {
+func (d KnobDisplay) clone() KnobDisplay {
 	if d.FastLink != nil {
 		v := *d.FastLink
 		d.FastLink = &v
@@ -315,7 +315,7 @@ type KnobPage struct {
 	On bool   `json:"on"`
 }
 
-type knobBot struct {
+type KnobBot struct {
 	SleepyAfterS int `json:"sleepy_after_s"`
 	DemoHoldS    int `json:"demo_hold_s"`
 	// Pointers: a record stored before them reads as on.
@@ -332,7 +332,7 @@ const (
 )
 
 // Copies the flag pointers so a decoded patch never writes through the stored record.
-func (b knobBot) clone() knobBot {
+func (b KnobBot) clone() KnobBot {
 	if b.SourceLabel != nil {
 		v := *b.SourceLabel
 		b.SourceLabel = &v
@@ -380,10 +380,10 @@ func DefaultKnobSettings() KnobSettings {
 		Home:       "bot",
 		SwipePages: boolPtr(true),
 		PollMS:     2000,
-		Bot: knobBot{SleepyAfterS: 300, DemoHoldS: 20, SourceLabel: boolPtr(true), WorkingRing: boolPtr(true),
+		Bot: KnobBot{SleepyAfterS: 300, DemoHoldS: 20, SourceLabel: boolPtr(true), WorkingRing: boolPtr(true),
 			WeatherMoments: boolPtr(true), WeatherEveryMin: new(knobWeatherEveryMinDefault)},
-		Display:     knobDisplay{FastLink: boolPtr(true)},
-		Quiet:       knobQuiet{Calm: boolPtr(true), DimLevel: new(KnobQuietDimDefault)},
+		Display:     KnobDisplay{FastLink: boolPtr(true)},
+		Quiet:       KnobQuiet{Calm: boolPtr(true), DimLevel: new(KnobQuietDimDefault)},
 		Diagnostics: KnobDiagOff,
 
 		StatsIntervalS: KnobStatsIntervalDefault,
@@ -428,13 +428,13 @@ func (s *KnobSettings) addKnownPages() {
 	}
 }
 
-func (d *knobDisplay) fillDefaults() {
+func (d *KnobDisplay) fillDefaults() {
 	if d.FastLink == nil {
 		d.FastLink = boolPtr(true)
 	}
 }
 
-func (b *knobBot) fillDefaults() {
+func (b *KnobBot) fillDefaults() {
 	if b.SourceLabel == nil {
 		b.SourceLabel = boolPtr(true)
 	}

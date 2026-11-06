@@ -112,8 +112,8 @@ func (wf *Fetcher) TomorrowError(ctx context.Context, err error, now time.Time) 
 	return keyedFetchError(ctx, err, now, errTomorrowRequest, errTomorrowResponse)
 }
 
-func tomorrowSteps(minutely, hourly []tomorrowEntry) []currentStep {
-	var steps []currentStep
+func tomorrowSteps(minutely, hourly []tomorrowEntry) []CurrentStep {
+	var steps []CurrentStep
 	var first time.Time
 	if len(minutely) > 0 {
 		steps = append(steps, minutely[0].current())
@@ -131,9 +131,9 @@ func tomorrowSteps(minutely, hourly []tomorrowEntry) []currentStep {
 	return steps
 }
 
-func (e tomorrowEntry) current() currentStep {
+func (e tomorrowEntry) current() CurrentStep {
 	v := e.Values
-	s := currentStep{At: e.Time.UTC(), TempC: valueOr(v.Temperature, 0), Condition: render.WeatherClouds,
+	s := CurrentStep{At: e.Time.UTC(), TempC: valueOr(v.Temperature, 0), Condition: render.WeatherClouds,
 		Now: Now{Cloud: v.CloudCover, UV: v.UVIndex, WindKmh: scaled(v.WindSpeed, msToKmh),
 			GustKmh: scaled(v.WindGust, msToKmh), WindDir: v.WindDirection}}
 	if v.WeatherCode != nil {

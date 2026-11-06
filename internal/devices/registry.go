@@ -171,7 +171,7 @@ type View struct {
 	RotatedAt       *time.Time         `json:"rotated_at"`
 	LastCheckin     *Checkin           `json:"last_checkin"`
 	LastSeen        *ClockSeen         `json:"last_seen,omitempty"`
-	EffectiveCaps   *effectiveCapsView `json:"effective_caps,omitempty"`
+	EffectiveCaps   *EffectiveCapsView `json:"effective_caps,omitempty"`
 	Shown           *KnobShown         `json:"shown,omitempty"`
 }
 

@@ -351,7 +351,7 @@ func (wf *Fetcher) fetchMetNo(ctx context.Context, cfg Config, hint FetchHint) (
 	first := ts[0]
 	n := min(len(ts), forecastFetchHours)
 	hourly := make([]float64, n)
-	steps := make([]currentStep, n)
+	steps := make([]CurrentStep, n)
 	for i := 0; i < n; i++ {
 		hourly[i] = ts[i].Data.Instant.Details.AirTemperature
 		steps[i] = ts[i].current()
@@ -368,11 +368,11 @@ func (wf *Fetcher) fetchMetNo(ctx context.Context, cfg Config, hint FetchHint) (
 	return res, nil
 }
 
-func (e metEntry) current() currentStep {
+func (e metEntry) current() CurrentStep {
 	sym := e.symbol()
 	cond, severe := metSymbolCondition(sym)
 	in := e.Data.Instant.Details
-	return currentStep{At: e.Time.UTC(), Condition: cond, Code: sym, TempC: in.AirTemperature, Severe: severe,
+	return CurrentStep{At: e.Time.UTC(), Condition: cond, Code: sym, TempC: in.AirTemperature, Severe: severe,
 		Overlay: metSymbolOverlay(sym),
 		Now: Now{Cloud: in.Cloud, UV: in.UV, WindKmh: scaled(in.Wind, msToKmh),
 			GustKmh: scaled(in.Gust, msToKmh), WindDir: in.WindFrom}}
