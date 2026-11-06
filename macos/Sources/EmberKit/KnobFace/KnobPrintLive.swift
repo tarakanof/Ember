@@ -25,6 +25,16 @@ public struct KnobPrintLive: View {
 
     nonisolated public static func moves(_ face: KnobPrintFace, reduceMotion: Bool) -> Bool { face.moves && !reduceMotion }
 
+    public struct DoneKey: Equatable, Sendable {
+        public var job: Int64?
+        public var finishedAt: Date?
+    }
+
+    nonisolated public static func doneKey(_ block: KnobPrintBlock?) -> DoneKey {
+        let finished = block?.event.flatMap { $0.kind == "finished" ? Date(timeIntervalSince1970: TimeInterval($0.at)) : nil }
+        return DoneKey(job: doneJob(block), finishedAt: finished)
+    }
+
     nonisolated public static func doneJob(_ block: KnobPrintBlock?) -> Int64? {
         guard let b = block, b.phase == .finished else { return nil }
         return b.startedAt ?? b.event.flatMap { $0.kind == "finished" ? $0.at : nil } ?? 0
@@ -50,7 +60,9 @@ public struct KnobPrintLive: View {
         }
         .onAppear { visible = true }
         .onDisappear { visible = false }
-        .onChange(of: Self.doneJob(block), initial: true) { _, job in doneSince = KnobPrintDoneClock.shared.since(job, now: .now) }
+        .onChange(of: Self.doneKey(block), initial: true) { _, key in
+            doneSince = KnobPrintDoneClock.shared.since(key.job, finishedAt: key.finishedAt, now: .now)
+        }
     }
 
     private func face(_ block: KnobPrintBlock?, at now: Date) -> KnobPrintFace {
@@ -65,14 +77,21 @@ public struct KnobPrintLive: View {
 @MainActor
 public final class KnobPrintDoneClock {
     public static let shared = KnobPrintDoneClock()
-    private var seen: (job: Int64, at: Date)?
+    private var job: Int64 = 0
+    private var since: Date?
 
     public init() {}
 
-    public func since(_ job: Int64?, now: Date) -> Date? {
-        guard let job else { return nil }
-        if let s = seen, s.job == job { return s.at }
-        seen = (job, now)
-        return now
+    public func since(_ job: Int64?, finishedAt: Date?, now: Date) -> Date? {
+        guard let job else {
+            since = nil
+            return nil
+        }
+        if since != nil, job != 0, self.job != 0, job != self.job { since = nil }
+        if job != 0 { self.job = job }
+        let t0 = finishedAt ?? now
+        if let s = since, s <= t0 { return s }
+        since = t0
+        return t0
     }
 }

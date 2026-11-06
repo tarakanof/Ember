@@ -208,14 +208,32 @@ private struct Row {
     #expect(KnobPrintFace.duration(59 * 60 + 30) == "1 h 00 m")
 }
 
-@MainActor @Test func theFirstShowOfDoneIsKeptPerJobAcrossViews() {
+@MainActor @Test func theDoneClockKeepsTheEarliestTimeLikeDoneDim() {
     let clock = KnobPrintDoneClock()
-    let t1 = Date(timeIntervalSince1970: 100), t2 = Date(timeIntervalSince1970: 500)
-    #expect(clock.since(7, now: t1) == t1)
-    #expect(clock.since(7, now: t2) == t1, "a new view of the same job keeps the first show")
-    #expect(clock.since(nil, now: t2) == nil)
-    #expect(clock.since(7, now: t2) == t1, "leaving Done does not forget the job")
-    #expect(clock.since(8, now: t2) == t2, "the next job starts fresh")
+    let fin = Date(timeIntervalSince1970: 1000), shown = Date(timeIntervalSince1970: 1000 + 25 * 60)
+    #expect(clock.since(7, finishedAt: fin, now: shown) == fin, "the finish event is earlier than the first show")
+    #expect(clock.since(7, finishedAt: nil, now: shown.addingTimeInterval(300)) == fin,
+            "the event aged out: the kept time stays, the face stays dim")
+    #expect(clock.since(7, finishedAt: nil, now: shown.addingTimeInterval(900)) == fin, "a new view of the same job")
+    let late = Date(timeIntervalSince1970: 9000)
+    #expect(clock.since(8, finishedAt: nil, now: late) == late, "the next job starts fresh")
+    #expect(clock.since(nil, finishedAt: nil, now: late) == nil, "leaving Done forgets it, as done_seen does")
+
+    let keyless = KnobPrintDoneClock()
+    #expect(keyless.since(1000, finishedAt: fin, now: shown) == fin)
+    #expect(keyless.since(0, finishedAt: nil, now: shown.addingTimeInterval(400)) == fin,
+            "a key that falls to 0 when the event ages out is the same job")
+    #expect(keyless.since(0, finishedAt: nil, now: late) == fin)
+
+    let fresh = KnobPrintDoneClock()
+    #expect(fresh.since(0, finishedAt: nil, now: late) == late, "no event at all: 10 min from the first show")
+
+    var b = block(.finished, startedAt: nil, event: .init(kind: "finished", at: 1000))
+    #expect(KnobPrintLive.doneKey(b) == .init(job: 1000, finishedAt: fin))
+    b.event = nil
+    #expect(KnobPrintLive.doneKey(b) == .init(job: 0, finishedAt: nil))
+    let aged = face(block(.finished), at: shown.addingTimeInterval(300), doneSince: fin)
+    #expect(aged.dimmed, "dimmed after the event aged out")
 }
 
 @Test func offlineWithoutAnyStateShowsPrinterOff() {
