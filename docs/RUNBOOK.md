@@ -163,7 +163,10 @@ docker run -d --name ember --restart unless-stopped -p 3627:3627 \
   startup with a clear error. Expiry, SAN coverage and the trust chain are not
   validated; that is the operator's responsibility. The container healthcheck
   switches to https when the cert is set (`EMBER_HEALTHCHECK_CA_FILE` adds a
-  trust bundle, `EMBER_HEALTHCHECK_INSECURE=1` skips verification).
+  trust bundle, `EMBER_HEALTHCHECK_INSECURE=1` skips verification). The image
+  runs as uid 65532, so a cert mounted `0600 root:root` can't be read: make the
+  files `0644` or `chown 65532` them. Issue a self-signed cert with
+  `subjectAltName=IP:127.0.0.1` so the in-image healthcheck validates the loopback target.
 - **When recreating the container, `docker inspect` it first** to replicate
   exact mount destinations / env names rather than reconstructing from memory.
 - **After any render-side change, rebuild + redeploy from current `main`** —

@@ -15,8 +15,9 @@ over the firmware's HTTP API. It does not support AWTRIX 3.
 
 Flash AWTRIX NG by following the [awtrix-ng docs](https://blueforcer.github.io/awtrix-ng/).
 To move a TC001 over from AWTRIX 3, back up first: [`RUNBOOK.md`](RUNBOOK.md) →
-"awtrix-ng flashing, backup, and first-boot". Ember finds the clock by mDNS, or
-you set its address in the app's Device tab.
+"awtrix-ng flashing, backup, and first-boot". Ember finds the clock by mDNS; choose it in
+the app under Settings › Devices › Clock › Discover Clocks…. The clock and the
+Mac must be on the same network.
 
 ## The cinder knob
 

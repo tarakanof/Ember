@@ -27,7 +27,7 @@ it on your Mac.
 > it will replace the build steps below with a link. Until then, build the app
 > yourself. These steps are for v0.90.0 and later.
 
-1. Install the build tools: Xcode and `brew install xcodegen`.
+1. Install the build tools: Xcode (recent enough for the macOS 26 SDK) and Go 1.26 or later, then `brew install go xcodegen`. The build compiles the bundled Go helpers.
 2. Clone this repository and, from its root, run `scripts/build-local.sh`. It
    builds a Release `Ember.app` into `/tmp/ember-local-build/Build/Products/Release/`.
 3. Copy it to `/Applications` (`ditto /tmp/ember-local-build/Build/Products/Release/Ember.app /Applications/Ember.app`)
@@ -36,7 +36,7 @@ it on your Mac.
 4. Open **Settings › Connection**. Choose **Run on this Mac** to have Ember host
    its own server, or **Use another server** to connect to one you already run
    (see "Running your own server" below).
-5. Pick your clock in the **Device** tab.
+5. Open **Settings › Devices › Clock**, click **Discover Clocks…**, then **Use** next to your clock. Until you pick one, the built-in server publishes nothing.
 
 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) covers code signing for local builds,
 installing the Claude Code plugin and the headless producers.
