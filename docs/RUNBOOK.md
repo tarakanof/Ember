@@ -118,6 +118,18 @@ To check from Terminal: `launchctl print gui/$(id -u)/com.ember.server`
 (`state = running`), `lsof -nP -iTCP:3627 -sTCP:LISTEN`, `curl -s
 http://127.0.0.1:3627/healthz`.
 
+### App update notice (#836)
+
+Settings › General › Updates › **Check for updates automatically** (on by
+default, `updates.checkAutomatically` in the app's defaults). On, the app asks
+`api.github.com/repos/tarakanof/ember/releases/latest` at most once per 24 h
+(`updates.lastAttempt`), when it launches, the menu opens or the General pane
+opens; no timer. A newer, non-pre-release tag with an `Ember-*.zip` asset adds
+**Update Available: vX.Y.Z…** to the menu and **Release Notes** / **Download**
+to the pane, which only open the browser. A failed request is not retried
+until the next day. Off, no request is made. Reset the throttle with
+`defaults delete com.ember.Ember updates.lastAttempt`.
+
 ## Local server deployment (dev Mac, OrbStack)
 
 Docker is available via OrbStack; `docker buildx`, `scripts/image-smoke.sh`, and
