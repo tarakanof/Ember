@@ -29,6 +29,10 @@ public struct EnvFile: Sendable {
         return last
     }
 
+    public func contains(_ key: String) -> Bool {
+        lines.contains { $0.key == key }
+    }
+
     public mutating func set(_ key: String, _ value: String) {
         var lastIdx: Int? = nil
         for i in lines.indices where lines[i].key == key { lastIdx = i }

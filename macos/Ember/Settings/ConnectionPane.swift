@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 import EmberKit
 
 struct ConnectionPane: View {
@@ -13,36 +14,65 @@ struct ConnectionPane: View {
     @State private var tokenSaved = false
     @State private var probe: ConnectionProbe.Result?
     @State private var probing = false
+    @State private var stoppedHere = false
 
     private enum Field: Hashable { case source, serverURL, token }
     @FocusState private var focused: Field?
 
     private var model: EnvConfigModel<ConnectionSettings> { env.settings.connectionEnv }
+    private var server: BuiltInServerModel { env.builtInServer }
+    private var runsHere: Bool { server.mode == .thisMac }
 
     var body: some View {
         @Bindable var model = model
         Form {
             Section {
-                TextField("Server URL", text: $serverURL, prompt: Text(verbatim: "http://ember.local:3627"))
-                    .textContentType(.URL)
-                    .focused($focused, equals: .serverURL)
-                    .onSubmit { commit(\.serverURL, serverURL) }
-                LabeledContent("Status") {
-                    HStack(spacing: 10) {
-                        statusLabel
-                            .lineLimit(1)
-                            .fixedSize()
-                        Button("Test Connection") { Task { await runProbe() } }
-                            .disabled(probing)
+                Picker("Server", selection: Binding(
+                    get: { server.mode },
+                    set: { next in
+                        stoppedHere = next == .anotherServer
+                        Task { await server.select(next) }
+                    })) {
+                    Text("Run on this Mac").tag(ServerMode.thisMac)
+                    Text("Use another server").tag(ServerMode.anotherServer)
+                }
+                .pickerStyle(.radioGroup)
+                .disabled(!server.isLoaded || server.isWorking)
+                if runsHere {
+                    builtInRows
+                } else {
+                    TextField("Server URL", text: $serverURL, prompt: Text(verbatim: "http://ember.local:3627"))
+                        .textContentType(.URL)
+                        .focused($focused, equals: .serverURL)
+                        .onSubmit { commit(\.serverURL, serverURL) }
+                    LabeledContent("Status") {
+                        HStack(spacing: 10) {
+                            statusLabel
+                                .lineLimit(1)
+                                .fixedSize()
+                            Button("Test Connection") { Task { await runProbe() } }
+                                .disabled(probing)
+                        }
                     }
                 }
             } header: {
                 Text("Server")
             } footer: {
-                SaveErrorFooter(error: model.saveError)
+                VStack(alignment: .leading, spacing: 4) {
+                    if runsHere {
+                        Text("The clock, a knob and other Macs reach this Mac on port \(String(BuiltInServer.port)).",
+                             comment: "Settings › Connection footer while the built-in server runs; the port number.")
+                    } else if stoppedHere {
+                        Text("The clock returns to its own apps within about 30 seconds.")
+                    }
+                    if let error = server.error {
+                        Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    }
+                    SaveErrorFooter(error: model.saveError)
+                }
             }
 
-            discoveredSection
+            if !runsHere { discoveredSection }
 
             Section {
                 TextField("Source", text: $source, prompt: Text(verbatim: "mac"))
@@ -55,22 +85,28 @@ struct ConnectionPane: View {
                 if !model.draft.sourceColor.isEmpty {
                     HexColorRow(title: "Source color", hex: $model.draft.sourceColor, fallback: "#FF8800")
                 }
-                LabeledContent("Token") {
-                    HStack {
-                        SecureField("Token", text: $token,
-                                    prompt: Text(tokenIsSet ? "Saved — leave blank to keep" : "Not set"))
-                            .labelsHidden()
-                            .focused($focused, equals: .token)
-                            .onSubmit { Task { await saveToken() } }
-                        Button("Save Token") { Task { await saveToken() } }
-                            .disabled(tokenIsBlank)
+                if !runsHere {
+                    LabeledContent("Token") {
+                        HStack {
+                            SecureField("Token", text: $token,
+                                        prompt: Text(tokenIsSet ? "Saved — leave blank to keep" : "Not set"))
+                                .labelsHidden()
+                                .focused($focused, equals: .token)
+                                .onSubmit { Task { await saveToken() } }
+                            Button("Save Token") { Task { await saveToken() } }
+                                .disabled(tokenIsBlank)
+                        }
                     }
                 }
             } header: {
                 Text("This Mac")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("The source names this Mac on the clock; up to 4 characters fit best. The token must match the server's EMBER_TOKEN.")
+                    if runsHere {
+                        Text("The source names this Mac on the clock; up to 4 characters fit best.")
+                    } else {
+                        Text("The source names this Mac on the clock; up to 4 characters fit best. The token must match the server's EMBER_TOKEN.")
+                    }
                     if let tokenError {
                         Label(tokenError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
                     } else if tokenSaved {
@@ -94,7 +130,16 @@ struct ConnectionPane: View {
         }
         .onChange(of: env.serverURL) { _, _ in Task { await runProbe() } }
         .task { await env.serverDiscovery.browse() }
+        .task(id: server.mode) {
+            guard server.mode == .thisMac else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
+                await server.refresh()
+            }
+        }
         .reloads {
+            await server.refresh()
             await model.load()
             if let applied = model.applied {
                 source = applied.source
@@ -153,6 +198,80 @@ struct ConnectionPane: View {
                 Text(verbatim: "—").foregroundStyle(.secondary)
             }
         }
+    }
+
+    @ViewBuilder private var builtInRows: some View {
+        LabeledContent("Status") {
+            builtInStatus
+                .lineLimit(1)
+                .fixedSize()
+        }
+        if env.serverDiscovery.status == .needsAccess {
+            LabeledContent {
+                Button("Review Permissions…") { showSettings(.app(.permissions)) }
+            } label: {
+                Label { Text("Local Network access off") } icon: {
+                    Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
+                }
+            }
+        }
+        LabeledContent {
+            HStack(spacing: 10) {
+                Button("Show Log") { open(server.paths.log) }
+                Button("Show Data Folder") { open(server.paths.dataDir) }
+            }
+        } label: {
+            Text("Files")
+        }
+    }
+
+    @ViewBuilder private var builtInStatus: some View {
+        switch server.status {
+        case .off:
+            Text("Off").foregroundStyle(.secondary)
+        case .starting:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Starting…")
+            }
+        case .running(let version?):
+            Label { Text("Running · \(version)", comment: "Settings › Connection built-in server status; the server's version.") } icon: {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            }
+        case .running(nil):
+            Label { Text("Running") } icon: {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            }
+        case .notRunning:
+            HStack(spacing: 8) {
+                Label { Text("Not running") } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                }
+                Button("Start") { Task { await server.start() } }
+                    .disabled(server.isWorking)
+            }
+        case .portInUse:
+            Label { Text("Port \(String(BuiltInServer.port)) is in use by another program",
+                         comment: "Settings › Connection built-in server status when something else listens on its port; the port number.") } icon: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+            }
+        case .needsApproval:
+            HStack(spacing: 8) {
+                Label { Text("Needs approval in System Settings › Login Items") } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                }
+                Button("Open Login Items…") { SMAppService.openSystemSettingsLoginItems() }
+            }
+        case .missing:
+            Label { Text("The app is missing the server's launch agent.") } icon: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func open(_ url: URL) {
+        let target = FileManager.default.fileExists(atPath: url.path) ? url : url.deletingLastPathComponent()
+        NSWorkspace.shared.open(target)
     }
 
     private func runProbe() async {

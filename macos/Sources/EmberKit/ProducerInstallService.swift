@@ -150,10 +150,48 @@ public struct AgentOutcome: Sendable {
     public let error: Error?
 }
 
+public enum ManagedJob: Hashable, Sendable {
+    case producer(ProducerAgent)
+    case server
+
+    public static var all: [ManagedJob] { ProducerAgent.allCases.map { .producer($0) } + [.server] }
+
+    public var label: String {
+        switch self {
+        case .producer(let agent): agent.label
+        case .server: BuiltInServer.label
+        }
+    }
+
+    public var plistName: String { label + ".plist" }
+
+    public var name: String {
+        switch self {
+        case .producer(let agent): agent.rawValue
+        case .server: "server"
+        }
+    }
+}
+
 public struct ReconcileOutcome: Sendable {
-    public let agent: ProducerAgent
+    public let job: ManagedJob
     public let reason: ReconcileReason
     public let error: Error?
+
+    public init(job: ManagedJob, reason: ReconcileReason, error: Error?) {
+        self.job = job
+        self.reason = reason
+        self.error = error
+    }
+
+    public init(agent: ProducerAgent, reason: ReconcileReason, error: Error?) {
+        self.init(job: .producer(agent), reason: reason, error: error)
+    }
+
+    public var agent: ProducerAgent? {
+        if case .producer(let agent) = job { return agent }
+        return nil
+    }
 }
 
 public final class ProducerInstallService: Sendable {
@@ -280,10 +318,14 @@ public final class ProducerInstallService: Sendable {
     }
 
     public func liveness(_ agent: ProducerAgent) -> AgentLiveness {
+        liveness(.producer(agent))
+    }
+
+    func liveness(_ job: ManagedJob) -> AgentLiveness {
         let result: CommandResult
         do {
             result = try runner.run(executable: "/bin/launchctl",
-                                    arguments: ["print", launchdTarget(agent)])
+                                    arguments: ["print", launchdTarget(job)])
         } catch {
             warnProbeOnce("launchctl print didn't run: \(error.localizedDescription)")
             return .running
@@ -302,7 +344,7 @@ public final class ProducerInstallService: Sendable {
     public func restart(_ agent: ProducerAgent) async -> Bool {
         await serial.run {
             guard sm.status(plistName: agent.plistName) == .enabled else { return false }
-            let target = launchdTarget(agent)
+            let target = launchdTarget(.producer(agent))
             guard let probe = try? runner.run(executable: "/bin/launchctl", arguments: ["print", target]),
                   launchdProbe(probe) == .loaded else { return false }
             do {
@@ -316,8 +358,8 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    private func launchdTarget(_ agent: ProducerAgent) -> String {
-        "gui/\(uid)/\(agent.label)"
+    private func launchdTarget(_ job: ManagedJob) -> String {
+        "gui/\(uid)/\(job.label)"
     }
 
     private func warnProbeOnce(_ message: String) {
@@ -485,25 +527,29 @@ public final class ProducerInstallService: Sendable {
         await serial.run { reconcileNow(bundleChanged: bundleChanged) }
     }
 
-    private func reconcileNow(bundleChanged: Bool) -> [ReconcileOutcome] {
-        ProducerAgent.allCases.compactMap { agent in
-            let registration = sm.status(plistName: agent.plistName)
-            let live = registration == .enabled && !bundleChanged ? liveness(agent) : .running
+    private func reconcileNow(bundleChanged: Bool, jobs: [ManagedJob] = ManagedJob.all) -> [ReconcileOutcome] {
+        jobs.compactMap { job in
+            let registration = sm.status(plistName: job.plistName)
+            let live = registration == .enabled && !bundleChanged ? liveness(job) : .running
             guard let reason = reconcileReason(registration: registration, liveness: live,
                                                bundleChanged: bundleChanged) else { return nil }
-            let bootoutError = reason == .stuck ? bootout(agent) : nil
-            do {
-                try? sm.unregister(plistName: agent.plistName)
-                try sm.register(plistName: agent.plistName)
-                return ReconcileOutcome(agent: agent, reason: reason, error: bootoutError)
-            } catch {
-                return ReconcileOutcome(agent: agent, reason: reason, error: error)
-            }
+            return reregister(job, reason: reason)
         }
     }
 
-    private func bootout(_ agent: ProducerAgent) -> ProducerInstallError? {
-        let target = launchdTarget(agent)
+    private func reregister(_ job: ManagedJob, reason: ReconcileReason) -> ReconcileOutcome {
+        let bootoutError = reason == .stuck ? bootout(job) : nil
+        do {
+            try? sm.unregister(plistName: job.plistName)
+            try sm.register(plistName: job.plistName)
+            return ReconcileOutcome(job: job, reason: reason, error: bootoutError)
+        } catch {
+            return ReconcileOutcome(job: job, reason: reason, error: error)
+        }
+    }
+
+    private func bootout(_ job: ManagedJob) -> ProducerInstallError? {
+        let target = launchdTarget(job)
         let exit: Int32
         let detail: String
         do {
@@ -519,9 +565,54 @@ public final class ProducerInstallService: Sendable {
         return .bootoutFailed(exit: exit, detail: detail)
     }
 
+    public func serverRegistration() -> AgentRegistration {
+        sm.status(plistName: ManagedJob.server.plistName)
+    }
+
+    public func serverJob() -> ServerJobState {
+        guard let result = try? runner.run(executable: "/bin/launchctl",
+                                           arguments: ["print", launchdTarget(.server)]) else { return .unknown }
+        return serverJobState(result)
+    }
+
+    @concurrent
+    public func registerServer() async -> Error? {
+        await serial.run {
+            do {
+                try sm.register(plistName: ManagedJob.server.plistName)
+                return nil
+            } catch {
+                return error
+            }
+        }
+    }
+
+    @concurrent
+    public func unregisterServer() async -> Error? {
+        await serial.run {
+            do {
+                try sm.unregister(plistName: ManagedJob.server.plistName)
+                return nil
+            } catch {
+                return error
+            }
+        }
+    }
+
+    @concurrent
+    public func healServer() async -> Error? {
+        await serial.run {
+            let reason: ReconcileReason = liveness(.server) == .stuck ? .stuck : .notRunning
+            return reregister(.server, reason: reason).error
+        }
+    }
+
     @concurrent
     public func repairAll() async -> [AgentOutcome] {
-        await reconcile(bundleChanged: false).map { AgentOutcome(agent: $0.agent, error: $0.error) }
+        await serial.run {
+            reconcileNow(bundleChanged: false, jobs: ProducerAgent.allCases.map { .producer($0) })
+                .compactMap { outcome in outcome.agent.map { AgentOutcome(agent: $0, error: outcome.error) } }
+        }
     }
 
     @concurrent

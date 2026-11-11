@@ -1390,6 +1390,7 @@
     },
     "Failures" : {},
     "Fast display link" : {},
+    "Files" : {},
     "Find Clock from This Mac…" : {},
     "Finishing up." : {},
     "Firmware" : {},
@@ -1762,6 +1763,7 @@
     "Native icons in popups" : {},
     "Needs a newer server" : {},
     "Needs approval" : {},
+    "Needs approval in System Settings › Login Items" : {},
     "Needs attention" : {},
     "Needs knob firmware with demo support. Update the knob in its Firmware page." : {},
     "Needs server %@" : {
@@ -2072,6 +2074,9 @@
     },
     "Popup" : {},
     "Popups" : {},
+    "Port %@ is in use by another program" : {
+      "comment" : "Settings › Connection built-in server status when something else listens on its port; the port number."
+    },
     "Position" : {},
     "Power glitch" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2235,9 +2240,13 @@
     "Run AppleScript" : {},
     "Run Shortcut" : {},
     "Run on" : {},
+    "Run on this Mac" : {},
     "Running" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
+    },
+    "Running · %@" : {
+      "comment" : "Settings › Connection built-in server status; the server's version."
     },
     "Runs breaks and focus phases back to back" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2343,7 +2352,9 @@
       "comment" : "Settings › Agents › Accounts: accessibility label of an account's switch; the name is the account's."
     },
     "Show AM/PM" : {},
+    "Show Data Folder" : {},
     "Show Hardware" : {},
+    "Show Log" : {},
     "Show developer tools" : {},
     "Show for" : {},
     "Show next meeting" : {},
@@ -2421,6 +2432,7 @@
     "Start on Monday" : {},
     "Start the next phase automatically" : {},
     "Started" : {},
+    "Starting…" : {},
     "Startup" : {},
     "State" : {},
     "Status" : {},
@@ -2528,6 +2540,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The app is missing the server's launch agent." : {},
     "The bot fills in Prusa orange as a print runs, hops when it's done and shows “!” when the printer needs you. An agent that's waiting or in error hides it." : {},
     "The bot page tells you when a print is done or the printer needs you." : {},
     "The bot shows the weather when it changes" : {
@@ -2578,6 +2591,7 @@
     "The clock hasn't reported its apps yet." : {},
     "The clock is unavailable for a few seconds while it restarts." : {},
     "The clock is unreachable" : {},
+    "The clock returns to its own apps within about 30 seconds." : {},
     "The clock rotates these cards for each active session. The icon uses this Mac's source color; its eyes show the session state." : {},
     "The clock shows animated icons; the preview shows the drawn ones." : {},
     "The clock was busy with another change, so this one wasn't saved. Showing the current settings." : {
@@ -2587,6 +2601,9 @@
     "The clock's left and right buttons no longer change apps. A running Pomodoro turns this on so the buttons control the timer, then puts your setting back when it stops. Default: off." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
+    },
+    "The clock, a knob and other Macs reach this Mac on port %@." : {
+      "comment" : "Settings › Connection footer while the built-in server runs; the port number."
     },
     "The color must be a hex value like #FF8800." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2720,6 +2737,7 @@
       "extractionState" : "manual"
     },
     "The server's activity overlay is off, so new agent time isn't stored." : {},
+    "The source names this Mac on the clock; up to 4 characters fit best." : {},
     "The source names this Mac on the clock; up to 4 characters fit best. The token must match the server's EMBER_TOKEN." : {},
     "The tune the clock plays" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2953,6 +2971,7 @@
     "Use" : {},
     "Use Current Location" : {},
     "Use Full Diagnostics" : {},
+    "Use another server" : {},
     "Use http:// or https:// and the printer's host, for example http://192.168.1.50." : {},
     "Use http://address:port for the Ember address. The knob can't use https, IPv6 or a path." : {},
     "Use http://address:port. The knob can't use https, IPv6 or a path." : {},
@@ -3283,6 +3302,10 @@
     "in progress" : {},
     "just now" : {},
     "macOS asks once to let Ember control Music. Ember reads the player position, volume and artwork, and runs the knob's controls: play/pause, next, previous and Music's own volume (not the Mac's). Only while this is on and Music is already open; Ember never starts Music." : {},
+    "macOS couldn't generate a server token (error %d)." : {
+      "comment" : "Settings › Connection failure when SecRandomCopyBytes fails while turning on the built-in server; the OSStatus code.",
+      "extractionState" : "manual"
+    },
     "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services." : {},
     "macOS gives Local Network access to one build of an app, so a copy of Ember you build yourself can need approval again after every rebuild. If Ember is already on in Local Network settings but still blocked, turn it off and on again." : {},
     "macOS is blocking %@ from the local network, so its reports don't reach the server." : {

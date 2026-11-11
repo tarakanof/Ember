@@ -7,9 +7,11 @@ public func producerBundleFingerprint(version: String, build: String, helperDige
 
 public func bundleFingerprint(appURL: URL, version: String, build: String) -> String {
     let contents = appURL.appendingPathComponent("Contents")
-    let files = ProducerAgent.allCases.flatMap { agent in
-        [contents.appendingPathComponent("MacOS/\(agent.binaryName)"),
-         contents.appendingPathComponent("Library/LaunchAgents/\(agent.plistName)")]
+    let helpers = ProducerAgent.allCases.map { (binary: $0.binaryName, plist: $0.plistName) }
+        + [(binary: BuiltInServer.binaryName, plist: ManagedJob.server.plistName)]
+    let files = helpers.flatMap { helper in
+        [contents.appendingPathComponent("MacOS/\(helper.binary)"),
+         contents.appendingPathComponent("Library/LaunchAgents/\(helper.plist)")]
     }
     return producerBundleFingerprint(version: version, build: build, helperDigests: files.map(fileDigest))
 }

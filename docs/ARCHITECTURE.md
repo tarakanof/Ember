@@ -1519,6 +1519,39 @@ never registered alongside it; Move to Ember runs the helper's `uninstall`
 first. The master switch turns off every registered agent. The Claude row also says how its hooks are
 registered and whether the kill switch pauses them.
 
+**Built-in server (#833).** Settings › Connection › Server chooses **Run on
+this Mac** or **Use another server**. The mode is not stored anywhere: it is
+"Run on this Mac" while the bundled `com.ember.server` agent is registered
+(`.enabled` or `.requiresApproval`), so an existing install, whose agent was
+never registered, stays on "Use another server". `BuiltInServerService` turns
+it on in this order: create `~/Library/Application Support/Ember` (0700) and
+`~/.config/ember/server.env` (0600) with a minted `EMBER_TOKEN` (32
+`SecRandomCopyBytes` bytes, hex) only when the file has none; an existing
+`server.env` is never rewritten. Then it registers the agent, writes
+`EMBER_SERVER_URL=http://127.0.0.1:3627` and that token to `producer.env`, and
+polls for up to 15 s. Before that write, `producer.env` keeps the URL and token
+it had as `EMBER_PREVIOUS_SERVER_URL` and `EMBER_PREVIOUS_TOKEN` (the
+producers ignore both). Switching back unregisters the agent, waits up to 10 s
+for the port to close, and restores them, or clears the local URL and token
+when nothing was remembered. Either switch reloads `ServerConnection` and
+kickstarts the producer agents, since the Codex and T3 daemons read
+`producer.env` only at startup.
+
+The status row combines the registration, `launchctl print`'s `state` and a
+loopback `GET /healthz` (`builtInServerStatus`): healthy and our job running is
+**Running** (the version from `/version` with the server's token); our job
+running but not answering is **Starting…**; something answering, or accepting
+the connection but not answering, while our job is not running is **Port 3627
+is in use by another program** (the server exits on a failed listen, and
+launchd respawns it every 10 s); nothing listening is **Not running**, whose
+**Start** boots out a stuck job and registers again (the Repair path).
+`.requiresApproval` is **Needs approval in System Settings › Login Items**.
+The server's own Local Network grant can't be read from the app, so the row
+shows the app's Local Network hint instead. The server agent joins the
+producers' update reconcile (`ManagedJob.server`; `bundleFingerprint` digests
+`ember-server` and its plist too), so a new app build re-registers it and it
+runs the new binary; Repair in Settings › Agents leaves it alone.
+
 **3D Printer in the app (#816).** The feature is "3D Printer" everywhere the
 user reads it; wire names (`print`, `ember-print`, `printer.*`) stay. The
 custom symbol `ember.3d.printer` lives in `macos/Ember/Assets.xcassets`
