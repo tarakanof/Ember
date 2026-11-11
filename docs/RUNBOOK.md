@@ -1930,6 +1930,96 @@ Covers moving the TC001 from stock AWTRIX3 to [awtrix-ng](https://github.com/Blu
 
    Expect `"boardType": "awtrixng"` and your chosen hostname in the response.
 
+## Unraid install and Docker operations
+
+The repo ships a Community Applications template at
+[`deploy/unraid/ember.xml`](../deploy/unraid/ember.xml). The image is
+`dtarakanov/ember` on Docker Hub (public; multi-stage, linux/amd64 + arm64,
+distroless `nonroot` runtime, uid 65532, no shell).
+
+### Install on Unraid
+
+1. **Docker → Add Container → Template URL**, paste
+   `https://raw.githubusercontent.com/tarakanof/ember/main/deploy/unraid/ember.xml`.
+   Don't click Apply yet.
+2. From the Unraid shell, stage the appdata folder:
+   ```sh
+   mkdir -p /mnt/user/appdata/ember
+   curl -fsSL -o /mnt/user/appdata/ember/config.json \
+     https://raw.githubusercontent.com/tarakanof/ember/main/config.example.json
+   vi /mnt/user/appdata/ember/config.json   # set awtrix.http_base_url
+   ```
+3. Generate a token (`openssl rand -hex 32`), paste it into the template's
+   `EMBER_TOKEN` field and click **Apply**.
+4. Check: `docker exec ember /ember doctor` (the Console icon fails: the image has
+   no shell). Every check should show `[OK]`. After editing `config.json`, reload
+   without a restart: `curl -X POST -H "Authorization: Bearer <EMBER_TOKEN>"
+   http://<unraid-ip>:3627/admin/reload`.
+5. Upgrade: **Force Update** on the container. To pin a version, set the
+   template's Repository to `dtarakanov/ember:X.Y.Z`.
+6. Uninstall: Stop and Remove the container; `/mnt/user/appdata/ember/` stays
+   until you delete it.
+
+Producers (Ember.app, `ember-claude-producer`) run on your Macs and post to
+`http://<unraid-ip>:3627/v1/status` with the same token (`EMBER_SERVER_URL`,
+`EMBER_TOKEN`).
+
+### Operator commands
+
+```sh
+docker exec ember /ember version
+docker exec ember /ember doctor                 # full diagnostic
+docker exec ember /ember --print-config         # what's in effect, secrets redacted
+docker exec ember /ember healthcheck && echo OK
+docker logs ember
+curl http://localhost:3627/version
+curl -H "Authorization: Bearer $EMBER_TOKEN" http://localhost:3627/admin/doctor
+```
+
+`healthcheck` probes `http://127.0.0.1:3627/healthz`; set
+`EMBER_HEALTHCHECK_URL` if the server binds elsewhere. `doctor` defaults to
+`http://127.0.0.1:3627/admin/doctor`; `--server-url` overrides it and
+`--offline` runs the pre-flight checks without a server. TLS and its
+healthcheck switches are under "Local server deployment" above.
+`scripts/image-smoke.sh` is the Docker smoke test (it skips without Docker and
+does not exercise `/v1/*` writes).
+
+### Prometheus `/metrics`
+
+`GET /metrics` is on the public mux (no auth, never rate-limited), Prometheus
+text format:
+
+- counters: `ember_requests_total{pattern,status}`, `ember_publish_total{result}`,
+  `ember_publish_retries_total`, `ember_rate_limit_denied_total`,
+  `ember_sessions_evicted_total`, `ember_knob_view_longpoll_total{result}`
+- gauges: `ember_sessions_active`, `ember_uptime_seconds`,
+  `ember_knob_view_waiters`, `ember_last_publish_unix`, `ember_last_publish_ok`,
+  `ember_ratelimit_buckets`, `ember_build_info{revision,go_version,version}`
+
+Request counts are labelled by the matched route pattern, not the URL, so a 404
+spammer can't grow the series. Requests rejected by `requireAuth` /
+`adminRequireAuth` count against the outer prefix (`/v1/`, `/admin/`). No Go
+runtime metrics (that would need `prometheus/client_golang`). The endpoint
+exposes the git revision and Go version: fine on a trusted LAN; put it behind an
+authenticating reverse proxy if you bridge it wider.
+
+```yaml
+- job_name: ember
+  scrape_interval: 15s
+  static_configs:
+    - targets: ['homelab.lan:3627']
+```
+
+### Rate limiting
+
+A per-source-IP token bucket guards `/v1/*` writes: burst 60, 5 tokens/s
+refill, idle buckets evicted after 5 minutes. The burst is sized for one Mac's
+whole fan-out reconnecting at once. `/admin/*` is limited too, on purpose: it
+takes the same token, so its 401s must cost budget. Read endpoints (`/healthz`,
+`/state`, `/version`, `/metrics`, previews) are not limited. Tune via the
+`rate_limit` section of `config.json` and `POST /admin/reload`;
+`rate_limit.disabled: true` turns it off.
+
 ## Docker Hub release
 
 Releases are published on strict-semver `vX.Y.Z` tags (latest: `v0.2.0`),
@@ -1976,9 +2066,8 @@ docker rm -f ember && docker run -d --name ember --restart unless-stopped \
 > in place).
 
 Verify: `GET /version` reports `dirty:false`; `docker exec ember /ember doctor`
-all `[OK]`. For Unraid, see `README.md` → "Unraid install" + the
-`deploy/unraid/ember.xml` template. Spec/plan history lives in the Obsidian vault
-(`Personal/Ember/Specs/`).
+all `[OK]`. For Unraid, see "Unraid install and Docker operations" above and the
+`deploy/unraid/ember.xml` template.
 
 ## Upgrade notes
 
