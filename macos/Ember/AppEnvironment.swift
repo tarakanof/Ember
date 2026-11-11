@@ -29,6 +29,7 @@ public final class AppEnvironment {
     public let producers: ProducerInstallService
     public let builtInServer: BuiltInServerModel
     public let permissions: PermissionsModel
+    public let updates: UpdateCheckModel
 
     public var prefs: MenuPrefs {
         didSet {
@@ -220,6 +221,9 @@ public final class AppEnvironment {
             jobs: producers,
             paths: BuiltInServerPaths(home: FileManager.default.homeDirectoryForCurrentUser),
             producerEnv: envStore))
+        updates = UpdateCheckModel(
+            fetcher: GitHubUpdateFetcher(), defaults: AppEnvironment.prefsDefaults,
+            currentVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
         permissions = PermissionsModel(sources: AppPermissionSources(
             connection: connection, producers: producers, reminders: watcher, location: location, music: music))
         #if DEBUG
@@ -256,6 +260,7 @@ public final class AppEnvironment {
         feedKnobPrintPage()
         reconcileProducers()
         watchKnobPorts()
+        Task { [updates] in await updates.checkIfDue() }
     }
 
     private func watchKnobPorts() {

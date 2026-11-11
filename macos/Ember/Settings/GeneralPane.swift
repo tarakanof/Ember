@@ -89,6 +89,27 @@ struct GeneralPane: View {
             }
 
             Section {
+                if let notice = env.updates.notice {
+                    LabeledContent {
+                        HStack {
+                            Button("Release Notes") { NSWorkspace.shared.open(notice.releaseURL) }
+                            Button("Download") { NSWorkspace.shared.open(notice.downloadURL) }
+                        }
+                    } label: {
+                        Text("Update Available: \(notice.title)", comment: "Row label when a newer version exists: an app release tag (v0.91.0) in Settings › General, or a clock firmware version in Settings › Clock.")
+                    }
+                }
+                Toggle("Check for updates automatically", isOn: Binding(get: { env.updates.isEnabled }, set: { on in
+                    env.updates.isEnabled = on
+                    if on { Task { await env.updates.checkIfDue() } }
+                }))
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Once a day Ember asks GitHub for the latest release. It never downloads or installs anything itself.")
+            }
+
+            Section {
                 Toggle("Show developer tools", isOn: $developerTools)
             } header: {
                 Text("Developer")
@@ -99,6 +120,7 @@ struct GeneralPane: View {
         .formStyle(.grouped)
         .reloads { login = LoginItemService.status }
         .task { await env.permissions.refresh(ifOlderThan: Self.permissionsInterval) }
+        .task { await env.updates.checkIfDue() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await env.permissions.refresh(ifOlderThan: Self.permissionsInterval) }
         }

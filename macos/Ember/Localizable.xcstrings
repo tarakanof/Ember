@@ -940,6 +940,7 @@
     "Chart" : {},
     "Check Again" : {},
     "Check Ember every" : {},
+    "Check for updates automatically" : {},
     "Checked %@" : {
       "comment" : "Settings › Permissions: when the permissions were last checked, a time like \"10:42\"."
     },
@@ -1261,6 +1262,7 @@
     "Done: an agent finished." : {},
     "Done: take the print out." : {},
     "Double press" : {},
+    "Download" : {},
     "Download Crash Dump…" : {},
     "Download ELF…" : {},
     "Downloading" : {},
@@ -1945,6 +1947,7 @@
     "On the knob" : {
       "comment" : "Settings › Knob Firmware & updates image row badge (green): the knob runs this build."
     },
+    "Once a day Ember asks GitHub for the latest release. It never downloads or installs anything itself." : {},
     "Online" : {},
     "Only on this Mac, while Ember is running. Ember reacts when Music changes track or pauses; it never starts Music and doesn't poll it." : {},
     "Only some agents are reporting." : {},
@@ -2152,6 +2155,7 @@
       "comment" : "Settings › Knob › Status: Ember dropped the capabilities the knob reported; the server's reason follows."
     },
     "Release" : {},
+    "Release Notes" : {},
     "Reminder" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2914,7 +2918,10 @@
     "Up and down" : {},
     "Upcoming" : {},
     "Update Available: %@" : {
-      "comment" : "Settings › Clock: button to a newer firmware version; the argument is the version (\"1.2.0\")."
+      "comment" : "Row label when a newer version exists: an app release tag (v0.91.0) in Settings › General, or a clock firmware version in Settings › Clock."
+    },
+    "Update Available: %@…" : {
+      "comment" : "Menu item when a newer app release exists; the placeholder is the version tag (v0.91.0)."
     },
     "Update screen" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2943,6 +2950,7 @@
     "Updated to %@" : {
       "comment" : "Settings › Knob Firmware row after an update; the argument is the firmware the knob runs now (\"Updated to 0.9.14\")."
     },
+    "Updates" : {},
     "Updates and Alerts" : {},
     "Updates delivered" : {},
     "Updating to NG 1.2 resets Master to 60, so a clock muted before the update makes sound again until you set it to 0." : {},
