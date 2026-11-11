@@ -3958,7 +3958,7 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
 
 - **Record** (`deviceRecord`): `id` (`knob-` + last 6 hex of `hw_id`; the full
   `hw_id` on a collision), `kind`, `hw_id` (12 hex, `:`/`-` stripped,
-  lower-cased), `name` (≤64 chars, default `Knob 61FC8C`), `token_sha256`,
+  lower-cased), `name` (≤64 chars, default `Knob A1B2C3`), `token_sha256`,
   `pending_token_sha256` + `rotated_at` during a rotation, `config`
   (`KnobSettings`), `config_version` (starts at 1), `created_at`, and
   `last_checkin` (`seen_at`, `fw`, `ip`, `rssi`, `heap_internal_free`,

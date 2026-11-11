@@ -1082,7 +1082,7 @@ is printed once; only its SHA-256 is stored):
 ```sh
 H="Authorization: Bearer $EMBER_TOKEN"
 curl -s -XPOST localhost:3627/v1/devices -H "$H" \
-  -d '{"kind":"cinder-knob","hw_id":"3cdc7561fc8c","name":"Desk knob"}'
+  -d '{"kind":"cinder-knob","hw_id":"3cdc75a1b2c3","name":"Desk knob"}'
 curl -s localhost:3627/v1/devices -H "$H"                 # status, no secrets
 curl -s -XPUT localhost:3627/v1/devices/knob-a1b2c3/config -H "$H" -d '{"poll_ms":3000}'
 curl -s -XPOST localhost:3627/v1/devices/knob-a1b2c3/rotate -H "$H"
@@ -1365,7 +1365,7 @@ field the producer sets, not the data capture. See ARCHITECTURE → "spine".
 | `EMBER_DATA_DIR` | server data directory (config, database, firmware, coredumps); see "Running the server without Docker" |
 | `EMBER_ACTIVITY_DETAIL_ENABLED` | scrolling `Tool: detail` + `cardTool` |
 | `EMBER_ACTIVITY_TRAIL_ENABLED` | last-N actions ticker (extends detail) |
-| `EMBER_SOURCE` | machine label; empty or the old `set-me-to-this-laptop-id` placeholder defaults to a short id from the macOS `LocalHostName` (`Dmitrys-MacBook-Pro` -> `mbp`, `-Air` -> `mba`, `Mac-mini` -> `mini`; the clock card fits ~4 glyphs); install/configure/doctor write it into producer.env once and print it |
+| `EMBER_SOURCE` | machine label; empty or the old `set-me-to-this-laptop-id` placeholder defaults to a short id from the macOS `LocalHostName` (`Alexs-MacBook-Pro` -> `mbp`, `-Air` -> `mba`, `Mac-mini` -> `mini`; the clock card fits ~4 glyphs); install/configure/doctor write it into producer.env once and print it |
 | `EMBER_SOURCE_COLOR` | hex body colour for the 8×8 icon + source-name card digits |
 | `EMBER_SOURCE_CARD` (default true) | source-name card (uppercased, 4 glyphs) in the number slot; set false to hide |
 | `EMBER_SESSION_BAR` (default true) | session-pixel bar on row 7 (1 px per non-idle session); set false to hide |

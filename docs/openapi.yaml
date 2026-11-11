@@ -2909,7 +2909,7 @@ paths:
                 name:
                   type: string
                   maxLength: 64
-                  description: Empty keeps a known record's name, or gives a new one `Knob 61FC8C`.
+                  description: Empty keeps a known record's name, or gives a new one `Knob A1B2C3`.
       responses:
         "200":
           description: The approved device, without its token.
