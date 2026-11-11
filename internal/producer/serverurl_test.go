@@ -383,12 +383,11 @@ func TestPickServerKeepsLastUsedWhenTwoInView(t *testing.T) {
 	}
 }
 
-func TestPickServerLastUsedFollowsInstanceNameToNewIP(t *testing.T) {
-	moved := srvA
-	moved.URL = "http://192.0.2.99:3627"
-	got, err := PickServer([]DiscoveredServer{moved, srvB}, "", srvA)
-	if err != nil || got != moved {
-		t.Fatalf("got %+v, %v", got, err)
+func TestPickServerLastUsedIgnoresASpoofedName(t *testing.T) {
+	spoof := DiscoveredServer{Name: srvA.Name, Host: "evil.local.", URL: "http://192.0.2.99:3627"}
+	var amb *AmbiguousServersError
+	if _, err := PickServer([]DiscoveredServer{spoof, srvB}, "", srvA); !errors.As(err, &amb) {
+		t.Fatalf("err = %v", err)
 	}
 }
 

@@ -67,7 +67,7 @@ func (e *AmbiguousServersError) Error() string {
 	for i, s := range e.Servers {
 		names[i] = s.String()
 	}
-	return fmt.Sprintf("%d Ember servers found (%s); this producer has not used any of them yet: choose one in Ember.app (Settings › Connection), or set EMBER_SERVER_URL, or EMBER_SERVER_INSTANCE to one's instance or host name, in ~/.config/ember/producer.env",
+	return fmt.Sprintf("%d Ember servers found (%s); choose one in Ember.app (Settings › Connection), or set EMBER_SERVER_URL, or EMBER_SERVER_INSTANCE to one's instance or host name, in ~/.config/ember/producer.env",
 		len(e.Servers), strings.Join(names, "; "))
 }
 
@@ -118,15 +118,6 @@ func lastUsed(uniq []DiscoveredServer, last DiscoveredServer) (DiscoveredServer,
 		if s.URL == last.URL {
 			return s, true
 		}
-	}
-	var byName []DiscoveredServer
-	for _, s := range uniq {
-		if last.Name != "" && s.Name == last.Name {
-			byName = append(byName, s)
-		}
-	}
-	if len(byName) == 1 {
-		return byName[0], true
 	}
 	return DiscoveredServer{}, false
 }

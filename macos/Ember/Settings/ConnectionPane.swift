@@ -310,7 +310,7 @@ struct ConnectionPane: View {
                 }
                 ForEach(env.serverDiscovery.servers) { s in
                     LabeledContent {
-                        if s.urlString == model.applied?.serverURL {
+                        if isInUse(s) {
                             Image(systemName: "checkmark")
                                 .foregroundStyle(.tint)
                                 .accessibilityLabel("In use")
@@ -341,7 +341,19 @@ struct ConnectionPane: View {
 
     private var needsServerChoice: Bool {
         let configured = (model.applied?.serverURL ?? serverURL).trimmingCharacters(in: .whitespaces)
-        return (configured.isEmpty || configured.lowercased() == "auto") && env.serverDiscovery.servers.count > 1
+        guard configured.isEmpty || configured.lowercased() == "auto", env.serverDiscovery.servers.count > 1 else { return false }
+        guard let cached = cachedServerURL else { return true }
+        return !env.serverDiscovery.servers.contains { $0.urlString == cached }
+    }
+
+    private var cachedServerURL: String? {
+        ProducerServerCache.url(home: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    private func isInUse(_ s: ServerDiscovery.Found) -> Bool {
+        let configured = (model.applied?.serverURL ?? "").trimmingCharacters(in: .whitespaces)
+        if configured.isEmpty || configured.lowercased() == "auto" { return s.urlString == cachedServerURL }
+        return s.urlString == configured
     }
 
     private var tokenIsBlank: Bool { token.trimmingCharacters(in: .whitespaces).isEmpty }
