@@ -471,8 +471,11 @@ the face ids of `wx_faces.h` and demo's face words, and the strict
 colours, head sweep and pulse. They need cinder v0.9.114 or later.
 
 The app bundle now builds + signs the three producer helpers (`ember-claude-producer`,
-`ember-codex-producer`, `ember-t3-producer`) and their LaunchAgent plists
-(`com.ember.heartbeat`, `com.ember.codex`, `com.ember.t3`) into `Contents/MacOS` and
+`ember-codex-producer`, `ember-t3-producer`) and the server (`ember-server`, built
+from `./cmd/ember` with `-trimpath -s -w`, `main.version` set from
+`MARKETING_VERSION`, signed as `com.ember.server`; nothing starts it yet) and their
+LaunchAgent plists (`com.ember.heartbeat`, `com.ember.codex`, `com.ember.t3`,
+`com.ember.server`) into `Contents/MacOS` and
 `Contents/Library/LaunchAgents` via a `postCompileScripts` phase
 (`scripts/build-producers.sh`) that runs before Xcode's own app-level codesign, so
 signing happens inside-out. `CODE_SIGN_IDENTITY` picks Developer ID for release

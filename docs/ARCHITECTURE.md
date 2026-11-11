@@ -6724,7 +6724,7 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   launchd's 10 s respawn throttle and the failed constraint repair take about
   11 s in all, on macOS 27). The
   helpers are signed with a fixed identifier (`com.ember.claude-producer`,
-  `com.ember.codex-producer`, `com.ember.t3-producer`): the ad-hoc default `<name>-<LC_UUID>` changes
+  `com.ember.codex-producer`, `com.ember.t3-producer`, `com.ember.server`): the ad-hoc default `<name>-<LC_UUID>` changes
   every build, and Local Network privacy keys on it, so a rebuilt helper got
   `connect: no route to host` until the user allowed it again.
 - **A Local Network refusal looks like an outage.** An ad-hoc app's grant is
