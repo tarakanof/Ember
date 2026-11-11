@@ -68,7 +68,7 @@ public final class SettingsModels {
         connectionEnv = EnvConfigModel(
             env: envStore, initial: ConnectionSettings(reading: EnvFile(parsing: "")),
             read: { ConnectionSettings(reading: $0) },
-            apply: { value, env in try value.applyTolerant(to: &env, token: nil) })
+            applyChange: { value, previous, env in try value.applyChanged(since: previous, to: &env) })
         producerTuning = Self.producerTuningModel(envStore)
         watchClockSources()
     }

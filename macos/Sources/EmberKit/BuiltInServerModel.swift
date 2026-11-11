@@ -13,6 +13,7 @@ public final class BuiltInServerModel {
 
     @ObservationIgnored public var onProducerEnvChanged: (@MainActor () async -> Void)?
     @ObservationIgnored private let service: BuiltInServerService
+    @ObservationIgnored private var sawRunning = false
 
     public init(service: BuiltInServerService) {
         self.service = service
@@ -27,6 +28,14 @@ public final class BuiltInServerModel {
         self.mode = mode
         self.status = status
         isLoaded = true
+        let running = if case .running = status { true } else { false }
+        defer { sawRunning = running }
+        guard mode == .thisMac, running, sawRunning else { return }
+        do {
+            if try await service.adoptProducers() { await onProducerEnvChanged?() }
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     public func select(_ next: ServerMode) async {
@@ -49,6 +58,7 @@ public final class BuiltInServerModel {
                           -> BuiltInServerStatus) async {
         isWorking = true
         error = nil
+        sawRunning = false
         mode = next
         let progress: @Sendable (BuiltInServerStatus) async -> Void = { [weak self] status in
             await MainActor.run { self?.status = status }

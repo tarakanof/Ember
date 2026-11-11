@@ -202,10 +202,10 @@ public final class BuiltInServerService: Sendable {
     @concurrent
     public func turnOn(progress: @escaping @Sendable (BuiltInServerStatus) async -> Void = { _ in }) async throws
         -> BuiltInServerStatus {
-        let token = try prepareServerFiles()
-        if let error = await jobs.registerServer() { throw error }
-        try await pointProducers(at: token)
-        let final = await waitForStart(progress: progress)
+        guard await probe.health() == .closed else { throw BuiltInServerError.portInUse }
+        try prepareServerFiles()
+        if let error = await jobs.registerServer(), jobs.serverRegistration() != .requiresApproval { throw error }
+        let final = try await waitForStart(progress: progress)
         guard final == .portInUse else { return final }
         _ = try await turnOff()
         throw BuiltInServerError.portInUse
@@ -215,7 +215,23 @@ public final class BuiltInServerService: Sendable {
     public func start(progress: @escaping @Sendable (BuiltInServerStatus) async -> Void = { _ in }) async throws
         -> BuiltInServerStatus {
         if let error = await jobs.healServer() { throw error }
-        return await waitForStart(progress: progress)
+        return try await waitForStart(progress: progress)
+    }
+
+    @concurrent
+    public func producersPointed() async -> Bool {
+        let token = await serverEnv.read().get(SettingsKeys.token)
+        let env = await producerEnv.read()
+        return !token.isEmpty && env.get(SettingsKeys.serverURL) == BuiltInServer.localURL
+            && env.get(SettingsKeys.token) == token
+    }
+
+    @concurrent
+    public func adoptProducers() async throws -> Bool {
+        let token = await serverEnv.read().get(SettingsKeys.token)
+        guard !token.isEmpty, mode() == .thisMac, await !producersPointed() else { return false }
+        try await producerEnv.update { env in pointAtBuiltIn(&env, token: token) }
+        return true
     }
 
     @concurrent
@@ -230,6 +246,7 @@ public final class BuiltInServerService: Sendable {
         return await status()
     }
 
+    @discardableResult
     private func prepareServerFiles() throws -> String {
         let fm = FileManager.default
         try fm.createDirectory(at: paths.dataDir, withIntermediateDirectories: true,
@@ -243,22 +260,30 @@ public final class BuiltInServerService: Sendable {
         return token
     }
 
-    private func pointProducers(at token: String) async throws {
-        try await producerEnv.update { env in pointAtBuiltIn(&env, token: token) }
-    }
-
-    private func waitForStart(progress: @Sendable (BuiltInServerStatus) async -> Void) async -> BuiltInServerStatus {
+    private func waitForStart(progress: @Sendable (BuiltInServerStatus) async -> Void) async throws
+        -> BuiltInServerStatus {
         var last = BuiltInServerStatus.starting
         await progress(last)
+        var healthyPolls = 0
         for attempt in 0..<startAttempts {
             last = await status()
             switch last {
-            case .running, .needsApproval, .missing, .off: return last
-            case .starting, .notRunning, .portInUse: break
+            case .running:
+                healthyPolls += 1
+                if healthyPolls >= 2 {
+                    _ = try await adoptProducers()
+                    return last
+                }
+            case .needsApproval, .missing, .off: return last
+            case .starting, .notRunning, .portInUse: healthyPolls = 0
             }
             if attempt < startAttempts - 1 { await pause() }
         }
-        return last == .starting ? .notRunning : last
+        switch last {
+        case .starting: return .notRunning
+        case .running: return .starting
+        default: return last
+        }
     }
 }
 

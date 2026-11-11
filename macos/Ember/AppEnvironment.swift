@@ -302,7 +302,7 @@ public final class AppEnvironment {
         reloadConnection()
         await settings.connectionEnv.load()
         for agent in ProducerAgent.allCases {
-            _ = await producers.restart(agent)
+            _ = await producers.restartIfLoaded(agent)
         }
     }
 

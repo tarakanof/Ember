@@ -61,4 +61,13 @@ public struct ConnectionSettings: Equatable, Sendable {
         env.set(SettingsKeys.sourceColor, normColor)
         if let normToken { env.set(SettingsKeys.token, normToken) }
     }
+
+    public func applyChanged(since previous: ConnectionSettings?, to env: inout EnvFile) throws {
+        guard let previous else { return try applyTolerant(to: &env, token: nil) }
+        var merged = ConnectionSettings(reading: env)
+        if source != previous.source { merged.source = source }
+        if serverURL != previous.serverURL { merged.serverURL = serverURL }
+        if sourceColor != previous.sourceColor { merged.sourceColor = sourceColor }
+        try merged.applyTolerant(to: &env, token: nil)
+    }
 }

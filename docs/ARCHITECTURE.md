@@ -1527,15 +1527,24 @@ never registered, stays on "Use another server". `BuiltInServerService` turns
 it on in this order: create `~/Library/Application Support/Ember` (0700) and
 `~/.config/ember/server.env` (0600) with a minted `EMBER_TOKEN` (32
 `SecRandomCopyBytes` bytes, hex) only when the file has none; an existing
-`server.env` is never rewritten. Then it registers the agent, writes
-`EMBER_SERVER_URL=http://127.0.0.1:3627` and that token to `producer.env`, and
-polls for up to 15 s. Before that write, `producer.env` keeps the URL and token
-it had as `EMBER_PREVIOUS_SERVER_URL` and `EMBER_PREVIOUS_TOKEN` (the
-producers ignore both). Switching back unregisters the agent, waits up to 10 s
+`server.env` is never rewritten. A port that already answers stops it before
+anything changes. Then it registers the agent (a registration that throws but
+leaves `.requiresApproval` still counts) and polls for up to 15 s.
+`producer.env` gets `EMBER_SERVER_URL=http://127.0.0.1:3627` and that token
+only after two consecutive polls see our job running and `/healthz` answering
+(`adoptProducers`), because the Claude hooks read `producer.env` on every call
+and would hand the token to whatever holds the port. A server that comes up
+later (approval granted, a slow start) is adopted by the pane's refresh on the
+same two-sample rule. On that write, `producer.env` keeps the URL and token it
+had as `EMBER_PREVIOUS_SERVER_URL` and `EMBER_PREVIOUS_TOKEN` (the producers
+ignore both). Switching back unregisters the agent, waits up to 10 s
 for the port to close, and restores them, or clears the local URL and token
-when nothing was remembered. Either switch reloads `ServerConnection` and
-kickstarts the producer agents, since the Codex and T3 daemons read
-`producer.env` only at startup.
+when nothing was remembered. Every `producer.env` change reloads
+`ServerConnection` and kickstarts each loaded producer job, app-registered or
+installed from the CLI, since the Codex and T3 daemons read `producer.env` only
+at startup. The Connection pane's own saves write only the fields the user
+changed (`applyChanged(since:)`), so a draft loaded before a switch can't put
+the old URL back.
 
 The status row combines the registration, `launchctl print`'s `state` and a
 loopback `GET /healthz` (`builtInServerStatus`): healthy and our job running is

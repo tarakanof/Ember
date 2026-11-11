@@ -358,6 +358,18 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
+    @concurrent
+    public func restartIfLoaded(_ agent: ProducerAgent) async -> Bool {
+        await serial.run {
+            let target = launchdTarget(.producer(agent))
+            guard let probe = try? runner.run(executable: "/bin/launchctl", arguments: ["print", target]),
+                  launchdProbe(probe) == .loaded,
+                  let result = try? runner.run(executable: "/bin/launchctl", arguments: ["kickstart", "-k", target])
+            else { return false }
+            return result.exitCode == 0
+        }
+    }
+
     private func launchdTarget(_ job: ManagedJob) -> String {
         "gui/\(uid)/\(job.label)"
     }

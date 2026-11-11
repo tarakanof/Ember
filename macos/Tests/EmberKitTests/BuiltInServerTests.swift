@@ -124,7 +124,7 @@ private struct Rig {
 
 @Test func serverEnvIsPrivate() async throws {
     let rig = try Rig(); defer { rig.cleanup() }
-    rig.probe.script([], then: .ok)
+    rig.probe.script([.closed], then: .ok)
     _ = try await rig.service.turnOn()
     let attrs = try FileManager.default.attributesOfItem(atPath: rig.paths.serverEnv.path)
     #expect((attrs[.posixPermissions] as? NSNumber)?.int16Value == 0o600)
@@ -134,17 +134,32 @@ private struct Rig {
 
 @Test func healthTimeoutEndsNotRunning() async throws {
     let rig = try Rig(startAttempts: 4); defer { rig.cleanup() }
+    try rig.writeProducerEnv("EMBER_SERVER_URL=http://nas.test:3627\nEMBER_TOKEN=remote\n")
     rig.probe.script([], then: .closed)
     let final = try await rig.service.turnOn()
     #expect(final == .notRunning)
-    #expect(rig.read(rig.paths.producerEnv).get(SettingsKeys.serverURL) == "http://127.0.0.1:3627")
+    #expect(rig.service.mode() == .thisMac)
+    #expect(rig.read(rig.paths.producerEnv).get(SettingsKeys.serverURL) == "http://nas.test:3627")
+    #expect(rig.read(rig.paths.producerEnv).get(SettingsKeys.token) == "remote")
 }
 
-@Test func anotherProgramOnThePortRollsBackTheSwitch() async throws {
+@Test func aTakenPortStopsTurnOnBeforeAnythingChanges() async throws {
+    let rig = try Rig(); defer { rig.cleanup() }
+    try rig.writeProducerEnv("EMBER_SERVER_URL=http://nas.test:3627\nEMBER_TOKEN=remote\n")
+    rig.probe.script([], then: .ok)
+    await #expect(throws: BuiltInServerError.portInUse) { try await rig.service.turnOn() }
+    #expect(rig.sm.registered.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: rig.paths.serverEnv.path))
+    let env = rig.read(rig.paths.producerEnv)
+    #expect(env.get(SettingsKeys.serverURL) == "http://nas.test:3627")
+    #expect(env.get(SettingsKeys.token) == "remote")
+}
+
+@Test func aPortTakenDuringStartRollsBackTheSwitch() async throws {
     let rig = try Rig(startAttempts: 3); defer { rig.cleanup() }
     try rig.writeProducerEnv("EMBER_SERVER_URL=http://nas.test:3627\nEMBER_TOKEN=remote\n")
     rig.jobPrint(waitingPrint)
-    rig.probe.script([], then: .ok)
+    rig.probe.script([.closed], then: .ok)
     await #expect(throws: BuiltInServerError.portInUse) { try await rig.service.turnOn() }
     #expect(rig.service.mode() == .anotherServer)
     #expect(rig.sm.unregistered == ["com.ember.server.plist"])
@@ -187,10 +202,12 @@ private struct Rig {
 
 @Test func tokenIsMintedOnceAndReused() async throws {
     let rig = try Rig(); defer { rig.cleanup() }
-    rig.probe.script([], then: .ok)
+    rig.probe.script([.closed], then: .ok)
     _ = try await rig.service.turnOn()
     let first = rig.read(rig.paths.serverEnv).get(SettingsKeys.token)
+    rig.probe.script([], then: .closed)
     _ = try await rig.service.turnOff()
+    rig.probe.script([.closed], then: .ok)
     _ = try await rig.service.turnOn()
     #expect(rig.mint.count == 1)
     #expect(rig.read(rig.paths.serverEnv).get(SettingsKeys.token) == first)
@@ -200,7 +217,7 @@ private struct Rig {
 @Test func anExistingServerTokenIsKept() async throws {
     let rig = try Rig(); defer { rig.cleanup() }
     try EnvFile(parsing: "# mine\nEMBER_TOKEN=keepme\nEMBER_MDNS_ADVERTISE=0\n").write(to: rig.paths.serverEnv)
-    rig.probe.script([], then: .ok)
+    rig.probe.script([.closed], then: .ok)
     _ = try await rig.service.turnOn()
     #expect(rig.mint.count == 0)
     #expect(try String(contentsOf: rig.paths.serverEnv, encoding: .utf8)
@@ -211,9 +228,9 @@ private struct Rig {
 @Test func switchingBackRestoresThePreviousServer() async throws {
     let rig = try Rig(); defer { rig.cleanup() }
     try rig.writeProducerEnv("EMBER_SOURCE=mbp\nEMBER_SERVER_URL=http://nas.test:3627\nEMBER_TOKEN=remote\n")
-    rig.probe.script([], then: .ok)
+    rig.probe.script([.closed], then: .ok)
     _ = try await rig.service.turnOn()
-    _ = try await rig.service.turnOn()
+    #expect(try await !rig.service.adoptProducers())
     #expect(rig.read(rig.paths.producerEnv).get(SettingsKeys.previousServerURL) == "http://nas.test:3627")
 
     rig.probe.script([.ok], then: .closed)
@@ -230,7 +247,7 @@ private struct Rig {
 
 @Test func switchingBackWithNoPreviousServerClearsTheLocalOne() async throws {
     let rig = try Rig(); defer { rig.cleanup() }
-    rig.probe.script([], then: .ok)
+    rig.probe.script([.closed], then: .ok)
     _ = try await rig.service.turnOn()
     rig.probe.script([], then: .closed)
     _ = try await rig.service.turnOff()
@@ -326,4 +343,93 @@ private struct Rig {
     #expect(model.status == .off)
     #expect(model.error == "Operation not permitted")
     #expect(!rig.read(rig.paths.producerEnv).contains(SettingsKeys.serverURL))
+}
+
+final class Sequence833: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String]
+    private let last: String
+    init(_ items: [String], then last: String) { self.items = items; self.last = last }
+    func next() -> String { lock.withLock { items.isEmpty ? last : items.removeFirst() } }
+}
+
+@Test func oneHealthyPollIsNotEnoughToHandOverTheToken() async throws {
+    let rig = try Rig(startAttempts: 4); defer { rig.cleanup() }
+    try rig.writeProducerEnv("EMBER_SERVER_URL=http://nas.test:3627\nEMBER_TOKEN=remote\n")
+    let prints = Sequence833([runningPrint], then: waitingPrint)
+    rig.runner.stdoutFor = { $0.first == "print" ? prints.next() : "" }
+    rig.probe.script([.closed, .ok], then: .closed)
+    #expect(try await rig.service.turnOn() == .notRunning)
+    #expect(rig.read(rig.paths.producerEnv).get(SettingsKeys.serverURL) == "http://nas.test:3627")
+    #expect(rig.read(rig.paths.producerEnv).get(SettingsKeys.token) == "remote")
+}
+
+final class ThrowingApprovalSM: SMAppServiceControlling, @unchecked Sendable {
+    let inner = FakeSMAppService()
+    func register(plistName: String) throws {
+        inner.statuses[plistName] = .requiresApproval
+        throw NSError(domain: "SMAppServiceErrorDomain", code: 1,
+                      userInfo: [NSLocalizedDescriptionKey: "Operation not permitted"])
+    }
+    func unregister(plistName: String) throws { try inner.unregister(plistName: plistName) }
+    func status(plistName: String) -> AgentRegistration { inner.status(plistName: plistName) }
+}
+
+@MainActor @Test func approvalGrantedLaterPointsTheProducers() async throws {
+    let rig = try Rig(); defer { rig.cleanup() }
+    try rig.writeProducerEnv("EMBER_SERVER_URL=http://nas.test:3627\nEMBER_TOKEN=remote\n")
+    let sm = ThrowingApprovalSM()
+    let jobs = ProducerInstallService(sm: sm, runner: rig.runner,
+        bundleMacOSDir: URL(fileURLWithPath: "/App/Contents/MacOS"), home: rig.home,
+        fileExists: { _ in true }, uid: 501)
+    let service = BuiltInServerService(jobs: jobs, probe: rig.probe, paths: rig.paths,
+        producerEnv: EnvFileStore(path: rig.paths.producerEnv), pause: {}, startAttempts: 3)
+    let model = BuiltInServerModel(service: service)
+    var changes = 0
+    model.onProducerEnvChanged = { changes += 1 }
+    rig.probe.script([], then: .closed)
+
+    await model.select(.thisMac)
+    #expect(model.mode == .thisMac)
+    #expect(model.status == .needsApproval)
+    #expect(model.error == nil)
+    #expect(rig.read(rig.paths.producerEnv).get(SettingsKeys.serverURL) == "http://nas.test:3627")
+
+    sm.inner.statuses["com.ember.server.plist"] = .enabled
+    rig.probe.script([], then: .ok)
+    await model.refresh()
+    #expect(rig.read(rig.paths.producerEnv).get(SettingsKeys.serverURL) == "http://nas.test:3627")
+    await model.refresh()
+    let env = rig.read(rig.paths.producerEnv)
+    #expect(env.get(SettingsKeys.serverURL) == "http://127.0.0.1:3627")
+    #expect(env.get(SettingsKeys.token) == rig.read(rig.paths.serverEnv).get(SettingsKeys.token))
+    #expect(env.get(SettingsKeys.previousServerURL) == "http://nas.test:3627")
+    #expect(changes == 2)
+}
+
+@Test func aStaleConnectionDraftDoesNotUndoTheSwitch() throws {
+    let loaded = ConnectionSettings(source: "mbp", serverURL: "http://nas.test:3627", sourceColor: "")
+    var env = EnvFile(parsing: "EMBER_SOURCE=mbp\nEMBER_SERVER_URL=http://127.0.0.1:3627\nEMBER_TOKEN=local\n")
+    var draft = loaded
+    draft.source = "mac"
+    try draft.applyChanged(since: loaded, to: &env)
+    #expect(env.get(SettingsKeys.source) == "mac")
+    #expect(env.get(SettingsKeys.serverURL) == "http://127.0.0.1:3627")
+    #expect(env.get(SettingsKeys.token) == "local")
+}
+
+@Test func restartIfLoadedKickstartsACommandLineJob() async {
+    let runner = FakeRunner()
+    let svc = ProducerInstallService(sm: FakeSMAppService(), runner: runner,
+        bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
+        fileExists: { _ in true }, uid: 501)
+    #expect(await svc.restartIfLoaded(.codex))
+    #expect(runner.calls.map(\.1) == [["print", "gui/501/com.ember.codex"],
+                                      ["kickstart", "-k", "gui/501/com.ember.codex"]])
+    let unloaded = FakeRunner(); unloaded.exitFor = { $0.first == "print" ? 113 : 0 }
+    let off = ProducerInstallService(sm: FakeSMAppService(), runner: unloaded,
+        bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
+        fileExists: { _ in true }, uid: 501)
+    #expect(await !off.restartIfLoaded(.codex))
+    #expect(!unloaded.calls.contains { $0.1.first == "kickstart" })
 }
