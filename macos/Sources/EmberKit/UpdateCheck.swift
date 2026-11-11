@@ -96,6 +96,7 @@ public struct GitHubUpdateFetcher: UpdateFetching {
 public final class UpdateCheckModel {
     public static let enabledKey = "updates.checkAutomatically"
     public static let lastAttemptKey = "updates.lastAttempt"
+    public static let lastReleaseKey = "updates.lastRelease"
 
     public private(set) var notice: UpdateNotice?
 
@@ -108,7 +109,11 @@ public final class UpdateCheckModel {
     public var isEnabled: Bool {
         didSet {
             defaults.set(isEnabled, forKey: Self.enabledKey)
-            if !isEnabled { notice = nil }
+            if isEnabled {
+                notice = storedNotice()
+            } else {
+                notice = nil
+            }
         }
     }
 
@@ -116,9 +121,11 @@ public final class UpdateCheckModel {
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.fetcher = fetcher
         self.defaults = defaults
-        isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
+        let enabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
+        isEnabled = enabled
         self.currentVersion = currentVersion
         self.now = now
+        if enabled { notice = storedNotice() }
     }
 
     public func checkIfDue() async {
@@ -131,6 +138,12 @@ public final class UpdateCheckModel {
         defer { inflight = false }
         guard let data = try? await fetcher.latestRelease() else { return }
         guard isEnabled else { return }
+        defaults.set(data, forKey: Self.lastReleaseKey)
         notice = UpdateCheck.notice(from: data, current: currentVersion)
+    }
+
+    private func storedNotice() -> UpdateNotice? {
+        guard let data = defaults.data(forKey: Self.lastReleaseKey) else { return nil }
+        return UpdateCheck.notice(from: data, current: currentVersion)
     }
 }

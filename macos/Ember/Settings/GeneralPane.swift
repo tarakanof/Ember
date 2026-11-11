@@ -96,10 +96,13 @@ struct GeneralPane: View {
                             Button("Download") { NSWorkspace.shared.open(notice.downloadURL) }
                         }
                     } label: {
-                        Text("Update Available: \(notice.title)", comment: "Settings row when a newer app release exists; the placeholder is the version tag (v0.91.0).")
+                        Text("Update Available: \(notice.title)", comment: "Row label when a newer version exists: an app release tag (v0.91.0) in Settings › General, or a clock firmware version in Settings › Clock.")
                     }
                 }
-                Toggle("Check for updates automatically", isOn: Binding(get: { env.updates.isEnabled }, set: { env.updates.isEnabled = $0 }))
+                Toggle("Check for updates automatically", isOn: Binding(get: { env.updates.isEnabled }, set: { on in
+                    env.updates.isEnabled = on
+                    if on { Task { await env.updates.checkIfDue() } }
+                }))
             } header: {
                 Text("Updates")
             } footer: {

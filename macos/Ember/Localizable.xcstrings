@@ -2917,7 +2917,7 @@
     "Up and down" : {},
     "Upcoming" : {},
     "Update Available: %@" : {
-      "comment" : "Settings row when a newer app release exists; the placeholder is the version tag (v0.91.0)."
+      "comment" : "Row label when a newer version exists: an app release tag (v0.91.0) in Settings › General, or a clock firmware version in Settings › Clock."
     },
     "Update Available: %@…" : {
       "comment" : "Menu item when a newer app release exists; the placeholder is the version tag (v0.91.0)."

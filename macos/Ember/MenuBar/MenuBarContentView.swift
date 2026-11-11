@@ -9,6 +9,7 @@ struct MenuBarContentView: View {
 		Group { items }
 			.onAppear {
 				Task { await env.live.refreshMenuFeeds() }
+				Task { await env.updates.checkIfDue() }
 			}
 	}
 

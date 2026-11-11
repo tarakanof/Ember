@@ -29,8 +29,8 @@ private final class Clock: @unchecked Sendable {
 }
 
 @MainActor
-private func model(_ fetcher: FakeFetcher, current: String = "0.90.0", clock: Clock = Clock()) -> UpdateCheckModel {
-    let defaults = UserDefaults(suiteName: "update-check-\(UUID().uuidString)")!
+private func model(_ fetcher: FakeFetcher, current: String = "0.90.0", clock: Clock = Clock(),
+                   defaults: UserDefaults = UserDefaults(suiteName: "update-check-\(UUID().uuidString)")!) -> UpdateCheckModel {
     return UpdateCheckModel(fetcher: fetcher, defaults: defaults, currentVersion: current, now: { clock.date })
 }
 
@@ -123,5 +123,32 @@ private func model(_ fetcher: FakeFetcher, current: String = "0.90.0", clock: Cl
         #expect(m.notice != nil)
         m.isEnabled = false
         #expect(m.notice == nil)
+    }
+
+    @MainActor @Test func noticeSurvivesARelaunchWithoutAnotherRequest() async {
+        let defaults = UserDefaults(suiteName: "update-check-\(UUID().uuidString)")!
+        let clock = Clock()
+        let first = model(FakeFetcher(.success(release(tag: "v0.91.0"))), clock: clock, defaults: defaults)
+        await first.checkIfDue()
+        let fetcher = FakeFetcher(.failure(URLError(.badURL)))
+        let second = model(fetcher, clock: clock, defaults: defaults)
+        #expect(second.notice?.title == "v0.91.0")
+        await second.checkIfDue()
+        #expect(fetcher.calls == 0)
+    }
+
+    @MainActor @Test func storedNoticeClearsOnceTheAppIsUpdated() async {
+        let defaults = UserDefaults(suiteName: "update-check-\(UUID().uuidString)")!
+        let first = model(FakeFetcher(.success(release(tag: "v0.91.0"))), defaults: defaults)
+        await first.checkIfDue()
+        #expect(model(FakeFetcher(.failure(URLError(.badURL))), current: "0.91.0", defaults: defaults).notice == nil)
+    }
+
+    @MainActor @Test func turningBackOnRestoresTheNotice() async {
+        let m = model(FakeFetcher(.success(release(tag: "v0.91.0"))))
+        await m.checkIfDue()
+        m.isEnabled = false
+        m.isEnabled = true
+        #expect(m.notice?.title == "v0.91.0")
     }
 }
