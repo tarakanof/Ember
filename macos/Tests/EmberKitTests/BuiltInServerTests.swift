@@ -6,23 +6,17 @@ final class FakeServerProbe: BuiltInServerProbing, @unchecked Sendable {
     private let lock = NSLock()
     private var _healths: [ServerHealth] = []
     private var _fallback: ServerHealth = .closed
-    private var _versionTokens: [String] = []
     var version: String? = "v0.90.0"
 
     func script(_ healths: [ServerHealth], then fallback: ServerHealth) {
         lock.withLock { _healths = healths; _fallback = fallback }
     }
 
-    var versionTokens: [String] { lock.withLock { _versionTokens } }
-
     func health() async -> ServerHealth {
         lock.withLock { _healths.isEmpty ? _fallback : _healths.removeFirst() }
     }
 
-    func version(token: String) async -> String? {
-        lock.withLock { _versionTokens.append(token) }
-        return version
-    }
+    func version() async -> String? { version }
 }
 
 final class StatusLog: @unchecked Sendable {
@@ -123,7 +117,6 @@ private struct Rig {
     #expect(FileManager.default.fileExists(atPath: rig.paths.dataDir.path))
     let token = rig.read(rig.paths.serverEnv).get(SettingsKeys.token)
     #expect(token.count == 64)
-    #expect(rig.probe.versionTokens == [token])
     let producer = rig.read(rig.paths.producerEnv)
     #expect(producer.get(SettingsKeys.serverURL) == "http://127.0.0.1:3627")
     #expect(producer.get(SettingsKeys.token) == token)
@@ -147,11 +140,23 @@ private struct Rig {
     #expect(rig.read(rig.paths.producerEnv).get(SettingsKeys.serverURL) == "http://127.0.0.1:3627")
 }
 
-@Test func anotherProgramOnThePortIsReported() async throws {
+@Test func anotherProgramOnThePortRollsBackTheSwitch() async throws {
     let rig = try Rig(startAttempts: 3); defer { rig.cleanup() }
+    try rig.writeProducerEnv("EMBER_SERVER_URL=http://nas.test:3627\nEMBER_TOKEN=remote\n")
     rig.jobPrint(waitingPrint)
     rig.probe.script([], then: .ok)
-    #expect(try await rig.service.turnOn() == .portInUse)
+    await #expect(throws: BuiltInServerError.portInUse) { try await rig.service.turnOn() }
+    #expect(rig.service.mode() == .anotherServer)
+    #expect(rig.sm.unregistered == ["com.ember.server.plist"])
+    let env = rig.read(rig.paths.producerEnv)
+    #expect(env.get(SettingsKeys.serverURL) == "http://nas.test:3627")
+    #expect(env.get(SettingsKeys.token) == "remote")
+}
+
+@Test func steadyStatePortInUseIsReported() async throws {
+    let rig = try Rig(); defer { rig.cleanup() }
+    rig.sm.statuses = ["com.ember.server.plist": .enabled]
+    rig.jobPrint(waitingPrint)
     rig.probe.script([], then: .occupied)
     #expect(await rig.service.status() == .portInUse)
 }

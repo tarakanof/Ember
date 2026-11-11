@@ -762,6 +762,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Another program is using port %@, so the server on this Mac didn't start. Ember kept your previous server." : {
+      "comment" : "Settings › Connection failure when turning on the built-in server finds its port taken; the port number.",
+      "extractionState" : "manual"
+    },
     "App" : {},
     "App Colors" : {},
     "App Rotation" : {},

@@ -85,6 +85,7 @@ public struct BuiltInServerPaths: Sendable, Equatable {
 
 public enum BuiltInServerError: Error, Equatable, Sendable {
     case tokenUnavailable(OSStatus)
+    case portInUse
 }
 
 extension BuiltInServerError: LocalizedError {
@@ -93,6 +94,9 @@ extension BuiltInServerError: LocalizedError {
         case .tokenUnavailable(let status):
             String(localized: "macOS couldn't generate a server token (error \(status)).",
                    comment: "Settings › Connection failure when SecRandomCopyBytes fails while turning on the built-in server; the OSStatus code.")
+        case .portInUse:
+            String(localized: "Another program is using port \(String(BuiltInServer.port)), so the server on this Mac didn't start. Ember kept your previous server.",
+                   comment: "Settings › Connection failure when turning on the built-in server finds its port taken; the port number.")
         }
     }
 }
@@ -106,7 +110,7 @@ public func mintServerToken() throws -> String {
 
 public protocol BuiltInServerProbing: Sendable {
     func health() async -> ServerHealth
-    func version(token: String) async -> String?
+    func version() async -> String?
 }
 
 public struct LoopbackServerProbe: BuiltInServerProbing {
@@ -139,8 +143,8 @@ public struct LoopbackServerProbe: BuiltInServerProbing {
         .cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet,
     ]
 
-    public func version(token: String) async -> String? {
-        let client = APIClient(baseURL: base, token: token, session: session)
+    public func version() async -> String? {
+        let client = APIClient(baseURL: base, token: nil, session: session)
         let info: VersionInfo? = try? await client.get("/version")
         return info?.short
     }
@@ -190,7 +194,7 @@ public final class BuiltInServerService: Sendable {
         let health = await probe.health()
         var version: String?
         if health == .ok, job == .running || job == .unknown {
-            version = await probe.version(token: await serverEnv.read().get(SettingsKeys.token))
+            version = await probe.version()
         }
         return builtInServerStatus(registration: registration, job: job, health: health, version: version)
     }
@@ -201,7 +205,10 @@ public final class BuiltInServerService: Sendable {
         let token = try prepareServerFiles()
         if let error = await jobs.registerServer() { throw error }
         try await pointProducers(at: token)
-        return await waitForStart(progress: progress)
+        let final = await waitForStart(progress: progress)
+        guard final == .portInUse else { return final }
+        _ = try await turnOff()
+        throw BuiltInServerError.portInUse
     }
 
     @concurrent

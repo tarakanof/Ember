@@ -1539,11 +1539,14 @@ kickstarts the producer agents, since the Codex and T3 daemons read
 
 The status row combines the registration, `launchctl print`'s `state` and a
 loopback `GET /healthz` (`builtInServerStatus`): healthy and our job running is
-**Running** (the version from `/version` with the server's token); our job
+**Running** (the version from the open `/version`; the probe never sends the
+token, since whatever answers on the port may not be ours); our job
 running but not answering is **Starting…**; something answering, or accepting
 the connection but not answering, while our job is not running is **Port 3627
 is in use by another program** (the server exits on a failed listen, and
-launchd respawns it every 10 s); nothing listening is **Not running**, whose
+launchd respawns it every 10 s). A switch that ends there unregisters the
+agent and restores `producer.env`, so the producers never send their token to
+that program; nothing listening is **Not running**, whose
 **Start** boots out a stuck job and registers again (the Repair path).
 `.requiresApproval` is **Needs approval in System Settings › Login Items**.
 The server's own Local Network grant can't be read from the app, so the row
