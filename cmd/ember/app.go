@@ -141,6 +141,8 @@ type App struct {
 	deviceRediscoverMu   sync.Mutex
 	lastRediscoverAt     atomic.Int64
 	lastRediscoverResult atomic.Value
+	unclaimedClocks      atomic.Value
+	serverEnv            serverEnv
 
 	caps          capsCache
 	settingsSound settingsSoundCache

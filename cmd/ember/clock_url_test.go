@@ -326,7 +326,7 @@ func TestDeviceConfigPut_ConcurrentWithDiscoverySwap(t *testing.T) {
 }
 
 var clockURLBaselineFuncs = map[string][]string{
-	"config.go":      {"sanitizeConfigBaseline", "validateConfig", "applyDefaults"},
+	"config.go":      {"sanitizeConfigBaseline", "validateConfig", "applyDefaults", "loadConfigFor"},
 	"printconfig.go": {"redactConfig"},
 	"admin.go":       {"handleAdminReload"},
 	"clock_url.go":   {"clockURL", "carryClockURL"},

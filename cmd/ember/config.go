@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -26,6 +27,12 @@ func resolveConfigPath(flagValue string) (path, source string) {
 	}
 	if env := os.Getenv("CONFIG_PATH"); env != "" {
 		return env, "env"
+	}
+	if dir := os.Getenv(dataDirEnv); dir != "" {
+		p := filepath.Join(dir, "config.json")
+		if _, err := os.Stat(p); err == nil {
+			return p, "data-dir"
+		}
 	}
 	if _, err := os.Stat("config.json"); err == nil {
 		return "config.json", "cwd"
@@ -280,6 +287,7 @@ type AWTRIXConfig struct {
 	HTTPBaseURL     string `json:"http_base_url"`
 	clockOverride   string
 	clockDiscovered string
+	clockUnset      bool
 
 	AppName        string `json:"app_name"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
@@ -350,7 +358,7 @@ func defaultConfig() Config {
 			Sound:                    true,
 			FocusColor:               "#FF0000",
 			BreakColor:               "#00FF00",
-			DBPath:                   "/var/lib/ember/pomodoro.db",
+			DBPath:                   defaultDBPath(),
 			ButtonCallback:           true,
 			MaxSessionMinutes:        480,
 			WorkHoursGapMinutes:      15,
@@ -366,17 +374,24 @@ func defaultConfig() Config {
 }
 
 func loadConfig(path string, logger *slog.Logger) (Config, error) {
+	return loadConfigFor(path, logger, false)
+}
+
+func loadConfigFor(path string, logger *slog.Logger, user bool) (Config, error) {
 	resolved, _ := resolveConfigPath(path)
 	if resolved == "" {
 		cfg := defaultConfig()
 		cfg.applyDefaults()
+		cfg.AWTRIX.clockUnset = user
 		return cfg, nil
 	}
 	cfg, err := parseConfigFile(resolved)
 	if err != nil {
 		return Config{}, err
 	}
+	clockUnset := user && cfg.AWTRIX.HTTPBaseURL == ""
 	cfg.applyDefaults()
+	cfg.AWTRIX.clockUnset = clockUnset
 	sanitizeConfigBaseline(&cfg, logger)
 	warnDeprecatedConfig(cfg, logger)
 	if err := validateConfig(cfg); err != nil {
@@ -458,7 +473,7 @@ func (c *Config) applyDefaults() {
 		c.Pomodoro.BreakColor = "#00FF00"
 	}
 	if c.Pomodoro.DBPath == "" {
-		c.Pomodoro.DBPath = "/var/lib/ember/pomodoro.db"
+		c.Pomodoro.DBPath = defaultDBPath()
 	}
 
 	c.Weather.ApplyDefaults()

@@ -80,6 +80,11 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 		a.logger.Info("clock discovery found no device", "configured", cur, "err", err)
 		return false
 	}
+	if cur == "" && a.cfg.Load().AWTRIX.clockUnset {
+		a.lastRediscoverResult.Store("unclaimed")
+		a.noteUnclaimedClocks(cands)
+		return false
+	}
 	base := cands[0].BaseURL
 	if sameDeviceURL(base, cur) {
 		a.lastRediscoverResult.Store("reachable")
@@ -100,6 +105,19 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	a.caps.invalidate()
 	a.refreshCapabilities(ctx)
 	return true
+}
+
+func (a *App) noteUnclaimedClocks(cands []discovery.Candidate) {
+	urls := make([]string, len(cands))
+	for i, c := range cands {
+		urls[i] = c.BaseURL
+	}
+	key := strings.Join(urls, " ")
+	if prev, _ := a.unclaimedClocks.Load().(string); prev == key {
+		return
+	}
+	a.unclaimedClocks.Store(key)
+	a.logger.Info("clock found but none is configured; set one through the clock settings API to use it", "found", urls)
 }
 
 func sameDeviceURL(x, y string) bool {

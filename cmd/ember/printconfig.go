@@ -18,7 +18,10 @@ func redactConfig(c Config) Config {
 	return c
 }
 
-func runPrintConfig(path string) {
+func runPrintConfig(path string, env serverEnv) {
+	for _, line := range env.describe() {
+		fmt.Fprintln(os.Stderr, "print-config:", line)
+	}
 	resolved, _ := resolveConfigPath(path)
 	if resolved == "" {
 		fmt.Fprintln(os.Stderr, "print-config: no config source resolved (no -config flag, no CONFIG_PATH env, no ./config.json)")

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -47,20 +48,37 @@ func main() {
 
 	configFlag := flag.String("config", "", "path to config JSON file")
 	printConfig := flag.Bool("print-config", false, "print loaded config (post-defaults, secrets redacted) to stdout and exit")
+	envFileFlag := flag.String("env-file", "", "load KEY=VALUE lines from this 0600 file for keys not already in the environment")
+	userFlag := flag.Bool("user", false, "per-user service mode: env file, data dir and log file under the home directory")
 	flag.Parse()
 	if flag.NArg() > 0 {
 		fmt.Fprintf(os.Stderr, "ember: unexpected argument %q (subcommands: version, healthcheck, doctor)\n", flag.Arg(0))
 		os.Exit(2)
 	}
 
+	env, err := prepareServerEnv(*userFlag, *envFileFlag, !*printConfig)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ember:", err)
+		os.Exit(1)
+	}
+
 	if *printConfig {
-		runPrintConfig(*configFlag)
+		runPrintConfig(*configFlag, env)
 		return
 	}
 
+	if env.LogFile != "" {
+		if err := startServerLog(env.LogFile); err != nil {
+			fmt.Fprintln(os.Stderr, "ember: log file:", err)
+			os.Exit(1)
+		}
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	for _, line := range env.describe() {
+		logger.Info("server paths", "resolved", line)
+	}
 	configPath, configSource := resolveConfigPath(*configFlag)
-	cfg, err := loadConfig(*configFlag, logger)
+	cfg, err := loadConfigFor(*configFlag, logger, *userFlag)
 	if err != nil {
 		logger.Error("load config failed", "err", err)
 		os.Exit(1)
@@ -83,6 +101,7 @@ func main() {
 	if envEnabled(os.Getenv("EMBER_FIRMWARE_CHECK")) && !clockDisabled() {
 		app.firmware.url = ngReleasesURL
 	}
+	app.serverEnv = env
 	app.configPath = configPath
 	app.configSource = configSource
 
@@ -159,7 +178,7 @@ func main() {
 		logger.Info("mDNS advertising disabled (EMBER_MDNS_ADVERTISE)")
 	}
 
-	if !clockDisabled() {
+	if !clockDisabled() && app.cfg.Load().effectiveClockURL() != "" {
 		clearCtx, cancel := context.WithTimeout(context.Background(), startupClearBudget)
 		err := app.ClearIndicators(clearCtx)
 		cancel()
@@ -261,6 +280,18 @@ func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.W
 			a.logger.Warn("pomodoro store close failed", "err", err)
 		}
 	}
+}
+
+func prepareServerEnv(user bool, envFile string, mkdir bool) (serverEnv, error) {
+	home := ""
+	if user {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return serverEnv{}, fmt.Errorf("-user: %w", err)
+		}
+		home = h
+	}
+	return setupServerEnv(serverEnvInput{user: user, envFile: envFile, home: home, goos: runtime.GOOS, mkdir: mkdir})
 }
 
 func scanSubcommand(args []string) (sub string, rest []string, ok bool, err error) {

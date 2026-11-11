@@ -56,7 +56,7 @@ func (a *App) provisionIconsInBackground() {
 }
 
 func (a *App) provisionClockInBackground() {
-	if clockDisabled() {
+	if clockDisabled() || a.cfg.Load().effectiveClockURL() == "" {
 		return
 	}
 	a.clockJobs.Go(a.ensureNativeIcons)
