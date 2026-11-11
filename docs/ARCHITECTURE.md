@@ -560,8 +560,12 @@ dnssd multicast browse (a CLI on macOS gets no multicast replies without Local
 Network multicast access, but the server's dnssd responder answers legacy
 queries by unicast; replies must carry QR and one of our query IDs). Answers
 are kept per (instance name, URL), so a host spoofing the name surfaces as a
-second server; `PickServer` dedupes by URL and needs exactly one, or an
-`EMBER_SERVER_INSTANCE` matching instance name, host or IP. The pick is cached
+second server; `PickServer` dedupes by URL and needs exactly one, an
+`EMBER_SERVER_INSTANCE` matching instance name, host or IP, or (with no
+preference) the server already in `server.json` (matched by its exact URL;
+a name is no identity a LAN host cannot fake), so a second server appearing never silences a producer
+that has one (#848). Fresh with two in view it stays ambiguous and writes no
+cache; Ember.app's Settings › Connection then asks for a pick. The pick is cached
 in `$XDG_STATE_HOME/ember/server.json` with the preference it was made under; `loadConfig` resolves auto to the
 cached URL without browsing (hooks stay fast), and daemons hold an
 `AutoServer` the client consults per request: it waits for a first server

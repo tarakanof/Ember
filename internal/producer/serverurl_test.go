@@ -373,3 +373,75 @@ func TestWaitForServerDoesNotLogABrowseCutShortByShutdown(t *testing.T) {
 		t.Fatalf("WaitForServer = %v with %d log lines, want context.Canceled and none", err, logged)
 	}
 }
+
+func TestPickServerKeepsLastUsedWhenTwoInView(t *testing.T) {
+	for _, last := range []DiscoveredServer{srvA, srvB} {
+		got, err := PickServer([]DiscoveredServer{srvA, srvB}, "", last)
+		if err != nil || got != last {
+			t.Errorf("last=%s: got %+v, %v", last.Name, got, err)
+		}
+	}
+}
+
+func TestPickServerLastUsedIgnoresASpoofedName(t *testing.T) {
+	spoof := DiscoveredServer{Name: srvA.Name, Host: "evil.local.", URL: "http://192.0.2.99:3627"}
+	var amb *AmbiguousServersError
+	if _, err := PickServer([]DiscoveredServer{spoof, srvB}, "", srvA); !errors.As(err, &amb) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPickServerLastUsedGoneStaysAmbiguous(t *testing.T) {
+	other := DiscoveredServer{Name: "Ember (3)", URL: "http://192.0.2.77:3627"}
+	var amb *AmbiguousServersError
+	if _, err := PickServer([]DiscoveredServer{srvA, srvB}, "", other); !errors.As(err, &amb) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := PickServer([]DiscoveredServer{srvA, srvB}, "", DiscoveredServer{}); !errors.As(err, &amb) {
+		t.Fatalf("empty last: err = %v", err)
+	}
+}
+
+func TestPickServerPreferenceBeatsLastUsed(t *testing.T) {
+	got, err := PickServer([]DiscoveredServer{srvA, srvB}, "build-1", srvA)
+	if err != nil || got != srvB {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestLocatorKeepsCachedServerWhenSecondAppears(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "server.json")
+	first := &ServerLocator{Browse: fakeBrowser([]DiscoveredServer{srvB}, nil, nil), CachePath: cache}
+	if _, err := first.Discover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	both := &ServerLocator{Browse: fakeBrowser([]DiscoveredServer{srvA, srvB}, nil, nil), CachePath: cache}
+	got, err := both.Discover(context.Background())
+	if err != nil || got != srvB {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestLocatorFreshWithTwoServersIsAmbiguousAndWritesNoCache(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "server.json")
+	loc := &ServerLocator{Browse: fakeBrowser([]DiscoveredServer{srvA, srvB}, nil, nil), CachePath: cache}
+	var amb *AmbiguousServersError
+	if _, err := loc.Discover(context.Background()); !errors.As(err, &amb) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok := ReadServerCache(cache); ok {
+		t.Fatal("cache written without a pick")
+	}
+}
+
+func TestLocatorIgnoresCacheMadeUnderAPreference(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "server.json")
+	if err := WriteServerCache(cache, ServerCache{DiscoveredServer: srvA, Prefer: "unraid"}); err != nil {
+		t.Fatal(err)
+	}
+	loc := &ServerLocator{Browse: fakeBrowser([]DiscoveredServer{srvA, srvB}, nil, nil), CachePath: cache}
+	var amb *AmbiguousServersError
+	if _, err := loc.Discover(context.Background()); !errors.As(err, &amb) {
+		t.Fatalf("err = %v", err)
+	}
+}

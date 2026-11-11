@@ -935,7 +935,9 @@ under (a cache from another preference is ignored). Answers are kept per
 with two IPv4 addresses, shows up as several servers: set `EMBER_SERVER_URL`,
 or `EMBER_SERVER_INSTANCE` to one's instance name (`Ember`, `Ember (2)`), host
 name (`unraid`) or IP; `doctor`/`discover` list what was found and say which
-to set. Discovery runs only in `discover`, `doctor`, a headless `install`
+to set. A producer that already has a cached server keeps it when a second
+appears (#848); only a producer with no cached pick needs the choice, which
+Ember.app offers in Settings › Connection › Discovered Servers (Use). Discovery runs only in `discover`, `doctor`, a headless `install`
 and the daemons; `configure` (what Ember.app runs) stays offline. Hooks and
 the statusline never browse: they use the cache (no cache yet → they stay
 silent until one of those fills it). Daemons wait for a first server with

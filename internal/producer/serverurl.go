@@ -67,11 +67,11 @@ func (e *AmbiguousServersError) Error() string {
 	for i, s := range e.Servers {
 		names[i] = s.String()
 	}
-	return fmt.Sprintf("%d Ember servers found (%s); set EMBER_SERVER_URL, or EMBER_SERVER_INSTANCE to one's instance or host name, in ~/.config/ember/producer.env",
+	return fmt.Sprintf("%d Ember servers found (%s); choose one in Ember.app (Settings › Connection), or set EMBER_SERVER_URL, or EMBER_SERVER_INSTANCE to one's instance or host name, in ~/.config/ember/producer.env",
 		len(e.Servers), strings.Join(names, "; "))
 }
 
-func PickServer(found []DiscoveredServer, prefer string) (DiscoveredServer, error) {
+func PickServer(found []DiscoveredServer, prefer string, last ...DiscoveredServer) (DiscoveredServer, error) {
 	var uniq []DiscoveredServer
 	seen := map[string]bool{}
 	for _, s := range found {
@@ -100,9 +100,26 @@ func PickServer(found []DiscoveredServer, prefer string) (DiscoveredServer, erro
 		}
 	}
 	if len(uniq) > 1 {
+		if len(last) > 0 {
+			if s, ok := lastUsed(uniq, last[0]); ok {
+				return s, nil
+			}
+		}
 		return DiscoveredServer{}, &AmbiguousServersError{Servers: uniq}
 	}
 	return uniq[0], nil
+}
+
+func lastUsed(uniq []DiscoveredServer, last DiscoveredServer) (DiscoveredServer, bool) {
+	if last.URL == "" {
+		return DiscoveredServer{}, false
+	}
+	for _, s := range uniq {
+		if s.URL == last.URL {
+			return s, true
+		}
+	}
+	return DiscoveredServer{}, false
 }
 
 func serverMatches(s DiscoveredServer, prefer string) bool {
@@ -191,7 +208,13 @@ func (l *ServerLocator) browseAndPick(ctx context.Context) ([]DiscoveredServer, 
 	if err != nil {
 		return nil, DiscoveredServer{}, fmt.Errorf("mDNS browse: %w", err)
 	}
-	s, err := PickServer(found, l.Prefer)
+	var last []DiscoveredServer
+	if strings.TrimSpace(l.Prefer) == "" && l.CachePath != "" {
+		if c, ok := ReadServerCache(l.CachePath); ok && c.Prefer == "" {
+			last = append(last, c.DiscoveredServer)
+		}
+	}
+	s, err := PickServer(found, l.Prefer, last...)
 	if err != nil {
 		return found, DiscoveredServer{}, err
 	}
