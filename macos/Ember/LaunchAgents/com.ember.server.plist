@@ -7,6 +7,5 @@
   <key>ProgramArguments</key>   <array><string>ember-server</string><string>-user</string></array>
   <key>KeepAlive</key>          <true/>
   <key>RunAtLoad</key>          <true/>
-  <key>ProcessType</key>        <string>Background</string>
 </dict>
 </plist>
