@@ -3,7 +3,7 @@
     "addr": ":3627"
   },
   "awtrix": {
-    "http_base_url": "http://192.168.0.14",
+    "http_base_url": "http://192.168.1.50",
     "app_name": "ember",
     "timeout_seconds": 10
   },

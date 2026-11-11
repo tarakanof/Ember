@@ -541,7 +541,7 @@ placeholder `set-me-to-this-laptop-id`, producers use a short host id via
 `producer.ResolveSource`: `scutil --get LocalHostName` on macOS (else, and on
 Linux only, `os.Hostname`),
 lowercased, first label, `[a-z0-9_-]`; the `<owner>s-` prefix is dropped and
-model words abbreviated (`dmitrys-macbook-pro` -> `mbp`, `-air` -> `mba`,
+model words abbreviated (`alexs-macbook-pro` -> `mbp`, `-air` -> `mba`,
 `mac-mini` -> `mini`, trailing `-2` kept) so Macs stay distinct on the ~4-glyph
 clock card; max 24 chars. `install`/`configure`/`doctor` rewrite an empty or
 placeholder `EMBER_SOURCE` in `producer.env` once (`EnsureSourceInEnv`, 0600
@@ -3958,7 +3958,7 @@ registry keys by `hw_id` so re-provisioning the same board finds its record.
 
 - **Record** (`deviceRecord`): `id` (`knob-` + last 6 hex of `hw_id`; the full
   `hw_id` on a collision), `kind`, `hw_id` (12 hex, `:`/`-` stripped,
-  lower-cased), `name` (≤64 chars, default `Knob 61FC8C`), `token_sha256`,
+  lower-cased), `name` (≤64 chars, default `Knob A1B2C3`), `token_sha256`,
   `pending_token_sha256` + `rotated_at` during a rotation, `config`
   (`KnobSettings`), `config_version` (starts at 1), `created_at`, and
   `last_checkin` (`seen_at`, `fw`, `ip`, `rssi`, `heap_internal_free`,
@@ -5666,7 +5666,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
   need not re-run PickWinning over `sessions[]`.
 - **Knob checkin (device token).** `POST /v1/devices/self/checkin` decodes
   non-strict like `/v1/status`:
-  `{"fw":"0.5.0","ip":"192.168.0.39","rssi":-58,"heap_internal_free":47104,"heap_internal_largest":31744,"uptime_s":812,"config_version":6}`
+  `{"fw":"0.5.0","ip":"192.168.1.50","rssi":-58,"heap_internal_free":47104,"heap_internal_largest":31744,"uptime_s":812,"config_version":6}`
   (since cinder 0.9.2 also `link_mhz` 40/80 and `link_fallback`, 0..1000,
   stored on the record's `last_checkin` and shown as "Display link"; since
   cinder 0.9.8 a `wifi` object,

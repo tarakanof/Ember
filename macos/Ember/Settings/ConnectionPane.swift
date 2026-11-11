@@ -23,7 +23,7 @@ struct ConnectionPane: View {
         @Bindable var model = model
         Form {
             Section {
-                TextField("Server URL", text: $serverURL, prompt: Text(verbatim: "http://192.168.0.2:3627"))
+                TextField("Server URL", text: $serverURL, prompt: Text(verbatim: "http://ember.local:3627"))
                     .textContentType(.URL)
                     .focused($focused, equals: .serverURL)
                     .onSubmit { commit(\.serverURL, serverURL) }
@@ -45,7 +45,7 @@ struct ConnectionPane: View {
             discoveredSection
 
             Section {
-                TextField("Source", text: $source, prompt: Text(verbatim: "m4"))
+                TextField("Source", text: $source, prompt: Text(verbatim: "mac"))
                     .focused($focused, equals: .source)
                     .onSubmit { commit(\.source, source) }
                 InfoToggle("Use source color", isOn: Binding(

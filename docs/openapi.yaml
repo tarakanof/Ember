@@ -102,7 +102,7 @@ components:
       name: id
       in: path
       required: true
-      description: A device or client id (`knob-61fc8c`, `client-1a2b3c4d`).
+      description: A device or client id (`knob-a1b2c3`, `client-1a2b3c4d`).
       schema:
         type: string
     IdempotencyKey:
@@ -2909,7 +2909,7 @@ paths:
                 name:
                   type: string
                   maxLength: 64
-                  description: Empty keeps a known record's name, or gives a new one `Knob 61FC8C`.
+                  description: Empty keeps a known record's name, or gives a new one `Knob A1B2C3`.
       responses:
         "200":
           description: The approved device, without its token.
