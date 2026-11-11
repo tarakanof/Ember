@@ -304,6 +304,10 @@ struct ConnectionPane: View {
                     Text("No server found?")
                 }
             } else {
+                if needsServerChoice {
+                    Label("Several Ember servers found. Pick one with Use.", systemImage: "questionmark.circle.fill")
+                        .foregroundStyle(.orange)
+                }
                 ForEach(env.serverDiscovery.servers) { s in
                     LabeledContent {
                         if s.urlString == model.applied?.serverURL {
@@ -333,6 +337,11 @@ struct ConnectionPane: View {
         } footer: {
             Text("Found via Bonjour. Click Use to fill in the server URL. The server must run on host networking, and Ember needs Local Network access.")
         }
+    }
+
+    private var needsServerChoice: Bool {
+        let configured = (model.applied?.serverURL ?? serverURL).trimmingCharacters(in: .whitespaces)
+        return (configured.isEmpty || configured.lowercased() == "auto") && env.serverDiscovery.servers.count > 1
     }
 
     private var tokenIsBlank: Bool { token.trimmingCharacters(in: .whitespaces).isEmpty }
