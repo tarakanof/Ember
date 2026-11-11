@@ -433,3 +433,21 @@ final class ThrowingApprovalSM: SMAppServiceControlling, @unchecked Sendable {
     #expect(await !off.restartIfLoaded(.codex))
     #expect(!unloaded.calls.contains { $0.1.first == "kickstart" })
 }
+
+@MainActor @Test func startThatBringsTheServerUpReportsTheEnvChange() async throws {
+    let rig = try Rig(startAttempts: 2); defer { rig.cleanup() }
+    try rig.writeProducerEnv("EMBER_SERVER_URL=http://nas.test:3627\nEMBER_TOKEN=remote\n")
+    let model = BuiltInServerModel(service: rig.service)
+    var changes = 0
+    model.onProducerEnvChanged = { changes += 1 }
+    rig.probe.script([], then: .closed)
+    await model.select(.thisMac)
+    #expect(model.status == .notRunning)
+    #expect(changes == 1)
+
+    rig.probe.script([], then: .ok)
+    await model.start()
+    #expect(model.status == .running(version: "v0.90.0"))
+    #expect(rig.read(rig.paths.producerEnv).get(SettingsKeys.serverURL) == "http://127.0.0.1:3627")
+    #expect(changes == 2)
+}

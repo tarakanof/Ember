@@ -50,7 +50,7 @@ public final class BuiltInServerModel {
 
     public func start() async {
         guard !isWorking, mode == .thisMac else { return }
-        await work(mode: .thisMac, changesProducerEnv: false) { [service] progress in try await service.start(progress: progress) }
+        await work(mode: .thisMac, changesProducerEnv: true) { [service] progress in try await service.start(progress: progress) }
     }
 
     private func work(mode next: ServerMode, changesProducerEnv: Bool,
