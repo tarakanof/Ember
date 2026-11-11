@@ -1084,9 +1084,9 @@ H="Authorization: Bearer $EMBER_TOKEN"
 curl -s -XPOST localhost:3627/v1/devices -H "$H" \
   -d '{"kind":"cinder-knob","hw_id":"3cdc7561fc8c","name":"Desk knob"}'
 curl -s localhost:3627/v1/devices -H "$H"                 # status, no secrets
-curl -s -XPUT localhost:3627/v1/devices/knob-61fc8c/config -H "$H" -d '{"poll_ms":3000}'
-curl -s -XPOST localhost:3627/v1/devices/knob-61fc8c/rotate -H "$H"
-curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c -H "$H"   # revoke
+curl -s -XPUT localhost:3627/v1/devices/knob-a1b2c3/config -H "$H" -d '{"poll_ms":3000}'
+curl -s -XPOST localhost:3627/v1/devices/knob-a1b2c3/rotate -H "$H"
+curl -s -XDELETE localhost:3627/v1/devices/knob-a1b2c3 -H "$H"   # revoke
 ```
 
 - **Lost token / reflashed knob:** POST the same `hw_id` again. It answers
@@ -1128,9 +1128,9 @@ Crash Dump…". By hand:
 
 ```sh
 H="Authorization: Bearer $EMBER_TOKEN"
-curl -s localhost:3627/v1/devices/knob-61fc8c/coredumps -H "$H"   # newest first
-curl -s -OJ localhost:3627/v1/devices/knob-61fc8c/coredumps/1a2b3c4d -H "$H"
-curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c/coredumps/1a2b3c4d -H "$H"
+curl -s localhost:3627/v1/devices/knob-a1b2c3/coredumps -H "$H"   # newest first
+curl -s -OJ localhost:3627/v1/devices/knob-a1b2c3/coredumps/1a2b3c4d -H "$H"
+curl -s -XDELETE localhost:3627/v1/devices/knob-a1b2c3/coredumps/1a2b3c4d -H "$H"
 ```
 
 Decode it against the ELF of the **same** firmware (`fw` in the list and the
@@ -1140,7 +1140,7 @@ file name; a different build gives wrong symbols), with ESP-IDF's
 ```sh
 cd ~/Github/cinder
 git checkout v<fw> && (cd firmware && idf.py build)   # skip if the build is current
-esp-coredump --chip esp32s3 info_corefile -c ~/Downloads/knob-61fc8c-0.9.14-1a2b3c4d.bin \
+esp-coredump --chip esp32s3 info_corefile -c ~/Downloads/knob-a1b2c3-0.9.14-1a2b3c4d.bin \
   firmware/build/cinder.elf
 ```
 
@@ -1191,10 +1191,10 @@ contacts GitHub: images arrive only through the owner routes.
   updates: "Update to X" (the newest stored version above the running one
   that the knob has not blocked after a failure or rollback), or Install
   on any image in the list below it (this also unblocks it), or
-  `curl -s -XPUT localhost:3627/v1/devices/knob-61fc8c/ota -H "$H" -d '{"target":"0.9.14"}'`
+  `curl -s -XPUT localhost:3627/v1/devices/knob-a1b2c3/ota -H "$H" -d '{"target":"0.9.14"}'`
   (409 `no_rollback_bootloader` until the knob reports `ota.rollback`:
   the one-time USB flash of the rollback bootloader is in cinder
-  `docs/workflow.md`). Watch `GET /v1/devices/knob-61fc8c/ota`: `phase`,
+  `docs/workflow.md`). Watch `GET /v1/devices/knob-a1b2c3/ota`: `phase`,
   `progress_pct` (bytes Ember has sent), `waiting_for` (`pomodoro`,
   `coredump`, `idle_input`). After `failed` or `rolled_back`, `error` holds
   the knob's reason (`refused`: the knob declined it, usually because the

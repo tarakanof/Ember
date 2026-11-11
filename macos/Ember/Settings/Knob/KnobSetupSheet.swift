@@ -244,7 +244,7 @@ private struct KnobSetupContent: View {
 
         if model.mode == .setup {
             Section {
-                TextField("Ember address", text: $model.emberURL, prompt: Text(verbatim: "http://192.168.0.2:3627"))
+                TextField("Ember address", text: $model.emberURL, prompt: Text(verbatim: "http://ember.local:3627"))
                 TextField("Knob name", text: $model.name, prompt: Text("Desk knob"))
             } header: {
                 Text("Ember")
