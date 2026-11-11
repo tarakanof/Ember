@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Asserts the producer-bundling contract for a built Ember.app: producers
-# present and universal, LaunchAgent plists valid, codesign verified inside-out.
+# (including the server) present and universal, LaunchAgent plists valid, codesign verified inside-out.
 
 APP="${1:-}"
 [ -n "$APP" ] || { echo "usage: verify-bundle.sh <Ember.app>"; exit 2; }
@@ -38,10 +38,11 @@ check_producer() {
 
   local ident
   ident="$(codesign -dv "$bin" 2>&1 | sed -n 's/^Identifier=//p')"
-  if [ "$ident" = "com.ember.${name#ember-}" ]; then
+  local want="com.ember.${name#ember-}"
+  if [ "$ident" = "$want" ]; then
     echo "OK   signing identifier: $name ($ident)"
   else
-    echo "FAIL signing identifier: $name (got: $ident, want: com.ember.${name#ember-})"
+    echo "FAIL signing identifier: $name (got: $ident, want: $want)"
     exit 1
   fi
 }
@@ -76,10 +77,12 @@ check_plist() {
   local argv0 argv1
   argv0="$(plutil -extract ProgramArguments.0 raw "$plist" 2>/dev/null)"
   argv1="$(plutil -extract ProgramArguments.1 raw "$plist" 2>/dev/null)"
-  if [ "$argv0" = "$(basename "$program")" ] && [ "$argv1" = "run" ]; then
+  local want_arg1=run
+  [ "$name" = com.ember.server.plist ] && want_arg1=-user
+  if [ "$argv0" = "$(basename "$program")" ] && [ "$argv1" = "$want_arg1" ]; then
     echo "OK   ProgramArguments argv0/argv1: $name -> [$argv0, $argv1]"
   else
-    echo "FAIL ProgramArguments must be [$(basename "$program"), run]: $name -> [$argv0, $argv1]"
+    echo "FAIL ProgramArguments must be [$(basename "$program"), $want_arg1]: $name -> [$argv0, $argv1]"
     exit 1
   fi
 }
@@ -87,10 +90,12 @@ check_plist() {
 check_producer ember-claude-producer
 check_producer ember-codex-producer
 check_producer ember-t3-producer
+check_producer ember-server
 
 check_plist "$LA_DIR/com.ember.heartbeat.plist"
 check_plist "$LA_DIR/com.ember.codex.plist"
 check_plist "$LA_DIR/com.ember.t3.plist"
+check_plist "$LA_DIR/com.ember.server.plist"
 
 check "codesign --verify --deep --strict: $(basename "$APP")" codesign --verify --deep --strict "$APP"
 

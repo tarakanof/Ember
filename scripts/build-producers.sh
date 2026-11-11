@@ -37,9 +37,13 @@ mkdir -p "$MACOS_DIR"
 
 build_universal() {
   local pkg="$1" out="$2" ident="$3" tmp
+  local flags=()
+  if [ "$pkg" = ember ]; then
+    flags=(-trimpath "-ldflags=-s -w -X main.version=${MARKETING_VERSION:-dev}")
+  fi
   tmp="$(mktemp -d)"
-  CGO_ENABLED=0 GOOS=darwin GOARCH=arm64  go build -C "$REPO" -o "$tmp/arm64" "./cmd/$pkg"
-  CGO_ENABLED=0 GOOS=darwin GOARCH=amd64  go build -C "$REPO" -o "$tmp/amd64" "./cmd/$pkg"
+  CGO_ENABLED=0 GOOS=darwin GOARCH=arm64  go build -C "$REPO" ${flags[@]+"${flags[@]}"} -o "$tmp/arm64" "./cmd/$pkg"
+  CGO_ENABLED=0 GOOS=darwin GOARCH=amd64  go build -C "$REPO" ${flags[@]+"${flags[@]}"} -o "$tmp/amd64" "./cmd/$pkg"
   lipo -create "$tmp/arm64" "$tmp/amd64" -output "$MACOS_DIR/$out"
   rm -rf "$tmp"
   codesign --force --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} --identifier "$ident" --options runtime "$TIMESTAMP" "$MACOS_DIR/$out"
@@ -49,10 +53,12 @@ build_universal() {
 build_universal ember-claude-producer ember-claude-producer com.ember.claude-producer
 build_universal ember-codex-producer  ember-codex-producer  com.ember.codex-producer
 build_universal ember-t3-producer     ember-t3-producer     com.ember.t3-producer
+build_universal ember                 ember-server          com.ember.server
 
 LA_DIR="$APP/Contents/Library/LaunchAgents"
 mkdir -p "$LA_DIR"
 cp "$REPO/macos/Ember/LaunchAgents/com.ember.heartbeat.plist" "$LA_DIR/"
 cp "$REPO/macos/Ember/LaunchAgents/com.ember.codex.plist"     "$LA_DIR/"
 cp "$REPO/macos/Ember/LaunchAgents/com.ember.t3.plist"        "$LA_DIR/"
+cp "$REPO/macos/Ember/LaunchAgents/com.ember.server.plist"    "$LA_DIR/"
 for p in "$LA_DIR"/com.ember.*.plist; do plutil -lint "$p" >/dev/null; done

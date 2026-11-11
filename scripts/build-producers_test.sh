@@ -15,11 +15,11 @@ trap cleanup EXIT
 APP="$WORKDIR/App.app"
 mkdir -p "$APP/Contents/MacOS"
 
-CODE_SIGN_IDENTITY=- "$BUILD_SCRIPT" "$APP"
+MARKETING_VERSION=9.9.9 CODE_SIGN_IDENTITY=- "$BUILD_SCRIPT" "$APP"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
-for bin in ember-claude-producer ember-codex-producer ember-t3-producer; do
+for bin in ember-claude-producer ember-codex-producer ember-t3-producer ember-server; do
   path="$APP/Contents/MacOS/$bin"
   [ -f "$path" ] || fail "$bin missing at $path"
 
@@ -35,7 +35,7 @@ for bin in ember-claude-producer ember-codex-producer ember-t3-producer; do
   echo "ok: $bin ($info)"
 done
 
-for label in com.ember.heartbeat com.ember.codex com.ember.t3; do
+for label in com.ember.heartbeat com.ember.codex com.ember.t3 com.ember.server; do
   plist="$APP/Contents/Library/LaunchAgents/$label.plist"
   [ -f "$plist" ] || fail "$label.plist missing at $plist"
 
@@ -49,5 +49,12 @@ for label in com.ember.heartbeat com.ember.codex com.ember.t3; do
 
   echo "ok: $label.plist"
 done
+
+server="$APP/Contents/MacOS/ember-server"
+got_version="$("$server" version 2>&1 | head -1)"
+case "$got_version" in
+  *9.9.9*) echo "ok: ember-server version ($got_version)" ;;
+  *) fail "ember-server version: want 9.9.9, got '$got_version'" ;;
+esac
 
 echo "build-producers_test.sh: PASS"
