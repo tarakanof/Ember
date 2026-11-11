@@ -377,6 +377,10 @@ func loadConfig(path string, logger *slog.Logger) (Config, error) {
 	return loadConfigFor(path, logger, false)
 }
 
+func userClockUnset(user bool, raw string) bool {
+	return user && (raw == "" || validDeviceURL(raw) != nil)
+}
+
 func loadConfigFor(path string, logger *slog.Logger, user bool) (Config, error) {
 	resolved, _ := resolveConfigPath(path)
 	if resolved == "" {
@@ -389,7 +393,7 @@ func loadConfigFor(path string, logger *slog.Logger, user bool) (Config, error) 
 	if err != nil {
 		return Config{}, err
 	}
-	clockUnset := user && cfg.AWTRIX.HTTPBaseURL == ""
+	clockUnset := userClockUnset(user, cfg.AWTRIX.HTTPBaseURL)
 	cfg.applyDefaults()
 	cfg.AWTRIX.clockUnset = clockUnset
 	sanitizeConfigBaseline(&cfg, logger)

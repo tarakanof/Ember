@@ -297,3 +297,57 @@ func TestScanSubcommandDoctorTakesUserFlags(t *testing.T) {
 		t.Fatal("doctor flag table wrong")
 	}
 }
+
+func TestUserModeInvalidClockURLIsUnset(t *testing.T) {
+	isolateEnv(t, dataDirEnv)
+	f := filepath.Join(t.TempDir(), "c.json")
+	if err := os.WriteFile(f, []byte(`{"awtrix":{"http_base_url":"192.168.1.5"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfigFor(f, discardLogger(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.effectiveClockURL(); got != "" {
+		t.Fatalf("invalid baseline must leave the clock unset, got %q", got)
+	}
+	docker, err := loadConfigFor(f, discardLogger(), false)
+	if err != nil || docker.effectiveClockURL() != defaultDeviceBaseURL {
+		t.Fatalf("docker keeps the fallback: %q %v", docker.effectiveClockURL(), err)
+	}
+}
+
+func reloadStatus(t *testing.T, app *App, path, body string) int {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+func TestAdminReload_UserModeAcceptsRemovedClockURL(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
+	app.serverEnv.User = true
+	if got := reloadStatus(t, app, path, `{"display":{"idle_text":"x"}}`); got != http.StatusOK {
+		t.Fatalf("-user reload without a clock URL = %d, want 200", got)
+	}
+	if !app.cfg.Load().AWTRIX.clockUnset {
+		t.Fatal("clock must be unset after the URL is removed")
+	}
+}
+
+func TestAdminReload_DockerStillRequiresClockURL(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
+	if got := reloadStatus(t, app, path, `{"display":{"idle_text":"x"}}`); got != http.StatusUnprocessableEntity {
+		t.Fatalf("docker reload without a clock URL = %d, want 422", got)
+	}
+}
