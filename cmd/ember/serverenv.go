@@ -105,12 +105,16 @@ func setupServerEnv(in serverEnvInput) (serverEnv, error) {
 	return e, nil
 }
 
-func startServerLog(path string) error {
+func openServerLog(path string) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return nil, err
 	}
 	producer.RotateLogIfLarge(path, producer.DefaultLogThreshold)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+}
+
+func startServerLog(path string) error {
+	f, err := openServerLog(path)
 	if err != nil {
 		return err
 	}

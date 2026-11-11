@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/discovery"
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func isolateEnv(t *testing.T, keys ...string) {
@@ -211,15 +213,30 @@ func TestUserModeExplicitSwitchesWin(t *testing.T) {
 	}
 }
 
-func TestServerLogRotatesAndWrites(t *testing.T) {
-	origOut, origErr := os.Stdout, os.Stderr
-	t.Cleanup(func() { os.Stdout, os.Stderr = origOut, origErr })
+func TestServerLogOpensAndRotatesPastThreshold(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "logs", "server.log")
-	if err := startServerLog(p); err != nil {
+	f, err := openServerLog(p)
+	if err != nil {
 		t.Fatal(err)
 	}
+	f.Close()
 	if st, err := os.Stat(p); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("log file: %v %v", st, err)
+	}
+	big := make([]byte, producer.DefaultLogThreshold)
+	if err := os.WriteFile(p, big, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err = openServerLog(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, err := os.Stat(p + ".1"); err != nil {
+		t.Fatalf("expected the oversized log rotated to .1: %v", err)
+	}
+	if st, _ := os.Stat(p); st.Size() != 0 {
+		t.Fatalf("fresh log should be empty, size %d", st.Size())
 	}
 }
 
@@ -349,5 +366,22 @@ func TestAdminReload_DockerStillRequiresClockURL(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
 	if got := reloadStatus(t, app, path, `{"display":{"idle_text":"x"}}`); got != http.StatusUnprocessableEntity {
 		t.Fatalf("docker reload without a clock URL = %d, want 422", got)
+	}
+}
+
+func TestUserModeNoDeviceLogsOncePerChange(t *testing.T) {
+	isolateEnv(t, dataDirEnv)
+	cfg, err := loadConfigFor("", discardLogger(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf strings.Builder
+	a := guardApp(t, NewApp(cfg, &recordingPublisher{}, slog.New(slog.NewTextHandler(&buf, nil))))
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) { return nil, nil }
+	for i := 0; i < 5; i++ {
+		a.rediscoverClock(context.Background())
+	}
+	if n := strings.Count(buf.String(), "level=INFO"); n != 1 {
+		t.Fatalf("want one info line over 5 ticks, got %d:\n%s", n, buf.String())
 	}
 }
