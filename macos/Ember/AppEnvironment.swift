@@ -27,6 +27,7 @@ public final class AppEnvironment {
     public let serverDiscovery = ServerDiscovery()
     public let clockDiscovery = ClockDiscovery()
     public let producers: ProducerInstallService
+    public let builtInServer: BuiltInServerModel
     public let permissions: PermissionsModel
 
     public var prefs: MenuPrefs {
@@ -215,6 +216,10 @@ public final class AppEnvironment {
                     .appendingPathComponent(".config/ember/producers.json"),
                 migratingFrom: UserDefaultsProducerPrefs())
         )
+        builtInServer = BuiltInServerModel(service: BuiltInServerService(
+            jobs: producers,
+            paths: BuiltInServerPaths(home: FileManager.default.homeDirectoryForCurrentUser),
+            producerEnv: envStore))
         permissions = PermissionsModel(sources: AppPermissionSources(
             connection: connection, producers: producers, reminders: watcher, location: location, music: music))
         #if DEBUG
@@ -222,6 +227,7 @@ public final class AppEnvironment {
         #endif
         live.configure(client: client)
         settings.connectionEnv.onSaved = { [weak self] _, _ in self?.reloadConnection() }
+        builtInServer.onProducerEnvChanged = { [weak self] in await self?.producerEnvSwitched() }
         clockConfig.legacy = settings
         settings.onDaySaved = { [live] in Task { await live.refreshNow(.dayState, .dayHistory, .dayWeeks) } }
         settings.onClockSourceSaved = { [clockConfig] in Task { await clockConfig.load() } }
@@ -285,10 +291,18 @@ public final class AppEnvironment {
     private nonisolated static func logReconcile(_ outcomes: [ReconcileOutcome], log: Logger) {
         for outcome in outcomes {
             if let error = outcome.error {
-                log.error("producer re-register failed: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+                log.error("helper re-register failed: job=\(outcome.job.name, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             } else {
-                log.notice("producer re-registered: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public)")
+                log.notice("helper re-registered: job=\(outcome.job.name, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public)")
             }
+        }
+    }
+
+    private func producerEnvSwitched() async {
+        reloadConnection()
+        await settings.connectionEnv.load()
+        for agent in ProducerAgent.allCases {
+            _ = await producers.restartIfLoaded(agent)
         }
     }
 

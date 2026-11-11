@@ -103,6 +103,21 @@ after `doctor`) and the startup log show the resolved data dir, env file and
 where each came from. Smoke runs follow AGENTS.md: scratch port, temp `HOME`
 and `EMBER_DATA_DIR`, `EMBER_MDNS_ADVERTISE=0`, `EMBER_CLOCK=off`.
 
+### From Ember.app (#833)
+
+Settings › Connection › Server › **Run on this Mac** registers the bundled
+`ember-server -user` LaunchAgent (`com.ember.server`, `KeepAlive`) on port
+3627, all interfaces, and points this Mac's producers at
+`http://127.0.0.1:3627` with the token it minted into `server.env`. **Use
+another server** unregisters it (no process, port closed), keeps the data
+folder and restores the previous server URL and token. The pane's **Show Log**
+opens `~/Library/Logs/Ember/server.log`; **Show Data Folder** opens
+`~/Library/Application Support/Ember`. A clock is still chosen through the
+clock settings (see above); until then the built-in server publishes nothing.
+To check from Terminal: `launchctl print gui/$(id -u)/com.ember.server`
+(`state = running`), `lsof -nP -iTCP:3627 -sTCP:LISTEN`, `curl -s
+http://127.0.0.1:3627/healthz`.
+
 ## Local server deployment (dev Mac, OrbStack)
 
 Docker is available via OrbStack; `docker buildx`, `scripts/image-smoke.sh`, and
