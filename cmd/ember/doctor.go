@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
@@ -137,6 +138,9 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	}
 
 	res.Checks["build"] = checkBuild()
+	if app != nil {
+		addServerPathsCheck(&res, app.serverEnv)
+	}
 
 	if app == nil {
 		res.Checks["meetings"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
@@ -177,9 +181,19 @@ func clockDisabledCheck() CheckResult {
 	return CheckResult{Status: StatusOK, Detail: "disabled (EMBER_CLOCK=off); no clock I/O"}
 }
 
+func addServerPathsCheck(res *DoctorResult, env serverEnv) {
+	if !env.active() {
+		return
+	}
+	res.Checks["server_paths"] = CheckResult{Status: StatusOK, Detail: strings.Join(env.describe(), "; ")}
+}
+
 func checkAWTRIXReachable(ctx context.Context, cfg *Config) CheckResult {
 	if clockDisabled() {
 		return clockDisabledCheck()
+	}
+	if cfg != nil && cfg.AWTRIX.clockUnset && cfg.effectiveClockURL() == "" {
+		return CheckResult{Status: StatusOK, Detail: "no clock configured (-user); set one through the clock settings API"}
 	}
 	if cfg == nil || cfg.effectiveClockURL() == "" {
 		return CheckResult{Status: StatusFail, Detail: "awtrix.http_base_url empty"}
@@ -434,6 +448,8 @@ type doctorFlags struct {
 	serverURL  *string
 	offline    *bool
 	asJSON     *bool
+	user       *bool
+	envFile    *string
 }
 
 func newDoctorFlags() doctorFlags {
@@ -444,6 +460,8 @@ func newDoctorFlags() doctorFlags {
 		serverURL:  fs.String("server-url", "http://127.0.0.1:3627", "doctor server URL (online mode)"),
 		offline:    fs.Bool("offline", false, "skip the server probe; run static checks only"),
 		asJSON:     fs.Bool("json", false, "print result as JSON"),
+		user:       fs.Bool("user", false, "per-user service mode: resolve the env file and data dir from the home directory"),
+		envFile:    fs.String("env-file", "", "load KEY=VALUE lines from this 0600 file for keys not already in the environment"),
 	}
 }
 
@@ -451,8 +469,13 @@ func runDoctor(args []string) {
 	f := newDoctorFlags()
 	_ = f.fs.Parse(args)
 
+	env, err := prepareServerEnv(*f.user, *f.envFile, false)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "doctor:", err)
+		os.Exit(1)
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	cfg, err := loadConfig(*f.configPath, logger)
+	cfg, err := loadConfigFor(*f.configPath, logger, *f.user)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "doctor: config:", err)
 		os.Exit(1)
@@ -464,6 +487,7 @@ func runDoctor(args []string) {
 	var res DoctorResult
 	if *f.offline {
 		res = runDoctorChecks(ctx, nil, &cfg)
+		addServerPathsCheck(&res, env)
 	} else {
 		online, terr := tryAdminDoctor(ctx, *f.serverURL, os.Getenv(cfg.Auth.StatusTokenEnv))
 		switch {
@@ -472,6 +496,7 @@ func runDoctor(args []string) {
 			os.Exit(1)
 		case terr != nil:
 			res = runDoctorChecks(ctx, nil, &cfg)
+			addServerPathsCheck(&res, env)
 		default:
 			res = online
 		}

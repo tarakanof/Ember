@@ -76,6 +76,33 @@ If a sandboxed shell can't write the default build cache, use a repo-local one:
 `GOCACHE="$PWD/.gocache" go test ./...`. In a shell with a stale
 `GOROOT=~/.go`, prefix with `unset GOROOT &&`.
 
+## Running the server without Docker
+
+For a per-user service (a LaunchAgent, a `systemd --user` unit) the server finds
+its own files from the home directory, since a service manager can't expand `~`
+or carry a per-user secret (#831). With none of the switches below set, nothing
+changes.
+
+| Switch | Effect |
+|---|---|
+| `EMBER_DATA_DIR` (env) | the data directory, created 0700. With no `-config` and no `CONFIG_PATH`, the config is `$EMBER_DATA_DIR/config.json` if it exists; `pomodoro.db_path` defaults to `$EMBER_DATA_DIR/pomodoro.db` (the `coredumps/` and `firmware/cinder-knob/` stores sit beside it). An explicit `db_path` wins |
+| `-env-file <path>` | loads `KEY=VALUE` lines before the config is read, only for keys not already in the environment (the real environment wins). Must be a regular 0600 file owned by you, else startup fails naming the path and the reason, never the contents. A missing file is not an error |
+| `-user` | per-user mode: env file `~/.config/ember/server.env`, data dir `~/Library/Application Support/Ember` (macOS) or `~/.local/share/ember`, log `~/Library/Logs/Ember/server.log` (macOS) or `<data dir>/server.log`, rotated at startup past 10 MiB (5 generations) like the producers' logs. `-env-file` and `EMBER_DATA_DIR` still win over it |
+
+`-user` also keeps the server off any clock you have not chosen. Without an
+`awtrix.http_base_url` in the config (and no clock set through the API) the
+usual `http://192.168.0.14` fallback is not used and the clock watch only logs
+the clocks mDNS finds (`clock found but none is configured`, `doctor` clock
+`last_rediscover_result` `unclaimed`); nothing is probed, published to or
+adopted until the clock is set through the clock settings API
+(`PUT /v1/device/config` with `{"base_url"}`, see API.md). Docker keeps its
+behavior: the fallback URL and auto-adoption are unchanged.
+
+`ember --print-config`, `ember doctor` (which accepts `-user` and `-env-file`
+after `doctor`) and the startup log show the resolved data dir, env file and
+where each came from. Smoke runs follow AGENTS.md: scratch port, temp `HOME`
+and `EMBER_DATA_DIR`, `EMBER_MDNS_ADVERTISE=0`, `EMBER_CLOCK=off`.
+
 ## Local server deployment (dev Mac, OrbStack)
 
 Docker is available via OrbStack; `docker buildx`, `scripts/image-smoke.sh`, and
@@ -1335,6 +1362,7 @@ field the producer sets, not the data capture. See ARCHITECTURE → "spine".
 | `EMBER_RATE_PCT_ENABLED` (default true) | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
 | `EMBER_RATE_BOTTOM_BAR` | 5h rate as the row-7 bottom bar |
 | `EMBER_RATE_RESET` | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
+| `EMBER_DATA_DIR` | server data directory (config, database, firmware, coredumps); see "Running the server without Docker" |
 | `EMBER_ACTIVITY_DETAIL_ENABLED` | scrolling `Tool: detail` + `cardTool` |
 | `EMBER_ACTIVITY_TRAIL_ENABLED` | last-N actions ticker (extends detail) |
 | `EMBER_SOURCE` | machine label; empty or the old `set-me-to-this-laptop-id` placeholder defaults to a short id from the macOS `LocalHostName` (`Dmitrys-MacBook-Pro` -> `mbp`, `-Air` -> `mba`, `Mac-mini` -> `mini`; the clock card fits ~4 glyphs); install/configure/doctor write it into producer.env once and print it |

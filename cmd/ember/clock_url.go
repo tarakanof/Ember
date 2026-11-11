@@ -18,7 +18,7 @@ func (c *Config) clockURL() (string, clockSource) {
 		return a.clockDiscovered, clockSourceDiscovered
 	case a.clockOverride != "":
 		return a.clockOverride, clockSourceStore
-	case a.HTTPBaseURL != "":
+	case a.HTTPBaseURL != "" && !a.clockUnset:
 		return a.HTTPBaseURL, clockSourceConfig
 	}
 	return "", clockSourceNone

@@ -195,13 +195,15 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			}
 			return
 		}
-		if newCfg.AWTRIX.HTTPBaseURL == "" {
+		clockUnset := userClockUnset(app.serverEnv.User, newCfg.AWTRIX.HTTPBaseURL)
+		if newCfg.AWTRIX.HTTPBaseURL == "" && !clockUnset {
 			err := fmt.Errorf("%w: awtrix.http_base_url is required", ErrConfigValidate)
 			logOutcome(http.StatusUnprocessableEntity, 0, err.Error())
 			writeError(w, http.StatusUnprocessableEntity, err)
 			return
 		}
 		newCfg.applyDefaults()
+		newCfg.AWTRIX.clockUnset = clockUnset
 		sanitizeConfigBaseline(&newCfg, app.logger)
 		warnDeprecatedConfig(newCfg, app.logger)
 		releaseRotation := app.holdClockRotation()

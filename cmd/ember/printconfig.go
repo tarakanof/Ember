@@ -18,16 +18,22 @@ func redactConfig(c Config) Config {
 	return c
 }
 
-func runPrintConfig(path string) {
+func runPrintConfig(path string, env serverEnv) {
+	for _, line := range env.describe() {
+		fmt.Fprintln(os.Stderr, "print-config:", line)
+	}
 	resolved, _ := resolveConfigPath(path)
 	if resolved == "" {
-		fmt.Fprintln(os.Stderr, "print-config: no config source resolved (no -config flag, no CONFIG_PATH env, no ./config.json)")
+		fmt.Fprintln(os.Stderr, "print-config: no config source resolved (no -config flag, no CONFIG_PATH env, no $EMBER_DATA_DIR/config.json, no ./config.json)")
 		os.Exit(1)
 	}
 	cfg, err := parseConfigFile(resolved)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "print-config:", err)
 		os.Exit(1)
+	}
+	if userClockUnset(env.User, cfg.AWTRIX.HTTPBaseURL) {
+		fmt.Fprintln(os.Stderr, "print-config: no clock configured under -user; the http_base_url below is a placeholder the server does not use")
 	}
 	cfg.applyDefaults()
 	if err := validateConfig(cfg); err != nil {

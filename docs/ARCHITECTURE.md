@@ -5449,8 +5449,14 @@ producers and USB; build it with another `PRODUCT_BUNDLE_IDENTIFIER`).
 
 ### Config load and `/admin/reload`
 
-Resolve order: the `-config` flag, `CONFIG_PATH`, `./config.json` if present,
-else defaults only. `-config` works before or after the `doctor` subcommand
+Before the config is read, `-env-file` (or `-user`'s `~/.config/ember/server.env`)
+fills in environment keys that are not already set, and `-user` / `EMBER_DATA_DIR`
+fix the data directory (`serverenv.go`). Resolve order: the `-config` flag,
+`CONFIG_PATH`, `$EMBER_DATA_DIR/config.json` if present, `./config.json` if
+present, else defaults only; `pomodoro.db_path` defaults to
+`$EMBER_DATA_DIR/pomodoro.db` when the data dir is set. Under `-user` with no
+`awtrix.http_base_url` the clock URL stays empty (`clockUnset`): rediscovery logs
+what it finds (`unclaimed`) and adopts nothing. `-config` works before or after the `doctor` subcommand
 (`ember -config X doctor`); given twice, the later one wins. Any other flag
 before a subcommand, and any stray argument (`ember -- doctor`), exits 2
 rather than being dropped; the message names the fix per case (`-print-config`
