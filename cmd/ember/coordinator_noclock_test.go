@@ -36,4 +36,10 @@ func TestWarnClockLogsNotConfiguredOncePerMessage(t *testing.T) {
 	if n := strings.Count(buf.String(), "coord publish failed"); n != 4 {
 		t.Fatalf("after a real failure the next not-configured must log again, total %d want 4", n)
 	}
+
+	c.noClockLogged.Delete("coord publish failed")
+	c.warnClock("coord publish failed", notConfigured)
+	if n := strings.Count(buf.String(), "coord publish failed"); n != 5 {
+		t.Fatalf("after a success the next not-configured must log again, total %d want 5", n)
+	}
 }

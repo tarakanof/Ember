@@ -124,6 +124,7 @@ func (c *coordinator) publish(snap Snapshot) {
 		c.metrics.incPublishFail()
 	} else {
 		c.publishCount.Add(1)
+		c.noClockLogged.Delete("coord publish failed")
 		c.metrics.incPublishOK()
 		c.mainPushed = pushedApp{body: body, at: now}
 		c.pushed(cfg.AWTRIX.AppName)

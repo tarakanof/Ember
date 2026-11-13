@@ -196,6 +196,7 @@ func (c *coordinator) adoptDeviceManagedApps() bool {
 		c.warnClock("device app loop read failed; deferring adopt", err)
 		return false
 	}
+	c.noClockLogged.Delete("device app loop read failed; deferring adopt")
 	c.tiles.adopt(names, c.loadCfg().AWTRIX.AppName)
 	return true
 }
