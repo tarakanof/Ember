@@ -168,8 +168,8 @@ RESTORE=1
 signed_by_developer_id() {
   local info
   info="$(codesign -dvv "$1" 2>&1)" || { echo "FAIL not signed: $1" >&2; return 1; }
-  if ! printf '%s\n' "$info" | grep -q "^Authority=Developer ID Application: .* ($TEAM)$" ||
-     ! printf '%s\n' "$info" | grep -qx "TeamIdentifier=$TEAM"; then
+  if ! grep -q "^Authority=Developer ID Application: .* ($TEAM)$" <<<"$info" ||
+     ! grep -qx "TeamIdentifier=$TEAM" <<<"$info"; then
     echo "FAIL not signed with Developer ID ($TEAM): $1" >&2
     printf '%s\n' "$info" | grep -E '^(Authority|TeamIdentifier|Signature)=' >&2 || true
     return 1
@@ -215,7 +215,7 @@ if [ "$APP" -eq 1 ]; then
   xcrun stapler validate "$BUILT"
   assessment="$(spctl -a -vv -t exec "$BUILT" 2>&1)" || { printf '%s\n' "$assessment" >&2; echo "error: Gatekeeper rejects the stapled app" >&2; exit 1; }
   printf '%s\n' "$assessment"
-  printf '%s\n' "$assessment" | grep -q "source=Notarized Developer ID" ||
+  grep -q "source=Notarized Developer ID" <<<"$assessment" ||
     { echo "error: Gatekeeper does not see a notarized Developer ID app" >&2; exit 1; }
 
   ZIP="$WORK/$ZIP_NAME"
