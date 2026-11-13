@@ -560,7 +560,7 @@ dnssd multicast browse (a CLI on macOS gets no multicast replies without Local
 Network multicast access, but the server's dnssd responder answers legacy
 queries by unicast; replies must carry QR and one of our query IDs). Answers
 are kept per (instance name, URL), so a host spoofing the name surfaces as a
-second server; `PickServer` dedupes by URL and needs exactly one, an
+second server. Each server advertises `Ember (<machine>)` (macOS: the Bonjour `LocalHostName` via `scutil`, else `os.Hostname`; a taken name is renamed `… (2)` by dnssd's probe), and a bare `EMBER_SERVER_INSTANCE=Ember` matches any such name; `PickServer` dedupes by URL and needs exactly one, an
 `EMBER_SERVER_INSTANCE` matching instance name, host or IP, or (with no
 preference) the server already in `server.json` (matched by its exact URL;
 a name is no identity a LAN host cannot fake), so a second server appearing never silences a producer

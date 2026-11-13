@@ -4,6 +4,8 @@ import (
 	"context"
 	"net"
 	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -15,8 +17,45 @@ const (
 
 	AdvertisedHostPrefix = "ember-"
 
+	InstanceBase = "Ember"
+
 	maxDNSLabel = 63
 )
+
+var machineNameFuncs = machineNameFuncsFor(runtime.GOOS)
+
+func machineNameFuncsFor(goos string) []func() (string, error) {
+	if goos != "darwin" {
+		return []func() (string, error){os.Hostname}
+	}
+	return []func() (string, error){
+		func() (string, error) {
+			out, err := exec.Command("scutil", "--get", "LocalHostName").Output()
+			return strings.TrimSpace(string(out)), err
+		},
+		os.Hostname,
+	}
+}
+
+func machineName(funcs []func() (string, error)) string {
+	for _, f := range funcs {
+		if h, err := f(); err == nil && strings.TrimSpace(h) != "" {
+			return strings.TrimSpace(h)
+		}
+	}
+	return ""
+}
+
+func advertiseName(machine string) string {
+	label, _, _ := strings.Cut(machine, ".")
+	if label == "" {
+		return InstanceBase
+	}
+	if room := maxDNSLabel - len(InstanceBase) - len(" ()"); len(label) > room {
+		label = label[:room]
+	}
+	return InstanceBase + " (" + label + ")"
+}
 
 func PortFromAddr(addr string) (int, error) {
 	_, p, err := net.SplitHostPort(addr)
@@ -45,9 +84,9 @@ func advertiseConfig(name string, port int, version, machine string) dnssd.Confi
 	}
 }
 
-func Advertise(ctx context.Context, name string, port int, version string) error {
-	machine, _ := os.Hostname()
-	sv, err := dnssd.NewService(advertiseConfig(name, port, version, machine))
+func Advertise(ctx context.Context, port int, version string) error {
+	machine := machineName(machineNameFuncs)
+	sv, err := dnssd.NewService(advertiseConfig(advertiseName(machine), port, version, machine))
 	if err != nil {
 		return err
 	}

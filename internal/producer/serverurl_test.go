@@ -445,3 +445,20 @@ func TestLocatorIgnoresCacheMadeUnderAPreference(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestPinnedBareInstanceNameStillMatchesOneNamedServer(t *testing.T) {
+	one := DiscoveredServer{Name: "Ember (Tosaka)", Host: "ember-Tosaka.local.", URL: "http://192.0.2.60:3627"}
+	for _, prefer := range []string{"Ember", "ember", "Ember (Tosaka)", "Tosaka"} {
+		got, err := PickServer([]DiscoveredServer{one}, prefer)
+		if err != nil || got.URL != one.URL {
+			t.Errorf("prefer %q: got %+v, %v", prefer, got, err)
+		}
+	}
+	two := DiscoveredServer{Name: "Ember (studio)", Host: "ember-studio.local.", URL: "http://192.0.2.61:3627"}
+	if _, err := PickServer([]DiscoveredServer{one, two}, "Ember"); err == nil {
+		t.Error("bare Ember with two named servers must stay ambiguous")
+	}
+	if got, err := PickServer([]DiscoveredServer{one, two}, "studio"); err != nil || got.URL != two.URL {
+		t.Errorf("machine name pick: %+v, %v", got, err)
+	}
+}

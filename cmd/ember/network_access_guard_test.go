@@ -155,7 +155,7 @@ func TestNetworkAccessGuardCatchesEachBypass(t *testing.T) {
 		{"tls dialer", "x.go", `func f(ctx context.Context) { d := &tls.Dialer{}; _, _ = d.DialContext(ctx, "tcp", "192.0.2.1:443") }`, 2},
 		{"browse reference", "x.go", "var _ = discovery.BrowseAWTRIX", 1},
 		{"browse call", "x.go", `func f() { _, _ = discovery.BrowseEmber(context.Background(), time.Second) }`, 1},
-		{"advertise", "x.go", `func f() { _ = discovery.Advertise(context.Background(), "x", 1, "v") }`, 1},
+		{"advertise", "x.go", `func f() { _ = discovery.Advertise(context.Background(), 1, "v") }`, 1},
 		{"allowlisted dial", "device_buttons.go", `func outboundIP() { _, _ = net.Dial("udp", "192.0.2.1:80") }`, 0},
 		{"second dial at the allowlisted site", "device_buttons.go", `func outboundIP() { _, _ = net.Dial("udp", "a:80"); _, _ = net.Dial("udp", "b:80") }`, 2},
 		{"dial elsewhere in the allowlisted file", "device_buttons.go", `func other() { _, _ = net.Dial("udp", "192.0.2.1:80") }`, 1},
