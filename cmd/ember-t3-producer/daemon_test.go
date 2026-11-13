@@ -111,16 +111,16 @@ func TestBackoff(t *testing.T) {
 
 func TestNoteMigrationWarnsOncePerUntestedVersion(t *testing.T) {
 	d := newDaemon(Config{}, nil)
-	if d.noteMigration(2, 67) {
+	if d.noteMigration(2, 81) {
 		t.Fatal("pinned v2 migration must not warn")
 	}
 	if d.noteMigration(1, 54) {
 		t.Fatal("pinned v1 migration must not warn")
 	}
-	if !d.noteMigration(2, 68) {
+	if !d.noteMigration(2, 82) {
 		t.Fatal("newer migration must warn")
 	}
-	if d.noteMigration(2, 68) {
+	if d.noteMigration(2, 82) {
 		t.Fatal("same migration must warn only once")
 	}
 }
@@ -130,10 +130,10 @@ func TestNoteMigrationKeyedBySchema(t *testing.T) {
 	if !d.noteMigration(1, 63) {
 		t.Fatal("v1 migration 63 must warn")
 	}
-	if !d.noteMigration(2, 68) {
-		t.Fatal("v2 migration 63 must warn even after v1's")
+	if !d.noteMigration(2, 82) {
+		t.Fatal("v2 migration 82 must warn even after v1's")
 	}
-	if d.noteMigration(1, 63) || d.noteMigration(2, 68) {
+	if d.noteMigration(1, 63) || d.noteMigration(2, 82) {
 		t.Fatal("each (schema, id) must warn only once")
 	}
 }

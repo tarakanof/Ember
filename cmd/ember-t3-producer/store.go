@@ -60,9 +60,9 @@ func (r *storeReader) Read(ctx context.Context, home string) (snapshot, error) {
 	m2, ok2 := dbModTime(v2)
 	switch {
 	case ok2 && (!ok1 || !m1.After(m2)):
-		return r.readWith(ctx, v2, 2, v2Tables, queryV2)
+		return r.readWith(ctx, v2, 2, v2Query)
 	case ok1:
-		return r.readWith(ctx, v1, 1, v1Tables, queryV1)
+		return r.readWith(ctx, v1, 1, v1Query)
 	}
 	r.Close()
 	return snapshot{}, errNoDatabase
@@ -114,21 +114,43 @@ var (
 		"orchestration_v2_projection_provider_session_bindings", "orchestration_v2_projection_turn_items",
 		"orchestration_v2_projection_provider_threads",
 	}
+	v2AwarenessTables = append(append([]string(nil), v2Tables...), "orchestration_v2_projection_messages")
 )
 
-func (r *storeReader) readWith(ctx context.Context, path string, schema int, tables []string, query string) (snapshot, error) {
+type schemaQuery func(migration int) (tables []string, query string, args []any)
+
+func v1Query(int) ([]string, string, []any) { return v1Tables, queryV1, nil }
+
+func v2Query(migration int) ([]string, string, []any) {
+	if migration >= t3AwarenessMigration {
+		return v2AwarenessTables, queryV2, nil
+	}
+	gate := 0
+	if migration >= t3PendingSemanticsMigration {
+		gate = 1
+	}
+	return v2Tables, queryV2Legacy, []any{gate}
+}
+
+func (r *storeReader) readWith(ctx context.Context, path string, schema int, pick schemaQuery) (snapshot, error) {
 	db, err := r.handle(path)
 	if err != nil {
 		return snapshot{}, err
 	}
-	snap, err := readTables(ctx, db, path, schema, tables, query)
+	snap, err := readTables(ctx, db, path, schema, pick)
 	if err != nil && !errors.Is(err, errUnknownSchema) {
 		r.Close()
 	}
 	return snap, err
 }
 
-func readTables(ctx context.Context, db *sql.DB, path string, schema int, tables []string, query string) (snapshot, error) {
+func readTables(ctx context.Context, db *sql.DB, path string, schema int, pick schemaQuery) (snapshot, error) {
+	snap := snapshot{Schema: schema}
+	var mig sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT max(migration_id) FROM effect_sql_migrations`).Scan(&mig); err == nil {
+		snap.Migration = int(mig.Int64)
+	}
+	tables, query, args := pick(snap.Migration)
 	for _, tbl := range tables {
 		var n int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, tbl).Scan(&n); err != nil {
@@ -137,19 +159,6 @@ func readTables(ctx context.Context, db *sql.DB, path string, schema int, tables
 		if n == 0 {
 			return snapshot{}, fmt.Errorf("%w: %s has no %s", errUnknownSchema, filepath.Base(path), tbl)
 		}
-	}
-	snap := snapshot{Schema: schema}
-	var mig sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT max(migration_id) FROM effect_sql_migrations`).Scan(&mig); err == nil {
-		snap.Migration = int(mig.Int64)
-	}
-	var args []any
-	if schema == 2 {
-		gate := 0
-		if snap.Migration >= t3PendingSemanticsMigration {
-			gate = 1
-		}
-		args = append(args, gate)
 	}
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -222,7 +231,7 @@ WHERE t.deleted_at IS NULL`
 
 const t3PendingSemanticsMigration = 63
 
-const queryV2 = `
+const queryV2Legacy = `
 WITH secret AS (
   SELECT thread_id, node_id, stamp FROM (
     SELECT s.thread_id, s.node_id,
@@ -244,9 +253,10 @@ SELECT
       WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'
       ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1)),
   COALESCE(
-    (SELECT json_extract(ps.payload_json, '$.lastError') FROM orchestration_v2_projection_provider_sessions ps
-      INNER JOIN orchestration_v2_projection_provider_session_bindings b
-        ON b.provider_session_id = ps.provider_session_id
+    (SELECT json_extract(ps.payload_json, '$.lastError') FROM orchestration_v2_projection_provider_session_bindings b
+      -- CROSS JOIN keeps bindings outermost: one provider instance can hold every session.
+      CROSS JOIN orchestration_v2_projection_provider_sessions ps
+        ON ps.provider_session_id = b.provider_session_id
       WHERE b.thread_id = t.thread_id AND ps.provider_instance_id = t.provider_instance_id
       ORDER BY ps.updated_at DESC, ps.provider_session_id DESC LIMIT 1),
     (SELECT json_extract(i.payload_json, '$.failure.message') FROM orchestration_v2_projection_turn_items i
@@ -283,7 +293,7 @@ SELECT
       WHERE i.thread_id = t.thread_id
         AND i.type IN ('command_execution', 'dynamic_tool', 'subagent') AND i.type <> 'command_execution'
         AND i.status IN ('pending', 'running', 'waiting')
-        AND NOT (i.type = 'dynamic_tool' AND json_type(i.payload_json, '$.input.persistent') = 'true')
+        AND NOT (i.type = 'dynamic_tool' AND json_type(i.payload_json, '$.input.persistent') IS 'true')
         AND (i.run_id IS NULL OR ir.status <> 'rolled_back'))
     OR EXISTS (SELECT 1 FROM json_each(t.payload_json, '$.pullRequests') pr
       WHERE json_extract(pr.value, '$.watch') IS NOT NULL

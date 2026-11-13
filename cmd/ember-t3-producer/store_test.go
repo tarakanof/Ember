@@ -125,6 +125,7 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('t-bg-cmd', 'p', 'Dev server only', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
 		 ('t-bg-sub', 'p', 'Subagent item', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-bg-persist', 'p', 'Persistent monitor', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-bg-dyn', 'p', 'Dynamic tool', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-bg-rolled', 'p', 'Rolled back subagent', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-bg-nokind', 'p', 'Roster no kind', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
 		 ('t-bg-unk', 'p', 'Roster unknown kind', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
@@ -166,6 +167,7 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('r15', 't-bg-cmd', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
 		 ('r16', 't-bg-sub', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
 		 ('r17', 't-bg-persist', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r17b', 't-bg-dyn', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
 		 ('r18', 't-bg-rolled', 1, 'codex', 'rolled_back', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
 		 ('r19', 't-bg-rolled', 2, 'codex', 'completed', '2026-10-02T10:05:00.000Z', '2026-10-02T10:06:00.000Z', '{}'),
 		 ('r20', 't-bg-nokind', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
@@ -201,6 +203,7 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('b-sub', 't-bg-sub', 'r16', 1, 'subagent', 'running', '2026-10-02T10:03:30.000Z', '{}'),
 		 ('b-cmd', 't-bg-cmd', 'r15', 1, 'command_execution', 'running', '2026-10-02T10:03:30.000Z', '{}'),
 		 ('b-persist', 't-bg-persist', 'r17', 1, 'dynamic_tool', 'running', '2026-10-02T10:03:30.000Z', '{"input":{"persistent":true}}'),
+		 ('b-dyn', 't-bg-dyn', 'r17b', 1, 'dynamic_tool', 'running', '2026-10-02T10:03:30.000Z', '{"input":{"command":"watch"}}'),
 		 ('b-failed', 't-bg-failed', 'r23', 1, 'subagent', 'running', '2026-10-02T10:03:30.000Z', '{}'),
 		 ('b-rolled', 't-bg-rolled', 'r18', 1, 'subagent', 'running', '2026-10-02T10:03:30.000Z', '{}')`,
 		`INSERT INTO orchestration_v2_projection_runtime_requests (runtime_request_id, thread_id, node_id, kind, status, created_at, payload_json) VALUES
@@ -284,6 +287,7 @@ func TestReadSnapshotV2(t *testing.T) {
 		"t-bg-cmd":            {status: "completed", changed: at("10:04:00")},
 		"t-bg-sub":            {status: "completed", holds: true, changed: at("10:04:00")},
 		"t-bg-persist":        {status: "completed", changed: at("10:04:00")},
+		"t-bg-dyn":            {status: "completed", holds: true, changed: at("10:04:00")},
 		"t-bg-nokind":         {status: "completed", holds: true, changed: at("10:04:00")},
 		"t-bg-unk":            {status: "completed", holds: true, changed: at("10:04:00")},
 		"t-bg-noid":           {status: "completed", changed: at("10:04:00")},
@@ -426,15 +430,16 @@ func TestReadSnapshotIsReadOnly(t *testing.T) {
 	}
 }
 
-func TestQueryV2UsesRecoveryIndex(t *testing.T) {
+func queryPlan(t *testing.T, query string, args []any, stmts ...string) string {
+	t.Helper()
 	home := t.TempDir()
-	makeDB(t, home, "statev2.sqlite", "schema_v2.sql")
+	makeDB(t, home, "statev2.sqlite", "schema_v2.sql", stmts...)
 	db, err := openReadOnly(filepath.Join(home, "userdata", "statev2.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	rows, err := db.Query("EXPLAIN QUERY PLAN "+queryV2, 1)
+	rows, err := db.Query("EXPLAIN QUERY PLAN "+query, args...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,14 +453,40 @@ func TestQueryV2UsesRecoveryIndex(t *testing.T) {
 		}
 		plan.WriteString(detail + "\n")
 	}
+	return plan.String()
+}
+
+func TestQueryV2LegacyUsesRecoveryIndex(t *testing.T) {
+	plan := queryPlan(t, queryV2Legacy, []any{1},
+		`DROP INDEX orchestration_v2_projection_turn_items_active_ordinal_idx`,
+		`DROP INDEX orchestration_v2_projection_turn_items_active_run_idx`)
 	for _, idx := range []string{
 		"orchestration_v2_projection_turn_items_recovery_idx",
 		"orchestration_v2_projection_runs_recovery_idx",
 		"orchestration_v2_projection_turn_items_thread_run_idx",
+		"orchestration_v2_projection_provider_session_bindings_thread_idx",
 	} {
-		if !strings.Contains(plan.String(), idx) {
-			t.Errorf("plan no longer uses %s:\n%s", idx, plan.String())
+		if !strings.Contains(plan, idx) {
+			t.Errorf("plan no longer uses %s:\n%s", idx, plan)
 		}
+	}
+}
+
+func TestQueryV2UsesPartialIndexes(t *testing.T) {
+	plan := queryPlan(t, queryV2, nil)
+	for _, idx := range []string{
+		"orchestration_v2_projection_runs_recovery_idx",
+		"orchestration_v2_projection_turn_items_waiting_link_idx",
+		"orchestration_v2_projection_requests_recovery_idx",
+		"orchestration_v2_projection_turn_items_stop_request_idx",
+		"orchestration_v2_projection_provider_session_bindings_thread_idx",
+	} {
+		if !strings.Contains(plan, idx) {
+			t.Errorf("plan does not use %s:\n%s", idx, plan)
+		}
+	}
+	if strings.Contains(plan, "SCAN i\n") || strings.Contains(plan, "SCAN orchestration_v2_projection_turn_items") {
+		t.Errorf("plan scans every turn item:\n%s", plan)
 	}
 }
 
