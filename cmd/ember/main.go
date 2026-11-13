@@ -167,7 +167,7 @@ func main() {
 			}
 			logger.Info("mDNS advertising enabled", "service", "_ember._tcp", "port", port)
 			workers.Go(func() {
-				if err := discovery.Advertise(ctx, "Ember", port, ver); err != nil && ctx.Err() == nil {
+				if err := discovery.Advertise(ctx, port, ver); err != nil && ctx.Err() == nil {
 					logger.Warn("mDNS advertise stopped", "err", err)
 				}
 			})

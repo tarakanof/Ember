@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -44,17 +45,67 @@ func TestAdvertiseHostNeverClaimsTheMachineName(t *testing.T) {
 }
 
 func TestAdvertiseServicePublishesItsOwnSRVTarget(t *testing.T) {
-	sv, err := dnssd.NewService(advertiseConfig("Ember", 3627, "abc", "Tosaka"))
+	sv, err := dnssd.NewService(advertiseConfig(advertiseName("Tosaka"), 3627, "abc", "Tosaka"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, want := sv.Hostname(), "ember-Tosaka.local."; got != want {
 		t.Fatalf("SRV target = %q, want %q", got, want)
 	}
-	if sv.Name != "Ember" || sv.Type != emberServiceType || sv.Port != 3627 {
+	if sv.Name != "Ember (Tosaka)" || sv.Type != emberServiceType || sv.Port != 3627 {
 		t.Fatalf("service = %+v", sv)
 	}
 	if sv.Text["version"] != "abc" || sv.Text["path"] != "/healthz" {
 		t.Fatalf("TXT = %+v", sv.Text)
+	}
+}
+
+func TestAdvertiseNameCarriesTheMachineLabel(t *testing.T) {
+	for _, tc := range []struct{ machine, want string }{
+		{"Tosaka", "Ember (Tosaka)"},
+		{"Tosaka.local", "Ember (Tosaka)"},
+		{"nas.home.arpa", "Ember (nas)"},
+		{"Mac", "Ember (Mac)"},
+		{"123", "Ember (ember-123)"},
+		{"x", "Ember (ember-x)"},
+		{"", "Ember"},
+		{".", "Ember"},
+		{strings.Repeat("a", 55), "Ember (" + strings.Repeat("a", 55) + ")"},
+		{strings.Repeat("a", 80), "Ember (" + strings.Repeat("a", 55) + ")"},
+	} {
+		got := advertiseName(tc.machine)
+		if got != tc.want || len(got) > maxDNSLabel {
+			t.Errorf("advertiseName(%q) = %q, want %q", tc.machine, got, tc.want)
+		}
+	}
+}
+
+func TestMachineNameFallsBackWhenTheFirstSourceFails(t *testing.T) {
+	fail := func() (string, error) { return "", errors.New("no scutil") }
+	blank := func() (string, error) { return " \n", nil }
+	ok := func() (string, error) { return "studio\n", nil }
+	if got := machineName([]func() (string, error){fail, blank, ok}); got != "studio" {
+		t.Fatalf("machineName = %q, want studio", got)
+	}
+	if got := machineName([]func() (string, error){fail}); got != "" {
+		t.Fatalf("machineName with no source = %q, want empty", got)
+	}
+	if n := len(machineNameFuncsFor("linux")); n != 1 {
+		t.Fatalf("linux sources = %d, want 1", n)
+	}
+	if n := len(machineNameFuncsFor("darwin")); n != 2 {
+		t.Fatalf("darwin sources = %d, want scutil then os.Hostname", n)
+	}
+}
+
+func TestDnssdKeepsTheMachineLabelInTheInstanceName(t *testing.T) {
+	for _, machine := range []string{"123", "x", "ab", "Mac", "Tosaka.local", strings.Repeat("9", 80)} {
+		sv, err := dnssd.NewService(advertiseConfig(advertiseName(machine), 3627, "v", machine))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sv.Name != advertiseName(machine) || sv.Name == InstanceBase {
+			t.Errorf("machine %q: dnssd name %q, want %q", machine, sv.Name, advertiseName(machine))
+		}
 	}
 }

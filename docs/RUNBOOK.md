@@ -976,9 +976,9 @@ count) alongside the regular multicast browse. One server answers → it is
 used and cached in `$XDG_STATE_HOME/ember/server.json` (default
 `~/.local/state`), together with the `EMBER_SERVER_INSTANCE` it was picked
 under (a cache from another preference is ignored). Answers are kept per
-(instance name, URL), so a second host answering as `Ember`, or one server
+(instance name, URL), so two servers (each advertises `Ember (<machine>)`, #847), or one server
 with two IPv4 addresses, shows up as several servers: set `EMBER_SERVER_URL`,
-or `EMBER_SERVER_INSTANCE` to one's instance name (`Ember`, `Ember (2)`), host
+or `EMBER_SERVER_INSTANCE` to one's instance name (`Ember (studio)`; a pinned bare `Ember` still matches when only one server is in view), host
 name (`unraid`) or IP; `doctor`/`discover` list what was found and say which
 to set. A producer that already has a cached server keeps it when a second
 appears (#848); only a producer with no cached pick needs the choice, which

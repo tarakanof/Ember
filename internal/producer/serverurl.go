@@ -136,7 +136,7 @@ func serverMatches(s DiscoveredServer, prefer string) bool {
 			return true
 		}
 	}
-	return false
+	return strings.EqualFold(prefer, discovery.InstanceBase) && strings.HasPrefix(strings.ToLower(s.Name), strings.ToLower(discovery.InstanceBase)+" (")
 }
 
 type ServerCache struct {
