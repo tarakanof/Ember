@@ -1,8 +1,9 @@
--- Subset of T3 Code v0.1.1 <T3CODE_HOME>/userdata/statev2.sqlite (migrations 55-67),
+-- Subset of T3 Code v0.1.9 <T3CODE_HOME>/userdata/statev2.sqlite (migrations 55-81),
 -- transcribed from apps/server/src/persistence/Migrations/055_OrchestrationV2.ts, its
--- OrchestrationV2/*.ts steps, 060 and 062: the tables ember-t3-producer reads and every index on them.
+-- OrchestrationV2/*.ts steps, 060, 062 and 068-081: the tables ember-t3-producer reads and every index on them.
 -- 063-067 add nothing to these tables (063 drops V1 projections, 064 and 066 rewrite payload_json
--- and events, 065 indexes provider_turns, 067 adds scheduled-task webhook tables).
+-- and events, 065 indexes provider_turns, 067 adds scheduled-task webhook tables); 069, 074 and 081
+-- add the message search index and its triggers, left out here, and 081 the search_text column.
 CREATE TABLE effect_sql_migrations (
   migration_id INTEGER PRIMARY KEY NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -149,7 +150,34 @@ CREATE INDEX orchestration_v2_projection_turn_items_failed_error_idx
   ON orchestration_v2_projection_turn_items(thread_id, run_id, node_id, updated_at DESC, ordinal DESC, turn_item_id DESC)
   WHERE type = 'error'
     AND status = 'failed';
--- Read for day clock replies (#730); copied from a T3 Code statev2.sqlite at migration 67.
+CREATE INDEX orchestration_v2_projection_turn_items_stop_request_idx
+  ON orchestration_v2_projection_turn_items(thread_id, run_id)
+  WHERE type = 'run_interrupt_request';
+CREATE INDEX orchestration_v2_projection_turn_items_waiting_link_idx
+  ON orchestration_v2_projection_turn_items(thread_id, updated_at DESC, turn_item_id DESC)
+  WHERE type = 'link_request' AND status = 'waiting';
+CREATE INDEX orchestration_v2_projection_turn_items_active_ordinal_idx
+  ON orchestration_v2_projection_turn_items(thread_id, ordinal, turn_item_id)
+  WHERE status IN ('pending', 'running', 'waiting');
+CREATE INDEX orchestration_v2_projection_turn_items_active_run_idx
+  ON orchestration_v2_projection_turn_items(thread_id, run_id)
+  WHERE status IN ('pending', 'running', 'waiting');
+CREATE INDEX orchestration_v2_projection_threads_subagent_result_idx
+  ON orchestration_v2_projection_threads(
+    thread_id, json_extract(payload_json, '$.lineage.parentThreadId')
+  )
+  WHERE CASE WHEN json_valid(payload_json) THEN
+    json_extract(payload_json, '$.lineage.relationshipToParent') = 'subagent'
+    AND json_extract(payload_json, '$.lineage.parentThreadId') IS NOT NULL
+    AND json_extract(payload_json, '$.forkedFrom.type') = 'node'
+    ELSE 0 END;
+CREATE INDEX orchestration_v2_projection_runs_delegated_delivery_idx
+  ON orchestration_v2_projection_runs(thread_id)
+  WHERE CASE WHEN json_valid(payload_json)
+    THEN json_type(payload_json, '$.delegatedCompletion.delivery') = 'object'
+    ELSE 0 END;
+-- Read for day clock replies (#730) and the shell's silent and wake runs; copied from a T3 Code
+-- statev2.sqlite at migration 81.
 CREATE TABLE orchestration_v2_projection_messages (
   message_id TEXT PRIMARY KEY,
   thread_id TEXT NOT NULL,
@@ -159,8 +187,13 @@ CREATE TABLE orchestration_v2_projection_messages (
   streaming INTEGER NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  payload_json TEXT NOT NULL
+  payload_json TEXT NOT NULL,
+  search_text TEXT
 );
+CREATE INDEX orchestration_v2_projection_messages_node_idx
+  ON orchestration_v2_projection_messages(node_id);
+CREATE INDEX orchestration_v2_projection_messages_run_idx
+  ON orchestration_v2_projection_messages(run_id);
 CREATE INDEX orchestration_v2_projection_messages_thread_created_idx
   ON orchestration_v2_projection_messages(thread_id, created_at, message_id);
 CREATE INDEX orchestration_v2_projection_messages_latest_user_idx

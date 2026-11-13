@@ -18,7 +18,7 @@ const (
 	maxBackoff  = time.Minute
 )
 
-var pinnedMigrations = map[int]int{1: 54, 2: 67}
+var pinnedMigrations = map[int]int{1: 54, 2: 81}
 
 var daemonFailLog = producer.NewFailureLogger(time.Minute)
 

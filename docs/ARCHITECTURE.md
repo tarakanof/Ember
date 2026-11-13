@@ -908,7 +908,7 @@ markers still get reaped.
   waiting and completion-holding threads stay visible (#710).
   A `completed` run stays `running` while background work that wakes the agent
   is open (`backgroundWorkHoldsCompletion`: roster task of the active provider
-  thread with kind other than `command`, or an active subagent /
+  thread with kind other than `command` (from migration 68: see below), or an active subagent /
   non-persistent dynamic_tool turn item outside a rolled-back run, or (T3 ≥
   0.1.0) a thread `pullRequests` link with a `watch` and a source other than
   `stack-dismissed`; dev-server commands do not hold). That hold is a
@@ -945,6 +945,36 @@ markers still get reaped.
   caught `running` when T3 quit would stay on the clock, since nothing
   updates the database again.
 
+  *From migration 68 (T3 ≥ 0.1.9, #852)* the producer reads `queryV2`, which
+  mirrors v0.1.9's `projectThreadAwarenessV2` and `selectShellThreadRows`;
+  below 68 it keeps `queryV2Legacy` and the rules above. The differences:
+  waiting cards are the newest of the run's waiting `secret_request` and the
+  thread's newest waiting `link_request` (#573; any run, still asking until a
+  user-authored message is newer than its `startedAt ?? updated_at`), with
+  a node; a card stands in only when every pending request is `user_input`
+  and none is newer than the card. Pending requests sort non-`user_input`
+  first, then newest, and any pending `user_input`, blocking or not, is
+  `waiting` "needs input". Idle `/compact` runs T3 sends itself (silent runs)
+  are skipped for the presented and activity runs. When the run that ended
+  last failed with root `failure.class = 'usage_limit'` (and the session error
+  is absent or the same text), it is presented over a later queued run.
+  Holds: a roster task holds only when `awaited` or of kind `subagent` /
+  `background_task`, an item (subagent, non-persistent dynamic_tool) only when
+  no roster task has its native id, a PR watch only until the PR is merged;
+  a background-wake run (its prompt is a monitor, command or task update and
+  the user has not written in it) also holds while a monitor is pending (a
+  monitor item, too, only when no roster task has its native id).
+  A completed run with a `run_interrupt_request` item is not reported; a
+  settled thread is hidden unless a roster/item/PR hold (not the wake hold)
+  holds it. Side chats (`lineage.sideChat`) are skipped, and a top-level
+  thread is `waiting` "approve …" while a non-native (`creationSource` not
+  `provider`) subagent under it, through any chain of subagent or side-chat
+  parents, has an activity run and a pending approval (an `auth_refresh` never
+  hides it, as for the thread's own requests; T3 lets a newer one). The provider-session
+  lookup starts from the thread's bindings (as T3's own query does): driven
+  from the sessions of the instance it cost ~100 ms per poll on 934 threads;
+  the whole query now takes ~33 ms, the legacy one ~65 ms.
+
   *Transport decision: SQLite poll, not the WebSocket RPC.* T3's server does
   expose `orchestration.subscribeShell` (snapshot, then thread upserts) over
   Effect RPC (`RpcSerialization.layerJson` over a WebSocket). Using it would
@@ -958,9 +988,9 @@ markers still get reaped.
   reuses `modernc.org/sqlite` (already the server's only dependency), needs no
   credentials, works whether T3 runs as the desktop app or `t3 serve`, and is
   testable with synthesised fixtures. Its cost is coupling to internal
-  projection tables that churn (67 migrations by v0.1.1): the queries are reduced copies
+  projection tables that churn (81 migrations by v0.1.9): the queries are reduced copies
   of T3's own shell queries, the newest verified migration per schema is
-  pinned (`pinnedMigrations`: v1 54, v2 67) and a newer one is logged once and
+  pinned (`pinnedMigrations`: v1 54, v2 81) and a newer one is logged once and
   still read, and a missing table or column is a soft failure (log once a
   minute, back off to 60 s, never post or delete on a bad read).
 
