@@ -244,6 +244,11 @@ func TestQueryV2CompletionHolds(t *testing.T) {
 		f.roster(id+"-pt", id, `[{"taskId":"m","kind":"monitor"}]`)
 	}
 	wake("wake-monitor", `{}`, "monitor")
+	f.thread("wake-dup", `{}`)
+	f.run("wd-r", "wake-dup", 1, "completed", done, `{"userMessageId":"wd-m"}`)
+	f.message("wd-m", "wake-dup", "", "user", "2026-11-01T10:04:00.000Z", `{"notification":{"source":{"kind":"monitor"},"outcome":"updated"}}`)
+	f.roster("wd-pt", "wake-dup", `[{"taskId":"native-m","kind":"command"}]`)
+	f.item("wd-i", "wake-dup", "wd-r", "n", "command_execution", "running", done, `{"monitor":true,"nativeItemRef":{"nativeId":"native-m"}}`)
 	wake("wake-settled", `{"settledOverride":"settled"}`, "monitor")
 	wake("wake-steered", `{}`, "monitor")
 	f.message("ws-steer", "wake-steered", "wake-steered-r", "user", "2026-11-01T10:04:30.000Z", `{"createdBy":"user","text":"also"}`)
@@ -277,6 +282,7 @@ func TestQueryV2CompletionHolds(t *testing.T) {
 		"pr-open":             running,
 		"pr-merged":           finished,
 		"wake-monitor":        running,
+		"wake-dup":            finished,
 		"wake-settled":        hidden,
 		"wake-steered":        finished,
 		"wake-cmd-item":       running,
@@ -318,6 +324,9 @@ func TestQueryV2SubagentApprovalReachesTopLevel(t *testing.T) {
 	child("idle-kid", "idle-top", "mcp", "completed", "command", 6)
 	parent("input-top")
 	child("input-kid", "input-top", "mcp", "running", "user_input", 6)
+	parent("auth-top")
+	child("auth-kid", "auth-top", "mcp", "running", "command", 6)
+	f.request("auth-kid-q2", "auth-kid", "auth_refresh", "2026-11-01T10:07:00.000Z", `{}`)
 	parent("own-input")
 	f.request("own-q", "own-input", "user_input", "2026-11-01T10:01:00.000Z", `{}`)
 	child("own-kid", "own-input", "mcp", "running", "command", 6)
@@ -336,6 +345,7 @@ func TestQueryV2SubagentApprovalReachesTopLevel(t *testing.T) {
 		"native-top": {"", mapped{"done", "", true}},
 		"idle-top":   {"", mapped{"done", "", true}},
 		"input-top":  {"", mapped{"done", "", true}},
+		"auth-top":   {"command", mapped{"waiting", "approve command", true}},
 		"own-input":  {"user_input", mapped{"waiting", "needs input", true}},
 	}
 	for id, w := range want {

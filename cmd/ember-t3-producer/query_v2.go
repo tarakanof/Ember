@@ -57,6 +57,10 @@ const backgroundItemSQL = `orchestration_v2_projection_turn_items i
         AND i.status IN ('pending', 'running', 'waiting')
         AND (i.run_id IS NULL OR ir.status <> 'rolled_back')`
 
+var notInRosterSQL = `NOT EXISTS (SELECT 1 FROM ` + sqlAt(rosterSQL, "dup") + `
+            AND json_extract(dup.value, '$.taskId') = COALESCE(
+              NULLIF(json_extract(i.payload_json, '$.nativeItemRef.nativeId'), ''), i.turn_item_id))`
+
 const pendingRequestOrder = `(q.kind = 'user_input') ASC, q.created_at DESC, q.runtime_request_id DESC`
 
 var queryV2 = `
@@ -99,9 +103,9 @@ child_ask AS (
     SELECT q.thread_id, q.kind, q.created_at,
       row_number() OVER (PARTITION BY q.thread_id ORDER BY ` + pendingRequestOrder + `) AS rn
     FROM orchestration_v2_projection_runtime_requests q
-    WHERE q.status = 'pending') q
+    WHERE q.status = 'pending' AND q.kind <> 'auth_refresh') q
   JOIN orchestration_v2_projection_threads c ON c.thread_id = q.thread_id
-  WHERE q.rn = 1 AND q.kind NOT IN ('auth_refresh', 'user_input')
+  WHERE q.rn = 1 AND q.kind <> 'user_input'
     AND c.deleted_at IS NULL
     AND json_extract(c.payload_json, '$.lineage.relationshipToParent') = 'subagent'
     AND json_extract(c.payload_json, '$.creationSource') IS NOT 'provider'
@@ -174,9 +178,7 @@ facts AS (
       OR EXISTS (SELECT 1 FROM ` + backgroundItemSQL + `
           AND i.type <> 'command_execution'
           AND NOT (i.type = 'dynamic_tool' AND json_type(i.payload_json, '$.input.persistent') IS 'true')
-          AND NOT EXISTS (SELECT 1 FROM ` + sqlAt(rosterSQL, "dup") + `
-            AND json_extract(dup.value, '$.taskId') = COALESCE(
-              NULLIF(json_extract(i.payload_json, '$.nativeItemRef.nativeId'), ''), i.turn_item_id)))
+          AND ` + notInRosterSQL + `)
       OR EXISTS (SELECT 1 FROM json_each(f.payload_json, '$.pullRequests') pr
         WHERE json_extract(pr.value, '$.watch') IS NOT NULL
           AND json_extract(pr.value, '$.source') IS NOT 'stack-dismissed'
@@ -187,7 +189,8 @@ facts AS (
           AND json_extract(mon.value, '$.kind') IS 'monitor')
       OR EXISTS (SELECT 1 FROM ` + backgroundItemSQL + `
           AND i.type = 'command_execution'
-          AND json_extract(i.payload_json, '$.monitor') IS 1)
+          AND json_extract(i.payload_json, '$.monitor') IS 1
+          AND ` + notInRosterSQL + `)
     ) ELSE 0 END AS wake_hold,
     EXISTS (SELECT 1 FROM orchestration_v2_projection_turn_items stop
       WHERE stop.thread_id = f.thread_id AND stop.run_id = presented.run_id

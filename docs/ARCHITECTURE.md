@@ -962,13 +962,15 @@ markers still get reaped.
   `background_task`, an item (subagent, non-persistent dynamic_tool) only when
   no roster task has its native id, a PR watch only until the PR is merged;
   a background-wake run (its prompt is a monitor, command or task update and
-  the user has not written in it) also holds while a monitor is pending.
+  the user has not written in it) also holds while a monitor is pending (a
+  monitor item, too, only when no roster task has its native id).
   A completed run with a `run_interrupt_request` item is not reported; a
   settled thread is hidden unless a roster/item/PR hold (not the wake hold)
   holds it. Side chats (`lineage.sideChat`) are skipped, and a top-level
   thread is `waiting` "approve …" while a non-native (`creationSource` not
   `provider`) subagent under it, through any chain of subagent or side-chat
-  parents, has an activity run and a pending approval. The provider-session
+  parents, has an activity run and a pending approval (an `auth_refresh` never
+  hides it, as for the thread's own requests; T3 lets a newer one). The provider-session
   lookup starts from the thread's bindings (as T3's own query does): driven
   from the sessions of the instance it cost ~100 ms per poll on 934 threads;
   the whole query now takes ~33 ms, the legacy one ~65 ms.
