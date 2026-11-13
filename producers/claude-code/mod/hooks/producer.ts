@@ -726,9 +726,10 @@ export class Tracker {
         return up('waiting', message, { agentInput: true })
       case 'elicitation_dialog':
       case 'elicitation_url_dialog':
-      case 'worker_permission_prompt':
       case 'quota_auto_resume_stale':
         return up('waiting', message)
+      case 'worker_permission_prompt':
+        return up('waiting', message, { pending: { tool: '', toolUseId: '' } })
       case 'elicitation_complete':
       case 'elicitation_response':
         return up('running', message, { skip: prev => prev.state !== 'waiting' || prev.pendingPermission })

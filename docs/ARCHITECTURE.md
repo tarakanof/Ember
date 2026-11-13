@@ -1037,7 +1037,7 @@ Claude producer constraints:
 
   | `notification_type` | State |
   | --- | --- |
-  | `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`, `worker_permission_prompt` (a teammate asks the lead), `quota_auto_resume_stale` | waiting |
+  | `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`, `worker_permission_prompt` (a teammate asks the lead; no event marks the answer, so the `claude agents` check ends it on a `busy` lead row), `quota_auto_resume_stale` | waiting |
   | `elicitation_complete`, `elicitation_response` | running, only out of a non-permission `waiting` |
   | `quota_auto_resume_fired` | running |
   | `quota_auto_resume_disabled` | error |
