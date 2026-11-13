@@ -194,6 +194,7 @@ type upsertExtra struct {
 	skip                func(prev marker) bool
 	cwd                 string
 	agentInput          bool
+	agentsWait          bool
 }
 
 func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string, x upsertExtra) {
@@ -253,7 +254,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 		if state != "waiting" {
 			track.PendingPermission, track.PendingToolUseID = "", ""
 		}
-		track.AgentsWait, track.AgentsRun = false, false
+		track.AgentsWait, track.AgentsRun = x.agentsWait, false
 		track.AgentInputWait, track.WaitExpired = x.agentInput, false
 		if x.newTurn || state == "done" || state == "error" {
 			track.BackgroundWake = false
@@ -337,9 +338,11 @@ func handleNotification(ctx context.Context, cfg Config, client *Client, session
 		upsert("waiting", msg, upsertExtra{agentInput: true})
 	case "elicitation_dialog", "elicitation_url_dialog", "quota_auto_resume_stale":
 		upsert("waiting", msg, upsertExtra{})
+	case "worker_permission_prompt":
+		upsert("waiting", msg, upsertExtra{agentsWait: true})
 	case "elicitation_complete", "elicitation_response":
 		upsert("running", msg, upsertExtra{
-			skip: func(prev marker) bool { return prev.State != "waiting" || prev.PendingPermission != "" },
+			skip: func(prev marker) bool { return prev.State != "waiting" || correctableWait(prev) },
 		})
 	case "quota_auto_resume_fired":
 		upsert("running", pickFirstNonEmpty(msg, "resumed"), upsertExtra{})

@@ -171,6 +171,7 @@ func TestHook_Notification_TypeMapping(t *testing.T) {
 		{"idle_prompt", "error", ""},
 		{"permission_prompt", "running", "waiting"},
 		{"agent_needs_input", "running", "waiting"},
+		{"worker_permission_prompt", "running", "waiting"},
 		{"agent_completed", "running", "done"},
 		{"quota_auto_resume_fired", "error", "running"},
 		{"quota_auto_resume_stale", "error", "waiting"},

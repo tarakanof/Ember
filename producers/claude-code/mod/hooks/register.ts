@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { T3_PROBE_BUDGET_MS, T3_RETRY_MS, argvFromCmdline, argvFromPs, detectT3, parsePsInfo, parseProcStat, type T3Probe, type T3Verdict } from './t3.ts'
+import { T3_PROBE_BUDGET_MS, T3_RETRY_MS, argvFromCmdline, argvFromPs, detectT3, parsePsInfo, parseProcStat, type T3Probe, type T3Verdict } from './t3'
 import {
   AGENTS_CALL_TIMEOUT_MS,
   AGENTS_FAIL_BACKOFF_MS,
@@ -33,7 +33,7 @@ import {
   type FetchLike,
   type Snapshot,
   type UsageReading,
-} from './producer.ts'
+} from './producer'
 
 type Engine = EngineInterface
 
@@ -581,7 +581,7 @@ export const register: Register = on => {
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     const toolUseId = e.tool_use_id
-    if (verdict.decision === 'ask' && verdict.decider === undefined && toolUseId !== undefined) {
+    if (verdict.decision === 'ask' && verdict.plugin === undefined && toolUseId !== undefined) {
       const dialog = dialogExpected(st.interactive, st.permissionMode)
       await quietly(() => trackLive($, st, (cfg, now, id, cwd) => t.toolAsked(cfg, now, id, e.tool, e.input, toolUseId, dialog, cwd)))
     }

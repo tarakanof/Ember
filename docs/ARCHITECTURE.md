@@ -632,7 +632,7 @@ markers still get reaped.
   ends it, which replaces the fingerprint matching for *which* call; *when*
   is the approved tool finishing (like PostToolUse), so an agents cross-check
   (#669, `watchPass` in `register.ts`, `Tracker.agentsCorrect`) ends it
-  sooner. The 2.1.304 API has no "dialog answered" or "mode changed" event, so
+  sooner. The 2.1.323 API has no "dialog answered" or "mode changed" event, so
   the mod ports the Go watcher's core. While a session is `waiting` on a
   permission dialog, and for 15 s after any resume (a watcher flip or the
   approved tool finishing), a 1 s `$.clock.every` timer (started and cancelled
@@ -1067,7 +1067,7 @@ Claude producer constraints:
 
   | `notification_type` | State |
   | --- | --- |
-  | `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`, `quota_auto_resume_stale` | waiting |
+  | `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`, `worker_permission_prompt` (a teammate asks the lead; no event marks the answer, so the `claude agents` check ends it on a `busy` lead row), `quota_auto_resume_stale` | waiting |
   | `elicitation_complete`, `elicitation_response` | running, only out of a non-permission `waiting` |
   | `quota_auto_resume_fired` | running |
   | `quota_auto_resume_disabled` | error |

@@ -385,6 +385,33 @@ func TestAgents_OwnWaitOpensAndCloses(t *testing.T) {
 	}
 }
 
+func TestHook_WorkerPermissionPromptIsTheAgentsCheck(t *testing.T) {
+	h := newHookHarness(t)
+	dispatchHookForTest(t, "user-prompt-submit", []byte(`{"session_id":"abc","cwd":"/r","prompt":"go"}`))
+	dispatchHookForTest(t, "notification", []byte(`{"session_id":"abc","cwd":"/r","notification_type":"worker_permission_prompt","message":"researcher needs permission for Bash"}`))
+	var got marker
+	b, _ := os.ReadFile(filepath.Join(h.sessionsDir(), "abc.json"))
+	_ = json.Unmarshal(b, &got)
+	if got.State != "waiting" || !got.AgentsWait {
+		t.Fatalf("marker = %s agents_wait=%v; want a wait the agents check can end", got.State, got.AgentsWait)
+	}
+	if c, ok := wantFor(got, agentRow{SessionID: "abc", Status: "waiting", WaitingFor: "permission prompt"}); ok {
+		t.Fatalf("an open dialog must keep the wait, got %+v", c)
+	}
+	if c, ok := wantFor(got, agentRow{SessionID: "abc", Status: "busy"}); !ok || c.state != "running" {
+		t.Fatalf("a busy lead after the answer = %+v %v; want running", c, ok)
+	}
+	if waitOutlived(got, hookNow().Add(waitBackstop+time.Minute)) {
+		t.Fatal("the agents check owns this wait; the backstop must not park it")
+	}
+	dispatchHookForTest(t, "notification", []byte(`{"session_id":"abc","cwd":"/r","notification_type":"elicitation_complete","message":""}`))
+	b, _ = os.ReadFile(filepath.Join(h.sessionsDir(), "abc.json"))
+	_ = json.Unmarshal(b, &got)
+	if got.State != "waiting" {
+		t.Fatalf("an elicitation ending must not end a permission wait, state = %s", got.State)
+	}
+}
+
 func TestHook_AnyWriteClearsAgentsWait(t *testing.T) {
 	h := newHookHarness(t)
 	if err := os.MkdirAll(h.sessionsDir(), 0o700); err != nil {

@@ -728,6 +728,8 @@ export class Tracker {
       case 'elicitation_url_dialog':
       case 'quota_auto_resume_stale':
         return up('waiting', message)
+      case 'worker_permission_prompt':
+        return up('waiting', message, { pending: { tool: '', toolUseId: '' } })
       case 'elicitation_complete':
       case 'elicitation_response':
         return up('running', message, { skip: prev => prev.state !== 'waiting' || prev.pendingPermission })
@@ -935,7 +937,7 @@ export class Sender {
     return settled.ok
   }
 
-  private watchLate(effect: Effect, delivery: Promise<boolean>, limitMs: number, io: SendIO, now: number, isRepair: boolean): void {
+  private watchLate(effect: Extract<Effect, { method: 'POST' }>, delivery: Promise<boolean>, limitMs: number, io: SendIO, now: number, isRepair: boolean): void {
     const key = effect.body.session
     const starts = this.strays.get(key) ?? []
     starts.push(now)

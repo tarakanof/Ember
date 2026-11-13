@@ -347,6 +347,9 @@ describe('Tracker', () => {
     assert.deepEqual(states(t.notification(cfg, 0, 's1', 'elicitation_dialog', 'pick one', HOME)), ['waiting:pick one'])
     assert.deepEqual(states(t.notification(cfg, 1, 's1', 'elicitation_complete', '', HOME)), ['running:'])
     assert.deepEqual(states(t.notification(cfg, 2, 's1', 'quota_auto_resume_disabled', '', HOME)), ['error:usage limit'])
+    assert.deepEqual(states(t.notification(cfg, 2, 's2', 'worker_permission_prompt', 'researcher needs permission for Bash', HOME)), [
+      'waiting:researcher needs permission for Bash',
+    ])
     assert.deepEqual(t.notification(cfg, 3, 's1', 'idle_prompt', 'idle', HOME), [])
     assert.deepEqual(t.notification(cfg, 4, 's1', 'something_else', 'x', HOME), [])
   })
@@ -1067,6 +1070,19 @@ describe('the agents cross-check for a permission wait', () => {
     assert.equal(t.needsWatch(), true)
     t.tick(cfg, 20_000)
     assert.equal(t.needsWatch(), false)
+  })
+
+  test("a teammate's permission prompt waits until the lead's row is busy again", () => {
+    const t = new Tracker()
+    t.promptSubmit(cfg, 0, 's', 'go', '/repo')
+    t.notification(cfg, 1000, 's', 'worker_permission_prompt', 'researcher needs permission for Bash', '/repo')
+    assert.equal(t.needsWatch(), true)
+    assert.deepEqual(t.toolFinished(cfg, 1500, 's', 'Bash', 'toolu_x'), [])
+    assert.deepEqual(t.notification(cfg, 1600, 's', 'elicitation_complete', '', '/repo'), [])
+    assert.deepEqual(t.agentsCorrect(cfg, 2000, 2000, new Map([['s', row('waiting')]])), [])
+    assert.deepEqual(t.agentsCorrect(cfg, 4000, 4000, new Map([['s', row('waiting')]])), [])
+    assert.deepEqual(t.agentsCorrect(cfg, 5000, 5000, busy), [])
+    assert.deepEqual(states(t.agentsCorrect(cfg, 6600, 6600, busy)), ['running:resumed'])
   })
 
   test('the first busy sighting only records, the second 1.5 s later corrects and posts running', () => {

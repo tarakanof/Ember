@@ -110,7 +110,7 @@ jobs:
         run: node --test producers/claude-code/mod/test/producer.test.mts
 
       - name: Install Claude Code (pinned, runner only)
-        run: npm i -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code@2.1.304
+        run: npm i -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code@2.1.323
 
       - name: Isolate HOME and CLAUDE_CONFIG_DIR
         run: |
