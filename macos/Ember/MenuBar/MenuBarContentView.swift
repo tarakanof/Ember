@@ -9,7 +9,6 @@ struct MenuBarContentView: View {
 		Group { items }
 			.onAppear {
 				Task { await env.live.refreshMenuFeeds() }
-				Task { await env.updates.checkIfDue() }
 			}
 	}
 
@@ -30,15 +29,6 @@ struct MenuBarContentView: View {
 		clockMenu(live)
 		Divider()
 
-		if let notice = env.updates.notice {
-			Button {
-				openSettings(.app(.general), using: openWindow)
-			} label: {
-				Text("Update Available: \(notice.title)…", comment: "Menu item when a newer app release exists; the placeholder is the version tag (v0.91.0).")
-			}
-			Divider()
-		}
-
 		Button("Open Dashboard") { presentWindow(id: WindowID.dashboard, using: openWindow) }
 			.keyboardShortcut("0", modifiers: .command)
 		Button("Settings…") { openSettings(using: openWindow) }
@@ -46,6 +36,8 @@ struct MenuBarContentView: View {
 		Button("About Ember") {
 			activateForUser { NSApp.orderFrontStandardAboutPanel(nil) }
 		}
+		Button("Check for Updates…") { activateForUser { env.updates.checkForUpdates() } }
+			.disabled(!env.updates.canCheckForUpdates)
 
 		Divider()
 

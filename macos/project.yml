@@ -7,6 +7,9 @@ options:
 packages:
   EmberKit:
     path: .
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
 targets:
   Ember:
     type: application
@@ -18,6 +21,8 @@ targets:
     dependencies:
       - package: EmberKit
         product: EmberKit
+      - package: Sparkle
+        product: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ember.Ember
@@ -36,6 +41,7 @@ targets:
         DEVELOPMENT_TEAM: VX7Q4NH37M
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "Developer ID Application"
+        EMBER_SPARKLE_AUTOMATIC_CHECKS: "YES"
     postCompileScripts:
       - script: |
           "${SRCROOT}/../scripts/build-producers.sh" "${CODESIGNING_FOLDER_PATH}"

@@ -12,7 +12,7 @@ xcodegen generate --spec "$REPO/macos/project.yml" --project "$REPO/macos" >/dev
 xcodebuild -project "$REPO/macos/Ember.xcodeproj" -scheme Ember -configuration Release \
   -derivedDataPath "$DD" -quiet \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
-  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO EMBER_SPARKLE_AUTOMATIC_CHECKS=NO \
   CURRENT_PROJECT_VERSION="${EMBER_BUILD_NUMBER:-2.$(date +%Y%m%d%H%M%S)}" build
 APP="$DD/Build/Products/Release/Ember.app"
 

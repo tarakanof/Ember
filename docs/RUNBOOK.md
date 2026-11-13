@@ -118,17 +118,42 @@ To check from Terminal: `launchctl print gui/$(id -u)/com.ember.server`
 (`state = running`), `lsof -nP -iTCP:3627 -sTCP:LISTEN`, `curl -s
 http://127.0.0.1:3627/healthz`.
 
-### App update notice (#836)
+### App updates (#861)
 
-Settings › General › Updates › **Check for updates automatically** (on by
-default, `updates.checkAutomatically` in the app's defaults). On, the app asks
-`api.github.com/repos/tarakanof/ember/releases/latest` at most once per 24 h
-(`updates.lastAttempt`), when it launches, the menu opens or the General pane
-opens; no timer. A newer, non-pre-release tag with an `Ember-*.zip` asset adds
-**Update Available: vX.Y.Z…** to the menu and **Release Notes** / **Download**
-to the pane, which only open the browser. A failed request is not retried
-until the next day. Off, no request is made. Reset the throttle with
-`defaults delete com.ember.Ember updates.lastAttempt`.
+Ember.app updates itself with [Sparkle 2](https://sparkle-project.org)
+(2.10.1). It reads
+`https://github.com/tarakanof/ember/releases/latest/download/appcast.xml`
+once a day (Sparkle's own scheduler, no other timer) and when you click
+**Check for Updates…** in the menu or **Check Now** in Settings › General ›
+Updates. A newer build opens Sparkle's window ("A new version of Ember is
+available!") with the release notes, **Skip This Version** and **Install
+Update**; closing it means "later". Nothing installs until you click Install
+Update; Sparkle then downloads the zip, checks its EdDSA signature before
+extracting it, and offers **Install and Relaunch**, which swaps the bundle
+(asking for an admin password when `/Applications` isn't writable) and
+relaunches Ember. A zip whose signature doesn't match stops at "Update Error!
+The update is improperly signed and could not be validated."
+The relaunch runs the launch reconcile, which re-registers the producer and
+server agents from the new bundle.
+
+- **Check for updates automatically** (Settings › General › Updates) is
+  Sparkle's own setting (`SUEnableAutomaticChecks` in the app's defaults).
+  The #836 setting `updates.checkAutomatically` is carried over once on the
+  first launch of a Sparkle build, then it and `updates.lastAttempt` /
+  `updates.lastRelease` are deleted.
+- **Local builds** (`scripts/build-local.sh`) never check on their own:
+  `EMBER_SPARKLE_AUTOMATIC_CHECKS=NO` sets `SUEnableAutomaticChecks` to NO in
+  their `Info.plist`, and the app refuses scheduled checks in such a build
+  even when the defaults say on (the toggle is greyed out). **Check Now**
+  still works, and offers the latest release.
+- `Info.plist` also sets `SUPublicEDKey` (the owner's EdDSA public key),
+  `SUScheduledCheckInterval` 86400, `SUAutomaticallyUpdate` and
+  `SUAllowsAutomaticUpdates` NO, `SUEnableSystemProfiling` NO and
+  `SUVerifyUpdateBeforeExtraction` YES. The private key stays in the login
+  keychain of the Mac that releases, backed up in 1Password.
+- Last check: `defaults read com.ember.Ember SULastCheckTime`. Sparkle logs
+  under subsystem `org.sparkle-project.Sparkle`:
+  `/usr/bin/log stream --predicate 'subsystem == "org.sparkle-project.Sparkle"'`.
 
 ## Local server deployment (dev Mac, OrbStack)
 

@@ -42,7 +42,11 @@ struct ClockStatusSection: View {
                         Button {
                             if let url = device.config?.webURL { NSWorkspace.shared.open(url) }
                         } label: {
-                            Label("Update Available: \(latest)", systemImage: "arrow.down.circle.fill")
+                            Label {
+                                Text("Update Available: \(latest)", comment: "Settings › Clock: a newer clock firmware version exists; the placeholder is that version (\"0.9.3\").")
+                            } icon: {
+                                Image(systemName: "arrow.down.circle.fill")
+                            }
                         }
                         .buttonStyle(.link)
                         .help("Opens the clock's web page, which installs firmware updates.")

@@ -67,6 +67,22 @@
             </array>
         </dict>
     </array>
+    <key>SUFeedURL</key>
+    <string>https://github.com/tarakanof/ember/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>PLACEHOLDER+REPLACE+WITH+THE+OWNERS+EDKEY+A=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <string>$(EMBER_SPARKLE_AUTOMATIC_CHECKS)</string>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <key>SUAllowsAutomaticUpdates</key>
+    <false/>
+    <key>SUEnableSystemProfiling</key>
+    <false/>
+    <key>SUVerifyUpdateBeforeExtraction</key>
+    <true/>
     <key>NSBonjourServices</key>
     <array>
         <string>_ember._tcp</string>

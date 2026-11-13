@@ -72,6 +72,11 @@ they apply at every step.
   version in `macos/project.yml`, tags `vX.Y.Z` and publishes a GitHub Release,
   which triggers `docker-publish.yml` (server image `:X.Y.Z`, `:latest`) and
   `release-producers.yml` (headless producer archives + `SHA256SUMS`).
+- An app release must leave `releases/latest/download/appcast.xml` answering:
+  installed apps read it once a day to offer the update (Sparkle, #861; the
+  release-script step that writes and uploads it lands after #835). A
+  server-only release has to re-upload the previous release's appcast, or
+  **Check for Updates…** shows an error until the next app release.
 - If SSH push fails in a sandbox (1Password agent):
   `GIT_SSH_COMMAND="ssh -o IdentityAgent=none -o IdentitiesOnly=yes"`, or HTTPS
   with gh credentials:
@@ -102,7 +107,9 @@ they apply at every step.
     unraid-mcp is not in it: a prompt in manual mode, the classifier in auto
     mode, nothing in bypass mode). Update
     only the Ember container.
-- **Mac app** (after a release that changed it):
+- **Mac app** (after a release that changed it): a release-built app updates
+  itself through Sparkle's **Install Update** (RUNBOOK "App updates"). A local
+  build never checks on its own; install it by hand:
   ```sh
   scripts/build-local.sh <scratch>/ember-build
   osascript -e 'quit app "Ember"'

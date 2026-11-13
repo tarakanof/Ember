@@ -151,8 +151,22 @@ remove() {
   echo "removed $n '$NAME' identit$([ "$n" = 1 ] && echo y || echo ies) from $KEYCHAIN"
 }
 
+sign_framework_helpers() {
+  local fw="$1" dir="$1/Versions/Current" own n
+  [ -d "$dir" ] || return 0
+  own="$(basename "$fw" .framework)"
+  for n in "$dir"/XPCServices/*.xpc "$dir"/*.app; do
+    [ -e "$n" ] || continue
+    "${cs[@]}" --preserve-metadata=identifier,entitlements "$n"
+  done
+  for n in "$dir"/*; do
+    [ -f "$n" ] && [ -x "$n" ] && [ "$(basename "$n")" != "$own" ] || continue
+    "${cs[@]}" --preserve-metadata=identifier,entitlements "$n"
+  done
+}
+
 sign_app() {
-  local app="$1" hash main f name ents rc=0
+  local app="$1" hash main f name ents teamless="" rc=0
   [ -d "$app" ] || { echo "error: no such app bundle: $app" >&2; exit 2; }
   resolve || rc=$?
   [ "$rc" != 2 ] || exit 1
@@ -163,7 +177,9 @@ sign_app() {
   if [ -d "$app/Contents/Frameworks" ]; then
     for f in "$app"/Contents/Frameworks/*; do
       [ -e "$f" ] || continue
+      sign_framework_helpers "$f"
       "${cs[@]}" --preserve-metadata=identifier,entitlements "$f"
+      codesign -dv "$f" 2>&1 | grep -q '^TeamIdentifier=[A-Z0-9]\{10\}$' || teamless=1
     done
   fi
   main="$(plutil -extract CFBundleExecutable raw "$app/Contents/Info.plist")"
@@ -176,6 +192,11 @@ sign_app() {
   codesign -d --entitlements - --xml "$app" >"$ents" 2>/dev/null || true
   if [ -s "$ents" ]; then
     /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.get-task-allow' "$ents" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$teamless" ]; then
+    [ -s "$ents" ] || plutil -create xml1 "$ents"
+    /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.cs.disable-library-validation' "$ents" >/dev/null 2>&1 || true
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' "$ents"
   fi
   if [ -s "$ents" ] && [ "$(plutil -convert json -o - "$ents" 2>/dev/null)" != "{}" ]; then
     "${cs[@]}" --entitlements "$ents" "$app"
