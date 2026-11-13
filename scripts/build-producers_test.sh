@@ -24,13 +24,13 @@ for bin in ember-claude-producer ember-codex-producer ember-t3-producer ember-se
   [ -f "$path" ] || fail "$bin missing at $path"
 
   info="$(lipo -info "$path")"
-  echo "$info" | grep -q "arm64" || fail "$bin: lipo -info missing arm64 ($info)"
-  echo "$info" | grep -q "x86_64" || fail "$bin: lipo -info missing x86_64 ($info)"
+  grep -q "arm64" <<<"$info" || fail "$bin: lipo -info missing arm64 ($info)"
+  grep -q "x86_64" <<<"$info" || fail "$bin: lipo -info missing x86_64 ($info)"
 
   sig="$(codesign -dv "$path" 2>&1)"
-  echo "$sig" | grep -q "Signature=adhoc" || fail "$bin: codesign -dv missing adhoc signature ($sig)"
+  grep -q "Signature=adhoc" <<<"$sig" || fail "$bin: codesign -dv missing adhoc signature ($sig)"
   want="com.ember.${bin#ember-}"
-  echo "$sig" | grep -qx "Identifier=$want" || fail "$bin: identifier is not $want ($sig)"
+  grep -qx "Identifier=$want" <<<"$sig" || fail "$bin: identifier is not $want ($sig)"
 
   echo "ok: $bin ($info)"
 done

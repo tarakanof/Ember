@@ -100,7 +100,7 @@ check_plist "$LA_DIR/com.ember.server.plist"
 check "codesign --verify --deep --strict: $(basename "$APP")" codesign --verify --deep --strict "$APP"
 
 signer="$(codesign -dvv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1)"
-if codesign -dv "$APP" 2>&1 | grep -q '^Signature=adhoc'; then
+if codesign -dv "$APP" 2>&1 | grep '^Signature=adhoc' >/dev/null; then
   signer="ad-hoc (Local Network access must be re-approved after every rebuild)"
 fi
 echo "INFO signed by: ${signer:-unknown}"

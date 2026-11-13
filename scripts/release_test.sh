@@ -38,10 +38,13 @@ case "${FAKE_DEVID:-yes}" in
   yes) echo "  1) 0123456789ABCDEF0123456789ABCDEF01234567 \"Developer ID Application: Test Person ('"$TEAM"')\"" ;;
   *) echo "  1) 0123456789ABCDEF0123456789ABCDEF01234567 \"Apple Development: Test Person (ZZZZZ99999)\"" ;;
 esac
+sleep 0.2
 echo "     1 valid identities found"'
 stub codesign '
 if [ "$1" = -d ] && [ "${2:-}" = --entitlements ]; then
   [ "${FAKE_TASK_ALLOW:-no}" = yes ] && echo "<key>com.apple.security.get-task-allow</key><true/>"
+  sleep 0.2
+  echo "</dict></plist>"
   exit 0
 fi
 case "${FAKE_SIGNER:-devid}" in

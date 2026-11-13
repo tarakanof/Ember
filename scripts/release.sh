@@ -112,7 +112,7 @@ if [ "$APP" -eq 1 ]; then
   need xcodebuild "install Xcode"
   need xcrun "install Xcode"
   need jq "brew install jq"
-  if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "\"Developer ID Application: .* ($TEAM)\""; then
+  if ! security find-identity -v -p codesigning 2>/dev/null | grep "\"Developer ID Application: .* ($TEAM)\"" >/dev/null; then
     echo "error: no valid 'Developer ID Application: … ($TEAM)' identity in the keychain" >&2
     echo "Install the Developer ID Application certificate of team $TEAM (Xcode › Settings › Accounts › Manage Certificates), or cut a server-only release with --no-app." >&2
     exit 1
@@ -168,8 +168,8 @@ RESTORE=1
 signed_by_developer_id() {
   local info
   info="$(codesign -dvv "$1" 2>&1)" || { echo "FAIL not signed: $1" >&2; return 1; }
-  if ! printf '%s\n' "$info" | grep -q "^Authority=Developer ID Application: .* ($TEAM)$" ||
-     ! printf '%s\n' "$info" | grep -qx "TeamIdentifier=$TEAM"; then
+  if ! grep -q "^Authority=Developer ID Application: .* ($TEAM)$" <<<"$info" ||
+     ! grep -qx "TeamIdentifier=$TEAM" <<<"$info"; then
     echo "FAIL not signed with Developer ID ($TEAM): $1" >&2
     printf '%s\n' "$info" | grep -E '^(Authority|TeamIdentifier|Signature)=' >&2 || true
     return 1
@@ -188,7 +188,7 @@ if [ "$APP" -eq 1 ]; then
   BUILT="$WORK/dd/Build/Products/Release/Ember.app"
   scripts/verify-bundle.sh "$BUILT"
   signed_by_developer_id "$BUILT"
-  if codesign -d --entitlements - --xml "$BUILT" 2>/dev/null | grep -q "com.apple.security.get-task-allow"; then
+  if codesign -d --entitlements - --xml "$BUILT" 2>/dev/null | grep "com.apple.security.get-task-allow" >/dev/null; then
     echo "error: Ember.app carries the get-task-allow entitlement; notarization rejects it" >&2
     exit 1
   fi
@@ -215,7 +215,7 @@ if [ "$APP" -eq 1 ]; then
   xcrun stapler validate "$BUILT"
   assessment="$(spctl -a -vv -t exec "$BUILT" 2>&1)" || { printf '%s\n' "$assessment" >&2; echo "error: Gatekeeper rejects the stapled app" >&2; exit 1; }
   printf '%s\n' "$assessment"
-  printf '%s\n' "$assessment" | grep -q "source=Notarized Developer ID" ||
+  grep -q "source=Notarized Developer ID" <<<"$assessment" ||
     { echo "error: Gatekeeper does not see a notarized Developer ID app" >&2; exit 1; }
 
   ZIP="$WORK/$ZIP_NAME"
