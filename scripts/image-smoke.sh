@@ -46,18 +46,18 @@ echo "smoke: /healthz from host OK"
 
 ver="$(docker exec "$NAME" /ember version)"
 echo "smoke: version output: $ver"
-if echo "$ver" | grep -q "unknown"; then
+if grep -q "unknown" <<<"$ver"; then
   echo "smoke: FAIL — version subcommand reports 'unknown' (likely .git missing from build context)" >&2
   exit 1
 fi
-if [ -z "$(git status --porcelain)" ] && echo "$ver" | grep -q "+dirty"; then
+if [ -z "$(git status --porcelain)" ] && grep -q "+dirty" <<<"$ver"; then
   echo "smoke: FAIL — clean checkout but the image reports +dirty (.dockerignore excludes a tracked file?)" >&2
   exit 1
 fi
 
 ver_http="$(curl -fsS http://localhost:13627/version)"
 echo "smoke: /version output: $ver_http"
-if ! echo "$ver_http" | grep -q '"binary":"ember"'; then
+if ! grep -q '"binary":"ember"' <<<"$ver_http"; then
   echo "smoke: FAIL — /version missing binary field" >&2
   exit 1
 fi
@@ -73,7 +73,7 @@ rm -f /tmp/printcfg.json
 echo "smoke: --print-config OK"
 
 metrics_body="$(curl -fsS http://localhost:13627/metrics)"
-if ! echo "$metrics_body" | grep -q "ember_build_info"; then
+if ! grep -q "ember_build_info" <<<"$metrics_body"; then
   echo "smoke: FAIL — /metrics body missing ember_build_info" >&2
   echo "$metrics_body" >&2
   exit 1
