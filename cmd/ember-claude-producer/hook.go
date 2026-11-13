@@ -342,7 +342,7 @@ func handleNotification(ctx context.Context, cfg Config, client *Client, session
 		upsert("waiting", msg, upsertExtra{agentsWait: true})
 	case "elicitation_complete", "elicitation_response":
 		upsert("running", msg, upsertExtra{
-			skip: func(prev marker) bool { return prev.State != "waiting" || prev.PendingPermission != "" },
+			skip: func(prev marker) bool { return prev.State != "waiting" || correctableWait(prev) },
 		})
 	case "quota_auto_resume_fired":
 		upsert("running", pickFirstNonEmpty(msg, "resumed"), upsertExtra{})

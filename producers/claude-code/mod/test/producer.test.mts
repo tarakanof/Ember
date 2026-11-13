@@ -1078,6 +1078,7 @@ describe('the agents cross-check for a permission wait', () => {
     t.notification(cfg, 1000, 's', 'worker_permission_prompt', 'researcher needs permission for Bash', '/repo')
     assert.equal(t.needsWatch(), true)
     assert.deepEqual(t.toolFinished(cfg, 1500, 's', 'Bash', 'toolu_x'), [])
+    assert.deepEqual(t.notification(cfg, 1600, 's', 'elicitation_complete', '', '/repo'), [])
     assert.deepEqual(t.agentsCorrect(cfg, 2000, 2000, new Map([['s', row('waiting')]])), [])
     assert.deepEqual(t.agentsCorrect(cfg, 4000, 4000, new Map([['s', row('waiting')]])), [])
     assert.deepEqual(t.agentsCorrect(cfg, 5000, 5000, busy), [])

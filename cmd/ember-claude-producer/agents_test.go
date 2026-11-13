@@ -404,6 +404,12 @@ func TestHook_WorkerPermissionPromptIsTheAgentsCheck(t *testing.T) {
 	if waitOutlived(got, hookNow().Add(waitBackstop+time.Minute)) {
 		t.Fatal("the agents check owns this wait; the backstop must not park it")
 	}
+	dispatchHookForTest(t, "notification", []byte(`{"session_id":"abc","cwd":"/r","notification_type":"elicitation_complete","message":""}`))
+	b, _ = os.ReadFile(filepath.Join(h.sessionsDir(), "abc.json"))
+	_ = json.Unmarshal(b, &got)
+	if got.State != "waiting" {
+		t.Fatalf("an elicitation ending must not end a permission wait, state = %s", got.State)
+	}
 }
 
 func TestHook_AnyWriteClearsAgentsWait(t *testing.T) {
