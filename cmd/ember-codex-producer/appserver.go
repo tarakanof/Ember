@@ -677,14 +677,16 @@ type turnPayload struct {
 }
 
 type wireThreadItem struct {
-	Type    string `json:"type"`
-	Text    string `json:"text"`
-	Command string `json:"command"`
-	Status  string `json:"status"`
-	Server  string `json:"server"`
-	Tool    string `json:"tool"`
-	Query   string `json:"query"`
-	Changes []struct {
+	Type      string `json:"type"`
+	Text      string `json:"text"`
+	Command   string `json:"command"`
+	Status    string `json:"status"`
+	Server    string `json:"server"`
+	Tool      string `json:"tool"`
+	Query     string `json:"query"`
+	Path      string `json:"path"`
+	AgentPath string `json:"agentPath"`
+	Changes   []struct {
 		Path string `json:"path"`
 	} `json:"changes"`
 }
@@ -895,8 +897,21 @@ func appServerItemLabel(it wireThreadItem) (string, bool) {
 		return "sleep", true
 	case "contextCompaction":
 		return "compact", true
+	case "imageGeneration":
+		return "image", true
+	case "imageView":
+		return prefixed("view", baseName(it.Path)), true
+	case "subAgentActivity":
+		return prefixed("agent", baseName(it.AgentPath)), true
 	}
 	return "", false
+}
+
+func baseName(p string) string {
+	if p = strings.TrimSpace(p); p == "" {
+		return ""
+	}
+	return filepath.Base(p)
 }
 
 func unwrapShell(cmd string) string {

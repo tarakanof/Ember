@@ -1446,3 +1446,34 @@ func TestAppServerReport_ShowsSocketDaemonAndUpdater(t *testing.T) {
 		}
 	}
 }
+
+func TestAppServerItemLabel(t *testing.T) {
+	cases := []struct {
+		name, item, want string
+		ok               bool
+	}{
+		{"command", `{"type":"commandExecution","command":"/bin/zsh -lc 'go test ./...'"}`, "exec: go test ./...", true},
+		{"file", `{"type":"fileChange","changes":[{"path":"/r/a/main.go"}]}`, "edit: main.go", true},
+		{"mcp", `{"type":"mcpToolCall","server":"docs","tool":"search"}`, "mcp: search", true},
+		{"web", `{"type":"webSearch","query":"hooks"}`, "web: hooks", true},
+		{"collab agent", `{"type":"collabAgentToolCall","tool":"spawnAgent"}`, "agent: spawnAgent", true},
+		{"image generation", `{"type":"imageGeneration","id":"i","status":"in_progress","inputImages":[]}`, "image", true},
+		{"image view", `{"type":"imageView","id":"v","path":"/Users/u/shots/screen.png"}`, "view: screen.png", true},
+		{"image view no path", `{"type":"imageView","id":"v","path":""}`, "view", true},
+		{"subagent", `{"type":"subAgentActivity","id":"s","kind":"started","agentPath":"/root/explorer","agentThreadId":"t"}`, "agent: explorer", true},
+		{"subagent no path", `{"type":"subAgentActivity","id":"s","kind":"started","agentPath":"","agentThreadId":"t"}`, "agent", true},
+		{"reasoning", `{"type":"reasoning"}`, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var it wireThreadItem
+			if err := json.Unmarshal([]byte(tc.item), &it); err != nil {
+				t.Fatal(err)
+			}
+			got, ok := appServerItemLabel(it)
+			if ok != tc.ok || got != tc.want {
+				t.Errorf("appServerItemLabel = (%q,%v), want (%q,%v)", got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
