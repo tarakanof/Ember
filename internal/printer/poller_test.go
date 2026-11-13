@@ -638,6 +638,8 @@ func TestShortName(t *testing.T) {
 		{"bracket_v3_0.4n_0.2mm_PETG_COREONE_2h14m.bgcode", "bracket_v3", "PETG"},
 		{"Benchy_0.6n_0.25mm_PLA_COREONE_45m.gcode", "Benchy", "PLA"},
 		{"multi_0.4n_0.2mm_PLA;PETG_COREONEL_1d2h3m.bgcode", "multi", "PLA/PETG"},
+		{"sample-part_0.2mm_PLA_COREONE_6m.bgcode", "sample-part", "PLA"},
+		{"x_0.2mm_PETG;PLA_COREONE_1h2m.bgcode", "x", "PETG/PLA"},
 		{"my_part.bgcode", "my_part", ""},
 		{"BRACKE~1.BGC", "BRACKE~1", ""},
 		{"a_very_long_file_name_that_goes_past_thirty_two.gcode", "a_very_long_file_name_that_goes_", ""},

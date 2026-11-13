@@ -584,7 +584,7 @@ func (s *State) forgetThumbRef(ref string) {
 
 var (
 	gcodeExt     = regexp.MustCompile(`(?i)\.(bgcode|gcode|bgc|gco|g)$`)
-	slicerSuffix = regexp.MustCompile(`^(.+?)_(\d+(?:\.\d+)?)n_(\d+(?:\.\d+)?)mm_([A-Za-z0-9+;,\-]+)_([A-Za-z0-9]+)_((?:\d+d)?(?:\d+h)?(?:\d+m)?(?:\d+s)?)$`)
+	slicerSuffix = regexp.MustCompile(`^(.+?)(?:_(\d+(?:\.\d+)?)n)?_(\d+(?:\.\d+)?)mm_([A-Za-z0-9+;,\-]+)_([A-Za-z0-9]+)_((?:\d+d)?(?:\d+h)?(?:\d+m)?(?:\d+s)?)$`)
 )
 
 func ShortName(display string) (name, material string) {
