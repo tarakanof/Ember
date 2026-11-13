@@ -66,6 +66,8 @@ func TestAdvertiseNameCarriesTheMachineLabel(t *testing.T) {
 		{"Tosaka.local", "Ember (Tosaka)"},
 		{"nas.home.arpa", "Ember (nas)"},
 		{"Mac", "Ember (Mac)"},
+		{"123", "Ember (ember-123)"},
+		{"x", "Ember (ember-x)"},
 		{"", "Ember"},
 		{".", "Ember"},
 		{strings.Repeat("a", 55), "Ember (" + strings.Repeat("a", 55) + ")"},
@@ -93,5 +95,17 @@ func TestMachineNameFallsBackWhenTheFirstSourceFails(t *testing.T) {
 	}
 	if n := len(machineNameFuncsFor("darwin")); n != 2 {
 		t.Fatalf("darwin sources = %d, want scutil then os.Hostname", n)
+	}
+}
+
+func TestDnssdKeepsTheMachineLabelInTheInstanceName(t *testing.T) {
+	for _, machine := range []string{"123", "x", "ab", "Mac", "Tosaka.local", strings.Repeat("9", 80)} {
+		sv, err := dnssd.NewService(advertiseConfig(advertiseName(machine), 3627, "v", machine))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sv.Name != advertiseName(machine) || sv.Name == InstanceBase {
+			t.Errorf("machine %q: dnssd name %q, want %q", machine, sv.Name, advertiseName(machine))
+		}
 	}
 }

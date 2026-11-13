@@ -51,6 +51,9 @@ func advertiseName(machine string) string {
 	if label == "" {
 		return InstanceBase
 	}
+	if len(label) < 2 || strings.Trim(label, "0123456789") == "" {
+		label = AdvertisedHostPrefix + label
+	}
 	if room := maxDNSLabel - len(InstanceBase) - len(" ()"); len(label) > room {
 		label = label[:room]
 	}
