@@ -29,6 +29,15 @@ struct MenuBarContentView: View {
 		clockMenu(live)
 		Divider()
 
+		if let version = env.updates.waitingUpdate {
+			Button {
+				activateForUser { env.updates.checkForUpdates() }
+			} label: {
+				Text("Update Available: \(version)…", comment: "Menu item when the daily check found a newer Ember the user hasn't looked at yet; the placeholder is its version (0.91.0). Opens the update window.")
+			}
+			Divider()
+		}
+
 		Button("Open Dashboard") { presentWindow(id: WindowID.dashboard, using: openWindow) }
 			.keyboardShortcut("0", modifiers: .command)
 		Button("Settings…") { openSettings(using: openWindow) }

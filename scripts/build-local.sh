@@ -20,7 +20,8 @@ rc=0
 "$REPO/scripts/local-signing-identity.sh" --hash >/dev/null || rc=$?
 case "$rc" in
   0) "$REPO/scripts/local-signing-identity.sh" --sign "$APP" ;;
-  1) echo "no local signing identity: leaving the app ad-hoc signed"
+  1) "$REPO/scripts/local-signing-identity.sh" --sign-adhoc "$APP"
+     echo "no local signing identity: the app is ad-hoc signed"
      echo "(set EMBER_SIGNING_IDENTITY / ~/.config/ember/signing-identity to your Apple Development"
      echo " SHA-1, or run scripts/local-signing-identity.sh once, to keep Local Network access across rebuilds)" ;;
   *) exit 1 ;;

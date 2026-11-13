@@ -1604,7 +1604,13 @@ runs the new binary; Repair in Settings › Agents leaves it alone.
 replaces the #836 notice (`UpdateCheck`, deleted). The menu's **Check for
 Updates…** and Settings › General › Updates (**Check for updates
 automatically**, **Check Now**) drive it; Sparkle's standard window does the
-rest. Before the updater starts, `LegacyUpdatePreference.take` carries the old
+rest. Its user-driver delegate supports Sparkle's gentle reminders: an
+`LSUIElement` app that isn't active gets a scheduled update's window behind
+other apps, so `waitingUpdate` holds the version a scheduled check found and
+the menu shows **Update Available: X.Y.Z…** until the user attends to the
+window or the session ends. The app is never activated for a scheduled
+update: the window's default button is Install, so stolen focus plus a
+Return key would install. Before the updater starts, `LegacyUpdatePreference.take` carries the old
 `updates.checkAutomatically` into Sparkle's setting once and deletes the #836
 keys. A build whose `Info.plist` says `SUEnableAutomaticChecks` NO (a local
 build) refuses Sparkle's background checks in its updater delegate, because
@@ -1616,8 +1622,9 @@ built-in server are re-registered and run the new binaries. The update keeps
 the Local Network and Little Snitch permissions only because every release
 is signed with the same Developer ID (the designated requirement doesn't
 change). `build-local.sh` signs Sparkle's nested helpers (`Autoupdate`,
-`Updater.app`, the XPC services) inside-out before the framework. When the
-local identity has no Team ID (the self-signed "Ember Local Signing"), it also
+`Updater.app`, the XPC services) inside-out before the framework, with the
+local identity or, without one, ad-hoc (`--sign-adhoc`). When the signature
+has no Team ID (ad-hoc, or the self-signed "Ember Local Signing"), it also
 gives the app `com.apple.security.cs.disable-library-validation`: the hardened
 runtime otherwise refuses to load Sparkle.framework ("mapping process and
 mapped file (non-platform) have different Team IDs") and the app dies at

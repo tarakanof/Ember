@@ -2921,6 +2921,9 @@
     "Update Available: %@" : {
       "comment" : "Settings › Clock: a newer clock firmware version exists; the placeholder is that version (\"0.9.3\")."
     },
+    "Update Available: %@…" : {
+      "comment" : "Menu item when the daily check found a newer Ember the user hasn't looked at yet; the placeholder is its version (0.91.0). Opens the update window."
+    },
     "Update screen" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"

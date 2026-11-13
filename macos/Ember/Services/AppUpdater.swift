@@ -9,15 +9,18 @@ final class AppUpdater {
     let buildChecksAutomatically: Bool
     private(set) var canCheckForUpdates = false
     private(set) var checksAutomatically = false
+    private(set) var waitingUpdate: String?
 
     @ObservationIgnored private let controller: SPUStandardUpdaterController
     @ObservationIgnored private let gate: BackgroundCheckGate
+    @ObservationIgnored private let reminders = UpdateReminders()
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
 
     init(bundle: Bundle = .main) {
         buildChecksAutomatically = Self.buildChecksAutomatically(bundle)
         gate = BackgroundCheckGate(allowed: buildChecksAutomatically)
-        controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: gate, userDriverDelegate: nil)
+        controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: gate, userDriverDelegate: reminders)
+        reminders.onChange = { [weak self] version in self?.waitingUpdate = version }
     }
 
     func start(defaults: UserDefaults = .standard) {
@@ -54,6 +57,26 @@ final class AppUpdater {
         case let text as String: (text as NSString).boolValue
         default: true
         }
+    }
+}
+
+private final class UpdateReminders: NSObject, SPUStandardUserDriverDelegate {
+    var onChange: ((String?) -> Void)?
+
+    var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem,
+                                                   state: SPUUserUpdateState) {
+        guard !state.userInitiated else { return }
+        onChange?(update.displayVersionString)
+    }
+
+    func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
+        onChange?(nil)
+    }
+
+    func standardUserDriverWillFinishUpdateSession() {
+        onChange?(nil)
     }
 }
 

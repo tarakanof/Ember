@@ -132,7 +132,11 @@ Update; Sparkle then downloads the zip, checks its EdDSA signature before
 extracting it, and offers **Install and Relaunch**, which swaps the bundle
 (asking for an admin password when `/Applications` isn't writable) and
 relaunches Ember. A zip whose signature doesn't match stops at "Update Error!
-The update is improperly signed and could not be validated."
+The update is improperly signed and could not be validated." Ember has no
+Dock icon, so when the daily check finds an update while you work in another
+app, Sparkle may open its window behind that app; the menu then shows
+**Update Available: X.Y.Z…** until you look at the window (clicking the row
+brings it forward) or the update session ends.
 The relaunch runs the launch reconcile, which re-registers the producer and
 server agents from the new bundle.
 

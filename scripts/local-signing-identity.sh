@@ -8,6 +8,7 @@ set -euo pipefail
 #   local-signing-identity.sh --check    report the identity local builds sign with (exit 1 if none)
 #   local-signing-identity.sh --hash     print only its SHA-1 (exit 1 if none), for scripts
 #   local-signing-identity.sh --sign APP re-sign a built Ember.app inside-out with it
+#   local-signing-identity.sh --sign-adhoc APP  the same, ad-hoc (no identity)
 #   local-signing-identity.sh --remove   delete "Ember Local Signing" from the keychain
 #
 # EMBER_SIGNING_KEYCHAIN overrides the keychain (default: the login keychain),
@@ -166,13 +167,19 @@ sign_framework_helpers() {
 }
 
 sign_app() {
-  local app="$1" hash main f name ents teamless="" rc=0
+  local app="$1" adhoc="${2:-}" hash main f name ents teamless="" rc=0
   [ -d "$app" ] || { echo "error: no such app bundle: $app" >&2; exit 2; }
-  resolve || rc=$?
-  [ "$rc" != 2 ] || exit 1
-  [ "$rc" = 0 ] || { echo "error: no signing identity; set EMBER_SIGNING_IDENTITY or run scripts/local-signing-identity.sh first" >&2; exit 1; }
-  hash="$HASH"
-  local cs=(codesign --force --sign "$hash" --keychain "$KEYCHAIN" --options runtime --timestamp=none)
+  local cs
+  if [ -n "$adhoc" ]; then
+    hash="-" LABEL="ad-hoc"
+    cs=(codesign --force --sign - --options runtime --timestamp=none)
+  else
+    resolve || rc=$?
+    [ "$rc" != 2 ] || exit 1
+    [ "$rc" = 0 ] || { echo "error: no signing identity; set EMBER_SIGNING_IDENTITY or run scripts/local-signing-identity.sh first" >&2; exit 1; }
+    hash="$HASH"
+    cs=(codesign --force --sign "$hash" --keychain "$KEYCHAIN" --options runtime --timestamp=none)
+  fi
 
   if [ -d "$app/Contents/Frameworks" ]; then
     for f in "$app"/Contents/Frameworks/*; do
@@ -213,7 +220,8 @@ case "${1:-}" in
   --check) check ;;
   --hash) print_hash ;;
   --sign) [ -n "${2:-}" ] || { echo "usage: $0 --sign <Ember.app>" >&2; exit 2; }; sign_app "$2" ;;
+  --sign-adhoc) [ -n "${2:-}" ] || { echo "usage: $0 --sign-adhoc <Ember.app>" >&2; exit 2; }; sign_app "$2" adhoc ;;
   --remove) remove ;;
   -h | --help) sed -n '4,46p' "$0" ;;
-  *) echo "usage: $0 [--create|--check|--hash|--sign APP|--remove]" >&2; exit 2 ;;
+  *) echo "usage: $0 [--create|--check|--hash|--sign APP|--sign-adhoc APP|--remove]" >&2; exit 2 ;;
 esac
