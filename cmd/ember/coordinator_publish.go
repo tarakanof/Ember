@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
@@ -119,7 +120,7 @@ func (c *coordinator) publish(snap Snapshot) {
 
 	err := c.pushApp(cfg.AWTRIX.AppName, body)
 	if err != nil {
-		c.logger.Warn("coord publish failed", "err", err)
+		c.warnClock("coord publish failed", err)
 		c.metrics.incPublishFail()
 	} else {
 		c.publishCount.Add(1)
@@ -131,4 +132,15 @@ func (c *coordinator) publish(snap Snapshot) {
 	if c.onPublishResult != nil {
 		c.onPublishResult(snap, err)
 	}
+}
+
+func (c *coordinator) warnClock(msg string, err error) {
+	if errors.Is(err, errClockNotConfigured) {
+		if _, seen := c.noClockLogged.LoadOrStore(msg, true); !seen {
+			c.logger.Warn(msg, "err", err)
+		}
+		return
+	}
+	c.noClockLogged.Delete(msg)
+	c.logger.Warn(msg, "err", err)
 }

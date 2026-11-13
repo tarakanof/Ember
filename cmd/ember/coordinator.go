@@ -94,7 +94,8 @@ type coordinator struct {
 
 	stateMu sync.RWMutex
 
-	publishCount atomic.Int64
+	publishCount  atomic.Int64
+	noClockLogged sync.Map
 
 	usage *UsageStore
 
