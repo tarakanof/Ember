@@ -192,7 +192,7 @@ type producerHookSpec struct {
 }
 
 const notificationMatcher = "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|" +
-	"elicitation_complete|elicitation_response|agent_needs_input|agent_completed|" +
+	"elicitation_complete|elicitation_response|agent_needs_input|agent_completed|worker_permission_prompt|" +
 	"quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled"
 
 var producerHookSpecs = []producerHookSpec{

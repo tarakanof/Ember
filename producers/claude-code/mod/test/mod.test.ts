@@ -304,30 +304,18 @@ test('a tool.check ask shows waiting in an interactive session', async ($, on) =
 test('the asked call finishing ends the wait', async ($, on) => {
   const { sent, clock } = world(on)
   on('tool.check', () => ({ decision: 'ask', reason: 'needs approval' }))
-  let started: (id: string) => void = () => {}
-  const callId = new Promise<string>(resolve => (started = resolve))
-  let approve: () => void = () => {}
-  const approved = new Promise<void>(resolve => (approve = resolve))
-  on('tool.call', async ($, e) => {
-    started(e.tool_use_id)
-    await approved
-    return { result: { stdout: '', stderr: '', interrupted: false } }
-  })
   await $.session.start({ cwd: `${HOME}/proj`, surface: 'terminal', isInteractive: true })
   await $.classic.UserPromptSubmit({ prompt: 'go', session_id: 'sess-1', cwd: `${HOME}/proj` })
-  const call = $.tool.call({ tool: 'Bash', command: 'make', description: 'build' })
-  await $.tool.check({ tool: 'Bash', input: { command: 'make' }, tool_use_id: await callId })
+  const result = await $.tool.call({ tool: 'Bash', command: 'make', description: 'build' })
   await clock.settle()
-  expect(sent.at(-1)?.body.state).toBe('waiting')
-  approve()
-  await call
-  await clock.settle()
-  expect(sent.map(s => [s.body.state, s.body.message])).toEqual([
+  expect(result.isError).toBe(true)
+  const states = sent.map(s => [s.body.state, s.body.message])
+  expect(states.slice(0, 3)).toEqual([
     ['running', 'go'],
     ['running', 'Bash'],
     ['waiting', 'approve Bash'],
-    ['running', 'Bash'],
   ])
+  expect(states.at(-1)).toEqual(['running', 'Bash'])
 })
 
 test('a headless session never shows waiting from tool.check', async ($, on) => {

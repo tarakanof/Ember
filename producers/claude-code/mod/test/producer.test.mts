@@ -347,6 +347,9 @@ describe('Tracker', () => {
     assert.deepEqual(states(t.notification(cfg, 0, 's1', 'elicitation_dialog', 'pick one', HOME)), ['waiting:pick one'])
     assert.deepEqual(states(t.notification(cfg, 1, 's1', 'elicitation_complete', '', HOME)), ['running:'])
     assert.deepEqual(states(t.notification(cfg, 2, 's1', 'quota_auto_resume_disabled', '', HOME)), ['error:usage limit'])
+    assert.deepEqual(states(t.notification(cfg, 2, 's2', 'worker_permission_prompt', 'researcher needs permission for Bash', HOME)), [
+      'waiting:researcher needs permission for Bash',
+    ])
     assert.deepEqual(t.notification(cfg, 3, 's1', 'idle_prompt', 'idle', HOME), [])
     assert.deepEqual(t.notification(cfg, 4, 's1', 'something_else', 'x', HOME), [])
   })

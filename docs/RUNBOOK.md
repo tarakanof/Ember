@@ -657,7 +657,7 @@ usage card still comes from the Go daemon. It is off unless installed,
 and it posts under its own source, so it never doubles the Go producer's
 rows. Needs Claude Code 2.1.288 or newer, gauges included: `session.measure`
 and `$.session.usage()` were live-probed on 2.1.288 (#253) and CI tests on
-2.1.304. A build that doesn't know an event the module hooks refuses the
+2.1.323 (#853). A build that doesn't know an event the module hooks refuses the
 whole module when it loads it (no state either), and the API has no
 capability check, so the gauges can't be switched off per version; such a
 build keeps using the Go producer.
@@ -787,7 +787,7 @@ build keeps using the Go producer.
     5 minutes. It never runs in a hook, and it does not start waits or turn
     `idle` rows into `done`, which the Go daemon also does.
   - A `permission_mode` change by Shift+Tab is seen at the next classic event.
-    Claude Code 2.1.304 gives a mod no event or noun for it (the API has no
+    Claude Code 2.1.323 gives a mod no event or noun for it (the API has no
     mode-change event, `claude agents --json` carries no mode, and the
     `SessionMode`/`PromptHint` render hooks only expose drawn text). The
     effect of a stale mode is bounded by the cross-check above: after a

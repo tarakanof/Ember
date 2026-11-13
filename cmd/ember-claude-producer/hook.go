@@ -335,7 +335,7 @@ func handleNotification(ctx context.Context, cfg Config, client *Client, session
 		})
 	case "agent_needs_input":
 		upsert("waiting", msg, upsertExtra{agentInput: true})
-	case "elicitation_dialog", "elicitation_url_dialog", "quota_auto_resume_stale":
+	case "elicitation_dialog", "elicitation_url_dialog", "worker_permission_prompt", "quota_auto_resume_stale":
 		upsert("waiting", msg, upsertExtra{})
 	case "elicitation_complete", "elicitation_response":
 		upsert("running", msg, upsertExtra{
