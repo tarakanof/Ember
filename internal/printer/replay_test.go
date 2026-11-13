@@ -98,6 +98,16 @@ type edge struct {
 	Row  int
 }
 
+func rawPhases(snaps []Snapshot) []Phase {
+	var out []Phase
+	for _, sn := range snaps {
+		if len(out) == 0 || out[len(out)-1] != sn.Phase {
+			out = append(out, sn.Phase)
+		}
+	}
+	return out
+}
+
 func edgesOf(snaps []Snapshot) []edge {
 	var out []edge
 	var last uint64
@@ -197,6 +207,14 @@ func TestReplayRemotePrintYieldsPhasesAndOneEventPerEdge(t *testing.T) {
 	}
 	if got, want := snaps[first].StartedAt, startedAtOf(t, rows[first]); !got.Equal(want) {
 		t.Fatalf("a remote start's started_at = %v, want %v", got, want)
+	}
+}
+
+func TestReplayRemotePrintPreheatHasNoWobble(t *testing.T) {
+	_, _, _, snaps := playTrace(t, remoteTrace)
+	want := []Phase{PhaseIdle, PhasePreparing, PhaseHeating, PhasePreparing, PhaseHeating, PhasePreparing, PhasePrinting, PhasePaused, PhasePrinting, PhaseFinishing, PhaseFinished, PhaseIdle}
+	if got := rawPhases(snaps); !slices.Equal(got, want) {
+		t.Fatalf("phases = %v\nwant     %v", got, want)
 	}
 }
 

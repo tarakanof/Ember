@@ -687,6 +687,32 @@ func TestDerivePhaseTable(t *testing.T) {
 	}
 }
 
+func TestDerivePhaseHysteresis(t *testing.T) {
+	doc := func(nozzle, target float64) StatusDoc {
+		d := StatusDoc{Job: &StatusJob{ID: 1}}
+		d.Printer.State, d.Printer.TempNozzle, d.Printer.TargetNozzle = "PRINTING", nozzle, target
+		return d
+	}
+	cases := []struct {
+		name string
+		d    StatusDoc
+		prev Phase
+		want Phase
+	}{
+		{"2 under from preparing", doc(148, 150), PhasePreparing, PhasePreparing},
+		{"5 under from preparing", doc(145, 150), PhasePreparing, PhasePreparing},
+		{"15 under from preparing", doc(135, 150), PhasePreparing, PhaseHeating},
+		{"5 under from heating", doc(145, 150), PhaseHeating, PhaseHeating},
+		{"5 under from nothing", doc(145, 150), "", PhaseHeating},
+		{"2 under from heating", doc(148, 150), PhaseHeating, PhasePreparing},
+	}
+	for _, c := range cases {
+		if got := derivePhase(c.d, c.prev); got != c.want {
+			t.Errorf("%s: got %s, want %s", c.name, got, c.want)
+		}
+	}
+}
+
 func TestConfigValidate(t *testing.T) {
 	cases := []struct {
 		url  string

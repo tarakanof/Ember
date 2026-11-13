@@ -53,6 +53,7 @@ const (
 	StoppedHold     = 10 * time.Minute
 	AnchorTolerance = 60 * time.Second
 	heatingMargin   = 3.0
+	reheatMargin    = 10.0
 	maxEvents       = 32
 	MaxNameRunes    = 32
 	WarmAbove       = 40.0
@@ -322,12 +323,16 @@ func (s *State) setVersion(v VersionDoc) {
 }
 
 func DerivePhase(d StatusDoc) Phase {
+	return derivePhase(d, "")
+}
+
+func derivePhase(d StatusDoc, prev Phase) Phase {
 	switch strings.ToUpper(d.Printer.State) {
 	case "PRINTING":
-		return printingPhase(d)
+		return printingPhase(d, prev)
 	case "BUSY":
 		if d.Job != nil {
-			return printingPhase(d)
+			return printingPhase(d, prev)
 		}
 		return PhaseIdle
 	case "PAUSED":
@@ -345,7 +350,7 @@ func DerivePhase(d StatusDoc) Phase {
 	}
 }
 
-func printingPhase(d StatusDoc) Phase {
+func printingPhase(d StatusDoc, prev Phase) Phase {
 	p := 0.0
 	if d.Job != nil {
 		p = d.Job.Progress
@@ -357,7 +362,11 @@ func printingPhase(d StatusDoc) Phase {
 		return PhasePrinting
 	}
 	pr := d.Printer
-	cold := func(temp, target float64) bool { return target > 0 && temp < target-heatingMargin }
+	margin := heatingMargin
+	if prev == PhasePreparing {
+		margin = reheatMargin
+	}
+	cold := func(temp, target float64) bool { return target > 0 && temp < target-margin }
 	if cold(pr.TempNozzle, pr.TargetNozzle) || cold(pr.TempBed, pr.TargetBed) {
 		return PhaseHeating
 	}
@@ -377,7 +386,11 @@ func ActiveStatus(d StatusDoc) bool {
 func (s *State) observe(now time.Time, d StatusDoc) (stateChanged, jobChanged, active bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	phase := DerivePhase(d)
+	var prev Phase
+	if s.seen {
+		prev = s.prevPhase
+	}
+	phase := derivePhase(d, prev)
 	raw := strings.ToUpper(d.Printer.State)
 	s.recovering = raw == "BUSY" && d.Job == nil && s.seen && s.jobID != 0 && s.midPrintLocked(s.prevPhase) &&
 		now.Sub(s.updatedAt) < 2*PollIdle
