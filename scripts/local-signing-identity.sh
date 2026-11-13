@@ -8,6 +8,7 @@ set -euo pipefail
 #   local-signing-identity.sh --check    report the identity local builds sign with (exit 1 if none)
 #   local-signing-identity.sh --hash     print only its SHA-1 (exit 1 if none), for scripts
 #   local-signing-identity.sh --sign APP re-sign a built Ember.app inside-out with it
+#   local-signing-identity.sh --sign-adhoc APP  the same, ad-hoc (no identity)
 #   local-signing-identity.sh --remove   delete "Ember Local Signing" from the keychain
 #
 # EMBER_SIGNING_KEYCHAIN overrides the keychain (default: the login keychain),
@@ -151,19 +152,41 @@ remove() {
   echo "removed $n '$NAME' identit$([ "$n" = 1 ] && echo y || echo ies) from $KEYCHAIN"
 }
 
+sign_framework_helpers() {
+  local fw="$1" dir="$1/Versions/Current" own n
+  [ -d "$dir" ] || return 0
+  own="$(basename "$fw" .framework)"
+  for n in "$dir"/XPCServices/*.xpc "$dir"/*.app; do
+    [ -e "$n" ] || continue
+    "${cs[@]}" --preserve-metadata=identifier,entitlements "$n"
+  done
+  for n in "$dir"/*; do
+    [ -f "$n" ] && [ -x "$n" ] && [ "$(basename "$n")" != "$own" ] || continue
+    "${cs[@]}" --preserve-metadata=identifier,entitlements "$n"
+  done
+}
+
 sign_app() {
-  local app="$1" hash main f name ents rc=0
+  local app="$1" adhoc="${2:-}" hash main f name ents teamless="" rc=0
   [ -d "$app" ] || { echo "error: no such app bundle: $app" >&2; exit 2; }
-  resolve || rc=$?
-  [ "$rc" != 2 ] || exit 1
-  [ "$rc" = 0 ] || { echo "error: no signing identity; set EMBER_SIGNING_IDENTITY or run scripts/local-signing-identity.sh first" >&2; exit 1; }
-  hash="$HASH"
-  local cs=(codesign --force --sign "$hash" --keychain "$KEYCHAIN" --options runtime --timestamp=none)
+  local cs
+  if [ -n "$adhoc" ]; then
+    hash="-" LABEL="ad-hoc"
+    cs=(codesign --force --sign - --options runtime --timestamp=none)
+  else
+    resolve || rc=$?
+    [ "$rc" != 2 ] || exit 1
+    [ "$rc" = 0 ] || { echo "error: no signing identity; set EMBER_SIGNING_IDENTITY or run scripts/local-signing-identity.sh first" >&2; exit 1; }
+    hash="$HASH"
+    cs=(codesign --force --sign "$hash" --keychain "$KEYCHAIN" --options runtime --timestamp=none)
+  fi
 
   if [ -d "$app/Contents/Frameworks" ]; then
     for f in "$app"/Contents/Frameworks/*; do
       [ -e "$f" ] || continue
+      sign_framework_helpers "$f"
       "${cs[@]}" --preserve-metadata=identifier,entitlements "$f"
+      codesign -dv "$f" 2>&1 | grep -q '^TeamIdentifier=[A-Z0-9]\{10\}$' || teamless=1
     done
   fi
   main="$(plutil -extract CFBundleExecutable raw "$app/Contents/Info.plist")"
@@ -176,6 +199,11 @@ sign_app() {
   codesign -d --entitlements - --xml "$app" >"$ents" 2>/dev/null || true
   if [ -s "$ents" ]; then
     /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.get-task-allow' "$ents" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$teamless" ]; then
+    [ -s "$ents" ] || plutil -create xml1 "$ents"
+    /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.cs.disable-library-validation' "$ents" >/dev/null 2>&1 || true
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' "$ents"
   fi
   if [ -s "$ents" ] && [ "$(plutil -convert json -o - "$ents" 2>/dev/null)" != "{}" ]; then
     "${cs[@]}" --entitlements "$ents" "$app"
@@ -192,7 +220,8 @@ case "${1:-}" in
   --check) check ;;
   --hash) print_hash ;;
   --sign) [ -n "${2:-}" ] || { echo "usage: $0 --sign <Ember.app>" >&2; exit 2; }; sign_app "$2" ;;
+  --sign-adhoc) [ -n "${2:-}" ] || { echo "usage: $0 --sign-adhoc <Ember.app>" >&2; exit 2; }; sign_app "$2" adhoc ;;
   --remove) remove ;;
   -h | --help) sed -n '4,46p' "$0" ;;
-  *) echo "usage: $0 [--create|--check|--hash|--sign APP|--remove]" >&2; exit 2 ;;
+  *) echo "usage: $0 [--create|--check|--hash|--sign APP|--sign-adhoc APP|--remove]" >&2; exit 2 ;;
 esac

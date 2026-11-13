@@ -89,24 +89,24 @@ struct GeneralPane: View {
             }
 
             Section {
-                if let notice = env.updates.notice {
-                    LabeledContent {
-                        HStack {
-                            Button("Release Notes") { NSWorkspace.shared.open(notice.releaseURL) }
-                            Button("Download") { NSWorkspace.shared.open(notice.downloadURL) }
-                        }
-                    } label: {
-                        Text("Update Available: \(notice.title)", comment: "Row label when a newer version exists: an app release tag (v0.91.0) in Settings › General, or a clock firmware version in Settings › Clock.")
-                    }
+                Toggle("Check for updates automatically", isOn: Binding(
+                    get: { env.updates.buildChecksAutomatically && env.updates.checksAutomatically },
+                    set: { env.updates.setChecksAutomatically($0) }))
+                    .disabled(!env.updates.buildChecksAutomatically)
+                LabeledContent {
+                    Button("Check Now") { activateForUser { env.updates.checkForUpdates() } }
+                        .disabled(!env.updates.canCheckForUpdates)
+                } label: {
+                    Text("Version \(Self.appVersion)", comment: "Settings › General › Updates: the installed version and build (\"0.91.0 (109)\").")
                 }
-                Toggle("Check for updates automatically", isOn: Binding(get: { env.updates.isEnabled }, set: { on in
-                    env.updates.isEnabled = on
-                    if on { Task { await env.updates.checkIfDue() } }
-                }))
             } header: {
                 Text("Updates")
             } footer: {
-                Text("Once a day Ember asks GitHub for the latest release. It never downloads or installs anything itself.")
+                if env.updates.buildChecksAutomatically {
+                    Text("Once a day Ember checks GitHub for a new release. Nothing installs until you click Install Update.")
+                } else {
+                    Text("This is a local build: it checks for updates only when you click Check Now.")
+                }
             }
 
             Section {
@@ -120,13 +120,19 @@ struct GeneralPane: View {
         .formStyle(.grouped)
         .reloads { login = LoginItemService.status }
         .task { await env.permissions.refresh(ifOlderThan: Self.permissionsInterval) }
-        .task { await env.updates.checkIfDue() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await env.permissions.refresh(ifOlderThan: Self.permissionsInterval) }
         }
     }
 
     private static let permissionsInterval: TimeInterval = 30
+
+    private static var appVersion: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
+    }
 
     private func glyphPicker(_ label: LocalizedStringKey, _ binding: Binding<String>) -> some View {
         Picker(label, selection: binding) {

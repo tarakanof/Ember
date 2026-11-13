@@ -82,9 +82,15 @@ they apply at every step.
     ships the app. `--no-app` (no build, no zip) is the escape hatch for when
     the app can't be notarized. Its release is created with `--latest=false`:
     `releases/latest`, which the README's download link, the app's update
-    notice and `install-producers.sh` all read, stays on the last app release.
+    check (Sparkle's `appcast.xml`, #861) and `install-producers.sh` all
+    read, stays on the last app release.
   - `--app-only` builds, notarizes and staples the zip and stops, from any
     branch: a dry run that commits, tags and publishes nothing.
+- An app release must leave `releases/latest/download/appcast.xml` answering:
+  installed apps read it once a day to offer the update (Sparkle, #861). The
+  release-script step that signs the zip with the Sparkle key and uploads the
+  appcast lands with #861's release half; a `--no-app` release keeps
+  `releases/latest` on the last app release, so its appcast stays served.
 - If SSH push fails in a sandbox (1Password agent):
   `GIT_SSH_COMMAND="ssh -o IdentityAgent=none -o IdentitiesOnly=yes"`, or HTTPS
   with gh credentials:
@@ -115,8 +121,9 @@ they apply at every step.
     unraid-mcp is not in it: a prompt in manual mode, the classifier in auto
     mode, nothing in bypass mode). Update
     only the Ember container.
-- **Mac app** (after a release that changed it): install the release's
-  notarized zip, the same file users download:
+- **Mac app** (after a release that changed it): an installed release
+  updates itself through Sparkle's **Install Update** (RUNBOOK "App updates").
+  By hand, install the release's notarized zip, the same file users download:
   ```sh
   gh release download vX.Y.Z --pattern 'Ember-*.zip' --dir <scratch>
   osascript -e 'quit app "Ember"'

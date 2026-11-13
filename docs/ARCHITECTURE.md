@@ -1598,6 +1598,38 @@ producers' update reconcile (`ManagedJob.server`; `bundleFingerprint` digests
 `ember-server` and its plist too), so a new app build re-registers it and it
 runs the new binary; Repair in Settings › Agents leaves it alone.
 
+**App updates (#861).** `AppUpdater` (`macos/Ember/Services/`) owns the one
+`SPUStandardUpdaterController` (Sparkle 2.10.1, a Swift package on the
+`Ember` target only, so EmberKit and `swift test` stay dependency-free). It
+replaces the #836 notice (`UpdateCheck`, deleted). The menu's **Check for
+Updates…** and Settings › General › Updates (**Check for updates
+automatically**, **Check Now**) drive it; Sparkle's standard window does the
+rest. Its user-driver delegate supports Sparkle's gentle reminders: an
+`LSUIElement` app that isn't active gets a scheduled update's window behind
+other apps, so `waitingUpdate` holds the version a scheduled check found and
+the menu shows **Update Available: X.Y.Z…** until the user attends to the
+window or the session ends. The app is never activated for a scheduled
+update: the window's default button is Install, so stolen focus plus a
+Return key would install. Before the updater starts, `LegacyUpdatePreference.take` carries the old
+`updates.checkAutomatically` into Sparkle's setting once and deletes the #836
+keys. A build whose `Info.plist` says `SUEnableAutomaticChecks` NO (a local
+build) refuses Sparkle's background checks in its updater delegate, because
+the defaults domain is shared with release builds and a user default would
+otherwise override the plist. Sparkle relaunches the app after an install;
+nothing in Ember re-registers agents then except the normal launch reconcile
+above: the new bundle's fingerprint differs, so the producers and the
+built-in server are re-registered and run the new binaries. The update keeps
+the Local Network and Little Snitch permissions only because every release
+is signed with the same Developer ID (the designated requirement doesn't
+change). `build-local.sh` signs Sparkle's nested helpers (`Autoupdate`,
+`Updater.app`, the XPC services) inside-out before the framework, with the
+local identity or, without one, ad-hoc (`--sign-adhoc`). When the signature
+has no Team ID (ad-hoc, or the self-signed "Ember Local Signing"), it also
+gives the app `com.apple.security.cs.disable-library-validation`: the hardened
+runtime otherwise refuses to load Sparkle.framework ("mapping process and
+mapped file (non-platform) have different Team IDs") and the app dies at
+launch. Developer ID and Apple Development builds don't get it.
+
 **3D Printer in the app (#816).** The feature is "3D Printer" everywhere the
 user reads it; wire names (`print`, `ember-print`, `printer.*`) stay. The
 custom symbol `ember.3d.printer` lives in `macos/Ember/Assets.xcassets`
@@ -6858,7 +6890,10 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   tokenising), and `teambition/rrule-go` (RRULE/DST-correct recurrence). The
   `fyne.io/systray` + `progrium/darwinkit` menu deps were dropped when the menu
   became a native SwiftUI app (`macos/`). Hand-rolling protocol clients (the
-  deleted MQTT 3.1.1 client) was not worth the purity tax.
+  deleted MQTT 3.1.1 client) was not worth the purity tax. The app's only
+  third-party Swift package is Sparkle (#861), on the `Ember` target: safely
+  replacing a running, signed bundle (signature check before extraction, an
+  admin prompt, relaunch, a failure halfway) is code Sparkle has hardened.
 - **Decompose "build feature X" into A/B/C sub-projects** with their own
   spec → plan → implementation cycle when the work hides interface contracts;
   keep them loosely coupled through a single locked protocol.

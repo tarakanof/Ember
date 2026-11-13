@@ -9,7 +9,6 @@ struct MenuBarContentView: View {
 		Group { items }
 			.onAppear {
 				Task { await env.live.refreshMenuFeeds() }
-				Task { await env.updates.checkIfDue() }
 			}
 	}
 
@@ -30,11 +29,11 @@ struct MenuBarContentView: View {
 		clockMenu(live)
 		Divider()
 
-		if let notice = env.updates.notice {
+		if let version = env.updates.waitingUpdate {
 			Button {
-				openSettings(.app(.general), using: openWindow)
+				activateForUser { env.updates.checkForUpdates() }
 			} label: {
-				Text("Update Available: \(notice.title)…", comment: "Menu item when a newer app release exists; the placeholder is the version tag (v0.91.0).")
+				Text("Update Available: \(version)…", comment: "Menu item when the daily check found a newer Ember the user hasn't looked at yet; the placeholder is its version (0.91.0). Opens the update window.")
 			}
 			Divider()
 		}
@@ -46,6 +45,8 @@ struct MenuBarContentView: View {
 		Button("About Ember") {
 			activateForUser { NSApp.orderFrontStandardAboutPanel(nil) }
 		}
+		Button("Check for Updates…") { activateForUser { env.updates.checkForUpdates() } }
+			.disabled(!env.updates.canCheckForUpdates)
 
 		Divider()
 

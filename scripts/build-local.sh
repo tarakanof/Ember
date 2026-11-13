@@ -12,7 +12,7 @@ xcodegen generate --spec "$REPO/macos/project.yml" --project "$REPO/macos" >/dev
 xcodebuild -project "$REPO/macos/Ember.xcodeproj" -scheme Ember -configuration Release \
   -derivedDataPath "$DD" -quiet \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
-  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO EMBER_SPARKLE_AUTOMATIC_CHECKS=NO \
   CURRENT_PROJECT_VERSION="${EMBER_BUILD_NUMBER:-2.$(date +%Y%m%d%H%M%S)}" build
 APP="$DD/Build/Products/Release/Ember.app"
 
@@ -20,7 +20,8 @@ rc=0
 "$REPO/scripts/local-signing-identity.sh" --hash >/dev/null || rc=$?
 case "$rc" in
   0) "$REPO/scripts/local-signing-identity.sh" --sign "$APP" ;;
-  1) echo "no local signing identity: leaving the app ad-hoc signed"
+  1) "$REPO/scripts/local-signing-identity.sh" --sign-adhoc "$APP"
+     echo "no local signing identity: the app is ad-hoc signed"
      echo "(set EMBER_SIGNING_IDENTITY / ~/.config/ember/signing-identity to your Apple Development"
      echo " SHA-1, or run scripts/local-signing-identity.sh once, to keep Local Network access across rebuilds)" ;;
   *) exit 1 ;;
