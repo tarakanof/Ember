@@ -112,7 +112,7 @@ if [ "$APP" -eq 1 ]; then
   need xcodebuild "install Xcode"
   need xcrun "install Xcode"
   need jq "brew install jq"
-  if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "\"Developer ID Application: .* ($TEAM)\""; then
+  if ! security find-identity -v -p codesigning 2>/dev/null | grep "\"Developer ID Application: .* ($TEAM)\"" >/dev/null; then
     echo "error: no valid 'Developer ID Application: … ($TEAM)' identity in the keychain" >&2
     echo "Install the Developer ID Application certificate of team $TEAM (Xcode › Settings › Accounts › Manage Certificates), or cut a server-only release with --no-app." >&2
     exit 1
@@ -188,7 +188,7 @@ if [ "$APP" -eq 1 ]; then
   BUILT="$WORK/dd/Build/Products/Release/Ember.app"
   scripts/verify-bundle.sh "$BUILT"
   signed_by_developer_id "$BUILT"
-  if codesign -d --entitlements - --xml "$BUILT" 2>/dev/null | grep -q "com.apple.security.get-task-allow"; then
+  if codesign -d --entitlements - --xml "$BUILT" 2>/dev/null | grep "com.apple.security.get-task-allow" >/dev/null; then
     echo "error: Ember.app carries the get-task-allow entitlement; notarization rejects it" >&2
     exit 1
   fi

@@ -186,7 +186,7 @@ sign_app() {
       [ -e "$f" ] || continue
       sign_framework_helpers "$f"
       "${cs[@]}" --preserve-metadata=identifier,entitlements "$f"
-      codesign -dv "$f" 2>&1 | grep -q '^TeamIdentifier=[A-Z0-9]\{10\}$' || teamless=1
+      codesign -dv "$f" 2>&1 | grep '^TeamIdentifier=[A-Z0-9]\{10\}$' >/dev/null || teamless=1
     done
   fi
   main="$(plutil -extract CFBundleExecutable raw "$app/Contents/Info.plist")"

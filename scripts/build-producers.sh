@@ -12,7 +12,7 @@ if [ "$IDENTITY" != "-" ]; then
   if [ "${CODE_SIGNING_ALLOWED:-YES}" = "NO" ]; then
     echo "build-producers.sh: signing not allowed — ad-hoc"
     IDENTITY="-"
-  elif ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
+  elif ! security find-identity -v -p codesigning 2>/dev/null | grep -F "$IDENTITY" >/dev/null; then
     rc=0
     LOCAL="$("$REPO/scripts/local-signing-identity.sh" --hash)" || rc=$?
     case "$rc" in

@@ -60,7 +60,7 @@ stage() {
   echo "$dir"
 }
 
-if tar --version 2>/dev/null | grep -q bsdtar; then
+if tar --version 2>/dev/null | grep bsdtar >/dev/null; then
   TAR_OWNER=(--uid 0 --gid 0 --uname root --gname root --no-xattrs)
 else
   TAR_OWNER=(--owner 0 --group 0 --numeric-owner)
