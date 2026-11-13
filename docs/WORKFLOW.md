@@ -56,12 +56,11 @@ they apply at every step.
 
 ## 4. Review
 
-- An **independent review** by a fresh agent (Opus) that did not write the code.
-  It reads the diff and the issue and looks for correctness, regressions of
-  user-visible behavior, resource cost and missing tests.
-- Findings go in a PR comment (the source of truth, not a scratch file).
-- Fix each real finding with a test that fails without the fix; reply to each
-  finding (fixed / not a bug + why). Re-review after non-trivial fixes.
+- The review step is the `pr-review` skill, with this repo's profile
+  [`agents/pr-review.md`](agents/pr-review.md) (read from the base branch): a
+  headless reviewer in rounds, findings as PR threads, each decided fixed /
+  declined / filed / noted, the PR body's Reviews section generated from them.
+- Fix each real finding with a test that fails without the fix.
 - Merge only with no open blocker and green CI.
 
 ## 5. Merge and release
