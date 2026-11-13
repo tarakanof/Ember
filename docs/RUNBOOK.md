@@ -2073,8 +2073,11 @@ leaves a draft and prints the `gh release upload … && gh release edit
 `release-producers.yml`, which runs on `published` and rewrites `SHA256SUMS`,
 always finds the zip and lists it; it is the only writer of that file.
 
-`--no-app` releases without building (a server-only release; the app's update
-notice ignores a release without a zip). `--app-only` stops after step 6 on any
+`--no-app` releases without building, for when the app can't be notarized. Its
+release is created with `--latest=false`, so `releases/latest` (the README's
+download link, the app's update notice, `install-producers.sh`) stays on the
+last app release; the Docker image and producer archives are still built for
+its tag. `--app-only` stops after step 6 on any
 branch and prints the zip's path, as a dry run or to hand a build to someone.
 `EMBER_NOTARY_PROFILE` overrides the profile name. `scripts/release_test.sh`
 (CI's macOS job) runs the script against fake `xcodebuild`, `xcrun`, `gh` and
@@ -2118,7 +2121,7 @@ trailing newline causes a `malformed HTTP Authorization header` login failure.
 To cut a release + repoint the live container:
 
 ```sh
-gh release create vX.Y.Z --target main --title vX.Y.Z --notes "…"   # triggers the workflow
+scripts/release.sh X.Y.Z "title"         # see "App release"; publishing triggers the workflow
 gh run watch <run-id> --exit-status                                  # multi-arch build ~2 min
 docker pull dtarakanov/ember:X.Y.Z
 # recreate with HOST networking (required for mDNS discovery — see "Discovery

@@ -11,7 +11,7 @@ IFS=$'\n\t'
 #
 # Flags:
 #   -y, --yes    skip the confirmation prompt (non-interactive)
-#   --no-app     server-only release: no app build, no notarization, no zip
+#   --no-app     release without the app (no build, no zip), not marked latest
 #   --app-only   build, notarize and staple Ember-X.Y.Z.zip, then stop:
 #                no commit, tag or release; works from any branch
 #
@@ -247,7 +247,7 @@ if [ "$APP" -eq 1 ]; then
   rm -rf "$WORK"
   WORK=""
 else
-  gh release create "$TAG" --verify-tag --title "$TITLE" --generate-notes
+  gh release create "$TAG" --verify-tag --latest=false --title "$TITLE" --generate-notes
 fi
 
 echo

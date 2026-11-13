@@ -145,6 +145,7 @@ done
 [ "$(line_of '^xcrun stapler staple')" -lt "$(line_of '^gh release create')" ] || fail "happy path: released before stapling"
 [ "$(line_of '^gh release upload')" -lt "$(line_of '^gh release edit')" ] || fail "happy path: published before the upload"
 grep -q '^gh release create v1.2.3 --verify-tag --draft' "$WORK/calls.log" || fail "happy path: release not created as a draft"
+! grep -q -- '--latest=false' "$WORK/calls.log" || fail "happy path: app release not marked latest"
 grep -q '^gh release upload v1.2.3 .*/Ember-1.2.3.zip$' "$WORK/calls.log" || fail "happy path: wrong zip uploaded"
 grep -q '^gh release edit v1.2.3 --draft=false' "$WORK/calls.log" || fail "happy path: draft not published"
 grep -q 'Ember.app/Contents/stapled-ticket' "$WORK/uploaded.txt" || fail "happy path: the uploaded zip is not the stapled app"
@@ -167,9 +168,9 @@ FAKE_PROFILE=missing FAKE_DEVID=no run_release 1.2.3 --no-app --yes || fail "--n
 for tool in xcodebuild xcrun security codesign spctl verify-bundle.sh 'gh release upload' 'gh release edit'; do
   ! grep -q "^$tool" "$WORK/calls.log" || fail "--no-app ran $tool"
 done
-grep -q '^gh release create v1.2.3 --verify-tag --title' "$WORK/calls.log" || fail "--no-app: release not published directly"
+grep -q '^gh release create v1.2.3 --verify-tag --latest=false --title' "$WORK/calls.log" || fail "--no-app: release not published directly, or marked latest"
 [ "$(git -C "$WORK/origin.git" tag)" = v1.2.3 ] || fail "--no-app: tag not pushed"
-echo "ok: --no-app releases without building or notarizing"
+echo "ok: --no-app releases without building or notarizing, and leaves latest on the last app release"
 
 new_repo
 git -C "$WORK/repo" checkout -qb feature

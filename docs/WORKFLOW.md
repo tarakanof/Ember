@@ -79,9 +79,11 @@ they apply at every step.
   - It runs on the owner's Mac only: it needs the Developer ID identity and the
     `ember-notary` notarytool profile, and checks both before changing
     anything (setup: RUNBOOK "App release").
-  - `--no-app` cuts a server-only release (no build, no zip). Use it only when
-    `macos/` is unchanged since the last app release: the app's update notice
-    ignores a release without a zip, so a changed app would never be offered.
+  - Ember.app bundles the server and the producers, so a release normally
+    ships the app. `--no-app` (no build, no zip) is the escape hatch for when
+    the app can't be notarized. Its release is created with `--latest=false`:
+    `releases/latest`, which the README's download link, the app's update
+    notice and `install-producers.sh` all read, stays on the last app release.
   - `--app-only` builds, notarizes and staples the zip and stops, from any
     branch: a dry run that commits, tags and publishes nothing.
 - If SSH push fails in a sandbox (1Password agent):
