@@ -55,7 +55,9 @@ broken install or update, or the owner's devices, Macs or names leaking into the
   token change together, only after the listener is proven ours (port pre-check, two
   healthy polls); every change reloads `ServerConnection` and kickstarts every *loaded*
   producer job (app-registered or CLI); a stale draft never writes an old field back
-  (save only fields that changed). Search: `rg -n 'producer\.env|EMBER_SERVER_URL|EMBER_TOKEN'`.
+  (save only fields that changed). The app writes through `SettingsKeys` and
+  `EnvFileStore`, never the literal names. Search:
+  `rg -n 'producer\.env|EMBER_SERVER_URL|EMBER_TOKEN|SettingsKeys\.(serverURL|token)|EnvFileStore|producerEnv'`.
 - **producer parity** (`cmd/ember-claude-producer` vs `producers/claude-code/mod`): the Go
   hook and the mod must reach the same state for the same event sequence, including the
   skips (`correctableWait`, elicitation, worker permission). A change to one names the
@@ -69,8 +71,8 @@ broken install or update, or the owner's devices, Macs or names leaking into the
   shown (`finished`, a popup) and nothing is lost; persisted stamps and the state they
   throttle are restored together.
 - **releases/latest readers** (`scripts/release.sh`, README, `install-producers.sh`, the
-  app's update check: `UpdateCheck`, then Sparkle's `appcast.xml` from #861): every release kind leaves `releases/latest` on a release with
-  the app zip and its feed. Search: `rg -n 'releases/latest'`.
+  app's update check: `UpdateCheck`, then Sparkle's `appcast.xml` from #861): every
+  release kind leaves `releases/latest` on a release with the app zip and its feed. Search: `rg -n 'releases/latest'`.
 - **signed bundle** (`macos/project.yml`, `scripts/build-producers.sh`,
   `scripts/local-signing-identity.sh`, `scripts/verify-bundle.sh`): every nested binary is
   signed inside-out with the runtime flag and a fixed identifier where Local Network keys
@@ -91,15 +93,19 @@ go vet ./... && go test ./... -race
 swift test --package-path macos
 scripts/strings.sh check          # runs xcodegen and an unsigned Debug build itself
 for t in scripts/*_test.sh; do "$t" || exit 1; done
+node --test producers/claude-code/mod/test/producer.test.mts
+claude plugin test producers/claude-code/mod   # when the claude CLI is installed
 ```
 
 Run the Go lines when Go changed, the app lines when `macos/` changed, the shell tests
-when `scripts/` changed.
+when `scripts/` changed, the mod lines when `producers/claude-code/mod/` changed (and
+for any producer-parity fix, whichever side it touched).
 
 ## Checks before a re-check
 
 The targeted tests for the fixed code (`go test ./<pkg> -race -run <Test>`,
-`swift test --package-path macos --filter <Suite>`, the touched `scripts/*_test.sh`), plus
+`swift test --package-path macos --filter <Suite>`, the touched `scripts/*_test.sh`, the
+mod's `node --test` for a mod change), plus
 `scripts/strings.sh check` when a string changed. The full suite when the fix touches a
 defect class above.
 
@@ -111,5 +117,5 @@ defect class above.
 - lite_model: sonnet
 - lite_effort: low
 - lite_max_lines: 40
-- sensitive_paths: *auth*, *login*, *secret*, *credential*, *keychain*, *crypto*, *token*, *migration*, *.sql, .github/workflows/*, scripts/release*.sh, scripts/*sign*.sh, scripts/build-local.sh, scripts/install-producers.sh, macos/project.yml, macos/Ember/Info.plist, *.entitlements, macos/Ember/LaunchAgents/*, macos/Sources/EmberKit/BuiltInServer*, macos/Sources/EmberKit/ProducerInstallService.swift, internal/producer/env*, */store.go, cmd/ember/testdata/devices/*, docs/DEVICE-PROTOCOL.md
+- sensitive_paths: *auth*, *login*, *secret*, *credential*, *keychain*, *crypto*, *token*, *migration*, *.sql, .github/workflows/*, scripts/release*.sh, scripts/*sign*.sh, scripts/build-local.sh, scripts/install-producers.sh, macos/project.yml, macos/Ember/Info.plist, *.entitlements, macos/Ember/LaunchAgents/*, macos/Sources/EmberKit/BuiltInServer*, macos/Sources/EmberKit/ProducerInstallService.swift, macos/Sources/EmberKit/ConnectionSettings.swift, macos/Sources/EmberKit/Config/EnvFileStore.swift, macos/Sources/EmberKit/Config/ConfigModel.swift, macos/Ember/AppEnvironment.swift, internal/producer/env*, */store.go, cmd/ember/testdata/devices/*, docs/DEVICE-PROTOCOL.md
 - codex: auto
