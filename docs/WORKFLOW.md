@@ -69,14 +69,29 @@ they apply at every step.
 - `gh pr merge --merge` (merge commit), then remove the worktree and branch.
 - Release when the server, app or producers changed for users, from a clean,
   in-sync `main`, once the user asked for the release: `scripts/release.sh X.Y.Z "title" --yes`. It bumps the app
-  version in `macos/project.yml`, tags `vX.Y.Z` and publishes a GitHub Release,
-  which triggers `docker-publish.yml` (server image `:X.Y.Z`, `:latest`) and
-  `release-producers.yml` (headless producer archives + `SHA256SUMS`).
+  version in `macos/project.yml`, builds Ember.app signed with Developer ID,
+  notarizes and staples it, and only then commits, tags `vX.Y.Z`, creates a
+  draft release, uploads `Ember-X.Y.Z.zip` and publishes the draft. Publishing
+  triggers `docker-publish.yml` (server image `:X.Y.Z`, `:latest`) and
+  `release-producers.yml` (headless producer archives + `SHA256SUMS`, which
+  lists the zip too). A failed build or notarization restores
+  `macos/project.yml` and leaves nothing committed, tagged or pushed.
+  - It runs on the owner's Mac only: it needs the Developer ID identity and the
+    `ember-notary` notarytool profile, and checks both before changing
+    anything (setup: RUNBOOK "App release").
+  - Ember.app bundles the server and the producers, so a release normally
+    ships the app. `--no-app` (no build, no zip) is the escape hatch for when
+    the app can't be notarized. Its release is created with `--latest=false`:
+    `releases/latest`, which the README's download link, the app's update
+    check (Sparkle's `appcast.xml`, #861) and `install-producers.sh` all
+    read, stays on the last app release.
+  - `--app-only` builds, notarizes and staples the zip and stops, from any
+    branch: a dry run that commits, tags and publishes nothing.
 - An app release must leave `releases/latest/download/appcast.xml` answering:
-  installed apps read it once a day to offer the update (Sparkle, #861; the
-  release-script step that writes and uploads it lands after #835). A
-  server-only release has to re-upload the previous release's appcast, or
-  **Check for Updates…** shows an error until the next app release.
+  installed apps read it once a day to offer the update (Sparkle, #861). The
+  release-script step that signs the zip with the Sparkle key and uploads the
+  appcast lands with #861's release half; a `--no-app` release keeps
+  `releases/latest` on the last app release, so its appcast stays served.
 - If SSH push fails in a sandbox (1Password agent):
   `GIT_SSH_COMMAND="ssh -o IdentityAgent=none -o IdentitiesOnly=yes"`, or HTTPS
   with gh credentials:
@@ -107,16 +122,19 @@ they apply at every step.
     unraid-mcp is not in it: a prompt in manual mode, the classifier in auto
     mode, nothing in bypass mode). Update
     only the Ember container.
-- **Mac app** (after a release that changed it): a release-built app updates
-  itself through Sparkle's **Install Update** (RUNBOOK "App updates"). A local
-  build never checks on its own; install it by hand:
+- **Mac app** (after a release that changed it): an installed release
+  updates itself through Sparkle's **Install Update** (RUNBOOK "App updates").
+  By hand, install the release's notarized zip, the same file users download:
   ```sh
-  scripts/build-local.sh <scratch>/ember-build
+  gh release download vX.Y.Z --pattern 'Ember-*.zip' --dir <scratch>
   osascript -e 'quit app "Ember"'
   rm -rf /Applications/Ember.app   # ditto merges; stale files would stay
-  ditto <scratch>/ember-build/Build/Products/Release/Ember.app /Applications/Ember.app
+  ditto -x -k <scratch>/Ember-X.Y.Z.zip /Applications
   open /Applications/Ember.app
   ```
+  A build that isn't released yet installs from `scripts/build-local.sh
+  <scratch>/ember-build` the same way, copying
+  `<scratch>/ember-build/Build/Products/Release/Ember.app` with `ditto`.
 - **Claude plugin** (hooks changed): `claude plugin marketplace update ember`,
   `claude plugin update ember@ember`. Running Claude sessions pick it up only
   after `/reload-plugins` or a restart; tell the user.
