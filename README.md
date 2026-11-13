@@ -23,20 +23,24 @@ it on your Mac.
 
 ## Install
 
-> A notarized download is coming with [#835](https://github.com/tarakanof/ember/issues/835);
-> it will replace the build steps below with a link. Until then, build the app
-> yourself. These steps are for v0.90.0 and later.
-
-1. Install the build tools: Xcode (recent enough for the macOS 26 SDK) and Go 1.26 or later, then `brew install go xcodegen`. The build compiles the bundled Go helpers.
-2. Clone this repository and, from its root, run `scripts/build-local.sh`. It
-   builds a Release `Ember.app` into `/tmp/ember-local-build/Build/Products/Release/`.
-3. Copy it to `/Applications` (`ditto /tmp/ember-local-build/Build/Products/Release/Ember.app /Applications/Ember.app`)
-   and open it. Allow **Local Network** access when macOS asks; Ember uses it to
-   find the clock.
+1. Open the [latest release](https://github.com/tarakanof/ember/releases/latest)
+   and download `Ember-X.Y.Z.zip` (releases after v0.90.0 carry one).
+2. Double-click the zip, then drag **Ember** to **Applications**.
+3. Open Ember from Applications and click **Open** when macOS asks about an app
+   downloaded from the Internet. Allow **Local Network** access when macOS asks;
+   Ember uses it to find the clock.
 4. Open **Settings › Connection**. Choose **Run on this Mac** to have Ember host
    its own server, or **Use another server** to connect to one you already run
    (see "Running your own server" below).
 5. Open **Settings › Devices › Clock**, click **Discover Clocks…**, then **Use** next to your clock. Until you pick one, the built-in server publishes nothing.
+
+### Build it yourself
+
+1. Install the build tools: Xcode (recent enough for the macOS 26 SDK) and Go 1.26 or later, then `brew install go xcodegen`. The build compiles the bundled Go helpers.
+2. Clone this repository and, from its root, run `scripts/build-local.sh`. It
+   builds a Release `Ember.app` into `/tmp/ember-local-build/Build/Products/Release/`.
+3. Copy it to `/Applications` (`ditto /tmp/ember-local-build/Build/Products/Release/Ember.app /Applications/Ember.app`),
+   open it, and continue at step 4 above.
 
 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) covers code signing for local builds,
 installing the Claude Code plugin and the headless producers.

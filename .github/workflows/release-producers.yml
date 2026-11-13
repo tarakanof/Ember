@@ -2,7 +2,9 @@ name: Release producer binaries
 
 # Attaches headless producer archives (linux amd64/arm64, darwin universal)
 # plus SHA256SUMS to a published GitHub Release, next to docker-publish.yml's
-# server image. Re-run for an existing tag with workflow_dispatch.
+# server image. SHA256SUMS also lists the release's Ember-X.Y.Z.zip, which
+# scripts/release.sh uploads before it publishes the draft. Re-run for an
+# existing tag with workflow_dispatch.
 
 on:
   release:
@@ -63,6 +65,19 @@ jobs:
             lipo -info "$b"
             "$b" version | grep -qx "$(basename "$b") ${TAG#v}"
           done
+
+      - name: Add the app zip to SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zips=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name | select(test("^Ember-.*\\.zip$"))] | length')
+          if [ "$zips" -eq 0 ]; then
+            echo "no Ember-*.zip on $TAG: a server-only release"
+            exit 0
+          fi
+          mkdir -p dist/app
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'Ember-*.zip' --dir dist/app
+          (cd dist/app && shasum -a 256 Ember-*.zip) >> dist/producers/SHA256SUMS
 
       - name: Upload to the release
         env:
