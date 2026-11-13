@@ -244,3 +244,6 @@ jobs:
 
       - name: String catalog is complete
         run: scripts/strings.sh check build/DerivedData
+
+      - name: release.sh test
+        run: scripts/release_test.sh

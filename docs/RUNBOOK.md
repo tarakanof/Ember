@@ -2038,6 +2038,63 @@ takes the same token, so its 401s must cost budget. Read endpoints (`/healthz`,
 `rate_limit` section of `config.json` and `POST /admin/reload`;
 `rate_limit.disabled: true` turns it off.
 
+## App release (notarized zip, #835)
+
+`scripts/release.sh X.Y.Z "title"` ships Ember.app as `Ember-X.Y.Z.zip` on the
+GitHub Release, signed with the owner's Developer ID and notarized. Nothing is
+signed in CI: the Developer ID key and the notary credentials never leave the
+owner's Mac. In order, the script:
+
+1. checks `gh`, a clean in-sync `main`, a free tag, the `Developer ID
+   Application: … (<DEVELOPMENT_TEAM>)` identity and the `ember-notary`
+   profile (`xcrun notarytool history`), before it changes anything;
+2. bumps `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
+   `macos/project.yml` (not committed yet);
+3. runs `xcodegen` and a Release `xcodebuild` into a scratch folder, with
+   `OTHER_CODE_SIGN_FLAGS=--timestamp` (notarization requires a secure
+   timestamp) and `CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO` (a plain `build`
+   otherwise adds `get-task-allow`, which notarization rejects);
+4. runs `scripts/verify-bundle.sh`, then refuses the app or any
+   `Contents/MacOS/ember-*` helper whose first authority isn't that Developer ID
+   (ad-hoc and "Ember Local Signing" fallbacks fail here), and an app that
+   still carries `get-task-allow`;
+5. zips with `ditto -c -k --keepParent` and runs `xcrun notarytool submit
+   --wait`; anything but `Accepted` prints the submission id and `notarytool
+   log`;
+6. staples, `stapler validate`s, requires `spctl -a -vv -t exec` to say
+   `source=Notarized Developer ID`, and zips the stapled app again;
+7. commits, tags and pushes, creates the release as a **draft**, uploads the
+   zip and publishes the draft.
+
+A failure in steps 1–6 restores `project.yml`, keeps the scratch folder for a
+look, and leaves no commit, tag or release. A failure in step 7 after the push
+leaves a draft and prints the `gh release upload … && gh release edit
+--draft=false` that finishes it. Publishing only after the upload means
+`release-producers.yml`, which runs on `published` and rewrites `SHA256SUMS`,
+always finds the zip and lists it; it is the only writer of that file.
+
+`--no-app` releases without building, for when the app can't be notarized. Its
+release is created with `--latest=false`, so `releases/latest` (the README's
+download link, the app's update notice, `install-producers.sh`) stays on the
+last app release; the Docker image and producer archives are still built for
+its tag. `--app-only` stops after step 6 on any
+branch and prints the zip's path, as a dry run or to hand a build to someone.
+`EMBER_NOTARY_PROFILE` overrides the profile name. `scripts/release_test.sh`
+(CI's macOS job) runs the script against fake `xcodebuild`, `xcrun`, `gh` and
+signing tools and a local bare origin to pin this ordering.
+
+**One-time notary setup** (the owner's Mac):
+
+1. Open https://account.apple.com and sign in with the developer account's Apple ID.
+2. Click **Sign-In and Security** › **App-Specific Passwords** › **+**.
+3. Name it `ember-notary` and click **Create**. The password is shown once.
+4. Run `xcrun notarytool store-credentials ember-notary --apple-id <Apple ID> --team-id <DEVELOPMENT_TEAM from macos/project.yml>`.
+5. Paste the app-specific password. It should print "Credentials validated" and
+   "Credentials saved to Keychain".
+
+Contributors without the Developer ID keep building locally ("Local install
+without a Developer ID" above).
+
 ## Docker Hub release
 
 Releases are published on strict-semver `vX.Y.Z` tags (latest: `v0.2.0`),
@@ -2064,7 +2121,7 @@ trailing newline causes a `malformed HTTP Authorization header` login failure.
 To cut a release + repoint the live container:
 
 ```sh
-gh release create vX.Y.Z --target main --title vX.Y.Z --notes "…"   # triggers the workflow
+scripts/release.sh X.Y.Z "title"         # see "App release"; publishing triggers the workflow
 gh run watch <run-id> --exit-status                                  # multi-arch build ~2 min
 docker pull dtarakanov/ember:X.Y.Z
 # recreate with HOST networking (required for mDNS discovery — see "Discovery
