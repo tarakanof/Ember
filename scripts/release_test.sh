@@ -40,6 +40,10 @@ case "${FAKE_DEVID:-yes}" in
 esac
 echo "     1 valid identities found"'
 stub codesign '
+if [ "$1" = -d ] && [ "${2:-}" = --entitlements ]; then
+  [ "${FAKE_TASK_ALLOW:-no}" = yes ] && echo "<key>com.apple.security.get-task-allow</key><true/>"
+  exit 0
+fi
 case "${FAKE_SIGNER:-devid}" in
   devid) printf "Authority=Developer ID Application: Test Person ('"$TEAM"')\nAuthority=Developer ID Certification Authority\nTeamIdentifier='"$TEAM"'\n" >&2 ;;
   local) printf "Authority=Ember Local Signing\nTeamIdentifier=not set\n" >&2 ;;
@@ -116,6 +120,14 @@ grep -q "not signed with Developer ID" "$WORK/out" || fail "local signer: no exp
 ! grep -q '^xcrun notarytool submit' "$WORK/calls.log" || fail "local signer: submitted anyway"
 untouched "local signer"
 echo "ok: an app signed with the local fallback identity is refused and the bump restored"
+
+new_repo
+FAKE_TASK_ALLOW=yes run_release 1.2.3 --yes && fail "get-task-allow: release went ahead"
+grep -q "get-task-allow entitlement" "$WORK/out" || fail "get-task-allow: no explanation"
+! grep -q '^xcrun notarytool submit' "$WORK/calls.log" || fail "get-task-allow: submitted anyway"
+grep -q '^xcodebuild .*CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO' "$WORK/calls.log" || fail "xcodebuild may inject get-task-allow"
+untouched "get-task-allow"
+echo "ok: a debuggable (get-task-allow) app is refused before notarization"
 
 new_repo
 FAKE_NOTARY=Invalid run_release 1.2.3 --yes && fail "notarization rejected: release went ahead"

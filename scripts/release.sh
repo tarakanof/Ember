@@ -183,10 +183,15 @@ if [ "$APP" -eq 1 ]; then
   ( cd macos && xcodegen generate >/dev/null )
   echo "building Ember.app $VERSION ($next_build) into $WORK"
   xcodebuild -project macos/Ember.xcodeproj -scheme Ember -configuration Release \
-    -derivedDataPath "$WORK/dd" -quiet OTHER_CODE_SIGN_FLAGS=--timestamp build
+    -derivedDataPath "$WORK/dd" -quiet OTHER_CODE_SIGN_FLAGS=--timestamp \
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO build
   BUILT="$WORK/dd/Build/Products/Release/Ember.app"
   scripts/verify-bundle.sh "$BUILT"
   signed_by_developer_id "$BUILT"
+  if codesign -d --entitlements - --xml "$BUILT" 2>/dev/null | grep -q "com.apple.security.get-task-allow"; then
+    echo "error: Ember.app carries the get-task-allow entitlement; notarization rejects it" >&2
+    exit 1
+  fi
   for helper in "$BUILT"/Contents/MacOS/ember-*; do
     signed_by_developer_id "$helper"
   done

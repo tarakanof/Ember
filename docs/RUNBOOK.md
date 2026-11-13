@@ -2050,11 +2050,14 @@ owner's Mac. In order, the script:
    profile (`xcrun notarytool history`), before it changes anything;
 2. bumps `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
    `macos/project.yml` (not committed yet);
-3. runs `xcodegen` and a Release `xcodebuild` (`OTHER_CODE_SIGN_FLAGS=--timestamp`,
-   which notarization requires) into a scratch folder;
+3. runs `xcodegen` and a Release `xcodebuild` into a scratch folder, with
+   `OTHER_CODE_SIGN_FLAGS=--timestamp` (notarization requires a secure
+   timestamp) and `CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO` (a plain `build`
+   otherwise adds `get-task-allow`, which notarization rejects);
 4. runs `scripts/verify-bundle.sh`, then refuses the app or any
    `Contents/MacOS/ember-*` helper whose first authority isn't that Developer ID
-   (ad-hoc and "Ember Local Signing" fallbacks fail here);
+   (ad-hoc and "Ember Local Signing" fallbacks fail here), and an app that
+   still carries `get-task-allow`;
 5. zips with `ditto -c -k --keepParent` and runs `xcrun notarytool submit
    --wait`; anything but `Accepted` prints the submission id and `notarytool
    log`;
