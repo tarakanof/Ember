@@ -14,6 +14,8 @@ module needs a reason in the PR.
 
 - [`docs/WORKFLOW.md`](docs/WORKFLOW.md): issue → spec → worktree → PR → review
   → merge → release → deploy/install → report. Read before starting any change.
+- [`docs/agents/pr-review.md`](docs/agents/pr-review.md): the review step for every PR
+  is the `pr-review` skill; this is its profile.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): system model, components, the
   "spine", wire protocol, display layout, hard-won gotchas. Read before any
   non-trivial change.
