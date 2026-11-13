@@ -2884,7 +2884,10 @@ keeps it on the default transport: mDNS browsing is injected
   `Registry.Current(now)`. Phases: `off` (disabled, or no password),
   `offline` (2 failed polls, wrong password, not found), `idle` (`IDLE`,
   `READY`, `BUSY` outside a print), `heating` (`PRINTING` under 1 % with a
-  set target the nozzle or bed is more than 3° under), `preparing`
+  set target the nozzle or bed is more than 3° under; hysteresis against
+  the staged preheat's wobble: once `preparing`, it returns to `heating`
+  only when a set target is more than 10° above its temperature, a real
+  step such as 150 → 230 °C), `preparing`
   (`PRINTING` under 1 % at temperature), `printing` (1–99 %), `finishing`
   (`PRINTING` at 100 %: park, cool, unload), `paused`, `attention`,
   `finished`, `stopped`, `error`. `BUSY` always arrives without a job
@@ -2977,10 +2980,8 @@ keeps it on the default transport: mDNS browsing is injected
   start read 0. The recording has no BUSY and `startHeld` only applied
   after a server start in BUSY, so the cost is a `started` lost when a BUSY
   start is followed by a remote start that reads the previous print's time.
-  Known and unchanged: heating and preparing flip during the staged preheat
-  (nozzle target steps 170 → 150 → 230 °C, temperature wobbling about the
-  3° margin), tracked in #814; the name rule does not match the real file
-  name (no nozzle part), #813.
+  Known and unchanged: the name rule does not match the real file name
+  (no nozzle part), #813.
 - **Events** `started` (a new `job.id` reaching heating, preparing,
   printing or finishing), `attention`, `finished`, `stopped`, `error`: one
   per edge between two successful polls of this process, ids increasing
