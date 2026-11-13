@@ -193,9 +193,10 @@ func (c *coordinator) reconcileTiles(now time.Time) {
 func (c *coordinator) adoptDeviceManagedApps() bool {
 	names, err := c.publisher.ListApps(c.runCtx())
 	if err != nil {
-		c.logger.Warn("device app loop read failed; deferring adopt", "err", err)
+		c.warnClock("device app loop read failed; deferring adopt", err)
 		return false
 	}
+	c.noClockLogged.Delete("device app loop read failed; deferring adopt")
 	c.tiles.adopt(names, c.loadCfg().AWTRIX.AppName)
 	return true
 }
