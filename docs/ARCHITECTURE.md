@@ -556,7 +556,7 @@ the hook/statusline redirects written to `settings.json` and in the plugin
 shim. `EMBER_SERVER_URL` empty or `auto` turns on discovery
 (`internal/producer/serverurl.go`): `discovery.BrowseEmber` sends an RFC 6762
 legacy-unicast PTR query for `_ember._tcp` from an ephemeral port next to the
-dnssd multicast browse (a CLI on macOS gets no multicast replies without Local
+multicast browse (a CLI on macOS gets no multicast replies without Local
 Network multicast access, but the server's dnssd responder answers legacy
 queries by unicast; replies must carry QR and one of our query IDs). Answers
 are kept per (instance name, URL), so a host spoofing the name surfaces as a
@@ -2899,7 +2899,7 @@ keeps it on the default transport: mDNS browsing is injected
 - **Coming online** (#809). While the phase is `offline` with
   `unreachable` or `not_found`, the poller keeps one long-lived mDNS
   listener on `_prusalink._tcp` (`discovery.WatchPrusaLink`, a
-  `dnssd.LookupType` that sends one query per multicast interface when it
+  multicast browse that sends one query per multicast interface when it
   starts and then only
   reads the multicast traffic, injected as `Options.Watch` like the
   browse). A printer announces itself when it boots; when the announced
@@ -6795,19 +6795,25 @@ uncommitted `NSTextField` edits) are no longer live constraints.
 
 ### Producer / deploy
 
-- **dnssd lookups must end `Canceled`, never `DeadlineExceeded`.**
-  `brutella/dnssd` v1.2.14 `readInto` leaves its reader loops only on
-  `ctx.Err() == context.Canceled`, and `continue`s on every `ReadFrom` error.
-  If the context passed to `LookupType` ends by deadline, `LookupType` closes
-  the conn and two readers spin on "use of closed network connection" forever.
-  The server reached ~1100% CPU after 35 h of AWTRIX and PrusaLink rediscovery
-  (#872). Every lookup goes through `discovery.lookupType`
-  (`internal/discovery/lookup.go`), which hands dnssd a context detached from
-  the caller's deadline and cancels it when the caller's context ends or the
-  lookup returns. Never call `dnssd.LookupType` directly. A smaller leak
-  remains upstream: a reader holding a packet when the lookup returns blocks
-  forever on its unbuffered channel send (idle, one goroutine and a 64 KiB
-  buffer each).
+- **mDNS browsing is Ember's own, not `dnssd.LookupType`.** `brutella/dnssd`
+  v1.2.14 `readInto` leaked on every lookup: its readers left their loops only
+  on `ctx.Err() == context.Canceled` and `continue`d on every `ReadFrom` error,
+  so a lookup ended by deadline spun on the closed conn (~1100% CPU after 35 h,
+  #872), and a reader holding a packet when the lookup returned blocked
+  forever on an unbuffered channel send (51 goroutines with 64 KiB buffers
+  after 35 h, #876). `discovery.lookupType` is now `multicastLookup`
+  (`internal/discovery/lookup.go`): one IPv4 and one IPv6 socket on port 5353,
+  joined to the group on dnssd's `MulticastInterfaces()`, one PTR query per
+  interface, one reader goroutine per socket that sends with a `select` on
+  the lookup's context and returns on any read error. On return the lookup
+  cancels, closes both sockets and waits for its readers, so it leaves no
+  goroutine behind however its context ended. Records go through
+  `mdnsRecords` (`records.go`), shared with the legacy unicast path; an entry
+  is reported per (instance, SRV target, port, interface) once it has an
+  address, matching `dnssd.BrowseEntry` (`Host` is the target's first label),
+  and a TTL-0 goodbye drops it so a re-announcement reports it again. Only
+  responses are read (known-answer lists in other hosts' queries are
+  ignored). `dnssd` stays for `Advertise`. Never call `dnssd.LookupType`.
 - **Linux producer plumbing.** `/proc/<pid>/stat` `comm` is cut to 15 bytes
   (`ember-claude-pr`), so owner checks match on the cut name. Process start
   time is read as clock ticks after boot with `USER_HZ` fixed at 100 (sysconf
@@ -6904,7 +6910,8 @@ uncommitted `NSTextField` edits) are no longer live constraints.
 
 - **Stdlib-first, but deps that earn their slot are welcome** (STYLE.md §11).
   The Go server's third-party deps are `modernc.org/sqlite` (pure-Go SQLite,
-  keeps CGO off), `brutella/dnssd` (mDNS), `arran4/golang-ical` (ICS
+  keeps CGO off), `brutella/dnssd` (mDNS advertising), `miekg/dns` + `golang.org/x/net`
+  (mDNS browsing), `arran4/golang-ical` (ICS
   tokenising), and `teambition/rrule-go` (RRULE/DST-correct recurrence). The
   `fyne.io/systray` + `progrium/darwinkit` menu deps were dropped when the menu
   became a native SwiftUI app (`macos/`). Hand-rolling protocol clients (the

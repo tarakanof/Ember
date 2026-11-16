@@ -93,7 +93,7 @@ func TestInstanceLabelUnescapes(t *testing.T) {
 		`Ember\ \(2\)._ember._tcp.local.`: "Ember (2)",
 		`Ember\0322._ember._tcp.local.`:   "Ember 2",
 	} {
-		if got := instanceLabel(in); got != want {
+		if got := instanceLabel(in, emberBrowseName); got != want {
 			t.Errorf("instanceLabel(%q) = %q, want %q", in, got, want)
 		}
 	}
