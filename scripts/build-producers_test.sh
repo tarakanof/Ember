@@ -50,11 +50,12 @@ for label in com.ember.heartbeat com.ember.codex com.ember.t3 com.ember.server; 
   echo "ok: $label.plist"
 done
 
-server="$APP/Contents/MacOS/ember-server"
-got_version="$("$server" version 2>&1 | head -1)"
-case "$got_version" in
-  *9.9.9*) echo "ok: ember-server version ($got_version)" ;;
-  *) fail "ember-server version: want 9.9.9, got '$got_version'" ;;
-esac
+for bin in ember-claude-producer ember-codex-producer ember-t3-producer ember-server; do
+  got_version="$("$APP/Contents/MacOS/$bin" version 2>&1 | head -1)"
+  case "$got_version" in
+    *9.9.9*) echo "ok: $bin version ($got_version)" ;;
+    *) fail "$bin version: want 9.9.9, got '$got_version'" ;;
+  esac
+done
 
 echo "build-producers_test.sh: PASS"

@@ -47,6 +47,19 @@ check_producer() {
   fi
 }
 
+APP_VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist" 2>/dev/null || true)"
+
+check_version() {
+  local name="$1" got
+  got="$("$MACOS_DIR/$name" version 2>&1 | head -1 | awk '{print $2}')"
+  if [ -n "$APP_VERSION" ] && [ "$got" = "$APP_VERSION" ]; then
+    echo "OK   version matches app ($APP_VERSION): $name"
+  else
+    echo "FAIL version matches app: $name (got: $got, app: $APP_VERSION)"
+    exit 1
+  fi
+}
+
 check_plist() {
   local plist="$1" name
   name="$(basename "$plist")"
@@ -91,6 +104,11 @@ check_producer ember-claude-producer
 check_producer ember-codex-producer
 check_producer ember-t3-producer
 check_producer ember-server
+
+check_version ember-claude-producer
+check_version ember-codex-producer
+check_version ember-t3-producer
+check_version ember-server
 
 check_plist "$LA_DIR/com.ember.heartbeat.plist"
 check_plist "$LA_DIR/com.ember.codex.plist"

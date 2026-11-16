@@ -37,10 +37,7 @@ mkdir -p "$MACOS_DIR"
 
 build_universal() {
   local pkg="$1" out="$2" ident="$3" tmp
-  local flags=()
-  if [ "$pkg" = ember ]; then
-    flags=(-trimpath "-ldflags=-s -w -X main.version=${MARKETING_VERSION:-dev}")
-  fi
+  local flags=(-trimpath "-ldflags=-s -w -X main.version=${MARKETING_VERSION:-dev}")
   tmp="$(mktemp -d)"
   CGO_ENABLED=0 GOOS=darwin GOARCH=arm64  go build -C "$REPO" ${flags[@]+"${flags[@]}"} -o "$tmp/arm64" "./cmd/$pkg"
   CGO_ENABLED=0 GOOS=darwin GOARCH=amd64  go build -C "$REPO" ${flags[@]+"${flags[@]}"} -o "$tmp/amd64" "./cmd/$pkg"
