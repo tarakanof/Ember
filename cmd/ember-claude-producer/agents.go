@@ -650,6 +650,7 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 		}
 	}
 	delay, kind := agentsFailBackoff, "claude_agents"
+	escalated := w.retried
 	if errors.Is(err, errAgentsTimeout) && !w.retried {
 		delay, kind = agentsRetryAfter, "claude_agents_retry"
 		w.retried = true
@@ -658,7 +659,12 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 	}
 	w.backoffUntil = now.Add(delay)
 	clear(w.pending)
-	w.failLog.Warn(slog.Default(), kind, fmt.Sprintf("claude agents --json failed; retrying in %s", delay), "err", err)
+	msg := fmt.Sprintf("claude agents --json failed; retrying in %s", delay)
+	if escalated {
+		slog.Warn(msg, "kind", kind, "err", err)
+	} else {
+		w.failLog.Warn(slog.Default(), kind, msg, "err", err)
+	}
 	return true
 }
 

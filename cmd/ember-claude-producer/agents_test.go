@@ -430,6 +430,28 @@ func TestAgents_FailureLogNamesEachDelay(t *testing.T) {
 	}
 }
 
+func TestAgents_EscalationLoggedInsideThrottleWindow(t *testing.T) {
+	var buf bytes.Buffer
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+	f := agentsFailFixture(t)
+	f.err = errors.New("exit status 1")
+	f.step(time.Second)
+	f.err = nil
+	f.out = `[]`
+	f.touchSessions(t, "a")
+	f.step(agentsFailBackoff)
+	f.err = fmt.Errorf("%w: signal: killed", errAgentsTimeout)
+	f.touchSessions(t, "b")
+	f.step(time.Minute)
+	f.step(agentsRetryAfter)
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if last := lines[len(lines)-1]; !strings.Contains(last, "retrying in 5m0s") {
+		t.Fatalf("last log line = %q; want the 5m0s escalation", last)
+	}
+}
+
 func TestAgents_SecondTimeoutBacksOffFiveMinutes(t *testing.T) {
 	f := agentsFailFixture(t)
 	f.err = fmt.Errorf("%w: signal: killed", errAgentsTimeout)
