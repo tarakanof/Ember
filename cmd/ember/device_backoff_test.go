@@ -15,12 +15,18 @@ type backoffRig struct {
 	now    time.Time
 	browse int
 	cands  []discovery.Candidate
+	path   string
 }
 
 func newBackoffRig(t *testing.T) *backoffRig {
 	t.Helper()
-	r := &backoffRig{a: newTestApp(t), now: time.Unix(1_700_000_000, 0)}
-	r.a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
+	a := newTestApp(t)
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
+	return rigFor(a)
+}
+
+func rigFor(a *App) *backoffRig {
+	r := &backoffRig{a: a, now: time.Unix(1_700_000_000, 0)}
 	r.a.rediscoverNow = func() time.Time { return r.now }
 	r.a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		r.browse++
@@ -58,22 +64,56 @@ func TestRediscoverClock_BrowseBacksOffWhenNothingAnswers(t *testing.T) {
 }
 
 func TestRediscoverClock_BackoffResets(t *testing.T) {
-	cases := map[string]func(r *backoffRig){
-		"candidate found": func(r *backoffRig) {
+	type resetCase struct {
+		rig   func(t *testing.T) *backoffRig
+		reset func(t *testing.T, r *backoffRig)
+	}
+	plain := func(t *testing.T) *backoffRig { return newBackoffRig(t) }
+	cases := map[string]resetCase{
+		"candidate found": {plain, func(t *testing.T, r *backoffRig) {
 			r.cands = []discovery.Candidate{{BaseURL: "http://127.0.0.1:9", UID: "u"}}
 			for n := r.browse; r.browse == n; {
 				r.tick()
 			}
 			r.cands = nil
-		},
-		"url changed": func(r *backoffRig) {
+		}},
+		"url changed": {plain, func(t *testing.T, r *backoffRig) {
 			r.a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:8" })
+		}},
+		"unset state changed": {plain, func(t *testing.T, r *backoffRig) {
+			r.a.updateConfig(func(c *Config) { c.AWTRIX.clockUnset = !c.AWTRIX.clockUnset })
+		}},
+		"clock settings put": {plain, func(t *testing.T, r *backoffRig) {
+			if w := putDeviceConfig(r.a, `{"base_url":"http://127.0.0.1:9"}`); w.Code != http.StatusOK {
+				t.Fatalf("put: %d %s", w.Code, w.Body.String())
+			}
+		}},
+		"discover finds a candidate": {plain, func(t *testing.T, r *backoffRig) {
+			r.cands = []discovery.Candidate{{BaseURL: "http://10.0.0.9", UID: "u"}}
+			w := httptest.NewRecorder()
+			r.a.handleDeviceDiscover(w, httptest.NewRequest("GET", "/v1/device/discover", nil))
+			if w.Code != http.StatusOK {
+				t.Fatalf("discover: %d", w.Code)
+			}
+			r.cands = nil
+		}},
+		"admin reload": {
+			func(t *testing.T) *backoffRig {
+				a, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://127.0.0.1:9"}}`)
+				r := rigFor(a)
+				r.path = path
+				return r
+			},
+			func(t *testing.T, r *backoffRig) {
+				if got := reloadStatus(t, r.a, r.path, `{"awtrix":{"http_base_url":"http://127.0.0.1:9"}}`); got != http.StatusOK {
+					t.Fatalf("reload = %d", got)
+				}
+			},
 		},
-		"reload or settings put": func(r *backoffRig) { r.a.browseBackoff.reset() },
 	}
-	for name, reset := range cases {
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			r := newBackoffRig(t)
+			r := c.rig(t)
 			for i := 0; i < 6; i++ {
 				r.tick()
 			}
@@ -82,7 +122,7 @@ func TestRediscoverClock_BackoffResets(t *testing.T) {
 			if r.browse != before {
 				t.Fatalf("expected a backed-off tick to skip the browse")
 			}
-			reset(r)
+			c.reset(t, r)
 			before = r.browse
 			r.tick()
 			if r.browse != before+1 {

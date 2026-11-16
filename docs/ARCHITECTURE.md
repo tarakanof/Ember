@@ -3679,14 +3679,14 @@ server→clock link drops a large share of requests, and the old "unreachable,
 then answering" rule republished (and re-switched the screen) every few ticks.
 For the same reason the reachability check retries once before it falls back
 to an mDNS browse, and a browse that finds the clock at the URL already in use
-is not a swap. The probe stays on the 30s tick, but the LAN browse
+is not a swap. A real swap to a new URL does republish. The probe stays on the 30s tick, but the LAN browse
 backs off (#879): the first browse runs at once, then the gap doubles after each
 browse that finds nothing (30s, 60s, 120s, ... capped at 10 min, measured from the
 start of the previous browse). It returns to 30s when a browse finds any
 candidate, the clock URL or the unset state changes, a clock settings PUT or
 `/admin/reload` runs, the configured clock answers a probe, or the app's discover
 request finds a candidate. The discover request itself never waits on the backoff,
-and `clock discovery found no device` logs once per browse, not per tick. A real swap to a new URL does republish. `RepublishAll`
+and `clock discovery found no device` logs once per browse, not per tick. `RepublishAll`
 coalesces calls less than 10s apart into one immediate plus one deferred
 republish (the gate has a leading and a trailing edge: deferred, not dropped, so
 a clock that reboots twice in quick succession gets its second boot state; 10 s
