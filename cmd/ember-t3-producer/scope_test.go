@@ -302,9 +302,13 @@ func TestStartCacheLooksUpEachPidOnceWhilePolledSteadily(t *testing.T) {
 	if !poll(parent, 2*time.Second) || lookups[parent] != 2 {
 		t.Fatalf("a pid seen again after a dead one must be looked up again (lookups %v)", lookups)
 	}
-	reused := &startCache{now: time.Now, lookup: func(int) (time.Time, bool) { return time.Now(), true }}
+	reused := newStartCache()
+	reused.lookup = func(int) (time.Time, bool) { return time.Now(), true }
 	if reused.alive(self, time.Now().Add(-time.Hour)) {
 		t.Fatal("a process that started after the recorded startedAt was accepted")
+	}
+	if strings.Contains(reused.probedAt.String(), "m=") {
+		t.Fatalf("probe time %v keeps a monotonic reading, which stops while the Mac sleeps; a sleep gap must count", reused.probedAt)
 	}
 }
 

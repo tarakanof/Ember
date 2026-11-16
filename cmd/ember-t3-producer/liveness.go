@@ -57,7 +57,8 @@ func (c *startCache) alive(pid int, startedAt time.Time) bool {
 		c.pid = 0
 		return false
 	}
-	now := c.now()
+	// Wall clock: the monotonic one stops while the Mac sleeps.
+	now := c.now().Round(0)
 	gap := now.Sub(c.probedAt)
 	c.probedAt = now
 	if startedAt.IsZero() {
