@@ -51,7 +51,7 @@ SAMPLE_SECONDS=2
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
-for tool in go curl awk ps pkill getconf; do
+for tool in go curl jq awk ps pkill getconf; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: $tool not found" >&2; exit 1; }
 done
 
@@ -284,7 +284,7 @@ echo "perf gate: server under load, ${LOAD_SECONDS}s"
 url="http://127.0.0.1:$IDLE_PORT"
 knob="$(curl -s --max-time 5 -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"kind":"cinder-knob","hw_id":"0000000a0881","name":"perf-gate"}' "$url/v1/devices" |
-  grep -o '"ekd_[^"]*"' | head -1 | tr -d '"')" || true
+  jq -r '.token // empty')" || true
 [ -n "$knob" ] || { echo "error: could not mint a scratch knob token" >&2; exit 1; }
 rm -f "$WORK/stop-load"
 post_status_loop "$url" 2>/dev/null &
