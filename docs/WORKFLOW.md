@@ -123,6 +123,34 @@ they apply at every step.
     unraid-mcp is not in it: a prompt in manual mode, the classifier in auto
     mode, nothing in bypass mode). Update
     only the Ember container.
+- **Server resource check** (a day after the server update, the owner's
+  steps; the live server's own numbers against the perf gate's budgets,
+  RUNBOOK "Performance gate"):
+  1. On the Mac, open Terminal.
+  2. Find the server's URL:
+     - Run `grep EMBER_SERVER_URL ~/.config/ember/producer.env`. If it
+       shows a URL (for example `http://homelab.lan:3627`), use it.
+     - If it is empty or `auto`, run
+       `jq -r .url ~/.local/state/ember/server.json` (the server the
+       producers found over mDNS) and use what it prints.
+     - If Ember.app's Settings › App › Connection has **Run on this Mac**
+       selected, the server is the app's own: use `http://127.0.0.1:3627`.
+  3. Run, with that URL in place of `<url>`:
+     ```sh
+     curl -s <url>/metrics | awk '$1=="ember_goroutines"{g=$2} $1=="ember_process_cpu_seconds_total"{c=$2} $1=="ember_uptime_seconds"{u=$2} $1=="ember_process_resident_memory_bytes"{r=$2} END{printf "uptime_h %.1f goroutines %d cpu_s_per_h %.1f rss_mib %.0f\n", u/3600, g, c/(u/3600), r/1048576}'
+     ```
+     You should see one line such as
+     `uptime_h 24.3 goroutines 31 cpu_s_per_h 12.0 rss_mib 38`. If
+     `uptime_h` is under 20, the server restarted since the update; run it
+     again tomorrow.
+  4. Wait one hour, then run the same command again.
+  5. Compare the two lines. The check passes when `goroutines` grew by 10
+     or fewer and `cpu_s_per_h` is under 60 × the `server_load_cpu` budget in
+     `scripts/perf-gate.sh` (that budget is CPU seconds per minute under the
+     gate's load).
+  6. If either is over, send back both lines, the server version from
+     `curl -s <url>/version`, and what was running on the displays then
+     (knob, clock, how many agent sessions).
 - **Mac app** (after a release that changed it): an installed release
   updates itself through Sparkle's **Install Update** (RUNBOOK "App updates").
   By hand, install the release's notarized zip, the same file users download:

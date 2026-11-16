@@ -116,6 +116,7 @@ new_repo() {
   plutil -create xml1 "$WORK/repo/macos/Ember/Info.plist"
   plutil -insert SUPublicEDKey -string "${SOURCE_KEY:-$PUBKEY}" "$WORK/repo/macos/Ember/Info.plist"
   printf '#!/bin/bash\necho "verify-bundle.sh $*" >>"$CALLS"\n' >"$WORK/repo/scripts/verify-bundle.sh"
+  printf '#!/bin/bash\necho "perf-gate.sh $*" >>"$CALLS"\n[ "${FAKE_GATE:-pass}" = pass ] || { echo "FAIL server_load_cpu"; exit 1; }\n' >"$WORK/repo/scripts/perf-gate.sh"
   chmod +x "$WORK/repo/scripts/"*.sh
   cat >"$WORK/repo/macos/project.yml" <<EOF
 targets:
@@ -159,6 +160,26 @@ untouched() {
   [ -z "$(git -C "$WORK/origin.git" tag)" ] || fail "$1: a tag was pushed"
   ! grep -q -E '^gh release (create|upload|edit|delete)' "$WORK/calls.log" || fail "$1: a release was created"
 }
+
+new_repo
+FAKE_GATE=fail run_release 1.2.3 --yes && fail "failed perf gate: release went ahead"
+grep -q "the perf gate failed" "$WORK/out" || fail "failed perf gate: no explanation"
+grep -q '^perf-gate.sh' "$WORK/calls.log" || fail "failed perf gate: the gate never ran"
+! grep -q '^xcodebuild' "$WORK/calls.log" || fail "failed perf gate: built anyway"
+untouched "failed perf gate"
+echo "ok: a failing perf gate stops the release before anything changes"
+
+for mode in "" --no-app --app-only; do
+  new_repo
+  run_release 1.2.3 ${mode:+"$mode"} --yes || fail "perf gate ${mode:-app release}: release failed"
+  [ "$(grep -c '^perf-gate.sh' "$WORK/calls.log")" = 1 ] || fail "perf gate ${mode:-app release}: the gate did not run once"
+  if [ "$mode" = --no-app ]; then
+    [ "$(line_of '^perf-gate.sh')" -lt "$(line_of '^gh release create')" ] || fail "perf gate --no-app: released before the gate"
+  else
+    [ "$(line_of '^perf-gate.sh')" -lt "$(line_of '^xcodebuild')" ] || fail "perf gate ${mode:-app release}: built before the gate"
+  fi
+done
+echo "ok: every release kind runs the perf gate once, before the build"
 
 new_repo
 FAKE_PROFILE=missing run_release 1.2.3 --yes && fail "no notary profile: release went ahead"

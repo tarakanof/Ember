@@ -168,3 +168,19 @@ func TestRediscoverClock_ReappearedClockSeenDuringBackoff(t *testing.T) {
 		t.Fatalf("reachable should reset the backoff; browses = %d", r.browse-before)
 	}
 }
+
+func TestRediscoverClock_BrowsesADayAtTheBackedOffRate(t *testing.T) {
+	r := newBackoffRig(t)
+	day := 24 * time.Hour
+	for elapsed := time.Duration(0); elapsed < day; elapsed += deviceWatchInterval {
+		r.tick()
+	}
+	want := 0
+	for at, step := time.Duration(0), deviceWatchInterval; at < day; at, step = at+step, min(step*2, browseBackoffCap) {
+		want++
+	}
+	t.Logf("%d browses in a simulated day with no clock (backed-off schedule: %d)", r.browse, want)
+	if r.browse > want {
+		t.Fatalf("%d browses in a simulated day with no clock, want at most %d", r.browse, want)
+	}
+}

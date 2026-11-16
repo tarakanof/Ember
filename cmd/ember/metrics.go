@@ -197,6 +197,19 @@ func (m *metrics) render(w io.Writer, app *App) {
 	fmt.Fprintln(w, "# TYPE ember_uptime_seconds gauge")
 	fmt.Fprintf(w, "ember_uptime_seconds %.3f\n", uptime)
 
+	ps := readProcessStats()
+	fmt.Fprintln(w, "# HELP ember_goroutines Goroutines that exist now.")
+	fmt.Fprintln(w, "# TYPE ember_goroutines gauge")
+	fmt.Fprintf(w, "ember_goroutines %d\n", ps.goroutines)
+
+	fmt.Fprintln(w, "# HELP ember_process_cpu_seconds_total User and system CPU time the process has used, in seconds.")
+	fmt.Fprintln(w, "# TYPE ember_process_cpu_seconds_total counter")
+	fmt.Fprintf(w, "ember_process_cpu_seconds_total %.3f\n", ps.cpuSeconds)
+
+	fmt.Fprintln(w, "# HELP ember_process_resident_memory_bytes Resident set size in bytes (on macOS, the peak: no current RSS without /proc).")
+	fmt.Fprintln(w, "# TYPE ember_process_resident_memory_bytes gauge")
+	fmt.Fprintf(w, "ember_process_resident_memory_bytes %d\n", ps.residentBytes)
+
 	fmt.Fprintln(w, "# HELP ember_last_publish_unix Unix timestamp of last AWTRIX publish (0 if never).")
 	fmt.Fprintln(w, "# TYPE ember_last_publish_unix gauge")
 	fmt.Fprintf(w, "ember_last_publish_unix %d\n", lastPublishUnix)

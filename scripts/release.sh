@@ -22,8 +22,9 @@ IFS=$'\n\t'
 # Developer ID Application identity of DEVELOPMENT_TEAM in the keychain, the
 # `ember-notary` notarytool profile (EMBER_NOTARY_PROFILE overrides the name) and
 # the Sparkle EdDSA private key in the login keychain, matching SUPublicEDKey.
+# scripts/perf-gate.sh runs before anything changes; a failed gate stops it.
 
-usage() { sed -n '5,25p' "$0" >&2; exit 2; }
+usage() { sed -n '5,26p' "$0" >&2; exit 2; }
 
 ASSUME_YES=0
 APP=1
@@ -177,6 +178,12 @@ if [ "$ASSUME_YES" -ne 1 ]; then
   printf 'Proceed? [y/N] '
   read -r reply
   case "$reply" in y|Y|yes|YES) ;; *) echo "aborted."; exit 1 ;; esac
+fi
+
+echo "Perf gate (scripts/perf-gate.sh, about 3 minutes):"
+if ! scripts/perf-gate.sh; then
+  echo "error: the perf gate failed; nothing was changed, committed or tagged" >&2
+  exit 1
 fi
 
 WORK=""
