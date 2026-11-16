@@ -206,55 +206,12 @@ func multicastInterfaces() []net.Interface {
 	return out
 }
 
-type emberRecords struct {
-	instances []string
-	srv       map[string][]*dns.SRV
-	txt       map[string][]string
-	a         map[string][]net.IP
-}
-
-func collectEmberRecords(msgs []*dns.Msg) emberRecords {
-	r := emberRecords{srv: map[string][]*dns.SRV{}, txt: map[string][]string{}, a: map[string][]net.IP{}}
-	seen := map[string]bool{}
-	for _, m := range msgs {
-		for _, rr := range append(append(append([]dns.RR{}, m.Answer...), m.Ns...), m.Extra...) {
-			name := strings.ToLower(rr.Header().Name)
-			switch v := rr.(type) {
-			case *dns.PTR:
-				if strings.EqualFold(v.Hdr.Name, emberBrowseName) && !seen[strings.ToLower(v.Ptr)] {
-					seen[strings.ToLower(v.Ptr)] = true
-					r.instances = append(r.instances, v.Ptr)
-				}
-			case *dns.SRV:
-				dup := false
-				for _, o := range r.srv[name] {
-					dup = dup || (strings.EqualFold(o.Target, v.Target) && o.Port == v.Port)
-				}
-				if !dup {
-					r.srv[name] = append(r.srv[name], v)
-				}
-			case *dns.TXT:
-				r.txt[name] = v.Txt
-			case *dns.A:
-				dup := false
-				for _, ip := range r.a[name] {
-					dup = dup || ip.Equal(v.A)
-				}
-				if !dup {
-					r.a[name] = append(r.a[name], v.A)
-				}
-			}
-		}
-	}
-	return r
-}
-
 func srvTargetsWithoutA(msgs []*dns.Msg) []string {
-	r := collectEmberRecords(msgs)
+	r := collectRecords(emberBrowseName, msgs)
 	var out []string
 	for _, inst := range r.instances {
 		for _, s := range r.srv[strings.ToLower(inst)] {
-			if len(r.a[strings.ToLower(s.Target)]) == 0 {
+			if len(r.ipv4s(s.Target)) == 0 {
 				out = append(out, s.Target)
 			}
 		}
@@ -263,7 +220,7 @@ func srvTargetsWithoutA(msgs []*dns.Msg) []string {
 }
 
 func parseEmberAnswers(msgs []*dns.Msg) []EmberServer {
-	r := collectEmberRecords(msgs)
+	r := collectRecords(emberBrowseName, msgs)
 	var out []EmberServer
 	seen := map[string]bool{}
 	for _, inst := range r.instances {
@@ -278,9 +235,9 @@ func parseEmberAnswers(msgs []*dns.Msg) []EmberServer {
 			if s.Port == 0 {
 				continue
 			}
-			for _, ip := range r.a[strings.ToLower(s.Target)] {
+			for _, ip := range r.ipv4s(s.Target) {
 				es := EmberServer{
-					Name:    instanceLabel(inst),
+					Name:    instanceLabel(inst, emberBrowseName),
 					Host:    s.Target,
 					URL:     fmt.Sprintf("http://%s", net.JoinHostPort(ip.String(), fmt.Sprint(s.Port))),
 					Version: version,
@@ -294,25 +251,3 @@ func parseEmberAnswers(msgs []*dns.Msg) []EmberServer {
 	}
 	return out
 }
-
-func instanceLabel(fqdn string) string {
-	label := fqdn
-	if i := strings.Index(strings.ToLower(fqdn), "."+emberBrowseName); i >= 0 {
-		label = fqdn[:i]
-	}
-	var b strings.Builder
-	for i := 0; i < len(label); i++ {
-		if label[i] == '\\' && i+3 < len(label) && isDigit(label[i+1]) && isDigit(label[i+2]) && isDigit(label[i+3]) {
-			b.WriteByte(byte((label[i+1]-'0')*100 + (label[i+2]-'0')*10 + (label[i+3] - '0')))
-			i += 3
-			continue
-		}
-		if label[i] == '\\' && i+1 < len(label) {
-			i++
-		}
-		b.WriteByte(label[i])
-	}
-	return b.String()
-}
-
-func isDigit(c byte) bool { return c >= '0' && c <= '9' }
