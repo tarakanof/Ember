@@ -291,8 +291,8 @@ producers"), token, `EMBER_SOURCE_COLOR`, and the `EMBER_*` toggles
 > The plugin shim is different: with Ember.app installed it runs the app's
 > helper before `PATH` and `~/go/bin` (set `EMBER_CLAUDE_PRODUCER` to test a
 > `go install` build). `ember-claude-producer doctor` prints a `hook binary:`
-> line, warns when the hooks run another binary than `doctor`, hints at older
-> copies, and warns when the installed `ember@ember` plugin lags the producer's
+> line, warns when the hooks run another binary than `doctor`, lists other
+> copies with their version, and warns when the installed `ember@ember` plugin lags the producer's
 > hooks (`claude plugin marketplace update ember && claude plugin update
 > ember@ember`, then `/reload-plugins`).
 
