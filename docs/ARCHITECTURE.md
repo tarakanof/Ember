@@ -6813,7 +6813,11 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   address, matching `dnssd.BrowseEntry` (`Host` is the target's first label),
   and a TTL-0 goodbye drops it so a re-announcement reports it again. Only
   responses are read (known-answer lists in other hosts' queries are
-  ignored). `dnssd` stays for `Advertise`. Never call `dnssd.LookupType`.
+  ignored). A lookup keeps at most 64 instances, 8 SRVs per instance and 16
+  addresses per host, so a LAN host flooding announcements can't grow it
+  without bound; records don't expire by TTL, since a lookup lives at most
+  `WatchRefresh` (5 min). `dnssd` stays for `Advertise`. Never call
+  `dnssd.LookupType`.
 - **Linux producer plumbing.** `/proc/<pid>/stat` `comm` is cut to 15 bytes
   (`ember-claude-pr`), so owner checks match on the cut name. Process start
   time is read as clock ticks after boot with `USER_HZ` fixed at 100 (sysconf

@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"runtime"
 	"slices"
@@ -365,5 +366,24 @@ func TestMDNSRecordsKeepIPsPerInterface(t *testing.T) {
 	}
 	if !slices.Equal(ifaces, []string{"en0", "utun3"}) {
 		t.Fatalf("interfaces = %v", ifaces)
+	}
+}
+
+func TestMDNSRecordsStayBoundedUnderAFlood(t *testing.T) {
+	r := newMDNSRecords(prusaLinkServiceType)
+	for i := range 1000 {
+		r.add(&dns.Msg{Answer: []dns.RR{
+			mustRR(t, fmt.Sprintf(`P%d._prusalink._tcp.local. 120 IN SRV 0 0 80 p.local.`, i)),
+			mustRR(t, fmt.Sprintf(`P0._prusalink._tcp.local. 120 IN SRV 0 0 %d p.local.`, 1000+i)),
+			mustRR(t, fmt.Sprintf(`p.local. 120 IN A 10.0.%d.%d`, i/250, i%250)),
+		}}, "en0")
+	}
+	if len(r.instances) != maxMDNSInstances || len(r.srv["p0._prusalink._tcp.local."]) != maxSRVPerName || len(r.addrs["p.local."]) != maxAddrsPerHost {
+		t.Fatalf("instances %d, SRVs for P0 %d, addresses %d", len(r.instances), len(r.srv["p0._prusalink._tcp.local."]), len(r.addrs["p.local."]))
+	}
+	r.add(&dns.Msg{Answer: []dns.RR{mustRR(t, `_prusalink._tcp.local. 0 IN PTR P1._prusalink._tcp.local.`)}}, "en0")
+	r.add(&dns.Msg{Answer: []dns.RR{mustRR(t, `Late._prusalink._tcp.local. 120 IN SRV 0 0 80 late.local.`)}}, "en0")
+	if !r.known["late._prusalink._tcp.local."] {
+		t.Fatal("a goodbye did not free a slot for a new instance")
 	}
 }

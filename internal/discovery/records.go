@@ -14,9 +14,16 @@ type ifaceIP struct {
 	ip    net.IP
 }
 
+const (
+	maxMDNSInstances = 64
+	maxSRVPerName    = 8
+	maxAddrsPerHost  = 16
+)
+
 type mdnsRecords struct {
 	service   string
 	instances []string
+	known     map[string]bool
 	srv       map[string][]*dns.SRV
 	txt       map[string][]string
 	addrs     map[string][]ifaceIP
@@ -25,6 +32,7 @@ type mdnsRecords struct {
 func newMDNSRecords(service string) *mdnsRecords {
 	return &mdnsRecords{
 		service: service,
+		known:   map[string]bool{},
 		srv:     map[string][]*dns.SRV{},
 		txt:     map[string][]string{},
 		addrs:   map[string][]ifaceIP{},
@@ -61,7 +69,9 @@ func (r *mdnsRecords) add(m *dns.Msg, iface string) {
 				r.srv[key] = slices.DeleteFunc(r.srv[key], func(o *dns.SRV) bool { return sameSRV(o, v) })
 				continue
 			}
-			r.instance(v.Hdr.Name)
+			if !r.instance(v.Hdr.Name) || len(r.srv[key]) >= maxSRVPerName {
+				continue
+			}
 			if !slices.ContainsFunc(r.srv[key], func(o *dns.SRV) bool { return sameSRV(o, v) }) {
 				r.srv[key] = append(r.srv[key], v)
 			}
@@ -71,7 +81,7 @@ func (r *mdnsRecords) add(m *dns.Msg, iface string) {
 		name := strings.ToLower(rr.Header().Name)
 		switch v := rr.(type) {
 		case *dns.TXT:
-			if r.known(name) {
+			if r.known[name] {
 				r.txt[name] = v.Txt
 			}
 		case *dns.A:
@@ -90,25 +100,29 @@ func (r *mdnsRecords) under(name string) bool {
 	return strings.HasSuffix(strings.ToLower(name), "."+strings.ToLower(r.service))
 }
 
-func (r *mdnsRecords) known(key string) bool {
-	return slices.ContainsFunc(r.instances, func(i string) bool { return strings.ToLower(i) == key })
-}
-
-func (r *mdnsRecords) instance(name string) {
-	if !r.known(strings.ToLower(name)) {
-		r.instances = append(r.instances, name)
+func (r *mdnsRecords) instance(name string) bool {
+	key := strings.ToLower(name)
+	if r.known[key] {
+		return true
 	}
+	if len(r.instances) >= maxMDNSInstances {
+		return false
+	}
+	r.known[key] = true
+	r.instances = append(r.instances, name)
+	return true
 }
 
 func (r *mdnsRecords) forget(name string) {
 	key := strings.ToLower(name)
 	r.instances = slices.DeleteFunc(r.instances, func(i string) bool { return strings.ToLower(i) == key })
+	delete(r.known, key)
 	delete(r.srv, key)
 	delete(r.txt, key)
 }
 
 func (r *mdnsRecords) addAddr(host, iface string, ip net.IP) {
-	if !r.isTarget(host) {
+	if !r.isTarget(host) || len(r.addrs[host]) >= maxAddrsPerHost {
 		return
 	}
 	if slices.ContainsFunc(r.addrs[host], func(a ifaceIP) bool { return a.iface == iface && a.ip.Equal(ip) }) {
