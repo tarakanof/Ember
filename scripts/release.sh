@@ -251,14 +251,20 @@ previous_app_release() {
   echo "$tag"
 }
 
-change_titles() {
-  local range="${1:+$1..}HEAD" n
-  git log --first-parent --merges --format=%s "$range" |
-    sed -n 's/^Merge pull request #\([0-9][0-9]*\) from .*/\1/p' |
-    while read -r n; do
-      gh pr view "$n" --json title -q .title 2>/dev/null || true
-    done
-  git log --first-parent --no-merges --format=%s "$range"
+collect_titles() {
+  local range="${1:+$1..}HEAD" prs direct n title
+  prs="$(git log --first-parent --merges --format=%s "$range" |
+    sed -n 's/^Merge pull request #\([0-9][0-9]*\) from .*/\1/p')"
+  direct="$(git log --first-parent --no-merges --format=%s "$range")"
+  for n in $prs; do
+    if ! title="$(gh pr view "$n" --json title -q .title)" || [ -z "$title" ]; then
+      echo "error: couldn't read the title of PR #$n (gh pr view); the release notes would be incomplete" >&2
+      return 1
+    fi
+    printf '%s\n' "$title" >>"$WORK/titles.txt"
+  done
+  [ -z "$direct" ] || printf '%s\n' "$direct" >>"$WORK/titles.txt"
+  echo "release notes: $(printf '%s' "$prs" | grep -c .) PR(s) and $(printf '%s' "$direct" | grep -c .) direct commit(s) since ${1:-the first commit}"
 }
 
 ZIP=""
@@ -327,10 +333,10 @@ if [ "$APP" -eq 1 ]; then
     exit 1
   fi
   FEED_URL="$(plist_get SUFeedURL "$BUILT/Contents/Info.plist")"
-  PREV_RELEASE="$(previous_app_release)"
-  change_titles "$PREV_RELEASE" |
-    scripts/release-notes.sh "${FEED_URL%/releases/latest/download/appcast.xml}/releases/tag/$TAG" >"$WORK/notes.html"
-  echo "release notes: changes since ${PREV_RELEASE:-the first commit} ($WORK/notes.html)"
+  : >"$WORK/titles.txt"
+  collect_titles "$(previous_app_release)"
+  scripts/release-notes.sh "${FEED_URL%/releases/latest/download/appcast.xml}/releases/tag/$TAG" \
+    <"$WORK/titles.txt" >"$WORK/notes.html"
   APPCAST="$WORK/appcast.xml"
   scripts/appcast.sh "$FEED_URL" "$VERSION" "$next_build" \
     "$(plist_get LSMinimumSystemVersion "$BUILT/Contents/Info.plist")" "$ed_sig" "$ed_len" "$WORK/notes.html" >"$APPCAST"
