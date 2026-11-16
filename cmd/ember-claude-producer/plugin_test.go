@@ -258,3 +258,73 @@ func TestEmberHook_LogsToXDGStateDirWithoutLibraryLogs(t *testing.T) {
 		t.Fatalf("producer output not logged under ~/.local/state/ember/logs: %q", got)
 	}
 }
+
+func TestEmberHook_AppHelperBeatsPathGoBinAndLocalBin(t *testing.T) {
+	home := t.TempDir()
+	app := filepath.Join(home, "Apps", "Ember.app", "Contents", "MacOS", "ember-claude-producer")
+	writeFakeProducer(t, app, 0)
+	others := []string{
+		filepath.Join(home, "pathbin", "ember-claude-producer"),
+		filepath.Join(home, "go", "bin", "ember-claude-producer"),
+		filepath.Join(home, ".local", "bin", "ember-claude-producer"),
+	}
+	for _, o := range others {
+		writeFakeProducer(t, o, 0)
+	}
+	env := hermeticEnv(home)
+	env[1] = "PATH=" + filepath.Join(home, "pathbin") + ":/usr/bin:/bin"
+	if r := runEmberHook(t, env, `{}`, "stop"); r.err != nil || r.stdout != "" {
+		t.Fatalf("err=%v stdout=%q", r.err, r.stdout)
+	}
+	if _, err := os.Stat(app + ".rec"); err != nil {
+		t.Fatalf("the app helper must run first: %v", err)
+	}
+	for _, o := range others {
+		if _, err := os.Stat(o + ".rec"); !os.IsNotExist(err) {
+			t.Fatalf("%s ran although Ember.app's helper is installed", o)
+		}
+	}
+}
+
+func TestEmberHook_OverrideBeatsAppHelper(t *testing.T) {
+	home := t.TempDir()
+	app := filepath.Join(home, "Apps", "Ember.app", "Contents", "MacOS", "ember-claude-producer")
+	writeFakeProducer(t, app, 0)
+	custom := filepath.Join(home, "custom", "ecp")
+	writeFakeProducer(t, custom, 0)
+	if r := runEmberHook(t, hermeticEnv(home, "EMBER_CLAUDE_PRODUCER="+custom), `{}`, "stop"); r.err != nil {
+		t.Fatal(r.err)
+	}
+	if _, err := os.Stat(custom + ".rec"); err != nil {
+		t.Fatalf("override not run: %v", err)
+	}
+	if _, err := os.Stat(app + ".rec"); !os.IsNotExist(err) {
+		t.Fatal("the app helper ran although EMBER_CLAUDE_PRODUCER is set")
+	}
+}
+
+func TestEmberHook_WithoutAppPrefersPathThenGoBinThenLocalBin(t *testing.T) {
+	home := t.TempDir()
+	pathBin := filepath.Join(home, "pathbin", "ember-claude-producer")
+	goBin := filepath.Join(home, "go", "bin", "ember-claude-producer")
+	localBin := filepath.Join(home, ".local", "bin", "ember-claude-producer")
+	for _, p := range []string{pathBin, goBin, localBin} {
+		writeFakeProducer(t, p, 0)
+	}
+	env := hermeticEnv(home)
+	env[1] = "PATH=" + filepath.Dir(pathBin) + ":/usr/bin:/bin"
+	steps := []struct{ ran, remove string }{{pathBin, pathBin}, {goBin, goBin}, {localBin, ""}}
+	for _, s := range steps {
+		if r := runEmberHook(t, env, `{}`, "stop"); r.err != nil {
+			t.Fatal(r.err)
+		}
+		if _, err := os.Stat(s.ran + ".rec"); err != nil {
+			t.Fatalf("%s should have run: %v", s.ran, err)
+		}
+		if s.remove != "" {
+			if err := os.Remove(s.remove); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}

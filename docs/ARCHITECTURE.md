@@ -1131,7 +1131,12 @@ Claude producer constraints:
   plugin (`producers/claude-code/plugin/hooks/hooks.json`, listed by the repo's
   `.claude-plugin/marketplace.json`) registers the same set through a
   `/bin/sh scripts/ember-hook <event>` shim that finds the binary and always
-  exits 0. `plugin_test.go` fails when they drift. Claude Code doesn't dedupe a
+  exits 0. Lookup order: `$EMBER_CLAUDE_PRODUCER`, Ember.app's bundled helper,
+  `PATH`, `~/go/bin`, `~/.local/bin` (the app first, so a stale `go install`
+  copy can't shadow the current build, #889). `doctor` resolves the same order
+  (`hookbin.go`), warns when that binary isn't the one running it, and compares
+  the installed plugin's `hooks.json` events and matchers against
+  `producerHookSpecs`, and its shim's order, to warn about a stale plugin. `plugin_test.go` fails when they drift. Claude Code doesn't dedupe a
   plugin's hook against a settings one, so `configure` skips (and strips) the
   settings.json hooks when `enabledPlugins["ember@ember"]` is true, and
   `doctor` flags both at once. Config stays in `producer.env`; the plugin has no
