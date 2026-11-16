@@ -62,6 +62,7 @@ NOTARY_PROFILE="${EMBER_NOTARY_PROFILE:-ember-notary}"
 ZIP_NAME="Ember-$VERSION.zip"
 INFO_PLIST="macos/Ember/Info.plist"
 SPARKLE_SERVICE="https://sparkle-project.org"
+SPARKLE_ACCOUNT=ember
 plist_get() { /usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null; }
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "error: $1 not found${2:+ ($2)}" >&2; exit 1; }; }
@@ -114,7 +115,7 @@ sparkle_setup() {
   cat >&2 <<EOF
 One-time setup (see issue #861), on the Mac that releases:
   1. Save the Sparkle private key from 1Password to ~/Desktop/ember-sparkle.key.
-  2. Run: <bin>/generate_keys -f ~/Desktop/ember-sparkle.key
+  2. Run: <bin>/generate_keys --account $SPARKLE_ACCOUNT -f ~/Desktop/ember-sparkle.key
      (<bin> is ~/Library/Developer/Xcode/DerivedData/Ember-*/SourcePackages/artifacts/sparkle/Sparkle/bin
      after any Xcode build of Ember).
   3. Delete ~/Desktop/ember-sparkle.key.
@@ -145,8 +146,8 @@ if [ "$APP" -eq 1 ]; then
       echo "error: $INFO_PLIST SUPublicEDKey is still the placeholder; set it to the public half of the Sparkle key (generate_keys -p)" >&2
       exit 1 ;;
   esac
-  if ! security find-generic-password -s "$SPARKLE_SERVICE" -a ed25519 >/dev/null 2>&1; then
-    echo "error: no Sparkle signing key in the login keychain" >&2
+  if ! security find-generic-password -s "$SPARKLE_SERVICE" -a "$SPARKLE_ACCOUNT" >/dev/null 2>&1; then
+    echo "error: no Sparkle signing key for account '$SPARKLE_ACCOUNT' in the login keychain" >&2
     sparkle_setup
     exit 1
   fi
@@ -226,7 +227,7 @@ if [ "$APP" -eq 1 ]; then
   done
   SPARKLE_BIN="$WORK/dd/SourcePackages/artifacts/sparkle/Sparkle/bin"
   built_key="$(plist_get SUPublicEDKey "$BUILT/Contents/Info.plist" || true)"
-  keychain_key="$("$SPARKLE_BIN/generate_keys" -p | tr -d '[:space:]')"
+  keychain_key="$("$SPARKLE_BIN/generate_keys" --account "$SPARKLE_ACCOUNT" -p | tr -d '[:space:]')"
   if [ -z "$built_key" ] || [ "$built_key" != "$keychain_key" ]; then
     echo "error: Ember.app's SUPublicEDKey does not match the Sparkle key in the keychain; no update signed with it could install" >&2
     echo "  app     : ${built_key:-none}" >&2
@@ -260,7 +261,7 @@ if [ "$APP" -eq 1 ]; then
   ditto -c -k --keepParent "$BUILT" "$ZIP"
   echo "app: $ZIP"
 
-  signed="$("$SPARKLE_BIN/sign_update" "$ZIP")"
+  signed="$("$SPARKLE_BIN/sign_update" --account "$SPARKLE_ACCOUNT" "$ZIP")"
   ed_sig="$(sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p' <<<"$signed")"
   ed_len="$(sed -n 's/.*length="\([0-9]*\)".*/\1/p' <<<"$signed")"
   if [ -z "$ed_sig" ] || [ "$ed_len" != "$(stat -f%z "$ZIP")" ]; then

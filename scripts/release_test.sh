@@ -46,6 +46,7 @@ mkdir -p "$bin"
 cp "$FAKE_SPARKLE/generate_keys" "$FAKE_SPARKLE/sign_update" "$bin/"'
 stub security '
 if [ "$1" = find-generic-password ]; then
+  [ "$*" = "find-generic-password -s https://sparkle-project.org -a ember" ] || exit 44
   [ "${FAKE_EDKEY:-yes}" = yes ] || { echo "security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain." >&2; exit 44; }
   exit 0
 fi
@@ -79,8 +80,9 @@ stub spctl 'echo "$4: accepted" >&2; echo "source=Notarized Developer ID" >&2'
 FAKE_SPARKLE="$WORK/fakesparkle"
 mkdir -p "$FAKE_SPARKLE"
 sparkle_stub() { printf '#!/bin/bash\nset -euo pipefail\necho "%s $*" >>"$CALLS"\n%s\n' "$1" "$2" >"$FAKE_SPARKLE/$1"; chmod +x "$FAKE_SPARKLE/$1"; }
-sparkle_stub generate_keys '[ "$1" = -p ] && echo "'"$PUBKEY"'"'
-sparkle_stub sign_update 'echo "sparkle:edSignature=\"'"$SIG"'\" length=\"$(stat -f%z "$1")\""'
+sparkle_stub generate_keys '[ "$*" = "--account ember -p" ] && echo "'"$PUBKEY"'"'
+sparkle_stub sign_update '[ "$1 $2" = "--account ember" ] || exit 1
+echo "sparkle:edSignature=\"'"$SIG"'\" length=\"$(stat -f%z "$3")\""'
 
 new_repo() {
   rm -rf "$WORK/origin.git" "$WORK/repo" "$WORK/uploaded.txt" "$WORK/tmp"
@@ -159,7 +161,7 @@ echo "ok: a debuggable (get-task-allow) app is refused before notarization"
 
 new_repo
 FAKE_EDKEY=no run_release 1.2.3 --yes && fail "no Sparkle key: release went ahead"
-grep -q "generate_keys -f" "$WORK/out" || fail "no Sparkle key: import steps not printed"
+grep -q "generate_keys --account ember -f" "$WORK/out" || fail "no Sparkle key: import steps not printed"
 ! grep -q '^xcodebuild' "$WORK/calls.log" || fail "no Sparkle key: built anyway"
 untouched "no Sparkle key"
 echo "ok: a missing Sparkle signing key stops before anything changes"
@@ -199,7 +201,7 @@ grep -q '^gh release upload v1.2.3 [^ ]*/Ember-1.2.3.zip ' "$WORK/calls.log" || 
 grep -q '^gh release edit v1.2.3 --draft=false' "$WORK/calls.log" || fail "happy path: draft not published"
 grep -q 'Ember.app/Contents/stapled-ticket' "$WORK/uploaded.txt" || fail "happy path: the uploaded zip is not the stapled app"
 [ "$(line_of '^xcrun stapler staple')" -lt "$(line_of '^sign_update')" ] || fail "happy path: signed before stapling"
-grep -q '^sign_update .*/Ember-1.2.3.zip$' "$WORK/calls.log" || fail "happy path: sign_update not run on the release zip"
+grep -q '^sign_update --account ember .*/Ember-1.2.3.zip$' "$WORK/calls.log" || fail "happy path: sign_update not run on the release zip with Ember's key"
 grep -q '^gh release upload v1.2.3 .*/Ember-1.2.3.zip .*/appcast.xml$' "$WORK/calls.log" || fail "happy path: appcast not uploaded with the zip"
 grep -q '<sparkle:version>42</sparkle:version>' "$WORK/uploaded-appcast.xml" || fail "happy path: appcast build number"
 grep -q 'url="https://github.com/tarakanof/ember/releases/download/v1.2.3/Ember-1.2.3.zip"' "$WORK/uploaded-appcast.xml" || fail "happy path: appcast enclosure URL"
