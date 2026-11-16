@@ -242,6 +242,25 @@ resign_with_developer_id() {
   "${cs[@]}" --preserve-metadata=identifier,entitlements,requirements "$app"
 }
 
+previous_app_release() {
+  local tag
+  tag="$(gh release view --json tagName -q .tagName 2>/dev/null || true)"
+  if [ -z "$tag" ] || ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+    tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  fi
+  echo "$tag"
+}
+
+change_titles() {
+  local range="${1:+$1..}HEAD" n
+  git log --first-parent --merges --format=%s "$range" |
+    sed -n 's/^Merge pull request #\([0-9][0-9]*\) from .*/\1/p' |
+    while read -r n; do
+      gh pr view "$n" --json title -q .title 2>/dev/null || true
+    done
+  git log --first-parent --no-merges --format=%s "$range"
+}
+
 ZIP=""
 if [ "$APP" -eq 1 ]; then
   WORK="$(mktemp -d "${TMPDIR:-/tmp}/ember-release-$VERSION.XXXXXX")"
@@ -307,9 +326,14 @@ if [ "$APP" -eq 1 ]; then
     echo "error: sign_update gave no signature for $ZIP_NAME, or the wrong length" >&2
     exit 1
   fi
+  FEED_URL="$(plist_get SUFeedURL "$BUILT/Contents/Info.plist")"
+  PREV_RELEASE="$(previous_app_release)"
+  change_titles "$PREV_RELEASE" |
+    scripts/release-notes.sh "${FEED_URL%/releases/latest/download/appcast.xml}/releases/tag/$TAG" >"$WORK/notes.html"
+  echo "release notes: changes since ${PREV_RELEASE:-the first commit} ($WORK/notes.html)"
   APPCAST="$WORK/appcast.xml"
-  scripts/appcast.sh "$(plist_get SUFeedURL "$BUILT/Contents/Info.plist")" "$VERSION" "$next_build" \
-    "$(plist_get LSMinimumSystemVersion "$BUILT/Contents/Info.plist")" "$ed_sig" "$ed_len" >"$APPCAST"
+  scripts/appcast.sh "$FEED_URL" "$VERSION" "$next_build" \
+    "$(plist_get LSMinimumSystemVersion "$BUILT/Contents/Info.plist")" "$ed_sig" "$ed_len" "$WORK/notes.html" >"$APPCAST"
   echo "appcast: $APPCAST"
 fi
 

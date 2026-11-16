@@ -29,6 +29,13 @@ case "$1 ${2:-}" in
     if [ -n "${5:-}" ]; then cp "$5" "$T_DIR/uploaded-appcast.xml"; fi
     [ "${FAKE_UPLOAD:-ok}" = ok ] ;;
   "run list") exit 0 ;;
+  "release view") [ "${FAKE_PREV:-v1.2.2}" != none ] && echo "${FAKE_PREV:-v1.2.2}" ;;
+  "pr view")
+    case "$3" in
+      7) echo "feat(app): show a <new> thing & more" ;;
+      8) echo "docs(agents): reviewer profile" ;;
+      *) exit 1 ;;
+    esac ;;
 esac'
 stub xcodegen ':'
 stub xcodebuild '
@@ -103,7 +110,7 @@ new_repo() {
   git init -q -b main "$WORK/repo"
   mkdir -p "$WORK/repo/scripts" "$WORK/repo/macos"
   cp "$SRC" "$WORK/repo/scripts/release.sh"
-  cp "$(dirname "$SRC")/appcast.sh" "$WORK/repo/scripts/appcast.sh"
+  cp "$(dirname "$SRC")/appcast.sh" "$(dirname "$SRC")/release-notes.sh" "$WORK/repo/scripts/"
   mkdir -p "$WORK/repo/macos/Ember"
   plutil -create xml1 "$WORK/repo/macos/Ember/Info.plist"
   plutil -insert SUPublicEDKey -string "${SOURCE_KEY:-$PUBKEY}" "$WORK/repo/macos/Ember/Info.plist"
@@ -121,8 +128,17 @@ EOF
   echo "*.xcodeproj" >"$WORK/repo/macos/.gitignore"
   git -C "$WORK/repo" add -A
   git -C "$WORK/repo" commit -qm init
+  git -C "$WORK/repo" tag v1.2.2
+  for pr in 7:feat-thing 8:docs-profile; do
+    git -C "$WORK/repo" checkout -qb "${pr#*:}"
+    git -C "$WORK/repo" commit -q --allow-empty -m "work for #${pr%%:*}"
+    git -C "$WORK/repo" checkout -q main
+    git -C "$WORK/repo" merge -q --no-ff -m "Merge pull request #${pr%%:*} from t/${pr#*:}" "${pr#*:}"
+  done
+  git -C "$WORK/repo" commit -q --allow-empty -m "fix(server): a direct fix on main"
   git -C "$WORK/repo" remote add origin "$WORK/origin.git"
   git -C "$WORK/repo" push -q origin main
+  BASE_COUNT="$(git -C "$WORK/repo" rev-list --count HEAD)"
 }
 
 run_release() {
@@ -135,10 +151,10 @@ line_of() { grep -n -m1 -- "$1" "$WORK/calls.log" | cut -d: -f1; }
 untouched() {
   [ -z "$(git -C "$WORK/repo" status --porcelain)" ] || fail "$1: tree left dirty: $(git -C "$WORK/repo" status --porcelain)"
   grep -q 'MARKETING_VERSION: "1.2.2"' "$WORK/repo/macos/project.yml" || fail "$1: version bump not restored"
-  [ "$(git -C "$WORK/repo" rev-list --count HEAD)" = 1 ] || fail "$1: a commit was made"
-  [ -z "$(git -C "$WORK/repo" tag)" ] || fail "$1: a tag was made"
+  [ "$(git -C "$WORK/repo" rev-list --count HEAD)" = "$BASE_COUNT" ] || fail "$1: a commit was made"
+  [ "$(git -C "$WORK/repo" tag)" = v1.2.2 ] || fail "$1: a tag was made"
   [ -z "$(git -C "$WORK/origin.git" tag)" ] || fail "$1: a tag was pushed"
-  ! grep -q '^gh release' "$WORK/calls.log" || fail "$1: a release was created"
+  ! grep -q -E '^gh release (create|upload|edit|delete)' "$WORK/calls.log" || fail "$1: a release was created"
 }
 
 new_repo
@@ -245,6 +261,11 @@ grep -q '<sparkle:version>42</sparkle:version>' "$WORK/uploaded-appcast.xml" || 
 grep -q 'url="https://github.com/tarakanof/ember/releases/download/v1.2.3/Ember-1.2.3.zip"' "$WORK/uploaded-appcast.xml" || fail "happy path: appcast enclosure URL"
 grep -q "sparkle:edSignature=\"$SIG\"" "$WORK/uploaded-appcast.xml" || fail "happy path: appcast signature"
 grep -q 'length="[1-9][0-9]*"' "$WORK/uploaded-appcast.xml" || fail "happy path: appcast length"
+! grep -q 'releaseNotesLink' "$WORK/uploaded-appcast.xml" || fail "happy path: appcast still links the GitHub page as notes"
+grep -q '<li>Show a &lt;new&gt; thing &amp; more</li>' "$WORK/uploaded-appcast.xml" || fail "happy path: merged feat PR title missing from the notes"
+grep -q '<li>A direct fix on main</li>' "$WORK/uploaded-appcast.xml" || fail "happy path: direct fix commit missing from the notes"
+! grep -q -i 'reviewer profile\|init\|work for' "$WORK/uploaded-appcast.xml" || fail "happy path: non-user-facing change in the notes"
+grep -q '^gh release view --json tagName' "$WORK/calls.log" || fail "happy path: previous app release not looked up"
 grep -q 'MARKETING_VERSION: "1.2.3"' "$WORK/repo/macos/project.yml" || fail "happy path: version not bumped"
 grep -q 'CURRENT_PROJECT_VERSION: "42"' "$WORK/repo/macos/project.yml" || fail "happy path: build not bumped"
 [ "$(git -C "$WORK/origin.git" tag)" = v1.2.3 ] || fail "happy path: tag not pushed"

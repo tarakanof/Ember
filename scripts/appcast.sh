@@ -1,9 +1,9 @@
 #!/bin/bash
-# Usage: appcast.sh <feed-url> <X.Y.Z> <build> <min-macos> <ed-signature> <length>
+# Usage: appcast.sh <feed-url> <X.Y.Z> <build> <min-macos> <ed-signature> <length> <notes.html>
 set -euo pipefail
 
-[ "$#" -eq 6 ] || { sed -n '2p' "$0" >&2; exit 2; }
-FEED="$1" VERSION="$2" BUILD="$3" MIN_OS="$4" SIG="$5" LENGTH="$6"
+[ "$#" -eq 7 ] || { sed -n '2p' "$0" >&2; exit 2; }
+FEED="$1" VERSION="$2" BUILD="$3" MIN_OS="$4" SIG="$5" LENGTH="$6" NOTES="$7"
 
 die() { echo "error: $1" >&2; exit 1; }
 suffix=/releases/latest/download/appcast.xml
@@ -14,6 +14,8 @@ suffix=/releases/latest/download/appcast.xml
 [[ "$MIN_OS" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "minimum macOS '$MIN_OS' is not N.N"
 [[ "$SIG" =~ ^[A-Za-z0-9+/]+=*$ ]] || die "signature is not base64"
 [[ "$LENGTH" =~ ^[1-9][0-9]*$ ]] || die "length '$LENGTH' is not a positive number"
+[ -s "$NOTES" ] || die "release notes file '$NOTES' is missing or empty"
+! grep -q ']]>' "$NOTES" || die "release notes contain ']]>', which would end the CDATA section"
 
 REPO="${FEED%"$suffix"}"
 TAG="v$VERSION"
@@ -29,7 +31,8 @@ cat <<XML
       <sparkle:version>$BUILD</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>$MIN_OS</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>$REPO/releases/tag/$TAG</sparkle:releaseNotesLink>
+      <description><![CDATA[$(cat "$NOTES")
+]]></description>
       <enclosure url="$REPO/releases/download/$TAG/Ember-$VERSION.zip" length="$LENGTH" type="application/octet-stream" sparkle:edSignature="$SIG"/>
     </item>
   </channel>
