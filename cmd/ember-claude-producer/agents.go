@@ -27,10 +27,13 @@ const (
 	agentsConfirmAfter  = 1500 * time.Millisecond
 	agentsCallTimeout   = 5 * time.Second
 	agentsFailBackoff   = 5 * time.Minute
+	agentsRetryAfter    = 10 * time.Second
 	agentsConfigEvery   = 10 * time.Second
 	agentsKillGrace     = time.Second
 	interruptedMessage  = "interrupted"
 )
+
+var errAgentsTimeout = errors.New("timed out")
 
 // An older CLI would take "agents" as a prompt: see ARCHITECTURE (Claude producer).
 var minAgentsVersion = [3]int{2, 1, 288}
@@ -262,6 +265,9 @@ func runBounded(ctx context.Context, timeout time.Duration, bin string, args ...
 	out, err := cmd.Output()
 	if err != nil && cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		err = fmt.Errorf("%w: %w", errAgentsTimeout, err)
 	}
 	return out, err
 }
@@ -555,6 +561,7 @@ type agentsWatcher struct {
 	unlisted     map[string]bool
 	lastCall     time.Time
 	backoffUntil time.Time
+	retried      bool
 	pending      map[string]pendingCorrection
 	blocked      blockedAgents
 	fileSeen     map[string]time.Time
@@ -582,6 +589,7 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 	wake, dormantDue := w.wakeCandidates(active, dormant)
 	if len(active) == 0 && len(wake) == 0 {
 		w.wasActive = false
+		w.retried = false
 		clear(w.pending)
 		return false
 	}
@@ -627,7 +635,7 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 		}
 		fallbackDue = !onlyUnlisted
 	}
-	if !changed && !confirmDue && !fallbackDue && !dormantDue {
+	if !changed && !confirmDue && !fallbackDue && !dormantDue && !w.retried {
 		return false
 	}
 	w.lastCall = now
@@ -635,14 +643,28 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 	if err == nil {
 		var rows map[string]agentRow
 		if rows, err = parseAgents(out); err == nil {
+			w.retried = false
 			w.blocked = backgroundBlocked(out).bind(append(active, wake...))
 			w.reconcile(ctx, cfg, client, append(active, wake...), rows, now)
 			return true
 		}
 	}
-	w.backoffUntil = now.Add(agentsFailBackoff)
+	delay, kind := agentsFailBackoff, "claude_agents"
+	escalated := w.retried
+	if errors.Is(err, errAgentsTimeout) && !w.retried {
+		delay, kind = agentsRetryAfter, "claude_agents_retry"
+		w.retried = true
+	} else {
+		w.retried = false
+	}
+	w.backoffUntil = now.Add(delay)
 	clear(w.pending)
-	w.failLog.Warn(slog.Default(), "claude_agents", "claude agents --json failed; retrying in 5 min", "err", err)
+	msg := fmt.Sprintf("claude agents --json failed; retrying in %s", delay)
+	if escalated {
+		slog.Warn(msg, "kind", kind, "err", err)
+	} else {
+		w.failLog.Warn(slog.Default(), kind, msg, "err", err)
+	}
 	return true
 }
 
