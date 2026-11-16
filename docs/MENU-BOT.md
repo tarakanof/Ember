@@ -207,9 +207,12 @@ These cost real debugging time.
 - **With two displays the menu bar you see may be a copy.** The status item
   lives on one display's menu bar; AppKit mirrors it to the others as a
   snapshot (`NSStatusItemReplicantView`), refreshed from a timer
-  (`_updateReplicants`). Each refresh briefly sets the button's `appearance`,
-  SwiftUI's `MenuBarExtraController` observes that and re-applies the label's
-  image, and the copy is drawn from what is on the button then. When the label
+  (`_updateReplicants`); every push that marks the button for display
+  schedules one. Each refresh sets the button's `appearance` twice and draws
+  the button into a bitmap. SwiftUI's `MenuBarExtraController` observes that
+  `appearance` and re-applies the label's image each time (`setImage:`, so
+  `_adjustLength` too), and the copy is drawn from what is on the button
+  then. The cost is in Performance, "Second display". When the label
   held a one-off snapshot, the copy froze on the frame of the last label
   re-render and jumped every few seconds, while one display looked fine. The
   label now shares the loop's live image (see Performance).
@@ -292,6 +295,47 @@ that every redraw triggers from a CA commit handler. With the per-frame rep
 swap, a mono idle bot used 0.87 s of CPU over 120 s, down from 1.27 s. If the
 menu-bar bot ever freezes after a macOS update, go back to setting
 `button.image` per frame.
+
+### Second display
+
+With a second display every push also redraws the status item's mirrored
+copy (macOS gotchas), on the main thread. Measured in #878 on macOS 27.2 with
+two displays (6K and 4K):
+
+- **Installed 0.93.0** (mono, live agent sessions, its Dock tile visible):
+  5.63 s of CPU over 120 s. In a 10 s `sample`, 159 of about 340 busy
+  main-thread samples were
+  the mirror refresh (`-[NSStatusItem _updateReplicantsUnlessMenuIsTracking:]`),
+  85 of those SwiftUI re-applying the label image after `setAppearance:`.
+  The Dock tile took another 72; the bot's own drawing under 15.
+- **Prototype** (throwaway, own bundle id, the animator's push path and a
+  `MenuBarExtra` label as the app has them, the coloured bot held in the
+  working mood, three alternating pairs of 120 s `ps -o cputime` plus a
+  30 s `sample`, about 480 pushes each):
+
+  | Variant | CPU per 120 s | Busy main-thread samples per 30 s | Mirror refresh |
+  |---|---|---|---|
+  | `MenuBarExtra` label (today) | 2.92 s | 439 | 206, 104 of it SwiftUI |
+  | Ember's own `NSStatusItem`, menu from `NSHostingMenu` | 2.33 s (−20 %) | 364 (−17 %) | 107 |
+
+  An earlier set of three pairs gave −13 % CPU and −14 % main thread.
+
+Owning the status item removes the SwiftUI half of the mirror refresh but
+not AppKit's own snapshot (`_redrawReplicantSnapshot:sourceView:`, about a
+quarter of the main thread), so it falls short of the 40 % the change was
+worth, and the app keeps `MenuBarExtra`. Skipping pushes while a mirror
+refresh is pending isn't possible: AppKit exposes no public signal (only
+private `_updateReplicants`, `_windowNeedsReplicantUpdate:`,
+`_updatingReplicant`), and it already schedules one refresh per display
+pass, so the only way to refresh less is to push less, which changes the
+motion. What the prototype learnt about the owned variant, for a later
+attempt: `openWindow` works from an `NSHostingMenu` item; its views are
+built once, so `onAppear` runs at launch, not per open, and the menu's
+"now" and feed catch-up need `menuWillOpen` (its delegate is free, and an
+observed value set there updates the open menu); replacing `rootView` in
+`menuNeedsUpdate` crashed; and with only `Window` scenes left, the app
+stayed running after its last window closed, with
+`applicationShouldTerminateAfterLastWindowClosed` returning false.
 
 ## Changing it
 
