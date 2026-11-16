@@ -995,13 +995,16 @@ markers still get reaped.
     `project_updated_idx`, so long-settled threads cost nothing). 1.8 ms on the
     same database.
   - **Full read** on a new handle, after a migration change, and at least once
-    a minute (`fullReadEvery`). T3 does not bump `updated_at` for PR-link,
-    settle, archive and similar thread events, so a hold that starts that way
-    on a thread that is not otherwise a candidate (a PR watch added to an
-    old thread) shows within a minute; once shown, the thread is live and read
-    every poll.
-  - The darwin process start time of the T3 pid is looked up once per pid,
-    not every poll.
+    a minute (`fullReadEvery`). T3 writes `updated_at` for its own thread
+    events (settle, archive, PR link and sync, …) from the thread's
+    `updatedAt`, and a PR link or sync update leaves that unchanged, so a
+    hold that starts that way on a thread that is not otherwise a candidate
+    (a PR watch added to an old thread) shows within a minute; once shown,
+    the thread is live and read every poll.
+  - The darwin process start time of the T3 pid is looked up again only for
+    a new pid, after a poll gap over 10 s (sleep, backoff) and once a minute.
+    Between steady 2 s polls a crash and pid reuse would need the pid space
+    to wrap.
 
   *Transport decision: SQLite poll, not the WebSocket RPC.* T3's server does
   expose `orchestration.subscribeShell` (snapshot, then thread upserts) over

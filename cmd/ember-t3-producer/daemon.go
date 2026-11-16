@@ -36,7 +36,7 @@ type daemon struct {
 }
 
 func newDaemon(cfg Config, client *producer.Client) *daemon {
-	starts := &startCache{lookup: processStart}
+	starts := newStartCache()
 	return &daemon{
 		cfg:     cfg,
 		client:  client,

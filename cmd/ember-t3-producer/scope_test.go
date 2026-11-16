@@ -265,32 +265,45 @@ func TestScopedPollCostDoesNotGrowWithSettledThreads(t *testing.T) {
 	}
 }
 
-func TestStartCacheLooksUpEachPidOnce(t *testing.T) {
+func TestStartCacheLooksUpEachPidOnceWhilePolledSteadily(t *testing.T) {
 	lookups := map[int]int{}
-	c := &startCache{lookup: func(pid int) (time.Time, bool) {
+	clock := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	c := &startCache{now: func() time.Time { return clock }, lookup: func(pid int) (time.Time, bool) {
 		lookups[pid]++
-		return time.Now().Add(-time.Hour), true
+		return clock.Add(-time.Hour), true
 	}}
+	poll := func(pid int, after time.Duration) bool {
+		clock = clock.Add(after)
+		return c.alive(pid, clock)
+	}
 	self, parent := os.Getpid(), os.Getppid()
-	for i := 0; i < 5; i++ {
-		if !c.alive(self, time.Now()) {
+	for i := 0; i < 30; i++ {
+		if !poll(self, 2*time.Second) {
 			t.Fatal("own pid not alive")
 		}
 	}
 	if lookups[self] != 1 {
-		t.Fatalf("start time looked up %d times for one pid, want 1", lookups[self])
+		t.Fatalf("start time looked up %d times in 58 s of steady polls, want 1", lookups[self])
 	}
-	if !c.alive(parent, time.Now()) || lookups[parent] != 1 {
+	poll(self, 2*time.Second)
+	if lookups[self] != 2 {
+		t.Fatalf("a start time older than %v must be looked up again (lookups %v)", startMaxAge, lookups)
+	}
+	poll(self, startProbeGap+time.Second)
+	if lookups[self] != 3 {
+		t.Fatalf("a poll after a gap (sleep, backoff) must look the start time up again (lookups %v)", lookups)
+	}
+	if !poll(parent, 2*time.Second) || lookups[parent] != 1 {
 		t.Fatalf("a new pid must be looked up (lookups %v)", lookups)
 	}
-	if c.alive(-1, time.Now()) || c.alive(1<<30, time.Now()) {
+	if poll(-1, 2*time.Second) || poll(1<<30, 2*time.Second) {
 		t.Fatal("invalid or dead pid alive")
 	}
-	if !c.alive(parent, time.Now()) || lookups[parent] != 2 {
+	if !poll(parent, 2*time.Second) || lookups[parent] != 2 {
 		t.Fatalf("a pid seen again after a dead one must be looked up again (lookups %v)", lookups)
 	}
-	stale := &startCache{lookup: func(int) (time.Time, bool) { return time.Now(), true }}
-	if stale.alive(self, time.Now().Add(-time.Hour)) {
+	reused := &startCache{now: time.Now, lookup: func(int) (time.Time, bool) { return time.Now(), true }}
+	if reused.alive(self, time.Now().Add(-time.Hour)) {
 		t.Fatal("a process that started after the recorded startedAt was accepted")
 	}
 }

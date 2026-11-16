@@ -32,7 +32,7 @@ type thread struct {
 	PendingKind     string
 	LastError       string
 	Archived        bool
-	// updated_at is deliberately unused: settling, renaming and archiving bump it.
+	// Not updated_at: settling, renaming and archiving bump it.
 	ChangedAt time.Time
 }
 
