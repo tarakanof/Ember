@@ -41,6 +41,11 @@ plutil -create xml1 "$app/Contents/Info.plist"
 plutil -insert SUFeedURL -string "'"$FEED"'" "$app/Contents/Info.plist"
 plutil -insert SUPublicEDKey -string "${FAKE_BUILT_KEY:-'"$PUBKEY"'}" "$app/Contents/Info.plist"
 plutil -insert LSMinimumSystemVersion -string 26.0 "$app/Contents/Info.plist"
+fw="$app/Contents/Frameworks/Sparkle.framework"
+mkdir -p "$fw/Versions/B/XPCServices/Installer.xpc" "$fw/Versions/B/XPCServices/Downloader.xpc" "$fw/Versions/B/Updater.app"
+echo bin >"$fw/Versions/B/Sparkle"; echo bin >"$fw/Versions/B/Autoupdate"
+chmod +x "$fw/Versions/B/Sparkle" "$fw/Versions/B/Autoupdate"
+ln -s B "$fw/Versions/Current"
 bin="$dd/SourcePackages/artifacts/sparkle/Sparkle/bin"
 mkdir -p "$bin"
 cp "$FAKE_SPARKLE/generate_keys" "$FAKE_SPARKLE/sign_update" "$bin/"'
@@ -64,7 +69,8 @@ if [ "$1" = -d ] && [ "${2:-}" = --entitlements ]; then
   exit 0
 fi
 case "${FAKE_SIGNER:-devid}" in
-  devid) printf "Authority=Developer ID Application: Test Person ('"$TEAM"')\nAuthority=Developer ID Certification Authority\nTeamIdentifier='"$TEAM"'\n" >&2 ;;
+  devid) printf "Authority=Developer ID Application: Test Person ('"$TEAM"')\nAuthority=Developer ID Certification Authority\nTimestamp=Nov 16, 2026 at 18:00:00\nTeamIdentifier='"$TEAM"'\n" >&2 ;;
+  notimestamp) printf "Authority=Developer ID Application: Test Person ('"$TEAM"')\nAuthority=Developer ID Certification Authority\nTeamIdentifier='"$TEAM"'\n" >&2 ;;
   local) printf "Authority=Ember Local Signing\nTeamIdentifier=not set\n" >&2 ;;
 esac'
 stub xcrun '
@@ -181,6 +187,13 @@ untouched "key mismatch"
 echo "ok: an app whose SUPublicEDKey differs from the keychain key is refused before notarization"
 
 new_repo
+FAKE_SIGNER=notimestamp run_release 1.2.3 --yes && fail "no timestamp: release went ahead"
+grep -q "no secure timestamp" "$WORK/out" || fail "no timestamp: no explanation"
+! grep -q '^xcrun notarytool submit' "$WORK/calls.log" || fail "no timestamp: submitted anyway"
+untouched "no timestamp"
+echo "ok: code signed without a secure timestamp is refused before notarization"
+
+new_repo
 FAKE_NOTARY=Invalid run_release 1.2.3 --yes && fail "notarization rejected: release went ahead"
 grep -q "notarization Invalid (submission sub-1)" "$WORK/out" || fail "notarization rejected: no submission id"
 grep -q '^xcrun notarytool log sub-1' "$WORK/calls.log" || fail "notarization rejected: log not fetched"
@@ -201,6 +214,16 @@ grep -q '^gh release upload v1.2.3 [^ ]*/Ember-1.2.3.zip ' "$WORK/calls.log" || 
 grep -q '^gh release edit v1.2.3 --draft=false' "$WORK/calls.log" || fail "happy path: draft not published"
 grep -q 'Ember.app/Contents/stapled-ticket' "$WORK/uploaded.txt" || fail "happy path: the uploaded zip is not the stapled app"
 [ "$(line_of '^xcrun stapler staple')" -lt "$(line_of '^sign_update')" ] || fail "happy path: signed before stapling"
+fwv='Ember.app/Contents/Frameworks/Sparkle.framework/Versions/Current'
+devsign="codesign --force --sign 0123456789ABCDEF0123456789ABCDEF01234567 --options runtime --timestamp"
+for n in "$fwv/XPCServices/Installer.xpc" "$fwv/XPCServices/Downloader.xpc" "$fwv/Updater.app" "$fwv/Autoupdate" 'Ember.app/Contents/Frameworks/Sparkle.framework' 'Ember.app'; do
+  [ -n "$(line_of "^$devsign --preserve-metadata=[a-z,]* [^ ]*/$n$")" ] || fail "happy path: $n not re-signed with Developer ID and a timestamp"
+done
+! grep -q "^$devsign .*/$fwv/Sparkle$" "$WORK/calls.log" || fail "happy path: framework binary signed apart from its bundle"
+[ "$(line_of "/$fwv/Autoupdate$")" -lt "$(line_of '/Ember.app/Contents/Frameworks/Sparkle.framework$')" ] || fail "happy path: framework signed before its helpers"
+[ "$(line_of '/Ember.app/Contents/Frameworks/Sparkle.framework$')" -lt "$(line_of "^$devsign --preserve-metadata=[a-z,]* [^ ]*/Ember.app$")" ] || fail "happy path: app signed before its framework"
+[ "$(line_of "^$devsign --preserve-metadata=[a-z,]* [^ ]*/Ember.app$")" -lt "$(line_of '^verify-bundle.sh')" ] || fail "happy path: verified before re-signing"
+grep -q "^codesign -dvv .*/Updater.app$" "$WORK/calls.log" || fail "happy path: nested Sparkle code not checked for Developer ID"
 grep -q '^sign_update --account ember .*/Ember-1.2.3.zip$' "$WORK/calls.log" || fail "happy path: sign_update not run on the release zip with Ember's key"
 grep -q '^gh release upload v1.2.3 .*/Ember-1.2.3.zip .*/appcast.xml$' "$WORK/calls.log" || fail "happy path: appcast not uploaded with the zip"
 grep -q '<sparkle:version>42</sparkle:version>' "$WORK/uploaded-appcast.xml" || fail "happy path: appcast build number"

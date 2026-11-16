@@ -129,7 +129,9 @@ if [ "$APP" -eq 1 ]; then
   need xcodebuild "install Xcode"
   need xcrun "install Xcode"
   need jq "brew install jq"
-  if ! security find-identity -v -p codesigning 2>/dev/null | grep "\"Developer ID Application: .* ($TEAM)\"" >/dev/null; then
+  identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+  DEVID_HASH="$(sed -n "s/^ *[0-9]*) \([0-9A-F]\{40\}\) \"Developer ID Application: .* ($TEAM)\"\$/\1/p" <<<"$identities" | head -1)"
+  if [ -z "$DEVID_HASH" ]; then
     echo "error: no valid 'Developer ID Application: … ($TEAM)' identity in the keychain" >&2
     echo "Install the Developer ID Application certificate of team $TEAM (Xcode › Settings › Accounts › Manage Certificates), or cut a server-only release with --no-app." >&2
     exit 1
@@ -204,7 +206,38 @@ signed_by_developer_id() {
     printf '%s\n' "$info" | grep -E '^(Authority|TeamIdentifier|Signature)=' >&2 || true
     return 1
   fi
+  if ! grep -q '^Timestamp=' <<<"$info"; then
+    echo "FAIL no secure timestamp in the signature: $1" >&2
+    return 1
+  fi
   echo "OK   Developer ID ($TEAM): $(basename "$1")"
+}
+
+framework_code() {
+  local fw dir own n
+  for fw in "$1"/Contents/Frameworks/*.framework; do
+    [ -d "$fw" ] || continue
+    dir="$fw/Versions/Current"
+    own="$(basename "$fw" .framework)"
+    for n in "$dir"/XPCServices/*.xpc "$dir"/*.app; do
+      [ -e "$n" ] || continue
+      echo "$n"
+    done
+    for n in "$dir"/*; do
+      [ -f "$n" ] && [ -x "$n" ] && [ "$(basename "$n")" != "$own" ] || continue
+      echo "$n"
+    done
+    echo "$fw"
+  done
+}
+
+resign_with_developer_id() {
+  local app="$1" n
+  local cs=(codesign --force --sign "$DEVID_HASH" --options runtime --timestamp)
+  while IFS= read -r n; do
+    "${cs[@]}" --preserve-metadata=identifier,entitlements "$n"
+  done < <(framework_code "$app")
+  "${cs[@]}" --preserve-metadata=identifier,entitlements,requirements "$app"
 }
 
 ZIP=""
@@ -216,8 +249,12 @@ if [ "$APP" -eq 1 ]; then
     -derivedDataPath "$WORK/dd" -quiet OTHER_CODE_SIGN_FLAGS=--timestamp \
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO build
   BUILT="$WORK/dd/Build/Products/Release/Ember.app"
+  resign_with_developer_id "$BUILT"
   scripts/verify-bundle.sh "$BUILT"
   signed_by_developer_id "$BUILT"
+  while IFS= read -r nested; do
+    signed_by_developer_id "$nested"
+  done < <(framework_code "$BUILT")
   if codesign -d --entitlements - --xml "$BUILT" 2>/dev/null | grep "com.apple.security.get-task-allow" >/dev/null; then
     echo "error: Ember.app carries the get-task-allow entitlement; notarization rejects it" >&2
     exit 1
