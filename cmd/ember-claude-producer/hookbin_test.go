@@ -26,10 +26,30 @@ func TestHookBinaryLines_AppFirstWarnsAndHintsOlderCopy(t *testing.T) {
 	fakeBinary(t, goBin, "0.42.0")
 	e := hookBinaryEnv{home: home, appDirs: []string{filepath.Join(home, "Apps")}}
 	lines := strings.Join(hookBinaryLines(e, goBin), "\n")
-	for _, want := range []string{"hook binary: " + app + " (0.94.0)", "WARNING: the hooks run " + app, "hint: " + goBin + " is an older copy"} {
+	for _, want := range []string{"hook binary: " + app + " (0.94.0)", "WARNING: the hooks run " + app, "hint: " + goBin + " (0.42.0) is another copy the hooks do not use"} {
 		if !strings.Contains(lines, want) {
 			t.Errorf("missing %q in:\n%s", want, lines)
 		}
+	}
+}
+
+func TestHookBinaryLines_OldInstalledShimRunsPathFirst(t *testing.T) {
+	home := t.TempDir()
+	app := filepath.Join(home, "Apps", "Ember.app", "Contents", "MacOS", producerName)
+	goBin := filepath.Join(home, "go", "bin", producerName)
+	fakeBinary(t, app, "0.94.0")
+	fakeBinary(t, goBin, "0.42.0")
+	installFakePlugin(t, home, "{}", "#!/bin/sh\nbin=$(command -v x)\nfor d in a; do $d/Ember.app/Contents/MacOS/x; done\n")
+	t.Setenv("EMBER_APP_DIRS", filepath.Join(home, "Apps"))
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("EMBER_CLAUDE_PRODUCER", "")
+	os.Unsetenv("EMBER_CLAUDE_PRODUCER")
+	lines := strings.Join(hookBinaryLines(hookBinaryEnvFromOS(home), app), "\n")
+	if !strings.Contains(lines, "hook binary: "+goBin+" (0.42.0)") {
+		t.Fatalf("the old shim runs ~/go/bin first, got:\n%s", lines)
+	}
+	if !strings.Contains(lines, "WARNING: the hooks run "+goBin) {
+		t.Fatalf("missing warning:\n%s", lines)
 	}
 }
 

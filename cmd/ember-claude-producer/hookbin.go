@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const stalePluginFix = "claude plugin marketplace update ember && claude plugin update ember@ember, " +
@@ -17,6 +19,7 @@ type hookBinaryEnv struct {
 	override *string
 	appDirs  []string
 	pathDirs []string
+	appLast  bool
 }
 
 func hookBinaryEnvFromOS(home string) hookBinaryEnv {
@@ -29,6 +32,7 @@ func hookBinaryEnvFromOS(home string) hookBinaryEnv {
 		dirs = "/Applications " + filepath.Join(home, "Applications")
 	}
 	e.appDirs = strings.Fields(dirs)
+	e.appLast = !installedShimPrefersApp(home)
 	return e
 }
 
@@ -38,18 +42,22 @@ func isExecFile(p string) bool {
 }
 
 func (e hookBinaryEnv) candidates() []string {
-	var out []string
+	var apps, rest []string
 	for _, d := range e.appDirs {
-		out = append(out, filepath.Join(d, "Ember.app", "Contents", "MacOS", producerName))
+		apps = append(apps, filepath.Join(d, "Ember.app", "Contents", "MacOS", producerName))
 	}
 	for _, d := range e.pathDirs {
 		if d != "" {
-			out = append(out, filepath.Join(d, producerName))
+			rest = append(rest, filepath.Join(d, producerName))
 		}
 	}
-	return append(out,
+	rest = append(rest,
 		filepath.Join(e.home, "go", "bin", producerName),
 		filepath.Join(e.home, ".local", "bin", producerName))
+	if e.appLast {
+		return append(rest, apps...)
+	}
+	return append(apps, rest...)
 }
 
 func (e hookBinaryEnv) resolve() (bin string, others []string) {
@@ -81,7 +89,9 @@ func sameFile(a, b string) bool {
 }
 
 func binaryVersion(bin string) string {
-	out, err := exec.Command(bin, "version").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "version").Output()
 	if err != nil {
 		return "unknown"
 	}
@@ -103,7 +113,7 @@ func hookBinaryLines(e hookBinaryEnv, self string) []string {
 	}
 	for _, o := range others {
 		if !sameFile(o, bin) {
-			lines = append(lines, fmt.Sprintf("hint: %s is an older copy the hooks no longer use; delete it if you don't need it", o))
+			lines = append(lines, fmt.Sprintf("hint: %s (%s) is another copy the hooks do not use; delete it if you don't need it", o, binaryVersion(o)))
 		}
 	}
 	return lines
@@ -134,6 +144,15 @@ func shimPrefersApp(shim string) bool {
 	app := strings.Index(shim, "Ember.app/Contents/MacOS")
 	path := strings.Index(shim, "command -v")
 	return app >= 0 && (path < 0 || app < path)
+}
+
+func installedShimPrefersApp(home string) bool {
+	root := installedPluginPath(home)
+	if root == "" {
+		return true
+	}
+	shim, err := os.ReadFile(filepath.Join(root, "scripts", "ember-hook"))
+	return err != nil || shimPrefersApp(string(shim))
 }
 
 func stalePluginProblems(home string) []string {
