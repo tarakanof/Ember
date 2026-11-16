@@ -2075,8 +2075,13 @@ signed in CI: the Developer ID key and the notary credentials never leave the
 owner's Mac. In order, the script:
 
 1. checks `gh`, a clean in-sync `main`, a free tag, the `Developer ID
-   Application: … (<DEVELOPMENT_TEAM>)` identity and the `ember-notary`
-   profile (`xcrun notarytool history`), before it changes anything;
+   Application: … (<DEVELOPMENT_TEAM>)` identity, the `ember-notary`
+   profile (`xcrun notarytool history`), a real `SUPublicEDKey` in
+   `macos/Ember/Info.plist` (not the placeholder) and the Sparkle private key
+   in the login keychain under account `ember` (`security
+   find-generic-password -s https://sparkle-project.org -a ember`, no secret
+   read), before it
+   changes anything;
 2. bumps `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
    `macos/project.yml` (not committed yet);
 3. runs `xcodegen` and a Release `xcodebuild` into a scratch folder, with
@@ -2085,18 +2090,37 @@ owner's Mac. In order, the script:
    otherwise adds `get-task-allow`, which notarization rejects);
 4. runs `scripts/verify-bundle.sh`, then refuses the app or any
    `Contents/MacOS/ember-*` helper whose first authority isn't that Developer ID
-   (ad-hoc and "Ember Local Signing" fallbacks fail here), and an app that
-   still carries `get-task-allow`;
+   (ad-hoc and "Ember Local Signing" fallbacks fail here), an app that
+   still carries `get-task-allow`, and an app whose `SUPublicEDKey` differs
+   from the keychain key's public half (`generate_keys --account ember -p`):
+   an update signed
+   with that key could never install;
 5. zips with `ditto -c -k --keepParent` and runs `xcrun notarytool submit
    --wait`; anything but `Accepted` prints the submission id and `notarytool
    log`;
 6. staples, `stapler validate`s, requires `spctl -a -vv -t exec` to say
    `source=Notarized Developer ID`, and zips the stapled app again;
-7. commits, tags and pushes, creates the release as a **draft**, uploads the
-   zip and publishes the draft.
+7. signs that zip with Sparkle's `sign_update --account ember` (the key from
+   the login keychain; macOS may ask to allow it) and writes a one-item `appcast.xml`
+   with `scripts/appcast.sh`: build number as `sparkle:version`, `X.Y.Z` as
+   `shortVersionString`, the built app's `LSMinimumSystemVersion`, the release
+   page as release notes, and the zip's download URL, EdDSA signature and
+   length. Every URL comes from the built app's `SUFeedURL`;
+8. commits, tags and pushes, creates the release as a **draft**, uploads the
+   zip and `appcast.xml` and publishes the draft, so
+   `releases/latest/download/appcast.xml` serves the new feed.
 
-A failure in steps 1–6 restores `project.yml`, keeps the scratch folder for a
-look, and leaves no commit, tag or release. A failure in step 7 after the push
+The Sparkle tools come from the build's own SwiftPM artifacts
+(`<scratch>/dd/SourcePackages/artifacts/sparkle/Sparkle/bin`), so they always
+match the framework in the app. To put the key on a new release Mac, save it
+from 1Password to a file, run `generate_keys --account ember -f <file>` from
+that folder (or from any Ember build's DerivedData), then delete the file.
+Ember's key is its own (account `ember`, not Sparkle's default `ed25519`), so
+another app's Sparkle key in the same keychain never signs Ember.
+`scripts/appcast_test.sh` pins the generated XML.
+
+A failure in steps 1–7 restores `project.yml`, keeps the scratch folder for a
+look, and leaves no commit, tag or release. A failure in step 8 after the push
 leaves a draft and prints the `gh release upload … && gh release edit
 --draft=false` that finishes it. Publishing only after the upload means
 `release-producers.yml`, which runs on `published` and rewrites `SHA256SUMS`,
@@ -2107,8 +2131,9 @@ release is created with `--latest=false`, so `releases/latest` (the README's
 download link, the app's update check (`appcast.xml`, #861),
 `install-producers.sh`) stays on the
 last app release; the Docker image and producer archives are still built for
-its tag. `--app-only` stops after step 6 on any
-branch and prints the zip's path, as a dry run or to hand a build to someone.
+its tag. `--app-only` stops after step 7 on any
+branch and prints the zip's and the appcast's paths, as a dry run or to hand a
+build to someone.
 `EMBER_NOTARY_PROFILE` overrides the profile name. `scripts/release_test.sh`
 (CI's macOS job) runs the script against fake `xcodebuild`, `xcrun`, `gh` and
 signing tools and a local bare origin to pin this ordering.

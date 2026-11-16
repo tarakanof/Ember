@@ -75,21 +75,23 @@ they apply at every step.
   `release-producers.yml` (headless producer archives + `SHA256SUMS`, which
   lists the zip too). A failed build or notarization restores
   `macos/project.yml` and leaves nothing committed, tagged or pushed.
-  - It runs on the owner's Mac only: it needs the Developer ID identity and the
-    `ember-notary` notarytool profile, and checks both before changing
-    anything (setup: RUNBOOK "App release").
+  - It runs on the owner's Mac only: it needs the Developer ID identity, the
+    `ember-notary` notarytool profile and Ember's Sparkle key (login keychain,
+    account `ember`), and checks all three before changing anything (setup:
+    RUNBOOK "App release").
   - Ember.app bundles the server and the producers, so a release normally
     ships the app. `--no-app` (no build, no zip) is the escape hatch for when
     the app can't be notarized. Its release is created with `--latest=false`:
     `releases/latest`, which the README's download link, the app's update
     check (Sparkle's `appcast.xml`, #861) and `install-producers.sh` all
     read, stays on the last app release.
-  - `--app-only` builds, notarizes and staples the zip and stops, from any
-    branch: a dry run that commits, tags and publishes nothing.
+  - `--app-only` builds, notarizes and staples the zip, writes its
+    `appcast.xml` and stops, from any branch: a dry run that commits, tags and
+    publishes nothing.
 - An app release must leave `releases/latest/download/appcast.xml` answering:
-  installed apps read it once a day to offer the update (Sparkle, #861). The
-  release-script step that signs the zip with the Sparkle key and uploads the
-  appcast lands with #861's release half; a `--no-app` release keeps
+  installed apps read it once a day to offer the update (Sparkle, #861).
+  `release.sh` signs the zip with the Sparkle key from the login keychain and
+  uploads `appcast.xml` beside it; a `--no-app` release keeps
   `releases/latest` on the last app release, so its appcast stays served.
 - If SSH push fails in a sandbox (1Password agent):
   `GIT_SSH_COMMAND="ssh -o IdentityAgent=none -o IdentitiesOnly=yes"`, or HTTPS

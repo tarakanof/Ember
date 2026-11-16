@@ -1629,6 +1629,11 @@ gives the app `com.apple.security.cs.disable-library-validation`: the hardened
 runtime otherwise refuses to load Sparkle.framework ("mapping process and
 mapped file (non-platform) have different Team IDs") and the app dies at
 launch. Developer ID and Apple Development builds don't get it.
+Xcode's Release build does not re-sign that nested code either: it keeps
+Sparkle's upstream signature, with no Developer ID and no secure timestamp,
+and the notary rejects the app. `release.sh` re-signs it the same way with
+the Developer ID and `--timestamp`, then the framework and the app, and
+checks each piece before submitting.
 
 **3D Printer in the app (#816).** The feature is "3D Printer" everywhere the
 user reads it; wire names (`print`, `ember-print`, `printer.*`) stay. The
