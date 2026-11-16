@@ -541,7 +541,7 @@ LaunchAgent plists (`com.ember.heartbeat`, `com.ember.codex`, `com.ember.t3`,
 signing happens inside-out. `CODE_SIGN_IDENTITY` picks Developer ID for release
 builds vs ad-hoc (`-`) for local dev; notarizing the `.app` covers the nested
 helpers, no separate step needed. `scripts/verify-bundle.sh <Ember.app>` is the
-gate for this contract (universal binaries, valid plists, codesign) — run it
+gate for this contract (universal binaries, valid plists, codesign, each helper's `version` equal to the app's) — run it
 after any build that touches the producers or the bundling phase.
 
 On launch the app re-registers the enabled producer agents when the bundle
