@@ -87,7 +87,7 @@ they apply at every step.
     read, stays on the last app release.
   - `--app-only` builds, notarizes and staples the zip, writes its
     `appcast.xml` and stops, from any branch: a dry run that commits, tags and
-    publishes nothing.
+    publishes nothing (it still needs `gh` signed in, for the notes' PR titles).
 - An app release must leave `releases/latest/download/appcast.xml` answering:
   installed apps read it once a day to offer the update (Sparkle, #861).
   `release.sh` signs the zip with the Sparkle key from the login keychain and

@@ -2143,7 +2143,8 @@ download link, the app's update check (`appcast.xml`, #861),
 last app release; the Docker image and producer archives are still built for
 its tag. `--app-only` stops after step 7 on any
 branch and prints the zip's and the appcast's paths, as a dry run or to hand a
-build to someone.
+build to someone. It still needs `gh` signed in, to read the PR titles for the
+release notes, and checks that before building.
 `EMBER_NOTARY_PROFILE` overrides the profile name. `scripts/release_test.sh`
 (CI's macOS job) runs the script against fake `xcodebuild`, `xcrun`, `gh` and
 signing tools and a local bare origin to pin this ordering.

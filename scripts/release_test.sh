@@ -23,7 +23,7 @@ stub() { printf '#!/bin/bash\nset -euo pipefail\necho "%s $*" >>"$CALLS"\n%s\n' 
 
 stub gh '
 case "$1 ${2:-}" in
-  "auth status") exit 0 ;;
+  "auth status") [ "${FAKE_GH_AUTH:-yes}" = yes ] ;;
   "release upload")
     unzip -l "$4" >"$T_DIR/uploaded.txt"
     if [ -n "${5:-}" ]; then cp "$5" "$T_DIR/uploaded-appcast.xml"; fi
@@ -319,6 +319,15 @@ grep -q '^xcrun stapler staple' "$WORK/calls.log" || fail "--app-only: not stapl
 git -C "$WORK/repo" checkout -q main
 untouched "--app-only"
 echo "ok: --app-only notarizes from any branch and changes nothing in git"
+
+new_repo
+git -C "$WORK/repo" checkout -qb feature
+FAKE_GH_AUTH=no run_release 1.2.3 --app-only --yes && fail "--app-only without gh auth: went ahead"
+grep -q "gh not authenticated" "$WORK/out" || fail "--app-only without gh auth: no explanation"
+! grep -q '^xcodebuild' "$WORK/calls.log" || fail "--app-only without gh auth: built before failing"
+git -C "$WORK/repo" checkout -q main
+untouched "--app-only without gh auth"
+echo "ok: --app-only needs gh auth for the release notes and checks it before building"
 
 run_release 1.2.3 --no-app --app-only --yes && fail "--no-app with --app-only accepted"
 echo "ok: --no-app and --app-only exclude each other"

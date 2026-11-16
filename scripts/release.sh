@@ -69,9 +69,9 @@ plist_get() { /usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null; }
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "error: $1 not found${2:+ ($2)}" >&2; exit 1; }; }
 
+need gh "brew install gh"
+gh auth status >/dev/null 2>&1 || { echo "error: gh not authenticated (run: gh auth login); a release needs it to publish, and an app build to read PR titles for the release notes" >&2; exit 1; }
 if [ "$APP_ONLY" -eq 0 ]; then
-  need gh "brew install gh"
-  gh auth status >/dev/null 2>&1 || { echo "error: gh not authenticated (run: gh auth login)" >&2; exit 1; }
   branch="$(git rev-parse --abbrev-ref HEAD)"
   if [ "$branch" != "main" ]; then
     echo "error: on branch '$branch'; releases are cut from main" >&2
