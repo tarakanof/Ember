@@ -55,3 +55,34 @@ func unixRestore(saved, fd int) {
 	_ = unix.Dup2(saved, fd)
 	_ = unix.Close(saved)
 }
+
+func TestRotateOpenLogReopensAfterExternalRename(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "d.log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	saved1, _ := unixDup(1)
+	saved2, _ := unixDup(2)
+	defer func() {
+		unixRestore(saved1, 1)
+		unixRestore(saved2, 2)
+		os.Stdout, os.Stderr = oldOut, oldErr
+	}()
+	RedirectStandardIO(f)
+	_, _ = os.Stdout.WriteString("old\n")
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatal(err)
+	}
+	if !RotateOpenLog(path, 1<<30) {
+		t.Fatal("did not reopen")
+	}
+	_, _ = os.Stdout.WriteString("new\n")
+	old, _ := os.ReadFile(path + ".1")
+	cur, _ := os.ReadFile(path)
+	if string(old) != "old\n" || string(cur) != "new\n" {
+		t.Fatalf(".1=%q cur=%q", old, cur)
+	}
+}

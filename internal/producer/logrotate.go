@@ -28,10 +28,16 @@ const LogCheckInterval = time.Hour
 
 func RotateOpenLog(path string, threshold int64) bool {
 	info, err := os.Stat(path)
-	if err != nil || info.Size() < threshold {
-		return false
+	if err == nil {
+		cur, serr := os.Stdout.Stat()
+		moved := serr == nil && !os.SameFile(info, cur)
+		if !moved {
+			if info.Size() < threshold {
+				return false
+			}
+			RotateLogIfLarge(path, threshold)
+		}
 	}
-	RotateLogIfLarge(path, threshold)
 	nf, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return false
