@@ -25,7 +25,7 @@ const emberBrowseName = emberServiceType + ".local."
 var mdnsGroup = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 
 func BrowseEmber(ctx context.Context, timeout time.Duration) ([]EmberServer, error) {
-	return browseEmber(ctx, timeout, legacyUnicastBrowse, dnssd.LookupType)
+	return browseEmber(ctx, timeout, legacyUnicastBrowse, lookupType)
 }
 
 type unicastLookup func(ctx context.Context) ([]EmberServer, error)

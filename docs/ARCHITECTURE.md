@@ -6790,6 +6790,19 @@ uncommitted `NSTextField` edits) are no longer live constraints.
 
 ### Producer / deploy
 
+- **dnssd lookups must end `Canceled`, never `DeadlineExceeded`.**
+  `brutella/dnssd` v1.2.14 `readInto` leaves its reader loops only on
+  `ctx.Err() == context.Canceled`, and `continue`s on every `ReadFrom` error.
+  If the context passed to `LookupType` ends by deadline, `LookupType` closes
+  the conn and two readers spin on "use of closed network connection" forever.
+  The server reached ~1100% CPU after 35 h of AWTRIX and PrusaLink rediscovery
+  (#872). Every lookup goes through `discovery.lookupType`
+  (`internal/discovery/lookup.go`), which hands dnssd a context detached from
+  the caller's deadline and cancels it when the caller's context ends or the
+  lookup returns. Never call `dnssd.LookupType` directly. A smaller leak
+  remains upstream: a reader holding a packet when the lookup returns blocks
+  forever on its unbuffered channel send (idle, one goroutine and a 64 KiB
+  buffer each).
 - **Linux producer plumbing.** `/proc/<pid>/stat` `comm` is cut to 15 bytes
   (`ember-claude-pr`), so owner checks match on the cut name. Process start
   time is read as clock ticks after boot with `USER_HZ` fixed at 100 (sysconf

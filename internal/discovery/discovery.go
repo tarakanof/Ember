@@ -203,7 +203,7 @@ type (
 )
 
 func BrowseAWTRIX(ctx context.Context, timeout time.Duration) ([]Candidate, error) {
-	return browseAWTRIX(ctx, timeout, dnssd.LookupType, udpBrowse)
+	return browseAWTRIX(ctx, timeout, lookupType, udpBrowse)
 }
 
 func browseAWTRIX(ctx context.Context, timeout time.Duration, lookupMDNS mdnsLookup, browseUDP udpLookup) ([]Candidate, error) {
@@ -250,7 +250,7 @@ type PrusaLink struct {
 }
 
 func BrowsePrusaLink(ctx context.Context, timeout time.Duration) ([]PrusaLink, error) {
-	return browsePrusaLink(ctx, timeout, dnssd.LookupType)
+	return browsePrusaLink(ctx, timeout, lookupType)
 }
 
 func prusaLinkOf(e dnssd.BrowseEntry) (PrusaLink, bool) {
@@ -296,7 +296,7 @@ func browsePrusaLink(ctx context.Context, timeout time.Duration, lookupMDNS mdns
 }
 
 func WatchPrusaLink(ctx context.Context, seen func(PrusaLink)) error {
-	return watchPrusaLink(ctx, dnssd.LookupType, seen)
+	return watchPrusaLink(ctx, lookupType, seen)
 }
 
 func watchPrusaLink(ctx context.Context, lookupMDNS mdnsLookup, seen func(PrusaLink)) error {
