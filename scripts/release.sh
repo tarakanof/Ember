@@ -17,10 +17,11 @@ IFS=$'\n\t'
 #
 # Preconditions: a clean tree; `main` in sync with origin (except --app-only);
 # `gh` authenticated; the tag must not exist. An app release also needs the
-# Developer ID Application identity of DEVELOPMENT_TEAM in the keychain and the
-# `ember-notary` notarytool profile (EMBER_NOTARY_PROFILE overrides the name).
+# Developer ID Application identity of DEVELOPMENT_TEAM in the keychain, the
+# `ember-notary` notarytool profile (EMBER_NOTARY_PROFILE overrides the name) and
+# the Sparkle EdDSA private key in the login keychain, matching SUPublicEDKey.
 
-usage() { sed -n '5,22p' "$0" >&2; exit 2; }
+usage() { sed -n '5,23p' "$0" >&2; exit 2; }
 
 ASSUME_YES=0
 APP=1
@@ -59,6 +60,9 @@ cd "$REPO_ROOT"
 PROJECT_YML="macos/project.yml"
 NOTARY_PROFILE="${EMBER_NOTARY_PROFILE:-ember-notary}"
 ZIP_NAME="Ember-$VERSION.zip"
+INFO_PLIST="macos/Ember/Info.plist"
+SPARKLE_SERVICE="https://sparkle-project.org"
+plist_get() { /usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null; }
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "error: $1 not found${2:+ ($2)}" >&2; exit 1; }; }
 
@@ -106,6 +110,18 @@ Or cut a server-only release with --no-app.
 EOF
 }
 
+sparkle_setup() {
+  cat >&2 <<EOF
+One-time setup (see issue #861), on the Mac that releases:
+  1. Save the Sparkle private key from 1Password to ~/Desktop/ember-sparkle.key.
+  2. Run: <bin>/generate_keys -f ~/Desktop/ember-sparkle.key
+     (<bin> is ~/Library/Developer/Xcode/DerivedData/Ember-*/SourcePackages/artifacts/sparkle/Sparkle/bin
+     after any Xcode build of Ember).
+  3. Delete ~/Desktop/ember-sparkle.key.
+Or cut a server-only release with --no-app.
+EOF
+}
+
 if [ "$APP" -eq 1 ]; then
   [ -n "$TEAM" ] || { echo "error: couldn't read DEVELOPMENT_TEAM from $PROJECT_YML" >&2; exit 1; }
   need xcodegen "brew install xcodegen"
@@ -122,6 +138,18 @@ if [ "$APP" -eq 1 ]; then
     notary_setup
     exit 1
   fi
+  source_key="$(plist_get SUPublicEDKey "$INFO_PLIST" || true)"
+  case "$source_key" in
+    "") echo "error: $INFO_PLIST has no SUPublicEDKey" >&2; exit 1 ;;
+    PLACEHOLDER*)
+      echo "error: $INFO_PLIST SUPublicEDKey is still the placeholder; set it to the public half of the Sparkle key (generate_keys -p)" >&2
+      exit 1 ;;
+  esac
+  if ! security find-generic-password -s "$SPARKLE_SERVICE" -a ed25519 >/dev/null 2>&1; then
+    echo "error: no Sparkle signing key in the login keychain" >&2
+    sparkle_setup
+    exit 1
+  fi
 fi
 
 echo "Release plan:"
@@ -129,6 +157,7 @@ echo "  app version : $current -> $VERSION  ($PROJECT_YML)"
 echo "  app build   : $build -> $next_build"
 if [ "$APP" -eq 1 ]; then
   echo "  app         : $ZIP_NAME, Developer ID ($TEAM), notarized with profile $NOTARY_PROFILE"
+  echo "  update feed : appcast.xml signed with the Sparkle key in the login keychain"
 else
   echo "  app         : none (--no-app)"
 fi
@@ -195,6 +224,15 @@ if [ "$APP" -eq 1 ]; then
   for helper in "$BUILT"/Contents/MacOS/ember-*; do
     signed_by_developer_id "$helper"
   done
+  SPARKLE_BIN="$WORK/dd/SourcePackages/artifacts/sparkle/Sparkle/bin"
+  built_key="$(plist_get SUPublicEDKey "$BUILT/Contents/Info.plist" || true)"
+  keychain_key="$("$SPARKLE_BIN/generate_keys" -p | tr -d '[:space:]')"
+  if [ -z "$built_key" ] || [ "$built_key" != "$keychain_key" ]; then
+    echo "error: Ember.app's SUPublicEDKey does not match the Sparkle key in the keychain; no update signed with it could install" >&2
+    echo "  app     : ${built_key:-none}" >&2
+    echo "  keychain: ${keychain_key:-none}" >&2
+    exit 1
+  fi
 
   ditto -c -k --keepParent "$BUILT" "$WORK/notarize.zip"
   echo "submitting to the notary service (profile $NOTARY_PROFILE); this takes a few minutes"
@@ -221,10 +259,22 @@ if [ "$APP" -eq 1 ]; then
   ZIP="$WORK/$ZIP_NAME"
   ditto -c -k --keepParent "$BUILT" "$ZIP"
   echo "app: $ZIP"
+
+  signed="$("$SPARKLE_BIN/sign_update" "$ZIP")"
+  ed_sig="$(sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p' <<<"$signed")"
+  ed_len="$(sed -n 's/.*length="\([0-9]*\)".*/\1/p' <<<"$signed")"
+  if [ -z "$ed_sig" ] || [ "$ed_len" != "$(stat -f%z "$ZIP")" ]; then
+    echo "error: sign_update gave no signature for $ZIP_NAME, or the wrong length" >&2
+    exit 1
+  fi
+  APPCAST="$WORK/appcast.xml"
+  scripts/appcast.sh "$(plist_get SUFeedURL "$BUILT/Contents/Info.plist")" "$VERSION" "$next_build" \
+    "$(plist_get LSMinimumSystemVersion "$BUILT/Contents/Info.plist")" "$ed_sig" "$ed_len" >"$APPCAST"
+  echo "appcast: $APPCAST"
 fi
 
 if [ "$APP_ONLY" -eq 1 ]; then
-  echo "--app-only: $ZIP is notarized and stapled; $PROJECT_YML is restored"
+  echo "--app-only: $ZIP is notarized and stapled, $APPCAST signs it; $PROJECT_YML is restored"
   exit 0
 fi
 
@@ -239,9 +289,9 @@ git push origin "$TAG"
 if [ "$APP" -eq 1 ]; then
   NOTES="**Install the app:** download \`$ZIP_NAME\` below, double-click it, drag **Ember** to **Applications** and open it."
   gh release create "$TAG" --verify-tag --draft --title "$TITLE" --notes "$NOTES" --generate-notes
-  if ! gh release upload "$TAG" "$ZIP" || ! gh release edit "$TAG" --draft=false; then
+  if ! gh release upload "$TAG" "$ZIP" "$APPCAST" || ! gh release edit "$TAG" --draft=false; then
     echo "error: $TAG is tagged and pushed, but its release is still a draft. Finish it with:" >&2
-    echo "  gh release upload $TAG '$ZIP' --clobber && gh release edit $TAG --draft=false" >&2
+    echo "  gh release upload $TAG '$ZIP' '$APPCAST' --clobber && gh release edit $TAG --draft=false" >&2
     exit 1
   fi
   rm -rf "$WORK"

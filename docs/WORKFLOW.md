@@ -87,9 +87,9 @@ they apply at every step.
   - `--app-only` builds, notarizes and staples the zip and stops, from any
     branch: a dry run that commits, tags and publishes nothing.
 - An app release must leave `releases/latest/download/appcast.xml` answering:
-  installed apps read it once a day to offer the update (Sparkle, #861). The
-  release-script step that signs the zip with the Sparkle key and uploads the
-  appcast lands with #861's release half; a `--no-app` release keeps
+  installed apps read it once a day to offer the update (Sparkle, #861).
+  `release.sh` signs the zip with the Sparkle key from the login keychain and
+  uploads `appcast.xml` beside it; a `--no-app` release keeps
   `releases/latest` on the last app release, so its appcast stays served.
 - If SSH push fails in a sandbox (1Password agent):
   `GIT_SSH_COMMAND="ssh -o IdentityAgent=none -o IdentitiesOnly=yes"`, or HTTPS
