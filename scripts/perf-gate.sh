@@ -21,7 +21,7 @@ server_idle_cpu               0.10    0.01/0.01  CPU s of the idle server over 6
 server_idle_goroutine_growth  0       0/0        goroutines after 60 s idle minus after startup
 server_load_cpu               0.55    0.14/0.17  CPU s of the server per minute under load
 server_load_goroutine_growth  6       0/0        goroutines, end of the load run minus its middle
-server_load_rss_growth_kib    2048    672/264    RSS KiB, end of the load run minus its middle
+server_load_rss_growth_kib    2048    688/264    RSS KiB, end of the load run minus its middle
 claude_idle_cpu               0.10    0.02/0.00  CPU s of the idle Claude producer over 60 s
 claude_goroutine_growth       2       0/0        goroutines, a 65 s-old Claude producer minus a 35 s-old one
 codex_idle_cpu                0.10    0.01/0.00  CPU s of the idle Codex producer over 60 s
@@ -123,8 +123,8 @@ min_of() { tr ' ' '\n' <<<"$1" | awk 'NF { if (m == "" || $1 + 0 < m + 0) m = $1
 
 alive_or_die() {
   kill -0 "$2" 2>/dev/null && return 0
-  echo "error: $1 exited early; its log:" >&2
-  tail -20 "$3" >&2 || true
+  echo "error: $1 exited early; its logs:" >&2
+  find "$3" -type f -name '*.log' -exec tail -n 20 {} + >&2 || true
   exit 1
 }
 
@@ -251,7 +251,7 @@ sleep "$WARMUP_SECONDS"
 idle_cpu0="$(metric "$IDLE_PORT" ember_process_cpu_seconds_total)"
 idle_g0="$(metric "$IDLE_PORT" ember_goroutines)"
 for i in 0 1 2; do
-  alive_or_die "the ${KINDS[i]} producer" "${EARLY_PIDS[i]}" "$WORK/${KINDS[i]}-early-home/stdout.log"
+  alive_or_die "the ${KINDS[i]} producer" "${EARLY_PIDS[i]}" "$WORK/${KINDS[i]}-early-home"
   PRODUCER_CPU[i]="$(cpu_seconds "${EARLY_PIDS[i]}")"
 done
 sleep $((IDLE_SECONDS / 2 - WARMUP_SECONDS))
@@ -260,14 +260,13 @@ for i in 0 1 2; do
   LATE_PIDS[i]="$STARTED_PID"
 done
 sleep $((IDLE_SECONDS / 2 + WARMUP_SECONDS))
-alive_or_die "the idle server" "$IDLE_PID" "$WORK/idle/server.log"
+alive_or_die "the idle server" "$IDLE_PID" "$WORK/idle"
 idle_cpu1="$(metric "$IDLE_PORT" ember_process_cpu_seconds_total)"
 idle_g1="$(metric "$IDLE_PORT" ember_goroutines)"
 PRODUCER_GROWTH=()
 for i in 0 1 2; do
-  for pid in "${EARLY_PIDS[i]}" "${LATE_PIDS[i]}"; do
-    alive_or_die "the ${KINDS[i]} producer" "$pid" "$WORK/${KINDS[i]}-early-home/stdout.log"
-  done
+  alive_or_die "the ${KINDS[i]} producer" "${EARLY_PIDS[i]}" "$WORK/${KINDS[i]}-early-home"
+  alive_or_die "the late ${KINDS[i]} producer" "${LATE_PIDS[i]}" "$WORK/${KINDS[i]}-late-home"
   PRODUCER_CPU[i]="$(minus "$(cpu_seconds "${EARLY_PIDS[i]}")" "${PRODUCER_CPU[i]}")"
   quit_and_wait "${EARLY_PIDS[i]}"
   quit_and_wait "${LATE_PIDS[i]}"
@@ -300,7 +299,7 @@ half=$((samples / 2))
 mid_g="" mid_rss="" end_g="" end_rss=""
 for i in $(seq 1 "$samples"); do
   sleep "$SAMPLE_SECONDS"
-  alive_or_die "the loaded server" "$IDLE_PID" "$WORK/idle/server.log"
+  alive_or_die "the loaded server" "$IDLE_PID" "$WORK/idle"
   g="$(metric "$IDLE_PORT" ember_goroutines)"
   r="$(rss_kib "$IDLE_PID")"
   if [ "$i" -gt $((half - 3)) ] && [ "$i" -le "$half" ]; then
