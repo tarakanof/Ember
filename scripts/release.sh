@@ -3,7 +3,8 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # Cut a release: bump the macOS app version, build, notarize and staple
-# Ember.app, then tag and publish a GitHub Release carrying Ember-X.Y.Z.zip.
+# Ember.app, then tag and publish a GitHub Release carrying Ember-X.Y.Z.zip
+# and the Sparkle appcast.xml that signs it.
 #
 # Usage:
 #   scripts/release.sh <X.Y.Z> [release title] [flags]
@@ -12,8 +13,9 @@ IFS=$'\n\t'
 # Flags:
 #   -y, --yes    skip the confirmation prompt (non-interactive)
 #   --no-app     release without the app (no build, no zip), not marked latest
-#   --app-only   build, notarize and staple Ember-X.Y.Z.zip, then stop:
-#                no commit, tag or release; works from any branch
+#   --app-only   build, notarize and staple Ember-X.Y.Z.zip and write its
+#                appcast.xml, then stop: no commit, tag or release; works
+#                from any branch
 #
 # Preconditions: a clean tree; `main` in sync with origin (except --app-only);
 # `gh` authenticated; the tag must not exist. An app release also needs the
@@ -21,7 +23,7 @@ IFS=$'\n\t'
 # `ember-notary` notarytool profile (EMBER_NOTARY_PROFILE overrides the name) and
 # the Sparkle EdDSA private key in the login keychain, matching SUPublicEDKey.
 
-usage() { sed -n '5,23p' "$0" >&2; exit 2; }
+usage() { sed -n '5,25p' "$0" >&2; exit 2; }
 
 ASSUME_YES=0
 APP=1
@@ -165,7 +167,7 @@ else
   echo "  app         : none (--no-app)"
 fi
 if [ "$APP_ONLY" -eq 1 ]; then
-  echo "  stops after : the stapled zip (--app-only: no commit, tag or release)"
+  echo "  stops after : the stapled zip and its appcast.xml (--app-only: no commit, tag or release)"
 else
   echo "  tag         : $TAG  (on $(git rev-parse --short HEAD))"
   echo "  title       : $TITLE"

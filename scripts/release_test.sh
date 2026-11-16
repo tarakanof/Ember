@@ -88,7 +88,12 @@ mkdir -p "$FAKE_SPARKLE"
 sparkle_stub() { printf '#!/bin/bash\nset -euo pipefail\necho "%s $*" >>"$CALLS"\n%s\n' "$1" "$2" >"$FAKE_SPARKLE/$1"; chmod +x "$FAKE_SPARKLE/$1"; }
 sparkle_stub generate_keys '[ "$*" = "--account ember -p" ] && echo "'"$PUBKEY"'"'
 sparkle_stub sign_update '[ "$1 $2" = "--account ember" ] || exit 1
-echo "sparkle:edSignature=\"'"$SIG"'\" length=\"$(stat -f%z "$3")\""'
+len="$(stat -f%z "$3")"
+case "${FAKE_SIGN:-ok}" in
+  ok) echo "sparkle:edSignature=\"'"$SIG"'\" length=\"$len\"" ;;
+  nosig) echo "length=\"$len\"" ;;
+  badlen) echo "sparkle:edSignature=\"'"$SIG"'\" length=\"$((len + 1))\"" ;;
+esac'
 
 new_repo() {
   rm -rf "$WORK/origin.git" "$WORK/repo" "$WORK/uploaded.txt" "$WORK/tmp"
@@ -192,6 +197,16 @@ grep -q "no secure timestamp" "$WORK/out" || fail "no timestamp: no explanation"
 ! grep -q '^xcrun notarytool submit' "$WORK/calls.log" || fail "no timestamp: submitted anyway"
 untouched "no timestamp"
 echo "ok: code signed without a secure timestamp is refused before notarization"
+
+for mode in nosig badlen; do
+  new_repo
+  FAKE_SIGN=$mode run_release 1.2.3 --yes && fail "sign_update $mode: release went ahead"
+  grep -q "sign_update gave no signature for Ember-1.2.3.zip, or the wrong length" "$WORK/out" || fail "sign_update $mode: no explanation"
+  grep -q '^sign_update ' "$WORK/calls.log" || fail "sign_update $mode: sign_update never ran"
+  [ ! -e "$WORK/uploaded.txt" ] || fail "sign_update $mode: uploaded anyway"
+  untouched "sign_update $mode"
+done
+echo "ok: a sign_update result with no signature or the wrong length stops before the commit"
 
 new_repo
 FAKE_NOTARY=Invalid run_release 1.2.3 --yes && fail "notarization rejected: release went ahead"
