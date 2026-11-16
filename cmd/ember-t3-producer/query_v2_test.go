@@ -52,6 +52,7 @@ func (f *v2Fixture) read(t *testing.T, migration int) map[string]thread {
 	if snap.Migration != migration {
 		t.Fatalf("migration = %d, want %d", snap.Migration, migration)
 	}
+	checkScopedMatchesFull(t, home, snap)
 	return byID(snap.Threads)
 }
 

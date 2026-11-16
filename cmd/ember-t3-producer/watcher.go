@@ -70,6 +70,14 @@ func (w *watcher) tick(threads []thread, now time.Time) (posts []producer.Status
 	return posts, deletes
 }
 
+func (w *watcher) scope(now time.Time) readScope {
+	keep := make([]string, 0, len(w.live))
+	for id := range w.live {
+		keep = append(keep, id)
+	}
+	return readScope{now: now, since: now.Add(-w.activityWindow), keep: keep}
+}
+
 func (w *watcher) dropAll() []producer.DeleteRequest {
 	var out []producer.DeleteRequest
 	for id := range w.live {

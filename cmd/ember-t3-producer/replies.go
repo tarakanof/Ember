@@ -56,7 +56,7 @@ func (r *storeReader) prompts(ctx context.Context, home string, after replyCurso
 	if _, ok := dbModTime(path); !ok {
 		return nil, errNoDatabase
 	}
-	db, err := r.handle(path)
+	db, err := r.handle(ctx, path)
 	if err != nil {
 		return nil, err
 	}

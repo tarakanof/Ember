@@ -25,20 +25,35 @@ func serverAlive(home string, alive func(pid int, startedAt time.Time) bool) boo
 	return alive(st.PID, started)
 }
 
-// T3 records startedAt after its process is running, hence the 1 s slack.
 func pidAlive(pid int, startedAt time.Time) bool {
+	return (&startCache{lookup: processStart}).alive(pid, startedAt)
+}
+
+type startCache struct {
+	lookup func(pid int) (time.Time, bool)
+	pid    int
+	start  time.Time
+	known  bool
+}
+
+// T3 records startedAt after its process is running, hence the 1 s slack.
+func (c *startCache) alive(pid int, startedAt time.Time) bool {
 	if pid <= 0 {
 		return false
 	}
 	if err := syscall.Kill(pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
+		c.pid = 0
 		return false
 	}
 	if startedAt.IsZero() {
 		return true
 	}
-	start, ok := processStart(pid)
-	if !ok {
+	if c.pid != pid {
+		c.pid = pid
+		c.start, c.known = c.lookup(pid)
+	}
+	if !c.known {
 		return true
 	}
-	return !start.After(startedAt.Add(time.Second))
+	return !c.start.After(startedAt.Add(time.Second))
 }

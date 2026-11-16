@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -47,35 +48,60 @@ func readSnapshot(ctx context.Context, home string) (snapshot, error) {
 	return r.Read(ctx, home)
 }
 
+const fullReadEvery = time.Minute
+
+type readScope struct {
+	now   time.Time
+	since time.Time
+	keep  []string
+}
+
+func (s readScope) all() bool { return s.since.IsZero() }
+
 type storeReader struct {
 	path string
 	info os.FileInfo
 	db   *sql.DB
+	conn *sql.Conn
+
+	version   int64
+	cached    *snapshot
+	scope     readScope
+	primed    bool
+	migration int
+	fullAt    time.Time
 }
 
 func (r *storeReader) Read(ctx context.Context, home string) (snapshot, error) {
+	return r.ReadScoped(ctx, home, readScope{})
+}
+
+func (r *storeReader) ReadScoped(ctx context.Context, home string, scope readScope) (snapshot, error) {
 	dir := filepath.Join(home, "userdata")
 	v1, v2 := filepath.Join(dir, "state.sqlite"), filepath.Join(dir, "statev2.sqlite")
 	m1, ok1 := dbModTime(v1)
 	m2, ok2 := dbModTime(v2)
 	switch {
 	case ok2 && (!ok1 || !m1.After(m2)):
-		return r.readWith(ctx, v2, 2, v2Query)
+		return r.readWith(ctx, v2, 2, v2Query, scope)
 	case ok1:
-		return r.readWith(ctx, v1, 1, v1Query)
+		return r.readWith(ctx, v1, 1, v1Query, scope)
 	}
 	r.Close()
 	return snapshot{}, errNoDatabase
 }
 
 func (r *storeReader) Close() {
+	if r.conn != nil {
+		r.conn.Close()
+	}
 	if r.db != nil {
 		r.db.Close()
 	}
-	r.db, r.path, r.info = nil, "", nil
+	r.db, r.conn, r.path, r.info, r.cached, r.primed = nil, nil, "", nil, nil, false
 }
 
-func (r *storeReader) handle(path string) (*sql.DB, error) {
+func (r *storeReader) handle(ctx context.Context, path string) (*sql.Conn, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		r.Close()
@@ -89,9 +115,14 @@ func (r *storeReader) handle(path string) (*sql.DB, error) {
 		if err != nil {
 			return nil, err
 		}
-		r.db, r.path, r.info = db, path, info
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+		r.db, r.conn, r.path, r.info = db, conn, path, info
 	}
-	return r.db, nil
+	return r.conn, nil
 }
 
 func dbModTime(path string) (time.Time, bool) {
@@ -117,13 +148,18 @@ var (
 	v2AwarenessTables = append(append([]string(nil), v2Tables...), "orchestration_v2_projection_messages")
 )
 
-type schemaQuery func(migration int) (tables []string, query string, args []any)
+type schemaQuery func(migration int, scope readScope) (tables []string, query string, args []any)
 
-func v1Query(int) ([]string, string, []any) { return v1Tables, queryV1, nil }
+func v1Query(int, readScope) ([]string, string, []any) { return v1Tables, queryV1, nil }
 
-func v2Query(migration int) ([]string, string, []any) {
+func v2Query(migration int, scope readScope) ([]string, string, []any) {
 	if migration >= t3AwarenessMigration {
-		return v2AwarenessTables, queryV2, nil
+		if scope.all() {
+			return v2AwarenessTables, queryV2, nil
+		}
+		keep, _ := json.Marshal(append([]string{}, scope.keep...))
+		since := scope.since.Add(-time.Second).UTC().Format(t3StampLayout)
+		return v2AwarenessTables, queryV2Scoped, []any{string(keep), since}
 	}
 	gate := 0
 	if migration >= t3PendingSemanticsMigration {
@@ -132,25 +168,78 @@ func v2Query(migration int) ([]string, string, []any) {
 	return v2Tables, queryV2Legacy, []any{gate}
 }
 
-func (r *storeReader) readWith(ctx context.Context, path string, schema int, pick schemaQuery) (snapshot, error) {
-	db, err := r.handle(path)
+func (r *storeReader) readWith(ctx context.Context, path string, schema int, pick schemaQuery, scope readScope) (snapshot, error) {
+	conn, err := r.handle(ctx, path)
 	if err != nil {
 		return snapshot{}, err
 	}
-	snap, err := readTables(ctx, db, path, schema, pick)
-	if err != nil && !errors.Is(err, errUnknownSchema) {
+	var version int64
+	if err := conn.QueryRowContext(ctx, `PRAGMA data_version`).Scan(&version); err != nil {
 		r.Close()
+		return snapshot{}, fmt.Errorf("read %s: %w", filepath.Base(path), err)
 	}
-	return snap, err
+	if !r.primed || scope.now.Sub(r.fullAt) >= fullReadEvery {
+		scope = readScope{now: scope.now}
+	}
+	if r.cached != nil && version == r.version && covers(r.scope, scope, r.cached.Threads) {
+		if scope.all() {
+			r.fullAt = scope.now
+		}
+		return *r.cached, nil
+	}
+	r.cached = nil
+	snap, err := readTables(ctx, conn, path, schema, pick, scope)
+	if err == nil && !scope.all() && snap.Migration != r.migration {
+		scope = readScope{now: scope.now}
+		snap, err = readTables(ctx, conn, path, schema, pick, scope)
+	}
+	if err != nil {
+		if !errors.Is(err, errUnknownSchema) {
+			r.Close()
+		}
+		return snap, err
+	}
+	if scope.all() {
+		r.primed, r.migration, r.fullAt = true, snap.Migration, scope.now
+	}
+	r.version, r.scope, r.cached = version, scope, &snap
+	return snap, nil
 }
 
-func readTables(ctx context.Context, db *sql.DB, path string, schema int, pick schemaQuery) (snapshot, error) {
+func covers(had, want readScope, threads []thread) bool {
+	if had.all() {
+		return true
+	}
+	if want.all() || want.since.Before(had.since) {
+		return false
+	}
+	known := make(map[string]bool, len(had.keep)+len(threads))
+	for _, id := range had.keep {
+		known[id] = true
+	}
+	for _, th := range threads {
+		known[th.ID] = true
+	}
+	for _, id := range want.keep {
+		if !known[id] {
+			return false
+		}
+	}
+	return true
+}
+
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func readTables(ctx context.Context, db querier, path string, schema int, pick schemaQuery, scope readScope) (snapshot, error) {
 	snap := snapshot{Schema: schema}
 	var mig sql.NullInt64
 	if err := db.QueryRowContext(ctx, `SELECT max(migration_id) FROM effect_sql_migrations`).Scan(&mig); err == nil {
 		snap.Migration = int(mig.Int64)
 	}
-	tables, query, args := pick(snap.Migration)
+	tables, query, args := pick(snap.Migration, scope)
 	for _, tbl := range tables {
 		var n int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, tbl).Scan(&n); err != nil {
