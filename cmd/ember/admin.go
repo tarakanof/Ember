@@ -230,6 +230,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		}
 		app.cfg.Store(&newCfg)
 		app.cfgMu.Unlock()
+		app.browseBackoff.reset()
 		app.resyncPomodoroAfterReload()
 		app.reapplySettings()
 		app.printer.Wake()

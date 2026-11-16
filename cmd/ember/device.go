@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,14 +57,21 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 
 	defer a.lastRediscoverAt.Store(time.Now().Unix())
 
+	started := a.rediscoverClockNow()
 	cur := a.cfg.Load().effectiveClockURL()
+	key := cur + "\x00" + strconv.FormatBool(a.cfg.Load().AWTRIX.clockUnset)
 	if cur != "" {
 		for i := 0; i < rediscoverProbeAttempts && ctx.Err() == nil; i++ {
 			if a.clock.reachable(ctx, cur) {
+				a.browseBackoff.reset()
 				a.lastRediscoverResult.Store("reachable")
 				return false
 			}
 		}
+	}
+	if !a.browseBackoff.due(started, key) {
+		a.lastRediscoverResult.Store("no-device")
+		return false
 	}
 	if ctx.Err() != nil {
 		a.lastRediscoverResult.Store("cancelled")
@@ -76,6 +84,7 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 		return false
 	}
 	if err != nil || len(cands) == 0 {
+		a.browseBackoff.missed(started)
 		a.lastRediscoverResult.Store("no-device")
 		if cur == "" && a.cfg.Load().AWTRIX.clockUnset {
 			a.noteUnclaimedClocks(nil)
@@ -84,6 +93,7 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 		a.logger.Info("clock discovery found no device", "configured", cur, "err", err)
 		return false
 	}
+	a.browseBackoff.reset()
 	if cur == "" && a.cfg.Load().AWTRIX.clockUnset {
 		a.lastRediscoverResult.Store("unclaimed")
 		a.noteUnclaimedClocks(cands)
@@ -109,6 +119,54 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	a.caps.invalidate()
 	a.refreshCapabilities(ctx)
 	return true
+}
+
+func (a *App) rediscoverClockNow() time.Time {
+	if a.rediscoverNow != nil {
+		return a.rediscoverNow()
+	}
+	return time.Now()
+}
+
+const (
+	browseBackoffBase  = deviceWatchInterval
+	browseBackoffCap   = 10 * time.Minute
+	browseBackoffSlack = 2 * time.Second
+)
+
+type browseBackoffState struct {
+	mu   sync.Mutex
+	step time.Duration
+	next time.Time
+	key  string
+}
+
+func (b *browseBackoffState) due(now time.Time, key string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if key != b.key {
+		b.key = key
+		b.step = 0
+		b.next = time.Time{}
+	}
+	return !now.Add(browseBackoffSlack).Before(b.next)
+}
+
+func (b *browseBackoffState) missed(started time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.step == 0 {
+		b.step = browseBackoffBase
+	}
+	b.next = started.Add(b.step)
+	b.step = min(b.step*2, browseBackoffCap)
+}
+
+func (b *browseBackoffState) reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.step = 0
+	b.next = time.Time{}
 }
 
 func (a *App) noteUnclaimedClocks(cands []discovery.Candidate) {
@@ -292,6 +350,7 @@ func (a *App) handleDeviceConfigPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.caps.invalidate()
+	a.browseBackoff.reset()
 	if moved {
 		a.clockMoved("clock_url_changed")
 	}
@@ -311,6 +370,9 @@ func (a *App) handleDeviceDiscover(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
+	}
+	if len(cands) > 0 {
+		a.browseBackoff.reset()
 	}
 	if cands == nil {
 		cands = []discovery.Candidate{}

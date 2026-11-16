@@ -1798,7 +1798,10 @@ fingerprint doesn't exist on NG). The server advertises itself as
   override included) at boot and every 30s via a background probe
   (`awtrix.auto_rediscover`, default on); an unreachable URL falls through to a
   fresh mDNS auto-pick without touching `config.json` or the store, so a
-  clock's IP changing (DHCP renumbering) recovers on its own within ~30s; the
+  clock's IP changing (DHCP renumbering) recovers on its own within ~30s while the
+  clock answers at its old URL, and otherwise at the next browse: with nothing
+  found the LAN browse backs off from 30s to a 10 min cap (reset by a found
+  candidate, a URL or settings change, `/admin/reload`, or the clock answering); the
   new address also gets the native icons and the boot-ping script. The
   same tick reads the clock's `uptimeSeconds` to detect a reboot and triggers a
   full republish of every pushed app — pushed apps are RAM-only on NG, so a
