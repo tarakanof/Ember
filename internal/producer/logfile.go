@@ -1,6 +1,7 @@
 package producer
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -80,5 +81,6 @@ func StartDaemonLog(name string, alsoRotate ...string) {
 		return
 	}
 	RedirectStandardIO(f)
+	go WatchLog(context.Background(), f.Name(), LogCheckInterval)
 	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
 }
