@@ -311,7 +311,7 @@ units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
 `features`: server capabilities clients gate on, today
 `firmware_delete_keep`, `device_app_enabled` and `lan_pair` (the knob claim
 routes, #658); `clock_disabled: true` under `EMBER_CLOCK=off`, omitted
-otherwise, read without clock I/O), `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
+otherwise, read without clock I/O), `/metrics` (Prometheus text; series in RUNBOOK "Prometheus `/metrics`", among them `ember_goroutines`, `ember_process_cpu_seconds_total` and `ember_process_resident_memory_bytes`, the process's own resource use, #881). Knob device token only: `POST /v1/devices/self/checkin`,
 `GET /v1/devices/self/config`, `PUT /v1/devices/self/coredump?id=<dump>`
 (the core dump a checkin asked for: `application/octet-stream`, ≤128 KiB or
 413, CRC-checked or 400, 409 while another upload of this knob runs, 204 when

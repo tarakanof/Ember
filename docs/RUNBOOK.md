@@ -2045,11 +2045,17 @@ text format:
 - gauges: `ember_sessions_active`, `ember_uptime_seconds`,
   `ember_knob_view_waiters`, `ember_last_publish_unix`, `ember_last_publish_ok`,
   `ember_ratelimit_buckets`, `ember_build_info{revision,go_version,version}`
+- process (#881): `ember_goroutines` (gauge), `ember_process_cpu_seconds_total`
+  (counter, user + system), `ember_process_resident_memory_bytes` (gauge; on
+  macOS, where the stdlib has no current RSS, the peak from `getrusage`).
+  The perf gate reads them from its scratch server; WORKFLOW step 6 reads them
+  from the live one
 
 Request counts are labelled by the matched route pattern, not the URL, so a 404
 spammer can't grow the series. Requests rejected by `requireAuth` /
-`adminRequireAuth` count against the outer prefix (`/v1/`, `/admin/`). No Go
-runtime metrics (that would need `prometheus/client_golang`). The endpoint
+`adminRequireAuth` count against the outer prefix (`/v1/`, `/admin/`). Beyond
+the three process series, no Go runtime metrics (that would need
+`prometheus/client_golang`). The endpoint
 exposes the git revision and Go version: fine on a trusted LAN; put it behind an
 authenticating reverse proxy if you bridge it wider.
 
@@ -2069,6 +2075,50 @@ takes the same token, so its 401s must cost budget. Read endpoints (`/healthz`,
 `/state`, `/version`, `/metrics`, previews) are not limited. Tune via the
 `rate_limit` section of `config.json` and `POST /admin/reload`;
 `rate_limit.disabled: true` turns it off.
+
+## Performance gate (#881)
+
+`scripts/perf-gate.sh` fails when the server or a producer uses more CPU,
+goroutines or memory than its budget. It runs in CI (the `perf-gate` job,
+Linux) and in `scripts/release.sh` before the version bump, so a failure
+leaves nothing to restore. About 2.5 minutes:
+
+```sh
+scripts/perf-gate.sh               # the whole gate
+scripts/perf-gate.sh --soak 30     # the same, with a 30-minute server-under-load run
+```
+
+Use `--soak` by hand before a release that touched discovery, long-polls or
+the coordinator: leaks that a minute hides show over half an hour.
+
+It builds the four binaries from the tree into a temp folder and runs them
+under the smoke-run rules: scratch `HOME`, data dir, random port (never
+`:3627`) and token, `EMBER_MDNS_ADVERTISE=0`, `EMBER_CLOCK=off`. The
+producers get empty scratch homes and stub `security` and `claude` ahead of
+`PATH`, so the Claude producer never reads the keychain's Claude credentials
+or calls the usage API. CPU is process CPU time (`ember_process_cpu_seconds_total`
+for the server, `/proc/<pid>/stat` or `ps -o time` for the producers), never
+wall time, so a slow runner doesn't fail it.
+
+| Check | How | Fails when |
+|---|---|---|
+| Server idle | 60 s with no requests | CPU over budget; goroutines at the end above the count 5 s after startup |
+| Server under load | the same server, a fake producer posting 5 sessions every 2 s (alternating `running`/`waiting`), one `/state` and one knob view long-poller (`?wait=25`, a scratch knob token) | CPU per minute over budget; the minimum of the last three goroutine or RSS samples (every 2 s) above the minimum of the three before the run's middle by more than the budget |
+| Producers idle | each daemon (`run`) against a second scratch server, 60 s | CPU over budget; goroutines (SIGQUIT dump, the per-core `gcBgMarkWorker`s left out) of a 65 s-old instance above a 35 s-old one's by more than the budget |
+| Rediscovery | `TestRediscoverClock_BrowsesADayAtTheBackedOffRate` | more browses in a simulated day with no clock than the backed-off schedule (#879) |
+| mDNS lookups | `TestBrowseSocketsLeavesNoGoroutinesWhileAnswersArrive`, `-count=20` | a lookup goroutine left (#876) |
+| T3 producer | `TestScopedPollCostDoesNotGrowWithSettledThreads`, `TestStoreReaderSkipsAnUnchangedDatabaseAndSeesEveryCommit` | 4,000 settled threads cost 2× or more of 500; an unchanged database queried again (#877) |
+| Bot push rate | `menuBarPushRateStaysInBudget` (EmberKit, `swift test` in CI's macOS job, not the script) | distinct menu-bar frames per minute over a mood's budget, worst of five seeds over 10 simulated minutes |
+
+The budgets live in one table, `BUDGETS` at the top of the script (the bot's
+in `BotPushRateTests.swift`), each with the value measured on `main` beside
+it (Mac/Linux). A budget is about 3× the worst measurement from CI's Linux
+runner and an Apple-silicon Mac, with floors where 3× is below what the gate
+can tell apart: 0.10 CPU s for the idle checks (the producers' CPU clock
+ticks in 10 ms steps), 6 goroutines for the load run (its long-polls move the
+count by ±2) and 2 for a producer. To change one, measure `main` again on
+both and update the measured column with it. A failure prints the
+measured number, its budget and the folder with the scratch logs.
 
 ## App release (notarized zip, #835)
 

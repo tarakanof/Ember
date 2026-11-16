@@ -16,18 +16,18 @@ set -euo pipefail
 usage() { sed -n '4,15p' "$0" >&2; exit 2; }
 
 BUDGETS='
-check                         budget  measured  what
-server_idle_cpu               0.30    0.03      CPU s of the idle server over 60 s
-server_idle_goroutine_growth  0       0         goroutines after 60 s idle minus after startup
-server_load_cpu               3.00    0.60      CPU s of the server per minute under load
-server_load_goroutine_growth  6       0         goroutines, end of the load run minus its middle
-server_load_rss_growth_kib    16384   1200      RSS KiB, end of the load run minus its middle
-claude_idle_cpu               0.30    0.02      CPU s of the idle Claude producer over 60 s
-claude_goroutine_growth       2       0         goroutines, a 65 s-old Claude producer minus a 35 s-old one
-codex_idle_cpu                0.30    0.01      CPU s of the idle Codex producer over 60 s
-codex_goroutine_growth        2       0         goroutines, a 65 s-old Codex producer minus a 35 s-old one
-t3_idle_cpu                   0.30    0.01      CPU s of the idle T3 producer over 60 s
-t3_goroutine_growth           2       0         goroutines, a 65 s-old T3 producer minus a 35 s-old one
+check                         budget  measured   what
+server_idle_cpu               0.10    0.01/0.01  CPU s of the idle server over 60 s
+server_idle_goroutine_growth  0       0/0        goroutines after 60 s idle minus after startup
+server_load_cpu               0.55    0.14/0.17  CPU s of the server per minute under load
+server_load_goroutine_growth  6       0/0        goroutines, end of the load run minus its middle
+server_load_rss_growth_kib    2048    672/264    RSS KiB, end of the load run minus its middle
+claude_idle_cpu               0.10    0.02/0.00  CPU s of the idle Claude producer over 60 s
+claude_goroutine_growth       2       0/0        goroutines, a 65 s-old Claude producer minus a 35 s-old one
+codex_idle_cpu                0.10    0.01/0.00  CPU s of the idle Codex producer over 60 s
+codex_goroutine_growth        2       0/0        goroutines, a 65 s-old Codex producer minus a 35 s-old one
+t3_idle_cpu                   0.10    0.01/0.00  CPU s of the idle T3 producer over 60 s
+t3_goroutine_growth           2       0/0        goroutines, a 65 s-old T3 producer minus a 35 s-old one
 '
 
 SOAK_MIN=0
@@ -98,7 +98,7 @@ what() { awk -v k="$1" '$1 == k { $1 = $2 = $3 = ""; sub(/^ +/, ""); print }' <<
 check() {
   local name="$1" got="$2" limit="${3:-$(budget "$1")}"
   if awk -v g="$got" -v b="$limit" 'BEGIN { exit !(g + 0 > b + 0) }'; then
-    printf 'FAIL %-30s %10s  budget %-8s (%s; main measured %s)\n' "$name" "$got" "$limit" "$(what "$name")" "$(measured "$name")"
+    printf 'FAIL %-30s %10s  budget %-8s (%s; main measured %s, Mac/Linux)\n' "$name" "$got" "$limit" "$(what "$name")" "$(measured "$name")"
     FAILED=1
   else
     printf 'ok   %-30s %10s  budget %-8s (%s)\n' "$name" "$got" "$limit" "$(what "$name")"
