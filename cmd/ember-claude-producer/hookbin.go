@@ -82,6 +82,10 @@ func (e hookBinaryEnv) resolve() (bin string, others []string) {
 	return bin, others
 }
 
+func isAppHelper(p string) bool {
+	return strings.HasSuffix(filepath.ToSlash(p), "/Ember.app/Contents/MacOS/"+producerName)
+}
+
 func sameFile(a, b string) bool {
 	ai, err1 := os.Stat(a)
 	bi, err2 := os.Stat(b)
@@ -112,7 +116,7 @@ func hookBinaryLines(e hookBinaryEnv, self string) []string {
 			"Install or update Ember.app, or point EMBER_CLAUDE_PRODUCER at the build you want", bin, self))
 	}
 	for _, o := range others {
-		if !sameFile(o, bin) {
+		if !sameFile(o, bin) && !isAppHelper(o) && !(self != "" && sameFile(o, self)) {
 			lines = append(lines, fmt.Sprintf("hint: %s (%s) is another copy the hooks do not use; delete it if you don't need it", o, binaryVersion(o)))
 		}
 	}
