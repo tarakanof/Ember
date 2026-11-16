@@ -288,6 +288,13 @@ producers"), token, `EMBER_SOURCE_COLOR`, and the `EMBER_*` toggles
 > commands, or the build silently doesn't happen and `install` uses a stale
 > binary. `go install` alone is allowed; since the LaunchAgent/hook paths point
 > at `~/go/bin`, rebuilding in place is usually enough — no re-`install` needed.
+> The plugin shim is different: with Ember.app installed it runs the app's
+> helper before `PATH` and `~/go/bin` (set `EMBER_CLAUDE_PRODUCER` to test a
+> `go install` build). `ember-claude-producer doctor` prints a `hook binary:`
+> line, warns when the hooks run another binary than `doctor`, lists other
+> copies with their version, and warns when the installed `ember@ember` plugin lags the producer's
+> hooks (`claude plugin marketplace update ember && claude plugin update
+> ember@ember`, then `/reload-plugins`).
 
 **Codex** daemon: installed as LaunchAgent `com.ember.codex`
 (`KeepAlive=true`). Restart with `launchctl kickstart -k gui/$UID/com.ember.codex`.
@@ -1018,7 +1025,7 @@ app, prefer a real URL there.
 (`claude plugin marketplace add tarakanof/Ember`, `claude plugin install
 ember@ember`, then `ember-claude-producer configure`) or from `settings.json`
 as `install` writes them; the statusline is the same. The plugin shim finds
-the binary on `PATH`, `~/go/bin` or `~/.local/bin`. Usage polling reads the
+the binary on `PATH`, `~/go/bin` or `~/.local/bin` (no Ember.app there). Usage polling reads the
 OAuth token from `~/.claude/.credentials.json` (no Keychain on Linux).
 
 **Paths**: config `~/.config/ember/producer.env` (0600); session markers

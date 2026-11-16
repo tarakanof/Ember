@@ -41,6 +41,15 @@ func runDoctor() {
 
 	hooksLine, _ := hookRegistrationReport(home)
 	fmt.Printf("  claude hooks: %s\n", hooksLine)
+	if pluginEnabledAt(home) {
+		self, _ := os.Executable()
+		for _, l := range hookBinaryLines(hookBinaryEnvFromOS(home), self) {
+			fmt.Println("  " + l)
+		}
+		if l := stalePluginLine(home); l != "" {
+			fmt.Println("  " + l)
+		}
+	}
 	if n := legacySettingsBackups(filepath.Join(home, ".claude", "settings.json")); n > 0 {
 		fmt.Printf("  hint: %d settings.json.bak.<pid> backups from older installs in ~/.claude; delete them if you don't need them\n", n)
 	}

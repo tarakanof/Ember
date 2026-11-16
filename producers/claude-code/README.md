@@ -49,10 +49,16 @@ ember-claude-producer doctor                    # "claude hooks: plugin ember@em
   only the hooks, while the heartbeat daemon, the statusline and Ember.app read
   `producer.env`.
 - **Binary lookup.** `scripts/ember-hook` uses `$EMBER_CLAUDE_PRODUCER` if set
-  (and only that), else `ember-claude-producer` on `PATH`, else
-  `~/go/bin/ember-claude-producer`, else
-  `/Applications/Ember.app/Contents/MacOS/ember-claude-producer` (or
-  `~/Applications/...`). No binary: the hook exits 0 silently.
+  (and only that), else Ember.app's bundled helper
+  (`/Applications/Ember.app/Contents/MacOS/ember-claude-producer`, or
+  `~/Applications/...`), else `ember-claude-producer` on `PATH`, else
+  `~/go/bin/ember-claude-producer`, else `~/.local/bin/ember-claude-producer`.
+  The app comes first so an old `go install` copy can't shadow its current
+  build. No binary: the hook exits 0 silently. `ember-claude-producer doctor`
+  names the binary the hooks resolve to, warns when it isn't the one running
+  `doctor`, lists other copies with their version, and warns when the installed plugin is older
+  than the producer (update: `claude plugin marketplace update ember && claude
+  plugin update ember@ember`, then `/reload-plugins`).
 - **Never in the way.** Every hook exits 0 and prints nothing. The three
   tool-outcome hooks run `async`, as in the installer. The other hooks block,
   and Claude Code kills them after 5 s. The exception is SessionEnd, which runs
