@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -155,6 +157,9 @@ func TestRender_StructureAndHelpLines(t *testing.T) {
 		"ember_last_publish_unix",
 		"ember_last_publish_ok",
 		"ember_ratelimit_buckets",
+		"ember_goroutines",
+		"ember_process_cpu_seconds_total",
+		"ember_process_resident_memory_bytes",
 		"ember_build_info",
 	} {
 		if !strings.Contains(body, "# HELP "+name+" ") {
@@ -526,4 +531,50 @@ func dropRootProbe(h http.Handler) http.Handler {
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+func scrapeGauge(t *testing.T, app *App, name string) float64 {
+	t.Helper()
+	var buf bytes.Buffer
+	app.metrics.render(&buf, app)
+	m := regexp.MustCompile(`(?m)^` + name + ` ([0-9.e+]+)$`).FindStringSubmatch(buf.String())
+	if m == nil {
+		t.Fatalf("no %s sample in:\n%s", name, buf.String())
+	}
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestRender_ProcessMetricsFollowTheProcess(t *testing.T) {
+	app := newAppForMetrics(t)
+
+	before := scrapeGauge(t, app, "ember_goroutines")
+	stop := make(chan struct{})
+	var parked sync.WaitGroup
+	for range 25 {
+		parked.Go(func() { <-stop })
+	}
+	during := scrapeGauge(t, app, "ember_goroutines")
+	close(stop)
+	parked.Wait()
+	if during < before+25 {
+		t.Errorf("ember_goroutines = %v with 25 more parked, had %v", during, before)
+	}
+
+	cpu := scrapeGauge(t, app, "ember_process_cpu_seconds_total")
+	for deadline := time.Now().Add(5 * time.Second); scrapeGauge(t, app, "ember_process_cpu_seconds_total") < cpu+0.05; {
+		if time.Now().After(deadline) {
+			t.Fatal("ember_process_cpu_seconds_total did not grow while the test spun")
+		}
+		for i := 0; i < 1_000_000; i++ {
+			_ = strconv.Itoa(i)
+		}
+	}
+
+	if rss := scrapeGauge(t, app, "ember_process_resident_memory_bytes"); rss < 1<<20 {
+		t.Errorf("ember_process_resident_memory_bytes = %v, want at least 1 MiB", rss)
+	}
 }
