@@ -1228,7 +1228,7 @@ Claude producer constraints:
   stdout can't wedge the watcher. The binary is `~/.local/bin/claude`, then
   PATH, then Homebrew paths, gated once per path+mtime on `claude --version` ≥
   2.1.288 (an older CLI would take `agents` as a prompt, so the gate is a
-  safety check, not a feature probe); a failed call backs off 5 min. `doctor` prints the state.
+  safety check, not a feature probe); a call killed at its timeout is retried once 10 s later, and a second failure in a row, or any other failure (non-zero exit, unparseable output), backs off 5 min; a success resets the count (the log line names the delay). `doctor` runs its own check and shows no watcher back-off.
   **Hookless sessions** (#285): a session started before the ember plugin was
   installed never loads it, and when `configure` strips the old
   `settings.json` hooks a running session hot-reloads settings and loses them

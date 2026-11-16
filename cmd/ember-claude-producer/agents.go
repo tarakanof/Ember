@@ -27,10 +27,13 @@ const (
 	agentsConfirmAfter  = 1500 * time.Millisecond
 	agentsCallTimeout   = 5 * time.Second
 	agentsFailBackoff   = 5 * time.Minute
+	agentsRetryAfter    = 10 * time.Second
 	agentsConfigEvery   = 10 * time.Second
 	agentsKillGrace     = time.Second
 	interruptedMessage  = "interrupted"
 )
+
+var errAgentsTimeout = errors.New("timed out")
 
 // An older CLI would take "agents" as a prompt: see ARCHITECTURE (Claude producer).
 var minAgentsVersion = [3]int{2, 1, 288}
@@ -262,6 +265,9 @@ func runBounded(ctx context.Context, timeout time.Duration, bin string, args ...
 	out, err := cmd.Output()
 	if err != nil && cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		err = fmt.Errorf("%w: %w", errAgentsTimeout, err)
 	}
 	return out, err
 }
@@ -555,6 +561,7 @@ type agentsWatcher struct {
 	unlisted     map[string]bool
 	lastCall     time.Time
 	backoffUntil time.Time
+	retried      bool
 	pending      map[string]pendingCorrection
 	blocked      blockedAgents
 	fileSeen     map[string]time.Time
@@ -635,14 +642,22 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 	if err == nil {
 		var rows map[string]agentRow
 		if rows, err = parseAgents(out); err == nil {
+			w.retried = false
 			w.blocked = backgroundBlocked(out).bind(append(active, wake...))
 			w.reconcile(ctx, cfg, client, append(active, wake...), rows, now)
 			return true
 		}
 	}
-	w.backoffUntil = now.Add(agentsFailBackoff)
+	delay := agentsFailBackoff
+	if errors.Is(err, errAgentsTimeout) && !w.retried {
+		delay = agentsRetryAfter
+		w.retried = true
+	} else {
+		w.retried = false
+	}
+	w.backoffUntil = now.Add(delay)
 	clear(w.pending)
-	w.failLog.Warn(slog.Default(), "claude_agents", "claude agents --json failed; retrying in 5 min", "err", err)
+	w.failLog.Warn(slog.Default(), "claude_agents", fmt.Sprintf("claude agents --json failed; retrying in %s", delay), "err", err)
 	return true
 }
 

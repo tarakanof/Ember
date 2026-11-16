@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -346,6 +347,102 @@ func TestAgents_CommandFailure_BacksOff(t *testing.T) {
 	f.step(agentsFailBackoff)
 	if f.calls != 2 {
 		t.Fatalf("calls = %d after back-off, want 2", f.calls)
+	}
+}
+
+func agentsFailFixture(t *testing.T) *agentsFixture {
+	t.Helper()
+	f := newAgentsFixture(t)
+	var m marker
+	m.State = "running"
+	f.writeMarker(t, "s1", m)
+	f.activate(t)
+	return f
+}
+
+func TestAgents_TimeoutRetriesOnceAfterShortDelay(t *testing.T) {
+	f := agentsFailFixture(t)
+	f.err = fmt.Errorf("%w: signal: killed", errAgentsTimeout)
+	f.step(time.Second)
+	if f.calls != 1 {
+		t.Fatalf("calls = %d, want 1", f.calls)
+	}
+	f.touchSessions(t, "a")
+	f.step(agentsRetryAfter - time.Second)
+	if f.calls != 1 {
+		t.Fatalf("calls = %d before the retry delay, want 1", f.calls)
+	}
+	f.err = nil
+	f.out = `[]`
+	f.touchSessions(t, "b")
+	f.step(time.Second)
+	if f.calls != 2 {
+		t.Fatalf("calls = %d after the retry delay, want 2", f.calls)
+	}
+	if f.w.retried {
+		t.Fatal("a success must reset the retry count")
+	}
+}
+
+func TestAgents_SecondTimeoutBacksOffFiveMinutes(t *testing.T) {
+	f := agentsFailFixture(t)
+	f.err = fmt.Errorf("%w: signal: killed", errAgentsTimeout)
+	f.step(time.Second)
+	f.touchSessions(t, "a")
+	f.step(agentsRetryAfter)
+	if f.calls != 2 {
+		t.Fatalf("calls = %d, want the retry to run", f.calls)
+	}
+	f.touchSessions(t, "b")
+	f.step(agentsFailBackoff - time.Second)
+	if f.calls != 2 {
+		t.Fatalf("calls = %d inside the 5 min back-off, want 2", f.calls)
+	}
+	f.touchSessions(t, "c")
+	f.step(time.Second)
+	if f.calls != 3 {
+		t.Fatalf("calls = %d after the back-off, want 3", f.calls)
+	}
+}
+
+func TestAgents_SuccessAfterTimeoutAllowsFreshRetry(t *testing.T) {
+	f := agentsFailFixture(t)
+	f.err = fmt.Errorf("%w: signal: killed", errAgentsTimeout)
+	f.step(time.Second)
+	f.err = nil
+	f.out = `[]`
+	f.touchSessions(t, "a")
+	f.step(agentsRetryAfter)
+	f.err = fmt.Errorf("%w: signal: killed", errAgentsTimeout)
+	f.touchSessions(t, "b")
+	f.step(time.Second)
+	f.touchSessions(t, "c")
+	f.step(agentsRetryAfter)
+	if f.calls != 4 {
+		t.Fatalf("calls = %d, want a short retry after a success reset the count", f.calls)
+	}
+}
+
+func TestAgents_NonTimeoutFailureBacksOffAtOnce(t *testing.T) {
+	f := agentsFailFixture(t)
+	f.err = errors.New("exit status 1")
+	f.step(time.Second)
+	f.touchSessions(t, "a")
+	f.step(agentsRetryAfter)
+	if f.calls != 1 {
+		t.Fatalf("calls = %d, want 1: a non-timeout failure gets no short retry", f.calls)
+	}
+}
+
+func TestRunBounded_TimeoutIsMarked(t *testing.T) {
+	bin := writeFakeCLI(t, t.TempDir(), "sleep 20")
+	_, err := runBounded(context.Background(), 200*time.Millisecond, bin)
+	if !errors.Is(err, errAgentsTimeout) {
+		t.Fatalf("err = %v, want errAgentsTimeout", err)
+	}
+	bin = writeFakeCLI(t, t.TempDir(), "exit 3")
+	if _, err = runBounded(context.Background(), 5*time.Second, bin); err == nil || errors.Is(err, errAgentsTimeout) {
+		t.Fatalf("err = %v, want a non-timeout failure", err)
 	}
 }
 
