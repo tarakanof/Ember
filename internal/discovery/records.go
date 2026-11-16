@@ -41,8 +41,10 @@ func newMDNSRecords(service string) *mdnsRecords {
 
 func collectRecords(service string, msgs []*dns.Msg) *mdnsRecords {
 	r := newMDNSRecords(service)
-	for _, m := range msgs {
-		r.add(m, "")
+	for range 2 {
+		for _, m := range msgs {
+			r.add(m, "")
+		}
 	}
 	return r
 }
@@ -66,7 +68,14 @@ func (r *mdnsRecords) add(m *dns.Msg, iface string) {
 			}
 			key := strings.ToLower(v.Hdr.Name)
 			if v.Hdr.Ttl == 0 {
-				r.srv[key] = slices.DeleteFunc(r.srv[key], func(o *dns.SRV) bool { return sameSRV(o, v) })
+				if list, ok := r.srv[key]; ok {
+					if list = slices.DeleteFunc(list, func(o *dns.SRV) bool { return sameSRV(o, v) }); len(list) == 0 {
+						delete(r.srv, key)
+					} else {
+						r.srv[key] = list
+					}
+					r.pruneAddrs()
+				}
 				continue
 			}
 			if !r.instance(v.Hdr.Name) || len(r.srv[key]) >= maxSRVPerName {
@@ -119,6 +128,15 @@ func (r *mdnsRecords) forget(name string) {
 	delete(r.known, key)
 	delete(r.srv, key)
 	delete(r.txt, key)
+	r.pruneAddrs()
+}
+
+func (r *mdnsRecords) pruneAddrs() {
+	for host := range r.addrs {
+		if !r.isTarget(host) {
+			delete(r.addrs, host)
+		}
+	}
 }
 
 func (r *mdnsRecords) addAddr(host, iface string, ip net.IP) {

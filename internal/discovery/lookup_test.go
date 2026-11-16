@@ -387,3 +387,43 @@ func TestMDNSRecordsStayBoundedUnderAFlood(t *testing.T) {
 		t.Fatal("a goodbye did not free a slot for a new instance")
 	}
 }
+
+func TestMDNSRecordsReportOnlyTheNewAddressAfterGoodbye(t *testing.T) {
+	r := newMDNSRecords(prusaLinkServiceType)
+	announce := func(ip string) *dns.Msg {
+		return &dns.Msg{Answer: []dns.RR{
+			mustRR(t, `_prusalink._tcp.local. 4500 IN PTR MK4._prusalink._tcp.local.`),
+			mustRR(t, `MK4._prusalink._tcp.local. 120 IN SRV 0 0 80 mk4.local.`),
+			mustRR(t, `mk4.local. 120 IN A `+ip),
+		}}
+	}
+	r.add(announce("192.168.0.51"), "en0")
+	r.add(&dns.Msg{Answer: []dns.RR{mustRR(t, `_prusalink._tcp.local. 0 IN PTR MK4._prusalink._tcp.local.`)}}, "en0")
+	r.add(announce("192.168.0.52"), "en0")
+	got := r.entries()
+	if len(got) != 1 || len(got[0].IPs) != 1 || !got[0].IPs[0].Equal(net.ParseIP("192.168.0.52")) {
+		t.Fatalf("entries after goodbye and re-announce = %+v", got)
+	}
+}
+
+func TestMDNSRecordsIgnoreGoodbyesForUnknownInstances(t *testing.T) {
+	r := newMDNSRecords(prusaLinkServiceType)
+	for i := range 1000 {
+		r.add(&dns.Msg{Answer: []dns.RR{mustRR(t, fmt.Sprintf(`G%d._prusalink._tcp.local. 0 IN SRV 0 0 80 g.local.`, i))}}, "en0")
+	}
+	if len(r.srv) != 0 || len(r.instances) != 0 {
+		t.Fatalf("goodbyes for unknown instances left %d SRV buckets, %d instances", len(r.srv), len(r.instances))
+	}
+}
+
+func TestParseEmberAnswersKeepsAnAReplyCollectedBeforeItsSRV(t *testing.T) {
+	a := &dns.Msg{Answer: []dns.RR{mustRR(t, `nas.local. 120 IN A 10.0.0.5`)}}
+	srv := &dns.Msg{Answer: []dns.RR{
+		mustRR(t, `_ember._tcp.local. 450 IN PTR Ember._ember._tcp.local.`),
+		mustRR(t, `Ember._ember._tcp.local. 120 IN SRV 0 0 3627 nas.local.`),
+	}}
+	got := parseEmberAnswers([]*dns.Msg{a, srv})
+	if len(got) != 1 || got[0].URL != "http://10.0.0.5:3627" {
+		t.Fatalf("got %+v", got)
+	}
+}
