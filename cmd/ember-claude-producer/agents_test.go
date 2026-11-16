@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -381,6 +383,50 @@ func TestAgents_TimeoutRetriesOnceAfterShortDelay(t *testing.T) {
 	}
 	if f.w.retried {
 		t.Fatal("a success must reset the retry count")
+	}
+}
+
+func TestAgents_TimeoutRetriesWithoutSessionChange(t *testing.T) {
+	f := agentsFailFixture(t)
+	f.err = fmt.Errorf("%w: signal: killed", errAgentsTimeout)
+	f.step(time.Second)
+	f.err = nil
+	f.out = `[]`
+	f.step(agentsRetryAfter - time.Second)
+	if f.calls != 1 {
+		t.Fatalf("calls = %d before the retry delay, want 1", f.calls)
+	}
+	f.step(time.Second)
+	if f.calls != 2 {
+		t.Fatalf("calls = %d at the retry delay with no session change, want 2", f.calls)
+	}
+}
+
+func TestAgents_PendingRetryDroppedWhenIdle(t *testing.T) {
+	f := agentsFailFixture(t)
+	f.err = fmt.Errorf("%w: signal: killed", errAgentsTimeout)
+	f.step(time.Second)
+	if err := os.Remove(filepath.Join(f.h.sessionsDir(), "s1.json")); err != nil {
+		t.Fatal(err)
+	}
+	f.step(time.Second)
+	if f.w.retried {
+		t.Fatal("a retry must not outlive the last active session")
+	}
+}
+
+func TestAgents_FailureLogNamesEachDelay(t *testing.T) {
+	var buf bytes.Buffer
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+	f := agentsFailFixture(t)
+	f.err = fmt.Errorf("%w: signal: killed", errAgentsTimeout)
+	f.step(time.Second)
+	f.step(agentsRetryAfter)
+	got := buf.String()
+	if !strings.Contains(got, "retrying in 10s") || !strings.Contains(got, "retrying in 5m0s") {
+		t.Fatalf("log = %q; want both the 10s and the 5m0s line", got)
 	}
 }
 

@@ -589,6 +589,7 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 	wake, dormantDue := w.wakeCandidates(active, dormant)
 	if len(active) == 0 && len(wake) == 0 {
 		w.wasActive = false
+		w.retried = false
 		clear(w.pending)
 		return false
 	}
@@ -634,7 +635,7 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 		}
 		fallbackDue = !onlyUnlisted
 	}
-	if !changed && !confirmDue && !fallbackDue && !dormantDue {
+	if !changed && !confirmDue && !fallbackDue && !dormantDue && !w.retried {
 		return false
 	}
 	w.lastCall = now
@@ -648,16 +649,16 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 			return true
 		}
 	}
-	delay := agentsFailBackoff
+	delay, kind := agentsFailBackoff, "claude_agents"
 	if errors.Is(err, errAgentsTimeout) && !w.retried {
-		delay = agentsRetryAfter
+		delay, kind = agentsRetryAfter, "claude_agents_retry"
 		w.retried = true
 	} else {
 		w.retried = false
 	}
 	w.backoffUntil = now.Add(delay)
 	clear(w.pending)
-	w.failLog.Warn(slog.Default(), "claude_agents", fmt.Sprintf("claude agents --json failed; retrying in %s", delay), "err", err)
+	w.failLog.Warn(slog.Default(), kind, fmt.Sprintf("claude agents --json failed; retrying in %s", delay), "err", err)
 	return true
 }
 
