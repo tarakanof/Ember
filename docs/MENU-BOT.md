@@ -300,7 +300,8 @@ menu-bar bot ever freezes after a macOS update, go back to setting
 
 With a second display every push also redraws the status item's mirrored
 copy (macOS gotchas), on the main thread. Measured in #878 on macOS 27.2 with
-two displays (6K and 4K):
+two displays: a 6K (6016×3384) and a 4K panel in portrait (2880×5120 backing
+pixels):
 
 - **Installed 0.93.0** (mono, live agent sessions, its Dock tile visible):
   5.63 s of CPU over 120 s. In a 10 s `sample`, 159 of about 340 busy
@@ -318,7 +319,8 @@ two displays (6K and 4K):
   | `MenuBarExtra` label (today) | 2.92 s | 439 | 206, 104 of it SwiftUI |
   | Ember's own `NSStatusItem`, menu from `NSHostingMenu` | 2.33 s (−20 %) | 364 (−17 %) | 107 |
 
-  An earlier set of three pairs gave −13 % CPU and −14 % main thread.
+  An earlier set of three pairs of the same two variants gave −13 % CPU and
+  −14 % main thread.
 
 Owning the status item removes the SwiftUI half of the mirror refresh but
 not AppKit's own snapshot (`_redrawReplicantSnapshot:sourceView:`, about a
