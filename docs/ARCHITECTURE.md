@@ -1004,7 +1004,8 @@ markers still get reaped.
   - The darwin process start time of the T3 pid is looked up again only for
     a new pid, after a poll gap over 10 s (sleep, backoff) and once a minute.
     Between steady 2 s polls a crash and pid reuse would need the pid space
-    to wrap.
+    to wrap. Both times are wall-clock (`Round(0)`): Go's monotonic clock
+    stops while a Mac sleeps, so a sleep would read as one 2 s gap.
 
   *Transport decision: SQLite poll, not the WebSocket RPC.* T3's server does
   expose `orchestration.subscribeShell` (snapshot, then thread upserts) over
