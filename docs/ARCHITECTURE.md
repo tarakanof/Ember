@@ -975,6 +975,38 @@ markers still get reaped.
   from the sessions of the instance it cost ~100 ms per poll on 934 threads;
   the whole query now takes ~33 ms, the legacy one ~65 ms.
 
+  *Poll cost (#877).* A full `queryV2` is linear in thread history (39 ms on
+  454 threads; 6.8% of a core in the live process, since T3's commits reset
+  the reader's page cache), so most polls read less:
+  - **Change gate.** The reader keeps one pinned connection and reads
+    `PRAGMA data_version` before each read; while it is unchanged (no commit by
+    any other connection, T3 included) the last snapshot is reused, and the
+    watcher still ticks with the current time. No read transaction stays open
+    between polls, a new handle (reopen, T3 down) starts with no snapshot, and
+    a reused snapshot must cover the request (no earlier cutoff, no live
+    thread it didn't read).
+  - **Scoped query** (`queryV2Scoped`). The same query with `base` limited to
+    candidate threads, so their rows are identical to the full query's: the
+    watcher's live threads, threads with an active run, a pending request, an
+    open background item, a waiting link card or a subagent ask, and threads
+    whose `updated_at` is inside the activity window (T3's projector bumps it
+    on every run, turn-item, request, message and provider-thread event, as of
+    migration 81; a loose index scan over
+    `project_updated_idx`, so long-settled threads cost nothing). 1.8 ms on the
+    same database.
+  - **Full read** on a new handle, after a migration change, and at least once
+    a minute (`fullReadEvery`). T3 writes `updated_at` for its own thread
+    events (settle, archive, PR link and sync, …) from the thread's
+    `updatedAt`, and a PR link or sync update leaves that unchanged, so a
+    hold that starts that way on a thread that is not otherwise a candidate
+    (a PR watch added to an old thread) shows within a minute; once shown,
+    the thread is live and read every poll.
+  - The darwin process start time of the T3 pid is looked up again only for
+    a new pid, after a poll gap over 10 s (sleep, backoff) and once a minute.
+    Between steady 2 s polls a crash and pid reuse would need the pid space
+    to wrap. Both times are wall-clock (`Round(0)`): Go's monotonic clock
+    stops while a Mac sleeps, so a sleep would read as one 2 s gap.
+
   *Transport decision: SQLite poll, not the WebSocket RPC.* T3's server does
   expose `orchestration.subscribeShell` (snapshot, then thread upserts) over
   Effect RPC (`RpcSerialization.layerJson` over a WebSocket). Using it would

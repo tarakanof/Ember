@@ -36,12 +36,13 @@ type daemon struct {
 }
 
 func newDaemon(cfg Config, client *producer.Client) *daemon {
+	starts := newStartCache()
 	return &daemon{
 		cfg:     cfg,
 		client:  client,
 		watcher: newWatcher(cfg),
 		now:     time.Now,
-		alive:   func(home string) bool { return serverAlive(home, pidAlive) },
+		alive:   func(home string) bool { return serverAlive(home, starts.alive) },
 		warned:  map[[2]int]bool{},
 		store:   &storeReader{},
 		prompts: &storeReader{},
@@ -100,7 +101,8 @@ func (d *daemon) poll(ctx context.Context) error {
 		d.send(ctx, nil, d.watcher.dropAll())
 		return nil
 	}
-	snap, err := d.store.Read(ctx, d.cfg.T3Home)
+	now := d.now()
+	snap, err := d.store.ReadScoped(ctx, d.cfg.T3Home, d.watcher.scope(now))
 	if err != nil {
 		return err
 	}
@@ -108,7 +110,7 @@ func (d *daemon) poll(ctx context.Context) error {
 		slog.Warn("T3 Code schema is newer than the verified one; reading it anyway",
 			"schema", snap.Schema, "migration", snap.Migration, "verified", pinnedMigrations[snap.Schema])
 	}
-	posts, deletes := d.watcher.tick(snap.Threads, d.now())
+	posts, deletes := d.watcher.tick(snap.Threads, now)
 	d.send(ctx, posts, deletes)
 	d.sendReplies(ctx)
 	return nil

@@ -63,7 +63,17 @@ var notInRosterSQL = `NOT EXISTS (SELECT 1 FROM ` + sqlAt(rosterSQL, "dup") + `
 
 const pendingRequestOrder = `(q.kind = 'user_input') ASC, q.created_at DESC, q.runtime_request_id DESC`
 
-var queryV2 = `
+var (
+	queryV2       = v2SQL(false)
+	queryV2Scoped = v2SQL(true)
+)
+
+func v2SQL(scoped bool) string {
+	candidates, scope := "", ""
+	if scoped {
+		candidates, scope = candidateSQL, "t.thread_id IN (SELECT thread_id FROM candidate)\n    AND "
+	}
+	return `
 WITH RECURSIVE secret AS (
   SELECT thread_id, node_id, updated_at, stamp FROM (
     SELECT s.thread_id, s.node_id, s.updated_at,
@@ -131,7 +141,7 @@ subagent_ask AS (
     WHERE top.deleted_at IS NULL
       AND json_extract(top.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
       AND json_extract(top.payload_json, '$.lineage.sideChat') IS NOT 1)
-  WHERE rn = 1),
+  WHERE rn = 1),` + candidates + `
 base AS (
   SELECT t.thread_id, t.title, t.payload_json, t.archived_at,
     (SELECT json_extract(ps.payload_json, '$.lastError') FROM orchestration_v2_projection_provider_session_bindings b
@@ -151,7 +161,7 @@ base AS (
       ORDER BY x.completed_at IS NULL DESC, x.completed_at DESC, x.ordinal DESC, x.run_id DESC
       LIMIT 1) AS executed_id
   FROM orchestration_v2_projection_threads t
-  WHERE t.deleted_at IS NULL
+  WHERE ` + scope + `t.deleted_at IS NULL
     AND json_extract(t.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
     AND json_extract(t.payload_json, '$.lineage.sideChat') IS NOT 1),
 shown AS (
@@ -240,3 +250,25 @@ LEFT JOIN card ON card.thread_id = j.thread_id AND card.node_id IS NOT NULL
     WHERE q.thread_id = j.thread_id AND q.status = 'pending'
       AND (q.kind <> 'user_input' OR julianday(q.created_at) > julianday(card.stamp)))
 LEFT JOIN subagent_ask ask ON ask.top_id = j.thread_id`
+}
+
+const candidateSQL = `
+project(id) AS (
+  SELECT min(project_id) FROM orchestration_v2_projection_threads
+  UNION ALL
+  SELECT (SELECT min(n.project_id) FROM orchestration_v2_projection_threads n WHERE n.project_id > p.id)
+  FROM project p WHERE p.id IS NOT NULL),
+candidate(thread_id) AS (
+  SELECT value FROM json_each(?1)
+  UNION ALL SELECT u.thread_id FROM project p
+    JOIN orchestration_v2_projection_threads u ON u.project_id = p.id AND u.updated_at >= ?2
+  UNION ALL SELECT thread_id FROM orchestration_v2_projection_runs
+    WHERE status IN ('queued', 'preparing', 'starting', 'running', 'waiting')
+  UNION ALL SELECT thread_id FROM orchestration_v2_projection_runtime_requests
+    WHERE status = 'pending'
+  UNION ALL SELECT thread_id FROM orchestration_v2_projection_turn_items
+    WHERE type IN ('command_execution', 'dynamic_tool', 'subagent')
+      AND status IN ('pending', 'running', 'waiting')
+  UNION ALL SELECT thread_id FROM orchestration_v2_projection_turn_items
+    WHERE type = 'link_request' AND status = 'waiting'
+  UNION ALL SELECT top_id FROM subagent_ask),`
