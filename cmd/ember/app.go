@@ -139,6 +139,8 @@ type App struct {
 	localIPFor func(host string) string
 
 	deviceRediscoverMu   sync.Mutex
+	browseBackoff        browseBackoffState
+	rediscoverNow        func() time.Time
 	lastRediscoverAt     atomic.Int64
 	lastRediscoverResult atomic.Value
 	unclaimedClocks      atomic.Value
