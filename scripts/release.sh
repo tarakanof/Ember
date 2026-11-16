@@ -69,9 +69,9 @@ plist_get() { /usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null; }
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "error: $1 not found${2:+ ($2)}" >&2; exit 1; }; }
 
+need gh "brew install gh"
+gh auth status >/dev/null 2>&1 || { echo "error: gh not authenticated (run: gh auth login); a release needs it to publish, and an app build to read PR titles for the release notes" >&2; exit 1; }
 if [ "$APP_ONLY" -eq 0 ]; then
-  need gh "brew install gh"
-  gh auth status >/dev/null 2>&1 || { echo "error: gh not authenticated (run: gh auth login)" >&2; exit 1; }
   branch="$(git rev-parse --abbrev-ref HEAD)"
   if [ "$branch" != "main" ]; then
     echo "error: on branch '$branch'; releases are cut from main" >&2
@@ -242,6 +242,31 @@ resign_with_developer_id() {
   "${cs[@]}" --preserve-metadata=identifier,entitlements,requirements "$app"
 }
 
+previous_app_release() {
+  local tag
+  tag="$(gh release view --json tagName -q .tagName 2>/dev/null || true)"
+  if [ -z "$tag" ] || ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+    tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  fi
+  echo "$tag"
+}
+
+collect_titles() {
+  local range="${1:+$1..}HEAD" prs direct n title
+  prs="$(git log --first-parent --merges --format=%s "$range" |
+    sed -n 's/^Merge pull request #\([0-9][0-9]*\) from .*/\1/p')"
+  direct="$(git log --first-parent --no-merges --format=%s "$range")"
+  for n in $prs; do
+    if ! title="$(gh pr view "$n" --json title -q .title)" || [ -z "$title" ]; then
+      echo "error: couldn't read the title of PR #$n (gh pr view); the release notes would be incomplete" >&2
+      return 1
+    fi
+    printf '%s\n' "$title" >>"$WORK/titles.txt"
+  done
+  [ -z "$direct" ] || printf '%s\n' "$direct" >>"$WORK/titles.txt"
+  echo "release notes: $(printf '%s' "$prs" | grep -c .) PR(s) and $(printf '%s' "$direct" | grep -c .) direct commit(s) since ${1:-the first commit}"
+}
+
 ZIP=""
 if [ "$APP" -eq 1 ]; then
   WORK="$(mktemp -d "${TMPDIR:-/tmp}/ember-release-$VERSION.XXXXXX")"
@@ -307,9 +332,14 @@ if [ "$APP" -eq 1 ]; then
     echo "error: sign_update gave no signature for $ZIP_NAME, or the wrong length" >&2
     exit 1
   fi
+  FEED_URL="$(plist_get SUFeedURL "$BUILT/Contents/Info.plist")"
+  : >"$WORK/titles.txt"
+  collect_titles "$(previous_app_release)"
+  scripts/release-notes.sh "${FEED_URL%/releases/latest/download/appcast.xml}/releases/tag/$TAG" \
+    <"$WORK/titles.txt" >"$WORK/notes.html"
   APPCAST="$WORK/appcast.xml"
-  scripts/appcast.sh "$(plist_get SUFeedURL "$BUILT/Contents/Info.plist")" "$VERSION" "$next_build" \
-    "$(plist_get LSMinimumSystemVersion "$BUILT/Contents/Info.plist")" "$ed_sig" "$ed_len" >"$APPCAST"
+  scripts/appcast.sh "$FEED_URL" "$VERSION" "$next_build" \
+    "$(plist_get LSMinimumSystemVersion "$BUILT/Contents/Info.plist")" "$ed_sig" "$ed_len" "$WORK/notes.html" >"$APPCAST"
   echo "appcast: $APPCAST"
 fi
 

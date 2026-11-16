@@ -250,3 +250,6 @@ jobs:
 
       - name: appcast.sh test
         run: scripts/appcast_test.sh
+
+      - name: release-notes.sh test
+        run: scripts/release-notes_test.sh

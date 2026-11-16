@@ -23,12 +23,20 @@ stub() { printf '#!/bin/bash\nset -euo pipefail\necho "%s $*" >>"$CALLS"\n%s\n' 
 
 stub gh '
 case "$1 ${2:-}" in
-  "auth status") exit 0 ;;
+  "auth status") [ "${FAKE_GH_AUTH:-yes}" = yes ] ;;
   "release upload")
     unzip -l "$4" >"$T_DIR/uploaded.txt"
     if [ -n "${5:-}" ]; then cp "$5" "$T_DIR/uploaded-appcast.xml"; fi
     [ "${FAKE_UPLOAD:-ok}" = ok ] ;;
   "run list") exit 0 ;;
+  "release view") [ "${FAKE_PREV:-v1.2.2}" != none ] && echo "${FAKE_PREV:-v1.2.2}" ;;
+  "pr view")
+    case "$3" in
+      7) [ "${FAKE_PR_FAIL:-no}" = no ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+         echo "feat(app): show a <new> thing & more" ;;
+      8) echo "docs(agents): reviewer profile" ;;
+      *) exit 1 ;;
+    esac ;;
 esac'
 stub xcodegen ':'
 stub xcodebuild '
@@ -103,7 +111,7 @@ new_repo() {
   git init -q -b main "$WORK/repo"
   mkdir -p "$WORK/repo/scripts" "$WORK/repo/macos"
   cp "$SRC" "$WORK/repo/scripts/release.sh"
-  cp "$(dirname "$SRC")/appcast.sh" "$WORK/repo/scripts/appcast.sh"
+  cp "$(dirname "$SRC")/appcast.sh" "$(dirname "$SRC")/release-notes.sh" "$WORK/repo/scripts/"
   mkdir -p "$WORK/repo/macos/Ember"
   plutil -create xml1 "$WORK/repo/macos/Ember/Info.plist"
   plutil -insert SUPublicEDKey -string "${SOURCE_KEY:-$PUBKEY}" "$WORK/repo/macos/Ember/Info.plist"
@@ -121,8 +129,19 @@ EOF
   echo "*.xcodeproj" >"$WORK/repo/macos/.gitignore"
   git -C "$WORK/repo" add -A
   git -C "$WORK/repo" commit -qm init
+  git -C "$WORK/repo" tag v1.2.1
+  git -C "$WORK/repo" commit -q --allow-empty -m "feat(app): an old thing"
+  git -C "$WORK/repo" tag v1.2.2
+  for pr in 7:feat-thing 8:docs-profile; do
+    git -C "$WORK/repo" checkout -qb "${pr#*:}"
+    git -C "$WORK/repo" commit -q --allow-empty -m "work for #${pr%%:*}"
+    git -C "$WORK/repo" checkout -q main
+    git -C "$WORK/repo" merge -q --no-ff -m "Merge pull request #${pr%%:*} from t/${pr#*:}" "${pr#*:}"
+  done
+  git -C "$WORK/repo" commit -q --allow-empty -m "fix(server): a direct fix on main"
   git -C "$WORK/repo" remote add origin "$WORK/origin.git"
   git -C "$WORK/repo" push -q origin main
+  BASE_COUNT="$(git -C "$WORK/repo" rev-list --count HEAD)"
 }
 
 run_release() {
@@ -135,10 +154,10 @@ line_of() { grep -n -m1 -- "$1" "$WORK/calls.log" | cut -d: -f1; }
 untouched() {
   [ -z "$(git -C "$WORK/repo" status --porcelain)" ] || fail "$1: tree left dirty: $(git -C "$WORK/repo" status --porcelain)"
   grep -q 'MARKETING_VERSION: "1.2.2"' "$WORK/repo/macos/project.yml" || fail "$1: version bump not restored"
-  [ "$(git -C "$WORK/repo" rev-list --count HEAD)" = 1 ] || fail "$1: a commit was made"
-  [ -z "$(git -C "$WORK/repo" tag)" ] || fail "$1: a tag was made"
+  [ "$(git -C "$WORK/repo" rev-list --count HEAD)" = "$BASE_COUNT" ] || fail "$1: a commit was made"
+  [ "$(git -C "$WORK/repo" tag | tr '\n' ' ')" = "v1.2.1 v1.2.2 " ] || fail "$1: a tag was made"
   [ -z "$(git -C "$WORK/origin.git" tag)" ] || fail "$1: a tag was pushed"
-  ! grep -q '^gh release' "$WORK/calls.log" || fail "$1: a release was created"
+  ! grep -q -E '^gh release (create|upload|edit|delete)' "$WORK/calls.log" || fail "$1: a release was created"
 }
 
 new_repo
@@ -245,12 +264,35 @@ grep -q '<sparkle:version>42</sparkle:version>' "$WORK/uploaded-appcast.xml" || 
 grep -q 'url="https://github.com/tarakanof/ember/releases/download/v1.2.3/Ember-1.2.3.zip"' "$WORK/uploaded-appcast.xml" || fail "happy path: appcast enclosure URL"
 grep -q "sparkle:edSignature=\"$SIG\"" "$WORK/uploaded-appcast.xml" || fail "happy path: appcast signature"
 grep -q 'length="[1-9][0-9]*"' "$WORK/uploaded-appcast.xml" || fail "happy path: appcast length"
+! grep -q 'releaseNotesLink' "$WORK/uploaded-appcast.xml" || fail "happy path: appcast still links the GitHub page as notes"
+grep -q '<li>Show a &lt;new&gt; thing &amp; more</li>' "$WORK/uploaded-appcast.xml" || fail "happy path: merged feat PR title missing from the notes"
+grep -q '<li>A direct fix on main</li>' "$WORK/uploaded-appcast.xml" || fail "happy path: direct fix commit missing from the notes"
+! grep -q -i 'reviewer profile\|init\|work for' "$WORK/uploaded-appcast.xml" || fail "happy path: non-user-facing change in the notes"
+grep -q '^gh release view --json tagName' "$WORK/calls.log" || fail "happy path: previous app release not looked up"
+! grep -q 'An old thing' "$WORK/uploaded-appcast.xml" || fail "happy path: a change from before the previous app release is in the notes"
+grep -q 'release notes: 2 PR(s) and 1 direct commit(s) since v1.2.2' "$WORK/out" || fail "happy path: notes range and counts not logged"
 grep -q 'MARKETING_VERSION: "1.2.3"' "$WORK/repo/macos/project.yml" || fail "happy path: version not bumped"
 grep -q 'CURRENT_PROJECT_VERSION: "42"' "$WORK/repo/macos/project.yml" || fail "happy path: build not bumped"
 [ "$(git -C "$WORK/origin.git" tag)" = v1.2.3 ] || fail "happy path: tag not pushed"
 [ "$(git -C "$WORK/origin.git" log -1 --format=%s main)" = "chore(release): v1.2.3" ] || fail "happy path: release commit not pushed"
 [ -z "$(find "$WORK/tmp" -mindepth 1 -maxdepth 1)" ] || fail "happy path: build folder left behind"
 echo "ok: build, notarize and staple come before the tag; the stapled zip is uploaded to a draft that is then published"
+
+for prev in none v0.0.9; do
+  new_repo
+  FAKE_PREV=$prev run_release 1.2.3 --yes || fail "previous release $prev: release failed"
+  grep -q '<li>Show a &lt;new&gt; thing &amp; more</li>' "$WORK/uploaded-appcast.xml" || fail "previous release $prev: new change missing"
+  ! grep -q 'An old thing' "$WORK/uploaded-appcast.xml" || fail "previous release $prev: notes do not start at the newest tag"
+  grep -q 'since v1.2.2' "$WORK/out" || fail "previous release $prev: fallback did not pick the newest tag"
+done
+echo "ok: without a usable latest release, the notes start at the newest tag"
+
+new_repo
+FAKE_PR_FAIL=yes run_release 1.2.3 --yes && fail "PR lookup failure: release went ahead"
+grep -q "couldn't read the title of PR #7" "$WORK/out" || fail "PR lookup failure: no explanation"
+[ ! -e "$WORK/uploaded.txt" ] || fail "PR lookup failure: uploaded anyway"
+untouched "PR lookup failure"
+echo "ok: a failed PR title lookup stops the release before the commit instead of publishing incomplete notes"
 
 new_repo
 FAKE_UPLOAD=fail run_release 1.2.3 --yes && fail "upload failure: reported success"
@@ -277,6 +319,15 @@ grep -q '^xcrun stapler staple' "$WORK/calls.log" || fail "--app-only: not stapl
 git -C "$WORK/repo" checkout -q main
 untouched "--app-only"
 echo "ok: --app-only notarizes from any branch and changes nothing in git"
+
+new_repo
+git -C "$WORK/repo" checkout -qb feature
+FAKE_GH_AUTH=no run_release 1.2.3 --app-only --yes && fail "--app-only without gh auth: went ahead"
+grep -q "gh not authenticated" "$WORK/out" || fail "--app-only without gh auth: no explanation"
+! grep -q '^xcodebuild' "$WORK/calls.log" || fail "--app-only without gh auth: built before failing"
+git -C "$WORK/repo" checkout -q main
+untouched "--app-only without gh auth"
+echo "ok: --app-only needs gh auth for the release notes and checks it before building"
 
 run_release 1.2.3 --no-app --app-only --yes && fail "--no-app with --app-only accepted"
 echo "ok: --no-app and --app-only exclude each other"

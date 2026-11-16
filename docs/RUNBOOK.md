@@ -2106,9 +2106,19 @@ owner's Mac. In order, the script:
 7. signs that zip with Sparkle's `sign_update --account ember` (the key from
    the login keychain; macOS may ask to allow it) and writes a one-item `appcast.xml`
    with `scripts/appcast.sh`: build number as `sparkle:version`, `X.Y.Z` as
-   `shortVersionString`, the built app's `LSMinimumSystemVersion`, the release
-   page as release notes, and the zip's download URL, EdDSA signature and
-   length. Every URL comes from the built app's `SUFeedURL`;
+   `shortVersionString`, the built app's `LSMinimumSystemVersion`, inline
+   release notes, and the zip's download URL, EdDSA signature and length.
+   Every URL comes from the built app's `SUFeedURL`. The notes
+   (`scripts/release-notes.sh`, #875) list the PRs merged since the previous
+   app release (the release marked latest, else the newest tag): their
+   GitHub titles, plus subjects of commits made straight on `main`. `feat`
+   goes under **New** and `fix`/`perf` under **Fixed**, without the
+   `type(scope):` prefix. Other types and the `release`, `scripts`, `ci`,
+   `build`, `deps` and `test` scopes are left out. A "Full release notes"
+   link points to the GitHub release. Sparkle shows them in its update
+   window, so a PR title is what a user reads there. They are inline because
+   Sparkle renders a `releaseNotesLink` page whole, GitHub's site chrome
+   included;
 8. commits, tags and pushes, creates the release as a **draft**, uploads the
    zip and `appcast.xml` and publishes the draft, so
    `releases/latest/download/appcast.xml` serves the new feed.
@@ -2136,7 +2146,8 @@ download link, the app's update check (`appcast.xml`, #861),
 last app release; the Docker image and producer archives are still built for
 its tag. `--app-only` stops after step 7 on any
 branch and prints the zip's and the appcast's paths, as a dry run or to hand a
-build to someone.
+build to someone. It still needs `gh` signed in, to read the PR titles for the
+release notes, and checks that before building.
 `EMBER_NOTARY_PROFILE` overrides the profile name. `scripts/release_test.sh`
 (CI's macOS job) runs the script against fake `xcodebuild`, `xcrun`, `gh` and
 signing tools and a local bare origin to pin this ordering.
