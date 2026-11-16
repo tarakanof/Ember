@@ -87,7 +87,7 @@ changes.
 |---|---|
 | `EMBER_DATA_DIR` (env) | the data directory, created 0700. With no `-config` and no `CONFIG_PATH`, the config is `$EMBER_DATA_DIR/config.json` if it exists; `pomodoro.db_path` defaults to `$EMBER_DATA_DIR/pomodoro.db` (the `coredumps/` and `firmware/cinder-knob/` stores sit beside it). An explicit `db_path` wins |
 | `-env-file <path>` | loads `KEY=VALUE` lines before the config is read, only for keys not already in the environment (the real environment wins). Must be a regular 0600 file owned by you, else startup fails naming the path and the reason, never the contents. A missing file is not an error |
-| `-user` | per-user mode: env file `~/.config/ember/server.env`, data dir `~/Library/Application Support/Ember` (macOS) or `~/.local/share/ember`, log `~/Library/Logs/Ember/server.log` (macOS) or `<data dir>/server.log`, rotated at startup past 10 MiB (5 generations) like the producers' logs. `-env-file` and `EMBER_DATA_DIR` still win over it |
+| `-user` | per-user mode: env file `~/.config/ember/server.env`, data dir `~/Library/Application Support/Ember` (macOS) or `~/.local/share/ember`, log `~/Library/Logs/Ember/server.log` (macOS) or `<data dir>/server.log`, rotated at startup and then hourly while running, past 10 MiB (5 generations), like the producers' logs. `-env-file` and `EMBER_DATA_DIR` still win over it |
 
 `-user` also keeps the server off any clock you have not chosen. Without an
 `awtrix.http_base_url` in the config (and no clock set through the API) the

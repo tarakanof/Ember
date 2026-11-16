@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -119,6 +120,7 @@ func startServerLog(path string) error {
 		return err
 	}
 	producer.RedirectStandardIO(f)
+	go producer.WatchLog(context.Background(), path, producer.LogCheckInterval)
 	return nil
 }
 
