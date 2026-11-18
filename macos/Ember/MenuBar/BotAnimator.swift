@@ -15,11 +15,7 @@ final class BotAnimator {
     private var menuBarEnabled = false
     private var menuBarColored = true
     private weak var statusButton: NSStatusBarButton?
-    static let menuBarPlaceholder: NSImage = {
-        let image = NSImage(size: NSSize(width: 22, height: 22))
-        image.isTemplate = true
-        return image
-    }()
+    static let menuBarPlaceholder = NSImage(size: NSSize(width: 22, height: 22))
     private let botLayer: CALayer = {
         let layer = CALayer()
         layer.actions = ["contents": NSNull(), "position": NSNull(), "bounds": NSNull(), "hidden": NSNull()]
