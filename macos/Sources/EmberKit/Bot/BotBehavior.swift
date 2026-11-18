@@ -49,6 +49,7 @@ public struct BotPose: Equatable, Sendable {
     public var still: BotPose {
         var p = BotPose()
         p.mood = mood; p.eyes = eyes
+        p.gazeX = BotBehavior.viewer.x; p.gazeY = BotBehavior.viewer.y
         p.triangle = triangle; p.slump = slump; p.badge = badge
         p.fill = fill; p.printBadge = printBadge
         p.lidLeft = slump * BotBehavior.slumpLid
@@ -82,7 +83,7 @@ public struct BotPose: Equatable, Sendable {
 public struct BotBehavior: Sendable {
     public static let rest = (x: 0.67, y: 0.77)
     public static let slumpLid = 0.55
-    static let viewer = (x: 0.0, y: 0.1)
+    public static let viewer = (x: 0.0, y: 0.1)
     public static let sleepAfter = 300.0
 
     public struct ErrorFX: Sendable, Equatable {

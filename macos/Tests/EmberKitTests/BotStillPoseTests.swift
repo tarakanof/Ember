@@ -16,7 +16,7 @@ import Testing
     #expect(still.mood == .error && still.eyes == .angry)
     #expect(still.triangle == 1 && still.slump == 0.5 && still.badge == 1)
     #expect(still.fill == 0.4 && still.printBadge == 1)
-    #expect(still.gazeX == BotBehavior.rest.x && still.gazeY == BotBehavior.rest.y)
+    #expect(still.gazeX == BotBehavior.viewer.x && still.gazeY == BotBehavior.viewer.y)
     #expect(still.lidLeft == 0.5 * BotBehavior.slumpLid && still.lidRight == still.lidLeft)
     #expect(still.blinkLeft == 0 && still.blinkRight == 0 && !still.hide)
     #expect(still.eyeDY == 0 && still.scaleX == 1 && still.scaleY == 1 && still.offsetX == 0 && still.offsetY == 0)
