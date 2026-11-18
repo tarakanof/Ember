@@ -17,7 +17,7 @@ per-tool glyphs, "Menu-bar colour" switches between Colored and Monochrome, and
 | `macos/Sources/EmberKit/Bot/BotBehavior.swift` | The animation state machine. Pure and deterministic for a seed, so it is unit-tested. Produces a `BotPose` per frame. |
 | `macos/Sources/EmberKit/Bot/BotRenderer.swift` | CoreGraphics drawing of a `BotPose`, with a `BotStyle` for the menu bar and one for the Dock. |
 | `macos/Sources/EmberKit/Bot/BotPrint.swift` | `BotPrint` (none, starting, printing, attention, done), `BotPrintTracker`, the pure rule that turns the printer's state, the winning agent and the setting into one `BotPrint` and plays `done` once per event id, and `BotPrintDoneStore`, which keeps the played id in `UserDefaults`. |
-| `macos/Ember/MenuBar/BotAnimator.swift` | The one frame loop. Owns the behavior, sets each frame on the `NSStatusBarButton` directly, drives the `NSDockTile` view, crossfades the menu-bar colour. Not `@Observable`: see Performance. |
+| `macos/Ember/MenuBar/BotAnimator.swift` | The one frame loop. Owns the behavior, puts each frame in a layer inside the `NSStatusBarButton` (`BotMenuBarLayer`), drives the `NSDockTile` view, crossfades the menu-bar colour. Not `@Observable`: see Performance. |
 | `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the tool glyph, or the bot's current frame when its `MenuRows.LabelState` changes (the animator takes over from the next frame). Tells VoiceOver the state in words (label "Ember", value from `MenuRows.accessibilityValue`), since the icon only shows it through colour and eyes. |
 | `macos/Ember/MenuBar/StatusItemAccessibility.swift` | Puts that value on the `NSStatusBarButton` by hand: `MenuBarExtra` forwards the label (as AXTitle) but drops `accessibilityValue`. `StatusItemButton.find()` locates the button for this and for the animator. |
 | `macos/Ember/AppEnvironment.swift` | `feedBot()` pushes the winning session's state into the animator. `feedBotPrint()` runs the `BotPrintTracker` on `live.printer`, the winning state and the setting, stores the played done id (`bot.printDonePlayed`) and wakes itself when a done ends; `feedPrintHold()` holds the `.print` feed only while the setting is on and the bot shows in the menu bar, or in a Dock tile that is visible (the app is `.regular`; `BotAnimator.onDockVisibilityChange` reports it). `feedMenuBarLabel()` keeps `menuBarLabel` (a `MenuRows.LabelState`) current and sets it only when it changes, so the label skips polls that only move a timestamp or activity text. `applyAppIcon` switches the Dock tile. |
@@ -206,16 +206,21 @@ These cost real debugging time.
   re-applies the icon on each promotion.
 - **With two displays the menu bar you see may be a copy.** The status item
   lives on one display's menu bar; AppKit mirrors it to the others as a
-  snapshot (`NSStatusItemReplicantView`), refreshed from a timer
-  (`_updateReplicants`); every push that marks the button for display
-  schedules one. Each refresh sets the button's `appearance` twice and draws
-  the button into a bitmap. SwiftUI's `MenuBarExtraController` observes that
-  `appearance` and re-applies the label's image each time (`setImage:`, so
-  `_adjustLength` too), and the copy is drawn from what is on the button
-  then. The cost is in Performance, "Second display". When the label
-  held a one-off snapshot, the copy froze on the frame of the last label
-  re-render and jumped every few seconds, while one display looked fine. The
-  label now shares the loop's live image (see Performance).
+  snapshot (`NSStatusItemReplicantView`), refreshed (`_updateReplicants`)
+  whenever the button is marked for display. Each refresh sets the button's
+  `appearance` twice and draws the button into a bitmap through
+  `cacheDisplay`, which renders the button's layers in-process
+  (`CALayer.render(in:)`, in a flipped context). SwiftUI's
+  `MenuBarExtraController` observes that `appearance` and re-applies the
+  label's image each time (`setImage:`, so `_adjustLength` too). The live
+  menu bar instead composites the layer's `contents` out of process, so
+  changing `contents` never schedules a refresh: that is what Performance,
+  "Second display", builds on.
+- **A template placeholder stops the other displays dimming the bot.** On an
+  inactive display's menu bar AppKit dims a template button image itself and
+  leaves the rest of the button alone, so with a template placeholder the
+  still bot stayed at full brightness next to dimmed icons. A plain
+  (non-template) placeholder makes it dim the whole snapshot.
 - **Template eyes are cut out.** In the menu bar the eyes are cleared from the
   body (`.clear` blend inside a transparency layer), so they show the menu bar
   through them in both the template and coloured looks.
@@ -245,8 +250,7 @@ at the same rate.
 Many consecutive poses differ by less than a pixel, so the loop compares
 `BotPose.quantized(toPixels:)` for each target (the 16 px menu-bar radius, the
 Dock tile's own) and skips a push when it matches the last one shown. Each
-menu-bar push costs a rasterisation, a button redraw and a scene update to the
-menu-bar agent, and those are nearly all of the app's idle CPU. The step
+menu-bar push costs a rasterisation and a layer `contents` swap. The step
 is half a pixel per field, from how far `BotRenderer` moves an edge per unit
 of each field; scale moves edges about twice as far, so it gets half that.
 
@@ -266,35 +270,41 @@ two costs, both measured on a running app:
 - **CPU.** 3 to 8% while idle, nearly all of it in AttributeGraph finding and
   re-rendering the label, not in drawing the bot.
 
-Now the loop draws into the status button itself, and only when the pose
-changed or a colour fade is running. The label reads the animator without
+Now the loop draws into a layer inside the status button, and only when the
+pose changed or a colour fade is running. The label reads the animator without
 observing it, so it re-renders only when the winning session's state or tool
-glyph, the tray prefs, or the VoiceOver value change. It hands SwiftUI the
-animator's live image (`liveMenuBarImage(colored:)`), never a snapshot, so
-whenever SwiftUI puts the label's image back on the button it is the same
-object the loop animates. Prefs changes restart the loop, which always pushes
-its first frame. If the button doesn't exist yet at launch, the loop retries
-every 0.25 s.
+glyph, the tray prefs, or the VoiceOver value change. For the bot it hands
+SwiftUI a transparent 22 pt placeholder (`BotAnimator.menuBarPlaceholder`,
+not a template image: macOS gotchas), which keeps the item's width; the bot
+is the layer on top of it. Prefs changes restart the loop, which always
+pushes its first frame. If the button doesn't exist yet at launch, the loop
+retries every 0.25 s.
 
-The button keeps one `NSImage` for the life of the app. A push draws the
-frame into a 44 px `CGContext` kept by the animator, swaps the image's only
-representation for one over a `makeImage()` snapshot of it (a copy, since the
-old rep still holds the previous one), and marks the button for display. Setting
-`button.image` per frame instead made AppKit re-measure the item
-(`-[NSStatusItem _adjustLength]`), which was about half the cost of a push
-although the size never changes. `button.image` is set only when the button
-holds another image or the template flag flipped (the cell re-reads it only on
-a fresh `setImage:`).
+A push draws the frame into a 44 px `CGContext` kept by the animator and sets
+a `makeImage()` copy as the layer's `contents`, inside a `CATransaction` with
+actions disabled; it does not touch `button.image` or mark the button for
+display. The layer (`BotMenuBarLayer`) is added to the button's layer on the
+first push and re-added if SwiftUI replaces the button, centred on whole
+points, and removed when the menu bar stops showing the bot. Mono draws the
+template style and fills it with the menu bar's foreground (`.sourceIn`),
+since the system no longer tints the frame; a foreground change forces a push.
 
-Rewriting the pixels of one `NSBitmapImageRep` in place does not work, even
-after `recache()`: the menu bar kept showing the first frame. The button's
-layer seems to compare its drawing by `CGImage` identity, so each frame needs
-a new representation. The remaining per-push cost is the rasterisation, the
-`NSStatusBarButtonCell` redraw, and the `NSStatusItemScene updateSettings`
-that every redraw triggers from a CA commit handler. With the per-frame rep
-swap, a mono idle bot used 0.87 s of CPU over 120 s, down from 1.27 s. If the
-menu-bar bot ever freezes after a macOS update, go back to setting
-`button.image` per frame.
+The button itself is marked for display only when the loop starts (a mood,
+print or prefs change), when a colour fade ends, and when the menu bar's
+foreground changes, so other displays get a new snapshot then and never per
+frame. At each of those the push also hands the layer a still frame,
+`BotPose.still` (the mood, eyes, shape morphs and print badge at the viewer
+gaze, with no blink, lean, hop or sparkle), and the layer draws that still in
+`render(in:)`, the path AppKit's snapshot takes. The other displays show a
+calm, current bot instead of whichever frame was on screen, and the live
+menu bar never shows the still.
+
+Earlier the push swapped the representation of the button's own `NSImage`
+and marked the button for display every frame; setting `button.image` per
+frame made AppKit re-measure the item (`_adjustLength`) on top of that, and
+rewriting one `NSBitmapImageRep`'s pixels in place froze the menu bar on the
+first frame. With one display the rep swap cost a mono idle bot 0.87 s of CPU
+over 120 s.
 
 ### Second display
 
@@ -323,15 +333,36 @@ pixels):
   −14 % main thread.
 
 Owning the status item removes the SwiftUI half of the mirror refresh but
-not AppKit's own snapshot (`_redrawReplicantSnapshot:sourceView:`, about a
-quarter of the main thread), so it falls short of the 40 % the change was
-worth, and the app keeps `MenuBarExtra`. Skipping pushes while a mirror
-refresh is pending isn't possible: AppKit exposes no public signal (only
-private `_updateReplicants`, `_windowNeedsReplicantUpdate:`,
-`_updatingReplicant`), and it already schedules one refresh per display
-pass, so the only way to refresh less is to push less, which changes the
-motion. What the prototype learnt about the owned variant, for a later
-attempt: `openWindow` works from an `NSHostingMenu` item; its views are
+not AppKit's own snapshot (`_redrawReplicantSnapshot:sourceView:`), so the app
+keeps `MenuBarExtra`. What did work (#896) is not marking the button for
+display per frame at all: the frames go to a layer's `contents`, which the
+live menu bar composites while the other displays keep their last snapshot.
+Other menu-bar apps fixed the same `_updateReplicants` cost the same way
+(FanBar, sidepulse), and RunCat hides its runner on secondary displays.
+Measured on the same Mac and displays, 2026-11-18:
+
+- **Prototype** (throwaway, real `BotBehavior` and `BotRenderer`, working
+  mood, 120 s each, about 3 pushes a second):
+
+  | Variant | CPU | Busy main-thread samples / 10 s | Mirror refreshes / 10 s | Second display |
+  |---|---|---|---|---|
+  | `MenuBarExtra`, rep swap (0.94.3) | 2.02 % | 170 | 85 | animates |
+  | Own `NSStatusItem`, rep swap | 1.80 % | 131 | 38 | animates |
+  | Own `NSStatusItem`, layer `contents` | 0.22 % | 0 | 0 | still |
+  | `MenuBarExtra`, layer `contents` | 0.23 % | 0 | 0 | still |
+  | Static icon | 0.13 % | 0 | 0 | still |
+
+- **The app** (live sessions, coloured): installed 0.94.3 used 6.37 s of CPU
+  over 120 s (5.3 %, its Dock tile visible: 155 of 363 busy main-thread
+  samples were the mirror refresh, 72 the Dock tile); the layer build used
+  0.56 to 0.84 s (0.5 to 0.7 %) with no window open, no busy main-thread
+  samples and no mirror refreshes.
+
+A repeating `CAKeyframeAnimation` in the button kept the menu bar from
+auto-hiding in full screen for MenuRunner; the bot runs no Core Animation
+animation, only `contents` swaps, and the menu bar still hides over a
+full-screen window. What the prototype learnt about the owned variant, for a
+later attempt: `openWindow` works from an `NSHostingMenu` item; its views are
 built once, so `onAppear` runs at launch, not per open, and the menu's
 "now" and feed catch-up need `menuWillOpen` (its delegate is free, and an
 observed value set there updates the open menu); replacing `rootView` in
