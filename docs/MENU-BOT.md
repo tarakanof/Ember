@@ -294,7 +294,7 @@ with no blink, lean, hop or sparkle), read from the tween targets, so it is
 complete the moment `setMood`, `setPrint` or the fall into sleepy happens,
 not after the 0.45 s morph or the next blink's eye swap. The loop compares
 its quantised value each iteration and, when it changes (and once per loop
-start), hands the layer two still frames, one filled for a dark menu bar and
+start, and when the menu bar's foreground flips), hands the layer two still frames, one filled for a dark menu bar and
 one for a light one, in the mood's final colour, and marks the button for
 display. That is the only time the button is redrawn, so other displays get
 a new snapshot a few times per mood or print change and never per frame. The

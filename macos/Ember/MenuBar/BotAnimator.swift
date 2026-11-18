@@ -142,7 +142,7 @@ final class BotAnimator {
                 dockShown = dockKey
                 renderDock()
             }
-            if let drawn = drawnForeground, menuBarForeground() != drawn { menuBarStale = true }
+            if let drawn = drawnForeground, menuBarForeground() != drawn { menuBarStale = true; stillShown = nil }
             var stillKey = behavior.still.quantized(toPixels: Self.menuBarRadius)
             stillKey.badge = 0
             let still = stillKey != stillShown ? behavior.still : nil
