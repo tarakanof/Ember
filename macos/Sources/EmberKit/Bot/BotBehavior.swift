@@ -46,6 +46,16 @@ public struct BotPose: Equatable, Sendable {
 
     public var showsPrint: Bool { fill > 0 || printBadge > 0 || sparkle > 0 }
 
+    public var still: BotPose {
+        var p = BotPose()
+        p.mood = mood; p.eyes = eyes
+        p.triangle = triangle; p.slump = slump; p.badge = badge
+        p.fill = fill; p.printBadge = printBadge
+        p.lidLeft = slump * BotBehavior.slumpLid
+        p.lidRight = p.lidLeft
+        return p
+    }
+
     public func quantized(toPixels radius: Double) -> BotPose {
         let step = 0.5 / max(radius, 1)
         func q(_ v: Double, _ s: Double) -> Double { (v / s).rounded() * s }
@@ -71,6 +81,7 @@ public struct BotPose: Equatable, Sendable {
 
 public struct BotBehavior: Sendable {
     public static let rest = (x: 0.67, y: 0.77)
+    public static let slumpLid = 0.55
     static let viewer = (x: 0.0, y: 0.1)
     public static let sleepAfter = 300.0
 
@@ -250,7 +261,7 @@ public struct BotBehavior: Sendable {
             }
         }
         p.eyes = eyes
-        let heavy = slump.value(t) * 0.55
+        let heavy = slump.value(t) * Self.slumpLid
         p.lidLeft = heavy + (1 - heavy) * blinkL
         p.lidRight = heavy + (1 - heavy) * blinkR
         p.blinkLeft = blinkL

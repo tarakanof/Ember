@@ -16,8 +16,8 @@ final class BotAnimator {
     private var menuBarColored = true
     private weak var statusButton: NSStatusBarButton?
     static let menuBarPlaceholder = NSImage(size: NSSize(width: 22, height: 22))
-    private let botLayer: CALayer = {
-        let layer = CALayer()
+    private let botLayer: BotMenuBarLayer = {
+        let layer = BotMenuBarLayer()
         layer.actions = ["contents": NSNull(), "position": NSNull(), "bounds": NSNull(), "hidden": NSNull()]
         layer.contentsScale = 2
         return layer
@@ -158,7 +158,8 @@ final class BotAnimator {
 
     private func pushMenuBar(refreshReplicants: Bool) -> Bool {
         if statusButton == nil { statusButton = StatusItemButton.find() }
-        guard let button = statusButton, let frame = drawLiveFrame() else { return false }
+        guard let button = statusButton, let frame = drawFrame(pose) else { return false }
+        if refreshReplicants { botLayer.still = drawFrame(pose.still) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if botLayer.superlayer == nil || botLayer.superlayer !== button.layer {
@@ -176,7 +177,7 @@ final class BotAnimator {
         return botLayer.superlayer != nil
     }
 
-    private func drawLiveFrame() -> CGImage? {
+    private func drawFrame(_ pose: BotPose) -> CGImage? {
         let fg = menuBarForeground()
         drawnForeground = fg
         var tint = menuBarColored ? tint(at: Self.now) : nil
@@ -242,5 +243,18 @@ final class BotDockView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let badge = BotAnimator.tint(for: pose.mood)?.cgColor
         BotRenderer.draw(pose, in: ctx, rect: bounds, style: .dock(badge: badge))
+    }
+}
+
+final class BotMenuBarLayer: CALayer {
+    var still: CGImage?
+
+    override func render(in ctx: CGContext) {
+        guard let still else { return super.render(in: ctx) }
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: bounds.height)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(still, in: bounds)
+        ctx.restoreGState()
     }
 }
