@@ -14,7 +14,7 @@ struct MenuBarLabel: View, Equatable {
     private var icon: Image {
         let colored = state.trayTint == "color"
         if state.trayStyle == "bot" {
-            return Image(nsImage: BotAnimator.shared.liveMenuBarImage(colored: colored))
+            return Image(nsImage: BotAnimator.menuBarPlaceholder)
         }
         return Image(nsImage: Self.trayImage(glyph: state.glyph, state: state.state, colored: colored))
     }

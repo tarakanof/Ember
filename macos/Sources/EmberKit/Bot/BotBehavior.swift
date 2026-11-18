@@ -71,7 +71,8 @@ public struct BotPose: Equatable, Sendable {
 
 public struct BotBehavior: Sendable {
     public static let rest = (x: 0.67, y: 0.77)
-    static let viewer = (x: 0.0, y: 0.1)
+    public static let slumpLid = 0.55
+    public static let viewer = (x: 0.0, y: 0.1)
     public static let sleepAfter = 300.0
 
     public struct ErrorFX: Sendable, Equatable {
@@ -202,6 +203,16 @@ public struct BotBehavior: Sendable {
 
     private var targetEyes: BotEyes { print == .done ? .happy : mood.eyes }
 
+    public var still: BotPose {
+        var p = BotPose()
+        p.mood = mood; p.eyes = targetEyes
+        p.gazeX = Self.viewer.x; p.gazeY = Self.viewer.y
+        p.triangle = triangle.to; p.slump = slump.to; p.badge = badge.to
+        p.lidLeft = slump.to * Self.slumpLid; p.lidRight = p.lidLeft
+        p.fill = print.fill; p.printBadge = print.isAttention ? 1 : 0
+        return p
+    }
+
     /// `t` is monotonic seconds.
     public mutating func pose(at t: Double) -> BotPose {
         if mood == .idle && print != .done && t - max(moodSince, awakeSince) >= tuning.sleepAfter { enter(.sleepy, at: t) }
@@ -250,7 +261,7 @@ public struct BotBehavior: Sendable {
             }
         }
         p.eyes = eyes
-        let heavy = slump.value(t) * 0.55
+        let heavy = slump.value(t) * Self.slumpLid
         p.lidLeft = heavy + (1 - heavy) * blinkL
         p.lidRight = heavy + (1 - heavy) * blinkR
         p.blinkLeft = blinkL
