@@ -1,31 +1,53 @@
 import Testing
 @testable import EmberKit
 
-@Test func stillPoseDropsPassingMotionAndKeepsTheMood() {
-    var live = BotPose()
-    live.mood = .error; live.eyes = .angry
-    live.triangle = 1; live.slump = 0.5; live.badge = 1
-    live.fill = 0.4; live.printBadge = 1
-    live.gazeX = 0.1; live.gazeY = 0.95
-    live.lidLeft = 0.9; live.lidRight = 0.2; live.blinkLeft = 0.8; live.blinkRight = 0.1; live.hide = true
-    live.eyeDY = -0.2; live.scaleX = 1.2; live.scaleY = 0.8; live.offsetX = 0.3; live.offsetY = -0.1
-    live.sparkle = 0.5
+@Test func stillShowsTheNewMoodsSettledFaceAtOnce() {
+    var bot = BotBehavior(seed: 3, now: 0)
+    _ = bot.pose(at: 5)
+    _ = bot.setMood(.waiting, at: 5)
+    let still = bot.still
+    #expect(still.mood == .waiting && still.eyes == .round && still.badge == 1)
+    #expect(bot.pose(at: 5.01).eyes != .round || bot.pose(at: 5.01).badge < 1)
 
-    let still = live.still
+    _ = bot.setMood(.error, at: 10)
+    #expect(bot.still.eyes == .angry && bot.still.triangle == 1 && bot.still.badge == 0)
+}
 
-    #expect(still.mood == .error && still.eyes == .angry)
-    #expect(still.triangle == 1 && still.slump == 0.5 && still.badge == 1)
-    #expect(still.fill == 0.4 && still.printBadge == 1)
+@Test func stillStaysPutWhileTheMoodChangeAnimates() {
+    var bot = BotBehavior(seed: 5, now: 0)
+    _ = bot.setMood(.working, at: 1)
+    let first = bot.still
+    var t = 1.0
+    while t < 3 {
+        _ = bot.pose(at: t)
+        #expect(bot.still == first)
+        t += 1.0 / 60
+    }
+}
+
+@Test func stillFollowsTheBotFallingAsleep() {
+    var bot = BotBehavior(seed: 7, now: 0)
+    #expect(bot.still.mood == .idle)
+    _ = bot.pose(at: BotBehavior.Tuning.mac.sleepAfter + 1)
+    #expect(bot.still.mood == .sleepy && bot.still.slump == 1)
+    #expect(bot.still.lidLeft == BotBehavior.slumpLid && bot.still.lidRight == BotBehavior.slumpLid)
+}
+
+@Test func stillShowsAFinishedPrintsHappyEyes() {
+    var bot = BotBehavior(seed: 9, now: 0)
+    _ = bot.setMood(.working, at: 0)
+    bot.setPrint(.done, at: 1)
+    #expect(bot.still.eyes == .happy)
+    #expect(bot.still.fill == BotPrint.done.fill && bot.still.printBadge == (BotPrint.done.isAttention ? 1 : 0))
+}
+
+@Test func stillLooksAtTheViewerWithNoPassingMotion() {
+    var bot = BotBehavior(seed: 11, now: 0)
+    _ = bot.setMood(.done, at: 0)
+    _ = bot.pose(at: 0.2)
+    let still = bot.still
     #expect(still.gazeX == BotBehavior.viewer.x && still.gazeY == BotBehavior.viewer.y)
-    #expect(still.lidLeft == 0.5 * BotBehavior.slumpLid && still.lidRight == still.lidLeft)
     #expect(still.blinkLeft == 0 && still.blinkRight == 0 && !still.hide)
     #expect(still.eyeDY == 0 && still.scaleX == 1 && still.scaleY == 1 && still.offsetX == 0 && still.offsetY == 0)
     #expect(still.sparkle == 0)
-}
-
-@Test func stillPoseOfARestingBotIsUnchanged() {
-    var bot = BotBehavior(seed: 3, now: 0)
-    _ = bot.setMood(.waiting, at: 0)
-    let settled = bot.pose(at: 5).still
-    #expect(settled.still == settled)
 }

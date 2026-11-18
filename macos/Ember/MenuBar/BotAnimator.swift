@@ -120,8 +120,7 @@ final class BotAnimator {
 
     private func run() async {
         var menuBarStale = true
-        var replicantStale = true
-        var menuBarShown: BotPose?, dockShown: BotPose?
+        var menuBarShown: BotPose?, dockShown: BotPose?, stillShown: BotPose?
         var wasFading = false
         let dockScale = NSScreen.main?.backingScaleFactor ?? 2
         let dockRadius = BotStyle.dock(badge: nil)
@@ -130,7 +129,7 @@ final class BotAnimator {
             let t = Self.now
             pose = behavior.pose(at: t)
             let fading = menuBarColored && t - tintStart < Self.tintFade
-            if wasFading && !fading { menuBarStale = true; replicantStale = true }
+            if wasFading && !fading { menuBarStale = true }
             wasFading = fading
             var menuBarKey = pose.quantized(toPixels: Self.menuBarRadius)
             menuBarKey.badge = 0
@@ -143,10 +142,13 @@ final class BotAnimator {
                 dockShown = dockKey
                 renderDock()
             }
-            if let drawn = drawnForeground, menuBarForeground() != drawn { menuBarStale = true; replicantStale = true }
-            if menuBarEnabled && (menuBarStale || fading) {
-                menuBarStale = !pushMenuBar(refreshReplicants: replicantStale)
-                if !menuBarStale { replicantStale = false }
+            if let drawn = drawnForeground, menuBarForeground() != drawn { menuBarStale = true }
+            var stillKey = behavior.still.quantized(toPixels: Self.menuBarRadius)
+            stillKey.badge = 0
+            let still = stillKey != stillShown ? behavior.still : nil
+            if menuBarEnabled && (menuBarStale || fading || still != nil) {
+                menuBarStale = !pushMenuBar(still: still)
+                if !menuBarStale && still != nil { stillShown = stillKey }
             }
             var wait = behavior.isTransitioning ? Self.morphFrameInterval
                 : behavior.isAnimating || fading ? Self.frameInterval
@@ -156,10 +158,18 @@ final class BotAnimator {
         }
     }
 
-    private func pushMenuBar(refreshReplicants: Bool) -> Bool {
+    private func pushMenuBar(still: BotPose?) -> Bool {
         if statusButton == nil { statusButton = StatusItemButton.find() }
-        guard let button = statusButton, let frame = drawFrame(pose) else { return false }
-        if refreshReplicants { botLayer.still = drawFrame(pose.still) }
+        let fg = menuBarForeground()
+        drawnForeground = fg
+        guard let button = statusButton,
+              let frame = drawFrame(pose, tint: menuBarColored ? tint(at: Self.now) : nil, foreground: fg)
+        else { return false }
+        if let still {
+            let tint = menuBarColored ? Self.tint(for: still.mood) : nil
+            botLayer.stillOnDark = drawFrame(still, tint: tint, foreground: .white)
+            botLayer.stillOnLight = drawFrame(still, tint: tint, foreground: .black)
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if botLayer.superlayer == nil || botLayer.superlayer !== button.layer {
@@ -173,14 +183,12 @@ final class BotAnimator {
         if botLayer.frame != target { botLayer.frame = target }
         botLayer.contents = frame
         CATransaction.commit()
-        if refreshReplicants { button.needsDisplay = true }
+        if still != nil { button.needsDisplay = true }
         return botLayer.superlayer != nil
     }
 
-    private func drawFrame(_ pose: BotPose) -> CGImage? {
-        let fg = menuBarForeground()
-        drawnForeground = fg
-        var tint = menuBarColored ? tint(at: Self.now) : nil
+    private func drawFrame(_ pose: BotPose, tint: NSColor?, foreground fg: NSColor) -> CGImage? {
+        var tint = tint
         if menuBarColored && tint == nil && pose.showsPrint { tint = fg }
         guard let ctx = liveContext else { return nil }
         let rect = CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height)
@@ -247,10 +255,14 @@ final class BotDockView: NSView {
 }
 
 final class BotMenuBarLayer: CALayer {
-    var still: CGImage?
+    var stillOnDark: CGImage?
+    var stillOnLight: CGImage?
 
     override func render(in ctx: CGContext) {
-        guard let still else { return super.render(in: ctx) }
+        let dark = MainActor.assumeIsolated {
+            NSAppearance.currentDrawing().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        }
+        guard let still = dark ? stillOnDark : stillOnLight else { return super.render(in: ctx) }
         ctx.saveGState()
         ctx.translateBy(x: 0, y: bounds.height)
         ctx.scaleBy(x: 1, y: -1)

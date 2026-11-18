@@ -79,9 +79,8 @@ there from Settings → App → General), the bot shows a print in Prusa orange
   can't be a template. The colour comes from the status button's own
   `effectiveAppearance`, read again whenever the loop wakes (at least every
   10 s), which re-pushes when it flips (dark mode, or a wallpaper that turns
-  the bar light or dark). Known limit: a second display's mirrored copy of
-  the item (see macOS gotchas) shows the primary bar's foreground, since a
-  non-template image isn't re-tinted per display.
+  the bar light or dark). Other displays get a still drawn for their own
+  bar's appearance (Performance).
 - The Dock bot shows the same pose at its own scale; the print badge takes
   the place of a mood badge.
 - VoiceOver: the menu-bar value gets ", print starting", ", printing 42 %",
@@ -289,15 +288,20 @@ points, and removed when the menu bar stops showing the bot. Mono draws the
 template style and fills it with the menu bar's foreground (`.sourceIn`),
 since the system no longer tints the frame; a foreground change forces a push.
 
-The button itself is marked for display only when the loop starts (a mood,
-print or prefs change), when a colour fade ends, and when the menu bar's
-foreground changes, so other displays get a new snapshot then and never per
-frame. At each of those the push also hands the layer a still frame,
-`BotPose.still` (the mood, eyes, shape morphs and print badge at the viewer
-gaze, with no blink, lean, hop or sparkle), and the layer draws that still in
-`render(in:)`, the path AppKit's snapshot takes. The other displays show a
-calm, current bot instead of whichever frame was on screen, and the live
-menu bar never shows the still.
+Other displays get `BotBehavior.still`: the pose the current mood and print
+settle on (target eyes, shape morphs, badge and print, at the viewer gaze,
+with no blink, lean, hop or sparkle), read from the tween targets, so it is
+complete the moment `setMood`, `setPrint` or the fall into sleepy happens,
+not after the 0.45 s morph or the next blink's eye swap. The loop compares
+its quantised value each iteration and, when it changes (and once per loop
+start), hands the layer two still frames, one filled for a dark menu bar and
+one for a light one, in the mood's final colour, and marks the button for
+display. That is the only time the button is redrawn, so other displays get
+a new snapshot a few times per mood or print change and never per frame. The
+layer draws the still in `render(in:)`, the path AppKit's snapshot takes,
+picking the frame by `NSAppearance.currentDrawing()`, which AppKit sets to
+the destination display's appearance there. The live menu bar never shows
+the still.
 
 Earlier the push swapped the representation of the button's own `NSImage`
 and marked the button for display every frame; setting `button.image` per

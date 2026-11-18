@@ -46,17 +46,6 @@ public struct BotPose: Equatable, Sendable {
 
     public var showsPrint: Bool { fill > 0 || printBadge > 0 || sparkle > 0 }
 
-    public var still: BotPose {
-        var p = BotPose()
-        p.mood = mood; p.eyes = eyes
-        p.gazeX = BotBehavior.viewer.x; p.gazeY = BotBehavior.viewer.y
-        p.triangle = triangle; p.slump = slump; p.badge = badge
-        p.fill = fill; p.printBadge = printBadge
-        p.lidLeft = slump * BotBehavior.slumpLid
-        p.lidRight = p.lidLeft
-        return p
-    }
-
     public func quantized(toPixels radius: Double) -> BotPose {
         let step = 0.5 / max(radius, 1)
         func q(_ v: Double, _ s: Double) -> Double { (v / s).rounded() * s }
@@ -213,6 +202,16 @@ public struct BotBehavior: Sendable {
     }
 
     private var targetEyes: BotEyes { print == .done ? .happy : mood.eyes }
+
+    public var still: BotPose {
+        var p = BotPose()
+        p.mood = mood; p.eyes = targetEyes
+        p.gazeX = Self.viewer.x; p.gazeY = Self.viewer.y
+        p.triangle = triangle.to; p.slump = slump.to; p.badge = badge.to
+        p.lidLeft = slump.to * Self.slumpLid; p.lidRight = p.lidLeft
+        p.fill = print.fill; p.printBadge = print.isAttention ? 1 : 0
+        return p
+    }
 
     /// `t` is monotonic seconds.
     public mutating func pose(at t: Double) -> BotPose {
